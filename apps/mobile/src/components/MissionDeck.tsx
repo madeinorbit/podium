@@ -1,11 +1,5 @@
-import { issueAgentKind, modelName } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  type IssueNavigationModel,
-  readoutModel,
-  sessionDisplayName,
-} from '@podium/client-core/values'
-import { here } from '@podium/client-graph/lookup'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   FULL_DECK_FILTERS,
   type FullDeck,
@@ -15,32 +9,24 @@ import {
 import { ProposalSubmissions } from '@podium/client-graph/mission-proposals'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
-import type { SessionModel } from '@podium/client-graph/models'
 import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { issueStatusOf } from '@podium/model'
-import {
-  SESSION_WORD_LABEL,
-  type SessionWord,
-  TASK_WORD_LABEL,
-  type TaskWord,
-} from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
-import { deckColor, deckWordColor } from './deck-colors'
+import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
-import { Check, ChevronDown, ChevronRight } from './icons'
+import { ChevronDown, ChevronRight } from './icons'
 import { DeckContent, DeckGroup, DeckProposals, DeckRow, MissionDeckList } from './MissionDeckList'
+import { DeckAgentRow, DeckPhaseHeading, DeckSeatRow, DeckTaskRow } from './MissionDeckRows'
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { MissionProposalRow } from './MissionProposalRow'
 import { MissionProposalSlot } from './MissionProposalSlot'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
 import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
-import { WorkingMark } from './WorkingMark'
 
 /** The shared FullDeck projection in a full-screen native list: the page right of the chat. */
 
@@ -150,7 +136,7 @@ export const MissionDeck = observer(function MissionDeck({
         <DeckGroup testID="deck-crew" header={<View style={styles.headAbove}>{head}</View>}>
           {rootSeats.map((id, index) => (
             <DeckRow key={id}>
-              <SeatRow
+              <DeckSeatRow
                 task={full.root}
                 sessionId={id}
                 first={index === 0}
@@ -405,12 +391,12 @@ const DeckRows = observer(function DeckRows({
           <Fragment key={`${groupKey}-${occurrence}`}>
             <DeckGroup
               testID={`deck-group-${phase?.id ?? 'loose'}`}
-              header={phase ? <PhaseHeading phase={phase} /> : <GroupGap />}
+              header={phase ? <DeckPhaseHeading phase={phase} /> : <GroupGap />}
             >
               {phase &&
                 leadingSeats.map((id) => (
                   <DeckRow key={id}>
-                    <AgentLine
+                    <DeckAgentRow
                       task={phase}
                       sessionId={id}
                       indent={0}
@@ -430,7 +416,7 @@ const DeckRows = observer(function DeckRows({
                 return (
                   <Fragment key={task.id}>
                     <DeckRow>
-                      <TaskLine
+                      <DeckTaskRow
                         task={task}
                         indent={indent}
                         first={row === 0 && leadingSeats.length === 0}
@@ -440,7 +426,7 @@ const DeckRows = observer(function DeckRows({
                     </DeckRow>
                     {seats.map((id) => (
                       <DeckRow key={id}>
-                        <AgentLine
+                        <DeckAgentRow
                           task={task}
                           sessionId={id}
                           indent={indent}
@@ -460,279 +446,19 @@ const DeckRows = observer(function DeckRows({
   )
 })
 
-const PhaseHeading = observer(function PhaseHeading({ phase }: { phase: FullDeckTask }) {
-  const facts = settled(() => ({
-    counter: phase.counter,
-    title: phase.row.title,
-    open: phase.open,
-    status: phase.row.status,
-    word: phase.word,
-    complete: phase.workComplete,
-  }))
-  if (facts === LOADING) return <View style={styles.section} accessibilityLabel="Loading phase" />
-  const {
-    counter: { done, total },
-    title,
-    open,
-  } = facts
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${title}, ${TASK_WORD_LABEL[facts.word]}, ${done} of ${total} done`}
-      accessibilityState={{ expanded: open }}
-      hitSlop={SECTION_SLOP}
-      onPress={() => phase.deck.toggleFold(phase.id)}
-      style={({ pressed }) => [styles.section, pressed && styles.dimmed]}
-      testID="deck-phase"
-    >
-      <View style={styles.gutter}>
-        <StageGlyph
-          stage={facts.complete ? 'done' : issueStatusOf(facts.status)}
-          ground={color.groupedBg}
-        />
-      </View>
-      <Text style={styles.sectionTitle} numberOfLines={2}>
-        {title}
-      </Text>
-      <View style={styles.sectionTrail}>
-        <Text style={[styles.sectionCount, { color: deckWordColor(facts.word) }]}>
-          {`${done}/${total}`}
-        </Text>
-        <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
-      </View>
-    </Pressable>
-  )
-})
-
-/** The task's word, with the unmet-dependency count on a blocked one. */
-export function taskWordText(word: TaskWord, blockers: number): string {
-  return word === 'blocked' && blockers > 0
-    ? `${TASK_WORD_LABEL.blocked} · ${blockers}`
-    : TASK_WORD_LABEL[word]
-}
-
-const TaskLine = observer(function TaskLine({
-  task,
-  indent,
-  first,
-  onPress,
-  onLongPress,
-}: {
-  task: FullDeckTask
-  indent: number
-  first: boolean
-  onPress: () => void
-  onLongPress: () => void
-}) {
-  // A cold row's facts are still loading: draw its place, not a throw.
-  const facts = settled(() => ({
-    word: task.word,
-    status: task.row.status,
-    title: task.row.title,
-    ref: task.row.displayRef,
-    foldable: task.foldable,
-    open: task.open,
-  }))
-  if (facts === LOADING) {
-    return (
-      <View style={styles.line} accessibilityLabel="Loading task" testID="deck-task-loading">
-        <View
-          style={[styles.gutter, styles.taskGlyph, { marginLeft: Math.min(indent, 3) * INDENT }]}
-        >
-          <View style={styles.ring} />
-        </View>
-        <View style={[styles.lineBody, !first && styles.separated]} />
-      </View>
-    )
-  }
-  const { word, title, ref, foldable, open } = facts
-  const blockers = word === 'blocked' ? settled(() => task.unmetBlockedByIds.length) : 0
-  const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
-  return (
-    <View collapsable={false} style={styles.line}>
-      <View style={[styles.gutter, styles.taskGlyph, { marginLeft: Math.min(indent, 3) * INDENT }]}>
-        <StageGlyph stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${ref} ${title}, ${label}`}
-        pressRetentionOffset={12}
-        onPress={onPress}
-        onLongPress={onLongPress}
-        style={({ pressed }) => [
-          styles.lineBody,
-          foldable && styles.lineBodyFoldable,
-          !first && styles.separated,
-          pressed && styles.pressed,
-        ]}
-        testID="deck-task"
-      >
-        <View collapsable={false} style={styles.taskText}>
-          <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={2}>
-            {title}
-          </Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {`${ref} · `}
-            <Text style={wordTone(word)}>{label}</Text>
-          </Text>
-        </View>
-        {foldable ? (
-          // A disclosure on the trailing edge (SwiftUI DisclosureGroup) keeps
-          // every row's ring, title and ID on the same leading columns.
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
-            accessibilityState={{ expanded: open }}
-            hitSlop={DISCLOSURE_SLOP}
-            style={styles.foldToggle}
-            onPress={() => task.deck.toggleFold(task.id)}
-          >
-            <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
-          </Pressable>
-        ) : null}
-      </Pressable>
-    </View>
-  )
-})
-
-/** An agent seated on a task, inset under it (board DeckLarge). */
-const AgentLine = observer(function AgentLine({
-  task,
-  sessionId,
-  indent,
-  current,
-  onPress,
-}: {
-  task: FullDeckTask
-  sessionId: string
-  indent: number
-  current: boolean
-  onPress: () => void
-}) {
-  const session = task.deck.screen.pool.sessionObject(sessionId) as SessionModel
-  const name = seatName(task, sessionId, session)
-  const model = sessionModelLabel(session)
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, ${SESSION_WORD_LABEL[session.word]}${current ? ', open' : ''}`}
-      accessibilityState={{ selected: current }}
-      pressRetentionOffset={12}
-      onPress={onPress}
-      style={({ pressed }) => [styles.agent, current && styles.selected, pressed && styles.pressed]}
-      testID="deck-agent"
-    >
-      {/* The seat sits in its task's title column. */}
-      <View
-        style={[
-          styles.gutter,
-          styles.agentGlyph,
-          { marginLeft: GUTTER + space.md + Math.min(indent, 3) * INDENT },
-        ]}
-      >
-        <SessionGlyph word={session.word} />
-      </View>
-      <View style={styles.seatText}>
-        <Text style={styles.agentName} numberOfLines={2}>
-          {name}
-        </Text>
-        <Text style={styles.meta} numberOfLines={2}>
-          <Text style={wordTone(session.word)}>{SESSION_WORD_LABEL[session.word]}</Text>
-          {model ? ` · ${model}` : ''}
-        </Text>
-      </View>
-    </Pressable>
-  )
-})
-
-/** One of the root's seats: the coordinator first (board DeckSheet). */
-const SeatRow = observer(function SeatRow({
-  task,
-  sessionId,
-  first,
-  current,
-  onPress,
-}: {
-  task: FullDeckTask
-  sessionId: string
-  first: boolean
-  current: boolean
-  onPress: () => void
-}) {
-  const session = task.deck.screen.pool.sessionObject(sessionId) as SessionModel
-  const name = seatName(task, sessionId, session)
-  const word = SESSION_WORD_LABEL[session.word]
-  const model = sessionModelLabel(session)
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, ${word}${current ? ', open' : ''}`}
-      accessibilityState={{ selected: current }}
-      pressRetentionOffset={12}
-      onPress={onPress}
-      // The open seat is a full-bleed row tint the card clips to its own shape;
-      // its state colour stays on the dot and word.
-      style={({ pressed }) => [styles.seat, current && styles.selected, pressed && styles.pressed]}
-      testID="deck-seat"
-    >
-      <View style={[styles.gutter, styles.seatGlyph]}>
-        <SessionGlyph word={session.word} />
-      </View>
-      <View style={[styles.seatBody, !first && styles.separated]}>
-        <View style={styles.seatText}>
-          <Text style={styles.seatName} numberOfLines={2}>
-            {name}
-          </Text>
-          <Text style={styles.meta} numberOfLines={2}>
-            <Text style={wordTone(session.word)}>{word}</Text>
-            {model ? ` · ${model}` : ''}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  )
-})
-
-/** The coordinator seat reads "Coordinator"; everyone else by their name. */
-function seatName(task: FullDeckTask, sessionId: string, session: SessionModel): string {
-  if (task.seat(sessionId) === 'coordinator') return 'Coordinator'
-  return sessionDisplayName(session as unknown as SessionView)
-}
-
-function sessionModelLabel(session: SessionModel): string | null {
-  const view = here(session.row) as unknown as SessionView | undefined
-  if (!view) return null
-  const kind = issueAgentKind(view.agentKind)
-  const model = readoutModel(view)
-  return kind && model ? modelName(kind, model) : null
-}
-
-function wordTone(word: TaskWord | SessionWord) {
-  return { color: deckWordColor(word) }
-}
-
-function SessionGlyph({ word }: { word: SessionWord }): ReactNode {
-  if (word === 'working') return <WorkingMark size={10} />
-  if (word === 'needs-you') return <View style={styles.dot} />
-  if (word === 'error') return <View style={[styles.dot, styles.errorDot]} />
-  if (word === 'done') return <Icon as={Check} size={13} color={deckColor.done} />
-  return <View style={styles.ring} />
-}
-
 /** Every row's glyph column, then its text column, on the 4pt grid. */
 const GUTTER = 20
 const INSET = space.lg
 /** A child's glyph sits in its parent's title column, like its seats. */
-const INDENT = GUTTER + space.md
-const ROW_H = 44
+const _INDENT = GUTTER + space.md
+const _ROW_H = 44
 /** UISegmentedControl stops growing its labels a little past the default size. */
 const SEGMENT_MAX_SCALE = 1.35
 
 const CHIP_SLOP = { top: 6, bottom: 6 }
 const TOGGLE_SLOP = { top: 12, bottom: 12, left: 8, right: 8 }
 const SECTION_SLOP = { top: 6, bottom: 6 }
-const DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
-
+const _DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
 const styles = StyleSheet.create({
   head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
   headAbove: { paddingBottom: space.lg },
@@ -750,31 +476,6 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.5 },
   // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
   groupGap: { height: 0 },
-  seat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    minHeight: ROW_H,
-    paddingLeft: INSET,
-  },
-  selected: { backgroundColor: deckColor.liveFill },
-  seatBody: {
-    flex: 1,
-    minWidth: 0,
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingRight: INSET,
-    paddingVertical: space.sm,
-  },
-  seatText: { flex: 1, minWidth: 0, gap: space.xs },
-  seatName: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.small,
-    lineHeight: leading(font.small),
-  },
   segments: {
     flexDirection: 'row',
     minHeight: 32,
@@ -838,81 +539,9 @@ const styles = StyleSheet.create({
   },
   sectionAction: { justifyContent: 'center' },
   sectionActionLabel: { ...sans(400), color: deckColor.proposalText, fontSize: font.small },
-  line: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    minHeight: ROW_H,
-    paddingLeft: INSET,
-  },
-  pressed: { backgroundColor: color.tertiaryFill },
   gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
   // Row glyphs sit on the title's first line (Reminders, Mail), whatever the
   // row's height: a box one title line tall, below the text's top padding.
-  taskGlyph: { alignSelf: 'flex-start', height: leading(font.small), marginTop: space.sm },
-  seatGlyph: { alignSelf: 'flex-start', height: leading(font.small), marginTop: space.sm },
-  agentGlyph: { alignSelf: 'flex-start', height: leading(font.tiny) },
-  // Absolute, so the text column keeps the plain block layout RNHostView
-  // measures (a row-direction body overflowed the card with long titles).
-  foldToggle: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    right: space.sm,
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // RNHostView measures without a height proposal. Let the text supply its
-  // intrinsic height, including when width or content arrives after mount.
-  taskText: { minWidth: 0, paddingVertical: space.sm, gap: space.xs },
-  meta: {
-    ...sans(400),
-    color: color.textDim,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
-    fontVariant: ['tabular-nums'],
-  },
-  lineBody: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: ROW_H,
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    paddingRight: INSET,
-  },
-  lineBodyFoldable: { paddingRight: INSET + space.xl },
-  separated: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairline,
-  },
-  lineTitle: {
-    ...sans(400),
-    minWidth: 0,
-    color: color.text,
-    fontSize: font.small,
-    lineHeight: leading(font.small),
-  },
-  doneTitle: { color: color.textDim },
-  agent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: space.md,
-    minHeight: ROW_H,
-    paddingVertical: space.sm,
-    paddingLeft: INSET,
-    paddingRight: INSET,
-  },
-  agentName: {
-    ...sans(400),
-    minWidth: 0,
-    color: color.text,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
-  },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.needsYou },
-  errorDot: { backgroundColor: color.danger },
-  ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: color.textFaint },
   needsText: { color: deckColor.needsYou },
   empty: {
     ...sans(400),
