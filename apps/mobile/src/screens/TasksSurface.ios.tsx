@@ -5,7 +5,6 @@ import {
   HStack,
   Image,
   List,
-  Picker,
   Section,
   Spacer,
   SwipeActions,
@@ -40,19 +39,13 @@ import {
   onDisappear,
   onGeometryChange,
   padding,
-  pickerStyle,
   refreshable,
   scrollContentBackground,
   shapes,
-  tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
-import {
-  type BoardFilter,
-  discoveredPlacement,
-  type IssueNavigationModel,
-} from '@podium/client-core/values'
+import type { BoardFilter, IssueNavigationModel } from '@podium/client-core/values'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { here } from '@podium/client-graph/lookup'
 import {
@@ -62,7 +55,6 @@ import {
   type TaskRowMark,
 } from '@podium/client-graph/mobile-tasks'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
@@ -70,6 +62,7 @@ import { Fragment, type ReactNode, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
+import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
 import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
@@ -85,7 +78,6 @@ import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
-import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
@@ -449,8 +441,6 @@ const TaskRow = taskObserver(function TaskRow({
   const unread = Boolean((issue as unknown as { unread?: boolean }).unread)
   const notSaved = pool?.notSaved('issue', issue.id) ?? false
   const nav = issue as unknown as IssueNavigationModel
-  const placement = discoveredPlacement(nav)
-  const actions = workMenuActionIds(nav, 'live', { placement: Boolean(placement?.originId) })
   const figure = issue.childCount > 0 ? taskRowFigure(task.progress, null) : ''
   const progress = figure ? `${figure} sub-tasks done` : ''
   const accessible = fontScale >= ACCESSIBILITY_SCALE
@@ -570,56 +560,12 @@ const TaskRow = taskObserver(function TaskRow({
               onPress={() => board.toggleExpanded(issue.id)}
             />
           ) : null}
-          {actions.map((action) => {
-            if (action === 'status')
-              return (
-                <Picker
-                  key={action}
-                  label="Status"
-                  systemImage="circle.dashed"
-                  selection={issueStatusValueOf(issue)}
-                  onSelectionChange={(value) => props.onStatus(issue.id, String(value))}
-                  modifiers={[pickerStyle('menu')]}
-                >
-                  {issueStatusMenuEntries().map((entry) => (
-                    <Text key={entry.value} modifiers={[tag(entry.value)]}>
-                      {entry.label}
-                    </Text>
-                  ))}
-                </Picker>
-              )
-            const label =
-              action === 'rename'
-                ? 'Rename'
-                : action === 'read'
-                  ? unread
-                    ? 'Mark as Read'
-                    : 'Mark as Unread'
-                  : action === 'placement'
-                    ? placement?.placement === 'mission'
-                      ? 'Move out of Mission'
-                      : 'Move into Parent Task'
-                    : 'Delete…'
-            const symbol =
-              action === 'rename'
-                ? 'pencil'
-                : action === 'read'
-                  ? unread
-                    ? 'envelope.open'
-                    : 'circle.fill'
-                  : action === 'placement'
-                    ? 'arrow.right'
-                    : 'trash'
-            return (
-              <Button
-                key={action}
-                label={label}
-                systemImage={symbol}
-                role={action === 'delete' ? 'destructive' : 'default'}
-                onPress={() => props.onAction(issue.id, action)}
-              />
-            )
-          })}
+          <IssueRowMenuItems
+            issue={nav}
+            lane="live"
+            onAction={(action) => props.onAction(issue.id, action)}
+            onStatus={(value) => props.onStatus(issue.id, value)}
+          />
         </ContextMenu.Items>
       </ContextMenu>
       <RevealSwipeActions edge="trailing">

@@ -8,8 +8,8 @@ import { workMenuItem } from '../lib/work-row-copy'
 
 /**
  * A task row's long-press acts as native context-menu items: Work's row menu
- * and the flight deck's task rows draw the same list. Status is an inline
- * picker with the system checkmark; delete carries the destructive role.
+ * and the flight deck's task rows draw the same list. Status is a picker
+ * submenu; delete carries the destructive role.
  * Labels and glyphs come from the shared row copy.
  */
 export const IssueRowMenuItems = observer(function IssueRowMenuItems({
