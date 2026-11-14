@@ -473,7 +473,7 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
   await act(async () =>
     fireEvent.click(
       within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
-        name: 'Launch an agent…',
+        name: 'Launch an Agent…',
       }),
     ),
   )
