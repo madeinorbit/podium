@@ -34,8 +34,19 @@ vi.mock('expo-router/stack', () => ({
       native.options = screenOptions
       native.screens = {}
       Children.forEach(children, (child) => {
-        if (!isValidElement<{ name: string; options: Record<string, unknown> }>(child)) return
-        native.screens[child.props.name] = { ...screenOptions, ...child.props.options }
+        if (
+          !isValidElement<{
+            name: string
+            options:
+              | Record<string, unknown>
+              | ((args: { route: { key: string; name: string } }) => Record<string, unknown>)
+          }>(child)
+        )
+          return
+        const { name, options } = child.props
+        const resolved =
+          typeof options === 'function' ? options({ route: { key: name, name } }) : options
+        native.screens[name] = { ...screenOptions, ...resolved }
       })
       return null
     },
@@ -83,6 +94,7 @@ describe('native launch routes', () => {
     for (const name of ['index', 'signed-in', '(tabs)']) {
       expect(native.screens[name]).toMatchObject({ headerShown: false, animation: 'none' })
     }
+    expect(native.screens['(tabs)']?.title).toBe('Work')
     // Pushed screens retain the normal native navigation behavior.
     expect(native.options.animation).toBe(reduceMotion ? 'fade' : 'default')
     expect(native.screens['new-issue']).toMatchObject({

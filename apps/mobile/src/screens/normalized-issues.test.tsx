@@ -34,6 +34,7 @@ vi.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ issueId: 'root', missionId: 'root' }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
   usePathname: () => '/issue/root',
+  useNavigation: () => ({ setOptions: vi.fn(), dispatch: vi.fn() }),
 }))
 // The real screen stays mounted; only its native tab navigator has no host.
 vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {

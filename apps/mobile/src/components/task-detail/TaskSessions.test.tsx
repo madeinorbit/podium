@@ -1,4 +1,4 @@
-import { modelLabel } from '@podium/client-core/agent-models'
+import { modelName } from '@podium/client-core/agent-models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -62,7 +62,7 @@ it('reads live state words and observed/requested models from the shared session
     <TaskSessions issue={issue} sessions={[session as SessionView]} onOpenSession={() => {}} />,
   )
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    `Worker, ${modelLabel('codex', 'requested-model')} · Error`,
+    `Worker, ${modelName('codex', 'requested-model')} · Error`,
   )
   act(() =>
     pool.apply({
@@ -82,6 +82,6 @@ it('reads live state words and observed/requested models from the shared session
     }),
   )
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    `Worker, ${modelLabel('codex', 'observed-model')} · Needs you`,
+    `Worker, ${modelName('codex', 'observed-model')} · Needs you`,
   )
 })

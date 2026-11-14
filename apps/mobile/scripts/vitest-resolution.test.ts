@@ -8,6 +8,7 @@ describe('mobile Vitest dependency resolution', () => {
       mobileVitestResolution.assetsRegistry,
       mobileVitestResolution.expoFetch,
       mobileVitestResolution.expoModulesCore,
+      mobileVitestResolution.mobxReactLite,
       mobileVitestResolution.react,
       mobileVitestResolution.reactDom,
       mobileVitestResolution.reactNativeSafeAreaContext,
@@ -23,8 +24,23 @@ describe('mobile Vitest dependency resolution', () => {
     expect(haptics.ImpactFeedbackStyle.Light).toBe('light')
   })
 
+  it('loads navigation leaf exports without the native CJS barrel', async () => {
+    const { getFocusedRouteNameFromRoute, HeaderHeightContext } = await import(
+      'expo-router/react-navigation'
+    )
+    expect(
+      getFocusedRouteNameFromRoute({
+        key: 'tabs',
+        name: '(tabs)',
+        state: { routes: [{ key: 'work', name: 'work' }], index: 0 },
+      }),
+    ).toBe('work')
+    expect(HeaderHeightContext).toBeDefined()
+  })
+
   it('keeps native ESM packages inside Vite for web resolution', () => {
     expect(mobileVitestResolution.inlineDependencies).toEqual([
+      'mobx-react-lite',
       'react-native-gesture-handler',
       'react-native-reanimated',
       'react-native-safe-area-context',

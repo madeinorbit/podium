@@ -13,6 +13,7 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -809,11 +810,20 @@ describe('mobile WorkScreen pool consumer', () => {
       await drainNativeLoads()
       const singleBand = (id: string) =>
         state.sections.filter((band) => band.data.some((item) => item.id === id)).length === 1
+      // Search also shows ancestors of a matching sub-task. Rename a direct
+      // hit so this check removes exactly that row, rather than its context.
+      const directHit = (id: string) =>
+        singleBand(id) &&
+        worklistView(state.pool!).phone.childHit(id) === null &&
+        corpus.issueProjections
+          .find((issue) => issue.id === id)
+          ?.title.toLowerCase()
+          .includes('reconcile')
       const section = state.sections.find(
-        (band) => band.kind === 'project' && band.data.some((item) => singleBand(item.id)),
+        (band) => band.kind === 'project' && band.data.some((item) => directHit(item.id)),
       )!
       expect(section).toBeDefined()
-      const ref = section.data.find((item) => singleBand(item.id))!
+      const ref = section.data.find((item) => directHit(item.id))!
       const target = corpus.issueProjections.find((row) => row.id === ref.id)!
       expect(target.title.toLowerCase()).toContain('reconcile')
       const before = state.sections
@@ -882,7 +892,10 @@ describe('mobile WorkScreen pool consumer', () => {
         .flatMap((section) => section.data)
         .every((row) => {
           const title = corpus.issueProjections.find((issue) => issue.id === row.id)?.title
-          return title?.toLowerCase().includes(issue.title.toLowerCase())
+          if (title?.toLowerCase().includes(issue.title.toLowerCase())) return true
+          const childId = worklistView(state.pool!).phone.childHit(row.id)
+          const child = corpus.issueProjections.find((issue) => issue.id === childId)
+          return child?.title.toLowerCase().includes(issue.title.toLowerCase())
         }),
     ).toBe(true)
     const row = view.container.querySelector(`[data-label$=" ${issue.title}"]`)!

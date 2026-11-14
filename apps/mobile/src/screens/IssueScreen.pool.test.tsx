@@ -11,6 +11,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asIssueId,
@@ -298,6 +299,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     derivations: number
     neighbours: number
     selectors: number
+    historicalReads: number
   }[] = []
   for (const scale of [1, 4]) {
     state.host = createMobilePool(false)
@@ -325,12 +327,29 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
         state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     })
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
+    // Custom attachments skip renderWithMobileStore's normal readiness fence.
+    // Finish source startup before metering an opening, so attachment cannot
+    // add a retry to just one scale. The task itself still opens through its
+    // real on-demand readers inside the measured window.
+    await waitFor(
+      () => {
+        for (const kind of ['mobileScreenReader', 'mobileSessionReader', 'commandCatalog'] as const)
+          expect(
+            here(state.pool!.row(kind, kind === 'commandCatalog' ? 'catalog' : 'reader')),
+          ).toBeDefined()
+      },
+      { timeout: 30_000 },
+    )
     expect(state.errors).toEqual([])
+    let historicalReads = 0
     const row = state.pool!.row.bind(state.pool!)
     const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
       ...args: Parameters<MobxPool['row']>
     ) => {
-      if (state.measuring) state.reads++
+      if (state.measuring) {
+        state.reads++
+        if (args[0] === 'issue' && args[1].startsWith('page-history-')) historicalReads++
+      }
       return row(...args)
     }) as MobxPool['row'])
     const census = startCensus({ sample: () => ({ rowReads: state.reads }) })
@@ -362,6 +381,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
         derivations: phase.computedRuns + phase.reactionRuns,
         neighbours: 1,
         selectors: stats?.selectorRuns ?? 0,
+        historicalReads,
       })
     } finally {
       state.measuring = false
@@ -381,6 +401,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     ).toBeLessThanOrEqual((base![metric] * larger!.neighbours) / base!.neighbours)
   }
   expect(cells.map((cell) => cell.selectors)).toEqual([0, 0])
+  expect(cells.map((cell) => cell.historicalReads)).toEqual([0, 0])
 })
 
 it('keeps parent target order literal and row reads bounded by its visible choices', async () => {
