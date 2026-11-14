@@ -108,27 +108,23 @@ it.each([
       ),
       ['notice-message-4'],
     )
+    // The saved copy is a panel artifact record of the issue (POD-6764).
+    const recordId = `saved-codex-image:${issue.id}`
     corpus.pool.apply({
       type: 'update',
       rows: [
         {
-          kind: 'issue',
-          id: issue.id,
+          kind: 'issuePanelArtifact',
+          id: recordId,
           value: {
-            ...issue,
-            panel: {
-              ...issue.panel!,
-              artifacts: [
-                ...issue.panel!.artifacts,
-                {
-                  path: `chat-uploads/${uploadId}/image.png`,
-                  artifactId: 'saved-codex-image',
-                  entry: 'image.png',
-                  chatUploadId: uploadId,
-                  addedAt: '2026-10-29T20:14:53.927Z',
-                },
-              ],
-            },
+            id: recordId,
+            issueId: issue.id,
+            position: issue.panel?.artifacts.length ?? 0,
+            path: `chat-uploads/${uploadId}/image.png`,
+            artifactId: 'saved-codex-image',
+            entry: 'image.png',
+            chatUploadId: uploadId,
+            addedAt: '2026-10-29T20:14:53.927Z',
           } as never,
         },
       ],
@@ -271,26 +267,22 @@ it('groups mixed image sources once, prefers durable copies, and retains file di
   fireEvent.click(view.getByRole('button', { name: 'Open original-name.png, image 1 of 2' }))
   expect(openFile).toHaveBeenLastCalledWith(session.sessionId, staged)
   act(() => {
+    // The durable copy is a panel artifact record of the issue (POD-6764).
     corpus.pool.apply({
       type: 'update',
       rows: [
         {
-          kind: 'issue',
-          id: issue.id,
+          kind: 'issuePanelArtifact',
+          id: `durable-copy:${issue.id}`,
           value: {
-            ...issue,
-            panel: {
-              ...issue.panel,
-              artifacts: [
-                {
-                  path: `chat-uploads/${id}/original-name.png`,
-                  artifactId: 'durable-copy',
-                  entry: 'original-name.png',
-                  chatUploadId: id,
-                  addedAt: '2026-11-05T12:00:00Z',
-                },
-              ],
-            },
+            id: `durable-copy:${issue.id}`,
+            issueId: issue.id,
+            position: 0,
+            path: `chat-uploads/${id}/original-name.png`,
+            artifactId: 'durable-copy',
+            entry: 'original-name.png',
+            chatUploadId: id,
+            addedAt: '2026-11-05T12:00:00Z',
           } as never,
         },
       ],
