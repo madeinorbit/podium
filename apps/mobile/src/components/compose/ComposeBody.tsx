@@ -26,6 +26,7 @@ import { ComposeMenu, type ComposeMenuItem } from './ComposeMenu'
 
 /** Above this text scale the field label stacks over its value (Start Agent uses the same). */
 const STACKED_FIELD_SCALE = 1.35
+const PROMPT_PLACEHOLDER = 'What should change, and why?'
 
 export function ComposeFieldRow({
   label,
@@ -156,14 +157,16 @@ export function ComposeBody({
   const keyboardVisible = keyboardLift > 0
   const wasKeyboardVisible = useRef(keyboardVisible)
   const [promptHeight, setPromptHeight] = useState<number>()
+  const [placeholderHeight, setPlaceholderHeight] = useState(72)
   const [promptWidth, setPromptWidth] = useState(0)
   const [bodyHeight, setBodyHeight] = useState(0)
   const [toolbarHeight, setToolbarHeight] = useState(0)
   const [headerHeight, setHeaderHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
   const viewportHeight = Math.max(0, bodyHeight - keyboardLift - toolbarHeight)
+  const minPromptHeight = prompt ? 72 : Math.max(72, placeholderHeight)
   const maxPromptHeight = viewportHeight
-    ? Math.max(72, viewportHeight - topInset - headerHeight - footerHeight - 16)
+    ? Math.max(minPromptHeight, viewportHeight - topInset - headerHeight - footerHeight - 16)
     : undefined
   useEffect(() => {
     const dismissed = wasKeyboardVisible.current && !keyboardVisible
@@ -229,36 +232,55 @@ export function ComposeBody({
           ) : null}
         </View>
         {promptReady ? (
-          <TextInput
-            ref={inputRef}
-            autoFocus
-            multiline
-            scrollEnabled={maxPromptHeight !== undefined && (promptHeight ?? 0) >= maxPromptHeight}
-            editable={!busy}
-            accessibilityLabel="Task prompt"
-            placeholder="What should change, and why?"
-            placeholderTextColor={color.textMicro}
-            value={prompt}
-            onChangeText={onPrompt}
-            onKeyPress={onKeyPress}
-            onLayout={(event) => setPromptWidth(event.nativeEvent.layout.width)}
-            onContentSizeChange={
-              Platform.OS === 'web'
-                ? undefined
-                : (event) => measure(event.nativeEvent.contentSize.height)
-            }
-            // Native must keep its intrinsic height. Feeding its last measurement
-            // back as height caps UIKit's next measurement and clips later lines.
-            style={[
-              styles.prompt,
-              { maxHeight: maxPromptHeight },
-              Platform.OS === 'web' && promptHeight !== undefined
-                ? { height: Math.min(promptHeight, maxPromptHeight ?? promptHeight) }
-                : undefined,
-            ]}
-            textAlignVertical="top"
-            selectionColor={color.accentTint}
-          />
+          <View>
+            {/* UITextView measures its text, not the wrapped placeholder. Measure
+              the same typography at the field's width, including Dynamic Type. */}
+            {!prompt ? (
+              <Text
+                testID="compose-placeholder-measure"
+                accessible={false}
+                aria-hidden
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={[styles.prompt, styles.placeholderMeasure]}
+                onLayout={(event) => setPlaceholderHeight(event.nativeEvent.layout.height)}
+              >
+                {PROMPT_PLACEHOLDER}
+              </Text>
+            ) : null}
+            <TextInput
+              ref={inputRef}
+              autoFocus
+              multiline
+              scrollEnabled={
+                maxPromptHeight !== undefined && (promptHeight ?? 0) >= maxPromptHeight
+              }
+              editable={!busy}
+              accessibilityLabel="Task prompt"
+              placeholder={PROMPT_PLACEHOLDER}
+              placeholderTextColor={color.textMicro}
+              value={prompt}
+              onChangeText={onPrompt}
+              onKeyPress={onKeyPress}
+              onLayout={(event) => setPromptWidth(event.nativeEvent.layout.width)}
+              onContentSizeChange={
+                Platform.OS === 'web'
+                  ? undefined
+                  : (event) => measure(event.nativeEvent.contentSize.height)
+              }
+              // Native must keep its intrinsic height. Feeding its last measurement
+              // back as height caps UIKit's next measurement and clips later lines.
+              style={[
+                styles.prompt,
+                { minHeight: minPromptHeight, maxHeight: maxPromptHeight },
+                Platform.OS === 'web' && promptHeight !== undefined
+                  ? { height: Math.min(promptHeight, maxPromptHeight ?? promptHeight) }
+                  : undefined,
+              ]}
+              textAlignVertical="top"
+              selectionColor={color.accentTint}
+            />
+          </View>
         ) : (
           <View testID="compose-prompt-pending" style={[styles.prompt, { height: 72 }]} />
         )}
@@ -454,6 +476,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 0,
+  },
+  placeholderMeasure: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    minHeight: 0,
+    opacity: 0,
+    pointerEvents: 'none',
   },
   attachments: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
   attachment: {

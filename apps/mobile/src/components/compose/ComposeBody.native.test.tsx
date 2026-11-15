@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
-import { type ScrollView, StyleSheet, type TextInput, type View } from 'react-native'
+import { type ScrollView, StyleSheet, type Text, type TextInput, type View } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({
@@ -9,6 +9,7 @@ const native = vi.hoisted(() => ({
   layouts: new Map<string, ComponentProps<typeof View>['onLayout']>(),
   dismiss: vi.fn(),
   scrollTo: vi.fn(),
+  fontScale: 1,
 }))
 vi.mock('react-native', async (original) => {
   const rn = await original<typeof import('react-native')>()
@@ -16,6 +17,7 @@ vi.mock('react-native', async (original) => {
   return {
     ...rn,
     Platform: { ...rn.Platform, OS: 'ios' },
+    useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: native.fontScale }),
     Keyboard: { ...rn.Keyboard, dismiss: native.dismiss },
     View: forwardRef<View, ComponentProps<typeof View>>((props, ref) => {
       if (props.testID) native.layouts.set(props.testID, props.onLayout)
@@ -30,6 +32,10 @@ vi.mock('react-native', async (original) => {
     TextInput: forwardRef<TextInput, ComponentProps<typeof TextInput>>((props, ref) => {
       native.input = props
       return <rn.TextInput {...props} ref={ref} onContentSizeChange={undefined} />
+    }),
+    Text: forwardRef<Text, ComponentProps<typeof Text>>((props, ref) => {
+      if (props.testID) native.layouts.set(props.testID, props.onLayout)
+      return <rn.Text {...props} ref={ref} onLayout={undefined} />
     }),
   }
 })
@@ -79,6 +85,7 @@ afterEach(() => {
   native.layouts.clear()
   vi.clearAllMocks()
   vi.restoreAllMocks()
+  native.fontScale = 1
 })
 
 it('keeps the UITextView out of the first sheet layout, then mounts and focuses the saved prompt once', () => {
@@ -154,6 +161,35 @@ it('lets native text grow to ten lines, scrolls at the available height, and shr
   expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
 })
 
+it('reserves every wrapped placeholder line at large text sizes, then shrinks for typed text', () => {
+  native.fontScale = 2.35
+  const { rerender } = render(<ComposeBody {...props} />)
+  const input = screen.getByRole('textbox', { name: 'Task prompt' })
+  layout('compose-body', 400)
+  layout('compose-toolbar', 60)
+  layout('compose-fields', 210)
+  layout('compose-footer', 34)
+  // The field's UITextView reports only its empty content. The hidden Text
+  // reports three wrapped placeholder lines, at the actual field width/scale.
+  content(52)
+  layout('compose-placeholder-measure', 168)
+  expect(StyleSheet.flatten(native.input?.style)?.minHeight).toBe(168)
+  expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(168)
+  expect(native.input?.scrollEnabled).toBe(false)
+  expect(native.input?.placeholder).toBe('What should change, and why?')
+  expect(screen.getByTestId('compose-placeholder-measure').getAttribute('aria-hidden')).toBe('true')
+
+  rerender(<ComposeBody {...props} prompt="A" />)
+  expect(screen.getByRole('textbox', { name: 'Task prompt' })).toBe(input)
+  expect(screen.queryByTestId('compose-placeholder-measure')).toBeNull()
+  expect(StyleSheet.flatten(native.input?.style)?.minHeight).toBe(72)
+  expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
+
+  rerender(<ComposeBody {...props} />)
+  layout('compose-placeholder-measure', 56)
+  expect(StyleSheet.flatten(native.input?.style)?.minHeight).toBe(72)
+})
+
 it('restores the form below the native sheet header after the keyboard closes, without remounting the prompt', () => {
   const { rerender } = render(
     <ComposeBody {...props} prompt="Keep this draft" keyboardLift={336} topInset={70} />,
@@ -198,7 +234,9 @@ it('bounds a twelve-line prompt above the attachment bar and keyboard, with the 
   expect(getComputedStyle(viewport).minHeight).toBe('0px')
   expect(getComputedStyle(toolbar).flexShrink).toBe('0')
   expect(
-    screen.getByRole('textbox', { name: 'Task prompt' }).nextElementSibling?.contains(tip),
+    screen
+      .getByRole('textbox', { name: 'Task prompt' })
+      .parentElement?.nextElementSibling?.contains(tip),
   ).toBe(true)
 
   // The native viewport excludes both the 60pt toolbar and 336pt keyboard.
