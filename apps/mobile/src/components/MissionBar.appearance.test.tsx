@@ -128,6 +128,19 @@ it('keeps an explicit signal tint and its symbol mounted across appearances', ()
   expect(screen.getByTestId('inspector-symbol')).toBe(symbol)
 })
 
+it('leaves nested native color variants with UIKit', () => {
+  const ink = {
+    dynamic: { light: { semantic: ['label'] }, dark: { semantic: ['secondaryLabel'] } },
+  }
+  render(<Icon as={Plus} size={16} color={ink as unknown as string} />)
+  const symbol = screen.getByTestId('inspector-symbol')
+  changeAppearance('light')
+  expect(token(symbol)).toEqual(ink)
+  changeAppearance('dark')
+  expect(token(symbol)).toEqual(ink)
+  expect(screen.getByTestId('inspector-symbol')).toBe(symbol)
+})
+
 it('uses the light foreground when iOS reports an unspecified appearance', () => {
   appearance.scheme = 'unspecified'
   render(<MissionBar full={full} onOpen={() => {}} />)
