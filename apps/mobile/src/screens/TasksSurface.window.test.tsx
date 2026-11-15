@@ -524,8 +524,9 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(cellTraits).toEqual([
     { name: 'alignmentGuide', value: 'listRowSeparatorLeading', offset: 22 },
     { name: 'listRowSeparatorTint', value: expect.any(String) },
-    // The card's first row keeps 8pt more room against the rounded corners.
-    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 0 } },
+    // At default sizes the List minimum already pads the row: no extra edge,
+    // so the first row centres like the middle rows.
+    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 0, bottom: 0 } },
   ])
   for (const [depth, nestedSlot] of slots.entries()) {
     expect(modifiers(nestedSlot)).toContainEqual({
@@ -569,6 +570,13 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(slot.firstElementChild).toBe(swipeOwner)
   expect(state.listMount).toHaveBeenCalledTimes(listMounts)
   expect(monoSizes()).toEqual([22, 24])
+  // Accessibility sizes outgrow the minimum: the first row gets 8pt against the corners.
+  const accessibleTraits = [
+    cellTraits[0],
+    cellTraits[1],
+    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 0 } },
+  ]
+  expect(modifiers(slot).slice(-3)).toEqual(accessibleTraits)
   expect(state.actions).toHaveLength(1)
   expect(state.actions[0]?.label).toBe('Task actions')
   const newTask = state.actions[0]?.items?.find(
@@ -585,7 +593,7 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   // A short lane never leaves the window: the row stays, not a placeholder.
   act(() => fireEvent.mouseLeave(slot))
   expect(screen.getByText('Single task')).toBeTruthy()
-  expect(modifiers(slot).slice(-3)).toEqual(cellTraits)
+  expect(modifiers(slot).slice(-3)).toEqual(accessibleTraits)
 })
 
 it('native placeholders activate a bounded window both ways; only age labels read the clock', async () => {

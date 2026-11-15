@@ -90,22 +90,30 @@ const ROW_AXIS = 34
 const ACCESSIBILITY_SCALE = 1.6
 const CARD_INSET = 12
 /** Card rows on Work's grouped paper: the same ground, card and separator. */
-/** A card's first and last rows keep this much more room against its rounded corners. */
+/**
+ * A card's first and last rows keep this much more room against its rounded
+ * corners, at accessibility sizes only. At default sizes every row already sits
+ * at the iOS 26 List minimum (52pt) with 44pt of content, so the edge added no
+ * height and only pushed the first and last titles 4pt off-centre.
+ */
 const CARD_EDGE = 8
 /** Task rows keep the system cell background (paper.card's exact values): a custom
  * listRowBackground suppresses the List's native touch-down highlight. */
-const taskRowAt = (first: boolean, last: boolean) => [
-  listRowSeparatorTint(paper.separator),
-  listRowInsets({
-    leading: CARD_INSET,
-    trailing: CARD_INSET,
-    top: first ? CARD_EDGE : 0,
-    bottom: last ? CARD_EDGE : 0,
-  }),
-]
-const cardRowAt = (first: boolean, last: boolean) => [
+const taskRowAt = (first: boolean, last: boolean, fontScale: number) => {
+  const edge = fontScale >= ACCESSIBILITY_SCALE ? CARD_EDGE : 0
+  return [
+    listRowSeparatorTint(paper.separator),
+    listRowInsets({
+      leading: CARD_INSET,
+      trailing: CARD_INSET,
+      top: first ? edge : 0,
+      bottom: last ? edge : 0,
+    }),
+  ]
+}
+const cardRowAt = (first: boolean, last: boolean, fontScale: number) => [
   listRowBackground(paper.card),
-  ...taskRowAt(first, last),
+  ...taskRowAt(first, last, fontScale),
 ]
 /** Rows that sit on the ground rather than in a card (headers, notes). */
 const quietRow = [
@@ -245,7 +253,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                     key={chip.key}
                     onPress={() => props.onRemoveFilter(chip.key)}
                     modifiers={[
-                      ...cardRowAt(index === 0, index === props.chips.length - 1),
+                      ...cardRowAt(index === 0, index === props.chips.length - 1, fontScale),
                       accessibilityHint('Removes this filter.'),
                     ]}
                   >
@@ -391,6 +399,7 @@ const TaskSlot = observer(function TaskSlot({
   const [primed, unprime] = useRowPrime(prime)
   const shown = active || primed
   const [height, setHeight] = useState(44)
+  const { fontScale } = useWindowDimensions()
   return (
     <VStack
       spacing={0}
@@ -405,7 +414,7 @@ const TaskSlot = observer(function TaskSlot({
         // and measurement wrappers, on the Section's direct row view.
         // The guide is relative to content that already starts after the card inset.
         alignmentGuide('listRowSeparatorLeading', ROW_AXIS - CARD_INSET + depth * 16),
-        ...taskRowAt(first, last),
+        ...taskRowAt(first, last, fontScale),
       ]}
     >
       {shown ? (
