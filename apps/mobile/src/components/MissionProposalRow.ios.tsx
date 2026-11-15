@@ -1,4 +1,4 @@
-import { Button, ContextMenu, HStack, Image, SwipeActions, Text, VStack } from '@expo/ui/swift-ui'
+import { Button, HStack, Image, SwipeActions, Text, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityElement,
   accessibilityHint,
@@ -19,6 +19,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { color } from '../theme/theme'
+import { ContextMenu } from './ContextMenu.ios'
 import { deckColor } from './deck-colors'
 import { listRowPress } from './list-row-press.ios'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'

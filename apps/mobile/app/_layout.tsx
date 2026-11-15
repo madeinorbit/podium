@@ -7,6 +7,7 @@ import { LogBox } from 'react-native'
 import { enableFreeze } from 'react-native-screens'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
 import { tabsBackTitle } from '../src/navigation/back-targets'
+import { systemHeaderOptions } from '../src/navigation/native-stack'
 import { noticeScreenLayout } from '../src/navigation/notice-screen-layout'
 import { color } from '../src/theme/theme'
 
@@ -38,6 +39,7 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
       initialRouteName="(tabs)"
       screenLayout={noticeScreenLayout}
       screenOptions={{
+        ...systemHeaderOptions,
         headerShown: true,
         headerBackButtonDisplayMode: 'minimal',
         headerShadowVisible: false,

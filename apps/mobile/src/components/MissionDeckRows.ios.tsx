@@ -1,13 +1,4 @@
-import {
-  Button,
-  ContextMenu,
-  HStack,
-  Image,
-  RNHostView,
-  Spacer,
-  Text,
-  VStack,
-} from '@expo/ui/swift-ui'
+import { Button, HStack, Image, RNHostView, Spacer, Text, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityAddTraits,
   accessibilityElement,
@@ -39,6 +30,7 @@ import { SESSION_WORD_LABEL, type SessionWord, TASK_WORD_LABEL } from '@podium/m
 import { observer } from 'mobx-react-lite'
 import { useWindowDimensions } from 'react-native'
 import { color } from '../theme/theme'
+import { ContextMenu } from './ContextMenu.ios'
 import { deckColor, deckWordColor } from './deck-colors'
 import { IssueRowMenuItems } from './IssueRowMenuItems.ios'
 import { listRowPress } from './list-row-press.ios'

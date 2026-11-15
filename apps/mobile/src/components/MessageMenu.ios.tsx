@@ -1,8 +1,9 @@
 import { Host } from '@expo/ui'
-import { Button, ContextMenu, RNHostView, Section } from '@expo/ui/swift-ui'
+import { Button, RNHostView, Section } from '@expo/ui/swift-ui'
 import { useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { space } from '../theme/theme'
+import { ContextMenu } from './ContextMenu.ios'
 import { MessagePreview } from './MessagePreview'
 import type { MessageMenuProps } from './message-menu.types'
 

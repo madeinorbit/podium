@@ -1,7 +1,6 @@
 import { Host } from '@expo/ui'
 import {
   Button,
-  ContextMenu,
   HStack,
   Image,
   List,
@@ -71,6 +70,7 @@ import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
 import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'

@@ -9,12 +9,23 @@ import { color } from '../theme/theme'
  */
 const titleColor = { color: color.text }
 
+// Inherit UIKit's traits immediately. React Navigation otherwise forces the
+// previous JS theme onto the bar during a live appearance switch, making its
+// glass change appearance twice before useColorScheme catches up.
+const systemHeaderConfig =
+  Platform.OS === 'ios' ? { experimental_userInterfaceStyle: 'unspecified' as const } : {}
+
+export const systemHeaderOptions: Pick<NativeStackNavigationOptions, 'unstable_nativeProps'> = {
+  unstable_nativeProps: { headerConfig: systemHeaderConfig },
+}
+
 /**
  * Root tab stacks: a large title that collapses into the inline bar. No header
  * background or blur is set, so content scrolls under a transparent bar and
  * iOS 26 draws its scroll edge effect.
  */
 export const tabStackOptions: NativeStackNavigationOptions = {
+  ...systemHeaderOptions,
   headerShown: true,
   headerLargeTitleEnabled: true,
   headerLargeTitleShadowVisible: false,
@@ -36,6 +47,7 @@ export const transparentDetailHeader = Platform.OS === 'ios'
 
 /** Pushed detail screens: the standard inline bar with a back button. */
 export const detailStackOptions: NativeStackNavigationOptions = {
+  ...systemHeaderOptions,
   headerShown: true,
   headerLargeTitleEnabled: false,
   headerShadowVisible: false,
@@ -56,6 +68,7 @@ export function headerSubtitleOptions(
   { large = false }: { large?: boolean } = {},
 ): Pick<NativeStackNavigationOptions, 'unstable_nativeProps'> {
   const headerConfig = {
+    ...systemHeaderConfig,
     subtitle: subtitle || undefined,
     largeSubtitle: large ? subtitle || undefined : undefined,
   }

@@ -1,7 +1,6 @@
 import { Host } from '@expo/ui'
 import {
   Button,
-  ContextMenu,
   HStack,
   Image,
   List,
@@ -62,6 +61,7 @@ import { Fragment, type ReactNode, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
+import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
