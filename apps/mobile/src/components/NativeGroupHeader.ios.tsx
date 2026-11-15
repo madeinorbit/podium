@@ -42,19 +42,15 @@ export function NativeGroupHeader({
   trailing?: ReactNode
 }) {
   const expanded = useWindowDimensions().fontScale >= 1.6
-  const Layout = expanded && trailing ? VStack : HStack
-  return (
-    <Layout
-      {...(expanded && trailing ? { alignment: 'leading' as const } : {})}
-      spacing={8}
-      modifiers={[
-        listRowBackground(paper.ground),
-        listRowSeparator('hidden'),
-        // The top inset parts the larger title from the card above it.
-        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 0 }),
-        frame({ minHeight: 44, maxWidth: Infinity }),
-      ]}
-    >
+  const modifiers = [
+    listRowBackground(paper.ground),
+    listRowSeparator('hidden'),
+    // The top inset parts the larger title from the card above it.
+    listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 0 }),
+    frame({ minHeight: 44, maxWidth: Infinity }),
+  ]
+  const content = (
+    <>
       <Button
         onPress={onToggle}
         modifiers={[
@@ -111,6 +107,15 @@ export function NativeGroupHeader({
         </HStack>
       </Button>
       {trailing}
-    </Layout>
+    </>
+  )
+  return expanded && trailing ? (
+    <VStack alignment="leading" spacing={8} modifiers={modifiers}>
+      {content}
+    </VStack>
+  ) : (
+    <HStack spacing={8} modifiers={modifiers}>
+      {content}
+    </HStack>
   )
 }

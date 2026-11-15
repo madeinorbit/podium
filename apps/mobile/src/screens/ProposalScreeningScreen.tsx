@@ -240,6 +240,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
           ))}
         </View>
         <CardStack
+          key={current.id}
           style={styles.stack}
           {...(expanded ? { contentContainerStyle: styles.stackContent } : {})}
         >
