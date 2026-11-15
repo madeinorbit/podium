@@ -248,3 +248,229 @@ diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.
 
  #if !TARGET_OS_TV
    [config configureBackItem:prevItem withPrevVC:prevVC];
+diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
+--- a/ios/RNSScreenStack.mm
++++ b/ios/RNSScreenStack.mm
+@@ -38,7 +38,14 @@
+
+ @end
+
++@interface RNSNavigationController ()
++- (void)rnscreens_refreshHeaderColorAppearance;
++@end
++
+ @implementation RNSNavigationController {
++  UITraitCollection *_lastVisibleHeaderTraits;
++  BOOL _headerAppearanceVisible;
++  BOOL _headerAppearanceNeedsRefresh;
+ #if !TARGET_OS_TV
+   __weak UINavigationItem *_scrollToTopNavigationItem;
+   CGFloat _scrollToTopLayoutWidth;
+@@ -46,6 +53,60 @@
+   UIUserInterfaceSizeClass _scrollToTopVerticalSizeClass;
+   CGFloat _scrollToTopExpandedBarHeight;
+ #endif
++}
++
++// A tab can hide/show this controller without changing its top screen, so
++// UINavigationController's willShow delegate does not reapply that header.
++- (void)viewWillAppear:(BOOL)animated
++{
++  [super viewWillAppear:animated];
++  UITraitCollection *traits = self.traitCollection;
++  BOOL colorsChanged = _lastVisibleHeaderTraits != nil &&
++      [traits hasDifferentColorAppearanceComparedToTraitCollection:_lastVisibleHeaderTraits];
++  _headerAppearanceVisible = YES;
++  if (_headerAppearanceNeedsRefresh || colorsChanged) {
++    [traits performAsCurrentTraitCollection:^{
++      [self rnscreens_refreshHeaderColorAppearance];
++    }];
++  }
++  _headerAppearanceNeedsRefresh = NO;
++  _lastVisibleHeaderTraits = traits;
++}
++
++- (void)viewWillDisappear:(BOOL)animated
++{
++  _lastVisibleHeaderTraits = self.traitCollection;
++  _headerAppearanceVisible = NO;
++  [super viewWillDisappear:animated];
++}
++
++- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
++{
++  [super traitCollectionDidChange:previousTraitCollection];
++  if (_lastVisibleHeaderTraits == nil ||
++      ![self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
++    return;
++  }
++  if (_headerAppearanceVisible) {
++    // UIKit updates visible glass itself. Keep its applied traits current.
++    _lastVisibleHeaderTraits = self.traitCollection;
++  } else {
++    // Keep this latched even if another hidden switch restores the old style.
++    _headerAppearanceNeedsRefresh = YES;
++  }
++}
++
++- (void)rnscreens_refreshHeaderColorAppearance
++{
++  UIViewController *screen = self.topViewController;
++  if (![screen.view isKindOfClass:RNSScreenView.class]) {
++    return;
++  }
++  RNSScreenStackHeaderConfig *config = ((RNSScreenView *)screen.view).findHeaderConfig;
++  if (config != nil) {
++    [RNSScreenStackHeaderConfig willShowViewController:screen animated:NO withConfig:config];
++    [self.navigationBar setNeedsLayout];
++  }
+ }
+
+ #if !TARGET_OS_TV
+diff --git a/tests/ios/RNSNavigationControllerAppearanceTests.mm b/tests/ios/RNSNavigationControllerAppearanceTests.mm
+new file mode 100644
+--- /dev/null
++++ b/tests/ios/RNSNavigationControllerAppearanceTests.mm
+@@ -0,0 +1,142 @@
++#import <XCTest/XCTest.h>
++#import "../../ios/RNSScreenStack.h"
++
++// Add this fixture to an app-hosted iOS XCTest target linked with RNScreens.
++// It exercises the production visibility/trait lifecycle; material rendering
++// still needs the hidden-tab simulator regression.
++@interface RNSNavigationController (AppearanceTests)
++- (void)rnscreens_refreshHeaderColorAppearance;
++@end
++
++@interface HeaderAppearanceNavigationController : RNSNavigationController
++@property (nonatomic, strong) UITraitCollection *testTraits;
++@property (nonatomic, strong) UITraitCollection *reappliedTraits;
++@property (nonatomic) NSUInteger refreshCount;
++@end
++
++@implementation HeaderAppearanceNavigationController
++- (UITraitCollection *)traitCollection
++{
++  return self.testTraits ?: [super traitCollection];
++}
++
++- (void)rnscreens_refreshHeaderColorAppearance
++{
++  self.refreshCount++;
++  self.reappliedTraits = UITraitCollection.currentTraitCollection;
++}
++@end
++
++@interface RNSNavigationControllerAppearanceTests : XCTestCase
++@property (nonatomic, strong) HeaderAppearanceNavigationController *navigation;
++@end
++
++@implementation RNSNavigationControllerAppearanceTests
++- (void)setUp
++{
++  [super setUp];
++  self.navigation = [[HeaderAppearanceNavigationController alloc]
++      initWithRootViewController:[UIViewController new]];
++  self.navigation.testTraits = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
++  [self.navigation loadViewIfNeeded];
++}
++
++- (void)show
++{
++  [self.navigation beginAppearanceTransition:YES animated:NO];
++  [self.navigation endAppearanceTransition];
++}
++
++- (void)hide
++{
++  [self.navigation beginAppearanceTransition:NO animated:NO];
++  [self.navigation endAppearanceTransition];
++}
++
++- (void)changeTraits:(UITraitCollection *)traits
++{
++  UITraitCollection *previous = self.navigation.testTraits;
++  self.navigation.testTraits = traits;
++  [self.navigation traitCollectionDidChange:previous];
++}
++
++- (void)testColdAndUnchangedAppearancesDoNotRebuildHeader
++{
++  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
++  [self show];
++  [self hide];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 0U);
++}
++
++- (void)testHiddenAppearanceReappliesOnceWithCurrentTraitsAndSameScreen
++{
++  [self show];
++  UIViewController *screen = self.navigation.topViewController;
++  UINavigationBar *bar = self.navigation.navigationBar;
++  [self hide];
++  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
++  XCTAssertEqual(self.navigation.refreshCount, 0U);
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 1U);
++  XCTAssertEqual(self.navigation.reappliedTraits.userInterfaceStyle, UIUserInterfaceStyleLight);
++  XCTAssertEqual(self.navigation.topViewController, screen);
++  XCTAssertEqual(self.navigation.navigationBar, bar);
++  [self hide];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 1U);
++}
++
++- (void)testVisibleAppearanceAlreadyUpdatedByUIKitNeedsNoFocusRebuild
++{
++  [self show];
++  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
++  [self hide];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 0U);
++}
++
++- (void)testHiddenRoundTripRemainsDirtyEvenWhenFinalStyleMatches
++{
++  [self show];
++  [self hide];
++  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
++  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 1U);
++  XCTAssertEqual(self.navigation.reappliedTraits.userInterfaceStyle, UIUserInterfaceStyleDark);
++}
++
++- (void)testDeferredTraitDeliveryIsDetectedOnAppearance
++{
++  [self show];
++  [self hide];
++  self.navigation.testTraits = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 1U);
++}
++
++- (void)testHiddenContrastChangeAlsoRefreshes
++{
++  [self show];
++  [self hide];
++  [self changeTraits:[UITraitCollection traitCollectionWithTraitsFromCollections:@[
++    [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark],
++    [UITraitCollection traitCollectionWithAccessibilityContrast:UIAccessibilityContrastHigh]
++  ]]];
++  [self show];
++  XCTAssertEqual(self.navigation.refreshCount, 1U);
++  XCTAssertEqual(self.navigation.reappliedTraits.accessibilityContrast, UIAccessibilityContrastHigh);
++}
++
++- (void)testCancelledWillDisappearWithoutTraitChangeDoesNotRebuild
++{
++  [self show];
++  UIViewController *screen = self.navigation.topViewController;
++  [self.navigation viewWillDisappear:YES];
++  [self.navigation viewWillAppear:YES];
++  [self.navigation viewDidAppear:YES];
++  XCTAssertEqual(self.navigation.refreshCount, 0U);
++  XCTAssertEqual(self.navigation.topViewController, screen);
++}
++@end
