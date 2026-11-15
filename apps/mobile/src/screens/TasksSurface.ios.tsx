@@ -114,7 +114,8 @@ const quietRow = [
   listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 }),
 ]
 const noteRow = [
-  ...quietRow,
+  listRowBackground(paper.ground),
+  listRowSeparator('hidden'),
   listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
 ]
 
@@ -400,9 +401,6 @@ const TaskSlot = observer(function TaskSlot({
           unprime()
           lane?.window.disappear(id)
         }),
-        onGeometryChange((frame) => {
-          if (shown && frame.height > 0) setHeight(frame.height)
-        }),
         // Expo applies modifiers in order. Keep cell traits outside the frame
         // and measurement wrappers, on the Section's direct row view.
         // The guide is relative to content that already starts after the card inset.
@@ -410,7 +408,24 @@ const TaskSlot = observer(function TaskSlot({
         ...taskRowAt(first, last),
       ]}
     >
-      {shown ? children : <Spacer modifiers={[frame({ height })]} />}
+      {shown ? (
+        <VStack
+          spacing={0}
+          modifiers={[
+            frame({ maxWidth: Infinity, alignment: 'leading' }),
+            // Cache the live content, before List adds row insets and its own
+            // minimum. Measuring the cell feeds that extra height back into
+            // placeholders when a long group recycles.
+            onGeometryChange((content) => {
+              if (content.height > 0) setHeight(content.height)
+            }),
+          ]}
+        >
+          {children}
+        </VStack>
+      ) : (
+        <Spacer modifiers={[frame({ height })]} />
+      )}
     </VStack>
   )
 })

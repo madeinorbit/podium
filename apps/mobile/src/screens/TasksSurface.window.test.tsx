@@ -3,7 +3,7 @@ import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-sch
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { MobxPool } from '@podium/client-graph/pool'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { type ReactNode, useEffect, useImperativeHandle } from 'react'
 import type { SearchBarCommands, SearchBarProps } from 'react-native-screens'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   header: {} as { headerTransparent?: boolean },
   actions: [] as readonly ScreenAction[],
   slot: vi.fn(),
+  measure: vi.fn(),
   list: vi.fn(),
   listMount: vi.fn(),
   search: null as SearchBarProps | null,
@@ -192,10 +193,12 @@ vi.mock('@expo/ui/swift-ui', () => {
       | (() => void)
       | undefined
     if (appear) state.slot(modifiers)
+    const measure = modifiers?.find((m) => m.name === 'onGeometryChange')?.value
+    if (measure) state.measure(measure)
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: mouse events stand in for native appearance callbacks in this test host.
       <div
-        data-testid={appear ? 'slot' : undefined}
+        data-testid={appear ? 'slot' : measure ? 'measured-content' : undefined}
         data-modifiers={JSON.stringify(modifiers)}
         onMouseEnter={appear}
         onMouseLeave={disappear}
@@ -228,7 +231,17 @@ vi.mock('@expo/ui/swift-ui', () => {
     Picker: Box,
     ProgressView: () => <div data-testid="native-progress" />,
     Section: ({ children }: Props) => <section>{children}</section>,
-    Spacer: Box,
+    Spacer: ({ modifiers }: Props) => {
+      const value = modifiers?.find((m) => m.name === 'frame')?.value as
+        | { height?: number }
+        | undefined
+      return (
+        <div
+          data-testid={value?.height === undefined ? undefined : 'row-placeholder'}
+          data-height={value?.height}
+        />
+      )
+    },
     SwipeActions: Object.assign(Box, { Actions: () => null }),
     Text: Box,
     VStack,
@@ -288,6 +301,7 @@ afterEach(() => {
   state.actions = []
   state.age.mockClear()
   state.slot.mockClear()
+  state.measure.mockClear()
   state.list.mockClear()
   state.listMount.mockClear()
   state.search = null
@@ -310,6 +324,72 @@ const cancelSearch = () =>
   state.search?.onCancelButtonPress?.(
     {} as Parameters<NonNullable<SearchBarProps['onCancelButtonPress']>>[0],
   )
+
+it.each([
+  'proposed',
+  'in_progress',
+])('caches only %s row content while preserving large-text heights on reuse', async (stage) => {
+  const stamp = '2026-10-03T12:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  state.pool = pool
+  pool.apply({
+    type: 'replace',
+    rows: Array.from({ length: MOBILE_TASK_WINDOW_SIZE * 3 }, (_, index) => ({
+      kind: 'issue' as const,
+      id: `task-${index}`,
+      value: {
+        id: `task-${index}`,
+        seq: index + 1,
+        title: `Reusable task ${index}`,
+        stage,
+        audience: 'human',
+        repoPath: '/fixture',
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+    })),
+  })
+  await attachMobileScreens(pool)
+  const board = new MobileTasksBoard(pool, {
+    showDone: false,
+    expanded: [],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: false,
+  })
+  render(
+    <TasksSurface
+      {...({
+        board,
+        chips: [],
+        booting: false,
+        refresh: { onRefresh: () => {} },
+      } as unknown as TasksSurfaceProps)}
+    />,
+  )
+  const slots = screen.getAllByTestId('slot')
+  const slot = slots[0]
+  const distant = slots.at(-1)
+  if (!slot || !distant) throw new Error('Expected a long lane')
+  const traits = JSON.parse(slot.getAttribute('data-modifiers') ?? '[]') as { name: string }[]
+  expect(traits.some((trait) => trait.name === 'onGeometryChange')).toBe(false)
+  expect(within(slot).getByTestId('measured-content')).toBeTruthy()
+  const measure = state.measure.mock.calls[0]?.[0] as
+    | ((geometry: { height: number }) => void)
+    | undefined
+  if (!measure) throw new Error('Expected a content measurement callback')
+  for (const height of [44, 104]) {
+    act(() => measure({ height }))
+    fireEvent.mouseEnter(slot)
+    fireEvent.mouseLeave(slot)
+    fireEvent.mouseEnter(distant)
+    expect(within(slot).getByTestId('row-placeholder').dataset.height).toBe(String(height))
+    expect(JSON.parse(slot.getAttribute('data-modifiers') ?? '[]')).toEqual(traits)
+    fireEvent.mouseEnter(slot)
+    fireEvent.mouseLeave(distant)
+    expect(screen.getByText('Reusable task 0')).toBeTruthy()
+  }
+})
 
 const expectPullDownSearch = () =>
   expect(state.search).toMatchObject({
@@ -497,15 +577,10 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(newTask).toBeDefined()
   newTask?.onPress()
   expect(onNewTask).toHaveBeenCalledOnce()
-  const rootModifiers = state.slot.mock.calls.findLast(([modifiers]) =>
-    modifiers.some(
-      (modifier: { name: string; offset?: number }) =>
-        modifier.name === 'alignmentGuide' && modifier.offset === 22,
-    ),
-  )?.[0]
-  const measured = rootModifiers.find(
-    (modifier: { name: string }) => modifier.name === 'onGeometryChange',
-  ).value
+  const measured = state.measure.mock.calls[0]?.[0] as
+    | ((geometry: { height: number }) => void)
+    | undefined
+  if (!measured) throw new Error('Expected a content measurement callback')
   act(() => measured({ height: 60 }))
   // A short lane never leaves the window: the row stays, not a placeholder.
   act(() => fireEvent.mouseLeave(slot))
