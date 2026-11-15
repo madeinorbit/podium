@@ -5,13 +5,14 @@ import type {
 } from '@podium/client-core/socket-transport'
 import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnected, useHub } from '../client/hooks'
 import {
   useSessionContextSession,
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
-import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
@@ -59,9 +60,10 @@ export function TerminalPane({
   // The row this pane's grid comes from (POD-3239 B1), marshalled to the DOM
   // component as two primitives — see TerminalDomProps.
   const session = useSessionContextSession(sessionId)
-  // The keyboard belongs to the webview's focus, but UIKit's notifications are
-  // app-wide, so the native side still sees it come up. See ACCESSORY_INSET.
-  const keyboardUp = useKeyboardHeight() > 0 && Platform.OS === 'ios'
+  const insets = useSafeAreaInsets()
+  // Screen.safeBottom already reserves the home-indicator area. Only the
+  // remaining window overlap belongs here, including a hardware shortcut bar.
+  const keyboardInset = Math.max(0, useKeyboardLift() - insets.bottom)
 
   const domRef = useRef<TerminalDomHandle>(null)
   const connRef = useRef<SessionConnection | null>(null)
@@ -163,46 +165,39 @@ export function TerminalPane({
   )
 
   return (
-    // The soft keyboard belongs to the webview's own focus, so the native side
-    // only has to keep the pane above it; inset padding when it shows.
-    <KeyboardAvoidingView behavior="padding" style={styles.pane}>
-      <View style={[styles.body, keyboardUp ? styles.bodyAboveAccessory : null]}>
-        <TerminalDom
-          ref={domRef}
-          dom={{
-            // The pane is one fixed page, never a scrolling document; the crop
-            // viewport inside owns panning. Transparent so `styles.pane` is the
-            // ground during webview startup — no white flash.
-            scrollEnabled: false,
-            contentInsetAdjustmentBehavior: 'never',
-            style: styles.webview,
-          }}
-          sessionId={sessionId}
-          active={active}
-          connected={connected}
-          spawnPending={spawnPending}
-          cols={session?.geometry.cols}
-          rows={session?.geometry.rows}
-          onAttachTerminal={onAttachTerminal}
-          onDetachTerminal={onDetachTerminal}
-          onSendInput={onSendInput}
-          onViewportRequest={onViewportRequest}
-          onControlState={onControlEvent}
-        />
-      </View>
-    </KeyboardAvoidingView>
+    <View
+      testID="terminal-keyboard-avoider"
+      style={[styles.pane, { paddingBottom: keyboardInset }]}
+    >
+      <TerminalDom
+        ref={domRef}
+        dom={{
+          // The pane is one fixed page, never a scrolling document; the crop
+          // viewport inside owns panning. Transparent so `styles.pane` is the
+          // ground during webview startup — no white flash.
+          scrollEnabled: false,
+          automaticallyAdjustContentInsets: false,
+          contentInsetAdjustmentBehavior: 'never',
+          // Expo's DOM webview forwards this to its WKWebView subclass.
+          // The page already provides Submit and the terminal key rows.
+          hideKeyboardAccessoryView: true,
+          style: styles.webview,
+        }}
+        sessionId={sessionId}
+        active={active}
+        connected={connected}
+        spawnPending={spawnPending}
+        cols={session?.geometry.cols}
+        rows={session?.geometry.rows}
+        onAttachTerminal={onAttachTerminal}
+        onDetachTerminal={onDetachTerminal}
+        onSendInput={onSendInput}
+        onViewportRequest={onViewportRequest}
+        onControlState={onControlEvent}
+      />
+    </View>
   )
 }
-
-/**
- * WKWebView's own form accessory — the floating ⌃ ⌄ ✓ capsule iOS puts over the
- * keyboard for the focused xterm input — is a SEPARATE WINDOW. It is not part of
- * the keyboard frame KeyboardAvoidingView compensates for, so it lands on top of
- * the page: the terminal's last rows and the page's Submit/Newline/Paste bar go
- * under it, which are exactly the rows you are typing at (2026-08-28, device).
- * Nothing measures it, so this is its height plus the margin it floats on.
- */
-const ACCESSORY_INSET = 56
 
 const styles = StyleSheet.create({
   pane: {
@@ -213,10 +208,6 @@ const styles = StyleSheet.create({
     // while it boots, so the reveal is dark-on-dark.
     backgroundColor: color.bg,
   },
-  // KeyboardAvoidingView owns its own paddingBottom while the keyboard is up, so
-  // the accessory inset has to ride on a child rather than fight it for the prop.
-  body: { flex: 1, minHeight: 0 },
-  bodyAboveAccessory: { paddingBottom: ACCESSORY_INSET },
   webview: {
     flex: 1,
     backgroundColor: 'transparent',

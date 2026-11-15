@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dimensions, Keyboard, type KeyboardEvent, Platform } from 'react-native'
+import { Keyboard, type KeyboardEvent, Platform, useWindowDimensions } from 'react-native'
 
 /**
  * The keyboard's current overlap with the window bottom, in pt — 0 when hidden.
@@ -26,8 +26,15 @@ import { Dimensions, Keyboard, type KeyboardEvent, Platform } from 'react-native
  * animation rather than after it; Android only reports did-show/did-hide, and
  * its window is resized by the system anyway, so callers there generally want 0.
  * Web returns 0 — the visual-viewport root owns keyboard geometry.
+ *
+ * React Native converts iOS endCoordinates to window coordinates. Keep that
+ * frame and derive its overlap with the current window so rotation and resizing
+ * work regardless of which notification arrives first.
  */
-export function keyboardOverlap(windowHeight: number, event: KeyboardEvent): number {
+export function keyboardOverlap(
+  windowHeight: number,
+  event: Pick<KeyboardEvent, 'endCoordinates'>,
+): number {
   const { screenY, height } = event.endCoordinates
   // A dismissed keyboard reports a frame parked at (or below) the window
   // bottom; overlap is what actually intrudes.
@@ -45,22 +52,31 @@ export function useKeyboardLift(): number {
 }
 
 export function useKeyboardHeight(): number {
-  const [height, setHeight] = useState(0)
+  const { height: windowHeight } = useWindowDimensions()
+  const [endCoordinates, setEndCoordinates] = useState<KeyboardEvent['endCoordinates'] | undefined>(
+    () => (Platform.OS === 'web' ? undefined : Keyboard.metrics?.()),
+  )
   useEffect(() => {
     if (Platform.OS === 'web') return
     const onFrame = (event: KeyboardEvent) => {
-      setHeight(keyboardOverlap(Dimensions.get('window').height, event))
+      setEndCoordinates(event.endCoordinates)
     }
+    const onHide = () => setEndCoordinates(undefined)
     const subs =
       Platform.OS === 'ios'
-        ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
+        ? [
+            Keyboard.addListener('keyboardWillChangeFrame', onFrame),
+            Keyboard.addListener('keyboardDidShow', onFrame),
+            Keyboard.addListener('keyboardWillHide', onFrame),
+            Keyboard.addListener('keyboardDidHide', onHide),
+          ]
         : [
             Keyboard.addListener('keyboardDidShow', onFrame),
-            Keyboard.addListener('keyboardDidHide', () => setHeight(0)),
+            Keyboard.addListener('keyboardDidHide', onHide),
           ]
     return () => {
       for (const sub of subs) sub.remove()
     }
   }, [])
-  return height
+  return endCoordinates ? keyboardOverlap(windowHeight, { endCoordinates }) : 0
 }
