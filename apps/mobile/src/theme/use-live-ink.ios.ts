@@ -21,8 +21,12 @@ export function useLiveInk(ink: string): string {
     }
     const dynamic = (ink as unknown as { dynamic?: Parameters<typeof DynamicColorIOS>[0] }).dynamic
     if (!dynamic) return ink
-    const value = dynamic[scheme]
-    const contrast = dynamic[scheme === 'dark' ? 'highContrastDark' : 'highContrastLight'] ?? value
+    // The theme only builds dynamic colours from string hex values.
+    const value = dynamic[scheme] as string
+    const contrast =
+      (dynamic[scheme === 'dark' ? 'highContrastDark' : 'highContrastLight'] as
+        | string
+        | undefined) ?? value
     return adaptiveColor(value, value, contrast, contrast)
   }, [ink, scheme])
 }
