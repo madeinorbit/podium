@@ -72,6 +72,17 @@ afterEach(() => {
 })
 
 describe('native launch routes', () => {
+  it('fits Start Agent to its content while keeping its transparent native bar', () => {
+    render(<RootLayout />)
+    expect(native.screens['launch/[issueId]']).toMatchObject({
+      presentation: 'formSheet',
+      sheetAllowedDetents: 'fitToContents',
+      headerShown: true,
+      headerTransparent: true,
+      headerLargeTitleEnabled: false,
+    })
+  })
+
   it('presents the flight deck as a full-screen card and leaves the iOS content pop gesture unrestricted', () => {
     render(<RootLayout />)
     expect(native.screens['mission/[missionId]/details']).toMatchObject({

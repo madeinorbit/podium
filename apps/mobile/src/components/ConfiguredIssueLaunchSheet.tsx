@@ -3,7 +3,7 @@ import { spawnIssueAgent } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { useSettingsRecord } from '../client/use-settings-record'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
@@ -33,9 +33,8 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   issue: IssueViewModel | null
   onStarted?: () => void
   onClose: () => void
-  /** The transparent native bar's height. Fit-to-contents measures this view,
-   * so the inset must be part of it, not a scroll view's adjusted inset:
-   * rows pushed below the measured height draw but take no touches. */
+  /** Keep the transparent bar inside the measured, touchable content. The
+   * screens patch skips adding a second bar height for extended content. */
   topInset?: number
 }) {
   const trpc = useTrpc()
@@ -72,7 +71,7 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   }
 
   return (
-    <View collapsable={false} style={styles.sheet}>
+    <>
       <FormSheetHeader
         title="Start Agent"
         confirmLabel="Start"
@@ -87,6 +86,7 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
         style={styles.scroll}
         contentContainerStyle={[styles.body, { paddingTop: topInset + 8 }]}
         contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
         alwaysBounceVertical={false}
       >
         {issue && form ? (
@@ -106,12 +106,13 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
           </Text>
         ) : null}
       </ScrollView>
-    </View>
+    </>
   )
 })
 
 const styles = StyleSheet.create({
-  sheet: { backgroundColor: color.groupedBg },
-  scroll: { flexGrow: 0 },
+  // A direct ScrollView lets screens constrain the viewport to the large
+  // detent when Dynamic Type makes the fitted content taller than the screen.
+  scroll: { flexGrow: 0, backgroundColor: color.groupedBg },
   body: { paddingHorizontal: 16, paddingBottom: 8 },
 })

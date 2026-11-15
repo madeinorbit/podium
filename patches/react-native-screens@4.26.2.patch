@@ -20,6 +20,42 @@ index fa1b77317f609983ae2434764174072e51130550..79a9f22f08289e329043633e034177f4
      override fun setTitleFontFamily(
          config: ScreenStackHeaderConfig,
          titleFontFamily: String?,
+diff --git a/ios/RNSScreenContentWrapper.mm b/ios/RNSScreenContentWrapper.mm
+index 7756a55b7aef23de1ad248e3471cebf69e4aceba..0fbd32e1b6d60c0867764cefbfcb1ff2bb80a1e7 100644
+--- a/ios/RNSScreenContentWrapper.mm
++++ b/ios/RNSScreenContentWrapper.mm
+@@ -10,6 +10,7 @@
+ #import "RNSSafeAreaViewComponentView.h"
+ #import "RNSScreen.h"
+ #import "RNSScreenStack.h"
++#import "RNSScreenStackHeaderConfig.h"
+ 
+ namespace react = facebook::react;
+ 
+@@ -43,6 +44,7 @@ namespace react = facebook::react;
+ {
+   UIViewController *controller = screenCtrl;
+   float headerHeightErrata = 0.f;
++  BOOL contentExtendsUnderNavigationBar = NO;
+ 
+   do {
+     if ([controller isKindOfClass:RNSScreen.class]) {
+@@ -50,9 +52,14 @@ namespace react = facebook::react;
+       if ([currentScreen.screenView registerContentWrapper:self contentHeightErrata:headerHeightErrata]) {
+         break;
+       }
++      contentExtendsUnderNavigationBar = [currentScreen.screenView findHeaderConfig].translucent;
+     } else if ([controller isKindOfClass:RNSNavigationController.class]) {
+       UINavigationBar *navigationBar = static_cast<RNSNavigationController *>(controller).navigationBar;
+-      headerHeightErrata += navigationBar.frame.size.height * !navigationBar.isHidden;
++      // Extended content already includes the transparent bar in its measured
++      // layout. Only a bar outside the content needs adding to the detent.
++      if (!contentExtendsUnderNavigationBar) {
++        headerHeightErrata += navigationBar.frame.size.height * !navigationBar.isHidden;
++      }
+     }
+ 
+     controller = controller.parentViewController;
 diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
 index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5bfd761dc 100644
 --- a/ios/RNSScreenStack.mm
