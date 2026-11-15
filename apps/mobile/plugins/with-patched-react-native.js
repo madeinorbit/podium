@@ -3,8 +3,8 @@ const { withPodfile, withPodfileProperties } = require('expo/config-plugins')
 const MARKER = '# @podium patched React Native source'
 const PREPARE = 'prepare_react_native_project!'
 
-/** The text-cache deadlock fix is in C++, so a prebuilt React.framework would
- * silently bypass it. Keep both clean and incremental prebuilds on source. */
+/** The text-cache and live trait fixes change React Native's compiled source.
+ * A prebuilt React.framework would bypass them. Keep every prebuild on source. */
 function usePatchedReactNative(podfile) {
   if (podfile.includes(MARKER)) return podfile
   if (!podfile.includes(PREPARE)) {

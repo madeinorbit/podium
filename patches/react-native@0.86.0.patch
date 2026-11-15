@@ -34,3 +34,78 @@ index e5c8994b1b876f3e91fada747248c732387b653d..38ede50bab5e9456130b9e23170892b5
      // Add new value to front of list and map
      list_.emplace_front(key, value);
      auto [it, _] = map_.insert_or_assign(key, list_.begin());
+diff --git a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+--- a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+@@ -382,6 +382,17 @@
+
+ @implementation RCTParagraphTextView {
+   CAShapeLayer *_highlightLayer;
++}
++
++- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
++{
++  [super traitCollectionDidChange:previousTraitCollection];
++
++  // Fabric draws text into this view. RCTViewComponentView only invalidates
++  // its own background layer when UIKit resolves new semantic colors.
++  if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
++    [self setNeedsDisplay];
++  }
+ }
+
+ - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+diff --git a/ReactCommon/react/renderer/components/root/RootShadowNode.cpp b/ReactCommon/react/renderer/components/root/RootShadowNode.cpp
+--- a/ReactCommon/react/renderer/components/root/RootShadowNode.cpp
++++ b/ReactCommon/react/renderer/components/root/RootShadowNode.cpp
+@@ -50,7 +50,11 @@
+           /* .props = */ props,
+       });
+
+-  if (layoutConstraints != getConcreteProps().layoutConstraints) {
++  // SurfaceHandler dirties measured descendants on a font-scale change.
++  // The root must enter layout too, even when the window size is unchanged.
++  if (layoutConstraints != getConcreteProps().layoutConstraints ||
++      layoutContext.fontSizeMultiplier !=
++          getConcreteProps().layoutContext.fontSizeMultiplier) {
+     newRootShadowNode->dirtyLayout();
+   }
+
+diff --git a/ReactCommon/react/renderer/components/root/tests/RootShadowNodeTest.cpp b/ReactCommon/react/renderer/components/root/tests/RootShadowNodeTest.cpp
+--- a/ReactCommon/react/renderer/components/root/tests/RootShadowNodeTest.cpp
++++ b/ReactCommon/react/renderer/components/root/tests/RootShadowNodeTest.cpp
+@@ -43,4 +43,34 @@
+   EXPECT_TRUE(clonedWithDifferentLayoutConstraints->layoutIfNeeded());
+ }
+
++TEST(RootShadowNodeTest, cloneWithFontSizeMultiplier) {
++  ContextContainer contextContainer{};
++  PropsParserContext parserContext{-1, contextContainer};
++  auto builder = simpleComponentBuilder();
++  std::shared_ptr<RootShadowNode> root;
++  auto element = Element<RootShadowNode>().reference(root).tag(1);
++  builder.build(element);
++  root->layoutIfNeeded();
++  root->sealRecursive();
++
++  // A font-only update must not hit the clean-root early return. The
++  // surface already invalidates the measured descendants before commit.
++  for (auto multiplier : {3.571f, 0.823f}) {
++    auto context = root->getConcreteProps().layoutContext;
++    context.fontSizeMultiplier = multiplier;
++    auto changed = root->clone(
++        parserContext, root->getConcreteProps().layoutConstraints, context);
++    EXPECT_FALSE(changed->getIsLayoutClean());
++    EXPECT_TRUE(changed->layoutIfNeeded());
++    EXPECT_TRUE(changed->getIsLayoutClean());
++    EXPECT_TRUE(root->getIsLayoutClean());
++    EXPECT_EQ(changed->getFamilyShared(), root->getFamilyShared());
++  }
++
++  auto unchanged = root->clone(
++      parserContext, root->getConcreteProps().layoutConstraints,
++      root->getConcreteProps().layoutContext);
++  EXPECT_FALSE(unchanged->layoutIfNeeded());
++}
++
+ } // namespace facebook::react
