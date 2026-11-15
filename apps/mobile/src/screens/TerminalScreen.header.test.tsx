@@ -3,6 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { processColor } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { TerminalControlState } from '../terminal/terminal-control'
@@ -26,6 +27,12 @@ vi.mock('react-native', async (original) => {
   const real = await original<typeof import('react-native')>()
   return { ...real, Platform: { ...real.Platform, OS: 'ios' } }
 })
+// Light app paper must not bleed into the terminal's fixed dark canvas.
+vi.mock('../theme/platform-colors', async (original) => ({
+  ...(await original<object>()),
+  semanticColor: (name: string, fallback: string) =>
+    name === 'systemBackground' ? '#ffffff' : fallback,
+}))
 vi.mock('expo-router', async () => ({
   useLocalSearchParams: () => ({ sessionId: 'console-header' }),
   useRouter: () => ({ back() {}, push: native.push }),
@@ -143,6 +150,14 @@ it('uses one native title and subtitle without a title overlay, floating identit
     if (node.style.paddingTop) insetAncestors.push(node)
   }
   expect(insetAncestors.map((node) => node.style.paddingTop)).toEqual(['103px'])
+  const ground = screen.getByTestId('console-ground')
+  expect(processColor(getComputedStyle(ground).backgroundColor)).toBe(processColor('#16171a'))
+  const bottomInsets: HTMLElement[] = []
+  for (let node = canvas.parentElement; node; node = node.parentElement) {
+    if (node.style.paddingBottom) bottomInsets.push(node)
+  }
+  expect(bottomInsets).toEqual([ground])
+  expect(ground.style.paddingBottom).toBe('34px')
 })
 
 it('keeps task navigation in the native menu and gates control until attachment', async () => {

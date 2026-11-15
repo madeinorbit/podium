@@ -4,6 +4,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useScreenReadFocus } from '../../../src/client/screen-read-focus'
 import {
   useSessionContextIssue as useIssue,
@@ -21,11 +22,12 @@ import {
   type TerminalControlState,
   terminalControlCopy,
 } from '../../../src/terminal/terminal-control'
-import { color } from '../../../src/theme/theme'
+import { appearancePalette, color } from '../../../src/theme/theme'
 
 /** Native CLI for the same session and task shown by the chat view. */
 export default function TerminalRoute() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   // Route params are RAW URL values, so the brand is applied once here — the
   // DECODE EDGE for this screen, mirroring SessionScreen (POD-362).
   const params = useLocalSearchParams<{ sessionId: SessionId | string[] }>()
@@ -64,7 +66,6 @@ export default function TerminalRoute() {
       subtitle={controlCopy && kindLabel ? `${kindLabel} · ${controlCopy.status}` : kindLabel}
       onBack={() => router.back()}
       backButtonDisplayMode="default"
-      safeBottom
       // UIKit owns the title, subtitle, back label and pull-down menu. There
       // is no context strip below the bar. Screen pays its measured inset
       // once, since the terminal's fixed webview cannot scroll under it.
@@ -86,7 +87,7 @@ export default function TerminalRoute() {
         ) : undefined
       }
     >
-      <View style={styles.pane}>
+      <View testID="console-ground" style={[styles.pane, { paddingBottom: insets.bottom }]}>
         {sessionId ? (
           <TerminalPane
             sessionId={sessionId}
@@ -103,8 +104,8 @@ export default function TerminalRoute() {
 const styles = StyleSheet.create({
   pane: {
     flex: 1,
-    // The terminal paints its own dark canvas, so this shows only in the crop
-    // gutters around the server grid.
-    backgroundColor: color.bgSunken,
+    // The terminal DOM page stays dark in either system appearance. Its
+    // container owns the home-indicator inset so it cannot expose white paper.
+    backgroundColor: appearancePalette.dark.bg,
   },
 })

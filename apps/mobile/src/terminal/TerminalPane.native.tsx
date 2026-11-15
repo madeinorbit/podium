@@ -14,7 +14,7 @@ import {
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { color } from '../theme/theme'
+import { appearancePalette } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
 import type { TerminalDomControlEvent, TerminalDomHandle } from './terminal-dom-bridge'
@@ -75,7 +75,7 @@ export function TerminalPane({
     },
     [active, reduceMotion],
   )
-  // Screen.safeBottom already reserves the home-indicator area. Only the
+  // The console container already reserves the home-indicator area. Only the
   // remaining window overlap belongs here, including a hardware shortcut bar.
   const keyboardInset = Math.max(0, useKeyboardLift(animateKeyboard) - insets.bottom)
 
@@ -218,9 +218,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     overflow: 'hidden',
-    // The page paints `color.bg` itself; this is the ground behind the webview
-    // while it boots, so the reveal is dark-on-dark.
-    backgroundColor: color.bg,
+    // Match the DOM page in either appearance, including webview startup.
+    backgroundColor: appearancePalette.dark.bg,
   },
   webview: {
     flex: 1,
