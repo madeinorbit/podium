@@ -18,6 +18,7 @@ import type { TranscriptItem } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createMobileTestReplica } from '../client/test-replica'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -162,6 +163,40 @@ async function mount(initial?: TranscriptItem[]) {
 }
 
 describe('phone transcript over a live stream that went quiet', () => {
+  it('clears Updating on the first cold-start window when cached rows and count are identical', async () => {
+    const session = { ...working, status: 'hibernated' } as SessionView
+    const io = authority()
+    const replica = createMobileTestReplica()
+    replica.applySnapshot('sessions', [session])
+    replica.putTranscriptWindow(session.sessionId, io.written)
+    replica.finishBootstrap()
+    type Page = Awaited<ReturnType<typeof io.transcriptRead>>
+    let resolve!: (page: Page) => void
+    await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
+      replica,
+      api: {
+        sessions: {
+          transcriptRead: {
+            query: () =>
+              new Promise<Page>((accept) => {
+                resolve = accept
+              }),
+          },
+        },
+      },
+    })
+    await screen.findByText('Checking transcript…')
+    expect(screen.getByText('What is 7 times 7?')).toBeTruthy()
+    await act(async () =>
+      resolve({ items: [...io.written], head: 'c1', tail: 'c3', hasMore: false }),
+    )
+    await waitFor(() => {
+      expect(screen.queryByText('Updating transcript…')).toBeNull()
+      expect(screen.queryByText('Checking transcript…')).toBeNull()
+    })
+    expect(screen.getByText('What is 7 times 7?')).toBeTruthy()
+  })
+
   it.each([
     'unchanged',
     'replaced',
