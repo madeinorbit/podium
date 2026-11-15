@@ -16,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from 'react-native'
@@ -530,6 +531,13 @@ function LogoutRow({ account }: { account: ReturnType<typeof useAccountActions> 
 /** Row glyph size on the Settings board: 20pt in the label colour, 8pt before the text. */
 const ROW_ICON = 20
 
+/**
+ * From the first accessibility text size the value moves under its label, as in
+ * iOS Settings: side by side, a label that fills the row squeezes the value to
+ * nothing. Same threshold as the Work and Tasks rows.
+ */
+const STACKED_ROW_SCALE = 1.6
+
 /** A row that pushes a detail screen: glyph, label, trailing value, chevron. */
 function NavRow({
   icon,
@@ -542,18 +550,30 @@ function NavRow({
   value?: string
   onPress: () => void
 }) {
+  const stacked = useWindowDimensions().fontScale >= STACKED_ROW_SCALE
   return (
     <PressableScale
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      style={({ pressed }) => [
+        styles.row,
+        stacked && styles.stackedRow,
+        pressed && styles.rowPressed,
+      ]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityValue={value ? { text: value } : undefined}
     >
       {icon ? <Icon as={icon} size={ROW_ICON} color={color.text} /> : null}
-      <Text style={styles.rowLabel}>{label}</Text>
+      {stacked ? (
+        <View style={styles.stackedText}>
+          <Text style={styles.rowLabel}>{label}</Text>
+          {value ? <Text style={styles.stackedValue}>{value}</Text> : null}
+        </View>
+      ) : (
+        <Text style={styles.rowLabel}>{label}</Text>
+      )}
       <View style={styles.navTrail}>
-        {value ? (
+        {value && !stacked ? (
           <Text style={styles.navValue} numberOfLines={1}>
             {value}
           </Text>
@@ -650,6 +670,17 @@ function MachineStatusRow({ machine }: { machine: SettingsMachineStatus }) {
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const stacked = useWindowDimensions().fontScale >= STACKED_ROW_SCALE
+  if (stacked) {
+    return (
+      <View style={[styles.row, styles.stackedRow]}>
+        <View style={styles.stackedText}>
+          <Text style={styles.rowLabel}>{label}</Text>
+          <Text style={styles.stackedValue}>{value}</Text>
+        </View>
+      </View>
+    )
+  }
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -731,6 +762,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: grid(3),
   },
   rowPressed: { backgroundColor: color.surfacePressed },
+  stackedRow: { paddingVertical: grid(2) },
+  stackedText: { flex: 1, gap: 2 },
+  stackedValue: { ...sans(400), color: color.textDim, fontSize: font.small },
   tallRow: {
     minHeight: 56,
     flexDirection: 'row',
