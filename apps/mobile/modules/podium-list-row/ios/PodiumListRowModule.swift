@@ -217,7 +217,9 @@ final class SearchStartsHiddenView: UIView {
     guard !settled else { return }
     self.canTuck = canTuck
     self.onReady = onReady
-    if canTuck == false || (canTuck == nil && started) { finish() }
+    // Registration belongs to every mounted List, even when the launch tuck
+    // is forbidden. Finishing here used to skip didMoveToWindow entirely.
+    if started { tuck() }
     else { startIfReady() }
   }
 
@@ -235,9 +237,8 @@ final class SearchStartsHiddenView: UIView {
   }
 
   private func startIfReady() {
-    guard !started, !settled, canTuck == true, let window else { return }
+    guard !started, !settled, window != nil else { return }
     started = true
-    window.addGestureRecognizer(touchObserver)
     tuck()
   }
 
@@ -267,9 +268,22 @@ final class SearchStartsHiddenView: UIView {
 
   private func tuck() {
     guard !settled, !preparing else { return }
-    guard canTuck == true, window != nil, !touchObserver.touched else { finish(); return }
+    guard window != nil else { finish(); return }
     preparing = true
     defer { preparing = false }
+    // Restore the original attachment boundary before making any launch-only
+    // decision. Native large-title and scroll-edge tracking need this on later
+    // tabs too; UIKit's implicit discovery does not reach the SwiftUI List.
+    guard let list = trackedList(), let screen = searchScreen(),
+      let search = screen.navigationItem.searchController,
+      list.window === window, list.contentSize.height > 0
+    else { retry(); return }
+    if screen.contentScrollView(for: .top) !== list {
+      screen.setContentScrollView(list, for: .top)
+    }
+    guard let canTuck else { return }
+    guard canTuck, !touchObserver.touched else { finish(); return }
+    if touchObserver.view == nil { window?.addGestureRecognizer(touchObserver) }
     if launchOverlay == nil, !foundLaunchOverlay {
       launchOverlay = findLaunchOverlay()
       foundLaunchOverlay = launchOverlay != nil
@@ -283,16 +297,12 @@ final class SearchStartsHiddenView: UIView {
     overlay.isUserInteractionEnabled = false
     let opacity = overlay.layer.presentation()?.opacity ?? overlay.layer.opacity
     guard overlay.window === window, !overlay.isHidden, opacity >= 0.999 else { finish(); return }
-    guard let list = trackedList(), let screen = searchScreen(),
-      let search = screen.navigationItem.searchController,
-      let navigationBar = screen.navigationController?.navigationBar,
-      list.contentSize.height > 0
+    guard let navigationBar = screen.navigationController?.navigationBar
     else { retry(); return }
     guard !search.isActive, search.searchBar.text?.isEmpty ?? true,
       !list.isTracking, !list.isDragging, !list.isDecelerating,
       list.refreshControl?.isRefreshing != true
     else { finish(); return }
-    screen.setContentScrollView(list, for: .top)
     UIView.performWithoutAnimation {
       screen.navigationController?.view.layoutIfNeeded()
       list.layoutIfNeeded()
