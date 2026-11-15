@@ -6,6 +6,10 @@ import { useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { LAUNCH_TRANSITION_BUDGET_MS, LaunchBoundary, useLaunchReadySignal } from './launch'
 
 const motion = vi.hoisted(() => ({ reduced: true }))
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  return { ...actual, Platform: { ...actual.Platform, OS: 'ios' } }
+})
 vi.mock('expo-router', () => ({
   useFocusEffect: (effect: EffectCallback) => useEffect(effect, [effect]),
   Stack: { SearchBar: () => null },
@@ -73,7 +77,7 @@ describe('LaunchBoundary', () => {
     )
     const overlay = view.getByTestId('boot-splash').parentElement
     if (!overlay) throw new Error('Launch overlay is missing')
-    expect(getComputedStyle(overlay).pointerEvents).toBe('auto')
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
 
     view.rerender(
       <LaunchBoundary fontsReady>
@@ -98,7 +102,7 @@ describe('LaunchBoundary', () => {
     expect(search.canTuck).toBe(true)
     const overlay = view.getByTestId('boot-splash').parentElement
     if (!overlay) throw new Error('Launch overlay is missing')
-    expect(getComputedStyle(overlay).pointerEvents).toBe('auto')
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
     act(() => search.onReady())
     await waitFor(() => expect(view.queryByTestId('boot-splash')).toBeNull())
     expect(search.canTuck).toBe(false)
@@ -120,7 +124,7 @@ describe('LaunchBoundary', () => {
     expect(view.queryByTestId('boot-splash')).toBeNull()
   })
 
-  it('releases reveal after 500ms while the untouched startup probe keeps waiting for attachment', async () => {
+  it('releases reveal after 500ms and revokes native preparation before visible content can move', async () => {
     vi.useFakeTimers()
     const route = (fontsReady: boolean) => (
       <LaunchBoundary fontsReady={fontsReady}>
@@ -136,7 +140,7 @@ describe('LaunchBoundary', () => {
     act(() => vi.advanceTimersByTime(LAUNCH_TRANSITION_BUDGET_MS - 1))
     expect(search.canTuck).toBe(true)
     await act(async () => vi.advanceTimersByTime(1))
-    expect(search.canTuck).toBe(true)
+    expect(search.canTuck).toBe(false)
     expect(view.queryByTestId('boot-splash')).toBeNull()
     // A late native completion retires the probe without another reveal hold.
     act(() => search.onReady())
@@ -156,7 +160,7 @@ describe('LaunchBoundary', () => {
     )
     await act(async () => vi.advanceTimersByTime(LAUNCH_TRANSITION_BUDGET_MS))
     expect(start).toHaveBeenCalledTimes(1)
-    expect(search.canTuck).toBe(true)
+    expect(search.canTuck).toBe(false)
     const overlay = view.getByTestId('boot-splash').parentElement
     if (!overlay) throw new Error('Launch overlay is missing')
     expect(getComputedStyle(overlay).pointerEvents).toBe('none')

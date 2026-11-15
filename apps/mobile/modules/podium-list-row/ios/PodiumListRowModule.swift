@@ -158,9 +158,9 @@ final class TouchMovementRecognizer: UIGestureRecognizer {
   }
 }
 
-/// Prepare initial search before reveal when attachment is ready. A delayed
-/// attachment may tuck once without animation only while the list is untouched
-/// and at rest. The JS reveal deadline never cancels a native scroll animation.
+/// Prepare initial search while the launch surface is still opaque. Native
+/// opacity is checked as well as JS permission: a delayed prop commit cannot
+/// move an already-visible list. No scroll animation is ever started.
 private struct SearchStartsHiddenModifier: ViewModifier {
   let canTuck: Bool?
   let dispatcher: EventDispatcher
@@ -204,8 +204,13 @@ private final class InitialSearchTouchObserver: UIGestureRecognizer {
 final class SearchStartsHiddenView: UIView {
   private var started = false
   private var settled = false
+  private var preparing = false
   private var canTuck: Bool?
   private var onReady: (() -> Void)?
+  private var retryAttempt = 0
+  private var retryWork: DispatchWorkItem?
+  private weak var launchOverlay: UIView?
+  private var foundLaunchOverlay = false
   private let touchObserver = InitialSearchTouchObserver(target: nil, action: nil)
 
   func configure(canTuck: Bool?, onReady: @escaping () -> Void) {
@@ -222,60 +227,110 @@ final class SearchStartsHiddenView: UIView {
     else { startIfReady() }
   }
 
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    // SwiftUI can attach/layout the List after the probe enters the window.
+    // Try in that layout turn rather than waiting for the next 50ms poll.
+    if started { tuck() }
+  }
+
   private func startIfReady() {
     guard !started, !settled, canTuck == true, let window else { return }
     started = true
-    // Watch from attachment, including while the collection/search controller
-    // is still mounting. This observer fails at touch-down and takes no action.
     window.addGestureRecognizer(touchObserver)
-    DispatchQueue.main.async { [weak self] in self?.tuck(attempt: 0) }
+    tuck()
   }
 
   private func finish() {
     guard !settled else { return }
     settled = true
+    retryWork?.cancel()
+    retryWork = nil
     touchObserver.view?.removeGestureRecognizer(touchObserver)
     onReady?()
     onReady = nil
   }
 
-  private func retry(attempt: Int) {
-    // Attachment has its original 2s retry budget. It does not hold reveal:
-    // JS releases its separate launch hold after 500ms, even without an event.
-    if attempt < 40 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-        self?.tuck(attempt: attempt + 1)
-      }
-    } else { finish() }
+  private func retry() {
+    guard retryWork == nil else { return }
+    guard retryAttempt < 40 else { finish(); return }
+    let immediate = retryAttempt == 0
+    retryAttempt += 1
+    let work = DispatchWorkItem { [weak self] in
+      self?.retryWork = nil
+      self?.tuck()
+    }
+    retryWork = work
+    if immediate { DispatchQueue.main.async(execute: work) }
+    else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work) }
   }
 
-  private func tuck(attempt: Int) {
-    guard !settled else { return }
+  private func tuck() {
+    guard !settled, !preparing else { return }
     guard canTuck == true, window != nil, !touchObserver.touched else { finish(); return }
+    preparing = true
+    defer { preparing = false }
+    if launchOverlay == nil, !foundLaunchOverlay {
+      launchOverlay = findLaunchOverlay()
+      foundLaunchOverlay = launchOverlay != nil
+    }
+    guard let overlay = launchOverlay else {
+      if foundLaunchOverlay { finish() } else { retry() }
+      return
+    }
+    // Enforce this on UIKit before readiness can start the native-driver fade,
+    // as well as the overlay's initial React pointerEvents prop.
+    overlay.isUserInteractionEnabled = false
+    let opacity = overlay.layer.presentation()?.opacity ?? overlay.layer.opacity
+    guard overlay.window === window, !overlay.isHidden, opacity >= 0.999 else { finish(); return }
     guard let list = trackedList(), let screen = searchScreen(),
-      let search = screen.navigationItem.searchController, list.contentSize.height > 0
-    else { retry(attempt: attempt); return }
+      let search = screen.navigationItem.searchController,
+      let navigationBar = screen.navigationController?.navigationBar,
+      list.contentSize.height > 0
+    else { retry(); return }
+    guard !search.isActive, search.searchBar.text?.isEmpty ?? true,
+      !list.isTracking, !list.isDragging, !list.isDecelerating,
+      list.refreshControl?.isRefreshing != true
+    else { finish(); return }
     screen.setContentScrollView(list, for: .top)
-    let bar = search.searchBar
-    let height = bar.bounds.height
-    guard height > 1 else { retry(attempt: attempt); return }
+    UIView.performWithoutAnimation {
+      screen.navigationController?.view.layoutIfNeeded()
+      list.layoutIfNeeded()
+    }
+    guard list.window === window, search.searchBar.window === window,
+      navigationBar.window === window
+    else { retry(); return }
     let rest = -list.adjustedContentInset.top
     let presented = list.layer.presentation()?.bounds.origin.y ?? list.contentOffset.y
-    guard !search.isActive, bar.text?.isEmpty ?? true,
-      !list.isTracking, !list.isDragging, !list.isDecelerating,
-      list.refreshControl?.isRefreshing != true,
-      abs(list.contentOffset.y - rest) <= 1, abs(presented - rest) <= 1
-    else { finish(); return }
-    // This is an immediate state change, not an animated scroll with disabled
-    // drawing. UIKit must finish large-title/search layout before we release
-    // launch; there is no in-flight offset to cancel or snap back on a timer.
+    guard abs(list.contentOffset.y - rest) <= 1, abs(presented - rest) <= 1 else { finish(); return }
+    // Convert to the list's viewport coordinates, independent of its offset.
+    let viewportY = list.bounds.minY
+    let navigationFrame = navigationBar.convert(navigationBar.bounds, to: list).offsetBy(dx: 0, dy: -viewportY)
+    let searchFrame = search.searchBar.convert(search.searchBar.bounds, to: list).offsetBy(dx: 0, dy: -viewportY)
+    guard let target = initialSearchTuckOffset(
+      adjustedTopInset: list.adjustedContentInset.top,
+      contentTopInset: list.contentInset.top,
+      navigationFrame: navigationFrame,
+      searchFrame: searchFrame
+    ) else { retry(); return }
     UIView.performWithoutAnimation {
-      list.setContentOffset(CGPoint(x: list.contentOffset.x, y: rest + height), animated: false)
+      list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: false)
       list.layoutIfNeeded()
-      screen.navigationController?.navigationBar.setNeedsLayout()
-      screen.navigationController?.navigationBar.layoutIfNeeded()
+      navigationBar.setNeedsLayout()
+      navigationBar.layoutIfNeeded()
     }
     finish()
+  }
+
+  private func findLaunchOverlay() -> UIView? {
+    guard let window else { return nil }
+    var queue: [UIView] = [window]
+    while !queue.isEmpty {
+      let view = queue.removeFirst()
+      if view.accessibilityIdentifier == "podium-launch-overlay" { return view }
+      queue.append(contentsOf: view.subviews)
+    }
+    return nil
   }
 
   /// The List's collection view: the first one in the nearest enclosing subtree.

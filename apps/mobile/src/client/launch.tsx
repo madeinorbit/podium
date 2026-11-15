@@ -146,9 +146,11 @@ export function LaunchBoundary({
             <View style={styles.content}>{children}</View>
             {showSplash ? (
               <Animated.View
-                // A native fade can finish before its JS completion callback.
-                // Once the route is ready, its first visible controls own taps.
-                pointerEvents={ready ? 'none' : 'auto'}
+                // On iOS this is the INITIAL native prop. Changing auto -> none
+                // at fade start can outrun Fabric's prop commit.
+                pointerEvents={Platform.OS === 'ios' || ready ? 'none' : 'auto'}
+                collapsable={false}
+                testID="podium-launch-overlay"
                 style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
               >
                 <LaunchSplash source={statusSource} />
