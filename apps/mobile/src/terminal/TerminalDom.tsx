@@ -23,6 +23,7 @@ import type { DOMProps, JSONValue } from 'expo/build/dom/dom.types'
 import { useDOMImperativeHandle } from 'expo/dom'
 import type { Ref } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { TerminalKeyboardDismiss } from './TerminalKeyboardDismiss'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
 import { type TerminalControlView, terminalControlView } from './terminal-control'
 import {
@@ -200,6 +201,7 @@ export default function TerminalDom({
         toolbarRef={toolbarRef}
         ready={ready}
         theme={LEGACY_MOBILE_KEYBOARD_THEME}
+        trailingAction={<TerminalKeyboardDismiss containerRef={containerRef} />}
       />
     </div>
   )
