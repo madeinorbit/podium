@@ -5,7 +5,7 @@ index fa1b77317f609983ae2434764174072e51130550..79a9f22f08289e329043633e034177f4
 @@ -124,6 +124,17 @@ class ScreenStackHeaderConfigViewManager :
          config.setTitle(title)
      }
-
+ 
 +    // The navigation item subtitle is an iOS 26 UIKit feature.
 +    override fun setSubtitle(
 +        config: ScreenStackHeaderConfig,
@@ -57,15 +57,21 @@ index 7756a55b7aef23de1ad248e3471cebf69e4aceba..0fbd32e1b6d60c0867764cefbfcb1ff2
  
      controller = controller.parentViewController;
 diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
-index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5bfd761dc 100644
+index 192f5d2c77192f323844b0d11ee179081891e7a4..ecf2feab001279d2ad4629057963ddc0b934f54e 100644
 --- a/ios/RNSScreenStack.mm
 +++ b/ios/RNSScreenStack.mm
-@@ -38,7 +38,15 @@ namespace react = facebook::react;
-
+@@ -38,7 +38,43 @@ namespace react = facebook::react;
+ 
  @end
-
+ 
 -@implementation RNSNavigationController
++@interface RNSNavigationController ()
++- (void)rnscreens_deferHeaderForViewController:(UIViewController *)viewController;
++@end
++
 +@implementation RNSNavigationController {
++  // The screen whose header UIKit asked for while this stack was off-window.
++  __weak UIViewController *_deferredHeaderViewController;
 +#if !TARGET_OS_TV
 +  __weak UINavigationItem *_scrollToTopNavigationItem;
 +  CGFloat _scrollToTopLayoutWidth;
@@ -74,11 +80,33 @@ index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5
 +  CGFloat _scrollToTopExpandedBarHeight;
 +#endif
 +}
-
++
++// A tab re-show runs UINavigationController's willShow delegate from
++// viewWillAppear, before this stack is back in a window and before its traits
++// are current. Bar items rebuilt there after a hidden light/dark change come
++// back without their Liquid Glass platter. viewIsAppearing runs with the view
++// in the window and current traits, still before the first visible frame.
++- (void)rnscreens_deferHeaderForViewController:(UIViewController *)viewController
++{
++  _deferredHeaderViewController = viewController;
++}
++
++- (void)viewIsAppearing:(BOOL)animated
++{
++  [super viewIsAppearing:animated];
++  UIViewController *screen = _deferredHeaderViewController;
++  _deferredHeaderViewController = nil;
++  if (screen == nil || screen != self.topViewController || ![screen.view isKindOfClass:RNSScreenView.class]) {
++    return;
++  }
++  RNSScreenStackHeaderConfig *config = ((RNSScreenView *)screen.view).findHeaderConfig;
++  [RNSScreenStackHeaderConfig willShowViewController:screen animated:NO withConfig:config];
++}
+ 
  #if !TARGET_OS_TV
  - (UIViewController *)childViewControllerForStatusBarStyle
-@@ -76,6 +84,43 @@ namespace react = facebook::react;
-
+@@ -76,6 +112,43 @@ namespace react = facebook::react;
+ 
      [self maybeUpdateHeaderLayoutInfoInShadowTree:screenController];
    }
 +
@@ -119,9 +147,9 @@ index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5
 +  // Use today's safe area and content inset; only the measured title delta is cached.
 +  return topInset + MAX(0, _scrollToTopExpandedBarHeight - barHeight);
  }
-
+ 
  - (UIInterfaceOrientationMask)supportedInterfaceOrientations
-@@ -145,7 +190,11 @@ namespace react = facebook::react;
+@@ -145,7 +218,11 @@ namespace react = facebook::react;
    } else if (tabScreenController.tabScreenComponentView.shouldUseRepeatedTabSelectionScrollToTopSpecialEffect) {
      UIScrollView *scrollView =
          [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:[[self topViewController] view]];
@@ -131,15 +159,28 @@ index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5
      return [scrollView rnscreens_scrollToTop];
 +#endif
    }
-
+ 
    return false;
+@@ -248,6 +325,12 @@ namespace react = facebook::react;
+     // if the current view is a snapshot, config was already removed so we don't trigger the method
+     return;
+   }
++  if (navigationController.view.window == nil &&
++      [navigationController isKindOfClass:RNSNavigationController.class]) {
++    // Off-window (a tab being re-shown): apply once the stack is in its window.
++    [(RNSNavigationController *)navigationController rnscreens_deferHeaderForViewController:viewController];
++    return;
++  }
+   auto *screenView = static_cast<RNSScreenView *>(viewController.view);
+   [RNSScreenStackHeaderConfig willShowViewController:viewController
+                                             animated:animated
 diff --git a/ios/RNSScreenStackHeaderConfig.h b/ios/RNSScreenStackHeaderConfig.h
 index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09399a94bb 100644
 --- a/ios/RNSScreenStackHeaderConfig.h
 +++ b/ios/RNSScreenStackHeaderConfig.h
 @@ -23,6 +23,8 @@
  NS_ASSUME_NONNULL_BEGIN
-
+ 
  @property (nonatomic, retain) NSString *title;
 +@property (nonatomic, retain, nullable) NSString *subtitle;
 +@property (nonatomic, retain, nullable) NSString *largeSubtitle;
@@ -147,10 +188,23 @@ index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09
  @property (nonatomic, retain) NSNumber *titleFontSize;
  @property (nonatomic, retain) NSString *titleFontWeight;
 diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
-index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..81177e3daa4d2a09242b31e0aaf224641e8f91da 100644
+index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..fa16eba3621d1e173ff422642520f43f184fa8fe 100644
 --- a/ios/RNSScreenStackHeaderConfig.mm
 +++ b/ios/RNSScreenStackHeaderConfig.mm
-@@ -648,6 +648,12 @@ RNS_IGNORE_SUPER_CALL_END
+@@ -513,7 +513,11 @@ RNS_IGNORE_SUPER_CALL_END
+     return;
+   }
+ 
+-  navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
++  // Reapplying the same override during header/page/focus updates can discard
++  // iOS 26 bar-button glass. Let UIKit inherit traits without another transition.
++  if (navctr.navigationBar.overrideUserInterfaceStyle != config.userInterfaceStyle) {
++    navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
++  }
+ 
+ #if !TARGET_OS_TV
+   [config configureBackItem:prevItem withPrevVC:prevVC];
+@@ -648,6 +652,12 @@ RNS_IGNORE_SUPER_CALL_END
    // This assignment should be done after `navitem.titleView = ...` assignment (iOS 16.0 bug).
    // See: https://github.com/software-mansion/react-native-screens/issues/1570 (comments)
    navitem.title = config.title;
@@ -163,9 +217,9 @@ index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..81177e3daa4d2a09242b31e0aaf22464
    navitem.leftBarButtonItems = [config barButtonItemsFromConfigs:config.headerLeftBarButtonItems
                                                  withCurrentItems:navitem.leftBarButtonItems];
    navitem.rightBarButtonItems = [config barButtonItemsFromConfigs:config.headerRightBarButtonItems
-@@ -1023,6 +1029,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
+@@ -1023,6 +1033,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
    }
-
+ 
    _title = RCTNSStringFromStringNilIfEmpty(newScreenProps.title);
 +  _subtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.subtitle);
 +  _largeSubtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.largeSubtitle);
@@ -179,19 +233,19 @@ index 6a481fb4e17b2fa0d29775f9c857ca776e57a2af..96bbe07097a18a629cb8f9d97f5bb643
 @@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
   */
  - (BOOL)rnscreens_scrollToTop;
-
+ 
 +/** Scrolls to a measured top inset, including the expanded navigation title. */
 +- (BOOL)rnscreens_scrollToTopWithTopInset:(CGFloat)topInset;
 +
  @end
-
+ 
  NS_ASSUME_NONNULL_END
 diff --git a/ios/UIScrollView+RNScreens.mm b/ios/UIScrollView+RNScreens.mm
 index c877d5c2e2ad37032736172d38651c7561805989..9dabed5383a148b5aa7188b18960a0cd7f0d1d19 100644
 --- a/ios/UIScrollView+RNScreens.mm
 +++ b/ios/UIScrollView+RNScreens.mm
 @@ -4,8 +4,13 @@
-
+ 
  - (BOOL)rnscreens_scrollToTop
  {
 -  if ([self contentOffset].y != -self.adjustedContentInset.top) {
@@ -205,7 +259,7 @@ index c877d5c2e2ad37032736172d38651c7561805989..9dabed5383a148b5aa7188b18960a0cd
 +    [self setContentOffset:CGPointMake(self.contentOffset.x, -topInset) animated:YES];
      return YES;
    }
-
+ 
 diff --git a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
 index a51d8648567cff29cd2be0d5262bd15c6fc69c61..7eb4179e6acf42e13fbe2458cd041a3216d93cbf 100644
 --- a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
@@ -232,245 +286,3 @@ index a80d9fef0c0ab5ce8221c5e0c7fae65162bc6164..38660fa7e0f41b91568760b525b221a6
    titleFontFamily?: string | undefined;
    titleFontSize?: CT.Int32 | undefined;
    titleFontWeight?: string | undefined;
-diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
---- a/ios/RNSScreenStackHeaderConfig.mm
-+++ b/ios/RNSScreenStackHeaderConfig.mm
-@@ -513,7 +513,11 @@
-     return;
-   }
-
--  navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
-+  // Reapplying the same override during header/page/focus updates can discard
-+  // iOS 26 bar-button glass. Let UIKit inherit traits without another transition.
-+  if (navctr.navigationBar.overrideUserInterfaceStyle != config.userInterfaceStyle) {
-+    navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
-+  }
-
- #if !TARGET_OS_TV
-   [config configureBackItem:prevItem withPrevVC:prevVC];
-diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
---- a/ios/RNSScreenStack.mm
-+++ b/ios/RNSScreenStack.mm
-@@ -38,7 +38,14 @@
-
- @end
-
-+@interface RNSNavigationController ()
-+- (void)rnscreens_refreshHeaderColorAppearance;
-+@end
-+
- @implementation RNSNavigationController {
-+  UITraitCollection *_lastVisibleHeaderTraits;
-+  BOOL _headerAppearanceVisible;
-+  BOOL _headerAppearanceNeedsRefresh;
- #if !TARGET_OS_TV
-   __weak UINavigationItem *_scrollToTopNavigationItem;
-   CGFloat _scrollToTopLayoutWidth;
-@@ -46,6 +53,60 @@
-   UIUserInterfaceSizeClass _scrollToTopVerticalSizeClass;
-   CGFloat _scrollToTopExpandedBarHeight;
- #endif
-+}
-+
-+// A tab can hide/show this controller without changing its top screen, so
-+// UINavigationController's willShow delegate does not reapply that header.
-+- (void)viewWillAppear:(BOOL)animated
-+{
-+  [super viewWillAppear:animated];
-+  UITraitCollection *traits = self.traitCollection;
-+  BOOL colorsChanged = _lastVisibleHeaderTraits != nil &&
-+      [traits hasDifferentColorAppearanceComparedToTraitCollection:_lastVisibleHeaderTraits];
-+  _headerAppearanceVisible = YES;
-+  if (_headerAppearanceNeedsRefresh || colorsChanged) {
-+    [traits performAsCurrentTraitCollection:^{
-+      [self rnscreens_refreshHeaderColorAppearance];
-+    }];
-+  }
-+  _headerAppearanceNeedsRefresh = NO;
-+  _lastVisibleHeaderTraits = traits;
-+}
-+
-+- (void)viewWillDisappear:(BOOL)animated
-+{
-+  _lastVisibleHeaderTraits = self.traitCollection;
-+  _headerAppearanceVisible = NO;
-+  [super viewWillDisappear:animated];
-+}
-+
-+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
-+{
-+  [super traitCollectionDidChange:previousTraitCollection];
-+  if (_lastVisibleHeaderTraits == nil ||
-+      ![self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
-+    return;
-+  }
-+  if (_headerAppearanceVisible) {
-+    // UIKit updates visible glass itself. Keep its applied traits current.
-+    _lastVisibleHeaderTraits = self.traitCollection;
-+  } else {
-+    // Keep this latched even if another hidden switch restores the old style.
-+    _headerAppearanceNeedsRefresh = YES;
-+  }
-+}
-+
-+- (void)rnscreens_refreshHeaderColorAppearance
-+{
-+  UIViewController *screen = self.topViewController;
-+  if (![screen.view isKindOfClass:RNSScreenView.class]) {
-+    return;
-+  }
-+  RNSScreenStackHeaderConfig *config = ((RNSScreenView *)screen.view).findHeaderConfig;
-+  if (config != nil) {
-+    [RNSScreenStackHeaderConfig willShowViewController:screen animated:NO withConfig:config];
-+    [self.navigationBar setNeedsLayout];
-+  }
- }
-
- #if !TARGET_OS_TV
-diff --git a/tests/ios/RNSNavigationControllerAppearanceTests.mm b/tests/ios/RNSNavigationControllerAppearanceTests.mm
-new file mode 100644
---- /dev/null
-+++ b/tests/ios/RNSNavigationControllerAppearanceTests.mm
-@@ -0,0 +1,142 @@
-+#import <XCTest/XCTest.h>
-+#import "../../ios/RNSScreenStack.h"
-+
-+// Add this fixture to an app-hosted iOS XCTest target linked with RNScreens.
-+// It exercises the production visibility/trait lifecycle; material rendering
-+// still needs the hidden-tab simulator regression.
-+@interface RNSNavigationController (AppearanceTests)
-+- (void)rnscreens_refreshHeaderColorAppearance;
-+@end
-+
-+@interface HeaderAppearanceNavigationController : RNSNavigationController
-+@property (nonatomic, strong) UITraitCollection *testTraits;
-+@property (nonatomic, strong) UITraitCollection *reappliedTraits;
-+@property (nonatomic) NSUInteger refreshCount;
-+@end
-+
-+@implementation HeaderAppearanceNavigationController
-+- (UITraitCollection *)traitCollection
-+{
-+  return self.testTraits ?: [super traitCollection];
-+}
-+
-+- (void)rnscreens_refreshHeaderColorAppearance
-+{
-+  self.refreshCount++;
-+  self.reappliedTraits = UITraitCollection.currentTraitCollection;
-+}
-+@end
-+
-+@interface RNSNavigationControllerAppearanceTests : XCTestCase
-+@property (nonatomic, strong) HeaderAppearanceNavigationController *navigation;
-+@end
-+
-+@implementation RNSNavigationControllerAppearanceTests
-+- (void)setUp
-+{
-+  [super setUp];
-+  self.navigation = [[HeaderAppearanceNavigationController alloc]
-+      initWithRootViewController:[UIViewController new]];
-+  self.navigation.testTraits = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
-+  [self.navigation loadViewIfNeeded];
-+}
-+
-+- (void)show
-+{
-+  [self.navigation beginAppearanceTransition:YES animated:NO];
-+  [self.navigation endAppearanceTransition];
-+}
-+
-+- (void)hide
-+{
-+  [self.navigation beginAppearanceTransition:NO animated:NO];
-+  [self.navigation endAppearanceTransition];
-+}
-+
-+- (void)changeTraits:(UITraitCollection *)traits
-+{
-+  UITraitCollection *previous = self.navigation.testTraits;
-+  self.navigation.testTraits = traits;
-+  [self.navigation traitCollectionDidChange:previous];
-+}
-+
-+- (void)testColdAndUnchangedAppearancesDoNotRebuildHeader
-+{
-+  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
-+  [self show];
-+  [self hide];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 0U);
-+}
-+
-+- (void)testHiddenAppearanceReappliesOnceWithCurrentTraitsAndSameScreen
-+{
-+  [self show];
-+  UIViewController *screen = self.navigation.topViewController;
-+  UINavigationBar *bar = self.navigation.navigationBar;
-+  [self hide];
-+  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
-+  XCTAssertEqual(self.navigation.refreshCount, 0U);
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 1U);
-+  XCTAssertEqual(self.navigation.reappliedTraits.userInterfaceStyle, UIUserInterfaceStyleLight);
-+  XCTAssertEqual(self.navigation.topViewController, screen);
-+  XCTAssertEqual(self.navigation.navigationBar, bar);
-+  [self hide];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 1U);
-+}
-+
-+- (void)testVisibleAppearanceAlreadyUpdatedByUIKitNeedsNoFocusRebuild
-+{
-+  [self show];
-+  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
-+  [self hide];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 0U);
-+}
-+
-+- (void)testHiddenRoundTripRemainsDirtyEvenWhenFinalStyleMatches
-+{
-+  [self show];
-+  [self hide];
-+  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
-+  [self changeTraits:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 1U);
-+  XCTAssertEqual(self.navigation.reappliedTraits.userInterfaceStyle, UIUserInterfaceStyleDark);
-+}
-+
-+- (void)testDeferredTraitDeliveryIsDetectedOnAppearance
-+{
-+  [self show];
-+  [self hide];
-+  self.navigation.testTraits = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 1U);
-+}
-+
-+- (void)testHiddenContrastChangeAlsoRefreshes
-+{
-+  [self show];
-+  [self hide];
-+  [self changeTraits:[UITraitCollection traitCollectionWithTraitsFromCollections:@[
-+    [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark],
-+    [UITraitCollection traitCollectionWithAccessibilityContrast:UIAccessibilityContrastHigh]
-+  ]]];
-+  [self show];
-+  XCTAssertEqual(self.navigation.refreshCount, 1U);
-+  XCTAssertEqual(self.navigation.reappliedTraits.accessibilityContrast, UIAccessibilityContrastHigh);
-+}
-+
-+- (void)testCancelledWillDisappearWithoutTraitChangeDoesNotRebuild
-+{
-+  [self show];
-+  UIViewController *screen = self.navigation.topViewController;
-+  [self.navigation viewWillDisappear:YES];
-+  [self.navigation viewWillAppear:YES];
-+  [self.navigation viewDidAppear:YES];
-+  XCTAssertEqual(self.navigation.refreshCount, 0U);
-+  XCTAssertEqual(self.navigation.topViewController, screen);
-+}
-+@end
