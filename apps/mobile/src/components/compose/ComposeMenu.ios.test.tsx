@@ -116,7 +116,10 @@ it('shows a full-width RN label until the native menu can mount at its measured 
   expect(native.host).toEqual({})
   layoutMenu(0, 0)
   expect(native.host).toEqual({})
-  layoutMenu(320, 76)
+  // Native parent layout can be delivered before the label measurement.
+  act(() => native.hostLayout?.(event(320, 76)))
+  expect(native.host).toMatchObject({ style: { width: 320, minHeight: 76 } })
+  act(() => native.labelLayout?.(event(0, 0)))
   expect(native.host).toMatchObject({ style: { width: 320, minHeight: 76 } })
   expect(screen.getAllByText('MBP-Cofo.local')).toHaveLength(1)
   expect(getComputedStyle(screen.getByTestId('compose-menu-label')).width).toBe('320px')

@@ -40,7 +40,12 @@ export function ComposeMenu({
       // Opening a UIMenu must leave the composing sheet and keyboard in place.
       // Blurring here resizes the sheet while UIKit is presenting its menu.
       onLayout={(event) => {
-        if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width)
+        const measured = event.nativeEvent.layout
+        if (measured.width <= 0) return
+        // The parent layout can arrive before the label's event. Preserve
+        // its measured height too, including a tall Dynamic Type row.
+        if (width === undefined && measured.height > 0) setContentHeight(measured.height)
+        setWidth(measured.width)
       }}
     >
       {/* Measure in the RN row before crossing into SwiftUI. Mounting an
