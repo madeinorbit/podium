@@ -21,7 +21,7 @@ final class SearchScrollTrackingTests: XCTestCase {
   }
 
   @MainActor
-  private func rig(canTuck: Bool?, onReady: @escaping () -> Void) -> Rig {
+  private func rig(canTuck: Bool?, category: UIContentSizeCategory? = nil, onReady: @escaping () -> Void) -> Rig {
     let screen = UIViewController()
     screen.navigationItem.title = "Tasks"
     screen.navigationItem.searchController = UISearchController(searchResultsController: nil)
@@ -32,11 +32,19 @@ final class SearchScrollTrackingTests: XCTestCase {
     list.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "row")
     list.dataSource = rows
     screen.view.addSubview(list)
+    // Seed a different explicit scroll view: implicit UIKit discovery must not
+    // make a missing registration look successful in this fixture.
+    let previous = UIScrollView()
+    screen.view.addSubview(previous)
+    screen.setContentScrollView(previous, for: .top)
     let probe = SearchStartsHiddenView()
     probe.configure(canTuck: canTuck, onReady: onReady)
     screen.view.addSubview(probe)
     let navigation = UINavigationController(rootViewController: screen)
     navigation.navigationBar.prefersLargeTitles = true
+    if let category {
+      navigation.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: screen)
+    }
     let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
     let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: list.frame)
     window.rootViewController = navigation
@@ -77,5 +85,27 @@ final class SearchScrollTrackingTests: XCTestCase {
     rig.probe.configure(canTuck: false) { completions += 1 }
     XCTAssertEqual(completions, 1)
     XCTAssertTrue(rig.screen.contentScrollView(for: .top) === rig.list)
+  }
+
+  @MainActor
+  func testAccessibilityLaunchKeepsTheNativeRestingOffsetAndLargeTitle() async throws {
+    let categories: [UIContentSizeCategory] = [
+      .accessibilityMedium, .accessibilityLarge, .accessibilityExtraLarge,
+      .accessibilityExtraExtraLarge, .accessibilityExtraExtraExtraLarge
+    ]
+    for category in categories {
+      let resting = rig(canTuck: false, category: category) {}
+      try await showAndWaitForTracking(resting)
+      var completions = 0
+      let launching = rig(canTuck: true, category: category) { completions += 1 }
+      defer { resting.window.isHidden = true; launching.window.isHidden = true }
+      try await showAndWaitForTracking(launching)
+      XCTAssertEqual(launching.probe.traitCollection.preferredContentSizeCategory, category)
+      XCTAssertEqual(completions, 1, "AX launch must release readiness without waiting for a tuck")
+      XCTAssertEqual(launching.list.contentOffset.y, resting.list.contentOffset.y, accuracy: 0.5)
+      XCTAssertEqual(launching.list.adjustedContentInset.top, resting.list.adjustedContentInset.top, accuracy: 0.5)
+      XCTAssertEqual(launching.screen.navigationController!.navigationBar.frame.height,
+        resting.screen.navigationController!.navigationBar.frame.height, accuracy: 0.5)
+    }
   }
 }

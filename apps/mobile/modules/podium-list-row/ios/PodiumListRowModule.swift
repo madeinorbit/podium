@@ -283,6 +283,11 @@ final class SearchStartsHiddenView: UIView {
     }
     guard let canTuck else { return }
     guard canTuck, !touchObserver.touched else { finish(); return }
+    // A non-animated search offset also collapses UIKit's large title at AX
+    // sizes. Keep its native expanded resting state and visible search instead
+    // of scrolling the segments under the bar. Registration above still applies.
+    guard !traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+    else { finish(); return }
     if touchObserver.view == nil { window?.addGestureRecognizer(touchObserver) }
     if launchOverlay == nil, !foundLaunchOverlay {
       launchOverlay = findLaunchOverlay()
