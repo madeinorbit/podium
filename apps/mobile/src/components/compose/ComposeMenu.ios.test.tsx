@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { LayoutChangeEvent } from 'react-native'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ComposeMenuProps } from './ComposeMenu'
 
 const native = vi.hoisted(() => ({
@@ -85,9 +85,41 @@ vi.mock('@expo/ui/swift-ui', () => ({
   ),
 }))
 const { ComposeMenu } = await import('./ComposeMenu.ios')
+beforeEach(() => {
+  native.host = {}
+  native.bridge = {}
+  native.menu = {}
+  native.labelLayout = undefined
+  native.hostLayout = undefined
+})
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+const event = (width: number, height: number) =>
+  ({ nativeEvent: { layout: { x: 0, y: 0, width, height } } }) as LayoutChangeEvent
+function layoutMenu(width = 402, height = 44) {
+  act(() => {
+    native.hostLayout?.(event(width, height))
+    native.labelLayout?.(event(width, height))
+  })
+}
+
+it('shows a full-width RN label until the native menu can mount at its measured width', () => {
+  render(
+    <ComposeMenu label="Machine" items={[]}>
+      {() => <span>MBP-Cofo.local</span>}
+    </ComposeMenu>,
+  )
+  expect(screen.getByText('MBP-Cofo.local')).toBeTruthy()
+  expect(native.host).toEqual({})
+  layoutMenu(0, 0)
+  expect(native.host).toEqual({})
+  layoutMenu(320, 76)
+  expect(native.host).toMatchObject({ style: { width: 320, minHeight: 76 } })
+  expect(screen.getAllByText('MBP-Cofo.local')).toHaveLength(1)
+  expect(getComputedStyle(screen.getByTestId('compose-menu-label')).width).toBe('320px')
 })
 
 it('keeps a measured menu row in place through dismissal and label remeasurement', () => {
@@ -97,12 +129,7 @@ it('keeps a measured menu row in place through dismissal and label remeasurement
     </ComposeMenu>,
   )
   expect(getComputedStyle(screen.getByTestId('compose-menu-host')).minHeight).toBe('44px')
-  const event = (width: number, height: number) =>
-    ({ nativeEvent: { layout: { x: 0, y: 0, width, height } } }) as LayoutChangeEvent
-  act(() => {
-    native.hostLayout?.(event(402, 44))
-    native.labelLayout?.(event(402, 44))
-  })
+  layoutMenu()
   expect(native.host).toMatchObject({
     style: { width: 402, minHeight: 44 },
   })
@@ -119,6 +146,9 @@ it('keeps a measured menu row in place through dismissal and label remeasurement
   )
   act(() => native.labelLayout?.(event(402, 64)))
   expect(native.host).toMatchObject({ style: { width: 402, minHeight: 64 } })
+  // Text size and sheet width can both decrease while the form is open.
+  layoutMenu(300, 44)
+  expect(native.host).toMatchObject({ style: { width: 300, minHeight: 44 } })
 })
 
 it('bridges full-width labels and uses native menu dismissal for held Start', () => {
@@ -130,6 +160,7 @@ it('bridges full-width labels and uses native menu dismissal for held Start', ()
     children: () => <span>Start</span>,
   }
   render(<ComposeMenu {...props} />)
+  layoutMenu()
   expect(native.host.matchContents).toEqual({ vertical: true })
   expect(native.bridge.matchContents).toEqual({ vertical: true })
   expect(native.menu.onPrimaryAction).toBe(start)
@@ -149,6 +180,7 @@ it.each([
       {() => <span>Current</span>}
     </ComposeMenu>,
   )
+  layoutMenu()
   const host = screen.getByTestId('compose-menu-host')
   const touch = { identifier: 0, target: host, clientX: 10, clientY: 10, pageX: 10, pageY: 10 }
   fireEvent.touchStart(host, { touches: [touch], changedTouches: [touch] })
@@ -163,6 +195,7 @@ it('updates native Model and Effort submenus with live choices and dispatches se
   const pick = vi.fn()
   const props: ComposeMenuProps = { label: 'Agent', children: () => <span>Agent</span>, items: [] }
   const { rerender } = render(<ComposeMenu {...props} />)
+  layoutMenu()
   rerender(
     <ComposeMenu
       {...props}

@@ -21,6 +21,18 @@ export function ComposeMenu({
 }: ComposeMenuProps) {
   const [width, setWidth] = useState<number>()
   const [contentHeight, setContentHeight] = useState(0)
+  const label = (
+    <View
+      testID="compose-menu-label"
+      collapsable={false}
+      style={{ width }}
+      onLayout={(event) => {
+        if (event.nativeEvent.layout.height > 0) setContentHeight(event.nativeEvent.layout.height)
+      }}
+    >
+      {children()}
+    </View>
+  )
   return (
     <View
       testID="compose-menu-host"
@@ -31,40 +43,33 @@ export function ComposeMenu({
         if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width)
       }}
     >
-      <Host
-        // Preserve the keyboard safe area when UIKit places a tall menu.
-        matchContents={{ vertical: true }}
-        style={{ alignSelf: 'stretch', width, minHeight: contentHeight }}
-      >
-        <Menu
-          label={
-            <RNHostView matchContents={{ vertical: true }}>
-              <View
-                testID="compose-menu-label"
-                collapsable={false}
-                style={{ width }}
-                onLayout={(event) => {
-                  if (event.nativeEvent.layout.height > 0)
-                    setContentHeight(event.nativeEvent.layout.height)
-                }}
-              >
-                {children()}
-              </View>
-            </RNHostView>
-          }
-          onPrimaryAction={onPrimaryAction}
-          modifiers={[
-            buttonStyle('plain'),
-            frame({ maxWidth: Infinity, alignment: 'leading' }),
-            menuActionDismissBehavior('enabled'),
-            ...(unavailable ? [disabled(true)] : []),
-          ]}
+      {/* Measure in the RN row before crossing into SwiftUI. Mounting an
+          RNHostView with no width first lays out an unconstrained label and
+          then shifts its text when the host's onLayout width arrives. */}
+      {width === undefined ? (
+        label
+      ) : (
+        <Host
+          // Preserve the keyboard safe area when UIKit places a tall menu.
+          matchContents={{ vertical: true }}
+          style={{ alignSelf: 'stretch', width, minHeight: contentHeight }}
         >
-          {items.map((item) => (
-            <Entry key={item.id} item={item} />
-          ))}
-        </Menu>
-      </Host>
+          <Menu
+            label={<RNHostView matchContents={{ vertical: true }}>{label}</RNHostView>}
+            onPrimaryAction={onPrimaryAction}
+            modifiers={[
+              buttonStyle('plain'),
+              frame({ maxWidth: Infinity, alignment: 'leading' }),
+              menuActionDismissBehavior('enabled'),
+              ...(unavailable ? [disabled(true)] : []),
+            ]}
+          >
+            {items.map((item) => (
+              <Entry key={item.id} item={item} />
+            ))}
+          </Menu>
+        </Host>
+      )}
     </View>
   )
 }
