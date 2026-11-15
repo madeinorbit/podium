@@ -158,9 +158,9 @@ final class TouchMovementRecognizer: UIGestureRecognizer {
   }
 }
 
-/// Hide initial search chrome while the launch boundary still covers the list.
-/// A list that arrives after reveal keeps UIKit at rest: a delayed programmatic
-/// scroll used to move visible content and swallow the first Work toolbar tap.
+/// Prepare initial search before reveal when attachment is ready. A delayed
+/// attachment may tuck once without animation only while the list is untouched
+/// and at rest. The JS reveal deadline never cancels a native scroll animation.
 private struct SearchStartsHiddenModifier: ViewModifier {
   let canTuck: Bool?
   let dispatcher: EventDispatcher
@@ -182,109 +182,100 @@ private struct SearchStartsHiddenProbe: UIViewRepresentable {
   }
 }
 
+/// Observe first interaction without delaying or cancelling UIKit/RN gestures.
+/// Keep the latch after the recognizer resets so a late attachment cannot move
+/// content after the person has already tapped or dragged it.
+private final class InitialSearchTouchObserver: UIGestureRecognizer {
+  private(set) var touched = false
+
+  override init(target: Any?, action: Selector?) {
+    super.init(target: target, action: action)
+    cancelsTouchesInView = false
+    delaysTouchesBegan = false
+    delaysTouchesEnded = false
+  }
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    touched = true
+    state = .failed
+  }
+}
+
 final class SearchStartsHiddenView: UIView {
   private var started = false
   private var settled = false
   private var canTuck: Bool?
   private var onReady: (() -> Void)?
-  private weak var tuckingList: UIScrollView?
-  private var restingOffset: CGPoint?
-  private var timeout: DispatchWorkItem?
+  private let touchObserver = InitialSearchTouchObserver(target: nil, action: nil)
 
   func configure(canTuck: Bool?, onReady: @escaping () -> Void) {
     guard !settled else { return }
     self.canTuck = canTuck
     self.onReady = onReady
-    if canTuck == false || (canTuck == nil && started) { cancelTuck() }
+    if canTuck == false || (canTuck == nil && started) { finish() }
     else { startIfReady() }
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window == nil, started { cancelTuck() }
+    if window == nil, started { finish() }
     else { startIfReady() }
   }
 
   private func startIfReady() {
-    guard !started, !settled, canTuck == true, window != nil else { return }
+    guard !started, !settled, canTuck == true, let window else { return }
     started = true
-    // One deadline covers attachment plus scrolling. JS has a separate 500ms
-    // reveal budget, including a missing native attachment/completion event.
-    let timeout = DispatchWorkItem { [weak self] in self?.cancelTuck() }
-    self.timeout = timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: timeout)
+    // Watch from attachment, including while the collection/search controller
+    // is still mounting. This observer fails at touch-down and takes no action.
+    window.addGestureRecognizer(touchObserver)
     DispatchQueue.main.async { [weak self] in self?.tuck(attempt: 0) }
-  }
-
-  private func cancelTuck() {
-    guard !settled else { return }
-    if let list = tuckingList, let rest = restingOffset {
-      // Stop a retargeted UIKit animation before revealing. A late search
-      // attachment must leave the visible list at rest instead of scrolling.
-      UIView.performWithoutAnimation {
-        list.setContentOffset(rest, animated: false)
-        list.layoutIfNeeded()
-      }
-    }
-    finish()
   }
 
   private func finish() {
     guard !settled else { return }
     settled = true
-    timeout?.cancel()
-    timeout = nil
-    tuckingList = nil
-    restingOffset = nil
+    touchObserver.view?.removeGestureRecognizer(touchObserver)
     onReady?()
     onReady = nil
   }
 
+  private func retry(attempt: Int) {
+    // Attachment has its original 2s retry budget. It does not hold reveal:
+    // JS releases its separate launch hold after 500ms, even without an event.
+    if attempt < 40 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        self?.tuck(attempt: attempt + 1)
+      }
+    } else { finish() }
+  }
+
   private func tuck(attempt: Int) {
     guard !settled else { return }
-    guard canTuck == true, window != nil else { finish(); return }
+    guard canTuck == true, window != nil, !touchObserver.touched else { finish(); return }
     guard let list = trackedList(), let screen = searchScreen(),
       let search = screen.navigationItem.searchController, list.contentSize.height > 0
-    else {
-      // Give native attachments a bounded chance under the launch surface.
-      if attempt < 10 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { [weak self] in
-          self?.tuck(attempt: attempt + 1)
-        }
-      } else { finish() }
-      return
-    }
+    else { retry(attempt: attempt); return }
     screen.setContentScrollView(list, for: .top)
     let bar = search.searchBar
     let height = bar.bounds.height
+    guard height > 1 else { retry(attempt: attempt); return }
     let rest = -list.adjustedContentInset.top
-    guard height > 1, !search.isActive, bar.text?.isEmpty ?? true,
-      !list.isTracking, !list.isDecelerating, list.contentOffset.y <= rest + 1
+    let presented = list.layer.presentation()?.bounds.origin.y ?? list.contentOffset.y
+    guard !search.isActive, bar.text?.isEmpty ?? true,
+      !list.isTracking, !list.isDragging, !list.isDecelerating,
+      list.refreshControl?.isRefreshing != true,
+      abs(list.contentOffset.y - rest) <= 1, abs(presented - rest) <= 1
     else { finish(); return }
-    // UIKit's animated scroll path tucks search without collapsing the large
-    // title. Disable its visual animation while the launch surface covers it.
-    let target = rest + height
-    tuckingList = list
-    restingOffset = list.contentOffset
+    // This is an immediate state change, not an animated scroll with disabled
+    // drawing. UIKit must finish large-title/search layout before we release
+    // launch; there is no in-flight offset to cancel or snap back on a timer.
     UIView.performWithoutAnimation {
-      list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: true)
+      list.setContentOffset(CGPoint(x: list.contentOffset.x, y: rest + height), animated: false)
       list.layoutIfNeeded()
+      screen.navigationController?.navigationBar.setNeedsLayout()
+      screen.navigationController?.navigationBar.layoutIfNeeded()
     }
-    waitForTuck(list, target: target, stable: 0)
-  }
-
-  private func waitForTuck(_ list: UIScrollView, target: CGFloat, stable: Int) {
-    guard !settled else { return }
-    guard canTuck == true, window != nil else { finish(); return }
-    // SwiftUI owns the list's delegate. Observe the presented offset instead
-    // of replacing it just to receive scrollViewDidEndScrollingAnimation.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self, weak list] in
-      guard let self, let list else { self?.finish(); return }
-      let y = list.layer.presentation()?.bounds.origin.y ?? list.contentOffset.y
-      let stableFrames = abs(y - target) < 1 ? stable + 1 : 0
-      if stableFrames >= 2 { self.finish() }
-      else { self.waitForTuck(list, target: target, stable: stableFrames) }
-    }
+    finish()
   }
 
   /// The List's collection view: the first one in the nearest enclosing subtree.

@@ -120,7 +120,7 @@ describe('LaunchBoundary', () => {
     expect(view.queryByTestId('boot-splash')).toBeNull()
   })
 
-  it('expires an unattached native list after at most 500ms of extra reveal time', async () => {
+  it('releases reveal after 500ms while the untouched startup probe keeps waiting for attachment', async () => {
     vi.useFakeTimers()
     const route = (fontsReady: boolean) => (
       <LaunchBoundary fontsReady={fontsReady}>
@@ -136,11 +136,34 @@ describe('LaunchBoundary', () => {
     act(() => vi.advanceTimersByTime(LAUNCH_TRANSITION_BUDGET_MS - 1))
     expect(search.canTuck).toBe(true)
     await act(async () => vi.advanceTimersByTime(1))
-    expect(search.canTuck).toBe(false)
+    expect(search.canTuck).toBe(true)
     expect(view.queryByTestId('boot-splash')).toBeNull()
-    // A queued native completion cannot acquire another hold or scroll again.
+    // A late native completion retires the probe without another reveal hold.
     act(() => search.onReady())
     expect(search.canTuck).toBe(false)
+  })
+
+  it('does not restart the launch fade when native search attaches after its budget expires', async () => {
+    vi.useFakeTimers()
+    motion.reduced = false
+    const start = vi.fn()
+    vi.spyOn(Animated, 'timing').mockReturnValue({ start, stop: vi.fn(), reset: vi.fn() })
+    const view = render(
+      <LaunchBoundary fontsReady>
+        <RouteProbe ready />
+        <SearchProbe />
+      </LaunchBoundary>,
+    )
+    await act(async () => vi.advanceTimersByTime(LAUNCH_TRANSITION_BUDGET_MS))
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(search.canTuck).toBe(true)
+    const overlay = view.getByTestId('boot-splash').parentElement
+    if (!overlay) throw new Error('Launch overlay is missing')
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
+    act(() => search.onReady())
+    expect(search.canTuck).toBe(false)
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(getComputedStyle(overlay).pointerEvents).toBe('none')
   })
 
   it('lets a native hold win when fonts finish after the route already has a frame', async () => {

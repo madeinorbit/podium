@@ -3,8 +3,8 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { SearchBarCommands } from 'react-native-screens'
 import { useLaunchTransitionHold } from '../client/launch-ready'
 
-/** Keep the initial native search tuck under the launch surface. Later tab
- * opens keep UIKit's resting position instead of starting a visible scroll. */
+/** Give the initial search attachment a bounded launch hold. After the deadline
+ * its native probe may still tuck immediately if no interaction has occurred. */
 export function useSearchLaunchTransition() {
   const hold = useLaunchTransitionHold()
   const release = useRef<(() => void) | null>(null)
@@ -15,15 +15,20 @@ export function useSearchLaunchTransition() {
     release.current?.()
     release.current = null
   }, [])
+  const onExpired = useCallback(() => {
+    // The reveal budget only owns the splash. Native attachment keeps its
+    // longer retry window, guarded by touch history and the resting offset.
+    release.current = null
+  }, [])
   useFocusEffect(
     useCallback(() => {
-      release.current = hold?.(onReady) ?? null
+      release.current = hold?.(onExpired) ?? null
       setCanTuck(release.current !== null)
       return () => {
         onReady()
         setCanTuck(null)
       }
-    }, [hold, onReady]),
+    }, [hold, onExpired, onReady]),
   )
   return { canTuck, onReady }
 }
