@@ -12,6 +12,22 @@ import type { NavigationState } from 'expo-router/react-navigation'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
+import type { ChatDeckPagerProps } from '../components/chat-deck-pager.types'
+
+const pagerGesture = vi.hoisted(() => ({
+  change: null as ChatDeckPagerProps['onPageChange'],
+  settle: null as ChatDeckPagerProps['onPageSettle'],
+}))
+vi.mock('../components/ChatDeckPager', async (importOriginal) => {
+  const { ChatDeckPager } = await importOriginal<typeof import('../components/ChatDeckPager')>()
+  return {
+    ChatDeckPager: (props: ChatDeckPagerProps) => {
+      pagerGesture.change = props.onPageChange
+      pagerGesture.settle = props.onPageSettle
+      return <ChatDeckPager {...props} />
+    },
+  }
+})
 
 const navigation = vi.hoisted(() => ({
   platform: 'ios',
@@ -627,13 +643,51 @@ it('Back on the deck page returns to the chat, like the edge swipe there [POD-25
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   expect(onDeckPage()).toBe(true)
   expect(navigation.preventRemove?.prevented).toBe(true)
-  // The native back button (a pop) pages to the chat and keeps the screen.
+  // The logical toolbar action never asks UIKit to begin/cancel a pop.
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Work' })))
+  expect(navigation.back).not.toHaveBeenCalled()
+  expect(onDeckPage()).toBe(false)
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  expect(navigation.preventRemove?.prevented).toBe(false)
+})
+
+it('programmatic Back from the deck still pages to chat', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () =>
     navigation.preventRemove?.onPrevent({ data: { action: StackActions.pop(1) } }),
   )
   expect(onDeckPage()).toBe(false)
-  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  expect(navigation.back).not.toHaveBeenCalled()
+})
+
+it('keeps the same Back destination after a half pager swipe snaps back', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  const routeKey = navigation.state?.routes.at(-1)?.key
+  // A drag crosses the midpoint, then is cancelled back to the chat.
+  act(() => pagerGesture.change?.(1))
+  expect(navigation.preventRemove?.prevented).toBe(true)
+  act(() => {
+    pagerGesture.change?.(0)
+    pagerGesture.settle?.(0)
+  })
   expect(navigation.preventRemove?.prevented).toBe(false)
+  expect(navigation.state?.routes.at(-1)?.key).toBe(routeKey)
+  expect(navigation.back).not.toHaveBeenCalled()
+  // Do the same from the deck. The toolbar must still page, not pop.
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  act(() => pagerGesture.change?.(0))
+  act(() => {
+    pagerGesture.change?.(1)
+    pagerGesture.settle?.(1)
+  })
+  expect(navigation.preventRemove?.prevented).toBe(true)
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Work' })))
+  expect(navigation.preventRemove?.prevented).toBe(false)
+  expect(navigation.state?.routes.at(-1)?.key).toBe(routeKey)
+  expect(navigation.back).not.toHaveBeenCalled()
 })
 
 it('any other removal from the deck page still goes through', async () => {

@@ -8,9 +8,14 @@ import { UPDATED_SUBTITLE_MS, WorkspaceSyncContext } from '../client/workspace-r
 type HeaderOptions = {
   unstable_nativeProps: { headerConfig: { subtitle?: string; largeSubtitle?: string } }
   headerTitle?: () => React.ReactNode
+  headerBackVisible?: boolean
 }
-const options = vi.hoisted(() => ({ current: {} as HeaderOptions }))
+const options = vi.hoisted(() => ({ current: {} as HeaderOptions, history: [] as HeaderOptions[] }))
 type ToolbarProps = Record<string, unknown> & { children?: React.ReactNode }
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  return { ...actual, Platform: { ...actual.Platform, OS: 'ios' } }
+})
 vi.mock('expo-router/stack', () => {
   // The bar's items as plain markup, so a test reads the UIMenu tree it builds.
   const Toolbar = Object.assign(
@@ -37,8 +42,10 @@ vi.mock('expo-router/stack', () => {
           {children}
         </div>
       ),
-      Button: ({ accessibilityLabel }: ToolbarProps) => (
-        <div data-testid="bar-button">{String(accessibilityLabel)}</div>
+      Button: ({ accessibilityLabel, onPress }: ToolbarProps) => (
+        <button type="button" data-testid="bar-button" onClick={onPress as () => void}>
+          {String(accessibilityLabel)}
+        </button>
       ),
       Label: ({ children }: ToolbarProps) => <span>{children}</span>,
     },
@@ -47,6 +54,7 @@ vi.mock('expo-router/stack', () => {
     Stack: {
       Screen: ({ options: value }: { options: HeaderOptions }) => {
         options.current = value
+        options.history.push(value)
         return null
       },
       Toolbar,
@@ -66,9 +74,32 @@ const { Screen } = await import('./Screen.native')
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  options.history.length = 0
 })
 
 describe('iOS navigation refresh subtitle', () => {
+  it('never publishes an empty line between updating and ready, and removes it when idle', () => {
+    vi.useFakeTimers()
+    const store = new SyncProgressStore()
+    store.begin('stale')
+    render(
+      <WorkspaceSyncContext value={store}>
+        <Screen title="Work" large>
+          <Text>Saved list</Text>
+        </Screen>
+      </WorkspaceSyncContext>,
+    )
+    options.history.length = 0
+    act(() => store.noteReady())
+    expect(options.history.length).toBeGreaterThan(0)
+    expect(
+      options.history.every(
+        (value) => value.unstable_nativeProps.headerConfig.largeSubtitle === 'Updated just now',
+      ),
+    ).toBe(true)
+    act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
+    expect(options.current.unstable_nativeProps.headerConfig.largeSubtitle).toBeUndefined()
+  })
   it('uses the counts already updated with the list when the completion label expires', () => {
     vi.useFakeTimers()
     const store = new SyncProgressStore()
@@ -106,12 +137,35 @@ describe('iOS navigation refresh subtitle', () => {
       </WorkspaceSyncContext>,
     )
     const subtitle = () => options.current.unstable_nativeProps.headerConfig
-    expect(subtitle()).toEqual({ subtitle: 'Updating…', largeSubtitle: 'Updating…' })
+    expect(subtitle()).toMatchObject({ subtitle: 'Updating…', largeSubtitle: 'Updating…' })
     act(() => store.noteReady())
-    expect(subtitle()).toEqual({ subtitle: 'Updated just now', largeSubtitle: 'Updated just now' })
+    expect(subtitle()).toMatchObject({
+      subtitle: 'Updated just now',
+      largeSubtitle: 'Updated just now',
+    })
     act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
-    expect(subtitle()).toEqual({ subtitle: '$12.34 today', largeSubtitle: '$12.34 today' })
+    expect(subtitle()).toMatchObject({ subtitle: '$12.34 today', largeSubtitle: '$12.34 today' })
   })
+})
+
+it('uses a native logical Back action without starting a stack pop', () => {
+  const back = vi.fn()
+  const page = (deck: boolean) => (
+    <Screen
+      title={deck ? 'Flight deck' : 'Chat'}
+      backTitle={deck ? 'Chat' : undefined}
+      onBack={back}
+    >
+      <Text>Content</Text>
+    </Screen>
+  )
+  const view = render(page(true))
+  expect(options.current.headerBackVisible).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Chat' }))
+  expect(back).toHaveBeenCalledTimes(1)
+  view.rerender(page(false))
+  expect(options.current.headerBackVisible).toBeUndefined()
+  expect(screen.queryByRole('button', { name: 'Back to Chat' })).toBeNull()
 })
 
 describe('tappable navigation title', () => {

@@ -1,7 +1,7 @@
 import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
-import { memo, type ReactNode, use, useState } from 'react'
+import { memo, type ReactNode, use, useMemo, useState } from 'react'
 import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
@@ -13,7 +13,7 @@ import {
 } from '../navigation/native-stack'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
-import { type AppIcon, ChevronRight } from './icons'
+import { type AppIcon, ChevronLeft, ChevronRight } from './icons'
 import { MenuSheet } from './MenuSheet'
 import { PressableScale } from './PressableScale'
 import { isMenuSection, type ScreenAction, type ScreenMenuEntry } from './screen-actions'
@@ -59,9 +59,9 @@ export function Screen({
   onBack?: () => void
   backLabel?: string
   /**
-   * What the system back button names when it does not return to the previous
-   * screen (VoiceOver, the long-press menu): the mission's deck page goes back
-   * to its chat first. Unset, iOS names the previous screen.
+   * A logical Back destination inside this screen, such as deck -> chat.
+   * Uses a native bar action instead of starting and cancelling a stack pop.
+   * Unset, iOS owns the ordinary previous-screen Back button and its menu.
    */
   backTitle?: string
   /** Let UIKit show the previous screen's name when the bar has room. */
@@ -103,6 +103,17 @@ export function Screen({
   const transparentBar = !noHeader && transparentDetailHeader
   // SF Symbols do not reach Android's toolbar, so it draws the actions itself.
   const androidActions = Platform.OS === 'android' && actions?.length ? actions : undefined
+  const logicalBack = Platform.OS === 'ios' && backAs === 'chevron' && !!backTitle && !!onBack
+  const nativeLeadingActions = useMemo(
+    () =>
+      logicalBack && onBack
+        ? [
+            { label: `Back to ${backTitle}`, icon: ChevronLeft, onPress: onBack },
+            ...(leadingActions ?? []),
+          ]
+        : leadingActions,
+    [backTitle, leadingActions, logicalBack, onBack],
+  )
   const headerHeight = use(HeaderHeightContext) ?? 0
   const barInset = transparentBar ? headerHeight : 0
 
@@ -142,6 +153,8 @@ export function Screen({
           // Always set: stack options merge, so an omitted key would keep a
           // title set while the screen showed another page.
           headerBackTitle: backTitle,
+          // Explicitly clear the override when paging back to the chat.
+          headerBackVisible: logicalBack ? false : undefined,
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
           ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
@@ -178,8 +191,8 @@ export function Screen({
             : {}),
         }}
       />
-      {leadingActions?.length && !(onBack && backAs === 'text') ? (
-        <ToolbarItems placement="left" actions={leadingActions} />
+      {nativeLeadingActions?.length && !(onBack && backAs === 'text') ? (
+        <ToolbarItems placement="left" actions={nativeLeadingActions} />
       ) : null}
       {actions?.length && !right && !androidActions ? (
         <ToolbarItems placement="right" actions={actions} />

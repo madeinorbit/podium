@@ -171,10 +171,14 @@ export const MissionScreen = observer(function MissionScreen() {
       `/mission/${encodeURIComponent(rootId)}/details${currentId ? `?sessionId=${encodeURIComponent(currentId)}` : ''}`,
     )
   }, [currentId, paged, rootId, router])
-  // On the deck page Back returns to the chat, as the edge swipe there does
-  // (the pager switches the stack's back swipes off away from page 0). A back
-  // or pop is turned into a page change; any other removal, such as a link
-  // replacing this screen, is let through on the next render.
+  // Deck Back is a native toolbar action that changes pages directly. Retain
+  // the guard for programmatic/hardware Back; cancelling a UIKit pop for a
+  // toolbar tap used to leave its Liquid Glass items without their material.
+  const goBack = useCallback(() => {
+    if (onDeck) pager.current?.setPage(0)
+    else if (router.canGoBack()) router.back()
+    else router.replace('/work')
+  }, [onDeck, router])
   const navigation = useNavigation()
   const [leaving, setLeaving] = useState<Parameters<typeof navigation.dispatch>[0] | null>(null)
   usePreventRemove(onDeck && leaving == null, ({ data }) => {
@@ -372,7 +376,7 @@ export const MissionScreen = observer(function MissionScreen() {
   return (
     <Screen
       title={onDeck ? (root?.title ?? 'Flight deck') : chatTitle}
-      onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
+      onBack={goBack}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
       backTitle={onDeck ? 'Chat' : undefined}
       bareBack
