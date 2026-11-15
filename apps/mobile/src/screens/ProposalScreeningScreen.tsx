@@ -361,10 +361,24 @@ function ActionButton({
       ]}
     >
       <Icon as={icon} size={16} color={primary ? color.onAccent : tint} />
-      <Text style={[styles.actionLabel, { color: primary ? color.onAccent : tint }]}>{label}</Text>
+      <Text
+        style={[styles.actionLabel, { color: primary ? color.onAccent : tint }]}
+        numberOfLines={1}
+        maxFontSizeMultiplier={ACTION_MAX_SCALE}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {label}
+      </Text>
     </PressableScale>
   )
 }
+
+/**
+ * Three equal buttons share the bottom bar, so their labels stop at the bar-chrome
+ * cap the deck and mission bar use; uncapped, "Decline" broke mid-word at AX3.
+ */
+const ACTION_MAX_SCALE = 1.35
 
 const styles = StyleSheet.create({
   body: {
@@ -383,7 +397,7 @@ const styles = StyleSheet.create({
   },
   deck: {
     flex: 1,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingTop: space.sm,
     gap: space.sm,
   },
@@ -477,7 +491,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: space.sm,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingTop: space.sm + 2,
   },
   action: {
