@@ -292,6 +292,60 @@ function fingerprint(container: HTMLElement) {
     )
     .digest('hex')
 }
+
+it('shows shared leaf progress through open phases and puts sub-tasks inside an inset card', async () => {
+  state.host = createMobilePool(false)
+  state.pool = null
+  state.errors = []
+  const child = (
+    id: string,
+    seq: number,
+    parentId: string,
+    patch: Partial<IssueProjection> = {},
+  ) => ({
+    ...projection,
+    id: asIssueId(id),
+    seq,
+    parentId: asIssueId(parentId),
+    title: id,
+    needsHuman: false,
+    asked: undefined,
+    ...patch,
+  })
+  const phase = child('Delivery phase', 43, 'root', { type: 'phase' })
+  const finished = child('Finished leaf', 44, phase.id, { stage: 'done' })
+  const pending = child('Pending leaf', 45, phase.id)
+  const proposal = child('Proposed leaf', 46, 'root', { stage: 'proposed' })
+  const emptyPhase = child('Empty phase', 47, 'root', { type: 'phase' })
+  const mounted = await renderWithMobileStore(<OpenPage />, {
+    replica: pageReplica([projection, phase, finished, pending, proposal, emptyPhase]),
+    attachRuntime: (runtime) =>
+      state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
+  })
+  try {
+    await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
+    const header = await screen.findByRole('button', { name: 'Sub-tasks' })
+    expect(state.pool!.issueObject('root').childCount).toBe(3)
+    expect(state.pool!.issueObject('root').childDoneCount).toBe(0)
+    expect(header.textContent).toBe('Sub-tasks1/2')
+    fireEvent.click(header)
+    const card = await screen.findByTestId('sub-issues-card')
+    expect(card.contains(screen.getByText('Delivery phase'))).toBe(true)
+    expect(card.contains(screen.getByRole('button', { name: 'Add a sub-task' }))).toBe(true)
+    expect(getComputedStyle(card).borderRadius).toBe('8px')
+    act(() =>
+      state.pool!.apply({
+        type: 'delta',
+        rows: [{ kind: 'issue', id: pending.id, value: { ...pending, stage: 'done' } }],
+      }),
+    )
+    await waitFor(() => expect(header.textContent).toBe('Sub-tasks2/2'))
+    expect(state.errors).toEqual([])
+  } finally {
+    mounted.unmount()
+  }
+}, 60_000)
 it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x', async () => {
   const cells: {
     scale: number

@@ -1,14 +1,15 @@
-import { useIssueOpening } from '../../client/issue-opening'
-import { issueObserver as observer } from '../../client/issue-observer'
-import { type PageIssue } from '@podium/client-graph/issue-page'
-import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
-
+import type { PageIssue } from '@podium/client-graph/issue-page'
+import { sidebarIssueProgress } from '@podium/client-graph/worklist/sidebar'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useMemo, useState } from 'react'
+import { type ComponentProps, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { useIssueOpening } from '../../client/issue-opening'
+import { useMobilePool } from '../../client/mobile-pool'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
@@ -17,6 +18,27 @@ import { Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
+import { FoldedSection } from './TaskOverview'
+
+/** FullDeck.buckets reads this same shared execution progress. */
+function useSubTaskCount(issue?: IssueViewModel) {
+  const pool = useMobilePool()
+  if (!pool || !issue?.childCount) return undefined
+  const progress = sidebarIssueProgress(pool.issueObject(issue.id))
+  if (typeof progress === 'symbol') throw progress
+  return `${progress.done}/${progress.total}`
+}
+
+export const IssueSubIssuesSection = observer(function IssueSubIssuesSection(
+  props: ComponentProps<typeof IssueSubIssues>,
+) {
+  const count = useSubTaskCount(props.issue)
+  return (
+    <FoldedSection label="Sub-tasks" count={count}>
+      <IssueSubIssues {...props} headless />
+    </FoldedSection>
+  )
+})
 
 /**
  * The sub-task list [POD-724], kept flat in the shared slice order with an
@@ -62,6 +84,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const count = useSubTaskCount(headless ? undefined : issue)
   const views = useIssueOpening()
   const rows = suppliedChildren ?? (views ? views.row(issue.id).children : [])
   if (typeof rows === 'symbol') throw rows
@@ -79,67 +102,64 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 
   return (
     <View style={headless ? undefined : styles.section} testID="sub-issues">
-      {headless ? null : (
-        <SectionHeading
-          label="Sub-tasks"
-          count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
-        />
-      )}
-      {subIssues.map((child) => (
-        <SubTaskRow
-          key={child.id}
-          child={child}
-          workingAgents={legacyWorkers?.get(child.id) ?? 0}
-          onOpen={onOpen}
-          onStatus={onStatus}
-          muted={isFinished(child)}
-        />
-      ))}
-      {subIssues.length === 0 ? (
-        <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
-      ) : null}
-
-      {adding ? (
-        <View style={styles.addRow}>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            accessibilityLabel="Sub-task title"
-            placeholder="Sub-task title…"
-            placeholderTextColor={color.textMicro}
-            autoFocus
-            returnKeyType="done"
-            // Guard double-submit here rather than disabling the field, so rapid
-            // entry keeps flowing across creates.
-            onSubmitEditing={create}
-            style={styles.field}
+      {headless ? null : <SectionHeading label="Sub-tasks" count={count} />}
+      <View style={styles.card} testID="sub-issues-card">
+        {subIssues.map((child) => (
+          <SubTaskRow
+            key={child.id}
+            child={child}
+            workingAgents={legacyWorkers?.get(child.id) ?? 0}
+            onOpen={onOpen}
+            onStatus={onStatus}
+            muted={isFinished(child)}
           />
+        ))}
+        {subIssues.length === 0 ? (
+          <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
+        ) : null}
+
+        {adding ? (
+          <View style={styles.addRow}>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              accessibilityLabel="Sub-task title"
+              placeholder="Sub-task title…"
+              placeholderTextColor={color.textMicro}
+              autoFocus
+              returnKeyType="done"
+              // Guard double-submit here rather than disabling the field, so rapid
+              // entry keeps flowing across creates.
+              onSubmitEditing={create}
+              style={styles.field}
+            />
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Add sub-task"
+              accessibilityState={{ disabled: busy || title.trim().length === 0 }}
+              disabled={busy || title.trim().length === 0}
+              onPress={create}
+              style={({ pressed }) => [
+                styles.addBtn,
+                (busy || title.trim().length === 0) && styles.muted,
+                pressed && styles.muted,
+              ]}
+            >
+              <Text style={styles.addBtnText}>Add</Text>
+            </PressableScale>
+          </View>
+        ) : (
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="Add sub-task"
-            accessibilityState={{ disabled: busy || title.trim().length === 0 }}
-            disabled={busy || title.trim().length === 0}
-            onPress={create}
-            style={({ pressed }) => [
-              styles.addBtn,
-              (busy || title.trim().length === 0) && styles.muted,
-              pressed && styles.muted,
-            ]}
+            accessibilityLabel="Add a sub-task"
+            onPress={() => setAdding(true)}
+            style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
           >
-            <Text style={styles.addBtnText}>Add</Text>
+            <Icon as={Plus} size={14} color={color.textDim} />
+            <Text style={styles.addChipText}>Add sub-task</Text>
           </PressableScale>
-        </View>
-      ) : (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Add a sub-task"
-          onPress={() => setAdding(true)}
-          style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
-        >
-          <Icon as={Plus} size={14} color={color.textDim} />
-          <Text style={styles.addChipText}>Add sub-task</Text>
-        </PressableScale>
-      )}
+        )}
+      </View>
     </View>
   )
 })
@@ -202,6 +222,13 @@ const SubTaskRow = observer(function SubTaskRow({
 const styles = StyleSheet.create({
   section: {
     paddingBottom: space.xl,
+  },
+  card: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
+    paddingHorizontal: space.sm,
+    paddingBottom: space.xs,
   },
   row: {
     minHeight: 44,

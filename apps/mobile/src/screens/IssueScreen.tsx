@@ -67,7 +67,7 @@ import {
   PhoneTimeline,
 } from '../components/task-detail/IssueModelSections'
 import { PropertyBar } from '../components/task-detail/IssueProperties'
-import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
+import { IssueSubIssuesSection } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { TaskOfferSummary } from '../components/task-detail/TaskOfferSummary'
 import { ArtifactStrip, FoldedSection, TaskSessions } from '../components/task-detail/TaskOverview'
@@ -454,21 +454,13 @@ const IssueContent = observer(function IssueContent({
                 />
               </FoldedSection>
             ) : null}
-            <FoldedSection
-              label="Sub-tasks"
-              {...(issue.childCount > 0
-                ? { count: `${issue.childDoneCount}/${issue.childCount}` }
-                : {})}
-            >
-              <IssueSubIssues
-                issue={issue}
-                busy={busy}
-                commands={commands}
-                headless
-                onOpen={openIssue}
-                onStatus={(child) => setSheet({ kind: 'child-status', child })}
-              />
-            </FoldedSection>
+            <IssueSubIssuesSection
+              issue={issue}
+              busy={busy}
+              commands={commands}
+              onOpen={openIssue}
+              onStatus={(child) => setSheet({ kind: 'child-status', child })}
+            />
             <PhoneMail issue={issue} />
             <PhoneProperties
               issue={issue}
