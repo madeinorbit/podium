@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Keyboard, type KeyboardEvent, Platform, useWindowDimensions } from 'react-native'
 
 /**
@@ -46,22 +46,40 @@ export function keyboardOverlap(
  * and nothing anywhere else. Android's window is resized by the system and web's
  * visual viewport does the same job, so lifting there would double-count.
  */
-export function useKeyboardLift(): number {
-  const height = useKeyboardHeight()
+export function useKeyboardLift(beforeChange?: (event: KeyboardEvent) => void): number {
+  const height = useKeyboardHeight(beforeChange)
   return Platform.OS === 'ios' ? height : 0
 }
 
-export function useKeyboardHeight(): number {
+/** Optional notification timing for a caller that animates its own layout. */
+export function useKeyboardHeight(beforeChange?: (event: KeyboardEvent) => void): number {
   const { height: windowHeight } = useWindowDimensions()
   const [endCoordinates, setEndCoordinates] = useState<KeyboardEvent['endCoordinates'] | undefined>(
     () => (Platform.OS === 'web' ? undefined : Keyboard.metrics?.()),
   )
+  const height = endCoordinates ? keyboardOverlap(windowHeight, { endCoordinates }) : 0
+  const heightRef = useRef(height)
+  heightRef.current = height
+  const windowHeightRef = useRef(windowHeight)
+  windowHeightRef.current = windowHeight
+  const beforeChangeRef = useRef(beforeChange)
+  beforeChangeRef.current = beforeChange
   useEffect(() => {
     if (Platform.OS === 'web') return
+    const prepareChange = (nextHeight: number, event: KeyboardEvent) => {
+      if (heightRef.current === nextHeight) return
+      // Schedule the caller's native animation before React changes its inset.
+      beforeChangeRef.current?.(event)
+      heightRef.current = nextHeight
+    }
     const onFrame = (event: KeyboardEvent) => {
+      prepareChange(keyboardOverlap(windowHeightRef.current, event), event)
       setEndCoordinates(event.endCoordinates)
     }
-    const onHide = () => setEndCoordinates(undefined)
+    const onHide = (event: KeyboardEvent) => {
+      prepareChange(0, event)
+      setEndCoordinates(undefined)
+    }
     const subs =
       Platform.OS === 'ios'
         ? [
@@ -78,5 +96,5 @@ export function useKeyboardHeight(): number {
       for (const sub of subs) sub.remove()
     }
   }, [])
-  return endCoordinates ? keyboardOverlap(windowHeight, { endCoordinates }) : 0
+  return height
 }

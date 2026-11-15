@@ -5,7 +5,7 @@ import type {
 } from '@podium/client-core/socket-transport'
 import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { type KeyboardEvent, LayoutAnimation, Platform, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnected, useHub } from '../client/hooks'
 import {
@@ -13,6 +13,7 @@ import {
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
@@ -61,9 +62,22 @@ export function TerminalPane({
   // component as two primitives — see TerminalDomProps.
   const session = useSessionContextSession(sessionId)
   const insets = useSafeAreaInsets()
+  const reduceMotion = useReduceMotion()
+  const animateKeyboard = useCallback(
+    (event: KeyboardEvent) => {
+      if (Platform.OS !== 'ios' || !active || reduceMotion || event.duration <= 0) return
+      // Match KeyboardAvoidingView's UIKit timing and minimum accepted duration.
+      const duration = Math.max(10, event.duration)
+      LayoutAnimation.configureNext({
+        duration,
+        update: { duration, type: LayoutAnimation.Types[event.easing] || 'keyboard' },
+      })
+    },
+    [active, reduceMotion],
+  )
   // Screen.safeBottom already reserves the home-indicator area. Only the
   // remaining window overlap belongs here, including a hardware shortcut bar.
-  const keyboardInset = Math.max(0, useKeyboardLift() - insets.bottom)
+  const keyboardInset = Math.max(0, useKeyboardLift(animateKeyboard) - insets.bottom)
 
   const domRef = useRef<TerminalDomHandle>(null)
   const connRef = useRef<SessionConnection | null>(null)

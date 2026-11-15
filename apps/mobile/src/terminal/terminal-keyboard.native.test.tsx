@@ -1,5 +1,5 @@
 import { asSessionId } from '@podium/model'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { KeyboardEvent } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,8 @@ const native = vi.hoisted(() => ({
   os: 'ios',
   window: { width: 402, height: 874, scale: 3, fontScale: 1 },
   bottom: 34,
+  reduceMotion: false,
+  configureAnimation: vi.fn(),
   metrics: undefined as KeyboardEvent['endCoordinates'] | undefined,
   dom: undefined as ComponentProps<typeof TerminalDom>['dom'],
   listeners: new Map<string, Set<(event: KeyboardEvent) => void>>(),
@@ -28,6 +30,7 @@ vi.mock('react-native', async (original) => {
       },
     },
     useWindowDimensions: () => native.window,
+    LayoutAnimation: { ...rn.LayoutAnimation, configureNext: native.configureAnimation },
     Keyboard: {
       metrics: () => native.metrics,
       addListener: (name: string, listener: (event: KeyboardEvent) => void) => {
@@ -42,6 +45,7 @@ vi.mock('react-native', async (original) => {
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 62, right: 0, bottom: native.bottom, left: 0 }),
 }))
+vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => native.reduceMotion }))
 vi.mock('../client/hooks', () => ({ useHub: () => native.hub, useConnected: () => true }))
 vi.mock('../client/use-session-context', () => ({
   useSessionContextSession: () => undefined,
@@ -55,7 +59,10 @@ vi.mock('./TerminalDom', () => ({
 }))
 
 const { TerminalPane } = await import('./TerminalPane.native')
-const pane = () => <TerminalPane sessionId={asSessionId('keyboard-session')} active />
+const { useKeyboardLift } = await import('../hooks/useKeyboardHeight')
+const pane = (active = true) => (
+  <TerminalPane sessionId={asSessionId('keyboard-session')} active={active} />
+)
 const padding = () => screen.getByTestId('terminal-keyboard-avoider').style.paddingBottom
 const frame = (screenY: number, height: number): KeyboardEvent => ({
   startCoordinates: { screenX: 0, screenY, width: native.window.width, height },
@@ -75,6 +82,8 @@ beforeEach(() => {
   native.os = 'ios'
   native.window = { width: 402, height: 874, scale: 3, fontScale: 1 }
   native.bottom = 34
+  native.reduceMotion = false
+  native.configureAnimation.mockReset()
   native.metrics = undefined
   native.dom = undefined
 })
@@ -85,6 +94,63 @@ afterEach(() => {
 })
 
 describe('native console keyboard clearance', () => {
+  it('schedules native keyboard timing before the show and hide insets change', () => {
+    const insetAtSchedule: string[] = []
+    native.configureAnimation.mockImplementation(() => insetAtSchedule.push(padding()))
+    render(pane())
+    keyboard(522, 352)
+    expect(insetAtSchedule).toEqual(['0px'])
+    expect(native.configureAnimation).toHaveBeenLastCalledWith({
+      duration: 250,
+      update: { duration: 250, type: 'keyboard' },
+    })
+    expect(padding()).toBe('318px')
+    emit('keyboardWillHide', { ...frame(874, 352), duration: 180, easing: 'easeOut' })
+    expect(insetAtSchedule).toEqual(['0px', '318px'])
+    expect(native.configureAnimation).toHaveBeenLastCalledWith({
+      duration: 180,
+      update: { duration: 180, type: 'easeOut' },
+    })
+    expect(padding()).toBe('0px')
+  })
+
+  it.each([
+    { reduceMotion: true, duration: 250 },
+    { reduceMotion: false, duration: 0 },
+  ])('skips animation for reduced motion or a zero-duration frame: %o', ({
+    reduceMotion,
+    duration,
+  }) => {
+    native.reduceMotion = reduceMotion
+    render(pane())
+    emit('keyboardWillChangeFrame', { ...frame(805, 69), duration })
+    expect(padding()).toBe('35px')
+    expect(native.configureAnimation).not.toHaveBeenCalled()
+  })
+
+  it('does not reanimate a duplicate frame when UIKit confirms the keyboard is shown', () => {
+    render(pane())
+    keyboard(522, 352)
+    emit('keyboardDidShow', frame(522, 352))
+    expect(native.configureAnimation).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not schedule layout animations for a background console', () => {
+    render(pane(false))
+    keyboard(522, 352)
+    expect(padding()).toBe('318px')
+    expect(native.configureAnimation).not.toHaveBeenCalled()
+  })
+
+  it('keeps other hook callers on the same numeric overlap without opting into animation', () => {
+    const { result } = renderHook(() => useKeyboardLift())
+    keyboard(522, 352)
+    expect(result.current).toBe(352)
+    emit('keyboardWillHide', frame(874, 352))
+    expect(result.current).toBe(0)
+    expect(native.configureAnimation).not.toHaveBeenCalled()
+  })
+
   it('hides the webview accessory and leaves native insets to the console screen', () => {
     render(pane())
     expect(native.dom).toMatchObject({

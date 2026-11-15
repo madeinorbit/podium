@@ -1,4 +1,3 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -7,7 +6,6 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
@@ -19,7 +17,10 @@ import { SESSION_PANE_SOURCE_KEY } from '@podium/client-graph/session-pane-sourc
 import { asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ComponentProps, type ReactNode, StrictMode, useEffect, useRef } from 'react'
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import type { PendingTurn } from '../components/TranscriptList'
@@ -382,7 +383,9 @@ async function mount(
         <SessionsScreen />
         <TerminalRoute />
         <WebPane sessionId={SID} active />
-        <NativePane sessionId={SID} active />
+        <SafeAreaInsetsContext.Provider value={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <NativePane sessionId={SID} active />
+        </SafeAreaInsetsContext.Provider>
       </>
     )
   }
@@ -488,7 +491,9 @@ it('renders the same six phone readers through real late attachment with no Reac
   const enabled = await mount()
   const roster = () => {
     const screen = enabled.view.getByRole('heading', { name: 'Agents' }).closest('section')!
-    return [...screen.querySelectorAll('[data-session]')].map((row) => row.getAttribute('data-session'))
+    return [...screen.querySelectorAll('[data-session]')].map((row) =>
+      row.getAttribute('data-session'),
+    )
   }
   expect(roster()[0]).toBe('synthetic-session-1')
   // 54fc47e122 enlarged the initial list batch; the snapshot now includes
