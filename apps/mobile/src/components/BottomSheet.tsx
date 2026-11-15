@@ -388,7 +388,9 @@ export function BottomSheet({
             ? { top, height: span, paddingBottom: keyboardHeight }
             : {
                 bottom: keyboardHeight,
-                paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md,
+                // Grouped forms carry their own final row spacing. Only the
+                // safe area belongs here, or prompt sheets pay that gap twice.
+                paddingBottom: (keyboardHeight > 0 ? 0 : insets.bottom) + (grouped ? 0 : space.md),
               },
           sheetStyle,
         ]}
