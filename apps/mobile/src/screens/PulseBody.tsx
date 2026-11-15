@@ -17,7 +17,7 @@ import { isGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from 'mobx-react-lite'
 import { memo, type ReactNode, useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import {
   CARD_INSET,
   Card,
@@ -76,6 +76,7 @@ export interface PulseBodyProps {
 
 export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
   const { range, hero, summary, cold } = props
+  const stackedStats = useWindowDimensions().fontScale >= STACKED_STATS_SCALE
   const [closed, setClosed] = useState<ReadonlySet<SectionKey>>(new Set())
   const toggle = (key: SectionKey) =>
     setClosed((current) => {
@@ -95,9 +96,10 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
           <ReadingFailure label="usage" stale={!cold} onRetry={() => props.onRetry('usage')} />
         ) : null}
         <HeroBlock hero={hero} cold={cold} />
-        <View style={styles.stats}>
+        <View style={[styles.stats, stackedStats && styles.statsStacked]}>
           <Stat
             first
+            stacked={stackedStats}
             label="Per active day"
             value={
               cold || summary.costPerActiveDayUsd === null
@@ -107,13 +109,22 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
           />
           {range === 'week' ? (
             <Stat
+              stacked={stackedStats}
               label="Last 5 hours"
               value={cold ? '—' : formatUsd(summary.fiveHour.estCostUsd)}
             />
           ) : (
-            <Stat label="Last 7 days" value={cold ? '—' : formatUsd(summary.week.estCostUsd)} />
+            <Stat
+              stacked={stackedStats}
+              label="Last 7 days"
+              value={cold ? '—' : formatUsd(summary.week.estCostUsd)}
+            />
           )}
-          <Stat label="Cache saved" value={cold ? '—' : formatUsd(summary.cacheSavingsUsd)} />
+          <Stat
+            stacked={stackedStats}
+            label="Cache saved"
+            value={cold ? '—' : formatUsd(summary.cacheSavingsUsd)}
+          />
         </View>
       </Card>
 
@@ -289,10 +300,12 @@ const HeroBlock = memo(function HeroBlock({ hero, cold }: { hero: PulseHero; col
   return (
     <View style={styles.hero}>
       <Text style={styles.heroKey}>API-equivalent cost · {hero.spanLabel}</Text>
-      <Text style={styles.heroValue}>
-        {cold ? '—' : formatUsd(hero.costUsd)}
-        <Text style={styles.heroUnit}> list price</Text>
-      </Text>
+      {/* A wrapping row, not nested text: at large sizes the unit drops to its own
+          line at its own height instead of inheriting the figure's line height. */}
+      <View style={styles.heroLine}>
+        <Text style={styles.heroValue}>{cold ? '—' : formatUsd(hero.costUsd)}</Text>
+        <Text style={styles.heroUnit}>list price</Text>
+      </View>
       <HourTrace
         slots={hero.slots}
         dayEvery={hero.days.length > 0 ? 24 : undefined}
@@ -306,8 +319,12 @@ const HeroBlock = memo(function HeroBlock({ hero, cold }: { hero: PulseHero; col
         <View style={styles.days} accessibilityElementsHidden importantForAccessibility="no">
           {hero.days.map((day) => (
             <View key={day.key} style={styles.day}>
-              <Text style={styles.dayName}>{day.weekday}</Text>
-              <Text style={styles.dayCost}>{cold ? '—' : formatCostRounded(day.costUsd)}</Text>
+              <Text style={styles.dayName} numberOfLines={1} maxFontSizeMultiplier={AXIS_MAX_SCALE}>
+                {day.weekday}
+              </Text>
+              <Text style={styles.dayCost} numberOfLines={1} maxFontSizeMultiplier={AXIS_MAX_SCALE}>
+                {cold ? '—' : formatCostRounded(day.costUsd)}
+              </Text>
             </View>
           ))}
         </View>
@@ -337,14 +354,32 @@ function ReadingFailure({
   )
 }
 
-function Stat({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
+function Stat({
+  label,
+  value,
+  first = false,
+  stacked = false,
+}: {
+  label: string
+  value: string
+  first?: boolean
+  /** Accessibility sizes: one full-width line each, label leading and value trailing. */
+  stacked?: boolean
+}) {
   return (
     <View
-      style={[styles.stat, !first && styles.statDivided]}
+      style={[
+        styles.stat,
+        stacked && styles.statStacked,
+        !first && (stacked ? styles.statDividedStacked : styles.statDivided),
+      ]}
       accessible
       accessibilityLabel={`${label}: ${value}`}
     >
-      <Text style={styles.statLabel} numberOfLines={1}>
+      <Text
+        style={[styles.statLabel, stacked && styles.statLabelStacked]}
+        numberOfLines={stacked ? 0 : 1}
+      >
         {label}
       </Text>
       <Text style={styles.statValue} numberOfLines={1}>
@@ -607,6 +642,15 @@ const TASK_TITLE_X = CARD_INSET + TASK_REF_WIDTH + space.sm
 
 const tabular = { fontVariant: ['tabular-nums' as const] }
 
+/**
+ * Chart axis labels: seven day columns share the card width, so their text stops
+ * growing at the cap the deck and mission bar use, and never wraps a weekday.
+ */
+const AXIS_MAX_SCALE = 1.35
+
+/** From the first accessibility size the three stats stack instead of truncating. */
+const STACKED_STATS_SCALE = 1.6
+
 const styles = StyleSheet.create({
   page: {
     paddingTop: 0,
@@ -629,6 +673,12 @@ const styles = StyleSheet.create({
     fontSize: 34,
     lineHeight: 40,
     letterSpacing: -0.5,
+  },
+  heroLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: 6,
   },
   heroUnit: {
     ...sans(500),
@@ -668,6 +718,23 @@ const styles = StyleSheet.create({
   statDivided: {
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: SEPARATOR,
+  },
+  statsStacked: {
+    flexDirection: 'column',
+  },
+  statStacked: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    columnGap: space.sm,
+  },
+  statDividedStacked: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SEPARATOR,
+  },
+  statLabelStacked: {
+    flexShrink: 1,
   },
   statLabel: {
     ...sans(400),
