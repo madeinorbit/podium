@@ -1,6 +1,7 @@
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, sans } from '../theme/theme'
+import { useLiveInk } from '../theme/use-live-ink'
 import { deckColor } from './deck-colors'
 
 export interface DeckVitals {
@@ -39,13 +40,18 @@ export function DeckVitalsLine({
   numberOfLines?: number
   maxFontSizeMultiplier?: number
 }) {
+  const fractionInk = useLiveInk(color.text)
   return (
     <Text
       style={styles.line}
       numberOfLines={numberOfLines}
       maxFontSizeMultiplier={maxFontSizeMultiplier}
     >
-      <Text style={styles.fraction}>{`${vitals.done}/${vitals.total}`}</Text>
+      <Text
+        style={
+          fractionInk === color.text ? styles.fraction : [styles.fraction, { color: fractionInk }]
+        }
+      >{`${vitals.done}/${vitals.total}`}</Text>
       {vitals.needsYou > 0 ? (
         <Text style={styles.needs}>{`  ·  ${vitals.needsYou} needs you`}</Text>
       ) : null}
