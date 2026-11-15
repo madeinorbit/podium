@@ -106,7 +106,9 @@ export function LaunchBoundary({
           <View style={styles.content}>{children}</View>
           {showSplash ? (
             <Animated.View
-              pointerEvents="auto"
+              // A native fade can finish before its JS completion callback.
+              // Once the route is ready, its first visible controls own taps.
+              pointerEvents={ready ? 'none' : 'auto'}
               style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
             >
               <LaunchSplash source={statusSource} />
