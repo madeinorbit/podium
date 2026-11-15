@@ -71,7 +71,8 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
   onSkip: () => void
   onOpen: () => void
 }) {
-  const { width } = useWindowDimensions()
+  const { width, fontScale } = useWindowDimensions()
+  const expanded = fontScale >= 1.6
   const settingsRequest = useSettingsRecord()
   const reduceMotion = useReduceMotion()
   const translateX = useSharedValue(0)
@@ -230,6 +231,7 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
         accessibilityLabel={`Proposal ${issue.displayRef ?? `#${issue.seq}`}: ${issue.title}`}
         style={[
           styles.card,
+          expanded && styles.growingCard,
           elevation.raised,
           { backgroundColor: color.surface, borderColor: color.border },
           cardStyle,
@@ -284,7 +286,7 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
 
         <View style={styles.body}>
           {description ? (
-            <Text style={styles.description} numberOfLines={brief ? 5 : 9}>
+            <Text style={styles.description} numberOfLines={expanded ? undefined : brief ? 5 : 9}>
               {description}
             </Text>
           ) : (
@@ -321,6 +323,7 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
 })
 
 const styles = StyleSheet.create({
+  growingCard: { maxHeight: undefined },
   card: {
     // Content-sized: a proposal card is as tall as what it has to say, so a
     // one-line chore doesn't paint a screen of empty surface.

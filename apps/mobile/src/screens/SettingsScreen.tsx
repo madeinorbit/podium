@@ -558,7 +558,9 @@ function NavRow({
   value?: string
   onPress: () => void
 }) {
-  const stacked = useWindowDimensions().fontScale >= STACKED_ROW_SCALE
+  const { fontScale } = useWindowDimensions()
+  const stacked = fontScale >= STACKED_ROW_SCALE
+  const glyphScale = Math.min(fontScale, 2)
   return (
     <PressableScale
       style={({ pressed }) => [
@@ -571,7 +573,7 @@ function NavRow({
       accessibilityLabel={label}
       accessibilityValue={value ? { text: value } : undefined}
     >
-      {icon ? <Icon as={icon} size={ROW_ICON} color={color.text} /> : null}
+      {icon ? <Icon as={icon} size={ROW_ICON * glyphScale} color={color.text} /> : null}
       {stacked ? (
         <View style={styles.stackedText}>
           <Text style={styles.rowLabel}>{label}</Text>
@@ -586,7 +588,7 @@ function NavRow({
             {value}
           </Text>
         ) : null}
-        <Icon as={ChevronRight} size={14} color={color.textFaint} />
+        <Icon as={ChevronRight} size={14 * glyphScale} color={color.textFaint} />
       </View>
     </PressableScale>
   )

@@ -2123,8 +2123,15 @@ function SecondaryButton({
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
   srStatus: { position: 'absolute', width: 1, height: 1, overflow: 'hidden' },
-  overrideBanner: { backgroundColor: color.needsYou, paddingVertical: 4, alignItems: 'center' },
-  overrideText: { color: color.onAccent, ...sans(700), fontSize: font.micro, letterSpacing: 1 },
+  overrideBanner: { backgroundColor: color.needsYou, paddingVertical: 4, flexShrink: 0 },
+  overrideText: {
+    color: color.onAccent,
+    ...sans(700),
+    fontSize: font.micro,
+    letterSpacing: 1,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
   setup: { flex: 1, backgroundColor: color.bg },
   recovery: {
     flex: 1,

@@ -62,6 +62,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { ContextMenu } from '../components/ContextMenu.ios'
+import { deckColor } from '../components/deck-colors'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
@@ -296,7 +297,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                             <Text
                               modifiers={[
                                 font({ textStyle: 'body' }),
-                                foregroundStyle(color.accentTint),
+                                foregroundStyle(deckColor.proposalText),
                               ]}
                             >
                               Screen

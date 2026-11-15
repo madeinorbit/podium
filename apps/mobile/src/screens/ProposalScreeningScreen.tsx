@@ -5,7 +5,14 @@ import { ProposalScreening } from '@podium/client-graph/mobile-triage'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
@@ -49,6 +56,8 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const trpc = useTrpc()
   const { closeIssue } = useStoreActions()
   const insets = useSafeAreaInsets()
+  const expanded = useWindowDimensions().fontScale >= 1.6
+  const CardStack = expanded ? ScrollView : View
   const deck = useMemo(() => (pool ? new ProposalScreening(pool, text) : null), [pool, text])
   useEffect(() => deck?.open(), [deck])
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
@@ -230,8 +239,11 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
             />
           ))}
         </View>
-        <View style={styles.stack}>
-          <View style={styles.cardWrap}>
+        <CardStack
+          style={styles.stack}
+          {...(expanded ? { contentContainerStyle: styles.stackContent } : {})}
+        >
+          <View style={[styles.cardWrap, expanded && styles.growingCard]}>
             {/* The card underneath, peeking as a rim — the deck has depth only
                 while something is actually behind it. */}
             {deck.nextId ? <View style={styles.behindCard} pointerEvents="none" /> : null}
@@ -244,7 +256,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
               onOpen={() => router.push(`/issue/${encodeURIComponent(current.id)}`)}
             />
           </View>
-        </View>
+        </CardStack>
         <Text style={styles.hint}>Swipe to skip · tap Start or Decline to decide</Text>
       </View>
     )
@@ -426,6 +438,8 @@ const styles = StyleSheet.create({
   cardWrap: {
     maxHeight: '100%',
   },
+  stackContent: { paddingBottom: space.md },
+  growingCard: { maxHeight: undefined },
   behindCard: {
     position: 'absolute',
     left: 9,

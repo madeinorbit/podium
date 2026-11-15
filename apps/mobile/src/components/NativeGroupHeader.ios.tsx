@@ -1,4 +1,4 @@
-import { Button, HStack, Image, Spacer, Text } from '@expo/ui/swift-ui'
+import { Button, HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityAddTraits,
   accessibilityHidden,
@@ -7,6 +7,7 @@ import {
   accessibilityValue,
   buttonStyle,
   contentShape,
+  fixedSize,
   font,
   foregroundStyle,
   frame,
@@ -18,6 +19,7 @@ import {
   shapes,
 } from '@expo/ui/swift-ui/modifiers'
 import type { ReactNode } from 'react'
+import { useWindowDimensions } from 'react-native'
 import { workPaper as paper } from '../screens/work-paper'
 
 const CARD_INSET = 12
@@ -39,8 +41,11 @@ export function NativeGroupHeader({
   onToggle: () => void
   trailing?: ReactNode
 }) {
+  const expanded = useWindowDimensions().fontScale >= 1.6
+  const Layout = expanded && trailing ? VStack : HStack
   return (
-    <HStack
+    <Layout
+      {...(expanded && trailing ? { alignment: 'leading' as const } : {})}
       spacing={8}
       modifiers={[
         listRowBackground(paper.ground),
@@ -83,7 +88,12 @@ export function NativeGroupHeader({
               // label colour, well above the rows' Body text, scaling with Dynamic Type.
               font({ textStyle: 'title3', weight: 'bold' }),
               foregroundStyle(paper.ink),
-              lineLimit(1),
+              ...(expanded
+                ? [
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
+                    fixedSize({ horizontal: false, vertical: true }),
+                  ]
+                : [lineLimit(1)]),
             ]}
           >
             {title}
@@ -101,6 +111,6 @@ export function NativeGroupHeader({
         </HStack>
       </Button>
       {trailing}
-    </HStack>
+    </Layout>
   )
 }

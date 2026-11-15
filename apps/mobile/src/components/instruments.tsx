@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { color, font, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronDown, ChevronRight } from './icons'
@@ -162,6 +162,21 @@ export function SectionHeader({
   /** The note is a state that needs a look (a provider out), drawn in the signal tint. */
   trailingSignal?: boolean
 }) {
+  const { fontScale } = useWindowDimensions()
+  const expanded = fontScale >= 1.6
+  const label = (
+    <Text style={styles.sectionTitle} numberOfLines={expanded ? undefined : 1}>
+      {title}
+    </Text>
+  )
+  const note = trailing ? (
+    <Text
+      style={[styles.sectionTrailing, trailingSignal && styles.sectionSignal]}
+      numberOfLines={expanded ? undefined : 1}
+    >
+      {trailing}
+    </Text>
+  ) : null
   return (
     <Pressable
       accessibilityRole="button"
@@ -169,20 +184,24 @@ export function SectionHeader({
       aria-expanded={open}
       accessibilityLabel={`${title}${trailing ? `, ${trailing}` : ''}, ${open ? 'expanded' : 'collapsed'}`}
       onPress={onToggle}
-      style={styles.section}
+      style={[styles.section, expanded && styles.sectionExpanded]}
     >
-      <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textFaint} />
-      <Text style={styles.sectionTitle} numberOfLines={1}>
-        {title}
-      </Text>
-      {trailing ? (
-        <Text
-          style={[styles.sectionTrailing, trailingSignal && styles.sectionSignal]}
-          numberOfLines={1}
-        >
-          {trailing}
-        </Text>
-      ) : null}
+      <Icon
+        as={open ? ChevronDown : ChevronRight}
+        size={12 * Math.min(fontScale, 2)}
+        color={color.textFaint}
+      />
+      {expanded ? (
+        <View style={styles.sectionText}>
+          {label}
+          {note}
+        </View>
+      ) : (
+        <>
+          {label}
+          {note}
+        </>
+      )}
     </Pressable>
   )
 }
@@ -275,6 +294,8 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
     lineHeight: 16,
   },
+  sectionExpanded: { paddingVertical: space.sm },
+  sectionText: { flex: 1, minWidth: 0, gap: space.xs },
   sectionTrailing: {
     ...sans(400),
     flexShrink: 1,
