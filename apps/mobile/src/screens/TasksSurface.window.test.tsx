@@ -236,6 +236,50 @@ vi.mock('@expo/ui/swift-ui', () => {
 })
 const { TasksSurface } = await import('./TasksSurface.ios')
 const { WorkSurface } = await import('./WorkSurface.ios')
+
+it.each([
+  'snoozed',
+  'closed',
+] as const)('keeps one inset trait around the %s empty-state text', async (lane) => {
+  const pool = new MobxPool({
+    selectedIssueId: null,
+    coarseNow: Date.parse('2026-10-03T12:00:00Z'),
+  })
+  state.pool = pool
+  pool.apply({ type: 'replace', rows: [] })
+  await attachMobileScreens(pool)
+  state.work = worklistView(pool)
+  const phone = state.work.phone
+  phone.setLane(lane)
+  render(
+    <WorkSurface
+      {...({
+        phone,
+        collapsed: new Set(),
+        loading: false,
+        pendingNav: null,
+        refresh: { onRefresh: () => {} },
+      } as unknown as WorkSurfaceProps)}
+    />,
+  )
+  const label = screen.getByText(`No ${lane} tasks`)
+  const row = label.parentElement
+  const modifiers = JSON.parse(row?.getAttribute('data-modifiers') ?? '[]') as {
+    name: string
+    value: unknown
+  }[]
+  // Two nested listRowInsets traits let the zero-inset quiet-row policy win,
+  // putting first/last-line glyphs against the rounded List cell's clip.
+  expect(modifiers.filter((modifier) => modifier.name === 'listRowInsets')).toEqual([
+    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 8 } },
+  ])
+  expect(row?.textContent).toContain(
+    lane === 'closed'
+      ? 'Tasks closed in the last 7 days appear here.'
+      : 'Snoozed tasks will appear here until they return to Open.',
+  )
+})
+
 afterEach(() => {
   cleanup()
   state.pool?.dispose()

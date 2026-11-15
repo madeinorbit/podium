@@ -117,13 +117,12 @@ const cardRowAt = (first: boolean, last: boolean) => [
 ]
 const loneCardRow = cardRowAt(true, true)
 /** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
-const quietRow = [
-  listRowBackground(paper.ground),
-  listRowSeparator('hidden'),
-  listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 }),
-]
+const groundRow = [listRowBackground(paper.ground), listRowSeparator('hidden')]
+const quietRow = [...groundRow, listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 })]
 const noteRow = [
-  ...quietRow,
+  // List-row inset traits do not compose: inheriting quietRow's zero inset
+  // lets the rounded cell mask cut the first/last lines' leading glyphs.
+  ...groundRow,
   listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
 ]
 
@@ -304,7 +303,11 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               </Section>
             ) : null}
             {!props.loading && !sections.length ? (
-              <VStack alignment="leading" spacing={8} modifiers={noteRow}>
+              <VStack
+                alignment="leading"
+                spacing={8}
+                modifiers={[...noteRow, frame({ maxWidth: Infinity, alignment: 'leading' })]}
+              >
                 <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
                   {phone.needle
                     ? 'No matching tasks'
@@ -592,7 +595,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const refText = (
     <Text
       modifiers={[
-        font({ size: 11, design: 'monospaced' }),
+        font({ size: 11 * Math.min(fontScale, 2), design: 'monospaced' }),
         foregroundStyle(paper.tertiary),
         lineLimit(1),
       ]}
