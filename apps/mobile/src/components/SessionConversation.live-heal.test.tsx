@@ -158,10 +158,56 @@ async function mount(initial?: TranscriptItem[]) {
     setViewSession(next)
   }
   await screen.findByText(initial?.at(-1)?.text ?? 'What is 7 times 7?')
-  return io
+  return { ...io, emit: view.emit }
 }
 
 describe('phone transcript over a live stream that went quiet', () => {
+  it.each([
+    'unchanged',
+    'replaced',
+    'failed',
+  ] as const)('settles the shared transcript status after a %s reconnect read with the same row count', async (result) => {
+    const io = await mount()
+    type Page = Awaited<ReturnType<typeof io.transcriptRead>>
+    let resolve!: (page: Page) => void
+    let reject!: (error: Error) => void
+    io.transcriptRead.mockImplementationOnce(
+      () =>
+        new Promise<Page>((accept, refuse) => {
+          resolve = accept
+          reject = refuse
+        }),
+    )
+    act(() => {
+      io.emit('connectionHealth', { status: 'down' })
+      io.emit('connectionHealth', { status: 'ok' })
+    })
+    await screen.findByText('Checking transcript…')
+    const items = io.written.map((item, index) =>
+      result === 'replaced' && index === io.written.length - 1
+        ? { ...item, text: 'Updated existing answer' }
+        : item,
+    )
+    await act(async () => {
+      if (result === 'failed') reject(new Error('isolated transcript read unavailable'))
+      else
+        resolve({
+          items,
+          head: items[0]?.cursor,
+          tail: items.at(-1)?.cursor,
+          hasMore: false,
+        })
+    })
+    if (result === 'failed') await screen.findByText('Saved transcript copy')
+    await waitFor(() => {
+      expect(screen.queryByText('Updating transcript…')).toBeNull()
+      expect(screen.queryByText('Checking transcript…')).toBeNull()
+    })
+    expect(
+      screen.getByText(result === 'replaced' ? 'Updated existing answer' : 'What is 7 times 7?'),
+    ).toBeTruthy()
+  })
+
   it('retains find history before a match moves the viewport, then resumes the newest window', async () => {
     const initial = Array.from({ length: 180 }, (_, index) =>
       entry(`i${index}`, `c${index}`, 'assistant', `Message ${index}`),

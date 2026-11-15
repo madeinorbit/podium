@@ -515,6 +515,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const transcript = model
   const conversation = model
   const loaded = transcript.initialLoaded
+  const freshness = transcript.freshness
   const itemCount = transcript.ids.length
   const pendingTurns = useMemo<LocalPendingTurn[]>(
     () => conversation.bubbles.map(pendingTurnOf),
@@ -544,10 +545,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // the transcript.
   const [floatingHeight, setFloatingHeight] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each rendered item count acknowledges a new transcript batch.
+  // A reconnect may replace rows or return an identical window. Neither
+  // changes its count, but both finish the shared rendering transition.
   useEffect(() => {
-    transcript.markRendered()
-  }, [itemCount, transcript])
+    if (freshness === 'rendering') transcript.markRendered()
+  }, [freshness, transcript])
   const pendingSeed = conversation.pending.some((turn) => turn.id === 'pending-first-turn')
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
@@ -630,11 +632,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const transcriptStatus = transcript.offlineAsOf
     ? `Offline transcript copy · as of ${new Date(transcript.offlineAsOf).toLocaleString()}`
-    : transcript.freshness === 'saved'
+    : freshness === 'saved'
       ? 'Saved transcript copy'
-      : transcript.freshness === 'checking'
+      : freshness === 'checking'
         ? 'Checking transcript…'
-        : transcript.freshness === 'rendering'
+        : freshness === 'rendering'
           ? 'Updating transcript…'
           : null
 
