@@ -15,8 +15,8 @@ import { renderWithMobileStore } from '../client/test-support'
 import type { ChatDeckPagerProps } from '../components/chat-deck-pager.types'
 
 const pagerGesture = vi.hoisted(() => ({
-  change: null as ChatDeckPagerProps['onPageChange'],
-  settle: null as ChatDeckPagerProps['onPageSettle'],
+  change: undefined as ChatDeckPagerProps['onPageChange'],
+  settle: undefined as ChatDeckPagerProps['onPageSettle'],
 }))
 vi.mock('../components/ChatDeckPager', async (importOriginal) => {
   const { ChatDeckPager } = await importOriginal<typeof import('../components/ChatDeckPager')>()
