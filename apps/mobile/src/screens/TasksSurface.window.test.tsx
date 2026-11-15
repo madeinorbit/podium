@@ -437,8 +437,13 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
     )
   expect(monoSizes()).toEqual([11, 12])
   expect(state.actions.map((action) => action.label)).toEqual(['Filter and display', 'New task'])
+  const swipeOwner = slot.firstElementChild
+  const listMounts = state.listMount.mock.calls.length
   state.fontScale = 2
   view.rerender(<TasksSurface {...props} chips={[]} />)
+  expect(slot.isConnected).toBe(true)
+  expect(slot.firstElementChild).toBe(swipeOwner)
+  expect(state.listMount).toHaveBeenCalledTimes(listMounts)
   expect(monoSizes()).toEqual([22, 24])
   expect(state.actions).toHaveLength(1)
   expect(state.actions[0]?.label).toBe('Task actions')
