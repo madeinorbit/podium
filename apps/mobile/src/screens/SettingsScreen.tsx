@@ -246,6 +246,8 @@ const SettingsHome = observer(function SettingsHome() {
 
   const host = hostOf(httpOrigin)
   const machines = demoFleet?.visibleCount ?? machineCount
+  // Accessibility sizes wrap the server card's status lines instead of cutting them.
+  const serverLines = useWindowDimensions().fontScale >= STACKED_ROW_SCALE ? 0 : 1
   const native = Platform.OS !== 'web'
   return (
     <Screen
@@ -276,17 +278,23 @@ const SettingsHome = observer(function SettingsHome() {
 
         <Card>
           <View style={styles.server}>
-            <Text style={styles.serverName} numberOfLines={1}>
+            {/* A host name never wraps mid-name; it shrinks to fit instead. */}
+            <Text
+              style={styles.serverName}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
               {host}
             </Text>
-            <Text style={styles.serverLine} numberOfLines={1}>
+            <Text style={styles.serverLine} numberOfLines={serverLines}>
               <Text style={connected ? styles.liveDot : styles.offlineDot}>● </Text>
               {connected ? 'Connected' : 'Offline, showing saved data'}
               {` · ${machines} ${machines === 1 ? 'machine' : 'machines'}`}
             </Text>
             <Text
               style={styles.serverLine}
-              numberOfLines={1}
+              numberOfLines={serverLines}
               accessibilityLabel="Data on this phone"
             >
               {`${formatCount(sessionCount)} sessions · ${formatCount(issueCount)} tasks`}

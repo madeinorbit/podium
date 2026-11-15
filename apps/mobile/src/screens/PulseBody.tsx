@@ -303,7 +303,16 @@ const HeroBlock = memo(function HeroBlock({ hero, cold }: { hero: PulseHero; col
       {/* A wrapping row, not nested text: at large sizes the unit drops to its own
           line at its own height instead of inheriting the figure's line height. */}
       <View style={styles.heroLine}>
-        <Text style={styles.heroValue}>{cold ? '—' : formatUsd(hero.costUsd)}</Text>
+        {/* One line, shrinking at the largest sizes, as Stocks does for a quote:
+            a cost broken across lines ("$0.0" / "0") misreads. */}
+        <Text
+          style={styles.heroValue}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
+        >
+          {cold ? '—' : formatUsd(hero.costUsd)}
+        </Text>
         <Text style={styles.heroUnit}>list price</Text>
       </View>
       <HourTrace
