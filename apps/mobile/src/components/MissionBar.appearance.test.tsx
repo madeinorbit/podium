@@ -52,10 +52,12 @@ import { MissionBar } from './MissionBar'
 
 const full = {
   ready: true,
-  buckets: { done: 41, total: 64, working: 0, waiting: 0, todo: 23 },
-  counts: { 'needs-you': 0, 'up-next': 11 },
+  buckets: { done: 41, total: 64, working: 2, waiting: 0, todo: 21 },
+  counts: { 'needs-you': 1, 'up-next': 11 },
 } as unknown as FullDeck
-const token = (node: HTMLElement) => JSON.parse(node.dataset.ink ?? 'null')
+// Nested RN Text inherits its parent's foreground when it has no own color.
+const token = (node: HTMLElement) =>
+  JSON.parse(node.closest<HTMLElement>('[data-ink]')?.dataset.ink ?? 'null')
 function changeAppearance(scheme: 'light' | 'dark') {
   act(() => {
     appearance.scheme = scheme
@@ -69,9 +71,16 @@ afterEach(() => {
 })
 
 it.each([
-  'fraction',
-  'inspector',
-] as const)('changes the rendered %s ink under an unchanged memoized chat page', (part) => {
+  { part: 'fraction', text: '41/64', light: '#000000', contrast: '#000000' },
+  { part: 'inspector', text: null, light: '#3c3c43', contrast: '#000000' },
+  { part: 'up next', text: /11 up next/, light: '#3c3c43', contrast: '#000000' },
+  { part: 'needs you', text: /1 needs you/, light: '#765114', contrast: '#5e4110' },
+  { part: 'working', text: /2 working/, light: '#0057b8', contrast: '#004693' },
+])('changes the rendered $part ink under an unchanged memoized chat page', ({
+  text,
+  light,
+  contrast,
+}) => {
   let parentRenders = 0
   const ChatPage = memo(function ChatPage() {
     parentRenders++
@@ -79,15 +88,15 @@ it.each([
   })
   render(<ChatPage />)
   const read = () =>
-    part === 'fraction' ? screen.getByText('41/64') : screen.getByTestId('inspector-symbol')
+    text === null ? screen.getByTestId('inspector-symbol') : screen.getByText(text)
   const node = read()
   const dark = token(node)
   changeAppearance('light')
-  const light = token(read())
-  expect(light).not.toEqual(dark)
-  expect(light.dynamic).toMatchObject({
-    light: part === 'fraction' ? '#000000' : '#3c3c43',
-    highContrastLight: '#000000',
+  const lightToken = token(read())
+  expect(lightToken).not.toEqual(dark)
+  expect(lightToken.dynamic).toMatchObject({
+    light,
+    highContrastLight: contrast,
   })
   expect(read()).toBe(node)
   changeAppearance('dark')
@@ -95,8 +104,20 @@ it.each([
   expect(read()).toBe(node)
   expect(parentRenders).toBe(1)
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    'Flight deck, 41/64 · 11 up next',
+    'Flight deck, 41/64 · 1 needs you · 2 working · 11 up next',
   )
+})
+
+it('updates the loading strip ink without replacing its text', () => {
+  render(<MissionBar full={{ ...full, ready: false } as FullDeck} onOpen={() => {}} />)
+  const node = screen.getByText('Loading tasks…')
+  const dark = token(node)
+  changeAppearance('light')
+  expect(token(node)).not.toEqual(dark)
+  expect(token(node).dynamic.light).toBe('#3c3c43')
+  changeAppearance('dark')
+  expect(token(node)).toEqual(dark)
+  expect(screen.getByText('Loading tasks…')).toBe(node)
 })
 
 it('keeps an explicit signal tint and its symbol mounted across appearances', () => {

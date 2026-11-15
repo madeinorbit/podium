@@ -297,9 +297,8 @@ final class SearchStartsHiddenView: UIView {
       if foundLaunchOverlay { finish() } else { retry() }
       return
     }
-    // Enforce this on UIKit before readiness can start the native-driver fade,
-    // as well as the overlay's initial React pointerEvents prop.
-    overlay.isUserInteractionEnabled = false
+    // React owns the overlay's hit policy. Observe its opacity without changing
+    // interaction on any native view during startup preparation.
     let opacity = overlay.layer.presentation()?.opacity ?? overlay.layer.opacity
     guard overlay.window === window, !overlay.isHidden, opacity >= 0.999 else { finish(); return }
     guard let navigationBar = screen.navigationController?.navigationBar

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Only remove the search area's visible extent from the expanded resting

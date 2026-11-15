@@ -40,10 +40,13 @@ export function DeckVitalsLine({
   numberOfLines?: number
   maxFontSizeMultiplier?: number
 }) {
+  const lineInk = useLiveInk(color.textDim)
   const fractionInk = useLiveInk(color.text)
+  const needsInk = useLiveInk(deckColor.needsYou)
+  const workingInk = useLiveInk(deckColor.working)
   return (
     <Text
-      style={styles.line}
+      style={lineInk === color.textDim ? styles.line : [styles.line, { color: lineInk }]}
       numberOfLines={numberOfLines}
       maxFontSizeMultiplier={maxFontSizeMultiplier}
     >
@@ -53,10 +56,20 @@ export function DeckVitalsLine({
         }
       >{`${vitals.done}/${vitals.total}`}</Text>
       {vitals.needsYou > 0 ? (
-        <Text style={styles.needs}>{`  ·  ${vitals.needsYou} needs you`}</Text>
+        <Text
+          style={
+            needsInk === deckColor.needsYou ? styles.needs : [styles.needs, { color: needsInk }]
+          }
+        >{`  ·  ${vitals.needsYou} needs you`}</Text>
       ) : null}
       {vitals.working > 0 ? (
-        <Text style={styles.working}>{`  ·  ${vitals.working} working`}</Text>
+        <Text
+          style={
+            workingInk === deckColor.working
+              ? styles.working
+              : [styles.working, { color: workingInk }]
+          }
+        >{`  ·  ${vitals.working} working`}</Text>
       ) : null}
       {vitals.upNext > 0 ? <Text>{`  ·  ${vitals.upNext} up next`}</Text> : null}
     </Text>

@@ -2,6 +2,7 @@ import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { observer } from 'mobx-react-lite'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, sans, space } from '../theme/theme'
+import { useLiveInk } from '../theme/use-live-ink'
 import { Icon } from './Icon'
 import type { AppIcon } from './icons'
 import { DeckGauge, type DeckVitals, DeckVitalsLine, deckVitals } from './MissionGauge'
@@ -38,6 +39,7 @@ export const MissionBar = observer(function MissionBar({
   full: FullDeck
   onOpen: () => void
 }) {
+  const loadingInk = useLiveInk(color.textDim)
   const vitals = deckVitals(full)
   const reading = vitals ? deckVitalsLabel(vitals) : 'Task counts are loading'
   return (
@@ -59,7 +61,15 @@ export const MissionBar = observer(function MissionBar({
           // from the label above.
           <DeckVitalsLine vitals={vitals} numberOfLines={1} maxFontSizeMultiplier={BAR_MAX_SCALE} />
         ) : (
-          <Text style={styles.loading} numberOfLines={1} maxFontSizeMultiplier={BAR_MAX_SCALE}>
+          <Text
+            style={
+              loadingInk === color.textDim
+                ? styles.loading
+                : [styles.loading, { color: loadingInk }]
+            }
+            numberOfLines={1}
+            maxFontSizeMultiplier={BAR_MAX_SCALE}
+          >
             Loading tasks…
           </Text>
         )}
