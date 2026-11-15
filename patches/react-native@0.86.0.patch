@@ -69,7 +69,7 @@ diff --git a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView
 -                                    [self.layer addSublayer:self->_highlightLayer];
 +  // TextKit must resolve every inline run against this view, including
 +  // a paragraph that was measured or cached under another appearance.
-+  [self.traitCollection performAsCurrent:^{
++  [self.traitCollection performAsCurrentTraitCollection:^{
 +    [nativeTextLayoutManager drawAttributedString:stateData.attributedString
 +                              paragraphAttributes:_paragraphAttributes
 +                                            frame:frame
@@ -168,7 +168,7 @@ diff --git a/React/Tests/Text/RCTParagraphComponentViewTests.mm b/React/Tests/Te
 +
 +  // Warm the same native measurement cache under the opposite appearance.
 +  __block TextMeasurement measured;
-+  [[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark] performAsCurrent:^{
++  [[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark] performAsCurrentTraitCollection:^{
 +    measured = [manager measureAttributedString:string
 +                           paragraphAttributes:paragraph
 +                                 layoutContext:context
@@ -182,7 +182,7 @@ diff --git a/React/Tests/Text/RCTParagraphComponentViewTests.mm b/React/Tests/Te
 +    CGColorSpaceRelease(space);
 +    XCTAssertNotEqual(bitmap, nullptr);
 +    UIGraphicsPushContext(bitmap);
-+    [[UITraitCollection traitCollectionWithUserInterfaceStyle:style] performAsCurrent:^{
++    [[UITraitCollection traitCollectionWithUserInterfaceStyle:style] performAsCurrentTraitCollection:^{
 +      [manager drawAttributedString:string paragraphAttributes:paragraph
 +                             frame:CGRectMake(0, 0, 300, 100) drawHighlightPath:nil];
 +      auto again = [manager measureAttributedString:string
