@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   type TextInputKeyPressEventData,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import { color } from '../../theme/theme'
@@ -22,6 +23,9 @@ import type { AppIcon } from '../icons'
 import { PressableScale } from '../PressableScale'
 import type { ComposerAttachment } from '../useComposerAttachments'
 import { ComposeMenu, type ComposeMenuItem } from './ComposeMenu'
+
+/** Above this text scale the field label stacks over its value (Start Agent uses the same). */
+const STACKED_FIELD_SCALE = 1.35
 
 export function ComposeFieldRow({
   label,
@@ -38,6 +42,10 @@ export function ComposeFieldRow({
   items: readonly ComposeMenuItem[]
   disabled?: boolean
 }) {
+  // Large text stacks the label above its value, as the Start Agent fields do;
+  // side by side every value truncated to a few letters on a small phone.
+  const stacked = useWindowDimensions().fontScale > STACKED_FIELD_SCALE
+  const lines = stacked ? 2 : 1
   return (
     <ComposeMenu
       label={label}
@@ -49,12 +57,12 @@ export function ComposeFieldRow({
         const content = (
           <>
             <Text style={styles.fieldLabel}>{label}</Text>
-            <View style={styles.fieldValue}>
+            <View style={[styles.fieldValue, stacked && styles.fieldValueStacked]}>
               {agent ? <AgentMark kind={agent} size={16} ink={color.text} /> : null}
-              <Text numberOfLines={1} style={styles.value}>
+              <Text numberOfLines={lines} style={styles.value}>
                 {value}
               </Text>
-              {detail ? (
+              {detail && !stacked ? (
                 <Text numberOfLines={1} style={styles.detail}>
                   {detail}
                 </Text>
@@ -63,6 +71,12 @@ export function ComposeFieldRow({
                 <Icon as="chevron.up.chevron.down" size={10} color={color.textMicro} />
               ) : null}
             </View>
+            {/* Stacked, the detail takes its own line instead of a cramped column. */}
+            {detail && stacked ? (
+              <Text numberOfLines={lines} style={styles.detail}>
+                {detail}
+              </Text>
+            ) : null}
             <View pointerEvents="none" style={styles.separator} />
           </>
         )
@@ -73,7 +87,7 @@ export function ComposeFieldRow({
             accessibilityLabel={`${label}, ${value}${detail ? `, ${detail}` : ''}`}
             onPress={onPress}
             disabled={disabled}
-            style={styles.field}
+            style={[styles.field, stacked && styles.fieldStacked]}
           >
             {content}
           </PressableScale>
@@ -82,7 +96,7 @@ export function ComposeFieldRow({
             accessible
             accessibilityRole="button"
             accessibilityLabel={`${label}, ${value}${detail ? `, ${detail}` : ''}`}
-            style={styles.field}
+            style={[styles.field, stacked && styles.fieldStacked]}
           >
             {content}
           </View>
@@ -411,6 +425,13 @@ const styles = StyleSheet.create({
     color: color.textDim,
   },
   fieldValue: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fieldStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 2,
+    paddingVertical: 8,
+  },
+  fieldValueStacked: { flex: 0, alignSelf: 'stretch' },
   value: { fontWeight: '400', fontSize: 15, color: color.text, flexShrink: 1 },
   detail: { fontWeight: '400', fontSize: 15, color: color.textDim, flexShrink: 2 },
   note: {
