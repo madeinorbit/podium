@@ -1,6 +1,32 @@
 import { Stack, useFocusEffect } from 'expo-router'
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { SearchBarCommands } from 'react-native-screens'
+import { useLaunchTransitionHold } from '../client/launch-ready'
+
+/** Keep the initial native search tuck under the launch surface. Later tab
+ * opens keep UIKit's resting position instead of starting a visible scroll. */
+export function useSearchLaunchTransition() {
+  const hold = useLaunchTransitionHold()
+  const release = useRef<(() => void) | null>(null)
+  const [canTuck, setCanTuck] = useState<boolean | null>(null)
+  const onReady = useCallback(() => {
+    // A later native probe remount must not repeat startup's programmatic scroll.
+    setCanTuck(false)
+    release.current?.()
+    release.current = null
+  }, [])
+  useFocusEffect(
+    useCallback(() => {
+      release.current = hold?.() ?? null
+      setCanTuck(release.current !== null)
+      return () => {
+        onReady()
+        setCanTuck(null)
+      }
+    }, [hold, onReady]),
+  )
+  return { canTuck, onReady }
+}
 
 /** UIKit owns the pull threshold and snap beneath the stock large title.
  * Keep the screen's first scroll view mounted and let it own its offset/insets. */

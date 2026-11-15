@@ -74,7 +74,7 @@ import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
 import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
-import { ListSearchBar } from '../components/list-search-bar.ios'
+import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
@@ -131,6 +131,7 @@ const noteRow = [
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
   startupTiming.mark('work.surface-render')
   const { phone } = props
+  const searchLaunch = useSearchLaunchTransition()
   const quiet = phone.quietSections
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
@@ -213,7 +214,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               background(paper.ground),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('work-list'),
-              listSearchStartsHidden(),
+              listSearchStartsHidden(searchLaunch),
               onAppear(() => startupTiming.mark('work.native-list-appear')),
             ]}
           >

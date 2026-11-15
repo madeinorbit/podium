@@ -66,7 +66,7 @@ import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
 import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
-import { ListSearchBar } from '../components/list-search-bar.ios'
+import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
@@ -144,6 +144,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
+  const searchLaunch = useSearchLaunchTransition()
   const { fontScale } = useWindowDimensions()
   const folds = useStageFolds()
   // The shared board's groups: non-empty lanes plus the Proposed screening group.
@@ -227,7 +228,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               background(paper.ground),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('tasks-list'),
-              listSearchStartsHidden(),
+              listSearchStartsHidden(searchLaunch),
             ]}
           >
             <ListNotices>

@@ -23,3 +23,17 @@ it('lets UIKit change header glass appearance synchronously with the rest of the
     })
   }
 })
+
+it('reserves the large-subtitle line while sync status and zero counts change', () => {
+  const idle = headerSubtitleOptions(undefined, { large: true })
+  expect(idle.unstable_nativeProps).toMatchObject({
+    headerConfig: { largeSubtitle: '\u00a0' },
+  })
+  const updating = headerSubtitleOptions('Updating…', { large: true })
+  expect(updating.unstable_nativeProps).toMatchObject({
+    headerConfig: { largeSubtitle: 'Updating…' },
+  })
+  expect(headerSubtitleOptions(undefined).unstable_nativeProps).toMatchObject({
+    headerConfig: { largeSubtitle: undefined },
+  })
+})

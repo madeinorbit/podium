@@ -1,4 +1,4 @@
-import { createModifier, createModifierWithEventListener } from '@expo/ui/swift-ui/modifiers'
+import { createModifierWithEventListener } from '@expo/ui/swift-ui/modifiers'
 import { requireNativeModule } from 'expo'
 
 // Requiring the module registers its modifier before any native row renders.
@@ -12,4 +12,10 @@ export const listRowPress = (onOpen: () => void) =>
 
 /** Apply to a List under a ListSearchBar: on mount, the stacked search field
  * starts tucked under the large title (a deliberate pull reveals it). */
-export const listSearchStartsHidden = () => createModifier('podiumSearchStartsHidden')
+export const listSearchStartsHidden = ({
+  canTuck,
+  onReady,
+}: {
+  canTuck: boolean | null
+  onReady: () => void
+}) => createModifierWithEventListener('podiumSearchStartsHidden', onReady, { canTuck })

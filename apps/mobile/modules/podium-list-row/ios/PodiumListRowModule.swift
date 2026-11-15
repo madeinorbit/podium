@@ -13,8 +13,8 @@ public final class PodiumListRowModule: Module {
       ViewModifierRegistry.register(rowPressModifier) { _, _, dispatcher in
         ListRowPressModifier(dispatcher: dispatcher)
       }
-      ViewModifierRegistry.register(searchStartsHiddenModifier) { _, _, _ in
-        SearchStartsHiddenModifier()
+      ViewModifierRegistry.register(searchStartsHiddenModifier) { params, _, dispatcher in
+        SearchStartsHiddenModifier(canTuck: params["canTuck"] as? Bool, dispatcher: dispatcher)
       }
     }
 
@@ -158,55 +158,103 @@ final class TouchMovementRecognizer: UIGestureRecognizer {
   }
 }
 
-/// UIKit shows a stacked `hidesSearchBarWhenScrolling` search field when its list
-/// first appears at rest. Lists should open with the field tucked under the large
-/// title, revealed only by a deliberate pull. Once per mounted list this names the
-/// List's collection view as the screen's top content scroll view (UIKit's implicit
-/// discovery follows drags but ignores programmatic scrolls) and scrolls it by the
-/// field's height. Only an animated scroll goes through UIKit's search-hiding path;
-/// a programmatic jump collapses the large title too. On a cold launch this runs
-/// beneath the splash overlay.
+/// Hide initial search chrome while the launch boundary still covers the list.
+/// A list that arrives after reveal keeps UIKit at rest: a delayed programmatic
+/// scroll used to move visible content and swallow the first Work toolbar tap.
 private struct SearchStartsHiddenModifier: ViewModifier {
+  let canTuck: Bool?
+  let dispatcher: EventDispatcher
+
   func body(content: Content) -> some View {
-    content.background(SearchStartsHiddenProbe().frame(width: 0, height: 0))
+    content.background(SearchStartsHiddenProbe(canTuck: canTuck, onReady: {
+      dispatcher([searchStartsHiddenModifier: [:]])
+    }).frame(width: 0, height: 0))
   }
 }
 
 private struct SearchStartsHiddenProbe: UIViewRepresentable {
+  let canTuck: Bool?
+  let onReady: () -> Void
+
   func makeUIView(context: Context) -> SearchStartsHiddenView { SearchStartsHiddenView() }
-  func updateUIView(_ uiView: SearchStartsHiddenView, context: Context) {}
+  func updateUIView(_ uiView: SearchStartsHiddenView, context: Context) {
+    uiView.configure(canTuck: canTuck, onReady: onReady)
+  }
 }
 
 final class SearchStartsHiddenView: UIView {
+  private var started = false
   private var settled = false
+  private var canTuck: Bool?
+  private var onReady: (() -> Void)?
+
+  func configure(canTuck: Bool?, onReady: @escaping () -> Void) {
+    guard !settled else { return }
+    self.canTuck = canTuck
+    self.onReady = onReady
+    if canTuck == false || (canTuck == nil && started) { finish() }
+    else { startIfReady() }
+  }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window != nil { DispatchQueue.main.async { self.tuck(attempt: 0) } }
+    if window == nil, started { finish() }
+    else { startIfReady() }
+  }
+
+  private func startIfReady() {
+    guard !started, !settled, canTuck == true, window != nil else { return }
+    started = true
+    DispatchQueue.main.async { [weak self] in self?.tuck(attempt: 0) }
+  }
+
+  private func finish() {
+    guard !settled else { return }
+    settled = true
+    onReady?()
+    onReady = nil
   }
 
   private func tuck(attempt: Int) {
-    guard !settled, window != nil else { return }
+    guard !settled else { return }
+    guard canTuck == true, window != nil else { finish(); return }
     guard let list = trackedList(), let screen = searchScreen(),
       let search = screen.navigationItem.searchController, list.contentSize.height > 0
     else {
-      // The list and the header's search controller attach over a few frames.
+      // Give native attachments a bounded chance under the launch surface.
       if attempt < 40 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.tuck(attempt: attempt + 1) }
-      }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+          self?.tuck(attempt: attempt + 1)
+        }
+      } else { finish() }
       return
     }
-    settled = true
     screen.setContentScrollView(list, for: .top)
     let bar = search.searchBar
     let height = bar.bounds.height
     let rest = -list.adjustedContentInset.top
-    // Hidden fields have zero height. Leave an active or filled field, and any
-    // list the person is already moving, alone.
     guard height > 1, !search.isActive, bar.text?.isEmpty ?? true,
       !list.isTracking, !list.isDecelerating, list.contentOffset.y <= rest + 1
-    else { return }
-    list.setContentOffset(CGPoint(x: list.contentOffset.x, y: rest + height), animated: true)
+    else { finish(); return }
+    // UIKit's animated path tucks search without collapsing the large title.
+    let target = rest + height
+    list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: true)
+    waitForTuck(list, target: target, attempt: 0, stable: 0)
+  }
+
+  private func waitForTuck(_ list: UIScrollView, target: CGFloat, attempt: Int, stable: Int) {
+    guard !settled else { return }
+    guard canTuck == true, window != nil else { finish(); return }
+    // SwiftUI owns the list's delegate. Observe the presented offset instead
+    // of replacing it just to receive scrollViewDidEndScrollingAnimation.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self, weak list] in
+      guard let self, let list else { self?.finish(); return }
+      let y = list.layer.presentation()?.bounds.origin.y ?? list.contentOffset.y
+      let stableFrames = abs(y - target) < 1 ? stable + 1 : 0
+      // Bound the hold if UIKit retargets the scroll as insets change.
+      if stableFrames >= 2 || attempt >= 120 { self.finish() }
+      else { self.waitForTuck(list, target: target, attempt: attempt + 1, stable: stableFrames) }
+    }
   }
 
   /// The List's collection view: the first one in the nearest enclosing subtree.

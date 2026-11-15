@@ -70,7 +70,9 @@ export function headerSubtitleOptions(
   const headerConfig = {
     ...systemHeaderConfig,
     subtitle: subtitle || undefined,
-    largeSubtitle: large ? subtitle || undefined : undefined,
+    // A warm-sync label must not insert/remove 22pt while the person is
+    // aiming at the first visible controls. Whitespace reserves UIKit's line.
+    largeSubtitle: large ? subtitle || (nativeSubtitleAvailable ? '\u00a0' : undefined) : undefined,
   }
   // The patched props are not in the public header-config type.
   return { unstable_nativeProps: { headerConfig: headerConfig as object } }

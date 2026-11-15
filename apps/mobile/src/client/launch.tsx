@@ -17,6 +17,7 @@ import {
   LaunchReadyProvider,
   LaunchSplashStatusProvider,
   type LaunchSplashStatusSource,
+  LaunchTransitionProvider,
 } from './launch-ready'
 
 // The route-ready signal lives in `./launch-ready`, which does NOT import
@@ -52,16 +53,36 @@ export function LaunchBoundary({
   const reduceMotion = useReduceMotion()
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
+  const [transition, setTransition] = useState<{ pending: boolean } | null>(null)
+  const activeTransition = useRef<(() => void) | null>(null)
+  const revealStarted = useRef(false)
   const [statusSource, setStatusSource] = useState<LaunchSplashStatusSource | null>(null)
   const splashOpacity = useRef(new Animated.Value(1)).current
-  const ready = fontsReady && routeReady
+  const ready = fontsReady && routeReady && !transition?.pending
+  const holdTransition = useCallback(() => {
+    // Only the focused native list owns startup's one search transition.
+    if (revealStarted.current || activeTransition.current) return null
+    setTransition({ pending: true })
+    let pending = true
+    const release = () => {
+      if (!pending) return
+      pending = false
+      activeTransition.current = null
+      setTransition({ pending: false })
+    }
+    activeTransition.current = release
+    return release
+  }, [])
   const markRouteReady = useCallback(() => {
     startupTiming.mark('launch.route-layout')
     setRouteReady(true)
   }, [])
 
   useEffect(() => {
-    if (!ready) return
+    // A child can acquire its hold earlier in this effect flush, before the
+    // state update above renders. Its resource already owns readiness now.
+    if (!fontsReady || !routeReady || transition?.pending || activeTransition.current) return
+    revealStarted.current = true
     let alive = true
     void (async () => {
       if (Platform.OS !== 'web') await SplashScreen.hideAsync().catch(() => {})
@@ -83,7 +104,7 @@ export function LaunchBoundary({
     return () => {
       alive = false
     }
-  }, [ready, reduceMotion, splashOpacity])
+  }, [fontsReady, routeReady, reduceMotion, splashOpacity, transition])
 
   useEffect(() => {
     if (!showSplash) startupTiming.mark('launch.overlay-hidden')
@@ -92,9 +113,10 @@ export function LaunchBoundary({
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
     <LaunchSplashStatusProvider value={setStatusSource}>
-      <LaunchReadyProvider value={context}>
-        <View style={styles.root}>
-          {/* The content NEVER carries an animated opacity: a subtree under
+      <LaunchTransitionProvider value={holdTransition}>
+        <LaunchReadyProvider value={context}>
+          <View style={styles.root}>
+            {/* The content NEVER carries an animated opacity: a subtree under
               one renders as an offscreen group, and UIKit disables backdrop
               layers inside such groups — which blanked the iOS 26 Liquid
               Glass tab-bar capsule for the app's whole life (root-caused
@@ -103,19 +125,20 @@ export function LaunchBoundary({
               The reveal is carried entirely by the OPAQUE splash overlay
               fading out above the already-final content — visually the same
               crossfade, structurally inert. */}
-          <View style={styles.content}>{children}</View>
-          {showSplash ? (
-            <Animated.View
-              // A native fade can finish before its JS completion callback.
-              // Once the route is ready, its first visible controls own taps.
-              pointerEvents={ready ? 'none' : 'auto'}
-              style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
-            >
-              <LaunchSplash source={statusSource} />
-            </Animated.View>
-          ) : null}
-        </View>
-      </LaunchReadyProvider>
+            <View style={styles.content}>{children}</View>
+            {showSplash ? (
+              <Animated.View
+                // A native fade can finish before its JS completion callback.
+                // Once the route is ready, its first visible controls own taps.
+                pointerEvents={ready ? 'none' : 'auto'}
+                style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
+              >
+                <LaunchSplash source={statusSource} />
+              </Animated.View>
+            ) : null}
+          </View>
+        </LaunchReadyProvider>
+      </LaunchTransitionProvider>
     </LaunchSplashStatusProvider>
   )
 }
