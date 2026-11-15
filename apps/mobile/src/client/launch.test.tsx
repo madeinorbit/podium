@@ -3,7 +3,7 @@ import { type EffectCallback, useEffect } from 'react'
 import { Animated, Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSearchLaunchTransition } from '../components/list-search-bar.ios'
-import { LaunchBoundary, useLaunchReadySignal } from './launch'
+import { LAUNCH_TRANSITION_BUDGET_MS, LaunchBoundary, useLaunchReadySignal } from './launch'
 
 const motion = vi.hoisted(() => ({ reduced: true }))
 vi.mock('expo-router', () => ({
@@ -20,6 +20,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   motion.reduced = true
+  vi.useRealTimers()
 })
 
 describe('LaunchBoundary', () => {
@@ -117,6 +118,29 @@ describe('LaunchBoundary', () => {
     expect(search.canTuck).toBe(false)
     act(() => search.onReady())
     expect(view.queryByTestId('boot-splash')).toBeNull()
+  })
+
+  it('expires an unattached native list after at most 500ms of extra reveal time', async () => {
+    vi.useFakeTimers()
+    const route = (fontsReady: boolean) => (
+      <LaunchBoundary fontsReady={fontsReady}>
+        <RouteProbe ready />
+        <SearchProbe />
+      </LaunchBoundary>
+    )
+    const view = render(route(false))
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(search.canTuck).toBe(true)
+    expect(view.getByTestId('boot-splash')).toBeTruthy()
+    view.rerender(route(true))
+    act(() => vi.advanceTimersByTime(LAUNCH_TRANSITION_BUDGET_MS - 1))
+    expect(search.canTuck).toBe(true)
+    await act(async () => vi.advanceTimersByTime(1))
+    expect(search.canTuck).toBe(false)
+    expect(view.queryByTestId('boot-splash')).toBeNull()
+    // A queued native completion cannot acquire another hold or scroll again.
+    act(() => search.onReady())
+    expect(search.canTuck).toBe(false)
   })
 
   it('lets a native hold win when fonts finish after the route already has a frame', async () => {

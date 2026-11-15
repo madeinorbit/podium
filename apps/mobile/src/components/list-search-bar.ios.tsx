@@ -17,7 +17,7 @@ export function useSearchLaunchTransition() {
   }, [])
   useFocusEffect(
     useCallback(() => {
-      release.current = hold?.() ?? null
+      release.current = hold?.(onReady) ?? null
       setCanTuck(release.current !== null)
       return () => {
         onReady()

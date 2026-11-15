@@ -20,7 +20,9 @@ const NOOP_READY_SIGNAL = () => {}
 
 /** UI transitions that must finish before the first route is revealed. A
  * late caller gets null and must leave the already-visible layout at rest. */
-const LaunchTransitionContext = createContext<(() => (() => void) | null) | null>(null)
+const LaunchTransitionContext = createContext<
+  ((onExpired: () => void) => (() => void) | null) | null
+>(null)
 export const LaunchTransitionProvider = LaunchTransitionContext.Provider
 export function useLaunchTransitionHold() {
   return useContext(LaunchTransitionContext)

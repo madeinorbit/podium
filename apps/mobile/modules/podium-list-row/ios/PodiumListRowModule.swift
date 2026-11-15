@@ -187,30 +187,55 @@ final class SearchStartsHiddenView: UIView {
   private var settled = false
   private var canTuck: Bool?
   private var onReady: (() -> Void)?
+  private weak var tuckingList: UIScrollView?
+  private var restingOffset: CGPoint?
+  private var timeout: DispatchWorkItem?
 
   func configure(canTuck: Bool?, onReady: @escaping () -> Void) {
     guard !settled else { return }
     self.canTuck = canTuck
     self.onReady = onReady
-    if canTuck == false || (canTuck == nil && started) { finish() }
+    if canTuck == false || (canTuck == nil && started) { cancelTuck() }
     else { startIfReady() }
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window == nil, started { finish() }
+    if window == nil, started { cancelTuck() }
     else { startIfReady() }
   }
 
   private func startIfReady() {
     guard !started, !settled, canTuck == true, window != nil else { return }
     started = true
+    // One deadline covers attachment plus scrolling. JS has a separate 500ms
+    // reveal budget, including a missing native attachment/completion event.
+    let timeout = DispatchWorkItem { [weak self] in self?.cancelTuck() }
+    self.timeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: timeout)
     DispatchQueue.main.async { [weak self] in self?.tuck(attempt: 0) }
+  }
+
+  private func cancelTuck() {
+    guard !settled else { return }
+    if let list = tuckingList, let rest = restingOffset {
+      // Stop a retargeted UIKit animation before revealing. A late search
+      // attachment must leave the visible list at rest instead of scrolling.
+      UIView.performWithoutAnimation {
+        list.setContentOffset(rest, animated: false)
+        list.layoutIfNeeded()
+      }
+    }
+    finish()
   }
 
   private func finish() {
     guard !settled else { return }
     settled = true
+    timeout?.cancel()
+    timeout = nil
+    tuckingList = nil
+    restingOffset = nil
     onReady?()
     onReady = nil
   }
@@ -222,8 +247,8 @@ final class SearchStartsHiddenView: UIView {
       let search = screen.navigationItem.searchController, list.contentSize.height > 0
     else {
       // Give native attachments a bounded chance under the launch surface.
-      if attempt < 40 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+      if attempt < 10 {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { [weak self] in
           self?.tuck(attempt: attempt + 1)
         }
       } else { finish() }
@@ -236,13 +261,19 @@ final class SearchStartsHiddenView: UIView {
     guard height > 1, !search.isActive, bar.text?.isEmpty ?? true,
       !list.isTracking, !list.isDecelerating, list.contentOffset.y <= rest + 1
     else { finish(); return }
-    // UIKit's animated path tucks search without collapsing the large title.
+    // UIKit's animated scroll path tucks search without collapsing the large
+    // title. Disable its visual animation while the launch surface covers it.
     let target = rest + height
-    list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: true)
-    waitForTuck(list, target: target, attempt: 0, stable: 0)
+    tuckingList = list
+    restingOffset = list.contentOffset
+    UIView.performWithoutAnimation {
+      list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: true)
+      list.layoutIfNeeded()
+    }
+    waitForTuck(list, target: target, stable: 0)
   }
 
-  private func waitForTuck(_ list: UIScrollView, target: CGFloat, attempt: Int, stable: Int) {
+  private func waitForTuck(_ list: UIScrollView, target: CGFloat, stable: Int) {
     guard !settled else { return }
     guard canTuck == true, window != nil else { finish(); return }
     // SwiftUI owns the list's delegate. Observe the presented offset instead
@@ -251,9 +282,8 @@ final class SearchStartsHiddenView: UIView {
       guard let self, let list else { self?.finish(); return }
       let y = list.layer.presentation()?.bounds.origin.y ?? list.contentOffset.y
       let stableFrames = abs(y - target) < 1 ? stable + 1 : 0
-      // Bound the hold if UIKit retargets the scroll as insets change.
-      if stableFrames >= 2 || attempt >= 120 { self.finish() }
-      else { self.waitForTuck(list, target: target, attempt: attempt + 1, stable: stableFrames) }
+      if stableFrames >= 2 { self.finish() }
+      else { self.waitForTuck(list, target: target, stable: stableFrames) }
     }
   }
 

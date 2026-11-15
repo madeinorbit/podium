@@ -115,6 +115,11 @@ export function useWorkspaceRefreshSubtitle(): string | undefined {
   const previous = useRef(phase)
   const wasVisible = useRef(visible)
   const [showUpdated, setShowUpdated] = useState(false)
+  // Publish the completion caption in the same native commit as ready. An
+  // effect-only acknowledgement briefly removed the large-title subtitle,
+  // moving the list while its first controls were already taking touches.
+  const completed =
+    visible && phase === 'ready' && (phase !== previous.current || !wasVisible.current)
 
   useEffect(() => {
     const completed =
@@ -139,5 +144,5 @@ export function useWorkspaceRefreshSubtitle(): string | undefined {
   // A failure is current sync state, so it lasts until the shared phase changes.
   if (phase === 'offline' || phase === 'error') return OFFLINE_SUBTITLE
   if (pullStatus === 'updated') return UPDATED_SUBTITLE
-  return showUpdated ? UPDATED_SUBTITLE : undefined
+  return completed || showUpdated ? UPDATED_SUBTITLE : undefined
 }

@@ -25,6 +25,9 @@ import {
 // `./launch` are unaffected.
 export { LaunchReadyView, useLaunchReadySignal } from './launch-ready'
 
+/** Extra reveal budget after fonts and the first route layout are ready. */
+export const LAUNCH_TRANSITION_BUDGET_MS = 500
+
 /**
  * Keep the OS launch surface in place until the one React launch boundary has
  * laid out a real route. Without this, Expo hides native launch chrome as soon
@@ -54,12 +57,12 @@ export function LaunchBoundary({
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
   const [transition, setTransition] = useState<{ pending: boolean } | null>(null)
-  const activeTransition = useRef<(() => void) | null>(null)
+  const activeTransition = useRef<{ release: () => void; expire: () => void } | null>(null)
   const revealStarted = useRef(false)
   const [statusSource, setStatusSource] = useState<LaunchSplashStatusSource | null>(null)
   const splashOpacity = useRef(new Animated.Value(1)).current
   const ready = fontsReady && routeReady && !transition?.pending
-  const holdTransition = useCallback(() => {
+  const holdTransition = useCallback((onExpired: () => void) => {
     // Only the focused native list owns startup's one search transition.
     if (revealStarted.current || activeTransition.current) return null
     setTransition({ pending: true })
@@ -67,16 +70,31 @@ export function LaunchBoundary({
     const release = () => {
       if (!pending) return
       pending = false
+      startupTiming.mark('launch.search-ready')
       activeTransition.current = null
       setTransition({ pending: false })
     }
-    activeTransition.current = release
+    activeTransition.current = {
+      release,
+      expire: () => {
+        startupTiming.mark('launch.search-expired')
+        onExpired()
+        release()
+      },
+    }
     return release
   }, [])
   const markRouteReady = useCallback(() => {
     startupTiming.mark('launch.route-layout')
     setRouteReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!fontsReady || !routeReady || !transition?.pending) return
+    startupTiming.mark('launch.search-budget-start')
+    const timer = setTimeout(() => activeTransition.current?.expire(), LAUNCH_TRANSITION_BUDGET_MS)
+    return () => clearTimeout(timer)
+  }, [fontsReady, routeReady, transition])
 
   useEffect(() => {
     // A child can acquire its hold earlier in this effect flush, before the
