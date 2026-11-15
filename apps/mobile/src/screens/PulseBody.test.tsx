@@ -9,10 +9,19 @@ import {
 import { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { SectionHeader } from '../components/instruments'
 import { PulseBody, type PulseBodyProps } from './PulseBody'
 import { pulseHero } from './pulse-view'
 
-afterEach(cleanup)
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, ...dimensions }),
+}))
+afterEach(() => {
+  cleanup()
+  dimensions.fontScale = 1
+})
 const now = Date.now()
 const summary = usageSummary(DEMO_USAGE_BUCKETS, now)
 const props = (over: Partial<PulseBodyProps> = {}): PulseBodyProps => ({
@@ -42,6 +51,21 @@ const props = (over: Partial<PulseBodyProps> = {}): PulseBodyProps => ({
   onOpenTask: vi.fn(),
   buildStamp: 'test build',
   ...over,
+})
+
+it('stacks the full section title and note at large sizes and keeps disclosure working', () => {
+  dimensions.fontScale = 2.35
+  const toggle = vi.fn()
+  render(<SectionHeader title="Top projects" trailing="0% attributed" open onToggle={toggle} />)
+  const title = screen.getByText('Top projects')
+  const note = screen.getByText('0% attributed')
+  expect(title.parentElement).toBe(note.parentElement)
+  expect(getComputedStyle(title.parentElement!).flexDirection).toBe('column')
+  expect(Number(getComputedStyle(title).flexGrow) || 0).toBe(0)
+  expect(getComputedStyle(title).whiteSpace).not.toBe('nowrap')
+  expect(getComputedStyle(note).whiteSpace).not.toBe('nowrap')
+  fireEvent.click(screen.getByRole('button', { name: 'Top projects, 0% attributed, expanded' }))
+  expect(toggle).toHaveBeenCalledOnce()
 })
 
 it('keeps the usage hero, quota and machines when the first task-cost read fails', () => {

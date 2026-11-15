@@ -165,7 +165,10 @@ export function SectionHeader({
   const { fontScale } = useWindowDimensions()
   const expanded = fontScale >= 1.6
   const label = (
-    <Text style={styles.sectionTitle} numberOfLines={expanded ? undefined : 1}>
+    <Text
+      style={[styles.sectionTitle, !expanded && styles.sectionTitleInline]}
+      numberOfLines={expanded ? undefined : 1}
+    >
       {title}
     </Text>
   )
@@ -289,12 +292,12 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...sans(600),
-    flex: 1,
     color: color.textDim,
     fontSize: font.tiny,
     lineHeight: 16,
   },
   sectionExpanded: { paddingVertical: space.sm },
+  sectionTitleInline: { flex: 1 },
   sectionText: { flex: 1, minWidth: 0, gap: space.xs },
   sectionTrailing: {
     ...sans(400),

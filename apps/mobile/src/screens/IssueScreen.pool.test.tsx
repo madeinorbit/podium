@@ -336,7 +336,7 @@ it('shows shared leaf progress through open phases and puts sub-tasks inside an 
     expect(getComputedStyle(card).borderRadius).toBe('8px')
     act(() =>
       state.pool!.apply({
-        type: 'delta',
+        type: 'update',
         rows: [{ kind: 'issue', id: pending.id, value: { ...pending, stage: 'done' } }],
       }),
     )
