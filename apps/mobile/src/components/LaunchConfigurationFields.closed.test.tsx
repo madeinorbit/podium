@@ -2,19 +2,25 @@ import { AUTO } from '@podium/client-core/agent-models'
 import { reposToViews } from '@podium/client-core/values'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
 import * as menus from './compose/ComposeMenu'
+import * as icons from './Icon'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import * as pressables from './PressableScale'
 
 const state = vi.hoisted(() => ({
+  fontScale: 1,
   repos: [] as GitRepositoryWire[],
   machines: [] as MachineWire[],
   catalog: {} as Record<string, Array<{ value: string; label: string; efforts?: string[] }>>,
+}))
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: state.fontScale }),
 }))
 vi.mock('../client/use-launch-inputs', () => ({
   useLaunchInputs: () => ({ repo: reposToViews(state.repos)[0], machines: state.machines }),
@@ -37,6 +43,7 @@ afterEach(() => {
   state.repos = []
   state.machines = []
   state.catalog = {}
+  state.fontScale = 1
 })
 
 it('requests no fallback menu while closed at 1x/4x and builds only the opened picker', async () => {
@@ -160,6 +167,70 @@ it('shows stored effort inert while the concrete model list is unavailable', () 
   expect(pill.getAttribute('role')).not.toBe('button')
   fireEvent.click(pill)
   expect(sheet).not.toHaveBeenCalled()
+})
+
+it.each([
+  'native',
+  'fallback',
+])('keeps %s picker rows aligned and reflows full values with live text size', (platform) => {
+  if (platform === 'native') {
+    vi.spyOn(menus, 'ComposeMenu').mockImplementation(({ children }) => children(undefined))
+  }
+  vi.spyOn(icons, 'Icon').mockImplementation(({ as, size }) => (
+    <span data-testid="picker-indicator" data-symbol={as} data-size={size} />
+  ))
+  const machineId = asMachineId('launch-machine')
+  const machineName = 'MBP-Cofo.local with a long machine name'
+  state.repos = [{ kind: 'repository', path: '/synthetic', machineId, worktrees: [] }]
+  state.machines = [
+    {
+      id: machineId,
+      name: machineName,
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { daemon: true },
+      inventory: { agents: [{ kind: 'codex', installed: true }] },
+    } as MachineWire,
+  ]
+  const changed = vi.fn()
+  const form = () => (
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId }}
+      onChange={changed}
+    />
+  )
+  const view = render(form())
+  const labels = ['Agent, Codex', 'Model, Auto', 'Effort, Auto', `Machine, ${machineName}`]
+  for (const name of labels) {
+    const row = screen.getByLabelText(name)
+    expect(getComputedStyle(row).flexDirection).toBe('row')
+    const indicator = within(row).getByTestId('picker-indicator')
+    expect(indicator.dataset.symbol).toBe('chevron.up.chevron.down')
+    expect(indicator.dataset.size).toBe('11')
+    const trail = indicator.parentElement
+    if (!trail) throw new Error('Missing picker value and indicator')
+    expect(trail.lastElementChild).toBe(indicator)
+    expect(getComputedStyle(trail).gap).toBe('6px')
+  }
+  // The unavailable Effort row shares the indicator without pretending to open a menu.
+  expect(screen.getByLabelText('Effort, Auto').getAttribute('role')).not.toBe('button')
+  fireEvent.click(screen.getByLabelText('Effort, Auto'))
+  for (const scale of [2.353, 3.571, 1]) {
+    state.fontScale = scale
+    view.rerender(form())
+    for (const name of labels) {
+      const row = screen.getByLabelText(name)
+      expect(getComputedStyle(row).flexDirection).toBe(scale > 1 ? 'column' : 'row')
+      const indicator = within(row).getByTestId('picker-indicator')
+      expect(Number(indicator.dataset.size)).toBeCloseTo(11 * scale)
+    }
+    const machine = within(screen.getByLabelText(`Machine, ${machineName}`)).getByText(machineName)
+    expect(getComputedStyle(machine).textAlign).toBe(scale > 1 ? 'left' : 'right')
+    expect(getComputedStyle(machine).textOverflow).toBe(scale > 1 ? '' : 'ellipsis')
+    expect(machine.textContent).toBe(machineName)
+  }
+  expect(changed).not.toHaveBeenCalled()
 })
 
 it('leaves native Agent, Model, Effort and Machine labels to the SwiftUI menu responder', () => {

@@ -19,7 +19,7 @@ import {
 } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { useLayoutEffect, useMemo } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchInputs } from '../client/use-launch-inputs'
 import {
@@ -64,6 +64,11 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   /** Section header above the rows: the task being launched. */
   header?: string
 }) {
+  const { fontScale } = useWindowDimensions()
+  // Switch before the accessibility categories, as in the other native lists.
+  // Give long machine/model names the full row width and let every line grow.
+  const stacked = fontScale > 1.35
+  const rowStyle = [insetRow.row, stacked && styles.stackedRow]
   const store = useLaunchInputs(repoPath)
   const repo = store.repo
   const machines = (() => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
@@ -239,20 +244,35 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
         ) : undefined
       }
     >
-      {rows.map((row) =>
-        row.options.length === 0 ? (
+      {rows.map((row) => {
+        // Inert values reserve the same scaled indicator as the menu rows, so
+        // Effort stays aligned even while its model's choices are unavailable.
+        const content = (
+          <>
+            <Text style={insetRow.label}>{row.label}</Text>
+            <View style={[insetRow.trail, stacked && styles.stackedTrail]}>
+              {row.agent ? (
+                <AgentMark kind={row.agent} size={16 * fontScale} ink={color.textDim} />
+              ) : null}
+              <Text
+                style={[insetRow.value, stacked && styles.stackedValue]}
+                numberOfLines={stacked ? undefined : 2}
+              >
+                {row.valueLabel}
+              </Text>
+              <Icon as="chevron.up.chevron.down" size={11 * fontScale} color={color.textFaint} />
+            </View>
+          </>
+        )
+        return row.options.length === 0 ? (
           <View
             key={row.key}
             accessible
             accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-            style={insetRow.row}
+            accessibilityState={{ disabled: true }}
+            style={rowStyle}
           >
-            <Text style={insetRow.label}>{row.label}</Text>
-            <View style={insetRow.trail}>
-              <Text style={insetRow.value} numberOfLines={2}>
-                {row.valueLabel}
-              </Text>
-            </View>
+            {content}
           </View>
         ) : (
           <ComposeMenu
@@ -269,20 +289,6 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
             }))}
           >
             {(onPress) => {
-              const content = (
-                <>
-                  <Text style={insetRow.label}>{row.label}</Text>
-                  <View style={insetRow.trail}>
-                    {row.agent ? (
-                      <AgentMark kind={row.agent} size={16} ink={color.textDim} />
-                    ) : null}
-                    <Text style={insetRow.value} numberOfLines={2}>
-                      {row.valueLabel}
-                    </Text>
-                    <Icon as="chevron.up.chevron.down" size={11} color={color.textFaint} />
-                  </View>
-                </>
-              )
               // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
               // label would compete for the responder, as in ComposeFieldRow.
               return onPress ? (
@@ -291,7 +297,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
                   accessibilityLabel={`${row.label}, ${row.valueLabel}`}
                   accessibilityHint="Opens a menu"
                   onPress={onPress}
-                  style={({ pressed }) => [insetRow.row, pressed && insetRow.pressed]}
+                  style={({ pressed }) => [rowStyle, pressed && insetRow.pressed]}
                 >
                   {content}
                 </PressableScale>
@@ -301,19 +307,22 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
                   accessibilityRole="button"
                   accessibilityLabel={`${row.label}, ${row.valueLabel}`}
                   accessibilityHint="Opens a menu"
-                  style={insetRow.row}
+                  style={rowStyle}
                 >
                   {content}
                 </View>
               )
             }}
           </ComposeMenu>
-        ),
-      )}
+        )
+      })}
     </InsetGroup>
   )
 })
 
 const styles = StyleSheet.create({
   menu: { alignSelf: 'stretch', minHeight: 44 },
+  stackedRow: { flexDirection: 'column', alignItems: 'stretch', gap: 4 },
+  stackedTrail: { marginLeft: 0, alignSelf: 'stretch' },
+  stackedValue: { flex: 1, textAlign: 'left' },
 })
