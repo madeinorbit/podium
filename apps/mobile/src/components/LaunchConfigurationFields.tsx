@@ -247,6 +247,9 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       {rows.map((row) => {
         // Inert values reserve the same scaled indicator as the menu rows, so
         // Effort stays aligned even while its model's choices are unavailable.
+        // An inert row reads like a disabled SwiftUI menu picker: same chevron,
+        // value and chevron dimmed to tertiary, so it never looks tappable.
+        const inert = row.options.length === 0
         const content = (
           <>
             <Text style={insetRow.label}>{row.label}</Text>
@@ -255,16 +258,18 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
                 <AgentMark kind={row.agent} size={16 * fontScale} ink={color.textDim} />
               ) : null}
               <Text
-                style={[insetRow.value, stacked && styles.stackedValue]}
+                style={[insetRow.value, stacked && styles.stackedValue, inert && styles.inert]}
                 numberOfLines={stacked ? undefined : 2}
               >
                 {row.valueLabel}
               </Text>
-              <Icon as="chevron.up.chevron.down" size={11 * fontScale} color={color.textFaint} />
+              <View style={inert ? styles.inertIndicator : undefined}>
+                <Icon as="chevron.up.chevron.down" size={11 * fontScale} color={color.textFaint} />
+              </View>
             </View>
           </>
         )
-        return row.options.length === 0 ? (
+        return inert ? (
           <View
             key={row.key}
             accessible
@@ -325,4 +330,6 @@ const styles = StyleSheet.create({
   stackedRow: { flexDirection: 'column', alignItems: 'stretch', gap: 4 },
   stackedTrail: { marginLeft: 0, alignSelf: 'stretch' },
   stackedValue: { flex: 1, textAlign: 'left' },
+  inert: { color: color.textFaint },
+  inertIndicator: { opacity: 0.5 },
 })

@@ -208,10 +208,14 @@ it.each([
     const indicator = within(row).getByTestId('picker-indicator')
     expect(indicator.dataset.symbol).toBe('chevron.up.chevron.down')
     expect(indicator.dataset.size).toBe('11')
-    const trail = indicator.parentElement
-    if (!trail) throw new Error('Missing picker value and indicator')
-    expect(trail.lastElementChild).toBe(indicator)
+    // Every indicator sits in a slot; only the inert Effort slot dims, like a
+    // disabled SwiftUI picker.
+    const slot = indicator.parentElement
+    const trail = slot?.parentElement
+    if (!slot || !trail) throw new Error('Missing picker value and indicator')
+    expect(trail.lastElementChild).toBe(slot)
     expect(getComputedStyle(trail).gap).toBe('6px')
+    expect(getComputedStyle(slot).opacity).toBe(name.startsWith('Effort') ? '0.5' : '')
   }
   // The unavailable Effort row shares the indicator without pretending to open a menu.
   expect(screen.getByLabelText('Effort, Auto').getAttribute('role')).not.toBe('button')
