@@ -30,7 +30,9 @@ vi.mock('react-native', async (original) => {
       return <rn.ScrollView {...props} onLayout={undefined} />
     }),
     TextInput: forwardRef<TextInput, ComponentProps<typeof TextInput>>((props, ref) => {
-      native.input = props
+      // The read-only placeholder copy is also a TextInput; record the prompt only.
+      if (props.testID !== 'compose-placeholder-measure') native.input = props
+      if (props.testID) native.layouts.set(props.testID, props.onLayout)
       return <rn.TextInput {...props} ref={ref} onContentSizeChange={undefined} />
     }),
     Text: forwardRef<Text, ComponentProps<typeof Text>>((props, ref) => {
@@ -169,8 +171,8 @@ it('reserves every wrapped placeholder line at large text sizes, then shrinks fo
   layout('compose-toolbar', 60)
   layout('compose-fields', 210)
   layout('compose-footer', 34)
-  // The field's UITextView reports only its empty content. The hidden Text
-  // reports three wrapped placeholder lines, at the actual field width/scale.
+  // The field's UITextView reports only its empty content. The read-only
+  // placeholder copy reports three wrapped lines, at the actual field width/scale.
   content(52)
   layout('compose-placeholder-measure', 168)
   expect(StyleSheet.flatten(native.input?.style)?.minHeight).toBe(168)

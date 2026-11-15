@@ -233,20 +233,26 @@ export function ComposeBody({
         </View>
         {promptReady ? (
           <View>
-            {/* UITextView measures its text, not the wrapped placeholder. Measure
-              the same typography at the field's width, including Dynamic Type. */}
+            {/* UITextView measures its text, not the wrapped placeholder, and draws
+              its placeholder on one line. This read-only copy, with the field's typography
+              and insets, draws the placeholder (wrapping at large Dynamic Type)
+              behind the transparent input and sizes the empty field. */}
             {!prompt ? (
-              <Text
+              <TextInput
                 testID="compose-placeholder-measure"
+                // A read-only UITextView lays the text out exactly like the
+                // input above it at every size; a Text sat 0.67pt higher.
+                editable={false}
+                multiline
+                scrollEnabled={false}
+                value={PROMPT_PLACEHOLDER}
                 accessible={false}
                 aria-hidden
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
                 style={[styles.prompt, styles.placeholderMeasure]}
                 onLayout={(event) => setPlaceholderHeight(event.nativeEvent.layout.height)}
-              >
-                {PROMPT_PLACEHOLDER}
-              </Text>
+              />
             ) : null}
             <TextInput
               ref={inputRef}
@@ -257,8 +263,9 @@ export function ComposeBody({
               }
               editable={!busy}
               accessibilityLabel="Task prompt"
+              // Kept for VoiceOver; the visible placeholder is the Text behind.
               placeholder={PROMPT_PLACEHOLDER}
-              placeholderTextColor={color.textMicro}
+              placeholderTextColor="transparent"
               value={prompt}
               onChangeText={onPrompt}
               onKeyPress={onKeyPress}
@@ -483,7 +490,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     minHeight: 0,
-    opacity: 0,
+    color: color.textMicro,
     pointerEvents: 'none',
   },
   attachments: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
