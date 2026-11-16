@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
@@ -1216,10 +1216,17 @@ export async function spawnHostAgent(
   const live = await liveHostSocket(opts.label, childEnv)
   if (live && (await hostSocketAlive(live))) return adopt(live)
 
+  // A missing cwd makes posix_spawn fail with ENOENT naming the EXECUTABLE
+  // (podium-host, systemd-run), which reads as a missing binary. Name the
+  // directory instead, before either create is tried (POD-6942).
+  const cwd = opts.cwd ?? process.cwd()
+  if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`working directory does not exist: ${cwd}`)
+  }
   const createArgs = hostCreateArgs({
     socketPath,
     ...(process.platform === 'win32' ? { pidfile: marker } : {}),
-    cwd: opts.cwd ?? process.cwd(),
+    cwd,
     cmd: opts.cmd,
     ...(opts.args ? { args: opts.args } : {}),
     ...(opts.cols !== undefined ? { cols: opts.cols } : {}),
@@ -1228,7 +1235,7 @@ export async function spawnHostAgent(
     ...(opts.lingerSecs !== undefined ? { lingerSecs: opts.lingerSecs } : {}),
     ...(opts.ringBytes !== undefined ? { ringBytes: opts.ringBytes } : {}),
   })
-  const execOpts = { cwd: opts.cwd ?? process.cwd(), env: childEnv } as const
+  const execOpts = { cwd, env: childEnv } as const
   const attachCreated = async (): Promise<HostDurableAttachment> => {
     const path = await waitForHostSocket(opts.label, childEnv)
     // From seq 0: the child's first bytes are in the ring already; nothing is missed.
