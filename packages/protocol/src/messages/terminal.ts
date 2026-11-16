@@ -6,6 +6,7 @@ import {
   GeometryState,
   HarnessAgent,
   IssueIdField,
+  LaunchPostureReport,
   MachineIdField,
   ResumeRef,
   SessionDelegation,
@@ -746,6 +747,19 @@ export const DriverSelectedMessage = z.object({
   type: z.literal('driverSelected'),
   sessionId: SessionIdField,
   driverId: z.string().min(1),
+  /**
+   * THE LAUNCH'S TERMS, AS APPLIED (POD-6858 Task 11, harness-session-posture.md
+   * §4.6 and §5): the harness mode Podium asked for and every requirement this
+   * launch cannot meet, with the reason in words.
+   *
+   * The decision above is announced before the launch is built, so it carries
+   * none. The daemon sends this frame once more, with the same `driverId`,
+   * after it has applied the launch's terms and before the process starts. A
+   * frame WITHOUT it announces a new launch decision, so the server drops the
+   * previous launch's report; an older daemon never sends it, and an older
+   * server reads the repeat as the same decision again.
+   */
+  posture: LaunchPostureReport.optional(),
 })
 /** Daemon capability, advertised in its `hello`: this daemon reports the grid it
  *  APPLIED (`geometryApplied`) after every resize it dispatches. A server talking
@@ -982,6 +996,19 @@ export const AgentModelMessage = z.object({
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
   effort: z.string().optional(),
+})
+// Daemon → server: the permission mode the HARNESS reports it is in (POD-6858
+// Task 11, harness-session-posture.md §4.9), read from its own records, e.g.
+// Claude Code's `permission-mode` transcript record. The session's mode chip
+// shows it over the mode Podium asked for at launch. An older server drops
+// the frame unparsed and keeps showing the requested mode.
+export const AgentModeMessage = z.object({
+  type: z.literal('agentMode'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
+  source: z.enum(['transcript', 'native']).optional(),
+  sessionId: SessionIdField,
+  mode: z.string().min(1),
 })
 // Daemon → server: exact context-window usage observed in the harness's native
 // transcript. Harnesses without a reliable numerator + window do not emit it.

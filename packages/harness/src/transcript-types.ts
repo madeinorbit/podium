@@ -160,6 +160,8 @@ export interface HarnessRuntimeObservation {
   model?: string
   effort?: string
   contextUsagePercent?: number
+  /** The permission mode the harness reports it is in (POD-6858 Task 11). */
+  mode?: string
 }
 
 /** Read one harness's native record for runtime identity/context facts. One

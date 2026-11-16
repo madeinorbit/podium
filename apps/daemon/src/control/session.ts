@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  type AppliedTerms,
   agentStateProviderFor,
   canonicalDriverId,
   type DriverId,
@@ -836,10 +837,17 @@ export async function launchTerminalProcess(
               ...(harnessContext ? { harnessContext } : {}),
             })
     // The launch's files, home edits and unmet terms (POD-6858): a harness
-    // command carries its applied terms; the operator's shell has none.
-    // Task 11 puts the result on the wire; until then it is logged.
+    // command carries its applied terms; the operator's shell has none. An
+    // agent's terms go to the server with its driver decision (Task 11); a
+    // login pane runs no agent and reports none.
     if ('terms' in cmd) {
-      await prepareLaunch(cmd, nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }))
+      const applied = await prepareLaunch(
+        cmd,
+        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }),
+      )
+      if (!loginHarness && agentKind !== 'shell') {
+        reportLaunchTerms(ctx, sessionId, applied, terminalProfileFor(agentKind)?.driverId)
+      }
     } else {
       materializeLaunchFiles(cmd.files)
     }
@@ -1950,7 +1958,39 @@ function announceDriverSelection(
   driverId: string,
 ): void {
   driverTiming.driverSelected(sessionId, driverId)
+  ctx.sessions.ensure(sessionId).selectedDriverId = driverId
   ctx.send({ type: 'driverSelected', sessionId, driverId })
+}
+
+/**
+ * REPORT A LAUNCH'S APPLIED TERMS (POD-6858 Task 11, harness-session-posture.md
+ * §4.6 and §5): the harness mode Podium asked for and every requirement the
+ * launch cannot meet, once, after {@link prepareLaunch} and before the process
+ * starts. It rides the decision frame, repeated with the same driver: the
+ * decision was announced before the launch was built, so it could not carry
+ * them. No driver announced and none given: nothing to repeat, and the terms
+ * stay in the daemon log `prepareLaunch` already wrote.
+ */
+export function reportLaunchTerms(
+  ctx: Pick<DaemonContext, 'send' | 'sessions'>,
+  sessionId: SessionId,
+  applied: Pick<AppliedTerms, 'requestedMode' | 'unmet'>,
+  fallbackDriverId?: string,
+): void {
+  const driverId = ctx.sessions.get(sessionId)?.selectedDriverId ?? fallbackDriverId
+  if (driverId === undefined) return
+  ctx.send({
+    type: 'driverSelected',
+    sessionId,
+    driverId,
+    posture: {
+      requestedMode: applied.requestedMode,
+      unmet: applied.unmet.map((entry) => ({
+        requirement: entry.requirement,
+        reason: entry.reason,
+      })),
+    },
+  })
 }
 
 const reportedHarnessVersions = new Set<string>()

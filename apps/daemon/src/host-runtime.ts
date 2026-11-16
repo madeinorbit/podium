@@ -133,6 +133,7 @@ import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   forwardPicture,
   onSessionSize,
+  reportLaunchTerms,
   sendBind,
   sessionProcessEnv,
   stopSessionProcess,
@@ -1310,6 +1311,9 @@ export async function createDaemonHostRuntime(args: {
     // (which skips the boot probe) must not refuse them: probe lazily, the
     // same memoized resolve the host adapter itself runs at first spawn.
     hostAvailable: () => durableAvailable.host || isHostAvailable(),
+    // A session engine's applied terms, to the server with its driver
+    // decision (POD-6858 Task 11).
+    onLaunchTerms: (sessionId, applied) => reportLaunchTerms(ctx, sessionId, applied),
   })
   /**
    * ENGINES READ THE SESSION'S CONTEXT (POD-6546), never a snapshot taken

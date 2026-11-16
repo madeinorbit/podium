@@ -187,6 +187,8 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     agentColor: init.agentColor,
     observedModel: init.observedModel,
     observedEffort: init.observedEffort,
+    observedMode: init.observedMode,
+    launchPosture: init.launchPosture,
     requestedModel: init.requestedModel,
     requestedEffort: init.requestedEffort,
     draftSyncEngine: init.draftSyncEngine === true,
@@ -442,6 +444,8 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(d.agentColor ? { agentColor: d.agentColor } : {}),
     ...(d.observedModel ? { observedModel: d.observedModel } : {}),
     ...(d.observedEffort ? { observedEffort: d.observedEffort } : {}),
+    ...(d.observedMode ? { observedMode: d.observedMode } : {}),
+    ...(d.launchPosture ? { launchPosture: structuredClone(d.launchPosture) } : {}),
     ...(d.requestedModel ? { requestedModel: d.requestedModel } : {}),
     ...(d.requestedEffort ? { requestedEffort: d.requestedEffort } : {}),
     // POD-3087. Published even when EMPTY, because empty is an answer — "this

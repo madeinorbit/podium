@@ -63,6 +63,8 @@ export interface TranscriptTailOptions {
    * recordModel/recordEffort pair and may additionally report exact context use. */
   recordRuntime?: (record: unknown) => HarnessRuntimeObservation
   onContextUsage?: (percent: number, at?: string) => void
+  /** The permission mode the harness reports it is in, on change (POD-6858). */
+  onMode?: (mode: string, at?: string) => void
   /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
    *  through a pacing gate; poll ticks hold off until the gated seed completes.
    *  Lets a caller standing up many tails at once (daemon reattach burst,
@@ -154,6 +156,7 @@ export function tailTranscript(
   let lastModel: string | undefined
   let lastEffort: string | undefined
   let lastContextUsagePercent: number | undefined
+  let lastMode: string | undefined
   // Absolute byte position where `leftover` begins (= the start of the next
   // unparsed line). Bytes before this have been parsed into emitted items.
   let offset = 0
@@ -224,6 +227,12 @@ export function tailTranscript(
     if (contextUsagePercent !== undefined && contextUsagePercent !== lastContextUsagePercent) {
       lastContextUsagePercent = contextUsagePercent
       opts.onContextUsage?.(contextUsagePercent, at)
+    }
+    // The mode the harness reports it is in (POD-6858 Task 11), on change.
+    const mode = runtime?.mode
+    if (mode !== undefined && mode !== lastMode) {
+      lastMode = mode
+      opts.onMode?.(mode, at)
     }
     const stamped = stampCursors(items, fileId, lineOffset, recordUuid(record))
     out.push(...stamped)

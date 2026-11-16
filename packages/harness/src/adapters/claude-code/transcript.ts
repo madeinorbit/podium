@@ -914,16 +914,29 @@ function truncate(s: string, max: number): string {
 }
 
 /**
- * Claude Code: model and effort ride the assistant record. Declared as this
- * harness's `recordRuntime` in its transcript section.
+ * Claude Code: model and effort ride the assistant record; the permission
+ * mode in force is its own `permission-mode` record, written when a session
+ * starts and whenever the mode changes. Declared as this harness's
+ * `recordRuntime` in its transcript section.
  */
 export function claudeRuntime(record: unknown): HarnessRuntimeObservation {
   const model = claudeRecordModel(record)
   const effort = claudeRecordEffort(record)
+  const mode = claudeRecordPermissionMode(record)
   return {
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
+    ...(mode ? { mode } : {}),
   }
+}
+
+/** `{"type":"permission-mode","permissionMode":"auto"}`: the mode Claude Code
+ *  reports it is in (POD-6858 Task 11). */
+function claudeRecordPermissionMode(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as { type?: unknown; permissionMode?: unknown }
+  if (r.type !== 'permission-mode' || typeof r.permissionMode !== 'string') return undefined
+  return r.permissionMode.trim() || undefined
 }
 
 // The ONE authoritative transcript definition for this harness (spec §4):

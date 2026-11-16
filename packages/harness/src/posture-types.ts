@@ -7,6 +7,7 @@
  * one launch mode. Plain data, so the surfaces that carry terms can name them
  * without pulling in the checks in ./posture.ts.
  */
+import { POSTURE_REQUIREMENTS } from '@podium/model'
 import type { SessionPosture } from '@podium/protocol'
 import type { HarnessContext } from './harness-context-types.js'
 import type { LaunchFile } from './manifest.js'
@@ -46,14 +47,9 @@ export type LaunchMode =
 
 export const LAUNCH_MODES: readonly LaunchMode[] = ['terminal', 'engine', 'turn', 'client']
 
-/** What "set up right" means (§3), by name. */
-export const POSTURE_REQUIREMENTS = [
-  'workspace-trust',
-  'podium-cli',
-  'autonomy',
-  'quiet-start',
-  'podium-material',
-] as const
+/** What "set up right" means (§3), by name. One list, in @podium/model, so the
+ *  wire and the session row read the same names. */
+export { POSTURE_REQUIREMENTS }
 export type PostureRequirement = (typeof POSTURE_REQUIREMENTS)[number]
 
 /** Everything a posture section may read. Pure data: no ambient access. */

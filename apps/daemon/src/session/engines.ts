@@ -34,7 +34,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { withTrailingArgs } from '@podium/harness'
+import { type AppliedTerms, withTrailingArgs } from '@podium/harness'
 import type {
   EngineAttachment,
   EngineBindingRecord,
@@ -115,6 +115,10 @@ export interface SessionEngineScopeOptions {
   /** Where a start writes its launch files and applies its home edits
    *  (POD-6858). Defaults to the real filesystem; tests hand a fake. */
   prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /** Where a session engine's applied terms go once they are known, before
+   *  the process starts (POD-6858 Task 11): the server, with the session's
+   *  driver decision. A one-shot turn serves no session and reports none. */
+  onLaunchTerms?: (sessionId: SessionId, applied: AppliedTerms) => void
 }
 
 /**
@@ -170,9 +174,9 @@ export class SessionEngineScope implements EngineProcessOwner {
     const adapter = engineAdapter(this.durable, req.label)
     const { retention, listen, sessionId, command, ...spawn } = req
     // THE LAUNCH'S TERMS (POD-6858), once, before the process exists: its
-    // files, its home edits, and what could not be met (logged until Task 11
-    // puts it on the wire). A failed home edit does not stop the start.
-    await prepareLaunch(
+    // files, its home edits, and what could not be met, reported for the
+    // session it serves. A failed home edit does not stop the start.
+    const applied = await prepareLaunch(
       command,
       (this.options.prepareLaunchPorts ?? nodePrepareLaunchPorts)({
         label: req.label,
@@ -180,6 +184,7 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(sessionId !== undefined ? { sessionId } : {}),
       }),
     )
+    if (sessionId !== undefined) this.options.onLaunchTerms?.(sessionId, applied)
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.

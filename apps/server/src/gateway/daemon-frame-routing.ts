@@ -60,6 +60,7 @@ export const DAEMON_FRAME_PORTS = {
   agentState: ['sessions'],
   agentColor: ['sessions'],
   agentModel: ['sessions'],
+  agentMode: ['sessions'],
   agentContext: ['sessions'],
   agentObservation: ['sessions'],
   agentObservationRebind: ['sessions'],

@@ -392,6 +392,19 @@ export class SessionDaemonLifecycle {
       case 'driverSelected': {
         const s = this.sessions.get(msg.sessionId)
         if (s) {
+          // THE LAUNCH'S APPLIED TERMS (POD-6858 Task 11). The daemon repeats
+          // its decision with `posture` once the launch's terms are applied;
+          // the decision itself carries none, which drops the previous
+          // launch's report. A repeat of the decision already recorded writes
+          // only the report, and only when it changed.
+          if (msg.posture !== undefined && s.selectedDriverId === msg.driverId) {
+            const draft = this.draft(s)
+            if (s.setLaunchPosture(msg.posture, draft)) {
+              await this.persistDraft(s, draft)
+              this.broadcastSessions()
+            }
+            break
+          }
           // PERSISTED, not merely held (POD-2290 round 2). Holding it in memory
           // was the whole defect the reviewer drove: a server restart rehydrates
           // live rows unbound, and an in-memory-only selection is gone
@@ -399,6 +412,7 @@ export class SessionDaemonLifecycle {
           // terminal. This write is what survives the restart.
           await this.write(s, (draft) => {
             draft.selectedDriverId = msg.driverId
+            s.setLaunchPosture(msg.posture, draft)
           })
           this.broadcastSessions()
         }

@@ -478,6 +478,36 @@ export const SessionOffer = z.object({
 export type SessionOffer = z.infer<typeof SessionOffer>
 
 /**
+ * WHAT "SET UP RIGHT" MEANS, BY NAME (POD-6858, harness-session-posture.md §3).
+ * The one list: the harness contract, the wire and the session row read it.
+ */
+export const POSTURE_REQUIREMENTS = [
+  'workspace-trust',
+  'podium-cli',
+  'autonomy',
+  'quiet-start',
+  'podium-material',
+] as const
+export const PostureRequirementSchema = z.enum(POSTURE_REQUIREMENTS)
+
+/**
+ * WHAT A LAUNCH COULD NOT MEET, AS THE DAEMON REPORTED IT (POD-6858 Task 11,
+ * §4.6 and §5). Decided before the process started, from the adapter's
+ * posture section and the home edits the daemon made; nothing here was read
+ * off a screen.
+ *
+ * - `requestedMode`: the harness mode Podium asked for. Not proof of the mode
+ *   in force; `null` where the harness takes no mode at launch.
+ * - `unmet`: one entry per requirement this launch cannot meet, with the
+ *   reason in words.
+ */
+export const LaunchPostureReport = z.object({
+  requestedMode: z.string().nullable(),
+  unmet: z.array(z.object({ requirement: PostureRequirementSchema, reason: z.string() })),
+})
+export type LaunchPostureReport = z.infer<typeof LaunchPostureReport>
+
+/**
  * The session entity — PROVENANCE-FREE (POD-304 / ADR 4 D3.8). `viaHub` and
  * `upstreamStale` are not fields of a session: they describe how a row reached
  * a replica, and they live on the envelope. See `SessionMeta` below for the
@@ -581,6 +611,14 @@ export const SessionMetaEntity = z.object({
   /** The reasoning-effort tier OBSERVED on assistant turns (transcript top-level
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
+  /** The permission mode the HARNESS reports it is in (POD-6858 Task 11), e.g.
+   *  Claude Code's hook `permission_mode`. Absent until the harness reports
+   *  one; the chip then falls back to `launchPosture.requestedMode`. */
+  observedMode: z.string().optional(),
+  /** What this session's last launch asked for and could not meet, as the
+   *  daemon reported it before the process started (POD-6858 Task 11). One
+   *  notice per `unmet` entry. Re-reported by every launch, so not a column. */
+  launchPosture: LaunchPostureReport.optional(),
   /** The model/effort this session was last ASKED for at RUNTIME, through
    *  `sessions.configure` (POD-3081). Absent until someone changes it, and then
    *  `model`/`effort` above still record how the session was LAUNCHED — three
