@@ -39,6 +39,7 @@
     "./loop-profile-capture": "./src/loop-profile-capture.ts",
     "./task-attribution": "./src/task-attribution.ts",
     "./query-attribution": "./src/query-attribution.ts",
+    "./stall-watch": "./src/stall-watch.ts",
     "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
     "./signing": "./src/signing.ts",
