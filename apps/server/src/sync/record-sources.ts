@@ -586,6 +586,24 @@ const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS
 const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${effects.kind.name} NOT IN (${SYSTEM_EFFECT_KINDS_OFF_FEED.map((kind) => `'${kind}'`).join(', ')}))`
 
 /**
+ * WHAT A SESSION RECORD READS OF ITS OBSERVATION CHECKPOINT
+ * (`applyObservationCheckpointTo`): the turn state, and whether the checkpoint
+ * names a provider thread (which binds the conversation). Its `providerAt`
+ * moves only the record's activity time, which the record does not carry (it
+ * carries the published one). Every accepted observation refresh rewrites the
+ * checkpoint with new cursors and times and the same turn state; capturing the
+ * whole text rebuilt the session's record, a read of every satellite, once per
+ * daemon frame, and in a burst of frames that was hundreds of single-session
+ * builds that changed nothing (POD-6970). An unreadable checkpoint reads as
+ * none on the record, and as NULL here.
+ */
+const CHECKPOINT_JSON = `{row}.${sessionObservationCheckpoints.checkpointJson.name}`
+const CHECKPOINT_ON_RECORD: readonly string[] = [
+  `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.turnState') END`,
+  `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.providerSessionId') IS NOT NULL END`,
+]
+
+/**
  * A row of a session's satellite table can change only the record of a
  * session that is on the feed: one whose row exists and is not tombstoned.
  * (A satellite of a missing session would otherwise append a remove for a
@@ -1004,16 +1022,16 @@ export const RECORD_SOURCES: RecordSources = {
       rows: ofLiveSession(sessionDrafts.sessionId),
     }),
     // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
-    // opened or fenced with no checkpoint changes nothing.
+    // opened or fenced with no checkpoint changes nothing. Of the checkpoint
+    // it reads what `CHECKPOINT_ON_RECORD` names, not the cursors and times
+    // every accepted refresh moves.
     own(
       sessionObservationCheckpoints,
       [sessionObservationCheckpoints.sessionId],
       (key) => str(key[0]),
       {
-        reads: [
-          sessionObservationCheckpoints.checkpointJson,
-          sessionObservationCheckpoints.provider,
-        ],
+        reads: [sessionObservationCheckpoints.provider],
+        derived: CHECKPOINT_ON_RECORD,
         rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL AND ${ofLiveSession(sessionObservationCheckpoints.sessionId)}`,
       },
     ),
