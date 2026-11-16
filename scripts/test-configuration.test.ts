@@ -624,7 +624,7 @@ describe('test lane configuration', () => {
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
     expect(pkg.scripts.test).toBe(
-      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:harness-ambient && bun scripts/test-lean.ts',
+      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:harness-ambient && bun run lint:public-emails && bun scripts/test-lean.ts',
     )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
     // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
@@ -636,6 +636,9 @@ describe('test lane configuration', () => {
     // It stays affordable by being turbo-cached, not by being skipped.
     expect(pkg.scripts.test).toContain('bun run lint:span-effects')
     expect(pkg.scripts['lint:span-effects']).toBe('bun scripts/lint-span-effects.ts')
+    // The repository is public: committed captures once carried an account address.
+    // The text scan costs about two seconds, so it runs on every default gate.
+    expect(pkg.scripts['lint:public-emails']).toBe('bun scripts/check-public-emails.ts')
   })
 
   it('collects the worklist baseline files in the scheduled package lane [POD-2185]', () => {
