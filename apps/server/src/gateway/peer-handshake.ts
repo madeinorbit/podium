@@ -19,6 +19,7 @@ import {
   CAP_CHECKOUT_CHANGED_V1,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_HARNESS_HOMES,
   CAP_MACHINE_PROCESSES_V1,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -124,6 +125,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // Credential management §8: this server sends a session's credential in
       // `access`, only to a daemon that accepted this.
       CAP_SESSION_ACCESS,
+      // Credential management §10: this server asks for homes and for a
+      // propagated login's removal only from a daemon that accepted this.
+      CAP_HARNESS_HOMES,
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,

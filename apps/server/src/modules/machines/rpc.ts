@@ -28,6 +28,7 @@ import type {
   CodexLlmToolWire,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  CredentialRemoveResultMessage,
   DevArtifactProbeResultMessage,
   DirListResultMessage,
   DirOp,
@@ -42,6 +43,9 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  HomeEnsureResultMessage,
+  HomeHarness,
+  HomeRemoveResultMessage,
   InteractionAnswerOutcome,
   ModelChoiceWire,
   OauthLoopbackCallbackMessage,
@@ -293,6 +297,11 @@ const OAUTH_LOOPBACK = daemonRequestKind<Payload<OauthLoopbackResultMessage>>('o
 const OAUTH_LOOPBACK_ACK_TIMEOUT_MS = 15_000
 /** A callback is accepted this long past the listener's own time. */
 const OAUTH_LOOPBACK_GRACE_MS = 30_000
+// Harness homes (credential management §10) and the removal of a login file
+// propagation copied (§8 cleanup), on a daemon that offered harness.homes.v1.
+const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
+const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
+const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -445,6 +454,12 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
   oauthLoopbackResult: (broker, machineId, msg) =>
     void broker.settle(OAUTH_LOOPBACK, msg.requestId, machineId, payloadOf(msg)),
+  homeEnsureResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_ENSURE, msg.requestId, machineId, payloadOf(msg)),
+  homeRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  credentialRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(CREDENTIAL_REMOVE, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -1280,6 +1295,54 @@ export class DaemonRpcService {
           ? { expectedFingerprint: options.expectedFingerprint }
           : {}),
       }),
+      machineId,
+    )
+  }
+
+  /** Make sure the home for a credential and harness exists on one daemon. */
+  async homeEnsure(
+    credentialId: string,
+    harness: HomeHarness,
+    machineId: MachineId,
+  ): Promise<Payload<HomeEnsureResultMessage>> {
+    return await this.request(
+      HOME_ENSURE,
+      15_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'homeEnsureRequest', requestId, credentialId, harness }),
+      machineId,
+    )
+  }
+
+  /**
+   * Remove a home on one daemon. Generous: the daemon first stops the
+   * sessions in it and Codex's own daemon there, and the directory can hold
+   * Codex's 400 MB installed copy.
+   */
+  async homeRemove(
+    homeId: string,
+    machineId: MachineId,
+  ): Promise<Payload<HomeRemoveResultMessage>> {
+    return await this.request(
+      HOME_REMOVE,
+      120_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'homeRemoveRequest', requestId, homeId }),
+      machineId,
+    )
+  }
+
+  /** Remove the login file propagation copied, while its fingerprint matches. */
+  async credentialRemove(
+    harness: HomeHarness,
+    fingerprint: string,
+    machineId: MachineId,
+  ): Promise<Payload<CredentialRemoveResultMessage>> {
+    return await this.request(
+      CREDENTIAL_REMOVE,
+      15_000,
+      () => ({ outcome: 'failed', error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'credentialRemoveRequest', requestId, harness, fingerprint }),
       machineId,
     )
   }

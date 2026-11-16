@@ -11,6 +11,7 @@ import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
+import { homeHandlers } from './homes'
 import { inventoryHandlers, reportInventory } from './inventory'
 import { logHandlers } from './logs'
 import { cancelOauthLoopback, startOauthLoopback } from './oauth-loopback'
@@ -142,6 +143,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...workspaceHandlers,
   ...approvalHandlers,
   ...credentialHandlers,
+  ...homeHandlers,
   ...inventoryHandlers,
   ...logHandlers,
   ...topicHandlers,

@@ -131,6 +131,7 @@ import {
   CredentialHealth,
   classifyCredentialFailure,
 } from './modules/credentials/health'
+import { placementRemovers } from './modules/credentials/home-removers'
 import { Placements } from './modules/credentials/placements'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
@@ -2842,10 +2843,16 @@ export class SessionRegistry {
     let interactionsRef: InteractionService | undefined
     const credentialPlacements = new Placements({
       store: this.store,
-      // Removing a home is Task 9's; a propagated login file needs a daemon
-      // message that does not exist yet. Until a remover is bound for a kind,
-      // its placements stay `removal-pending`, visibly.
-      transport: { isOnline: (machineId) => machines.hasDaemon(machineId), removers: {} },
+      // Both kinds go by the daemon's home requests (Task 8); a daemon without
+      // harness homes is not asked, and its placements stay `removal-pending`,
+      // visibly. The vendor's sign-out before a home goes is Task 9's.
+      transport: {
+        isOnline: (machineId) => machines.hasDaemon(machineId),
+        removers: placementRemovers({
+          daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+          rpc,
+        }),
+      },
     })
     const credentialHealth = new CredentialHealth({
       store: this.store,

@@ -8,6 +8,7 @@ import {
   CAP_CHECKOUT_CHANGED_V1,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_HARNESS_HOMES,
   CAP_MACHINE_PROCESSES_V1,
   CAP_OAUTH_LOOPBACK,
   CAP_SESSION_ACCESS,
@@ -1078,6 +1079,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // Credential management §11: this daemon listens on its loopback address
         // for a ChatGPT sign-in's callback and relays only its query fields.
         CAP_OAUTH_LOOPBACK,
+        // Credential management §10: this daemon keeps harness homes, runs
+        // sessions in them and answers the home and credential-removal requests.
+        CAP_HARNESS_HOMES,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,

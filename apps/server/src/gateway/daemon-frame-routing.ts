@@ -145,6 +145,9 @@ export const DAEMON_FRAME_PORTS = {
   // the callback it relays, which goes to the listener the rpc module opened.
   oauthLoopbackResult: ['rpc'],
   oauthLoopbackCallback: ['rpc'],
+  homeEnsureResult: ['rpc'],
+  homeRemoveResult: ['rpc'],
+  credentialRemoveResult: ['rpc'],
   serverTransferResult: ['rpc'],
   serverEndpointResult: ['rpc'],
   shippingJobResult: ['rpc'],

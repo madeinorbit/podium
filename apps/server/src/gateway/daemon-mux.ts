@@ -234,6 +234,9 @@ const DISPATCH: Dispatcher = {
   credentialInstallResult: toRpc,
   oauthLoopbackResult: toRpc,
   oauthLoopbackCallback: toRpc,
+  homeEnsureResult: toRpc,
+  homeRemoveResult: toRpc,
+  credentialRemoveResult: toRpc,
 
   serverTransferResult: toRpc,
   serverEndpointResult: toRpc,
