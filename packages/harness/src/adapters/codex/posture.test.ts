@@ -301,10 +301,31 @@ describe('codexPosture', () => {
       }
     })
 
-    it('engine, turn and client report no quiet-start entry for hooks', () => {
-      for (const mode of ['engine', 'turn', 'client'] as const) {
+    it('engine and turn report no quiet-start entry for hooks: neither draws a screen', () => {
+      for (const mode of ['engine', 'turn'] as const) {
         const out = codexPosture(BUILDER[mode], request(mode, AUTONOMOUS, { version: '' }))
         expect(out.unmet.map((entry) => entry.requirement)).not.toContain('quiet-start')
+      }
+    })
+
+    it('client (POD-7028): the engine it joins decides hook review; from 0.147.0 nothing is unmet', () => {
+      // Measured, 0.169.0: a `resume --remote` client draws "Hooks need review"
+      // against an engine without the override, whatever the client is given,
+      // and none against an engine with it.
+      for (const version of ['0.147.0', '0.169.0']) {
+        const out = codexPosture(BUILDER.client, request('client', SUPERVISED, { version }))
+        expect(out.unmet).toEqual([])
+        expect(out.launch.args.join(' ')).not.toContain('hooks.state')
+      }
+    })
+
+    it('client (POD-7028): below 0.147.0 or with an unknown version, quiet start is unmet', () => {
+      for (const [version, named] of [
+        ['0.146.9', 'version "0.146.9"'],
+        ['', 'of unknown version'],
+      ] as const) {
+        const out = codexPosture(BUILDER.client, request('client', SUPERVISED, { version }))
+        expect(out.unmet).toContainEqual(hookReviewUnmet(named))
       }
     })
 

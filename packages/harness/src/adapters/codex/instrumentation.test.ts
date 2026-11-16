@@ -14,6 +14,7 @@ import { testAccount } from '../../driver/testing/harness-context.js'
 import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
+  codexEngineHookTrustArgs,
   codexHookTrustedHash,
   codexInstrumentation,
   codexLaunchHookTrustOverride,
@@ -453,6 +454,91 @@ describe('codex per-launch hook trust (POD-6999)', () => {
     const res = await ensureHooks({ homeDir: dir })
     expect(res.trusted).toBe(false)
     expect(res.launchTrustOverride).toBeUndefined()
+  })
+
+  it("trusts only a handler that is exactly Podium's current one, never an older or look-alike", async () => {
+    // Both carry the marker Podium finds its handlers by; neither is the
+    // command Podium writes today, so neither gets an entry.
+    const { doc } = await fixture('trust')
+    const stale = structuredClone(doc)
+    stale.hooks.Stop[0].hooks[0].command = `${PODIUM_CODEX_HOOK_COMMAND} # older`
+    stale.hooks.SessionStart[0].hooks[0].timeout = 30
+    const ours = entriesOf(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc: stale }))
+    expect(ours.size).toBe(4)
+    expect(ours.has(`${HOOKS_JSON}:stop:0:0`)).toBe(false)
+    expect(ours.has(`${HOOKS_JSON}:session_start:0:0`)).toBe(false)
+  })
+
+  describe('the engine (chat view, POD-7028)', () => {
+    async function installedHome(): Promise<{ dir: string; hooksJson: string; before: string }> {
+      const dir = await home()
+      await ensureHooks({ homeDir: dir })
+      const hooksJson = join(dir, '.codex', 'hooks.json')
+      return { dir, hooksJson, before: await readFile(hooksJson, 'utf8') }
+    }
+
+    it("passes the terminal's override for the hooks.json the home holds, and writes nothing", async () => {
+      const { dir, hooksJson, before } = await installedHome()
+      const terminal = (await ensureHooks({ homeDir: dir, launchTrust: true })).launchTrustOverride
+      const args = await codexEngineHookTrustArgs({
+        hooksRoot: join(dir, '.codex'),
+        version: '0.169.0',
+        platform: 'linux',
+      })
+      expect(args).toEqual(['-c', terminal])
+      expect(entriesOf(args[1]).size).toBe(6)
+      expect(await readFile(hooksJson, 'utf8')).toBe(before)
+      expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+    })
+
+    it('reproduces the hashes Codex 0.169.0 wrote, from the fixture file on disk', async () => {
+      const dir = await home()
+      const { written } = await fixture('trust')
+      await copyFile(join(FIXTURES, 'trust.hooks.json'), join(dir, '.codex', 'hooks.json'))
+      const args = await codexEngineHookTrustArgs({
+        hooksRoot: join(dir, '.codex'),
+        version: '0.147.0',
+        platform: 'linux',
+      })
+      const ours = entriesOf(args[1])
+      expect(ours.size).toBe(6)
+      for (const [key, entry] of written) {
+        expect(ours.get(key.replace('/home/user/.codex', join(dir, '.codex')))).toBe(
+          entry.trustedHash,
+        )
+      }
+    })
+
+    it('passes nothing below the minimum, for an unknown version, or on Windows', async () => {
+      const { dir } = await installedHome()
+      const hooksRoot = join(dir, '.codex')
+      for (const [version, platform] of [
+        ['0.146.9', 'linux'],
+        ['', 'linux'],
+        ['codex-cli dev', 'linux'],
+        ['0.169.0', 'win32'],
+      ] as const) {
+        expect(await codexEngineHookTrustArgs({ hooksRoot, version, platform })).toEqual([])
+      }
+    })
+
+    it('passes nothing when the home holds no hooks.json, an unreadable one, or none of Podium', async () => {
+      const dir = await home()
+      const hooksRoot = join(dir, '.codex')
+      const args = () =>
+        codexEngineHookTrustArgs({ hooksRoot, version: '0.169.0', platform: 'linux' })
+      expect(await args()).toEqual([])
+      await writeFile(join(hooksRoot, 'hooks.json'), '{not json')
+      expect(await args()).toEqual([])
+      await writeFile(join(hooksRoot, 'hooks.json'), '[]')
+      expect(await args()).toEqual([])
+      await writeFile(
+        join(hooksRoot, 'hooks.json'),
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine' }] }] } }),
+      )
+      expect(await args()).toEqual([])
+      expect(existsSync(join(hooksRoot, 'config.toml'))).toBe(false)
+    })
   })
 
   it('ensurePodiumCodexHooks: a handler the user turned off stays reported', async () => {
