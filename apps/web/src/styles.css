@@ -10493,6 +10493,17 @@ a.ref-link--session::before {
 .composer-notice span {
   color: var(--text-dim, var(--muted-foreground));
 }
+/* A launch term the agent cannot meet (POD-6858): the reason is the message,
+   so the line wraps and reads in full. */
+.composer-notice--posture {
+  align-items: flex-start;
+}
+.composer-notice--posture svg {
+  margin-top: 3px;
+}
+.composer-notice--posture span {
+  color: var(--foreground);
+}
 .composer-notice--error {
   padding-left: 8px;
   border-left: 2px solid var(--destructive);

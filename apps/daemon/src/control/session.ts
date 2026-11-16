@@ -1952,15 +1952,24 @@ export function reportDriverPreferenceDegrade(input: {
  * error has no driver, and announcing one would leave the row describing a
  * session that never ran.
  */
-function announceDriverSelection(
+export function announceDriverSelection(
   ctx: DaemonContext,
   sessionId: SpawnControl['sessionId'],
   driverId: string,
 ): void {
   driverTiming.driverSelected(sessionId, driverId)
-  ctx.sessions.ensure(sessionId).selectedDriverId = driverId
+  announcedDrivers.set(sessionId, driverId)
   ctx.send({ type: 'driverSelected', sessionId, driverId })
 }
+
+/**
+ * THE DRIVER LAST ANNOUNCED PER SESSION (POD-6858 Task 11): what a launch's
+ * report repeats once its terms are applied. Kept beside the session registry,
+ * not on its entry: the entry's existence is what makes a spawn fresh
+ * (`withOrder`), and the announcement comes before that. Dropped when the
+ * session is retired.
+ */
+const announcedDrivers = new Map<SessionId, string>()
 
 /**
  * REPORT A LAUNCH'S APPLIED TERMS (POD-6858 Task 11, harness-session-posture.md
@@ -1972,12 +1981,12 @@ function announceDriverSelection(
  * stay in the daemon log `prepareLaunch` already wrote.
  */
 export function reportLaunchTerms(
-  ctx: Pick<DaemonContext, 'send' | 'sessions'>,
+  ctx: Pick<DaemonContext, 'send'>,
   sessionId: SessionId,
   applied: Pick<AppliedTerms, 'requestedMode' | 'unmet'>,
   fallbackDriverId?: string,
 ): void {
-  const driverId = ctx.sessions.get(sessionId)?.selectedDriverId ?? fallbackDriverId
+  const driverId = announcedDrivers.get(sessionId) ?? fallbackDriverId
   if (driverId === undefined) return
   ctx.send({
     type: 'driverSelected',
@@ -3212,11 +3221,13 @@ export const sessionHandlers: Pick<
         }
         stopSessionProcess(ctx, msg, { retire: true })
         forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
         stopSessionProcess(ctx, msg, { retire: true })
         forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {

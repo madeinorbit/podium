@@ -5,9 +5,8 @@ import { join } from 'node:path'
 import type { AppliedTerms, HomeEdit, LaunchFile } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { reportLaunchTerms } from './control/session.js'
+import { announceDriverSelection, reportLaunchTerms } from './control/session.js'
 import type { HomeEditPorts } from './harness-home-edits.js'
-import { SessionRegistry } from './session/registry.js'
 import { type PrepareLaunchPorts, podiumGrantsFor, prepareLaunch } from './session-posture.js'
 
 const STATE = '/var/podium-state'
@@ -145,13 +144,11 @@ describe('reportLaunchTerms', () => {
 
   it('repeats the announced decision with the mode asked for and each unmet requirement', () => {
     const sent: unknown[] = []
-    const sessions = new SessionRegistry()
-    sessions.ensure(SESSION).selectedDriverId = 'codex-app-server'
-    reportLaunchTerms({ send: (m) => void sent.push(m), sessions } as never, SESSION, {
-      requestedMode: 'never',
-      unmet,
-    })
+    const ctx = { send: (m: unknown) => void sent.push(m) }
+    announceDriverSelection(ctx as never, SESSION, 'codex-app-server')
+    reportLaunchTerms(ctx as never, SESSION, { requestedMode: 'never', unmet })
     expect(sent).toEqual([
+      { type: 'driverSelected', sessionId: SESSION, driverId: 'codex-app-server' },
       {
         type: 'driverSelected',
         sessionId: SESSION,
@@ -162,14 +159,12 @@ describe('reportLaunchTerms', () => {
   })
 
   it('names the fallback driver when none was announced, and sends nothing with neither', () => {
+    const other = asSessionId('55555555-5555-4555-8555-555555555555')
     const sent: Array<{ driverId?: string }> = []
-    const ctx = {
-      send: (m: { driverId?: string }) => void sent.push(m),
-      sessions: new SessionRegistry(),
-    }
-    reportLaunchTerms(ctx as never, SESSION, { requestedMode: null, unmet }, 'generic-pty')
+    const ctx = { send: (m: { driverId?: string }) => void sent.push(m) }
+    reportLaunchTerms(ctx as never, other, { requestedMode: null, unmet }, 'generic-pty')
     expect(sent.map((m) => m.driverId)).toEqual(['generic-pty'])
-    reportLaunchTerms(ctx as never, SESSION, { requestedMode: null, unmet })
+    reportLaunchTerms(ctx as never, other, { requestedMode: null, unmet })
     expect(sent).toHaveLength(1)
   })
 })

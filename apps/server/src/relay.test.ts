@@ -19,7 +19,7 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { asDelegationRef, CLIENT_WIRE_VERSION, DriverSelectedMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { memberFacts } from './store/fixtures/test-support'
@@ -2367,6 +2367,49 @@ describe('SessionRegistry', () => {
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
       expect((await meta())?.launchPosture).toBeUndefined()
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
+  })
+
+  /**
+   * AN OLDER SERVER READS THE REPEAT AS THE SAME DECISION (POD-6858 Task 11).
+   * Its schema has no `posture`, so the field is stripped on parse and the
+   * repeat is the decision frame again: the stored row is the same after it.
+   */
+  it('stores the same row when a server without posture reads the repeated decision', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'codex-app-server' }
+      const repeat = {
+        ...decision,
+        posture: {
+          requestedMode: 'never',
+          unmet: [{ requirement: 'autonomy' as const, reason: 'a one-shot turn has nobody to ask' }],
+        },
+      }
+      // The frame as a server that predates the field parses it.
+      const preposture = DriverSelectedMessage.omit({ posture: true })
+      const asOldServerReadsIt = preposture.parse(repeat)
+      expect(asOldServerReadsIt).toEqual(decision)
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, preposture.parse(decision))
+      const row = async () => (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
+      const before = await row()
+      const metaBefore = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, asOldServerReadsIt)
+      expect(await row()).toEqual(before)
+      const metaAfter = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      expect(metaAfter?.driverFamily).toBe(metaBefore?.driverFamily)
+      expect(metaAfter?.status).toBe(metaBefore?.status)
     } finally {
       await reg.dispose()
       await store.close()

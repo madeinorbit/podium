@@ -240,13 +240,6 @@ export class DaemonSession {
     | undefined = undefined
 
   /**
-   * THE DRIVER THIS DAEMON LAST ANNOUNCED for the session (`driverSelected`,
-   * POD-2290). A launch repeats that decision with its applied terms once they
-   * are known (POD-6858 Task 11), and names the same driver.
-   */
-  selectedDriverId: string | undefined = undefined
-
-  /**
    * THE SESSION'S ENGINE BINDING (spec §4.8, layers §1b): the address the
    * session layer minted for its engine, and the binding facts the family
    * last reported. Written only by `SessionEngineScope` (`session/engines.ts`)

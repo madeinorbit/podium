@@ -39,6 +39,7 @@ import { InterruptNotice } from './InterruptNotice'
 import type { MailReply } from './mail-reply'
 import { OfferBar } from './OfferBar'
 import { QuoteOverlay, type UseQuotesResult } from './QuoteTokens'
+import { PostureNotices } from './SessionPosture'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
 import { chordKeys, useComposerChord } from './use-composer-chord'
@@ -164,6 +165,7 @@ export const ChatComposer = observer(function ChatComposer({
   onOfferAction,
   onOfferDismiss,
   session,
+  posture,
   turnError,
   transcriptFreshness,
   offlineAsOf,
@@ -214,6 +216,10 @@ export const ChatComposer = observer(function ChatComposer({
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
   session: SessionModel | undefined
+  /** The session whose launch terms the composer reports (POD-6858): one
+   *  notice per requirement its agent cannot meet. Absent for a superagent
+   *  thread. */
+  posture?: Pick<SessionView, 'agentKind' | 'launchPosture'> | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness
@@ -631,6 +637,7 @@ export const ChatComposer = observer(function ChatComposer({
         {transcriptAnnouncement}
       </div>
       {stop && <InterruptNotice session={stop} />}
+      {!replying && posture && <PostureNotices session={posture} />}
       {(turnError !== null ||
         (interruptError !== null && interruptError !== undefined) ||
         transcriptFreshness !== null ||
