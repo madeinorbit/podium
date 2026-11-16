@@ -91,6 +91,25 @@ scratch homes holding only `auth.json` plus that `hooks.json`, a fresh
 If Codex changes the hash or the key, the override stops matching and the
 modal comes back: it fails safe. Windows is unmeasured.
 
+### Hook review in the chat view (POD-7028, 0.147.0, 0.169.0)
+
+The same scratch homes (`auth.json` plus the `hooks.json` Podium's install
+writes), `codex app-server --listen unix://…` with the engine posture flags,
+a JSON-RPC client that starts a thread and runs one turn, then the stock TUI as
+`resume -C <repo> <thread> --remote unix://…` with
+`-c check_for_update_on_startup=false` and a prompt, in a PTY
+(`posture-probe.ts`). "Hooks fire": a listener on `PODIUM_CODEX_HOOK_URL`, set
+on the engine for the measurement only.
+
+| Question | Result |
+|---|---|
+| App-server, no override | The turn is answered; no hooks run; no `hook/*` notification and no warning about hooks over JSON-RPC. |
+| App-server with Podium's override | The turn is answered; SessionStart, UserPromptSubmit and Stop fire, each as `hook/started` and `hook/completed`; nothing written to `config.toml`. |
+| `resume --remote` client, engine without the override | **Modal** "Hooks need review: 6 hooks are new or changed"; the client's launch prompt is not sent. Same on 0.147.0 and 0.169.0. |
+| The same, with the override on the client only | **Modal**, unchanged: the client's `-c hooks.state` is ignored. The engine decides, as it does for folder trust. |
+| Client, engine with the override | No modal; the client's launch prompt is answered; nothing written. Same on 0.147.0 and 0.169.0. |
+| Re-probe with the committed code (engine argv from the engine's trust args, engine env with `PODIUM_SESSION_ID` and no hook URL or socket), 0.147.0 and 0.169.0 | No modal; both prompts answered; Codex runs the handlers (`hook/started`, `hook/completed`) and none reaches the listener; no `config.toml`. |
+
 ## OpenCode 1.18.35
 
 All turns used the default free model (OpenCode Zen, "Big Pickle"), so no

@@ -412,7 +412,7 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
 | | R1 trust | R2 Podium CLI | R3 mode: supervised / autonomous | R4 quiet start | R5 Podium material |
 |---|---|---|---|---|---|
 | **Claude Code** | `json-key` edit on the repo root, all modes | allow rules `Bash(podium *)` and `PowerShell(podium *)` by flag, spelled `--allowedTools=<rule>` | `default` / `auto`; the mode in force is the `permissionMode` of the init event (`default` when auto is unavailable) | met in an onboarded home: the auto-mode notices are not modal. Survey env; `skipDangerousModePermissionPrompt` only matters for a native bypass pick | allow rules `Read(//<uploads>/**)` (two slashes) and `mcp__<server>` |
-| **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client; terminal: per-launch trust for Podium's own hooks, `-c hooks.state={…}`, from 0.147.0 (below that or unknown version: `unmet: quiet-start`) | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
+| **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client; per-launch trust for Podium's own hooks, `-c hooks.state={…}`, from 0.147.0, in terminal and engine; client: met by the engine's (below that or unknown version: `unmet: quiet-start` for terminal and client) | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
 | **OpenCode** | met by default | `{"bash":{"*":<mode's rule>,"podium *":"allow"}}` in the inline config's `permission` | `bash` and `edit` ask rules / `--auto` (terminal); engine: asks reach chat | met by default | `{"external_directory":{"<uploads>/*":"allow"}}` in the inline config (asks by default); MCP tools allowed by default |
 | **Grok** | `--trust` in terminal, client and turn, from 1.0.5 (below that or unknown version: `unmet: workspace-trust`); engine: no flag (`grok agent stdio` refuses it) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `toml-array-entry` `Bash(podium *)` in `[permission] allow` of `$GROK_HOME/config.toml`, created when missing (measured, 1.0.70: no ask in default mode; under auto mode it also runs the podium commands the classifier blocks) | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
 | **Pi** | `--approve` (asks in every folder with a fresh home) | met by default | `unmet: autonomy` / met by default | met: the update notice is not modal (`PI_SKIP_VERSION_CHECK=1` hides it) | met by default |
@@ -454,8 +454,20 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
   Podium's handlers. Below 0.147.0, with an unknown version, or on Windows (the
   hash input there is unmeasured), nothing is passed: the session degrades to
   poll-only with the `codex-hooks-untrusted` report as before, and posture
-  reports `unmet: quiet-start` for the terminal. The client (`resume
-  --remote`) gets nothing; whether it draws the modal is unmeasured.
+  reports `unmet: quiet-start` for the terminal.
+- **Hook review in the chat view is the engine's (POD-7028).** A `resume
+  --remote` client draws the same modal, and loses the prompt it was started
+  with, when the app-server it joins has not trusted Podium's hooks; the
+  client's own `-c hooks.state` is ignored, as its folder trust is. The engine
+  launch (`codex app-server`) therefore gets the same override, built from the
+  home's `hooks.json` as it is (the engine never installs hooks) and only for
+  handlers that are exactly Podium's current one; same version floor, nothing
+  on Windows or an unknown version, where the client reports
+  `unmet: quiet-start`. The engine itself shows nothing without it: it skips
+  untrusted hooks silently over JSON-RPC. Trust makes the handlers run in the
+  engine, so the engine spawn strips `PODIUM_CODEX_HOOK_URL` and
+  `PODIUM_CODEX_HOOK_SOCKET`: the handlers stay inert and JSON-RPC stays the
+  engine's only state channel. Measured on 0.147.0 and 0.169.0.
   **Rejected: `--dangerously-bypass-hook-trust`.** It trusts every enabled hook
   for the invocation, including the person's own and a project's hooks that
   they never reviewed (POD-4076's reason, which still holds). `-c
