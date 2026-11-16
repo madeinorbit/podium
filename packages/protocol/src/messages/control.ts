@@ -44,7 +44,7 @@ import {
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
-import { OauthLoopbackRequestMessage } from './oauth-loopback'
+import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth-loopback'
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
@@ -108,6 +108,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   CredentialExportRequestMessage,
   CredentialInstallRequestMessage,
   OauthLoopbackRequestMessage,
+  OauthLoopbackCancelMessage,
   GitHubCliRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,

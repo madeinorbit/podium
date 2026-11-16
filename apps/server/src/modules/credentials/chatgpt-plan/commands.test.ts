@@ -185,7 +185,7 @@ describe('acceptance 9: removal calls the revocation endpoint', () => {
     openai.state.revokeStatus = 503
     const result = await as(member(OWNER)).credentials.remove({ credentialId })
     expect(result).toEqual({ ok: true, providerRevocation: 'not-confirmed' })
-    expect(openai.state.revokeForms.length).toBeGreaterThan(1) // retried
+    expect(openai.state.revokeForms).toHaveLength(1) // one short try, never a wait
     expect((await store.credentials.get(credentialId))?.status).toBe('revoked')
     expect(await store.credentials.latestSecret(credentialId)).toBeNull()
   }, 20_000)

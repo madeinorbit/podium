@@ -10,9 +10,11 @@
  * else, and the browser is told to return to Podium. The server exchanges the
  * code; no token ever reaches this daemon.
  *
- * One listener per port: a newer request for the same port replaces the older
- * one. A listener closes at its first callback or when its time is up. The
- * code is never logged.
+ * It binds `127.0.0.1` only, and relays exactly one return: the one carrying
+ * the attempt's `state`. Anything else gets a 404 and the listener keeps
+ * waiting. One listener per port: a newer request for the same port replaces
+ * the older one. A listener closes at its first relayed return, when its time
+ * is up, or when the server cancels it. The code is never logged.
  */
 
 import { createServer, type Server } from 'node:http'
@@ -72,7 +74,7 @@ export async function startOauthLoopback(
       relayed ||
       req.method !== 'GET' ||
       url.pathname !== msg.path ||
-      (!query.has('state') && !query.has('error'))
+      query.get('state') !== msg.state
     ) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
       res.end('Not found')
@@ -113,6 +115,13 @@ export async function startOauthLoopback(
   timer.unref?.()
   listeners.set(msg.port, { requestId: msg.requestId, server, timer })
   send({ type: 'oauthLoopbackResult', requestId: msg.requestId, listening: true })
+}
+
+/** The server no longer needs this listener (`oauthLoopbackCancel`). */
+export function cancelOauthLoopback(requestId: string): void {
+  for (const [port, listener] of listeners) {
+    if (listener.requestId === requestId) close(port, requestId)
+  }
 }
 
 /** Close every listener (daemon shutdown, tests). */

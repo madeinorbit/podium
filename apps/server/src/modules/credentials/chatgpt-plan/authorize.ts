@@ -201,6 +201,12 @@ export class ChatgptSignIn {
     return { attemptId: attempt.id, authorizeUrl: `${OPENAI_AUTHORIZE_URL}?${params.toString()}` }
   }
 
+  /** Forget an attempt that never reached the browser (its listener could not open). */
+  discard(attemptId: string): void {
+    const attempt = this.attempts.get(attemptId)
+    if (attempt?.phase === 'waiting') this.attempts.delete(attemptId)
+  }
+
   /** Where an attempt stands, for its owner; unknown attempts read as failed. */
   status(attemptId: string, ownerUserId: UserId): ChatgptSignInStatus {
     this.prune()

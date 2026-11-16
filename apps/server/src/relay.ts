@@ -44,7 +44,6 @@ import type {
 import {
   CAP_CHECKOUT_CHANGED_V1,
   CAP_MACHINE_PROCESSES_V1,
-  CAP_OAUTH_LOOPBACK,
   CAP_TOPICS_V1,
   formatIssueRef,
   type HostMemoryBreakdown,
@@ -121,10 +120,10 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
-import { ChatgptSignIn } from './modules/credentials/chatgpt-plan/authorize'
-import { chatgptHostId } from './modules/credentials/chatgpt-plan/host-id'
-import { ChatgptPlanKeeper } from './modules/credentials/chatgpt-plan/keeper'
-import { ChatgptPlanService } from './modules/credentials/chatgpt-plan/service'
+import {
+  type ChatgptPlanService,
+  composeChatgptPlan,
+} from './modules/credentials/chatgpt-plan/service'
 import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,
@@ -2571,42 +2570,20 @@ export class SessionRegistry {
     // Late-bound for the same reason: the messages service is composed below.
     let noticeReassignment: ((facts: ReassignmentFacts) => Promise<void>) | undefined
 
+    // Sign in with ChatGPT and its keeper (§11). DEFERRED READ: health is built below.
+    const chatgptPlan = composeChatgptPlan({
+      store: this.store,
+      now: () => this.now(),
+      fetch: options.credentialProviderFetch,
+      health: () => credentialHealth,
+      machines,
+      rpc,
+    })
+
     // Podium's own model calls (credential management §9). A ChatGPT login's
     // calls run on the machine whose Codex home holds it (POD-4750): that
     // machine's daemon performs the Responses call, so the login never leaves
     // it and never crosses this interface.
-    // Sign in with ChatGPT (credential management §11). The server is the one
-    // keeper of each sign-in; a daemon only listens for the browser's return.
-    // The OpenAI calls use the same fetch as credential verification (tests
-    // pass a fake provider). DEFERRED READ: the health service is built below.
-    const openaiFetch = options.credentialProviderFetch
-    const chatgptKeeper = new ChatgptPlanKeeper({
-      store: this.store,
-      now: () => this.now(),
-      ...(openaiFetch ? { fetch: openaiFetch } : {}),
-    })
-    const chatgptPlan = new ChatgptPlanService(
-      new ChatgptSignIn({
-        store: this.store,
-        hostId: async () => chatgptHostId(await this.store.secrets.installationIdentity()),
-        now: () => this.now(),
-        afterRenew: async (record) =>
-          await credentialHealth.afterRenew(record, { providerChecked: true }),
-        ...(openaiFetch ? { fetch: openaiFetch } : {}),
-      }),
-      chatgptKeeper,
-      {
-        canListen: (machineId) =>
-          !machines.hasDaemon(machineId)
-            ? 'offline'
-            : machines.daemonSupports(machineId, CAP_OAUTH_LOOPBACK)
-              ? 'ok'
-              : 'too-old',
-        listen: async (machineId, i, onCallback) =>
-          await rpc.oauthLoopbackListen(machineId, i, onCallback),
-      },
-    )
-
     const onMachine: OnMachineTransport = {
       listMachines: async () => await machines.listMachines(),
       isOnline: (id) => machines.hasDaemon(id),
@@ -2682,7 +2659,7 @@ export class SessionRegistry {
           {
             store: this.store,
             onMachine,
-            chatgptPlan: chatgptKeeper,
+            chatgptPlan: chatgptPlan.keeper,
             // A provider that rejects the credential, or reports a limit (§7).
             // DEFERRED READ: the health service is built below.
             onCredentialFailure: async (failure) => await credentialHealth.noteFailure(failure),
@@ -2935,8 +2912,6 @@ export class SessionRegistry {
         },
       },
     })
-    // A final ChatGPT renewal failure needs attention and a notice (§11).
-    chatgptKeeper.health = credentialHealth
     this.bus.on('machine.connected', ({ machineId }) =>
       credentialPlacements.retryPendingOn(machineId).catch((err) => {
         log.warn('credential placement removal on reconnect failed', { machineId, err })

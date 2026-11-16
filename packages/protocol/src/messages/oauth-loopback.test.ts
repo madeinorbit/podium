@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   OauthLoopbackCallbackMessage,
+  OauthLoopbackCancelMessage,
   OauthLoopbackRequestMessage,
   OauthLoopbackResultMessage,
 } from './oauth-loopback'
@@ -56,15 +57,22 @@ describe('oauthLoopback messages (credential management §11)', () => {
 
   it('the request and its result carry no token field', () => {
     expect(shapeKeys(OauthLoopbackRequestMessage)).toEqual(
-      ['path', 'port', 'requestId', 'ttlMs', 'type'].sort(),
+      ['path', 'port', 'requestId', 'state', 'ttlMs', 'type'].sort(),
     )
+    expect(shapeKeys(OauthLoopbackCancelMessage)).toEqual(['requestId', 'type'])
     expect(shapeKeys(OauthLoopbackResultMessage)).toEqual(
       ['error', 'listening', 'requestId', 'type'].sort(),
     )
   })
 
   it('listens only on the callback path OpenAI returns to', () => {
-    const base = { type: 'oauthLoopbackRequest', requestId: 'ol1', port: 1455, ttlMs: 600_000 }
+    const base = {
+      type: 'oauthLoopbackRequest',
+      requestId: 'ol1',
+      port: 1455,
+      state: 'FAKE-state',
+      ttlMs: 600_000,
+    }
     expect(OauthLoopbackRequestMessage.safeParse({ ...base, path: '/auth/callback' }).success).toBe(
       true,
     )

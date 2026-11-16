@@ -13,7 +13,7 @@ import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { inventoryHandlers, reportInventory } from './inventory'
 import { logHandlers } from './logs'
-import { startOauthLoopback } from './oauth-loopback'
+import { cancelOauthLoopback, startOauthLoopback } from './oauth-loopback'
 import { serverEndpointHandlers } from './server-endpoint'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
@@ -158,6 +158,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   oauthLoopbackRequest: (ctx, msg) => {
     void startOauthLoopback(msg, (frame) => ctx.send(frame))
   },
+  oauthLoopbackCancel: (_ctx, msg) => cancelOauthLoopback(msg.requestId),
   updateGrant: (ctx, msg) => {
     void ctx.applyUpdateGrant(msg)
   },

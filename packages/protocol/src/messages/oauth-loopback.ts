@@ -9,6 +9,10 @@
  *
  *  - server → daemon `oauthLoopbackRequest`: listen on `127.0.0.1:<port>` for
  *    `ttlMs`, answered at once by `oauthLoopbackResult` (listening or not).
+ *    Only a return that carries the attempt's `state` is relayed; anything
+ *    else gets a 404 and the listener keeps waiting.
+ *  - server → daemon `oauthLoopbackCancel`: stop listening (the sign-in was
+ *    completed another way, or given up).
  *  - daemon → server `oauthLoopbackCallback`: the callback's query fields, at
  *    most once per request. Strict: `code`, `state`, the issued `clientId`, the
  *    granted `scope`, or OpenAI's `error`; no other field, so no token can ride
@@ -27,6 +31,8 @@ export const OauthLoopbackRequestMessage = z.object({
   requestId: z.string(),
   port: z.number().int().min(1024).max(65_535),
   path: z.literal('/auth/callback'),
+  /** The attempt's `state`: the one return the listener relays. Not a secret. */
+  state: z.string().min(1).max(512),
   /** The listener closes after this long, or at its first callback. */
   ttlMs: z
     .number()
@@ -35,6 +41,13 @@ export const OauthLoopbackRequestMessage = z.object({
     .max(15 * 60_000),
 })
 export type OauthLoopbackRequestMessage = z.infer<typeof OauthLoopbackRequestMessage>
+
+export const OauthLoopbackCancelMessage = z.object({
+  type: z.literal('oauthLoopbackCancel'),
+  /** The `oauthLoopbackRequest` whose listener closes. */
+  requestId: z.string(),
+})
+export type OauthLoopbackCancelMessage = z.infer<typeof OauthLoopbackCancelMessage>
 
 export const OauthLoopbackResultMessage = z.object({
   type: z.literal('oauthLoopbackResult'),

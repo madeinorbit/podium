@@ -1208,9 +1208,9 @@ export class DaemonRpcService {
    */
   async oauthLoopbackListen(
     machineId: MachineId,
-    i: { port: number; ttlMs: number },
+    i: { port: number; state: string; ttlMs: number },
     onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void,
-  ): Promise<{ listening: boolean; error?: string }> {
+  ): Promise<{ listening: boolean; error?: string; listenerId?: string }> {
     let requestId: string | undefined
     const answer = await this.request(
       OAUTH_LOOPBACK,
@@ -1228,13 +1228,24 @@ export class DaemonRpcService {
           requestId: id,
           port: i.port,
           path: '/auth/callback',
+          state: i.state,
           ttlMs: i.ttlMs,
         }
       },
       machineId,
     )
     if (!answer.listening && requestId) this.loopbacks.delete(requestId)
-    return answer
+    return answer.listening && requestId ? { ...answer, listenerId: requestId } : answer
+  }
+
+  /** Close a listener the server no longer needs; a no-op once it has closed. */
+  oauthLoopbackCancel(machineId: MachineId, listenerId: string): void {
+    if (!this.loopbacks.delete(listenerId)) return
+    try {
+      this.deps.toMachine(machineId, { type: 'oauthLoopbackCancel', requestId: listenerId })
+    } catch (err) {
+      log.warn('could not cancel a sign-in listener', { err, machineId })
+    }
   }
 
   private onLoopbackCallback(machineId: MachineId, msg: OauthLoopbackCallbackMessage): void {

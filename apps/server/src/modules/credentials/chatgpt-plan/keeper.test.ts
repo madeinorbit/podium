@@ -247,12 +247,25 @@ describe('ChatgptPlanKeeper', () => {
       expect(form?.get('client_id')).toBe(FAKE_CLIENT_ID)
     })
 
-    it('a 5xx is retried and then reported as not confirmed', async () => {
-      const { keeper, openai, signedIn } = await setup()
+    it('a 5xx is not confirmed, after one try: removal never waits on OpenAI', async () => {
+      const { keeper, openai, signedIn, pauses } = await setup()
       const id = await signedIn(30 * MIN)
       openai.state.revokeStatus = 500
       expect(await keeper.revoke(id)).toBe('not-confirmed')
-      expect(openai.state.revokeForms).toHaveLength(3)
+      expect(openai.state.revokeForms).toHaveLength(1)
+      expect(pauses).toEqual([])
+    })
+
+    it('a revocation call that cannot reach OpenAI is not confirmed and does not throw', async () => {
+      const { store, signedIn } = await setup()
+      const id = await signedIn(30 * MIN)
+      const unreachable = new ChatgptPlanKeeper({
+        store,
+        fetch: async () => {
+          throw new TypeError('fetch failed (fake)')
+        },
+      })
+      expect(await unreachable.revoke(id)).toBe('not-confirmed')
     })
   })
 })

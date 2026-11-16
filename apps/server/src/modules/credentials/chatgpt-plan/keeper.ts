@@ -80,11 +80,6 @@ export class ChatgptPlanKeeper {
     this.retryDelays = deps.retryDelaysMs ?? RENEW_RETRY_DELAYS_MS
   }
 
-  /** The bound health service, set once it exists (the composition root builds it later). */
-  set health(port: KeeperHealthPort | undefined) {
-    this.deps.health = port
-  }
-
   /**
    * An access token with at least five minutes left. Throws `CredentialRefusal`
    * when the credential cannot be read or its grant is gone, and
@@ -108,9 +103,9 @@ export class ChatgptPlanKeeper {
   }
 
   /**
-   * End the renewable session at OpenAI. `confirmed` only on its empty 200;
-   * a network failure or 5xx is retried, then reported as not confirmed. Never
-   * throws: removal goes on either way.
+   * End the renewable session at OpenAI. `confirmed` only on its empty 200.
+   * One try with a short timeout: removal must never wait on the provider, so
+   * a failure, a 5xx or no answer is reported as not confirmed. Never throws.
    */
   async revoke(credentialId: CredentialId): Promise<'confirmed' | 'not-confirmed'> {
     let set: ChatgptTokenSet
@@ -119,19 +114,11 @@ export class ChatgptPlanKeeper {
     } catch {
       return 'not-confirmed'
     }
-    for (let attempt = 0; ; attempt++) {
-      if (
-        await revokeRefreshToken(this.fetchImpl, {
-          clientId: set.clientId,
-          refreshToken: set.refreshToken,
-        })
-      ) {
-        return 'confirmed'
-      }
-      const pause = this.retryDelays[attempt]
-      if (pause === undefined) return 'not-confirmed'
-      await this.sleep(pause)
-    }
+    const revoked = await revokeRefreshToken(this.fetchImpl, {
+      clientId: set.clientId,
+      refreshToken: set.refreshToken,
+    })
+    return revoked ? 'confirmed' : 'not-confirmed'
   }
 
   private async renewUnderLock(credentialId: CredentialId): Promise<string> {

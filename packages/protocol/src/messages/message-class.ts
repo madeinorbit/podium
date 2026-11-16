@@ -177,6 +177,7 @@ export const CONTROL_PLANE_CLASS = {
   credentialExportRequest: 'control.command',
   credentialInstallRequest: 'control.command',
   oauthLoopbackRequest: 'control.command',
+  oauthLoopbackCancel: 'control.command',
   repoOpRequest: 'control.command',
   // Handoff family (ADR 7 D7): bulk MECHANICS on the chunk frames, command
   // CLASS throughout — one correlated export/import state machine.

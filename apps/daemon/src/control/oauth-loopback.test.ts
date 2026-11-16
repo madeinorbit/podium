@@ -7,7 +7,7 @@ import { createServer } from 'node:net'
 import { OauthLoopbackCallbackMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { closeOauthLoopbacks, startOauthLoopback } from './oauth-loopback'
+import { cancelOauthLoopback, closeOauthLoopbacks, startOauthLoopback } from './oauth-loopback'
 
 async function freePort(): Promise<number> {
   const probe = createServer()
@@ -22,13 +22,14 @@ const request = (port: number, ttlMs = 60_000) => ({
   requestId: `ol-${port}`,
   port,
   path: '/auth/callback' as const,
+  state: 'FAKE-state',
   ttlMs,
 })
 
 afterEach(() => closeOauthLoopbacks())
 
 describe('oauth loopback listener', () => {
-  it('answers that it listens, relays the callback fields once, and closes', async () => {
+  it('binds 127.0.0.1, relays only the return with the attempt’s state, once, and closes', async () => {
     const port = await freePort()
     const sent: DaemonMessage[] = []
     await startOauthLoopback(request(port), (m) => sent.push(m))
@@ -36,7 +37,13 @@ describe('oauth loopback listener', () => {
       { type: 'oauthLoopbackResult', requestId: `ol-${port}`, listening: true },
     ])
 
-    expect((await fetch(`http://127.0.0.1:${port}/other`)).status).toBe(404)
+    expect((await fetch(`http://127.0.0.1:${port}/other?state=FAKE-state`)).status).toBe(404)
+    // Another attempt's state: refused, and the listener keeps waiting.
+    expect(
+      (await fetch(`http://127.0.0.1:${port}/auth/callback?code=FAKE-other&state=FAKE-other-state`))
+        .status,
+    ).toBe(404)
+    expect(sent).toHaveLength(1)
     const res = await fetch(
       `http://127.0.0.1:${port}/auth/callback?code=FAKE-code&state=FAKE-state&client_id=oaiapp_FAKE&scope=openid&access_token=FAKE-should-not-pass`,
     )
@@ -54,9 +61,32 @@ describe('oauth loopback listener', () => {
     expect(OauthLoopbackCallbackMessage.safeParse(callback).success).toBe(true)
     expect(JSON.stringify(sent)).not.toContain('FAKE-should-not-pass')
 
-    // Closed after the first callback.
-    await expect(fetch(`http://127.0.0.1:${port}/auth/callback?state=x`)).rejects.toThrow()
+    // Closed after the one relayed return.
+    await expect(fetch(`http://127.0.0.1:${port}/auth/callback?state=FAKE-state`)).rejects.toThrow()
     expect(sent).toHaveLength(2)
+  })
+
+  it('does not listen on any address but 127.0.0.1', async () => {
+    const port = await freePort()
+    await startOauthLoopback(request(port), () => {})
+    const { networkInterfaces } = await import('node:os')
+    const other = Object.values(networkInterfaces())
+      .flat()
+      .find((i) => i && i.family === 'IPv4' && !i.internal)?.address
+    if (other) {
+      await expect(
+        fetch(`http://${other}:${port}/auth/callback?state=FAKE-state`),
+      ).rejects.toThrow()
+    }
+    expect((await fetch(`http://127.0.0.1:${port}/x`)).status).toBe(404)
+  })
+
+  it('closes when the server cancels it', async () => {
+    const port = await freePort()
+    await startOauthLoopback(request(port), () => {})
+    cancelOauthLoopback(`ol-${port}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await expect(fetch(`http://127.0.0.1:${port}/auth/callback?state=FAKE-state`)).rejects.toThrow()
   })
 
   it('reports a port in use without listening', async () => {
@@ -76,6 +106,6 @@ describe('oauth loopback listener', () => {
     const port = await freePort()
     await startOauthLoopback(request(port, 50), () => {})
     await new Promise((resolve) => setTimeout(resolve, 150))
-    await expect(fetch(`http://127.0.0.1:${port}/auth/callback?state=x`)).rejects.toThrow()
+    await expect(fetch(`http://127.0.0.1:${port}/auth/callback?state=FAKE-state`)).rejects.toThrow()
   })
 })

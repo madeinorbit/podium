@@ -105,18 +105,21 @@ export class OpenAiTokenError extends Error {
 }
 
 const TOKEN_TIMEOUT_MS = 20_000
+/** Removal never waits on OpenAI longer than this (it goes on either way). */
+export const REVOKE_TIMEOUT_MS = 5_000
 
 async function postForm(
   fetchImpl: FetchLike,
   url: string,
   form: Record<string, string>,
+  timeoutMs = TOKEN_TIMEOUT_MS,
 ): Promise<Response> {
   try {
     return await fetchImpl(url, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: new URLSearchParams(form).toString(),
-      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (err) {
     const why = err instanceof Error ? err.name : 'network error'
@@ -190,18 +193,20 @@ export async function refreshTokens(
 /**
  * Ends the renewable session. An empty 200 is success, also for a token that
  * was already invalid, so it proves nothing about the grant. Anything else,
- * including a network failure, is "not confirmed".
+ * including a network failure or no answer within five seconds, is "not
+ * confirmed".
  */
 export async function revokeRefreshToken(
   fetchImpl: FetchLike,
   i: { clientId: string; refreshToken: string },
 ): Promise<boolean> {
   try {
-    const res = await postForm(fetchImpl, OPENAI_REVOKE_URL, {
-      token: i.refreshToken,
-      token_type_hint: 'refresh_token',
-      client_id: i.clientId,
-    })
+    const res = await postForm(
+      fetchImpl,
+      OPENAI_REVOKE_URL,
+      { token: i.refreshToken, token_type_hint: 'refresh_token', client_id: i.clientId },
+      REVOKE_TIMEOUT_MS,
+    )
     return res.status === 200
   } catch {
     return false
