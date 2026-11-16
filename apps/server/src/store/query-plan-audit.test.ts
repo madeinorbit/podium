@@ -400,6 +400,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
   ],
   [
+    'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
+    "Sorts only the active effect records: the seek on idx_effects_status_deadline reads the pending and running ones, a few in the whole table, never a target's finished history (POD-7031).",
+  ],
+  [
     'apps/server/src/store/workflows.ts:runIdsOfRevisions',
     "The change capture's mapping of a changed workflow revision to the runs that read it (POD-6920): workflow_runs is a small table (a row per started workflow run), and a revision changes only when it is published.",
   ],
@@ -1825,12 +1829,106 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
         'purgeOffFeedFinished',
         /SEARCH candidate USING INDEX idx_effects_kind_target \(kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
       ],
+      // A machine's last scan (POD-7031): the target's records newest first,
+      // where the first hit is nearly always the newest succeeded one.
+      [
+        'newestOnTargetIn [succeeded]',
+        /^SEARCH effects USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\?\)$/,
+      ],
     ]
     for (const [name, pattern] of expected) {
       const plan = plans.get(name)
       expect(plan, name).toBeDefined()
       expect(plan, name).toMatch(pattern)
       expect(`${name}: ${plan}`).not.toMatch(/SCAN (effects|candidate|newer)\b|TEMP B-TREE/)
+    }
+  })
+
+  it("the active lookup seeks the active statuses, not the target's history, and sorts only those", () => {
+    useOperatorStatistics()
+    const plan = effectPlans().get('newestOnTargetIn [active]')
+    expect(plan).toBe(
+      'SEARCH effects USING INDEX idx_effects_status_deadline (status=?) | USE TEMP B-TREE FOR ORDER BY',
+    )
+    // Armed: unpinned, the statistics send it through the target's history.
+    const unpinned = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE kind = ? AND target_kind = ? AND target_id = ? AND status IN ('pending', 'running') AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .all(null, null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(unpinned).toBe(
+      'SEARCH effects USING INDEX idx_effects_kind_target (kind=? AND target_kind=? AND target_id=?)',
+    )
+  })
+
+  /**
+   * THE ROWS THE ACTIVE LOOKUP READS [POD-7031]. A machine kept 24k finished
+   * scans, and the scan the connect path asks about ran through all of them,
+   * each fetched with its result, to find none: 3–16 s a minute on the
+   * operator's server. bun:sqlite exposes no statement counters, so the rows a
+   * SEARCH reads are counted as the entries in the index range its plan seeks:
+   * the plan's index, constrained by its seek columns.
+   */
+  it('reads only the active records, however long the target history', async () => {
+    const seeded = await openTestStore(':memory:')
+    try {
+      const db = (seeded as unknown as { db: SqlDatabase }).db
+      const insert = db.prepare(
+        `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+           finished_at, created_at, updated_at, revision)
+         VALUES (?, 'machine.scan', 'machine', ?, '{}', ?, ?, ?, ?, ?, 1)`,
+      )
+      const result = JSON.stringify({ repos: 'x'.repeat(5_000) })
+      const HISTORY = 2_000
+      db.exec('BEGIN')
+      for (let at = 0; at < HISTORY; at++) {
+        insert.run(`eff_old_${at}`, 'mch_busy', result, 'succeeded', at, at, at)
+      }
+      // Another machine's scan is running: the range holds it, the filter drops it.
+      insert.run('eff_elsewhere', 'mch_other', null, 'running', null, HISTORY, HISTORY)
+      db.exec('COMMIT')
+
+      const machine = { kind: 'machine', id: 'mch_busy' } as const
+      expect(await seeded.effects.newestOnTarget('machine.scan', machine, 'active')).toBeUndefined()
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'succeeded'))?.id).toBe(
+        `eff_old_${HISTORY - 1}`,
+      )
+
+      useOperatorStatistics()
+      const plan = effectPlans().get('newestOnTargetIn [active]') ?? ''
+      const seekIndex = /USING INDEX (\S+) \(status=\?\)/.exec(plan)?.[1] ?? ''
+      expect(seekIndex, plan).toBe('idx_effects_status_deadline')
+      const rangeRows = (from: string, where: string): number =>
+        (
+          db
+            .prepare(`SELECT count(*) AS n FROM effects INDEXED BY ${from} WHERE ${where}`)
+            .get() as {
+            n: number
+          }
+        ).n
+      const active = "status IN ('pending', 'running')"
+      expect(rangeRows(seekIndex, active)).toBe(1)
+      // Armed: the target seek the planner chose before reads the whole history.
+      expect(
+        rangeRows(
+          'idx_effects_kind_target',
+          "kind = 'machine.scan' AND target_kind = 'machine' AND target_id = 'mch_busy'",
+        ),
+      ).toBe(HISTORY)
+
+      // Two active scans on the machine: the newer one, among only the active records.
+      insert.run('eff_pending', 'mch_busy', null, 'pending', null, HISTORY + 1, HISTORY + 1)
+      insert.run('eff_running', 'mch_busy', null, 'running', null, HISTORY + 2, HISTORY + 2)
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'active'))?.id).toBe(
+        'eff_running',
+      )
+      expect(rangeRows(seekIndex, active)).toBe(3)
+    } finally {
+      await seeded.close()
     }
   })
 
