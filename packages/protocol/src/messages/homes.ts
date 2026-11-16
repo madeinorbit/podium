@@ -66,22 +66,17 @@ export const HomeEnsureRequestMessage = z.object({
 })
 export type HomeEnsureRequestMessage = z.infer<typeof HomeEnsureRequestMessage>
 
-export const HomeEnsureResultMessage = z.discriminatedUnion('ok', [
-  z.object({
-    type: z.literal('homeEnsureResult'),
-    requestId: z.string(),
-    ok: z.literal(true),
-    homeId: z.string(),
-    /** False when the home already existed. */
-    created: z.boolean(),
-  }),
-  z.object({
-    type: z.literal('homeEnsureResult'),
-    requestId: z.string(),
-    ok: z.literal(false),
-    error: z.string(),
-  }),
-])
+/** `ok` with `homeId` and `created`, or not `ok` with `error`. One object, not
+ *  a union: it is itself an arm of the daemon union. */
+export const HomeEnsureResultMessage = z.object({
+  type: z.literal('homeEnsureResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  homeId: z.string().optional(),
+  /** False when the home already existed. */
+  created: z.boolean().optional(),
+  error: z.string().optional(),
+})
 export type HomeEnsureResultMessage = z.infer<typeof HomeEnsureResultMessage>
 
 /**
@@ -97,23 +92,16 @@ export const HomeRemoveRequestMessage = z.object({
 })
 export type HomeRemoveRequestMessage = z.infer<typeof HomeRemoveRequestMessage>
 
-export const HomeRemoveResultMessage = z.discriminatedUnion('ok', [
-  z.object({
-    type: z.literal('homeRemoveResult'),
-    requestId: z.string(),
-    ok: z.literal(true),
-    /** False when there was no such home (already gone): also a confirmation. */
-    removed: z.boolean(),
-    /** What the directory held, Codex's own installed copy included. */
-    freedBytes: z.number().int().nonnegative().optional(),
-  }),
-  z.object({
-    type: z.literal('homeRemoveResult'),
-    requestId: z.string(),
-    ok: z.literal(false),
-    error: z.string(),
-  }),
-])
+export const HomeRemoveResultMessage = z.object({
+  type: z.literal('homeRemoveResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  /** False when there was no such home (already gone): also a confirmation. */
+  removed: z.boolean().optional(),
+  /** What the directory held, Codex's own installed copy included. */
+  freedBytes: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+})
 export type HomeRemoveResultMessage = z.infer<typeof HomeRemoveResultMessage>
 
 /**
