@@ -109,7 +109,8 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
-      backend: 'none',
+      // A durable process is required for every spawn (POD-4617); `none` is refused.
+      backend: 'host',
       discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: tmp },
       metrics: { background: false },
       hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
@@ -275,7 +276,8 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
-      backend: 'none',
+      // A durable process is required for every spawn (POD-4617); `none` is refused.
+      backend: 'host',
       discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: tmp },
       metrics: { background: false },
       hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
@@ -341,7 +343,8 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
-      backend: 'none',
+      // A durable process is required for every spawn (POD-4617); `none` is refused.
+      backend: 'host',
       // THE REAL HOME, UNLIKE EVERY OTHER LANE HERE, because this one spawns
       // through the door that checks. `sessions.create` refuses a harness the
       // MACHINE does not report installed, and that inventory comes from
