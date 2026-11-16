@@ -37,6 +37,7 @@ import type { EffectStatus } from '@podium/model'
 import type { LedgerWriter, WriteScope } from '@podium/sync'
 import type { EffectRow, EffectsRepository } from '../../store/effects'
 import { withWriteProvenance } from '../../write-provenance'
+import { SYSTEM_EFFECT_KINDS_OFF_FEED } from './published-input'
 import type {
   EffectExecutor,
   EffectExecutorRegistry,
@@ -50,6 +51,14 @@ const log = createLogger('server:effects')
 export const EFFECT_SWEEP_INTERVAL_MS = 60_000
 /** How long an ended record stays on the feed (succeeded, cancelled, expired). */
 export const EFFECT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * How long an ended record the server started for no one is kept, for a kind
+ * that stays off the feed (`SYSTEM_EFFECT_KINDS_OFF_FEED`): the connect scan
+ * writes one per machine about once a minute, each with its whole listing, and
+ * no device ever reads them. Each machine's newest succeeded scan stays past it
+ * (POD-6970).
+ */
+export const SYSTEM_EFFECT_RETENTION_MS = 60 * 60 * 1000
 /** Rows one sweep step reads or writes at most; the next sweep takes the rest. */
 export const EFFECT_SWEEP_BATCH = 100
 
@@ -64,6 +73,7 @@ export type EffectsRunnerRepository = Pick<
   | 'listInStatus'
   | 'pruneFinished'
   | 'purgeTombstones'
+  | 'purgeOffFeedFinished'
 >
 
 export interface EffectsRunnerDeps {
@@ -205,6 +215,17 @@ export class EffectsRunner {
       async (scope) =>
         await repo.purgeTombstones(scope, now() - EFFECT_RETENTION_MS, EFFECT_SWEEP_BATCH),
     )
+    for (const kind of SYSTEM_EFFECT_KINDS_OFF_FEED) {
+      await this.sweepWrite(
+        async (scope) =>
+          await repo.purgeOffFeedFinished(
+            scope,
+            kind,
+            now() - SYSTEM_EFFECT_RETENTION_MS,
+            EFFECT_SWEEP_BATCH,
+          ),
+      )
+    }
   }
 
   /** Claim one record and run it. Safe to call any number of times for one id. */
