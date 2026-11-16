@@ -223,6 +223,8 @@ export interface ConformanceClient {
   drop(): void
   /** Refuse (or allow again) stream sends to this client, as a full socket would. */
   setPressure(on: boolean): void
+  /** Hold this client's pongs (a busy server); releasing answers every held ping. */
+  holdPongs(on: boolean): void
   /** Frames of one type for one key. */
   frames(type: ServerMessage['type'], key?: string): ServerMessage[]
 }
@@ -561,6 +563,8 @@ export async function createTopicWorld(
       const receivedAt: number[] = []
       let current: { socket: BridgeSocket; conn: ClientConn } | undefined
       let pressure = false
+      let pongsHeld = false
+      const heldPongs: (() => void)[] = []
       const makeSocket = (): WebSocketLike => {
         const id = clients.nextId()
         let socket!: BridgeSocket
@@ -602,7 +606,9 @@ export async function createTopicWorld(
             return
           }
           if (msg.type === 'ping') {
-            conn.send({ type: 'pong' })
+            const answer = (): void => conn.send({ type: 'pong' })
+            if (pongsHeld) heldPongs.push(answer)
+            else answer()
             return
           }
           if (msg.type === 'topicSubscribe' || msg.type === 'topicUnsubscribe') {
@@ -640,6 +646,10 @@ export async function createTopicWorld(
         drop: () => current?.socket.close(),
         setPressure: (on) => {
           pressure = on
+        },
+        holdPongs: (on) => {
+          pongsHeld = on
+          if (!on) for (const answer of heldPongs.splice(0)) answer()
         },
         frames: (type, key) =>
           received.filter(
@@ -803,6 +813,30 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
       // The hub's backoff, then a new socket and the resubscribe.
       await vi.advanceTimersByTimeAsync(1_000)
       expect(client.frames('topicSnapshot', key)).toHaveLength(2)
+      expect(held.states.at(-1)?.status).toBe('value')
+      expect(serverHolds(world, c.kind, c.id)).toBe(1)
+    })
+
+    it('4b. after a server restart, a loss declared on the still-open socket is asked again when it recovers', async () => {
+      const client = await world.client()
+      const held = holdTopic(client, c.kind, c.id)
+      await settle()
+      // The server restarts: the socket drops, the hub reconnects and re-asks.
+      client.drop()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(held.states.at(-1)?.status).toBe('value')
+      const snapshots = client.frames('topicSnapshot', key).length
+      // The fresh server is busy: its pongs fall past the down threshold, but it
+      // answers within the heartbeat timeout, so the socket is never closed.
+      client.holdPongs(true)
+      await vi.advanceTimersByTimeAsync(8_000)
+      expect(client.hub.connectionHealth().status).toBe('down')
+      expect(held.states.at(-1)?.status).toBe('unknown')
+      client.holdPongs(false)
+      await settle()
+      expect(client.hub.connectionHealth().status).not.toBe('down')
+      // No reconnect re-asks the key, so the recovery must: a fresh snapshot.
+      expect(client.frames('topicSnapshot', key).length).toBe(snapshots + 1)
       expect(held.states.at(-1)?.status).toBe('value')
       expect(serverHolds(world, c.kind, c.id)).toBe(1)
     })
