@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import {
   buildServedDescriptors,
   declaredValue,
@@ -23,8 +24,10 @@ import {
   managementContextFor,
   managementInventoryCacheKey,
   resolveManagementAccount,
+  resolveManagementCredentialHome,
 } from '../harness-management.js'
 import { sendHarnessVersion } from '../harness-version-reporting'
+import { withHomeLogins } from '../homes/logins'
 import { opencode2VersionProbe } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -192,7 +195,11 @@ export async function reportInventory(
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
         inventory: {
-          ...snapshot.inventory,
+          // One login per home, `default` first (credential management §10).
+          ...withHomeLogins(snapshot.inventory, ctx.homes?.list() ?? [], {
+            home: resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
+            env: snapshot.commandEnvironment.env,
+          }),
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
@@ -269,7 +276,13 @@ export async function reportInventory(
     ctx.send({
       type: 'inventoryReport',
       machineId: asMachineId(machineId),
-      inventory: { ...inventory, runtimeDrivers: runtimeDriverInventory(inventory) },
+      inventory: {
+        ...withHomeLogins(inventory, ctx.homes?.list() ?? [], {
+          home: resolveManagementCredentialHome(ctx) ?? homedir(),
+          env: {},
+        }),
+        runtimeDrivers: runtimeDriverInventory(inventory),
+      },
       // Served descriptors (POD-4475): see the harnessRuntime path above.
       descriptors: buildServedDescriptors(inventory),
     })
