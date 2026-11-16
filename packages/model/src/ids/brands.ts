@@ -246,6 +246,22 @@ export type DeviceId = z.infer<typeof DeviceId>
 export const DeviceIdField = idField<'DeviceId'>()
 export const asDeviceId = (s: string): DeviceId => s as DeviceId
 
+/**
+ * A workspace: the tenant every workspace table's rows belong to (POD-6959 design 2.4).
+ *
+ * Text, and its shape is not ours to dictate here: `'local'` on a self-hosted install, the
+ * `ws_` KSUID podium-cloud's registry mints on hosted. So, like the Tier 1 brands, it checks
+ * only that the value is not empty.
+ *
+ * MINTED IN THREE PLACES ONLY: the self-hosted composition, hosted routing and test support.
+ * A repository is built for one workspace and its query handle fills the `workspaceId`
+ * placeholder from it, so no request value ever becomes one on the way to a query. There is no
+ * `…Field` schema: no wire payload carries this brand.
+ */
+export const WorkspaceId = z.string().min(1).brand<'WorkspaceId'>()
+export type WorkspaceId = z.infer<typeof WorkspaceId>
+export const asWorkspaceId = (s: string): WorkspaceId => s as WorkspaceId
+
 // ---------------------------------------------------------------------------
 // Tier 2 — added by POD-361, recorded for ratification (see the header)
 // ---------------------------------------------------------------------------
