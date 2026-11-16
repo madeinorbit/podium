@@ -131,19 +131,21 @@ interface KeyedFormat {
 
 function keyedFormat(edit: JsonKeyEdit | TomlArrayEntryEdit): KeyedFormat {
   if (edit.kind === 'json-key') {
+    const json: JsonKeyEdit = edit
     return {
       empty: '{}',
-      plan: (body) => planJsonKey(body, edit),
-      holds: (body) => holdsValue(body, edit),
+      plan: (body) => planJsonKey(body, json),
+      holds: (body) => holdsValue(body, json),
     }
   }
+  const { file, path, value } = edit
   return {
     empty: '',
     plan: (body) => {
-      const planned = planTomlArrayEntry(body, edit.path, edit.value)
-      return 'reason' in planned ? { reason: `${edit.file}: ${planned.reason}` } : planned
+      const planned = planTomlArrayEntry(body, path, value)
+      return 'reason' in planned ? { reason: `${file}: ${planned.reason}` } : planned
     },
-    holds: (body) => tomlArrayHolds(body, edit.path, edit.value),
+    holds: (body) => tomlArrayHolds(body, path, value),
   }
 }
 

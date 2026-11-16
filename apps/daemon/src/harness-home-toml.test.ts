@@ -159,6 +159,8 @@ describe('planTomlArrayEntry', () => {
       'permission.deny = ["x"]\n',
       '[[permission]]\ndeny = ["x"]\n',
       'permission = "off"\n',
+      '[permission]\nallow.x = 1\n',
+      '[permission.allow]\nx = 1\n',
     ]) {
       expect(reason(body), body).toMatch(/written in a form this edit does not change/)
     }

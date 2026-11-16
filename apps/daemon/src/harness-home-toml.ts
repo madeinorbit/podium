@@ -40,12 +40,14 @@ export function planTomlArrayEntry(body: string, path: readonly string[], value:
   }
 
   // The table must be one a `[table]` header may open: not a value, not an
-  // array of tables, and not already made by a dotted key outside it.
+  // array of tables, and not already made by a dotted key outside it. And the
+  // key must not already be a table of its own.
   for (const s of statements) {
     const conflict =
       (s.kind === 'pair' && isPrefix(s.path, table)) ||
       (s.kind === 'pair' && s.table.length < table.length && isPrefix(table, s.path)) ||
-      (s.kind === 'array-header' && isPrefix(s.path, table))
+      (s.kind === 'array-header' && isPrefix(s.path, table)) ||
+      isPrefix(path, s.path)
     if (conflict) {
       return {
         reason: `${dottedKey(table)} is written in a form this edit does not change (${dottedKey(s.path)}); left the file untouched`,
@@ -54,7 +56,10 @@ export function planTomlArrayEntry(body: string, path: readonly string[], value:
   }
 
   const line = `${dottedKey([key])} = [${item}]`
-  const header = statements.find((s) => s.kind === 'header' && samePath(s.path, table))
+  const header = statements.find(
+    (s): s is Extract<Statement, { kind: 'header' | 'array-header' }> =>
+      s.kind === 'header' && samePath(s.path, table),
+  )
   if (header) {
     const before = body.slice(0, header.lineEnd)
     const sep = before.endsWith('\n') ? '' : nl
@@ -261,7 +266,10 @@ class Scanner {
     if (!match) this.fail('expected a value')
     this.pos += match[0].length
     // A date and a time may be separated by a space: `1979-05-27 07:32:00Z`.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(match[0]) && /^ \d/.test(this.src.slice(this.pos, this.pos + 2))) {
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(match[0]) &&
+      /^ \d/.test(this.src.slice(this.pos, this.pos + 2))
+    ) {
       this.pos += 1
       return this.bare()
     }
@@ -403,10 +411,10 @@ function insertIntoArray(body: string, array: ArrayValue, item: string, nl: stri
   const last = array.items[array.items.length - 1]
   const comma = array.trailingComma
   const splice = (at: number, text: string, from: string = body) =>
-    from.slice(0, at) + text + from.slice(at)
+    `${from.slice(0, at)}${text}${from.slice(at)}`
 
   if (!last && !/[\r\n]/.test(body.slice(array.open, array.close))) {
-    return body.slice(0, array.open) + `[${item}]` + body.slice(array.close + 1)
+    return `${body.slice(0, array.open)}[${item}]${body.slice(array.close + 1)}`
   }
   const closeLine = body.lastIndexOf('\n', array.close - 1) + 1
   const closeAlone = closeLine > array.open && /^[ \t]*$/.test(body.slice(closeLine, array.close))
@@ -414,9 +422,7 @@ function insertIntoArray(body: string, array: ArrayValue, item: string, nl: stri
     if (!last) return splice(array.open + 1, item)
     return comma === undefined ? splice(last.end, `, ${item}`) : splice(comma + 1, ` ${item},`)
   }
-  const indent = last
-    ? leadingSpace(body, last.start)
-    : `${leadingSpace(body, array.close)}  `
+  const indent = last ? leadingSpace(body, last.start) : `${leadingSpace(body, array.close)}  `
   const line = `${indent}${item}${comma !== undefined ? ',' : ''}${nl}`
   const withLine = splice(closeLine, line)
   return last && comma === undefined ? splice(last.end, ',', withLine) : withLine
@@ -439,5 +445,7 @@ function isPrefix(prefix: readonly string[], path: readonly string[]): boolean {
 
 /** A key path as TOML writes it: bare parts where allowed, quoted otherwise. */
 function dottedKey(path: readonly string[]): string {
-  return path.map((part) => (/^[A-Za-z0-9_-]+$/.test(part) ? part : tomlBasicString(part))).join('.')
+  return path
+    .map((part) => (/^[A-Za-z0-9_-]+$/.test(part) ? part : tomlBasicString(part)))
+    .join('.')
 }

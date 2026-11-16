@@ -328,7 +328,8 @@ describe('applyHomeEdits: toml-array-entry', () => {
 
   it('adds the table at the end of a config without one, keeping every other line', async () => {
     const { fs, get, ports } = memoryPorts()
-    const body = '# my grok\n[ui]\npermission_mode = "default" # keep\n\n[models]\ndefault = "grok-4.7"\n'
+    const body =
+      '# my grok\n[ui]\npermission_mode = "default" # keep\n\n[models]\ndefault = "grok-4.7"\n'
     fs.set(G, body)
     const out = await applyHomeEdits([grokAllow()], ports)
     expect(out[0]?.status).toBe('applied')
