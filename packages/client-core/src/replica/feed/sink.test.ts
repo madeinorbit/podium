@@ -66,6 +66,26 @@ describe('HTTP feed sink lifecycle', () => {
     })
     expect(replica.receive).toHaveBeenCalledTimes(2)
   })
+  it('tells its listeners when a frame says the access moved, after applying it (POD-6947)', () => {
+    const { replica, sink } = setup('live')
+    const moved = vi.fn(() => expect(replica.receive).toHaveBeenCalled())
+    sink.onAccessMoved(moved)
+    const delta = {
+      type: 'feedDelta',
+      feedId: 'f',
+      epoch: 'e',
+      fromSeq: 2,
+      seq: 3,
+      minAvailableSeq: 0,
+      changes: [],
+    } as const
+    sink.frame(delta)
+    expect(moved).not.toHaveBeenCalled()
+    sink.frame({ ...delta, fromSeq: 3, seq: 4, access: true })
+    expect(moved).toHaveBeenCalledOnce()
+    sink.frame({ type: 'feedRescope', feedId: 'f', epoch: 'e', seq: 5, cause: 'rights-changed' })
+    expect(moved).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('provenance on frame rows', () => {
