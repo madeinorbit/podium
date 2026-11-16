@@ -101,7 +101,19 @@ const BUILDER: Record<LaunchMode, PostureLaunch> = {
   },
 }
 
-const TRUST = ['-c', 'projects={"/work/repo"={trust_level="trusted"}}']
+/** A worktree session trusts both folders a launch can open: the main checkout
+ *  (Codex resolves a worktree's trust to it) and the worktree itself (a
+ *  `resume -C <worktree> --remote` client is checked on its `-C` folder). */
+const TRUST = [
+  '-c',
+  'projects={"/work/repo"={trust_level="trusted"},"/work/repo/.worktrees/issue-1"={trust_level="trusted"}}',
+]
+/** Every `projects=` override among the args: there must be exactly one, since
+ *  a second `-c projects=` would replace the first rather than add to it. */
+function projectsArgs(args: readonly string[]): string[] {
+  return args.filter((arg) => arg.startsWith('projects='))
+}
+
 const QUIET = ['-c', 'check_for_update_on_startup=false']
 const NETWORK = ['-c', 'sandbox_workspace_write.network_access=true']
 const WORKSPACE_WRITE = ['-c', 'sandbox_mode="workspace-write"']
@@ -238,7 +250,37 @@ describe('codexPosture', () => {
       BUILDER.terminal,
       request('terminal', AUTONOMOUS, { repoRoot: undefined }),
     )
-    expect(out.launch.args).toContain(`projects={"${WORKDIR}"={trust_level="trusted"}}`)
+    expect(projectsArgs(out.launch.args)).toEqual([
+      `projects={"${WORKDIR}"={trust_level="trusted"}}`,
+    ])
+  })
+
+  describe('a worktree session (POD-7039)', () => {
+    // The engine of a worktree session must trust the worktree: the CLI-tab
+    // client runs `resume -C <worktree> --remote`, and the engine checks that
+    // folder literally, so trusting only the main checkout drew "Trust this
+    // folder?" in the client (measured, POD-6867).
+    for (const mode of ['terminal', 'engine', 'turn'] as const) {
+      it(`${mode}: trusts the main checkout and the worktree, in one table`, () => {
+        const out = codexPosture(BUILDER[mode], request(mode, SUPERVISED))
+        expect(projectsArgs(out.launch.args)).toEqual([TRUST[1]])
+      })
+    }
+
+    it('client: takes no trust of its own; the engine it joins decides', () => {
+      const out = codexPosture(BUILDER.client, request('client', SUPERVISED))
+      expect(projectsArgs(out.launch.args)).toEqual([])
+    })
+
+    it('names a folder once when the root and the working folder are the same', () => {
+      const out = codexPosture(
+        BUILDER.engine,
+        request('engine', SUPERVISED, { workdir: REPO_ROOT, repoRoot: REPO_ROOT }),
+      )
+      expect(projectsArgs(out.launch.args)).toEqual([
+        `projects={"${REPO_ROOT}"={trust_level="trusted"}}`,
+      ])
+    })
   })
 
   it('writes the rule in the CODEX_HOME the context selected', () => {
@@ -397,30 +439,38 @@ describe('codexPosture', () => {
   describe('the folder in the inline TOML value (Review Focus 4)', () => {
     it('escapes a quote and keeps a space and a non-ASCII letter', () => {
       const out = codexPosture(
-        BUILDER.terminal,
-        request('terminal', AUTONOMOUS, { repoRoot: '/tmp/a "b"/c é' }),
+        BUILDER.engine,
+        request('engine', AUTONOMOUS, {
+          repoRoot: '/tmp/a "b"/c é',
+          workdir: '/tmp/a "b"/c é/.worktrees/ü "x" y',
+        }),
       )
-      expect(out.launch.args).toContain('projects={"/tmp/a \\"b\\"/c é"={trust_level="trusted"}}')
+      expect(projectsArgs(out.launch.args)).toEqual([
+        'projects={"/tmp/a \\"b\\"/c é"={trust_level="trusted"},"/tmp/a \\"b\\"/c é/.worktrees/ü \\"x\\" y"={trust_level="trusted"}}',
+      ])
     })
 
     it('escapes the backslashes of a Windows path', () => {
       const out = codexPosture(
-        BUILDER.terminal,
-        request('terminal', AUTONOMOUS, { repoRoot: 'C:\\Users\\a b\\repo' }),
+        BUILDER.engine,
+        request('engine', AUTONOMOUS, {
+          repoRoot: 'C:\\Users\\a b\\repo',
+          workdir: 'C:\\Users\\a b\\repo\\.worktrees\\issue-1',
+        }),
       )
-      expect(out.launch.args).toContain(
-        'projects={"C:\\\\Users\\\\a b\\\\repo"={trust_level="trusted"}}',
-      )
+      expect(projectsArgs(out.launch.args)).toEqual([
+        'projects={"C:\\\\Users\\\\a b\\\\repo"={trust_level="trusted"},"C:\\\\Users\\\\a b\\\\repo\\\\.worktrees\\\\issue-1"={trust_level="trusted"}}',
+      ])
     })
 
     it('escapes control characters TOML does not allow raw', () => {
       const out = codexPosture(
         BUILDER.terminal,
-        request('terminal', AUTONOMOUS, { repoRoot: '/tmp/tab\there\u007f' }),
+        request('terminal', AUTONOMOUS, { repoRoot: undefined, workdir: '/tmp/tab\there\u007f' }),
       )
-      expect(out.launch.args).toContain(
+      expect(projectsArgs(out.launch.args)).toEqual([
         'projects={"/tmp/tab\\there\\u007F"={trust_level="trusted"}}',
-      )
+      ])
     })
   })
 
