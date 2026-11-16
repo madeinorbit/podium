@@ -166,7 +166,7 @@ describe('e2e: a send to an ended claude-code session', () => {
       // One ordinary turn, so the session is idle with a resume ref — the state
       // the tester ended it from.
       const firstText = 'first turn before the end'
-      const first = sessions.receiptSend('now', { sessionId, text: firstText })
+      const first = sessions.receiptSend('now', { writer: sessions.serverWriter, sessionId, text: firstText })
       await waitFor(() => typed().includes(firstText), 20_000, 'first turn typed')
       await postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: firstText })
       world.transcriptTurn(firstText, 'ok')
@@ -192,7 +192,7 @@ describe('e2e: a send to an ended claude-code session', () => {
 
       // ---- the phone send wakes it ------------------------------------------
       const phoneText = 'phone message after the end'
-      const sent = sessions.receiptSend('wake', { sessionId, text: phoneText })
+      const sent = sessions.receiptSend('wake', { writer: sessions.serverWriter, sessionId, text: phoneText })
       // It is held as a durable row first — the count the last step waits to clear.
       await waitFor(
         async () => ((await row(sessionId))?.queuedMessageCount ?? 0) > 0 || typed().includes(phoneText),
@@ -226,7 +226,7 @@ describe('e2e: a send to an ended claude-code session', () => {
       const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: world.tmp })
       await waitFor(async () => (await row(sessionId))?.status === 'live', 15_000, 'fresh launch live')
       const text = 'first message into a fresh session'
-      const sent = sessions.receiptSend('queue', { sessionId, text })
+      const sent = sessions.receiptSend('queue', { writer: sessions.serverWriter, sessionId, text })
       await expectTypedAndCleared(world, sessionId, text, 'the first message typed into the fresh CLI')
       await sent
     } finally {
