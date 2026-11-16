@@ -33,6 +33,30 @@
       "encoded": "{\"type\":\"oauthLoopbackCallback\",\"requestId\":\"requestId\",\"code\":\"code\",\"state\":\"state\",\"clientId\":\"clientId\",\"scope\":\"scope\",\"error\":\"error\",\"errorDescription\":\"errorDescription\"}"
     },
     {
+      "schema": "OauthLoopbackCancelMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "oauthLoopbackCancel",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"oauthLoopbackCancel\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "OauthLoopbackCancelMessage",
+      "variant": "full",
+      "wire": {
+        "type": "oauthLoopbackCancel",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"oauthLoopbackCancel\",\"requestId\":\"requestId\"}"
+    },
+    {
       "schema": "OauthLoopbackRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -40,12 +64,13 @@
         "requestId": "requestId",
         "port": 1024,
         "path": "/auth/callback",
+        "state": "state",
         "ttlMs": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"oauthLoopbackRequest\",\"requestId\":\"requestId\",\"port\":1024,\"path\":\"/auth/callback\",\"ttlMs\":1}"
+      "encoded": "{\"type\":\"oauthLoopbackRequest\",\"requestId\":\"requestId\",\"port\":1024,\"path\":\"/auth/callback\",\"state\":\"state\",\"ttlMs\":1}"
     },
     {
       "schema": "OauthLoopbackRequestMessage",
@@ -55,12 +80,13 @@
         "requestId": "requestId",
         "port": 1024,
         "path": "/auth/callback",
+        "state": "state",
         "ttlMs": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"oauthLoopbackRequest\",\"requestId\":\"requestId\",\"port\":1024,\"path\":\"/auth/callback\",\"ttlMs\":1}"
+      "encoded": "{\"type\":\"oauthLoopbackRequest\",\"requestId\":\"requestId\",\"port\":1024,\"path\":\"/auth/callback\",\"state\":\"state\",\"ttlMs\":1}"
     },
     {
       "schema": "OauthLoopbackResultMessage",
