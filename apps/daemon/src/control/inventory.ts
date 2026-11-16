@@ -197,10 +197,13 @@ export async function reportInventory(
         machineId: asMachineId(ctx.machineId),
         inventory: {
           // One login per home, `default` first (credential management §10).
-          ...withHomeLogins(snapshot.inventory, ctx.homes?.list() ?? [], {
-            home: resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
-            env: snapshot.commandEnvironment.env,
-          }),
+          ...(ctx.homes
+            ? withHomeLogins(snapshot.inventory, ctx.homes.list(), {
+                home:
+                  resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
+                env: snapshot.commandEnvironment.env,
+              })
+            : snapshot.inventory),
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
@@ -278,10 +281,12 @@ export async function reportInventory(
       type: 'inventoryReport',
       machineId: asMachineId(machineId),
       inventory: {
-        ...withHomeLogins(inventory, ctx.homes?.list() ?? [], {
-          home: resolveManagementCredentialHome(ctx) ?? homedir(),
-          env: {},
-        }),
+        ...(ctx.homes
+          ? withHomeLogins(inventory, ctx.homes.list(), {
+              home: resolveManagementCredentialHome(ctx) ?? homedir(),
+              env: {},
+            })
+          : inventory),
         runtimeDrivers: runtimeDriverInventory(inventory),
       },
       // Served descriptors (POD-4475): see the harnessRuntime path above.

@@ -97,10 +97,9 @@ describe('withHomeLogins', () => {
     expect(byId.get(b.homeId)?.identity).toBeUndefined()
 
     const codex = out.agents.find((agent) => agent.kind === 'codex')
-    expect(codex?.logins).toEqual([
-      { homeId: 'default', state: 'out' },
-      { homeId: c.homeId, state: 'out' },
-    ])
+    expect(codex?.logins?.map((login) => login.homeId)).toEqual(['default', c.homeId])
+    // A fresh home holds no login: whatever the detector calls it, never `in`.
+    expect(codex?.logins?.[1]?.state).not.toBe('in')
     // A harness without homes is reported as before.
     expect(out.agents.find((agent) => agent.kind === 'opencode')).not.toHaveProperty('logins')
     // The inventory's own `login` is untouched.

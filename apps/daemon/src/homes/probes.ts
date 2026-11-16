@@ -69,7 +69,7 @@ export function homeQuotaReader(deps: {
                 harnessAccount(home.harness, account.home, account.env),
                 home.dir,
               )
-              return await fetchQuota(home.harness, scope, { now })
+              return await fetchQuota(home.harness, scope, { now: now ?? Date.now() })
             },
           },
         ],
