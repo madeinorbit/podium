@@ -10,8 +10,9 @@
 
 import { type EffectStatus, mintDeviceId, type UserId } from '@podium/model'
 import type { SyncSubmitReply } from '@podium/protocol'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { EffectsModule } from '../../relay'
 import type { SessionStore } from '../../store'
@@ -364,6 +365,50 @@ describe('the recovery sweep', () => {
     expect((await repo.get(asked))?.deletedAt).toBeUndefined()
     // No device held the server's scans, so their deletion is on no record.
     for (const id of [older, failed, newest, only]) expect(await effectRows(h, id)).toEqual([])
+  })
+
+  it("drains a backlog of the server's own ended scans a batch per write, ten batches a sweep (POD-7031)", async () => {
+    const h = await harness()
+    const runner = await manualRunner(h)
+    const db = (h.o.store as unknown as { db: SqlDatabase }).db
+    const insert = db.prepare(
+      `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+         finished_at, created_at, updated_at, revision)
+       VALUES (?, 'machine.scan', 'machine', 'mch_one', '{}', '{}', 'succeeded', ?, ?, ?, 1)`,
+    )
+    const BACKLOG = 1_150
+    for (let at = 0; at < BACKLOG; at++) {
+      const t = h.clock - 2 * SYSTEM_EFFECT_RETENTION_MS + at
+      insert.run(`eff_backlog_${String(at).padStart(5, '0')}`, t, t, t)
+    }
+    const left = () =>
+      (
+        db.prepare("SELECT count(*) AS n FROM effects WHERE kind = 'machine.scan'").get() as {
+          n: number
+        }
+      ).n
+    const purge = vi.spyOn(h.o.store.effects, 'purgeOffFeedFinished')
+    const batches = async () =>
+      await Promise.all(purge.mock.results.map(async (result) => await result.value))
+
+    await runner.sweep()
+    // Ten writes of a hundred each; the rest waits for the next sweep.
+    expect(await batches()).toEqual(Array(10).fill(100))
+    expect(left()).toBe(BACKLOG - 1_000)
+    purge.mockClear()
+    await runner.sweep()
+    // A short batch ends the drain; the machine's newest succeeded scan stays.
+    expect(await batches()).toEqual([100, BACKLOG - 1_000 - 100 - 1])
+    expect(left()).toBe(1)
+    expect(
+      (
+        await h.o.store.effects.newestOnTarget(
+          'machine.scan',
+          { kind: 'machine', id: 'mch_one' },
+          'succeeded',
+        )
+      )?.id,
+    ).toBe(`eff_backlog_${String(BACKLOG - 1).padStart(5, '0')}`)
   })
 })
 
