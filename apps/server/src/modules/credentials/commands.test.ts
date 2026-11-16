@@ -177,6 +177,13 @@ function invoke(
       })
     case 'disallowMachine':
       return caller.credentials.disallowMachine({ credentialId, machineId: MACHINE })
+    case 'chatgptSignInStart':
+      return caller.credentials.chatgptSignInStart({ label: 'Mine' })
+    case 'chatgptSignInComplete':
+      return caller.credentials.chatgptSignInComplete({
+        attemptId: 'chatgpt_not-an-attempt',
+        pastedUrl: 'http://127.0.0.1:1455/auth/callback?code=FAKE-code&state=FAKE-state',
+      })
   }
 }
 
@@ -212,8 +219,14 @@ describe('acceptance 1: who may run which command', () => {
     CREDENTIAL_CONTRACT_NAMES.map((name) => ({
       who,
       name,
-      // `add` names no credential: every person may add their own.
-      expected: name === 'add' ? 'applied' : WRITES_ON_TARGET[who],
+      // `add` and a ChatGPT sign-in name no credential: every person may add
+      // their own. Completing an attempt nobody started is refused for all.
+      expected:
+        name === 'add' || name === 'chatgptSignInStart'
+          ? 'applied'
+          : name === 'chatgptSignInComplete'
+            ? 'BAD_REQUEST'
+            : WRITES_ON_TARGET[who],
     })),
   )
 

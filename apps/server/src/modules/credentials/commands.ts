@@ -38,6 +38,8 @@ import type { z } from 'zod'
 import type { SessionStore } from '../../store'
 import { type CredentialRecord, newCredentialId } from '../../store/credentials'
 import type { PlainTargetCheck } from '../plain-command/entry'
+import { SignInRefused } from './chatgpt-plan/authorize'
+import { LoopbackUnavailable, type ChatgptPlanService } from './chatgpt-plan/service'
 import { type CredentialEvent, recordCredentialEvent } from './events'
 import { pastedIdentity } from './fingerprint'
 import type { CredentialHealth } from './health'
@@ -56,6 +58,8 @@ export interface CredentialsState {
   readonly callerUserId: UserId
   /** Verification, renewal follow-up, removal everywhere and share notices (Task 13). */
   readonly health: CredentialHealth
+  /** Sign in with ChatGPT and its keeper (Task 14). Absent: not offered here. */
+  readonly chatgpt?: ChatgptPlanService
 }
 
 export type CredentialHandler<In, Out> = (state: CredentialsState, input: In) => Out
@@ -95,6 +99,24 @@ function pasted(type: string): type is CredentialTypeId {
   if (!isCredentialTypeId(type)) return false
   const spec = CREDENTIAL_TYPES[type]
   return spec.store === 'vault' && spec.obtain.includes('paste')
+}
+
+/** The ChatGPT module, or a refusal when this server was built without it. */
+function chatgptOf(state: CredentialsState): ChatgptPlanService {
+  if (!state.chatgpt) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Sign in with ChatGPT is not available on this server.',
+    })
+  }
+  return state.chatgpt
+}
+
+const signInRefusal = (error: unknown): never => {
+  if (error instanceof SignInRefused || error instanceof LoopbackUnavailable) {
+    throw badRequest(error.message)
+  }
+  throw error
 }
 
 const notPasted = (type: string): TRPCError =>
@@ -232,9 +254,65 @@ export const CREDENTIAL_COMMANDS_TRPC = {
     targetPermitted: personOnly,
     handler: (async (state, input) => {
       const { record } = await writable(state, input.credentialId)
+      // A grant at the provider ends there first (§11: OpenAI's revocation);
+      // removal goes on whatever it answers, and the person is told.
+      const providerCall =
+        isCredentialTypeId(record.type) &&
+        CREDENTIAL_TYPES[record.type].revocation === 'provider-call' &&
+        state.chatgpt
+          ? await state.chatgpt.keeper.revoke(record.id)
+          : undefined
       await state.health.removeEverywhere(record.id, state.callerUserId)
-      return { ok: true as const }
+      return {
+        ok: true as const,
+        ...(providerCall ? { providerRevocation: providerCall } : {}),
+      }
     }) satisfies CredentialHandler<In<'remove'>, unknown>,
+  },
+  chatgptSignInStart: {
+    contract: CREDENTIAL_CONTRACTS.chatgptSignInStart,
+    targetPermitted: personOnly,
+    handler: (async (state, input) => {
+      const chatgpt = chatgptOf(state)
+      if (input.credentialId) {
+        const record = await state.store.credentials.get(input.credentialId)
+        // Signing in again replaces the account's tokens: the owner's own act.
+        if (!record || record.status === 'revoked' || record.ownerUserId !== state.callerUserId) {
+          throw notFound()
+        }
+      }
+      if (input.machineId) {
+        const machine = await state.store.machines.getMachine(input.machineId)
+        if (
+          !machine ||
+          machine.revokedAt ||
+          (await state.store.machines.custodian(input.machineId)) !== state.callerUserId
+        ) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown machine' })
+        }
+      }
+      return await chatgpt
+        .start({
+          ownerUserId: state.callerUserId,
+          ...(input.label ? { label: input.label } : {}),
+          ...(input.machineId ? { machineId: input.machineId as MachineId } : {}),
+          ...(input.credentialId ? { credentialId: input.credentialId } : {}),
+        })
+        .catch(signInRefusal)
+    }) satisfies CredentialHandler<In<'chatgptSignInStart'>, unknown>,
+  },
+  chatgptSignInComplete: {
+    contract: CREDENTIAL_CONTRACTS.chatgptSignInComplete,
+    targetPermitted: personOnly,
+    handler: (async (state, input) => {
+      return await chatgptOf(state)
+        .completePasted({
+          attemptId: input.attemptId,
+          pastedUrl: input.pastedUrl,
+          actorUserId: state.callerUserId,
+        })
+        .catch(signInRefusal)
+    }) satisfies CredentialHandler<In<'chatgptSignInComplete'>, unknown>,
   },
   share: {
     contract: CREDENTIAL_CONTRACTS.share,

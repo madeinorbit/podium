@@ -13,6 +13,7 @@ import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { inventoryHandlers, reportInventory } from './inventory'
 import { logHandlers } from './logs'
+import { startOauthLoopback } from './oauth-loopback'
 import { serverEndpointHandlers } from './server-endpoint'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
@@ -152,6 +153,11 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   // A live session's credential again after a reconnect (credential
   // management §8): memory only. A start that waited for it goes on now.
   sessionAccessRefresh: (ctx, msg) => ctx.access.remember(msg.sessionId, msg.access),
+  // Sign in with ChatGPT (credential management §11): listen on this
+  // computer's loopback address and relay the callback's fields, never a token.
+  oauthLoopbackRequest: (ctx, msg) => {
+    void startOauthLoopback(msg, (frame) => ctx.send(frame))
+  },
   updateGrant: (ctx, msg) => {
     void ctx.applyUpdateGrant(msg)
   },

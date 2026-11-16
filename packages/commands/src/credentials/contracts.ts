@@ -2,7 +2,7 @@
  * THE CREDENTIAL CONTRACTS (credential management design §6, §8, §12; epic Task 4).
  *
  * `credentials.add · rename · renew · remove · share · unshare · allowMachine ·
- * disallowMachine`. A credential belongs to the person who added it. Its owner,
+ * disallowMachine · chatgptSignInStart · chatgptSignInComplete`. A credential belongs to the person who added it. Its owner,
  * or a person the owner gave `manage`, may change it; a person with `use` may run
  * on it and change nothing. Being an admin gives no access to another person's
  * credential. Every write is a person's: an agent session is refused, whoever it
@@ -142,6 +142,24 @@ export const credentialsAllowMachineInput = z.object({
 })
 
 export const credentialsDisallowMachineInput = z.object({ credentialId, machineId: MachineIdField })
+
+/**
+ * Sign in with ChatGPT (§11). With `machineId`, that machine (one the caller
+ * looks after, on the computer whose browser signs in) listens for the
+ * browser's return; without it the person pastes the address the browser
+ * ended on. With `credentialId`, sign in again to that ChatGPT credential.
+ */
+export const credentialsChatgptSignInStartInput = z.object({
+  label: label.optional(),
+  machineId: MachineIdField.optional(),
+  credentialId: credentialId.optional(),
+})
+
+/** The address the browser ended on, pasted. It holds a one-time code. */
+export const credentialsChatgptSignInCompleteInput = z.object({
+  attemptId: z.string().min(1).max(100),
+  pastedUrl: z.string().min(1).max(16_384),
+})
 
 const common = {
   version: 1,
@@ -313,8 +331,76 @@ export const credentialsDisallowMachineContract = {
   conflictRule: 'Idempotent revocation',
 } as const satisfies CommandContract<typeof credentialsDisallowMachineInput>
 
+const SIGN_IN_REDACTION: RedactionPolicy = {
+  reviewed: true,
+  inputPaths: ['pastedUrl'],
+  outputPaths: ['authorizeUrl'],
+  note:
+    'The pasted address carries a one-time sign-in code, and a returning sign-in’s authorize ' +
+    'address carries the retained ID token as a hint: both stay out of logs and audit records. ' +
+    'The token set never appears in an input or a result.',
+}
+
+export const credentialsChatgptSignInStartContract = {
+  ...common,
+  name: 'credentials.chatgptSignInStart',
+  input: credentialsChatgptSignInStartInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Begins a person’s own ChatGPT sign-in: the server keeps the PKCE verifier and returns ' +
+      'the authorize address. An agent may not sign its person in.',
+  },
+  redaction: SIGN_IN_REDACTION,
+  ownership: NO_NEW_ROWS(
+    'Creates a sign-in attempt in server memory for ten minutes; the credential is created when it completes.',
+  ),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'A machine or credential the caller may not use answers as one that does not exist.',
+  },
+  conflictRule: 'Each start is a new attempt; a newer listener on the same port replaces the older one',
+} as const satisfies CommandContract<typeof credentialsChatgptSignInStartInput>
+
+export const credentialsChatgptSignInCompleteContract = {
+  ...common,
+  name: 'credentials.chatgptSignInComplete',
+  input: credentialsChatgptSignInCompleteInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Completes the caller’s own attempt from the pasted address: the server checks the state, ' +
+      'exchanges the code and stores the token set sealed. Creates or updates a ChatGPT plan credential.',
+  },
+  redaction: SIGN_IN_REDACTION,
+  ownership: {
+    creates: ['credential'],
+    owner: 'on-behalf-of-human',
+    visibility: VISIBILITY,
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note: 'Mints a credential owned by the caller, or updates theirs for the same ChatGPT account.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another person’s attempt answers as an unknown one.',
+  },
+  conflictRule: 'An attempt completes once; a second completion is refused',
+} as const satisfies CommandContract<typeof credentialsChatgptSignInCompleteInput>
+
 export const CREDENTIAL_CONTRACTS = {
   add: credentialsAddContract,
+  chatgptSignInComplete: credentialsChatgptSignInCompleteContract,
+  chatgptSignInStart: credentialsChatgptSignInStartContract,
   allowMachine: credentialsAllowMachineContract,
   disallowMachine: credentialsDisallowMachineContract,
   remove: credentialsRemoveContract,

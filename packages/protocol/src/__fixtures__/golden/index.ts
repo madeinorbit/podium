@@ -24,6 +24,7 @@ import issues from './issues.json' with { type: 'json' }
 import logs from './logs.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
 import model from './model.json' with { type: 'json' }
+import oauthLoopback from './oauth-loopback.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
 import posture from './posture.json' with { type: 'json' }
 import presenceRooms from './presence-rooms.json' with { type: 'json' }
@@ -67,6 +68,7 @@ export const GOLDEN: Record<string, unknown> = {
   logs: logs,
   maintenance: maintenance,
   model: model,
+  'oauth-loopback': oauthLoopback,
   perf: perf,
   posture: posture,
   'presence-rooms': presenceRooms,

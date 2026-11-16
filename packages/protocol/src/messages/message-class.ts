@@ -176,6 +176,7 @@ export const CLIENT_PLANE_CLASS = {
 export const CONTROL_PLANE_CLASS = {
   credentialExportRequest: 'control.command',
   credentialInstallRequest: 'control.command',
+  oauthLoopbackRequest: 'control.command',
   repoOpRequest: 'control.command',
   // Handoff family (ADR 7 D7): bulk MECHANICS on the chunk frames, command
   // CLASS throughout — one correlated export/import state machine.
@@ -314,6 +315,8 @@ export const CONTROL_PLANE_CLASS = {
 export const DAEMON_PLANE_CLASS = {
   credentialExportResult: 'control.command',
   credentialInstallResult: 'control.command',
+  oauthLoopbackResult: 'control.command',
+  oauthLoopbackCallback: 'control.command',
   repoOpResult: 'control.command',
   handoffExportResult: 'control.command',
   handoffChunkReadResult: 'control.command',

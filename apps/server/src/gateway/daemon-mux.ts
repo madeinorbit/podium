@@ -232,6 +232,8 @@ const DISPATCH: Dispatcher = {
   workspaceCleanResult: toRpc,
   credentialExportResult: toRpc,
   credentialInstallResult: toRpc,
+  oauthLoopbackResult: toRpc,
+  oauthLoopbackCallback: toRpc,
 
   serverTransferResult: toRpc,
   serverEndpointResult: toRpc,

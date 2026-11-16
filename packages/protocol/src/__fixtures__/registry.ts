@@ -51,6 +51,7 @@ import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
 import * as logs from '../messages/logs'
 import * as messageClass from '../messages/message-class'
+import * as oauthLoopback from '../messages/oauth-loopback'
 import * as posture from '../messages/posture'
 import * as runtime from '../messages/runtime'
 import * as runtimeState from '../messages/runtime-state'
@@ -98,6 +99,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['logs', logs],
   ['maintenance', maintenance],
   ['message-class', messageClass],
+  ['oauth-loopback', oauthLoopback],
   ['perf', perf],
   // Session posture (POD-6858): wire data only until a frame carries it.
   ['posture', posture],

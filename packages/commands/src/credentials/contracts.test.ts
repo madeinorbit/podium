@@ -1,6 +1,6 @@
 /**
- * The credential contracts (credential management Task 4): eight writes, each
- * classified, never queued, and the two that carry a secret redact it.
+ * The credential contracts (credential management Task 4, Task 14): ten writes,
+ * each classified, never queued, and those that carry a secret redact it.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,6 +15,8 @@ import {
 
 const DECLARED: readonly CredentialContractName[] = [
   'add',
+  'chatgptSignInComplete',
+  'chatgptSignInStart',
   'allowMachine',
   'disallowMachine',
   'remove',
@@ -27,7 +29,7 @@ const DECLARED: readonly CredentialContractName[] = [
 const PLANT = 'FAKE-sk-ant-contract-plant-6891'
 
 describe('credential contracts', () => {
-  it('are exactly the eight writes, named credentials.<verb>', () => {
+  it('are exactly the ten writes, named credentials.<verb>', () => {
     expect(CREDENTIAL_CONTRACT_NAMES).toEqual(DECLARED)
     for (const name of DECLARED) {
       expect(CREDENTIAL_CONTRACTS[name].name).toBe(`credentials.${name}`)
@@ -62,6 +64,19 @@ describe('credential contracts', () => {
     expect(JSON.stringify(redactForLog(CREDENTIAL_CONTRACTS[name], 'input', input))).not.toContain(
       PLANT,
     )
+  })
+
+  it('a pasted ChatGPT sign-in address and the authorize address stay out of logs', () => {
+    const contract = CREDENTIAL_CONTRACTS.chatgptSignInComplete
+    const pasted = `http://127.0.0.1:1455/auth/callback?code=${PLANT}&state=s`
+    const input = { attemptId: 'chatgpt_1', pastedUrl: pasted }
+    expect(JSON.stringify(input)).toContain(PLANT)
+    expect(JSON.stringify(redactForLog(contract, 'input', input))).not.toContain(PLANT)
+    const output = { attemptId: 'chatgpt_1', authorizeUrl: `https://auth.example/?id_token_hint=${PLANT}` }
+    expect(JSON.stringify(output)).toContain(PLANT)
+    expect(
+      JSON.stringify(redactForLog(CREDENTIAL_CONTRACTS.chatgptSignInStart, 'output', output)),
+    ).not.toContain(PLANT)
   })
 
   it('share names a person or all members', () => {

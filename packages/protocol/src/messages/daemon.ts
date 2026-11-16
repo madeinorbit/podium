@@ -6,6 +6,7 @@ import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { CodexCompleteResultMessage } from './codex'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
+import { OauthLoopbackCallbackMessage, OauthLoopbackResultMessage } from './oauth-loopback'
 import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
@@ -184,6 +185,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  OauthLoopbackResultMessage,
+  OauthLoopbackCallbackMessage,
   GitHubCliResultMessage,
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,

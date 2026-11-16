@@ -136,6 +136,8 @@ export {
   CredentialGrantVerb,
   credentialsAddInput,
   credentialsAllowMachineInput,
+  credentialsChatgptSignInCompleteInput,
+  credentialsChatgptSignInStartInput,
   credentialsDisallowMachineInput,
   credentialsRemoveInput,
   credentialsRenameInput,

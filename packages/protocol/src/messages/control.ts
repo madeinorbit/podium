@@ -4,6 +4,7 @@ import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { CodexCompleteRequestMessage } from './codex'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
+import { OauthLoopbackRequestMessage } from './oauth-loopback'
 import {
   BrowseDirsRequestMessage,
   DirOpRequestMessage,
@@ -106,6 +107,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
   CredentialExportRequestMessage,
   CredentialInstallRequestMessage,
+  OauthLoopbackRequestMessage,
   GitHubCliRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,

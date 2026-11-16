@@ -18,6 +18,7 @@ import type {
   UsageBucketWire,
   UsageSourceWire,
 } from '@podium/model'
+import { createLogger } from '@podium/logger'
 import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
   AccessField,
@@ -43,6 +44,8 @@ import type {
   HandoffImportResultMessage,
   InteractionAnswerOutcome,
   ModelChoiceWire,
+  OauthLoopbackCallbackMessage,
+  OauthLoopbackResultMessage,
   ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
@@ -285,6 +288,11 @@ const WORKSPACE_IMPORT = daemonRequestKind<Payload<WorkspaceImportResultMessage>
 const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>('wc')
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
+/** Sign in with ChatGPT's loopback listener (credential management §11). */
+const OAUTH_LOOPBACK = daemonRequestKind<Payload<OauthLoopbackResultMessage>>('ol')
+const OAUTH_LOOPBACK_ACK_TIMEOUT_MS = 15_000
+/** A callback is accepted this long past the listener's own time. */
+const OAUTH_LOOPBACK_GRACE_MS = 30_000
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -299,6 +307,8 @@ const RUNTIME_STAGE_ATTACHMENT =
 const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
 const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
+const log = createLogger('server:daemon-rpc')
+
 /** The observation bootstrap (POD-2023). Its result is the union the frame
  *  carries — a snapshot, or the typed refusal for a session that is not behind
  *  the contract. The server no longer SENDS runtimeHistoryRequest (POD-4783:
@@ -312,7 +322,7 @@ const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessag
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
-type ReplySettler<K extends RpcDaemonFrameType> = (
+type ReplySettler<K extends SettledFrameType> = (
   broker: DaemonRequestPort,
   machineId: MachineId,
   msg: Extract<DaemonMessage, { type: K }>,
@@ -333,7 +343,10 @@ const payloadOf = <M extends { type: string; requestId: string }>(msg: M): Paylo
  * minus the twenty-three methods. Every row is a projection and nothing else:
  * no map, no timer, no delete. Settling belongs to the broker.
  */
-const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
+/** The loopback callback is not a reply: `settleDaemonReply` hands it to its listener. */
+type SettledFrameType = Exclude<RpcDaemonFrameType, 'oauthLoopbackCallback'>
+
+const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
   scanResult: (broker, machineId, msg) =>
     void broker.settle(SCAN, msg.requestId, machineId, {
       conversations: msg.conversations,
@@ -430,6 +443,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  oauthLoopbackResult: (broker, machineId, msg) =>
+    void broker.settle(OAUTH_LOOPBACK, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -465,6 +480,11 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
 export class DaemonRpcService {
   private readonly broker: DaemonRequestPort
   private readonly serverTransferDigests = new Map<string, string>()
+  /** Open loopback listeners: who listens, and where its callback goes. Ten minutes at most. */
+  private readonly loopbacks = new Map<
+    string,
+    { machineId: MachineId; onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void }
+  >()
 
   constructor(private readonly deps: DaemonRpcDeps) {
     this.broker =
@@ -1178,6 +1198,56 @@ export class DaemonRpcService {
       }),
       machineId,
     )
+  }
+
+  /**
+   * Ask one daemon to listen on `127.0.0.1:<port>` for a ChatGPT sign-in's
+   * callback (credential management §11). Answers whether it listens; the
+   * callback, if the browser returns there, goes to `onCallback` once, and only
+   * when the machine that listens sends it.
+   */
+  async oauthLoopbackListen(
+    machineId: MachineId,
+    i: { port: number; ttlMs: number },
+    onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void,
+  ): Promise<{ listening: boolean; error?: string }> {
+    let requestId: string | undefined
+    const answer = await this.request(
+      OAUTH_LOOPBACK,
+      OAUTH_LOOPBACK_ACK_TIMEOUT_MS,
+      () => ({
+        listening: false,
+        error: 'This machine did not answer. Its Podium may be too old to listen for a sign-in.',
+      }),
+      (id) => {
+        requestId = id
+        this.loopbacks.set(id, { machineId, onCallback })
+        setTimeout(() => this.loopbacks.delete(id), i.ttlMs + OAUTH_LOOPBACK_GRACE_MS).unref?.()
+        return {
+          type: 'oauthLoopbackRequest',
+          requestId: id,
+          port: i.port,
+          path: '/auth/callback',
+          ttlMs: i.ttlMs,
+        }
+      },
+      machineId,
+    )
+    if (!answer.listening && requestId) this.loopbacks.delete(requestId)
+    return answer
+  }
+
+  private onLoopbackCallback(machineId: MachineId, msg: OauthLoopbackCallbackMessage): void {
+    const listener = this.loopbacks.get(msg.requestId)
+    if (!listener || listener.machineId !== machineId) {
+      log.warn('dropped a sign-in callback no listener of this machine expects', {
+        requestId: msg.requestId,
+        machineId,
+      })
+      return
+    }
+    this.loopbacks.delete(msg.requestId)
+    listener.onCallback(payloadOf(msg))
   }
 
   /** Atomically install allowlisted auth files on one authenticated daemon. */
@@ -2120,7 +2190,11 @@ export class DaemonRpcService {
    * writing it twenty-three times, which is how it came to be missing.
    */
   settleDaemonReply(machineId: MachineId, msg: RpcDaemonFrame): void {
-    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<RpcDaemonFrameType>
+    if (msg.type === 'oauthLoopbackCallback') {
+      this.onLoopbackCallback(machineId, msg)
+      return
+    }
+    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<SettledFrameType>
     settle(this.broker, machineId, msg)
   }
 }
