@@ -6,7 +6,10 @@ the tooling already enforces does not need repeating here.
 
 This repository is public. Keep committed code, documentation and examples free of private
 hostnames and machine-specific access details. Use generic host placeholders; keep deployment
-routing and machine inventories in private issue artifacts.
+routing and machine inventories in private issue artifacts. Redact screen captures, logs and
+status dumps before committing them as evidence: account e-mail addresses become
+`person@example.com`, account names a placeholder. `bun run lint:public-emails` checks docs,
+tests and fixtures.
 
 ## The repository
 

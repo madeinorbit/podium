@@ -371,7 +371,7 @@ describe('parseCodexRateLimits', () => {
 
 describe('decodeJwtEmail', () => {
   it('extracts the email claim, undefined on garbage', () => {
-    expect(decodeJwtEmail(jwt({ email: 'a@b.com' }))).toBe('a@b.com')
+    expect(decodeJwtEmail(jwt({ email: 'a@example.com' }))).toBe('a@example.com')
     expect(decodeJwtEmail('not-a-jwt')).toBeUndefined()
     expect(decodeJwtEmail(undefined)).toBeUndefined()
   })
