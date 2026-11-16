@@ -64,11 +64,18 @@ beforeAll(async () => {
     feed: new FeedSink({ replica: replica as never }),
     makeSocket: (url) => {
       sockets += 1
-      return new WebSocket(url, { headers: { cookie } }) as unknown as WebSocketLike
+      const ws = new WebSocket(url, { headers: { cookie } })
+      ws.on('message', (data) => frames.push(String(data).slice(0, 160)))
+      ws.on('close', (code, reason) => frames.push(`close ${code} ${String(reason)}`))
+      return ws as unknown as WebSocketLike
     },
   })
   hub.connect()
-  await expect.poll(() => hub.connected, { timeout: 10_000 }).toBe(true)
+  const deadline = Date.now() + 10_000
+  while (!hub.connected) {
+    if (Date.now() > deadline) throw new Error('Bob’s socket never opened')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }, 60_000)
 
 afterAll(async () => {
@@ -86,6 +93,22 @@ function hold(machine: MachineId): TopicState[] {
   return states
 }
 
+const frames: string[] = []
+const dump = (): string =>
+  JSON.stringify({ connected: hub.connected, sockets, health: hub.connectionHealth(), frames: frames.slice(-12) })
+async function until(pred: () => boolean): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (!pred()) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `timed out: ${dump()} ${JSON.stringify(
+          [GRANTED, TAKEN, RELEASED].map((m) => hub.topicState('machine.processes', m)),
+        )}`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
 const status = (machine: MachineId) => hub.topicState('machine.processes', machine)?.status
 /** Admitted: the server answered with a snapshot (a value, or an honest unknown). */
 const admitted = (machine: MachineId) => ['value', 'unknown'].includes(status(machine) ?? '')
@@ -103,22 +126,22 @@ const shareUse = async (machine: MachineId) =>
 describe('live topics follow the member’s access, on the same socket', () => {
   it('a use grant re-admits a key the server refused', async () => {
     const states = hold(GRANTED)
-    await expect.poll(() => heard(states, 'refused'), { timeout: 10_000 }).toBe(true)
+    await until(() => heard(states, 'refused'))
     await shareUse(GRANTED)
-    await expect.poll(() => admitted(GRANTED), { timeout: 10_000 }).toBe(true)
+    await until(() => admitted(GRANTED))
     expect(sockets).toBe(1)
   })
 
   it('taking use away on a machine with no checkouts closes the key revoked', async () => {
     await shareUse(TAKEN)
     const states = hold(TAKEN)
-    await expect.poll(() => admitted(TAKEN), { timeout: 10_000 }).toBe(true)
+    await until(() => admitted(TAKEN))
     await (await alice()).machines.unshare.mutate({
       id: TAKEN,
       grantee: f.members.bob.id,
       verb: 'use',
     })
-    await expect.poll(() => heard(states, 'revoked'), { timeout: 10_000 }).toBe(true)
+    await until(() => heard(states, 'revoked'))
     // Asked once more on the same access move, it stays closed: not admitted.
     expect(status(TAKEN)).toBe('closed')
     expect(sockets).toBe(1)
@@ -127,9 +150,9 @@ describe('live topics follow the member’s access, on the same socket', () => {
   it('custody released while the member holds use closes the key revoked', async () => {
     await shareUse(RELEASED)
     const states = hold(RELEASED)
-    await expect.poll(() => admitted(RELEASED), { timeout: 10_000 }).toBe(true)
+    await until(() => admitted(RELEASED))
     await f.handle.registry.sessionStore.machines.setMachineOwner(RELEASED, null)
-    await expect.poll(() => heard(states, 'revoked'), { timeout: 10_000 }).toBe(true)
+    await until(() => heard(states, 'revoked'))
     expect(status(RELEASED)).toBe('closed')
     expect(sockets).toBe(1)
   })
