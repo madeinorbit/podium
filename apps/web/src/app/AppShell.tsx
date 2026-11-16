@@ -212,8 +212,8 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
         onReconnect: () => {
           void checkServedAssets(httpOrigin)
         },
-        onReconnectRefused: () => {
-          void checkRefusedReconnect(httpOrigin)
+        onReconnectRefused: (dial) => {
+          void checkRefusedReconnect(httpOrigin, dial)
         },
       }),
     [hub, httpOrigin],

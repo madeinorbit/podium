@@ -24,16 +24,20 @@ export function onReconnect(
  * one is a dial that failed. The hub dials once per backoff step, so this fires
  * at most once per step. A browser cannot read why an upgrade was refused (a
  * server on a newer wire answers 426), so the caller asks over plain HTTP.
+ * `dial` counts the refused dials since the last welcome, from 1.
  */
-export function onReconnectRefused(hub: Pick<SocketHub, 'on'>, refused: () => void): () => void {
-  let lost = false
+export function onReconnectRefused(
+  hub: Pick<SocketHub, 'on'>,
+  refused: (dial: number) => void,
+): () => void {
+  let lost = 0
   return hub.on('link', (state) => {
     if (state === 'welcomed') {
-      lost = false
+      lost = 0
       return
     }
-    if (lost) refused()
-    lost = true
+    if (lost > 0) refused(lost)
+    lost++
   })
 }
 
@@ -68,7 +72,7 @@ export interface LiveConnectionObservers {
   onDisconnected?: () => void
   onWireSkew?: (skew: WireSkew) => void
   onReconnect?: () => void
-  onReconnectRefused?: () => void
+  onReconnectRefused?: (dial: number) => void
 }
 
 /** Both roots use this attachment. It owns subscriptions, not the hub or store;

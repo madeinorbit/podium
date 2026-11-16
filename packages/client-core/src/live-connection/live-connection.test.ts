@@ -427,12 +427,14 @@ describe('connection observers', () => {
       refuseNextDial()
       expect(sockets).toHaveLength(4)
       expect(refused).toHaveBeenCalledTimes(3)
+      expect(refused).toHaveBeenLastCalledWith(3)
 
       vi.advanceTimersByTime(10_000)
       welcomeThenDrop(sockets.at(-1)!)
       expect(refused).toHaveBeenCalledTimes(3)
       refuseNextDial()
       expect(refused).toHaveBeenCalledTimes(4)
+      expect(refused).toHaveBeenLastCalledWith(1)
 
       stop()
       refuseNextDial()

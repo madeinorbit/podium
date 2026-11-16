@@ -487,8 +487,13 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
     vi.useRealTimers()
   })
 
-  /** A hub whose one welcomed connection has dropped; `refuse` fails its next redials. */
-  function refusingHub(): { refuse(dials: number): Promise<void>; stop(): Promise<void> } {
+  /** A hub whose one welcomed connection has dropped; `refuse` fails its next redials,
+   *  `reconnect` welcomes the next one and drops it again. */
+  function refusingHub(): {
+    refuse(dials: number): Promise<void>
+    reconnect(): Promise<void>
+    stop(): Promise<void>
+  } {
     const sockets: WebSocketLike[] = []
     const hub = new SocketHub({
       url: 'wss://relay.test/ws',
@@ -507,15 +512,17 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
       },
     })
     const stop = observeLiveConnection(hub, {
-      onReconnectRefused: () => {
-        void checkRefusedReconnect(ORIGIN)
+      onReconnectRefused: (dial) => {
+        void checkRefusedReconnect(ORIGIN, dial)
       },
     })
+    const welcomeThenDrop = (socket: WebSocketLike): void => {
+      socket.onopen?.({})
+      socket.onmessage?.({ data: encode({ type: 'welcome', kindTokens: {}, clientId: 'c' }) })
+      socket.onclose?.({ code: 1006 })
+    }
     hub.connect()
-    const first = sockets[0]!
-    first.onopen?.({})
-    first.onmessage?.({ data: encode({ type: 'welcome', kindTokens: {}, clientId: 'c' }) })
-    first.onclose?.({ code: 1006 })
+    welcomeThenDrop(sockets[0]!)
     return {
       async refuse(dials) {
         for (let dial = 0; dial < dials; dial++) {
@@ -525,6 +532,10 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
           socket.onerror?.({})
           socket.onclose?.({ code: 1006 })
         }
+      },
+      async reconnect() {
+        await vi.advanceTimersByTimeAsync(10_000)
+        welcomeThenDrop(sockets.at(-1)!)
       },
       async stop() {
         await vi.advanceTimersByTimeAsync(10_000)
@@ -549,6 +560,40 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(reload).toHaveBeenCalledTimes(1)
     expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 1))
+  })
+
+  it('reloads a wire mismatch on the first refused dial', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(newerWire)))
+    const tab = refusingHub()
+    await tab.refuse(1)
+    await tab.stop()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  /** Same wire, another digest: the server does not refuse this bundle for that. */
+  const schemaOnly = { ...matched, wireSchemaDigest: 'deadbeefdeadbeef' }
+
+  it('reloads a schema-only mismatch only on the second consecutive refused dial', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(schemaOnly)))
+    const tab = refusingHub()
+    await tab.refuse(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(reload).not.toHaveBeenCalled()
+    await tab.refuse(4)
+    await tab.stop()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload for a schema-only mismatch when a reconnect succeeds in between', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(versionResponse(schemaOnly))
+    vi.stubGlobal('fetch', fetchMock)
+    const tab = refusingHub()
+    await tab.refuse(1)
+    await tab.reconnect()
+    await tab.refuse(1)
+    await tab.stop()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('takes the desktop update path in the bundled app, never a reload', async () => {
