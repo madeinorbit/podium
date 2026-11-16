@@ -441,7 +441,7 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
   (its rule tool names are `Bash`, `Read`, `Edit`, `Grep`, `MCPTool`,
   `WebFetch`, `WebSearch`), so there is one rule on every platform. A missing
   `config.toml` is created holding only that table, in the person's own home
-  too (operator, 2026-11-16): a home with only that table starts exactly like
+  too (coordinator, 2026-11-16, under the operator's approval of narrow home edits): a home with only that table starts exactly like
   one with no config, and Grok adds its own first-start keys below it
   (measured, 1.0.70).
 - **Cursor is documented, not measured.** Its row comes from `--help`

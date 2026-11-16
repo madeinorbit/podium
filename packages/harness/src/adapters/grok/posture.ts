@@ -90,7 +90,7 @@ export function grokPosture(launch: PostureLaunch, request: PostureRequest): Pos
  * `Grep`, `MCPTool`, `WebFetch` and `WebSearch` (user guide, 1.0.77).
  *
  * The edit creates a missing `config.toml`, in the person's own home too
- * (operator decision, 2026-11-16), holding only that table. Measured on 1.0.70:
+ * (coordinator decision, 2026-11-16, under the operator's approval of narrow home edits), holding only that table. Measured on 1.0.70:
  * a home whose config holds only the table starts exactly like one with none
  * (same sign-in state, nothing modal), and Grok adds its own first-start keys
  * below the table.
