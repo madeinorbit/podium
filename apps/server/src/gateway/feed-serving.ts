@@ -27,7 +27,7 @@ import type {
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { FeedPublisher } from '@podium/sync'
+import { extendBatch, FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { createFrameFlusher, runAtRoot, withReadScope } from '../publication-scope'
@@ -698,7 +698,11 @@ export class FeedServing {
     const key = principalRoutingKeyFromId(principalRoutingId(principal))
     const subscribers = this.deps.subscriptions.subscribers(key)
     const targets = subscribers.map((sub) => String(sub.subscriberId))
-    if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
+    // THE ACCESS MOVE IS ONE FACT (POD-6947): a rescope, or a batch whose
+    // range names this principal in a visibility edge, granted or taken. Rooms
+    // and topics are re-checked here; the frame carries it to the client, which
+    // asks again for what it was refused.
+    if (delivery.kind === 'rescope' || delivery.access === true) {
       await this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
     }
     await this.publisher.publishTo(targets, principal, delivery)
@@ -793,11 +797,7 @@ function coalesceScopedDeliveries(deliveries: readonly ScopedDelivery[]): Scoped
   for (const delivery of deliveries) {
     const previous = coalesced.at(-1)
     if (delivery.kind === 'batch' && previous?.kind === 'batch') {
-      coalesced[coalesced.length - 1] = {
-        kind: 'batch',
-        throughSeq: delivery.throughSeq,
-        changes: [...previous.changes, ...delivery.changes],
-      }
+      coalesced[coalesced.length - 1] = extendBatch(previous, delivery)
     } else {
       coalesced.push(delivery)
     }
@@ -830,6 +830,7 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
         ...(change.op === 'upsert' ? { value: change.payload } : {}),
         ...provenanceOf(change),
       })) as FeedDeltaMessage['changes'],
+      ...(frame.access ? { access: true } : {}),
     }
     return delta
   }

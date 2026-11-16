@@ -749,12 +749,12 @@ describe('machine access and checkout rows', () => {
       '2026-11-09T00:00:00Z',
     )
     // No recorded reach (SEE only, or never written): no checkout id goes out.
-    expect(
-      await edgeOf(policy.anchors, {
-        entity: 'machineAccess',
-        entityId: machineAccessRowId(reader, asMachineId('m1')),
-      }),
-    ).toBeNull()
+    // The moved row still names its member: their access moved (POD-6947).
+    const seeOnly = await edgeOf(policy.anchors, {
+      entity: 'machineAccess',
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    })
+    expect(seeOnly).toEqual({ audience: [reader], subjects: [] })
     await store.checkouts.applyReach(
       { reach: [{ userId: reader, machineId: asMachineId('m1'), reach: 'all' }] },
       '2026-11-09T00:00:00Z',

@@ -352,6 +352,13 @@ export interface FeedSinkPort {
   disconnected(): void
   /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
   frame(frame: FeedServerFrame): void
+  /**
+   * The sink calls `listener` each time a frame it applied says this
+   * principal's access moved (POD-6947). The transport learns that it moved,
+   * never how: its live topics ask the server again for every key it was
+   * refused. A sink without it leaves those keys to the next socket.
+   */
+  onAccessMoved?(listener: () => void): void
 }
 
 type InputIntent = {
@@ -735,6 +742,12 @@ export class SocketHub {
     this.opts = opts
     this.serverUrl = opts.url
     this.subscriptionRegistry = new ClientSubscriptionRegistry(opts.feed !== undefined)
+    // A grant given or taken (POD-6947): what the server refused or revoked is
+    // asked again, and it decides as it always does. It keeps no refusals.
+    opts.feed?.onAccessMoved?.(() => {
+      this.subscriptionRegistry.forgetClosedTopicAsks()
+      this.askTopics()
+    })
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
     if (opts.scheduleFeedTask !== undefined) {
       this.ownFeedScheduler = undefined
@@ -2152,8 +2165,8 @@ export class SocketHub {
    * declared lost. Nothing else asks. Every event that can make a key miss or
    * distrust its value only makes it unasked: a new socket (the server forgot
    * the old one's keys), a declared loss (`markTopicsUnknown`), a `transient`
-   * close (asked on the next heartbeat), a fresh holder, a `refreshTopic`.
-   * Each answers with a snapshot.
+   * close (asked on the next heartbeat), an access move for every closed key
+   * (`onAccessMoved`), a fresh holder, a `refreshTopic`. Each is answered.
    */
   private askTopics(): void {
     const socket = this.socket

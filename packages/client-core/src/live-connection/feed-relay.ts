@@ -103,6 +103,7 @@ export function createFeedRelay(
       },
       disconnected: () => sink.disconnected(),
       frame: (frame) => deliver(frame, true),
+      onAccessMoved: (listener) => sink.onAccessMoved?.(listener),
     },
     dispose: () => {
       if (stopped) return

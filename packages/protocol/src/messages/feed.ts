@@ -209,6 +209,12 @@ export const FeedDeltaMessage = z.object({
   type: z.literal('feedDelta'),
   ...CertifiedRangeFields,
   changes: z.array(FeedChange),
+  /**
+   * The principal's access moved in this range (POD-6947): a grant given or
+   * taken that names them. The replica applies the rows as usual; the client
+   * asks again for every live topic it was refused, and the server decides.
+   */
+  access: z.literal(true).optional(),
 })
 export type FeedDeltaMessage = z.infer<typeof FeedDeltaMessage>
 
@@ -217,6 +223,7 @@ export const FeedDeltaMessageLenient = z.object({
   type: z.literal('feedDelta'),
   ...CertifiedRangeFields,
   changes: z.array(FeedChangeLenient),
+  access: z.literal(true).optional(),
 })
 export type FeedDeltaMessageLenient = z.infer<typeof FeedDeltaMessageLenient>
 

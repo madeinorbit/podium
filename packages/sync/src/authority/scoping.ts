@@ -71,6 +71,14 @@ export type ScopedDelivery =
       readonly throughSeq: number
       /** Exactly the rows in that range this principal may see. MAY be empty. */
       readonly changes: readonly ScopedChange[]
+      /**
+       * THIS PRINCIPAL'S ACCESS MOVED in the range (POD-6947): a row in it is a
+       * visibility edge whose audience names them, in either direction. What
+       * they may see changed beyond these rows, so every decision taken against
+       * their old access (a live topic admitted or refused) is taken again.
+       * Absent when nothing moved.
+       */
+      readonly access?: true
     }
   | {
       readonly kind: 'rescope'
@@ -206,6 +214,7 @@ export async function scopeBatch(
   const resolved = prepared ?? (await prepareBatch(deps, changes))
   const visible: ScopedChange[] = []
   const anchored: ScopedChange[] = []
+  let access = false
   const human = humanOf(principal)
   // Every decision in this pass — the ordinary rows and the anchored ones — goes
   // through the prepared policy, or the two halves would answer from two states.
@@ -226,6 +235,9 @@ export async function scopeBatch(
     // A principal with no human (machine/system) is in nobody's audience by
     // construction — `audience` names HUMANS whose view moved (D14.3).
     if (human === null || !edge.audience.includes(human)) continue
+    // Named in the audience is the access move itself, even when no row
+    // follows from it (an edge with no subjects).
+    access = true
     for (const [subjectIndex, subject] of edge.subjects.entries()) {
       anchored.push(
         anchorFor(
@@ -253,7 +265,23 @@ export async function scopeBatch(
   // sort must be STABLE and must not attempt to order within a seq: uniqueness of
   // `seq` is a property of the global log, not of a per-principal frame.
   const rows = [...visible, ...anchored].sort((a, b) => a.seq - b.seq)
-  return { kind: 'batch', throughSeq, changes: rows }
+  return { kind: 'batch', throughSeq, changes: rows, ...(access ? { access: true } : {}) }
+}
+
+/**
+ * Two adjacent batches as one (D13.2's range extension): the later range's
+ * head, both row lists in order, and an access move if either carried one.
+ */
+export function extendBatch(
+  previous: Extract<ScopedDelivery, { kind: 'batch' }>,
+  next: Extract<ScopedDelivery, { kind: 'batch' }>,
+): Extract<ScopedDelivery, { kind: 'batch' }> {
+  return {
+    kind: 'batch',
+    throughSeq: next.throughSeq,
+    changes: [...previous.changes, ...next.changes],
+    ...(previous.access || next.access ? { access: true } : {}),
+  }
 }
 
 /**

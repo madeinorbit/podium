@@ -121,6 +121,12 @@ export interface DeltaFrame {
   readonly minAvailableSeq: number
   /** Every change in `(fromSeq, seq]` this principal may see, in seq order. MAY be empty. */
   readonly changes: readonly ChangeEnvelope[]
+  /**
+   * The principal's access moved in this range (POD-6947, `ScopedDelivery`):
+   * decisions taken against the old access are taken again. The replica's
+   * apply rule ignores it; the live-topic holder re-asks what it was refused.
+   */
+  readonly access?: true
 }
 
 /**

@@ -28,7 +28,8 @@ export type ClientSubscriptionDurability = 'durable' | 'ephemeral'
  *   `last` is the newest value held before that, for "last seen", and `since`
  *   when it went unknown.
  * - `closed`: the server ended the subscription (refused, revoked, …). It is
- *   asked again on the next socket, or after a declared loss.
+ *   asked again on the next socket, after a declared loss, or when the
+ *   principal's access moves.
  */
 export type TopicState<P = unknown> =
   | { readonly status: 'pending' }
@@ -240,6 +241,16 @@ export class ClientSubscriptionRegistry {
   /** This key is owed a new ask (the server shed it, or a holder wants a fresh snapshot). */
   forgetTopicAsk(entry: TopicEntry): void {
     entry.askedOn = undefined
+  }
+
+  /**
+   * The principal's access moved (POD-6947): every key the server closed
+   * (refused, revoked, …) is owed a new ask, and the server decides it again.
+   */
+  forgetClosedTopicAsks(): void {
+    for (const entry of this.topicEntries()) {
+      if (entry.state.status === 'closed') entry.askedOn = undefined
+    }
   }
 
   /**

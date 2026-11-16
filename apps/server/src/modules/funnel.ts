@@ -4,6 +4,7 @@ import {
   type AuthorityPort,
   CHANGE_LOG_OBSERVER,
   DEVICE_GRADE_PRINCIPAL,
+  extendBatch,
   type FeedScopingGrade,
   type ScopedChange,
   type ScopedDelivery,
@@ -189,11 +190,7 @@ function coalesce(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {
   for (const delivery of deliveries) {
     const previous = out[out.length - 1]
     if (delivery.kind === 'batch' && previous?.kind === 'batch') {
-      out[out.length - 1] = {
-        kind: 'batch',
-        throughSeq: delivery.throughSeq,
-        changes: [...previous.changes, ...delivery.changes],
-      }
+      out[out.length - 1] = extendBatch(previous, delivery)
       continue
     }
     out.push(delivery)

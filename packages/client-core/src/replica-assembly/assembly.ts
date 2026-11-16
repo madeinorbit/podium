@@ -394,6 +394,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       frame: (frame) => {
         if (!stopped) sink.frame(frame)
       },
+      onAccessMoved: (listener) => sink.onAccessMoved(listener),
     }
     const settled = async (): Promise<void> => {
       transcriptCache?.flush()

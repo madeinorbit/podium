@@ -1281,8 +1281,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   /**
    * Per ref, whether it is a `machine` or `machineAccess` upsert that left the
    * visibility fact where the row's previous change had it: the custodian for a
-   * machine, the checkout reach for an access row (`recordReach` reads the
-   * same field, absent meaning `none`). Anything else counts as moved: a ref
+   * machine; for an access row the checkout reach (`recordReach` reads the
+   * same field, absent meaning `none`) and the member's `use` verdict, which is
+   * what a `machine.use` live topic is decided by (POD-6947). Anything else
+   * counts as moved: a ref
    * without a seq, a remove, a first write, or a previous change no longer in
    * the log. One read for the batch, and none when it holds no such ref.
    */
@@ -1307,8 +1309,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         ref.entity === 'machine'
           ? (payload: unknown) => (payload as { custodian?: unknown } | null)?.custodian ?? null
           : ref.entity === 'machineAccess'
-            ? (payload: unknown) =>
-                (payload as { checkoutReach?: unknown } | null)?.checkoutReach ?? 'none'
+            ? (payload: unknown) => {
+                const row = payload as { checkoutReach?: unknown; use?: unknown } | null
+                return `${String(row?.checkoutReach ?? 'none')}|${String(row?.use ?? '')}`
+              }
             : undefined
       const change = logged.get(ref.seq)
       if (!fact || !change?.prior) return false
@@ -1413,7 +1417,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
               ...lost.map((checkout) => checkout.path),
             ]),
           ].map((path) => ({ path }))
-          if (paths.length === 0) return null
+          // A moved access row is the member's access move even with no
+          // checkout behind it: their `machine.use` topics are decided again.
           return {
             audience: [key.userId],
             subjects: paths.map((checkout) => ({
