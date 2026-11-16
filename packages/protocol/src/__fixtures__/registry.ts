@@ -45,6 +45,7 @@ import * as github from '../messages/github'
 import * as handoff from '../messages/handoff'
 import * as harness from '../messages/harness'
 import * as headless from '../messages/headless'
+import * as homes from '../messages/homes'
 import * as host from '../messages/host'
 import * as inventory from '../messages/inventory'
 import * as issues from '../messages/issues'
@@ -92,6 +93,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['handoff', handoff],
   ['harness', harness],
   ['headless', headless],
+  ['homes', homes],
   ['host', host],
   ['inventory', inventory],
   ['issues', issues],

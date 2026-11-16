@@ -5,6 +5,11 @@ import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './b
 import { CodexCompleteRequestMessage } from './codex'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
+  CredentialRemoveRequestMessage,
+  HomeEnsureRequestMessage,
+  HomeRemoveRequestMessage,
+} from './homes'
+import {
   BrowseDirsRequestMessage,
   DirOpRequestMessage,
   RepoOpRequestMessage,
@@ -213,6 +218,12 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  management §8). Appended at the END for index stability; sent only to a
    *  daemon that accepted `CAP_SESSION_ACCESS`. */
   SessionAccessRefreshMessage,
+  /** Harness homes (credential management §10, epic Task 8). Appended at the
+   *  END for index stability; sent only to a daemon that accepted
+   *  `CAP_HARNESS_HOMES`. */
+  HomeEnsureRequestMessage,
+  HomeRemoveRequestMessage,
+  CredentialRemoveRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

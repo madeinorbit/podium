@@ -218,5 +218,11 @@ export const ModelProbeResultMessage = z.object({
   type: z.literal('modelProbeResult'),
   requestId: z.string(),
   byAgent: z.record(z.string(), z.array(ModelChoiceWire)),
+  /**
+   * The same per Podium home (credential management §10): home id → agent
+   * kind → models, for the homes this daemon holds. `byAgent` stays the
+   * harness's own directory, so an older server reads what it read before.
+   */
+  byHome: z.record(z.string(), z.record(z.string(), z.array(ModelChoiceWire))).optional(),
 })
 export type ModelProbeResultMessage = z.infer<typeof ModelProbeResultMessage>

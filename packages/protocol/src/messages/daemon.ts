@@ -6,6 +6,11 @@ import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-op
 import { CodexCompleteResultMessage } from './codex'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
+  CredentialRemoveResultMessage,
+  HomeEnsureResultMessage,
+  HomeRemoveResultMessage,
+} from './homes'
+import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
   DirOpResultMessage,
@@ -291,5 +296,10 @@ export const DaemonMessage = z.discriminatedUnion('type', [
    *  management §9, epic Task 10), appended at the END so the golden corpus's
    *  index-sampled arms stay byte-identical. */
   SessionAuthMessage,
+  /** Replies to the harness-home requests (credential management §10, epic
+   *  Task 8), appended at the END for index stability. */
+  HomeEnsureResultMessage,
+  HomeRemoveResultMessage,
+  CredentialRemoveResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
