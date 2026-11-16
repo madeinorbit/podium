@@ -13,6 +13,7 @@ import { asUserId, firstAdminMemberId, primeFirstAdminMember } from '@podium/mod
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../../store'
+import { memberFacts } from '../../../store/fixtures/test-support'
 import { withSecret } from '../vault'
 import {
   CHATGPT_PLAN_TYPE,
@@ -50,7 +51,7 @@ describe('ChatGPT sign-in', () => {
     })
     primeFirstAdminMember(await firstAdminMemberId(store))
     for (const id of [OWNER, OTHER]) {
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id,
           displayName: id,

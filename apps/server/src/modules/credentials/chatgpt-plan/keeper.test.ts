@@ -18,6 +18,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../../store'
 import { newCredentialId } from '../../../store/credentials'
+import { memberFacts } from '../../../store/fixtures/test-support'
 import { CredentialRefusal } from '../../sessions/launch-config'
 import { attentionNoticeKey, CredentialHealth, type CredentialNotice } from '../health'
 import { sealCredentialSecret, withSecret } from '../vault'
@@ -44,7 +45,7 @@ describe('ChatgptPlanKeeper', () => {
     })
     primeFirstAdminMember(await firstAdminMemberId(store))
     for (const id of [OWNER]) {
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id,
           displayName: id,

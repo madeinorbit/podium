@@ -23,6 +23,7 @@ import { resolvePrincipal } from '../../../command-principal'
 import { SessionRegistry } from '../../../relay'
 import { RepoRegistry } from '../../../repo-registry'
 import { appRouter } from '../../../router'
+import { memberFacts } from '../../../store/fixtures/test-support'
 import { SuperagentService } from '../../superagent'
 import { FAKE_ACCOUNT, FAKE_CLIENT_ID, fakeOpenAi } from './fake-openai'
 
@@ -65,7 +66,7 @@ async function harness() {
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const store = registry.sessionStore
   for (const id of [OWNER, STRANGER]) {
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id,
         displayName: id,

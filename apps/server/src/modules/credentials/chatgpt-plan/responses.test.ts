@@ -12,6 +12,7 @@ import { asUserId, type CredentialId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { newCredentialId } from '../../../store/credentials'
+import { memberFacts } from '../../../store/fixtures/test-support'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { complete } from '../../inference/complete'
 import { CredentialHealth, DEFAULT_LIMIT_MS } from '../health'
@@ -91,7 +92,7 @@ const stream = (events: Record<string, unknown>[]) => () => {
 async function setup(answer: () => Response) {
   store = await openTestStore(':memory:')
   const s = store
-  await s.users.create(
+  await memberFacts(s).create(
     {
       id: OWNER,
       displayName: 'Owner',

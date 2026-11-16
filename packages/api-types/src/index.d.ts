@@ -1306,7 +1306,8 @@ type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed
  * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
  * sign-in, the keeper, and the daemon that listens for the browser's return.
  * The credential commands reach it as `CredentialsState.chatgpt`; the
- * composition root builds it (`registry.modules.chatgptPlan`).
+ * composition root builds it with {@link composeChatgptPlan}
+ * (`registry.modules.chatgptPlan`).
  */
 
 type ChatgptSignInVia = 'machine' | 'paste';
