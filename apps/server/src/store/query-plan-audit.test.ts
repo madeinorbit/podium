@@ -1806,12 +1806,10 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     useOperatorStatistics()
     const plans = effectPlans()
     const expected: readonly (readonly [string, RegExp])[] = [
+      // Both statuses build one statement (the status is bound): the audit
+      // plans it once, under its first shape.
       [
         'effectsInStatus [pending]',
-        /^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)$/,
-      ],
-      [
-        'effectsInStatus [running]',
         /^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)$/,
       ],
       [
