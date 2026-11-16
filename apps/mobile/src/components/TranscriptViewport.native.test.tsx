@@ -16,7 +16,9 @@ vi.mock('react-native', async (original) => {
     },
     // UIKit/FlatList is the boundary here. Keep it a single native scroll node
     // so the marker's direct-child requirement is observable in this lane.
-    FlatList: forwardRef(() => <div data-testid="native-transcript-scroll-view" />),
+    FlatList: forwardRef(({ testID }: { testID?: string }, _ref) => (
+      <div data-testid="native-transcript-scroll-view" data-native-id={testID} />
+    )),
   }
 })
 vi.mock('react-native-screens/experimental', () => ({
@@ -55,6 +57,9 @@ it('applies the native soft top edge to the actual transcript scroll view after 
   const marker = screen.getByTestId('native-scroll-marker')
   expect(marker.children).toHaveLength(1)
   expect(marker.firstElementChild).toBe(screen.getByTestId('native-transcript-scroll-view'))
+  expect(screen.getByTestId('native-transcript-scroll-view').dataset.nativeId).toBe(
+    'chat-transcript-scroll-view',
+  )
 })
 
 it('leaves the Android scroll view without an iOS edge marker', () => {

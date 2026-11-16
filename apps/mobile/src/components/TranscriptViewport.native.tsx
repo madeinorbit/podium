@@ -53,6 +53,9 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
     <FlatList
       {...props}
       {...listWindow}
+      // The native chat pager must bind its header edge to this list, never
+      // to a loading skeleton, message preview or the composer's UITextView.
+      testID="chat-transcript-scroll-view"
       ref={listRef}
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       // A status-bar tap (or a ••• tap that lands in the status-bar band)

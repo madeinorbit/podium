@@ -67,22 +67,36 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
   /// The visible page's vertical list: the screen's content scroll view, so the
   /// nav bar's scroll edge lands on it rather than on this horizontal pager.
   private weak var edgeList: UIScrollView?
+  private weak var edgeController: UIViewController?
+  private let edgeHeaders = NSHashTable<UIView>.weakObjects()
   /// Re-finds `edgeList` after React remounts a page's list (a session switch).
   private var edgeCheck: Timer?
+  #if DEBUG
+  private var edgeDiagnostic: String?
+  #endif
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
     clipsToBounds = true
     scroller.delegate = self
     addSubview(scroller)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(revalidateScrollEdge),
+      name: UIApplication.didBecomeActiveNotification, object: nil)
   }
 
-
+  deinit {
+    edgeCheck?.invalidate()
+    NotificationCenter.default.removeObserver(self)
+  }
 
   override func layoutSubviews() {
     super.layoutSubviews()
     let size = bounds.size
-    guard size.width > 0 else { return }
+    guard size.width > 0, size.height > 0 else {
+      clearScrollEdge()
+      return
+    }
     scroller.frame = bounds
     scroller.contentSize = CGSize(
       width: size.width * CGFloat(max(1, pages.count)),
@@ -95,6 +109,7 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
       }
       updatePageVisibility()
     }
+    updateScrollEdge()
   }
 
   // Fabric mounts the page components inside the scroll view; their frames are
@@ -104,12 +119,15 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     pages.insert(childComponentView, at: min(index, pages.count))
     setNeedsLayout()
     updatePageVisibility()
+    updateScrollEdge()
   }
 
   override func unmountChildComponentView(_ childComponentView: UIView, index: Int) {
+    clearHeaderEdges(in: childComponentView)
     childComponentView.removeFromSuperview()
     pages.removeAll { $0 === childComponentView }
     setNeedsLayout()
+    updateScrollEdge()
   }
 
   func setPage(_ page: Int, animated: Bool) {
@@ -136,6 +154,7 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     let page = pageAt(scrollView.contentOffset.x)
     if page != nearest {
       nearest = page
+      updateScrollEdge()
       onPageChange(["page": page])
     }
   }
@@ -165,10 +184,13 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     updateBackSwipe()
     edgeCheck?.invalidate()
     edgeCheck = nil
-    guard window != nil else { return }
+    guard window != nil else {
+      clearScrollEdge()
+      return
+    }
     updateScrollEdge()
-    // Cheap while nothing changed: only a list that left the window triggers a
-    // fresh search.
+    // React can mount the transcript or header without changing the pager's
+    // frame. Reconcile their identities too, not just the old list's window.
     edgeCheck = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
       self?.revalidateScrollEdge()
     }
@@ -240,31 +262,104 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
   /// view, and UIKit's heuristic picks this horizontal pager, so the transcript
   /// ran crisp under the bar [POD-2527]. The screen is pointed at the visible
   /// page's list instead, and views marked `header-extension` (the mission
-  /// status bar) are edge containers for their page's list, with the hard edge
-  /// a pinned strip calls for, so bar and strip sit on one backing. The deck's
+  /// status bar) are edge containers for the visible page's list, with the hard
+  /// edge a pinned strip calls for, so bar and strip sit on one backing. The deck's
   /// SwiftUI list takes no UIKit edge effect from in here; its page draws a
   /// bar-material band itself (HeaderBand).
   private func updateScrollEdge() {
-    guard window != nil, pages.indices.contains(resting) else { return }
-    let visible = pages[resting]
-    let list = primaryList(in: visible)
-    edgeList = list
-    if let controller = owningController(), controller.contentScrollView(for: .top) !== list {
-      controller.setContentScrollView(list, for: .top)
+    guard window != nil, pages.indices.contains(nearest) else {
+      clearScrollEdge()
+      return
     }
+    let visible = pages[nearest]
+    // A loading skeleton and the composer's UITextView can both be the first
+    // full-width UIScrollView. Only the transcript's explicit marker is a chat
+    // edge target, including while its first layout is still pending.
+    let list = nearest == 0 ? transcriptList(in: visible) : primaryList(in: visible)
     if #available(iOS 26.0, *) {
       scroller.topEdgeEffect.isHidden = true
+      let visibleHeaders = headerExtensions(in: visible)
+      for view in edgeHeaders.allObjects where !visibleHeaders.contains(where: { $0 === view }) {
+        clearHeaderEdge(on: view)
+      }
       for page in pages {
-        let pageList = page === visible ? list : primaryList(in: page)
         for view in headerExtensions(in: page) {
+          let frame = view.convert(view.bounds, to: visible)
+          guard page === visible, let list, list.window === window,
+            view.bounds.width > 0, view.bounds.height > 0,
+            frame.minY >= 0, frame.maxY < visible.bounds.height,
+            visible.bounds.contains(frame)
+          else {
+            clearHeaderEdge(on: view)
+            continue
+          }
           let interaction = edgeInteraction(on: view)
-          if interaction.scrollView !== pageList { interaction.scrollView = pageList }
+          if interaction.scrollView !== list {
+            interaction.scrollView?.topEdgeEffect.style = .soft
+            interaction.scrollView = list
+          }
+          edgeHeaders.add(view)
           // A pinned, tappable strip under the bar takes the hard edge (HIG), so
           // the whole strip sits on the bar material, not on a fading blur.
-          if let pageList, pageList.topEdgeEffect.style != .hard { pageList.topEdgeEffect.style = .hard }
+          if list.topEdgeEffect.style != .hard { list.topEdgeEffect.style = .hard }
+          assert(interaction.scrollView?.isDescendant(of: visible) == true)
         }
       }
     }
+    let controller = owningController()
+    if edgeController !== controller {
+      clearContentScrollView()
+      edgeController = controller
+    }
+    edgeList = list
+    if let controller, controller.contentScrollView(for: .top) !== list {
+      controller.setContentScrollView(list, for: .top)
+    }
+    #if DEBUG
+    let headers = headerExtensions(in: visible).map { $0.convert($0.bounds, to: visible) }
+    let target = list.map { "\(type(of: $0))@\(ObjectIdentifier($0)) \($0.convert($0.bounds, to: visible))" } ?? "none"
+    let diagnostic = "page=\(nearest) offset=\(scroller.contentOffset.x) pageBounds=\(visible.bounds) list=\(target) headers=\(headers)"
+    if edgeDiagnostic != diagnostic {
+      edgeDiagnostic = diagnostic
+      NSLog("[PodiumPager] scroll-edge %@", diagnostic)
+    }
+    #endif
+  }
+
+  private func clearContentScrollView() {
+    if let controller = edgeController, let list = edgeList,
+      controller.contentScrollView(for: .top) === list
+    {
+      controller.setContentScrollView(nil, for: .top)
+    }
+    edgeController = nil
+    edgeList = nil
+  }
+
+  private func clearScrollEdge() {
+    if #available(iOS 26.0, *) {
+      for view in edgeHeaders.allObjects { clearHeaderEdge(on: view) }
+    }
+    for page in pages { clearHeaderEdges(in: page) }
+    clearContentScrollView()
+  }
+
+  private func clearHeaderEdges(in page: UIView) {
+    if #available(iOS 26.0, *) {
+      for view in headerExtensions(in: page) { clearHeaderEdge(on: view) }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func clearHeaderEdge(on view: UIView) {
+    for interaction in view.interactions.compactMap({ $0 as? UIScrollEdgeElementContainerInteraction }) {
+      // The transcript marker owns its normal soft edge. The hard style only
+      // belongs to the visible mission strip while this interaction is bound.
+      interaction.scrollView?.topEdgeEffect.style = .soft
+      interaction.scrollView = nil
+      view.removeInteraction(interaction)
+    }
+    edgeHeaders.remove(view)
   }
 
   @available(iOS 26.0, *)
@@ -280,20 +375,33 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     return added
   }
 
-  private func revalidateScrollEdge() {
-    guard window != nil, pages.indices.contains(resting) else { return }
-    if let list = edgeList, list.window != nil, list.isDescendant(of: pages[resting]) { return }
+  @objc func revalidateScrollEdge() {
     updateScrollEdge()
+  }
+
+  private func transcriptList(in page: UIView) -> UIScrollView? {
+    var queue = page.subviews
+    while !queue.isEmpty {
+      let view = queue.removeFirst()
+      if view.accessibilityIdentifier == "chat-transcript-scroll-view" {
+        return primaryList(in: view)
+      }
+      // Never search message previews, nested code scrollers or inputs.
+      if !(view is UIScrollView), !view.isHidden { queue.append(contentsOf: view.subviews) }
+    }
+    return nil
   }
 
   /// The page's outermost full-width scroll view: the transcript or the deck
   /// list, never a code block or chip row inside it.
   private func primaryList(in page: UIView) -> UIScrollView? {
-    var queue: [UIView] = page.subviews
+    guard page.bounds.width > 0 else { return nil }
+    var queue: [UIView] = [page]
     while !queue.isEmpty {
       let view = queue.removeFirst()
+      if view.isHidden { continue }
       if let list = view as? UIScrollView, list.isScrollEnabled,
-        list.bounds.width >= page.bounds.width * 0.9
+        list.bounds.height > 0, list.bounds.width >= page.bounds.width * 0.9
       {
         return list
       }
