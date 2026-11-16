@@ -898,6 +898,16 @@ const DECLARED = defineSchema({
         },
       },
       refIssueId: { type: 'id', optional: true, source: meta() },
+      // What the model and mode chips and the posture notices read off the
+      // shared session model (POD-7002). Without a line here the model has no
+      // getter, the read is undefined, and the chat view drew neither chip.
+      observedModel: { type: 'string', optional: true, source: meta() },
+      observedEffort: { type: 'string', optional: true, source: meta() },
+      requestedModel: { type: 'string', optional: true, source: meta() },
+      requestedEffort: { type: 'string', optional: true, source: meta() },
+      configureFields: { type: 'object', optional: true, source: meta(), note: 'The fields this driver can change mid-session; empty is an answer (none), absent is unknown.' },
+      observedMode: { type: 'string', optional: true, source: meta(), note: 'The mode the harness reports it is in (POD-6858).' },
+      launchPosture: { type: 'object', optional: true, source: meta(), note: 'The last launch\'s requested mode and unmet requirements (POD-6858).' },
       ...ISSUE_PAGE_SESSION_FIELDS,
     },
     relations: {
