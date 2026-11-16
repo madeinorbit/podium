@@ -45,7 +45,7 @@ export function credentialModelSource(type: string): ModelSource | undefined {
   if (!isCredentialTypeId(type)) return undefined
   const route = INFERENCE_ROUTES[type]
   if (!route) return undefined
-  if (route.kind === 'on-machine' || route.api === 'openai-responses') {
+  if (route.kind === 'on-machine' || (route.kind === 'http' && route.api === 'openai-responses')) {
     return { kind: 'login', harness: 'codex' }
   }
   return { kind: 'api', provider: CREDENTIAL_TYPES[type].provider }
