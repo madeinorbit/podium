@@ -41,21 +41,20 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm'
-import {
-  issues as issuesTable,
+import type {
   offers as offersTable,
-  pins as pinsTable,
-  runtimeEventCheckpoints,
   sessionDrafts,
   sessions as sessionsTable,
-  sessionUserState,
-  snoozes as snoozesTable,
-  tabOrder,
 } from '../migrations/schema'
 import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -106,43 +105,38 @@ function parseTabIds(raw: string): string[] | undefined {
 /** The one row shape every session read returns, before mapping. */
 type SessionSelect = typeof sessionsTable.$inferSelect
 
-const pendingActivityPublication = sql`${sessionsTable.publishedLastActiveAt} < ${sessionsTable.lastActiveAt} AND ${sessionsTable.deletedAt} IS NULL`
+const pendingActivityPublication = (t: StoreTables) =>
+  sql`${t.sessions.publishedLastActiveAt} < ${t.sessions.lastActiveAt} AND ${t.sessions.deletedAt} IS NULL`
 
 // The partial index contains only sessions with an unpublished activity stamp,
 // including stopped sessions left by a restart. History never enters the tick.
-const activityPublicationsDue = prepared((db: StoreDrizzle) =>
+const activityPublicationsDue = prepared((db, t) =>
   db
     .select({ id: sql<SessionId>`id` })
-    .from(sql`${sessionsTable} INDEXED BY idx_sessions_pending_activity`)
+    .from(sql`${t.sessions} INDEXED BY idx_sessions_pending_activity`)
     .where(
       and(
-        pendingActivityPublication,
-        lte(
-          sessionsTable.lastActivePublishAfter,
-          param(sessionsTable.lastActivePublishAfter, 'now'),
-        ),
+        pendingActivityPublication(t),
+        lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
       ),
     )
-    .orderBy(asc(sessionsTable.lastActivePublishAfter), asc(sessionsTable.id))
+    .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
     .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
     .prepare(),
 )
 
-const publishSessionActivity = preparedFamily((db: StoreDrizzle, size: number) =>
+const publishSessionActivity = preparedFamily((db, t, size: number) =>
   db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({
-      publishedLastActiveAt: sessionsTable.lastActiveAt,
+      publishedLastActiveAt: t.sessions.lastActiveAt,
       lastActivePublishAfter: sql.placeholder('next'),
     })
     .where(
       and(
-        inListOf(sessionsTable.id, size),
-        pendingActivityPublication,
-        lte(
-          sessionsTable.lastActivePublishAfter,
-          param(sessionsTable.lastActivePublishAfter, 'now'),
-        ),
+        inListOf(t.sessions.id, size),
+        pendingActivityPublication(t),
+        lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
       ),
     )
     .prepare(),
@@ -150,33 +144,33 @@ const publishSessionActivity = preparedFamily((db: StoreDrizzle, size: number) =
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const bindingOwnersOnMachine = prepared((db: StoreDrizzle) =>
+const bindingOwnersOnMachine = prepared((db, t) =>
   db
-    .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')))
+    .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
+    .from(t.sessions)
+    .where(eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId')))
     .prepare(),
 )
 
-const bindingOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const bindingOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
-    .from(sessionsTable)
-    .where(inListOf(sessionsTable.id, size))
+    .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
+    .from(t.sessions)
+    .where(inListOf(t.sessions.id, size))
     .prepare(),
 )
 
-const bindingFactsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const bindingFactsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: sessionsTable.id,
-      owner: sessionsTable.ownerUserId,
-      machineId: sessionsTable.machineId,
-      deletedAt: sessionsTable.deletedAt,
-      delegation: sessionsTable.delegation,
+      id: t.sessions.id,
+      owner: t.sessions.ownerUserId,
+      machineId: t.sessions.machineId,
+      deletedAt: t.sessions.deletedAt,
+      delegation: t.sessions.delegation,
     })
-    .from(sessionsTable)
-    .where(inListOf(sessionsTable.id, size))
+    .from(t.sessions)
+    .where(inListOf(t.sessions.id, size))
     .prepare(),
 )
 
@@ -185,12 +179,12 @@ const bindingFactsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
  * ordering; three of them depend on it meaning the same thing, so it is
  * declared once (see `findSessionByResumeValue`).
  */
-function sessionsWhere(db: StoreDrizzle, where: SQL | undefined) {
+function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
   return db
     .select()
-    .from(sessionsTable)
+    .from(t.sessions)
     .where(where)
-    .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+    .orderBy(asc(t.sessions.createdAt), asc(sql`rowid`))
     .prepare()
 }
 
@@ -200,8 +194,8 @@ function sessionsWhere(db: StoreDrizzle, where: SQL | undefined) {
  * the few rows itself, so an ORDER BY here would only add a sort to an index
  * read.
  */
-function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
-  return db.select().from(sessionsTable).where(where).prepare()
+function sessionsMatching(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
+  return db.select().from(t.sessions).where(where).prepare()
 }
 
 /**
@@ -218,153 +212,150 @@ function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
  * attribution counts under, and changing the text would move this statement to
  * a new slot in both while claiming to have only made it cheaper.
  */
-const sessionById = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, eq(sessionsTable.id, param(sessionsTable.id, 'id'))),
+const sessionById = prepared((db, t) =>
+  sessionsWhere(db, t, eq(t.sessions.id, param(t.sessions.id, 'id'))),
 )
 
-const liveSessionByResumeValue = prepared((db: StoreDrizzle) =>
+const liveSessionByResumeValue = prepared((db, t) =>
   sessionsWhere(
     db,
+    t,
     and(
-      eq(sessionsTable.resumeValue, param(sessionsTable.resumeValue, 'resumeValue')),
-      isNull(sessionsTable.deletedAt),
+      eq(t.sessions.resumeValue, param(t.sessions.resumeValue, 'resumeValue')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
-const sessionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, inListOf(sessionsTable.id, size)),
+const sessionsOfIds = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, inListOf(t.sessions.id, size)),
 )
 
 /** The predicate the two plural resume readers share, so they cannot drift. */
-const liveSessionsOfResumeValues = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(
-    db,
-    and(inListOf(sessionsTable.resumeValue, size), isNull(sessionsTable.deletedAt)),
-  ),
+const liveSessionsOfResumeValues = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, and(inListOf(t.sessions.resumeValue, size), isNull(t.sessions.deletedAt))),
 )
 
-const liveSessionsOfIssueIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, and(inListOf(sessionsTable.issueId, size), isNull(sessionsTable.deletedAt))),
+const liveSessionsOfIssueIds = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, and(inListOf(t.sessions.issueId, size), isNull(t.sessions.deletedAt))),
 )
 
 /** The folded cwd `idx_sessions_cwd_folded` indexes; repeat it exactly. */
-const foldedCwd = sql`lower(replace(${sessionsTable.cwd}, '/', '\\'))`
+const foldedCwd = (t: StoreTables) => sql`lower(replace(${t.sessions.cwd}, '/', '\\'))`
 
 /** Live sessions whose literal cwd lies in the key range [lo, hi) (POD-6160). */
-const liveSessionsInCwdRange = prepared((db: StoreDrizzle) =>
+const liveSessionsInCwdRange = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      gte(sessionsTable.cwd, param(sessionsTable.cwd, 'lo')),
-      lt(sessionsTable.cwd, param(sessionsTable.cwd, 'hi')),
-      isNull(sessionsTable.deletedAt),
+      gte(t.sessions.cwd, param(t.sessions.cwd, 'lo')),
+      lt(t.sessions.cwd, param(t.sessions.cwd, 'hi')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** The same over the folded cwd, for Windows-style roots (POD-6160). */
-const liveSessionsInFoldedCwdRange = prepared((db: StoreDrizzle) =>
+const liveSessionsInFoldedCwdRange = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      sql`${foldedCwd} >= ${sql.placeholder('lo')}`,
-      sql`${foldedCwd} < ${sql.placeholder('hi')}`,
-      isNull(sessionsTable.deletedAt),
+      sql`${foldedCwd(t)} >= ${sql.placeholder('lo')}`,
+      sql`${foldedCwd(t)} < ${sql.placeholder('hi')}`,
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions in one of these statuses (POD-6160). */
-const liveSessionsOfStatuses = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(db, and(inListOf(sessionsTable.status, size), isNull(sessionsTable.deletedAt))),
+const liveSessionsOfStatuses = preparedFamily((db, t, size: number) =>
+  sessionsMatching(db, t, and(inListOf(t.sessions.status, size), isNull(t.sessions.deletedAt))),
 )
 
 /** Live headless sessions (POD-6160): resident while their row exists. */
-const liveHeadlessSessions = prepared((db: StoreDrizzle) =>
-  sessionsMatching(db, and(sql`${sessionsTable.headless} = 1`, isNull(sessionsTable.deletedAt))),
+const liveHeadlessSessions = prepared((db, t) =>
+  sessionsMatching(db, t, and(sql`${t.sessions.headless} = 1`, isNull(t.sessions.deletedAt))),
 )
 
 /** Live sessions whose id lies in the key range [lo, hi): a short-id prefix (POD-6160). */
-const liveSessionsInIdRange = prepared((db: StoreDrizzle) =>
+const liveSessionsInIdRange = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      gte(sessionsTable.id, param(sessionsTable.id, 'lo')),
-      lt(sessionsTable.id, param(sessionsTable.id, 'hi')),
-      isNull(sessionsTable.deletedAt),
+      gte(t.sessions.id, param(t.sessions.id, 'lo')),
+      lt(t.sessions.id, param(t.sessions.id, 'hi')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions born on one of these issues with this letter (POD-6160). */
-const liveSessionsOfBirthLetter = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveSessionsOfBirthLetter = preparedFamily((db, t, size: number) =>
   sessionsMatching(
     db,
+    t,
     and(
-      inListOf(sessionsTable.refIssueId, size),
-      eq(sessionsTable.refLetter, param(sessionsTable.refLetter, 'letter')),
-      isNull(sessionsTable.deletedAt),
+      inListOf(t.sessions.refIssueId, size),
+      eq(t.sessions.refLetter, param(t.sessions.refLetter, 'letter')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions whose birth ref names one of these issues (POD-6160 D2g).
  *  `IS NOT NULL` lets the partial `idx_sessions_ref_issue` serve the IN list. */
-const liveSessionsReferencingIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveSessionsReferencingIssues = preparedFamily((db, t, size: number) =>
   sessionsMatching(
     db,
+    t,
     and(
-      inListOf(sessionsTable.refIssueId, size),
-      isNotNull(sessionsTable.refIssueId),
-      isNull(sessionsTable.deletedAt),
+      inListOf(t.sessions.refIssueId, size),
+      isNotNull(t.sessions.refIssueId),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions with this draft ordinal, in any repository (POD-6160). */
-const liveSessionsOfDraft = prepared((db: StoreDrizzle) =>
+const liveSessionsOfDraft = prepared((db, t) =>
   sessionsMatching(
     db,
-    and(
-      eq(sessionsTable.refDraft, param(sessionsTable.refDraft, 'draft')),
-      isNull(sessionsTable.deletedAt),
-    ),
+    t,
+    and(eq(t.sessions.refDraft, param(t.sessions.refDraft, 'draft')), isNull(t.sessions.deletedAt)),
   ),
 )
 
 /** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
-const liveSessionsSpawnedBy = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(
-    db,
-    and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt)),
-  ),
+const liveSessionsSpawnedBy = preparedFamily((db, t, size: number) =>
+  sessionsMatching(db, t, and(inListOf(t.sessions.spawnedBy, size), isNull(t.sessions.deletedAt))),
 )
 
 /** The issues with this sequence number, in any repository: the issue half of
  *  a birth ref (`POD-13-A`), before its prefix is checked (POD-6160). */
-const issueIdsOfSeq = prepared((db: StoreDrizzle) =>
+const issueIdsOfSeq = prepared((db, t) =>
   db
-    .select({ id: issuesTable.id })
-    .from(issuesTable)
-    .where(eq(issuesTable.seq, param(issuesTable.seq, 'seq')))
+    .select({ id: t.issues.id })
+    .from(t.issues)
+    .where(eq(t.issues.seq, param(t.issues.seq, 'seq')))
     .prepare(),
 )
 
 /** A machine's live sessions (POD-6160). */
-const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
+const liveSessionsOnMachine = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')),
-      isNull(sessionsTable.deletedAt),
+      eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
-const liveSessions = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, isNull(sessionsTable.deletedAt)),
-)
+const liveSessions = prepared((db, t) => sessionsWhere(db, t, isNull(t.sessions.deletedAt)))
 
 /**
  * A machine's sessions whose desired state the lifecycle controller has not
@@ -373,10 +364,10 @@ const liveSessions = prepared((db: StoreDrizzle) =>
  * named (server-data rule 3); the FROM is an INDEXED BY clause, so the columns
  * are bare identifiers.
  */
-const lifecyclePendingOnMachine = prepared((db: StoreDrizzle) =>
+const lifecyclePendingOnMachine = prepared((db, t) =>
   db
     .select({ id: sql<string>`id` })
-    .from(sql`${sessionsTable} INDEXED BY idx_sessions_lifecycle_pending`)
+    .from(sql`${t.sessions} INDEXED BY idx_sessions_lifecycle_pending`)
     .where(
       sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
     )
@@ -388,32 +379,26 @@ const lifecyclePendingOnMachine = prepared((db: StoreDrizzle) =>
  * boot's ledger baseline reads every session this way, a page at a time, so no
  * statement returns the whole table and nothing is made resident.
  */
-const liveSessionsPage = prepared((db: StoreDrizzle) =>
+const liveSessionsPage = prepared((db, t) =>
   db
     .select()
-    .from(sessionsTable)
-    .where(
-      and(isNull(sessionsTable.deletedAt), sql`${sessionsTable.id} > ${sql.placeholder('after')}`),
-    )
-    .orderBy(asc(sessionsTable.id))
+    .from(t.sessions)
+    .where(and(isNull(t.sessions.deletedAt), sql`${t.sessions.id} > ${sql.placeholder('after')}`))
+    .orderBy(asc(t.sessions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 /** Live sessions with no birth ref yet, in the boot ref backfill's order
  *  (#474): created_at, then id. */
-const liveSessionsWithoutRef = prepared((db: StoreDrizzle) =>
+const liveSessionsWithoutRef = prepared((db, t) =>
   db
     .select()
-    .from(sessionsTable)
+    .from(t.sessions)
     .where(
-      and(
-        isNull(sessionsTable.refIssueId),
-        isNull(sessionsTable.refDraft),
-        isNull(sessionsTable.deletedAt),
-      ),
+      and(isNull(t.sessions.refIssueId), isNull(t.sessions.refDraft), isNull(t.sessions.deletedAt)),
     )
-    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
+    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare(),
 )
 
@@ -431,38 +416,36 @@ const REFLESS = sql.raw('s.ref_issue_id IS NULL AND s.ref_draft IS NULL AND s.de
  * `idx_sessions_ref_draft`, which holds every session. So the statement touches
  * the rows that can still get a ref, not every ref-less session in history.
  */
-const refBackfillCandidates = prepared((db: StoreDrizzle) =>
+const refBackfillCandidates = prepared((db, t) =>
   db
     .select()
-    .from(sessionsTable)
-    .where(sql`${sessionsTable}.rowid IN (
-      SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${sessionsTable} AS s
+    .from(t.sessions)
+    .where(sql`${t.sessions}.rowid IN (
+      SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${t.sessions} AS s
         WHERE ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
           AND s.cwd >= json_extract(b.value, '$[1]') AND s.cwd < json_extract(b.value, '$[2]')
       UNION ALL
-      SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${sessionsTable} AS s
+      SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${t.sessions} AS s
         WHERE ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
       UNION ALL
-      SELECT s.rowid FROM ${sessionsTable} AS s INDEXED BY idx_sessions_refless_issue
+      SELECT s.rowid FROM ${t.sessions} AS s INDEXED BY idx_sessions_refless_issue
         WHERE ${REFLESS} AND s.issue_id IS NOT NULL
-          AND EXISTS (SELECT 1 FROM ${issuesTable} AS i WHERE i.id = s.issue_id)
+          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.id = s.issue_id)
     )`)
-    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
+    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare(),
 )
 
-const deletedSessions = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, isNotNull(sessionsTable.deletedAt)),
-)
+const deletedSessions = prepared((db, t) => sessionsWhere(db, t, isNotNull(t.sessions.deletedAt)))
 
-const deletedByIssue = (): SQL | undefined =>
+const deletedByIssue = (t: StoreTables): SQL | undefined =>
   and(
-    isNotNull(sessionsTable.deletedAt),
-    eq(sessionsTable.deletionSource, 'issue'),
-    eq(sessionsTable.deletedByIssueId, param(sessionsTable.deletedByIssueId, 'issueId')),
+    isNotNull(t.sessions.deletedAt),
+    eq(t.sessions.deletionSource, 'issue'),
+    eq(t.sessions.deletedByIssueId, param(t.sessions.deletedByIssueId, 'issueId')),
   )
 
-const deletedSessionsForIssue = prepared((db: StoreDrizzle) => sessionsWhere(db, deletedByIssue()))
+const deletedSessionsForIssue = prepared((db, t) => sessionsWhere(db, t, deletedByIssue(t)))
 
 /**
  * The upsert keyed by the set of keys its values actually carry: drizzle skips
@@ -544,19 +527,23 @@ function changedGroups(
  * (see {@link INDEXED_GROUPS}).
  */
 function sessionUpsertSet(
+  t: StoreTables,
   value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
   groups: number,
 ) {
   const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> =
-    fullSessionUpsertSet(value)
+    fullSessionUpsertSet(t, value)
   for (const key of INDEXED_COLUMNS) if ((groups & GROUP_BIT.get(key)!) === 0) delete set[key]
   return set
 }
 
-function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
+function fullSessionUpsertSet(
+  t: StoreTables,
+  value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
+) {
   const nextPublication = value('lastActivePublishAfter')
-  const publishActivity = sql`${sessionsTable.lastActivePublishAfter} <= ${nextPublication} - ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS}
-    AND excluded."last_active_at" > ${sessionsTable.publishedLastActiveAt}`
+  const publishActivity = sql`${t.sessions.lastActivePublishAfter} <= ${nextPublication} - ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS}
+    AND excluded."last_active_at" > ${t.sessions.publishedLastActiveAt}`
   return {
     cwd: value('cwd'),
     model: value('model'),
@@ -564,7 +551,7 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     requestedModel: value('requestedModel'),
     requestedEffort: value('requestedEffort'),
     accountId: value('accountId'),
-    loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
+    loginHarness: sql`COALESCE(${t.sessions.loginHarness}, excluded."login_harness")`,
     title: value('title'),
     name: value('name'),
     nameSource: value('nameSource'),
@@ -588,7 +575,7 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     // fresh-relaunch path depends on — a caller that reconstructs a stale
     // Session and persists it must not be able to un-prove a conversation.
     conversationBinding: sql`CASE
-         WHEN ${sessionsTable.conversationBinding} = 'bound' THEN 'bound'
+         WHEN ${t.sessions.conversationBinding} = 'bound' THEN 'bound'
          ELSE excluded."conversation_binding"
        END`,
     status: value('status'),
@@ -599,11 +586,11 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     publishedLastActiveAt:
       nextPublication === undefined
         ? undefined
-        : sql`CASE WHEN ${publishActivity} THEN excluded."last_active_at" ELSE ${sessionsTable.publishedLastActiveAt} END`,
+        : sql`CASE WHEN ${publishActivity} THEN excluded."last_active_at" ELSE ${t.sessions.publishedLastActiveAt} END`,
     lastActivePublishAfter:
       nextPublication === undefined
         ? undefined
-        : sql`CASE WHEN ${publishActivity} THEN ${nextPublication} ELSE ${sessionsTable.lastActivePublishAfter} END`,
+        : sql`CASE WHEN ${publishActivity} THEN ${nextPublication} ELSE ${t.sessions.lastActivePublishAfter} END`,
     terminalCols: value('terminalCols'),
     terminalRows: value('terminalRows'),
     workingMsTotal: value('workingMsTotal'),
@@ -637,33 +624,33 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     // Birth name is PERMANENT (#474): once allocated it never changes, even
     // when the session re-attaches to a different issue. COALESCE keeps the
     // first non-null allocation.
-    refIssueId: sql`COALESCE(${sessionsTable.refIssueId}, excluded."ref_issue_id")`,
-    refLetter: sql`COALESCE(${sessionsTable.refLetter}, excluded."ref_letter")`,
-    refDraft: sql`COALESCE(${sessionsTable.refDraft}, excluded."ref_draft")`,
+    refIssueId: sql`COALESCE(${t.sessions.refIssueId}, excluded."ref_issue_id")`,
+    refLetter: sql`COALESCE(${t.sessions.refLetter}, excluded."ref_letter")`,
+    refDraft: sql`COALESCE(${t.sessions.refDraft}, excluded."ref_draft")`,
     // ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
     // SESSION_IMMUTABLE_AFTER_CREATE lists `createdBy`). COALESCE keeps the
     // pair stamped at birth: an upsert from a later code path — a status
     // change, a rename, a reattach — must not be able to re-attribute the
     // session to whoever happened to trigger it. It can only FILL a pair
     // that was never recorded, never overwrite one that was.
-    delegation: sql`COALESCE(${sessionsTable.delegation}, excluded."delegation")`,
-    createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
-    createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
-    createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
+    delegation: sql`COALESCE(${t.sessions.delegation}, excluded."delegation")`,
+    createdByActorKind: sql`COALESCE(${t.sessions.createdByActorKind}, excluded."created_by_actor_kind")`,
+    createdByActorId: sql`COALESCE(${t.sessions.createdByActorId}, excluded."created_by_actor_id")`,
+    createdByOnBehalfOf: sql`COALESCE(${t.sessions.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
   }
 }
 
 /** The one-row upsert, keyed `${groups}|${shape}`: the changed groups, then the keys its values carry. */
-const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+const upsertSessionOfShape = preparedFamily((db, t, key: string) => {
   const bar = key.indexOf('|')
   const groups = Number(key.slice(0, bar))
   const p = placeholdersFor(key.slice(bar + 1)) as SessionPlaceholders
   return db
-    .insert(sessionsTable)
+    .insert(t.sessions)
     .values(p as unknown as SessionInsert)
     .onConflictDoUpdate({
-      target: sessionsTable.id,
-      set: sessionUpsertSet((name) => p[name], groups),
+      target: t.sessions.id,
+      set: sessionUpsertSet(t, (name) => p[name], groups),
     })
     .prepare()
 })
@@ -687,23 +674,24 @@ const rowParam = (index: number, key: string): string => `r${index}_${key}`
  * already wrote). `groups` is {@link manyRowGroups} of the rows' changed groups,
  * so three per size.
  */
-const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
   const [sizeKey, groupsKey] = key.split('|', 2) as [string, string]
   const size = Number(sizeKey)
   const groups = Number(groupsKey)
   const shape = key.slice(sizeKey.length + groupsKey.length + 2)
   const keys = shape === '' ? [] : shape.split(',')
   const present = new Set<string>(keys)
-  const columns = getTableColumns(sessionsTable)
+  const columns = getTableColumns(t.sessions)
   const rows = Array.from({ length: size }, (_, index) =>
     Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
   )
   return db
-    .insert(sessionsTable)
+    .insert(t.sessions)
     .values(rows as unknown as SessionInsert[])
     .onConflictDoUpdate({
-      target: sessionsTable.id,
+      target: t.sessions.id,
       set: sessionUpsertSet(
+        t,
         (name) =>
           present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
         groups,
@@ -827,32 +815,32 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
   return values
 }
 
-const untombstonedById = (): SQL | undefined =>
-  and(eq(sessionsTable.id, param(sessionsTable.id, 'id')), isNull(sessionsTable.deletedAt))
+const untombstonedById = (t: StoreTables): SQL | undefined =>
+  and(eq(t.sessions.id, param(t.sessions.id, 'id')), isNull(t.sessions.deletedAt))
 
-const stopRunningForTombstone = prepared((db: StoreDrizzle) =>
+const stopRunningForTombstone = prepared((db, t) =>
   db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
-    .where(and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live'])))
+    .where(and(untombstonedById(t), inArray(t.sessions.status, ['starting', 'live'])))
     .prepare(),
 )
 
-const tombstoneSession = prepared((db: StoreDrizzle) =>
+const tombstoneSession = prepared((db, t) =>
   db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({
       deletedAt: sql.placeholder('deletedAt'),
       deletionSource: sql.placeholder('source'),
       deletedByIssueId: sql.placeholder('deletedByIssueId'),
     })
-    .where(untombstonedById())
+    .where(untombstonedById(t))
     .prepare(),
 )
 
-const restoreSessionsOfIssue = prepared((db: StoreDrizzle) =>
+const restoreSessionsOfIssue = prepared((db, t) =>
   db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({
       deletedAt: null,
       deletionSource: null,
@@ -860,101 +848,103 @@ const restoreSessionsOfIssue = prepared((db: StoreDrizzle) =>
       status: 'exited',
       exitCode: null,
     })
-    .where(deletedByIssue())
+    .where(deletedByIssue(t))
     .prepare(),
 )
 
-const detachTombstones = prepared((db: StoreDrizzle) => {
+const detachTombstones = prepared((db, t) => {
   const issueId = sql.placeholder('issueId')
   return db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({
-      issueId: sql`CASE WHEN ${sessionsTable.issueId} = ${issueId} THEN NULL ELSE ${sessionsTable.issueId} END`,
-      refIssueId: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
-      refLetter: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refLetter} END`,
+      issueId: sql`CASE WHEN ${t.sessions.issueId} = ${issueId} THEN NULL ELSE ${t.sessions.issueId} END`,
+      refIssueId: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refIssueId} END`,
+      refLetter: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refLetter} END`,
     })
     .where(
       and(
-        isNotNull(sessionsTable.deletedAt),
+        isNotNull(t.sessions.deletedAt),
         or(
-          eq(sessionsTable.issueId, param(sessionsTable.issueId, 'issueId')),
-          eq(sessionsTable.refIssueId, param(sessionsTable.refIssueId, 'issueId')),
+          eq(t.sessions.issueId, param(t.sessions.issueId, 'issueId')),
+          eq(t.sessions.refIssueId, param(t.sessions.refIssueId, 'issueId')),
         ),
       ),
     )
     .prepare()
 })
 
-const detachDanglingReferences = prepared((db: StoreDrizzle) => {
+const detachDanglingReferences = prepared((db, t) => {
   // The subquery's own column is unqualified and resolves inside `issues`,
   // which is what it must do; the OUTER columns are the `sessions` ones the
   // builder qualifies for us here because they are named as columns rather
   // than interpolated into the fragment.
-  const danglingIssue = sql`${sessionsTable.issueId} IS NOT NULL AND ${sessionsTable.issueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
-  const danglingRef = sql`${sessionsTable.refIssueId} IS NOT NULL AND ${sessionsTable.refIssueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
+  const danglingIssue = sql`${t.sessions.issueId} IS NOT NULL AND ${t.sessions.issueId} NOT IN (SELECT ${t.issues.id} FROM ${t.issues})`
+  const danglingRef = sql`${t.sessions.refIssueId} IS NOT NULL AND ${t.sessions.refIssueId} NOT IN (SELECT ${t.issues.id} FROM ${t.issues})`
   return db
-    .update(sessionsTable)
+    .update(t.sessions)
     .set({
-      issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${sessionsTable.issueId} END`,
-      refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refLetter} END`,
-      refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
+      issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${t.sessions.issueId} END`,
+      refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refLetter} END`,
+      refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refIssueId} END`,
     })
     .where(or(danglingIssue, danglingRef))
     .prepare()
 })
 
-const deleteCheckpointsOfSession = prepared((db: StoreDrizzle) =>
+const deleteCheckpointsOfSession = prepared((db, t) =>
   db
-    .delete(runtimeEventCheckpoints)
-    .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'id')))
+    .delete(t.runtimeEventCheckpoints)
+    .where(
+      eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+    )
     .prepare(),
 )
 
-const deleteSessionRow = prepared((db: StoreDrizzle) =>
+const deleteSessionRow = prepared((db, t) =>
   db
-    .delete(sessionsTable)
-    .where(eq(sessionsTable.id, param(sessionsTable.id, 'id')))
+    .delete(t.sessions)
+    .where(eq(t.sessions.id, param(t.sessions.id, 'id')))
     .prepare(),
 )
 
-const deletePanelPinsOf = prepared((db: StoreDrizzle) =>
+const deletePanelPinsOf = prepared((db, t) =>
   db
-    .delete(pinsTable)
-    .where(and(eq(pinsTable.kind, 'panel'), eq(pinsTable.id, param(pinsTable.id, 'id'))))
+    .delete(t.pins)
+    .where(and(eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id'))))
     .prepare(),
 )
 
-const deleteDraftOf = prepared((db: StoreDrizzle) =>
+const deleteDraftOf = prepared((db, t) =>
   db
-    .delete(sessionDrafts)
-    .where(eq(sessionDrafts.sessionId, param(sessionDrafts.sessionId, 'id')))
+    .delete(t.sessionDrafts)
+    .where(eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')))
     .prepare(),
 )
 
-const deleteSnoozesOf = prepared((db: StoreDrizzle) =>
+const deleteSnoozesOf = prepared((db, t) =>
   db
-    .delete(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'id')))
+    .delete(t.snoozes)
+    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id')))
     .prepare(),
 )
 
-const deleteUserStateOf = prepared((db: StoreDrizzle) =>
+const deleteUserStateOf = prepared((db, t) =>
   db
-    .delete(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'id')))
+    .delete(t.sessionUserState)
+    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')))
     .prepare(),
 )
 
-const deleteOfferOf = prepared((db: StoreDrizzle) =>
+const deleteOfferOf = prepared((db, t) =>
   db
-    .delete(offersTable)
-    .where(eq(offersTable.sessionId, param(offersTable.sessionId, 'id')))
+    .delete(t.offers)
+    .where(eq(t.offers.sessionId, param(t.offers.sessionId, 'id')))
     .prepare(),
 )
 
-const insertPin = prepared((db: StoreDrizzle) =>
+const insertPin = prepared((db, t) =>
   db
-    .insert(pinsTable)
+    .insert(t.pins)
     .values({
       userId: sql.placeholder('userId'),
       kind: sql.placeholder('kind'),
@@ -965,226 +955,214 @@ const insertPin = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const onePin = () =>
+const onePin = (t: StoreTables) =>
   and(
-    eq(pinsTable.userId, param(pinsTable.userId, 'userId')),
-    eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
-    eq(pinsTable.id, param(pinsTable.id, 'id')),
+    eq(t.pins.userId, param(t.pins.userId, 'userId')),
+    eq(t.pins.kind, param(t.pins.kind, 'kind')),
+    eq(t.pins.id, param(t.pins.id, 'id')),
   )
 
-const deletePin = prepared((db: StoreDrizzle) => db.delete(pinsTable).where(onePin()).prepare())
+const deletePin = prepared((db, t) => db.delete(t.pins).where(onePin(t)).prepare())
 
 // Every person's pin of one thing, removed with it (POD-6692: a purged issue).
-const deletePinsOfTarget = prepared((db: StoreDrizzle) =>
+const deletePinsOfTarget = prepared((db, t) =>
   db
-    .delete(pinsTable)
-    .where(
-      and(
-        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
-        eq(pinsTable.id, param(pinsTable.id, 'id')),
-      ),
-    )
-    .returning({ userId: pinsTable.userId })
+    .delete(t.pins)
+    .where(and(eq(t.pins.kind, param(t.pins.kind, 'kind')), eq(t.pins.id, param(t.pins.id, 'id'))))
+    .returning({ userId: t.pins.userId })
     .prepare(),
 )
 
 /** Who pins one thing, through `idx_pins_target`. */
-const pinnersOfTarget = prepared((db: StoreDrizzle) =>
+const pinnersOfTarget = prepared((db, t) =>
   db
-    .select({ userId: pinsTable.userId })
-    .from(pinsTable)
-    .where(
-      and(
-        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
-        eq(pinsTable.id, param(pinsTable.id, 'id')),
-      ),
-    )
+    .select({ userId: t.pins.userId })
+    .from(t.pins)
+    .where(and(eq(t.pins.kind, param(t.pins.kind, 'kind')), eq(t.pins.id, param(t.pins.id, 'id'))))
     .prepare(),
 )
 
-const pinOf = prepared((db: StoreDrizzle) =>
-  db.select({ pinnedAt: pinsTable.pinnedAt }).from(pinsTable).where(onePin()).prepare(),
+const pinOf = prepared((db, t) =>
+  db.select({ pinnedAt: t.pins.pinnedAt }).from(t.pins).where(onePin(t)).prepare(),
 )
 
 // Every person's pins: the `pin` kind's full truth for the boot reconcile.
-const allPins = prepared((db: StoreDrizzle) =>
+const allPins = prepared((db, t) =>
   db
     .select({
-      userId: pinsTable.userId,
-      kind: pinsTable.kind,
-      id: pinsTable.id,
-      pinnedAt: pinsTable.pinnedAt,
+      userId: t.pins.userId,
+      kind: t.pins.kind,
+      id: t.pins.id,
+      pinnedAt: t.pins.pinnedAt,
     })
-    .from(pinsTable)
+    .from(t.pins)
     .prepare(),
 )
 
-const allUserStateRows = prepared((db: StoreDrizzle) =>
-  db.select().from(sessionUserState).where(undefined).prepare(),
+const allUserStateRows = prepared((db, t) =>
+  db.select().from(t.sessionUserState).where(undefined).prepare(),
 )
 
-const personalRecordKeys = preparedFamily((db: StoreDrizzle, size: number) =>
+const personalRecordKeys = preparedFamily((db, t, size: number) =>
   db
-    .select({ userId: sessionUserState.userId, sessionId: sessionUserState.sessionId })
-    .from(sessionUserState)
-    .where(inListOf(sessionUserState.sessionId, size))
+    .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
+    .from(t.sessionUserState)
+    .where(inListOf(t.sessionUserState.sessionId, size))
     .unionAll(
       db
-        .select({ userId: snoozesTable.userId, sessionId: snoozesTable.sessionId })
-        .from(snoozesTable)
-        .where(inListOf(snoozesTable.sessionId, size)),
+        .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
+        .from(t.snoozes)
+        .where(inListOf(t.snoozes.sessionId, size)),
     )
     .prepare(),
 )
 
 /** The same keys for these people (POD-6920: a disabled person's markers leave). */
-const personalRecordKeysOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+const personalRecordKeysOfUsers = preparedFamily((db, t, size: number) =>
   db
-    .select({ userId: sessionUserState.userId, sessionId: sessionUserState.sessionId })
-    .from(sessionUserState)
-    .where(inListOf(sessionUserState.userId, size))
+    .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
+    .from(t.sessionUserState)
+    .where(inListOf(t.sessionUserState.userId, size))
     .unionAll(
       db
-        .select({ userId: snoozesTable.userId, sessionId: snoozesTable.sessionId })
-        .from(snoozesTable)
-        .where(inListOf(snoozesTable.userId, size)),
+        .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
+        .from(t.snoozes)
+        .where(inListOf(t.snoozes.userId, size)),
     )
     .prepare(),
 )
 
-const userStateRowsOfSession = prepared((db: StoreDrizzle) =>
+const userStateRowsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')))
+    .from(t.sessionUserState)
+    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')))
     .prepare(),
 )
 
-const allSnoozeRows = prepared((db: StoreDrizzle) =>
-  db.select().from(snoozesTable).where(undefined).prepare(),
-)
+const allSnoozeRows = prepared((db, t) => db.select().from(t.snoozes).where(undefined).prepare())
 
-const snoozeRowsOfSession = prepared((db: StoreDrizzle) =>
+const snoozeRowsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
+    .from(t.snoozes)
+    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
     .prepare(),
 )
 
-const userSessionSnooze = prepared((db: StoreDrizzle) =>
+const userSessionSnooze = prepared((db, t) =>
   db
-    .select({ until: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
+    .select({ until: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
     .where(
       and(
-        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
-        eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')),
+        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+        eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
       ),
     )
     .prepare(),
 )
 
-const readAtOfUser = prepared((db: StoreDrizzle) =>
+const readAtOfUser = prepared((db, t) =>
   db
-    .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
-    .from(sessionUserState)
-    .where(eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')))
+    .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
+    .where(eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')))
     .prepare(),
 )
 
-const userSessionState = (): SQL | undefined =>
+const userSessionState = (t: StoreTables): SQL | undefined =>
   and(
-    eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')),
-    eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')),
+    eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+    eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
   )
 
-const readAtOfUserSession = prepared((db: StoreDrizzle) =>
+const readAtOfUserSession = prepared((db, t) =>
   db
-    .select({ readAt: sessionUserState.readAt })
-    .from(sessionUserState)
-    .where(userSessionState())
+    .select({ readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
+    .where(userSessionState(t))
     .prepare(),
 )
 
-const upsertReadAt = prepared((db: StoreDrizzle) =>
+const upsertReadAt = prepared((db, t) =>
   db
-    .insert(sessionUserState)
+    .insert(t.sessionUserState)
     .values({
       userId: sql.placeholder('userId'),
       sessionId: sql.placeholder('sessionId'),
       readAt: sql.placeholder('readAt'),
     })
     .onConflictDoUpdate({
-      target: [sessionUserState.userId, sessionUserState.sessionId],
+      target: [t.sessionUserState.userId, t.sessionUserState.sessionId],
       set: { readAt: sql.placeholder('readAt') },
     })
     .prepare(),
 )
 
-const deleteReadAt = prepared((db: StoreDrizzle) =>
-  db.delete(sessionUserState).where(userSessionState()).prepare(),
+const deleteReadAt = prepared((db, t) =>
+  db.delete(t.sessionUserState).where(userSessionState(t)).prepare(),
 )
 
-const deleteAllReadAtOf = prepared((db: StoreDrizzle) =>
+const deleteAllReadAtOf = prepared((db, t) =>
   db
-    .delete(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')))
-    .returning({ userId: sessionUserState.userId })
+    .delete(t.sessionUserState)
+    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')))
+    .returning({ userId: t.sessionUserState.userId })
     .prepare(),
 )
 
 /** One user's read markers for a set of sessions (POD-6160). */
-const readAtOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+const readAtOfUserSessions = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
-    .from(sessionUserState)
+    .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
     .where(
       and(
-        eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')),
-        inListOf(sessionUserState.sessionId, size),
+        eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+        inListOf(t.sessionUserState.sessionId, size),
       ),
     )
     .prepare(),
 )
 
 /** One user's snoozes for a set of sessions (POD-6160). */
-const snoozesOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+const snoozesOfUserSessions = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
+    .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
     .where(
       and(
-        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
-        inListOf(snoozesTable.sessionId, size),
+        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+        inListOf(t.snoozes.sessionId, size),
       ),
     )
     .prepare(),
 )
 
-const snoozesOfUser = prepared((db: StoreDrizzle) =>
+const snoozesOfUser = prepared((db, t) =>
   db
-    .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
-    .where(eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')))
+    .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
+    .where(eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')))
     .prepare(),
 )
 
-const deleteUserSnooze = prepared((db: StoreDrizzle) =>
+const deleteUserSnooze = prepared((db, t) =>
   db
-    .delete(snoozesTable)
+    .delete(t.snoozes)
     .where(
       and(
-        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
-        eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')),
+        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+        eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
       ),
     )
     .prepare(),
 )
 
-const upsertSnooze = prepared((db: StoreDrizzle) =>
+const upsertSnooze = prepared((db, t) =>
   db
-    .insert(snoozesTable)
+    .insert(t.snoozes)
     .values({
       userId: sql.placeholder('userId'),
       sessionId: sql.placeholder('sessionId'),
@@ -1192,38 +1170,38 @@ const upsertSnooze = prepared((db: StoreDrizzle) =>
       createdAt: sql.placeholder('createdAt'),
     })
     .onConflictDoUpdate({
-      target: [snoozesTable.userId, snoozesTable.sessionId],
+      target: [t.snoozes.userId, t.snoozes.sessionId],
       set: { snoozedUntil: sql.placeholder('snoozedUntil') },
     })
     .prepare(),
 )
 
-const anySnoozeOf = prepared((db: StoreDrizzle) =>
+const anySnoozeOf = prepared((db, t) =>
   db
     .select({ present: sql<number>`1` })
-    .from(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
+    .from(t.snoozes)
+    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
     .limit(1)
     .prepare(),
 )
 
-const deleteAllSnoozesOf = prepared((db: StoreDrizzle) =>
+const deleteAllSnoozesOf = prepared((db, t) =>
   db
-    .delete(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
-    .returning({ userId: snoozesTable.userId })
+    .delete(t.snoozes)
+    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
+    .returning({ userId: t.snoozes.userId })
     .prepare(),
 )
 
-const allOffers = prepared((db: StoreDrizzle) => db.select().from(offersTable).prepare())
+const allOffers = prepared((db, t) => db.select().from(t.offers).prepare())
 
-const offersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(offersTable).where(inListOf(offersTable.sessionId, size)).prepare(),
+const offersOfIds = preparedFamily((db, t, size: number) =>
+  db.select().from(t.offers).where(inListOf(t.offers.sessionId, size)).prepare(),
 )
 
-const upsertOffer = prepared((db: StoreDrizzle) =>
+const upsertOffer = prepared((db, t) =>
   db
-    .insert(offersTable)
+    .insert(t.offers)
     .values({
       sessionId: sql.placeholder('sessionId'),
       message: sql.placeholder('message'),
@@ -1232,7 +1210,7 @@ const upsertOffer = prepared((db: StoreDrizzle) =>
       createdAt: sql.placeholder('createdAt'),
     })
     .onConflictDoUpdate({
-      target: offersTable.sessionId,
+      target: t.offers.sessionId,
       set: {
         message: sql.placeholder('message'),
         actions: sql.placeholder('actions'),
@@ -1243,42 +1221,42 @@ const upsertOffer = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const offerCreatedAtOf = prepared((db: StoreDrizzle) =>
+const offerCreatedAtOf = prepared((db, t) =>
   db
-    .select({ createdAt: offersTable.createdAt })
-    .from(offersTable)
-    .where(eq(offersTable.sessionId, param(offersTable.sessionId, 'sessionId')))
+    .select({ createdAt: t.offers.createdAt })
+    .from(t.offers)
+    .where(eq(t.offers.sessionId, param(t.offers.sessionId, 'sessionId')))
     .prepare(),
 )
 
-const tabOrderOf = prepared((db: StoreDrizzle) =>
+const tabOrderOf = prepared((db, t) =>
   db
-    .select({ ids: tabOrder.ids })
-    .from(tabOrder)
+    .select({ ids: t.tabOrder.ids })
+    .from(t.tabOrder)
     .where(
       and(
-        eq(tabOrder.userId, param(tabOrder.userId, 'userId')),
-        eq(tabOrder.worktree, param(tabOrder.worktree, 'worktree')),
+        eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
+        eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
       ),
     )
     .prepare(),
 )
 
-const deleteTabOrder = prepared((db: StoreDrizzle) =>
+const deleteTabOrder = prepared((db, t) =>
   db
-    .delete(tabOrder)
+    .delete(t.tabOrder)
     .where(
       and(
-        eq(tabOrder.userId, param(tabOrder.userId, 'userId')),
-        eq(tabOrder.worktree, param(tabOrder.worktree, 'worktree')),
+        eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
+        eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
       ),
     )
     .prepare(),
 )
 
-const upsertTabOrder = prepared((db: StoreDrizzle) =>
+const upsertTabOrder = prepared((db, t) =>
   db
-    .insert(tabOrder)
+    .insert(t.tabOrder)
     .values({
       userId: sql.placeholder('userId'),
       worktree: sql.placeholder('worktree'),
@@ -1286,7 +1264,7 @@ const upsertTabOrder = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [tabOrder.userId, tabOrder.worktree],
+      target: [t.tabOrder.userId, t.tabOrder.worktree],
       set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
@@ -1300,85 +1278,85 @@ const upsertTabOrder = prepared((db: StoreDrizzle) =>
 // this epic's whole criterion. No test could have seen it.
 /** Many people's pins and tab orders, for building those records by id
  *  (POD-6763): a person's own rows, through the primary key's `user_id` prefix. */
-const pinsOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+const pinsOfUsers = preparedFamily((db, t, size: number) =>
   db
     .select({
-      userId: pinsTable.userId,
-      kind: pinsTable.kind,
-      id: pinsTable.id,
-      pinnedAt: pinsTable.pinnedAt,
+      userId: t.pins.userId,
+      kind: t.pins.kind,
+      id: t.pins.id,
+      pinnedAt: t.pins.pinnedAt,
     })
-    .from(pinsTable)
-    .where(inListOf(pinsTable.userId, size, 'users'))
+    .from(t.pins)
+    .where(inListOf(t.pins.userId, size, 'users'))
     .prepare(),
 )
 
-const tabOrdersOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+const tabOrdersOfUsers = preparedFamily((db, t, size: number) =>
   db
-    .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
-    .from(tabOrder)
-    .where(inListOf(tabOrder.userId, size, 'users'))
+    .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
+    .from(t.tabOrder)
+    .where(inListOf(t.tabOrder.userId, size, 'users'))
     .prepare(),
 )
 
-const allTabOrders = prepared((db: StoreDrizzle) =>
+const allTabOrders = prepared((db, t) =>
   db
-    .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
-    .from(tabOrder)
+    .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
+    .from(t.tabOrder)
     .prepare(),
 )
 
-const draftTexts = prepared((db: StoreDrizzle) =>
+const draftTexts = prepared((db, t) =>
   db
-    .select({ sessionId: sessionDrafts.sessionId, text: sessionDrafts.text })
-    .from(sessionDrafts)
+    .select({ sessionId: t.sessionDrafts.sessionId, text: t.sessionDrafts.text })
+    .from(t.sessionDrafts)
     .prepare(),
 )
 
-const draftTimes = prepared((db: StoreDrizzle) =>
+const draftTimes = prepared((db, t) =>
   db
-    .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
-    .from(sessionDrafts)
+    .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
+    .from(t.sessionDrafts)
     .prepare(),
 )
 
-const draftTimesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const draftTimesOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
-    .from(sessionDrafts)
-    .where(inListOf(sessionDrafts.sessionId, size))
+    .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
+    .from(t.sessionDrafts)
+    .where(inListOf(t.sessionDrafts.sessionId, size))
     .prepare(),
 )
 
-const upsertDraftText = prepared((db: StoreDrizzle) =>
+const upsertDraftText = prepared((db, t) =>
   db
-    .insert(sessionDrafts)
+    .insert(t.sessionDrafts)
     .values({
       sessionId: sql.placeholder('sessionId'),
       text: sql.placeholder('text'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: sessionDrafts.sessionId,
+      target: t.sessionDrafts.sessionId,
       set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
 )
 
-const allDraftRows = prepared((db: StoreDrizzle) => db.select().from(sessionDrafts).prepare())
+const allDraftRows = prepared((db, t) => db.select().from(t.sessionDrafts).prepare())
 
 /** One session's versioned draft document (POD-6160: drafts load on use). */
-const draftRowOf = prepared((db: StoreDrizzle) =>
+const draftRowOf = prepared((db, t) =>
   db
     .select()
-    .from(sessionDrafts)
-    .where(eq(sessionDrafts.sessionId, param(sessionDrafts.sessionId, 'sessionId')))
+    .from(t.sessionDrafts)
+    .where(eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'sessionId')))
     .prepare(),
 )
 
-const upsertDraftDoc = prepared((db: StoreDrizzle) =>
+const upsertDraftDoc = prepared((db, t) =>
   db
-    .insert(sessionDrafts)
+    .insert(t.sessionDrafts)
     .values({
       sessionId: sql.placeholder('sessionId'),
       text: sql.placeholder('text'),
@@ -1388,7 +1366,7 @@ const upsertDraftDoc = prepared((db: StoreDrizzle) =>
       history: sql.placeholder('history'),
     })
     .onConflictDoUpdate({
-      target: sessionDrafts.sessionId,
+      target: t.sessionDrafts.sessionId,
       set: {
         text: sql.placeholder('text'),
         updatedAt: sql.placeholder('updatedAt'),

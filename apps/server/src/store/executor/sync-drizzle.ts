@@ -1,12 +1,19 @@
 /** Async query builders and transaction ports bound to the store executor. */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import {
+  bindTables,
+  boundTables,
+  preparedFamily as preparedFamilyOn,
+  prepared as preparedOn,
+} from '@podium/sync/adapters/sqlite/prepared'
 import type { EmptyRelations } from 'drizzle-orm'
 import type { BatchItem, BatchResponse } from 'drizzle-orm/batch'
-import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
-import { SqliteRemoteDatabase, type AsyncRemoteCallback } from 'drizzle-orm/sqlite-proxy'
-import { SQLiteRemoteSession, type PreparedQueryConfig } from 'drizzle-orm/sqlite-proxy/session'
 import type { SQLiteAsyncRaw } from 'drizzle-orm/sqlite-core'
+import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
+import { type AsyncRemoteCallback, SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
+import { type PreparedQueryConfig, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session'
+import { bindingFor, type StoreTables } from './binding'
 import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
 
 export {
@@ -16,11 +23,35 @@ export {
   notInListOf,
   param,
   placeholdersFor,
-  prepared,
-  preparedFamily,
   preparedFamilyOverflows,
   shapeOf,
 } from '@podium/sync/adapters/sqlite/prepared'
+export type { StoreTables } from './binding'
+
+/**
+ * ONE QUERY, PREPARED ONCE PER STORE, BUILT FROM THE STORE'S TABLES [POD-6147,
+ * POD-6977]. `prepared((db, t) => db.select().from(t.issues)…)`: `t` is the
+ * table set bound to the store's drizzle instance (`./binding.ts`), so a
+ * definition names no table it imports. The package's function under the
+ * store's types; it is the same function, so each definition's registered site
+ * stays its own line (the query-plan audit maps definitions by it).
+ */
+export const prepared: <P>(
+  build: (db: StoreDrizzle, t: StoreTables) => P,
+) => (db: StoreDrizzle) => P = preparedOn
+
+/** A bounded set of prepared queries, one per shape; see the package's `preparedFamily`. */
+export const preparedFamily: <K extends string | number, P>(
+  build: (db: StoreDrizzle, t: StoreTables, key: K) => P,
+) => (db: StoreDrizzle, key: K) => P = preparedFamilyOn
+
+/**
+ * The tables bound to `db`, for the rare call site outside a definition that
+ * needs a column of the same engine (a guard another helper builds).
+ */
+export function storeTables(db: StoreDrizzle): StoreTables {
+  return boundTables(db) as StoreTables
+}
 
 /**
  * WHAT A REPOSITORY IS HANDED: a query builder and a transaction, together.
@@ -79,13 +110,19 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   ) {
     super(remoteCallback(queryClient, 'write', false), dialect, {})
     this.readingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'read', false), dialect, {},
+      remoteCallback(queryClient, 'read', false),
+      dialect,
+      {},
     )
     this.arrayReadingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'read', true), dialect, {},
+      remoteCallback(queryClient, 'read', true),
+      dialect,
+      {},
     )
     this.arrayWritingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'write', true), dialect, {},
+      remoteCallback(queryClient, 'write', true),
+      dialect,
+      {},
     )
   }
 
@@ -93,14 +130,13 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
     this.preparations += 1
     const intent = args[5]?.type === 'select' ? 'read' : 'write'
     const arrays = args[1] === 'arrays'
-    const prepared =
-      arrays
-        ? (intent === 'read'
-            ? this.arrayReadingSession
-            : this.arrayWritingSession).prepareQuery<T>(...args)
-        : intent === 'read'
-          ? this.readingSession.prepareQuery<T>(...args)
-          : super.prepareQuery<T>(...args)
+    const prepared = arrays
+      ? (intent === 'read' ? this.arrayReadingSession : this.arrayWritingSession).prepareQuery<T>(
+          ...args,
+        )
+      : intent === 'read'
+        ? this.readingSession.prepareQuery<T>(...args)
+        : super.prepareQuery<T>(...args)
     this.intents.set(prepared, intent)
     if (arrays) this.arrayQueries.add(prepared)
     return prepared
@@ -170,9 +206,10 @@ function remoteCallback(
       // Upstream types even a raw get result as an array. In raw mode its
       // executor returns this named row directly, without a positional mapper.
       return {
-        rows: row === undefined
-          ? (undefined as unknown as unknown[])
-          : (resultRow(row, arrayRows) as unknown[]),
+        rows:
+          row === undefined
+            ? (undefined as unknown as unknown[])
+            : (resultRow(row, arrayRows) as unknown[]),
       }
     }
     const rows =
@@ -183,7 +220,10 @@ function remoteCallback(
 
 function buildStoreDrizzle(client: QueryClient) {
   const dialect = new SQLiteDialect()
-  return new SqliteRemoteDatabase('async', dialect, new StoreRemoteSession(client, dialect), {})
+  return bindTables(
+    new SqliteRemoteDatabase('async', dialect, new StoreRemoteSession(client, dialect), {}),
+    bindingFor('sqlite'),
+  )
 }
 
 export type StoreDrizzle = Omit<
@@ -280,5 +320,8 @@ export function syncQueriesOver(database: SqlDatabase): StoreQueries {
     writeAll: async (sql, ...params) => await (await executor).drizzle.writeAll(sql, ...params),
     batch: async (statements) => await (await executor).drizzle.batch(statements),
   }
-  return storeQueriesOver(client, async (fn) => await (await executor).transact(async () => await fn()))
+  return storeQueriesOver(
+    client,
+    async (fn) => await (await executor).transact(async () => await fn()),
+  )
 }

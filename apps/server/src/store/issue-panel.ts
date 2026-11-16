@@ -7,13 +7,6 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
-import {
-  issuePanelArtifacts,
-  issuePanelDeferred,
-  issuePanelStates,
-  issuePanelTodos,
-  issues,
-} from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -30,58 +23,64 @@ export type PanelRecord =
   | IssuePanelDeferredWire
   | IssuePanelStateWire
 
-const todoByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const todoByIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ item: issuePanelTodos })
-    .from(issuePanelTodos)
-    .innerJoin(issues, eq(issues.id, issuePanelTodos.issueId))
-    .where(and(inListOf(issuePanelTodos.id, size), isNull(issues.deletedAt)))
+    .select({ item: t.issuePanelTodos })
+    .from(t.issuePanelTodos)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelTodos.issueId))
+    .where(and(inListOf(t.issuePanelTodos.id, size), isNull(t.issues.deletedAt)))
     .prepare(),
 )
-const todoOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const todoOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(issuePanelTodos)
-    .where(inListOf(issuePanelTodos.issueId, size))
-    .orderBy(asc(issuePanelTodos.issueId), asc(issuePanelTodos.position), asc(issuePanelTodos.id))
+    .from(t.issuePanelTodos)
+    .where(inListOf(t.issuePanelTodos.issueId, size))
+    .orderBy(
+      asc(t.issuePanelTodos.issueId),
+      asc(t.issuePanelTodos.position),
+      asc(t.issuePanelTodos.id),
+    )
     .prepare(),
 )
-const todoPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const todoPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select({ item: issuePanelTodos })
-    .from(issuePanelTodos)
-    .innerJoin(issues, eq(issues.id, issuePanelTodos.issueId))
+    .select({ item: t.issuePanelTodos })
+    .from(t.issuePanelTodos)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelTodos.issueId))
     .where(
       and(
-        isNull(issues.deletedAt),
-        phase === 'after' ? gt(issuePanelTodos.id, param(issuePanelTodos.id, 'after')) : undefined,
+        isNull(t.issues.deletedAt),
+        phase === 'after'
+          ? gt(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'after'))
+          : undefined,
       ),
     )
-    .orderBy(asc(issuePanelTodos.id))
+    .orderBy(asc(t.issuePanelTodos.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
-const todoNext = prepared((db: StoreDrizzle) =>
+const todoNext = prepared((db, t) =>
   db
-    .select({ position: sql<number>`coalesce(max(${issuePanelTodos.position}), -1) + 1` })
-    .from(issuePanelTodos)
-    .where(eq(issuePanelTodos.issueId, param(issuePanelTodos.issueId, 'issueId')))
+    .select({ position: sql<number>`coalesce(max(${t.issuePanelTodos.position}), -1) + 1` })
+    .from(t.issuePanelTodos)
+    .where(eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')))
     .prepare(),
 )
-const todoRemove = prepared((db: StoreDrizzle) =>
+const todoRemove = prepared((db, t) =>
   db
-    .delete(issuePanelTodos)
+    .delete(t.issuePanelTodos)
     .where(
       and(
-        eq(issuePanelTodos.id, param(issuePanelTodos.id, 'id')),
-        eq(issuePanelTodos.issueId, param(issuePanelTodos.issueId, 'issueId')),
+        eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
+        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
-const todoSave = prepared((db: StoreDrizzle) =>
+const todoSave = prepared((db, t) =>
   db
-    .insert(issuePanelTodos)
+    .insert(t.issuePanelTodos)
     .values({
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -90,70 +89,70 @@ const todoSave = prepared((db: StoreDrizzle) =>
       done: sql.placeholder('done'),
     })
     .onConflictDoUpdate({
-      target: issuePanelTodos.id,
+      target: t.issuePanelTodos.id,
       set: { text: sql`excluded.text`, done: sql`excluded.done` },
     })
     .prepare(),
 )
 
-const artifactByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const artifactByIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ item: issuePanelArtifacts })
-    .from(issuePanelArtifacts)
-    .innerJoin(issues, eq(issues.id, issuePanelArtifacts.issueId))
-    .where(and(inListOf(issuePanelArtifacts.id, size), isNull(issues.deletedAt)))
+    .select({ item: t.issuePanelArtifacts })
+    .from(t.issuePanelArtifacts)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelArtifacts.issueId))
+    .where(and(inListOf(t.issuePanelArtifacts.id, size), isNull(t.issues.deletedAt)))
     .prepare(),
 )
-const artifactOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const artifactOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(issuePanelArtifacts)
-    .where(inListOf(issuePanelArtifacts.issueId, size))
+    .from(t.issuePanelArtifacts)
+    .where(inListOf(t.issuePanelArtifacts.issueId, size))
     .orderBy(
-      asc(issuePanelArtifacts.issueId),
-      asc(issuePanelArtifacts.position),
-      asc(issuePanelArtifacts.id),
+      asc(t.issuePanelArtifacts.issueId),
+      asc(t.issuePanelArtifacts.position),
+      asc(t.issuePanelArtifacts.id),
     )
     .prepare(),
 )
-const artifactPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const artifactPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select({ item: issuePanelArtifacts })
-    .from(issuePanelArtifacts)
-    .innerJoin(issues, eq(issues.id, issuePanelArtifacts.issueId))
+    .select({ item: t.issuePanelArtifacts })
+    .from(t.issuePanelArtifacts)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelArtifacts.issueId))
     .where(
       and(
-        isNull(issues.deletedAt),
+        isNull(t.issues.deletedAt),
         phase === 'after'
-          ? gt(issuePanelArtifacts.id, param(issuePanelArtifacts.id, 'after'))
+          ? gt(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'after'))
           : undefined,
       ),
     )
-    .orderBy(asc(issuePanelArtifacts.id))
+    .orderBy(asc(t.issuePanelArtifacts.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
-const artifactNext = prepared((db: StoreDrizzle) =>
+const artifactNext = prepared((db, t) =>
   db
-    .select({ position: sql<number>`coalesce(max(${issuePanelArtifacts.position}), -1) + 1` })
-    .from(issuePanelArtifacts)
-    .where(eq(issuePanelArtifacts.issueId, param(issuePanelArtifacts.issueId, 'issueId')))
+    .select({ position: sql<number>`coalesce(max(${t.issuePanelArtifacts.position}), -1) + 1` })
+    .from(t.issuePanelArtifacts)
+    .where(eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')))
     .prepare(),
 )
-const artifactRemove = prepared((db: StoreDrizzle) =>
+const artifactRemove = prepared((db, t) =>
   db
-    .delete(issuePanelArtifacts)
+    .delete(t.issuePanelArtifacts)
     .where(
       and(
-        eq(issuePanelArtifacts.id, param(issuePanelArtifacts.id, 'id')),
-        eq(issuePanelArtifacts.issueId, param(issuePanelArtifacts.issueId, 'issueId')),
+        eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')),
+        eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
-const artifactSave = prepared((db: StoreDrizzle) =>
+const artifactSave = prepared((db, t) =>
   db
-    .insert(issuePanelArtifacts)
+    .insert(t.issuePanelArtifacts)
     .values({
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -162,70 +161,70 @@ const artifactSave = prepared((db: StoreDrizzle) =>
       value: sql.placeholder('value'),
     })
     .onConflictDoUpdate({
-      target: issuePanelArtifacts.id,
+      target: t.issuePanelArtifacts.id,
       set: { path: sql`excluded.path`, value: sql`excluded.value` },
     })
     .prepare(),
 )
 
-const deferredByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const deferredByIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ item: issuePanelDeferred })
-    .from(issuePanelDeferred)
-    .innerJoin(issues, eq(issues.id, issuePanelDeferred.issueId))
-    .where(and(inListOf(issuePanelDeferred.id, size), isNull(issues.deletedAt)))
+    .select({ item: t.issuePanelDeferred })
+    .from(t.issuePanelDeferred)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelDeferred.issueId))
+    .where(and(inListOf(t.issuePanelDeferred.id, size), isNull(t.issues.deletedAt)))
     .prepare(),
 )
-const deferredOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const deferredOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(issuePanelDeferred)
-    .where(inListOf(issuePanelDeferred.issueId, size))
+    .from(t.issuePanelDeferred)
+    .where(inListOf(t.issuePanelDeferred.issueId, size))
     .orderBy(
-      asc(issuePanelDeferred.issueId),
-      asc(issuePanelDeferred.position),
-      asc(issuePanelDeferred.id),
+      asc(t.issuePanelDeferred.issueId),
+      asc(t.issuePanelDeferred.position),
+      asc(t.issuePanelDeferred.id),
     )
     .prepare(),
 )
-const deferredPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const deferredPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select({ item: issuePanelDeferred })
-    .from(issuePanelDeferred)
-    .innerJoin(issues, eq(issues.id, issuePanelDeferred.issueId))
+    .select({ item: t.issuePanelDeferred })
+    .from(t.issuePanelDeferred)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelDeferred.issueId))
     .where(
       and(
-        isNull(issues.deletedAt),
+        isNull(t.issues.deletedAt),
         phase === 'after'
-          ? gt(issuePanelDeferred.id, param(issuePanelDeferred.id, 'after'))
+          ? gt(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'after'))
           : undefined,
       ),
     )
-    .orderBy(asc(issuePanelDeferred.id))
+    .orderBy(asc(t.issuePanelDeferred.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
-const deferredNext = prepared((db: StoreDrizzle) =>
+const deferredNext = prepared((db, t) =>
   db
-    .select({ position: sql<number>`coalesce(max(${issuePanelDeferred.position}), -1) + 1` })
-    .from(issuePanelDeferred)
-    .where(eq(issuePanelDeferred.issueId, param(issuePanelDeferred.issueId, 'issueId')))
+    .select({ position: sql<number>`coalesce(max(${t.issuePanelDeferred.position}), -1) + 1` })
+    .from(t.issuePanelDeferred)
+    .where(eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')))
     .prepare(),
 )
-const deferredRemove = prepared((db: StoreDrizzle) =>
+const deferredRemove = prepared((db, t) =>
   db
-    .delete(issuePanelDeferred)
+    .delete(t.issuePanelDeferred)
     .where(
       and(
-        eq(issuePanelDeferred.id, param(issuePanelDeferred.id, 'id')),
-        eq(issuePanelDeferred.issueId, param(issuePanelDeferred.issueId, 'issueId')),
+        eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')),
+        eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
-const deferredSave = prepared((db: StoreDrizzle) =>
+const deferredSave = prepared((db, t) =>
   db
-    .insert(issuePanelDeferred)
+    .insert(t.issuePanelDeferred)
     .values({
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -234,100 +233,100 @@ const deferredSave = prepared((db: StoreDrizzle) =>
       addedAt: sql.placeholder('addedAt'),
     })
     .onConflictDoUpdate({
-      target: issuePanelDeferred.id,
+      target: t.issuePanelDeferred.id,
       set: { text: sql`excluded.text`, addedAt: sql`excluded.added_at` },
     })
     .prepare(),
 )
 
-const stateByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const stateByIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ item: issuePanelStates })
-    .from(issuePanelStates)
-    .innerJoin(issues, eq(issues.id, issuePanelStates.id))
-    .where(and(inListOf(issuePanelStates.id, size), isNull(issues.deletedAt)))
+    .select({ item: t.issuePanelStates })
+    .from(t.issuePanelStates)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelStates.id))
+    .where(and(inListOf(t.issuePanelStates.id, size), isNull(t.issues.deletedAt)))
     .prepare(),
 )
-const stateOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const stateOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(issuePanelStates)
-    .where(inListOf(issuePanelStates.id, size))
-    .orderBy(asc(issuePanelStates.id))
+    .from(t.issuePanelStates)
+    .where(inListOf(t.issuePanelStates.id, size))
+    .orderBy(asc(t.issuePanelStates.id))
     .prepare(),
 )
-const statePage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const statePage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select({ item: issuePanelStates })
-    .from(issuePanelStates)
-    .innerJoin(issues, eq(issues.id, issuePanelStates.id))
+    .select({ item: t.issuePanelStates })
+    .from(t.issuePanelStates)
+    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelStates.id))
     .where(
       and(
-        isNull(issues.deletedAt),
+        isNull(t.issues.deletedAt),
         phase === 'after'
-          ? gt(issuePanelStates.id, param(issuePanelStates.id, 'after'))
+          ? gt(t.issuePanelStates.id, param(t.issuePanelStates.id, 'after'))
           : undefined,
       ),
     )
-    .orderBy(asc(issuePanelStates.id))
+    .orderBy(asc(t.issuePanelStates.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
-const stateSave = prepared((db: StoreDrizzle) =>
+const stateSave = prepared((db, t) =>
   db
-    .insert(issuePanelStates)
+    .insert(t.issuePanelStates)
     .values({
       id: sql.placeholder('id'),
       text: sql.placeholder('text'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: issuePanelStates.id,
+      target: t.issuePanelStates.id,
       set: { text: sql`excluded.text`, updatedAt: sql`excluded.updated_at` },
     })
     .prepare(),
 )
 
-const clearTodos = prepared((db: StoreDrizzle) =>
+const clearTodos = prepared((db, t) =>
   db
-    .delete(issuePanelTodos)
-    .where(eq(issuePanelTodos.issueId, param(issuePanelTodos.issueId, 'issueId')))
-    .returning({ id: issuePanelTodos.id })
+    .delete(t.issuePanelTodos)
+    .where(eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')))
+    .returning({ id: t.issuePanelTodos.id })
     .prepare(),
 )
-const toggleTodo = prepared((db: StoreDrizzle) =>
+const toggleTodo = prepared((db, t) =>
   db
-    .update(issuePanelTodos)
+    .update(t.issuePanelTodos)
     .set({ done: sql.placeholder('done') })
     .where(
       and(
-        eq(issuePanelTodos.id, param(issuePanelTodos.id, 'id')),
-        eq(issuePanelTodos.issueId, param(issuePanelTodos.issueId, 'issueId')),
+        eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
+        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
       ),
     )
     .returning()
     .prepare(),
 )
 
-const todoExists = prepared((db: StoreDrizzle) =>
+const todoExists = prepared((db, t) =>
   db
-    .select({ id: issuePanelTodos.id })
-    .from(issuePanelTodos)
-    .where(eq(issuePanelTodos.id, param(issuePanelTodos.id, 'id')))
+    .select({ id: t.issuePanelTodos.id })
+    .from(t.issuePanelTodos)
+    .where(eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')))
     .prepare(),
 )
-const artifactExists = prepared((db: StoreDrizzle) =>
+const artifactExists = prepared((db, t) =>
   db
-    .select({ id: issuePanelArtifacts.id })
-    .from(issuePanelArtifacts)
-    .where(eq(issuePanelArtifacts.id, param(issuePanelArtifacts.id, 'id')))
+    .select({ id: t.issuePanelArtifacts.id })
+    .from(t.issuePanelArtifacts)
+    .where(eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')))
     .prepare(),
 )
-const deferredExists = prepared((db: StoreDrizzle) =>
+const deferredExists = prepared((db, t) =>
   db
-    .select({ id: issuePanelDeferred.id })
-    .from(issuePanelDeferred)
-    .where(eq(issuePanelDeferred.id, param(issuePanelDeferred.id, 'id')))
+    .select({ id: t.issuePanelDeferred.id })
+    .from(t.issuePanelDeferred)
+    .where(eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')))
     .prepare(),
 )
 

@@ -30,12 +30,6 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
-import {
-  INSTALLATION_META_KEY,
-  INSTALLATION_PRIVATE_KEY,
-  parseInstallationIdentity,
-  type InstallationIdentity,
-} from '@podium/runtime/installation-identity'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   SERVER_SECRET_KEYS,
@@ -45,10 +39,20 @@ import {
 } from '@podium/model'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import { PortableCredentialBundle } from '@podium/protocol'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  type InstallationIdentity,
+  parseInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
-import { meta, serverSecrets } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** Internal key of the sign-in signing secret; not a settings secret. */
@@ -61,27 +65,25 @@ function nativeLoginTransferKey(principalUserId: UserId, transferId: string): st
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const keyIs = () => eq(serverSecrets.key, param(serverSecrets.key, 'key'))
+const keyIs = (t: StoreTables) => eq(t.serverSecrets.key, param(t.serverSecrets.key, 'key'))
 
 /** One secret's value by key: every value read here, whichever key it names. */
-const secretValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: serverSecrets.value }).from(serverSecrets).where(keyIs()).prepare(),
+const secretValue = prepared((db, t) =>
+  db.select({ value: t.serverSecrets.value }).from(t.serverSecrets).where(keyIs(t)).prepare(),
 )
 
-const deleteSecret = prepared((db: StoreDrizzle) =>
-  db.delete(serverSecrets).where(keyIs()).prepare(),
-)
+const deleteSecret = prepared((db, t) => db.delete(t.serverSecrets).where(keyIs(t)).prepare())
 
-const upsertSecret = prepared((db: StoreDrizzle) =>
+const upsertSecret = prepared((db, t) =>
   db
-    .insert(serverSecrets)
+    .insert(t.serverSecrets)
     .values({
       key: sql.placeholder('key'),
       value: sql.placeholder('value'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: serverSecrets.key,
+      target: t.serverSecrets.key,
       set: { value: sql.placeholder('value'), updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
@@ -89,30 +91,34 @@ const upsertSecret = prepared((db: StoreDrizzle) =>
 
 // Both tables call the column `value`; explicit aliases keep the executor's
 // named-row adapter from collapsing them before Drizzle decodes the result.
-const installationRow = prepared((db: StoreDrizzle) =>
+const installationRow = prepared((db, t) =>
   db
     .select({
-      metadata: sql<string>`${meta.value}`.as('installation_metadata'),
-      privateKey: sql<string>`${serverSecrets.value}`.as('installation_private_key'),
+      metadata: sql<string>`${t.meta.value}`.as('installation_metadata'),
+      privateKey: sql<string>`${t.serverSecrets.value}`.as('installation_private_key'),
     })
-    .from(meta)
-    .innerJoin(serverSecrets, eq(serverSecrets.key, INSTALLATION_PRIVATE_KEY))
-    .where(eq(meta.key, INSTALLATION_META_KEY))
+    .from(t.meta)
+    .innerJoin(t.serverSecrets, eq(t.serverSecrets.key, INSTALLATION_PRIVATE_KEY))
+    .where(eq(t.meta.key, INSTALLATION_META_KEY))
     .prepare(),
 )
 
-const secretUpdatedAt = prepared((db: StoreDrizzle) =>
-  db.select({ updatedAt: serverSecrets.updatedAt }).from(serverSecrets).where(keyIs()).prepare(),
+const secretUpdatedAt = prepared((db, t) =>
+  db
+    .select({ updatedAt: t.serverSecrets.updatedAt })
+    .from(t.serverSecrets)
+    .where(keyIs(t))
+    .prepare(),
 )
 
-const secretPresence = prepared((db: StoreDrizzle) =>
+const secretPresence = prepared((db, t) =>
   db
     .select({
-      key: serverSecrets.key,
-      value: serverSecrets.value,
-      updatedAt: serverSecrets.updatedAt,
+      key: t.serverSecrets.key,
+      value: t.serverSecrets.value,
+      updatedAt: t.serverSecrets.updatedAt,
     })
-    .from(serverSecrets)
+    .from(t.serverSecrets)
     .prepare(),
 )
 
@@ -241,7 +247,7 @@ export class ServerSecretsRepository {
    *  whose downstream shape is a `string` and whose "not configured" test is
    *  already `!value`. Named so the substitution is visible at the call site. */
   async getOrEmpty(key: ServerSecretKey): Promise<string> {
-    return await this.get(key) ?? ''
+    return (await this.get(key)) ?? ''
   }
 
   /**

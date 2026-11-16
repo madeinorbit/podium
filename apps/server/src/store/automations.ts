@@ -18,8 +18,13 @@ import type {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm'
-import { automationRuns, automations } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { automationRuns, automations } from '../migrations/schema'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -105,60 +110,60 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const automationIdIs = () => eq(automations.id, param(automations.id, 'id'))
-const runIdIs = () => eq(automationRuns.id, param(automationRuns.id, 'id'))
+const automationIdIs = (t: StoreTables) => eq(t.automations.id, param(t.automations.id, 'id'))
+const runIdIs = (t: StoreTables) => eq(t.automationRuns.id, param(t.automationRuns.id, 'id'))
 
-const liveAutomations = prepared((db: StoreDrizzle) =>
+const liveAutomations = prepared((db, t) =>
   db
     .select()
-    .from(automations)
-    .where(isNull(automations.deletedAt))
-    .orderBy(asc(automations.createdAt))
+    .from(t.automations)
+    .where(isNull(t.automations.deletedAt))
+    .orderBy(asc(t.automations.createdAt))
     .prepare(),
 )
 
-const liveAutomationById = prepared((db: StoreDrizzle) =>
+const liveAutomationById = prepared((db, t) =>
   db
     .select()
-    .from(automations)
-    .where(and(automationIdIs(), isNull(automations.deletedAt)))
+    .from(t.automations)
+    .where(and(automationIdIs(t), isNull(t.automations.deletedAt)))
     .prepare(),
 )
 
 // THE ABSENT `isNull(deletedAt)` IS THE POINT (see `ownerOf`).
-const automationOwner = prepared((db: StoreDrizzle) =>
+const automationOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: automations.ownerUserId })
-    .from(automations)
-    .where(automationIdIs())
+    .select({ ownerUserId: t.automations.ownerUserId })
+    .from(t.automations)
+    .where(automationIdIs(t))
     .prepare(),
 )
 
-const runOwner = prepared((db: StoreDrizzle) =>
+const runOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: automations.ownerUserId })
-    .from(automationRuns)
-    .innerJoin(automations, eq(automations.id, automationRuns.automationId))
-    .where(runIdIs())
+    .select({ ownerUserId: t.automations.ownerUserId })
+    .from(t.automationRuns)
+    .innerJoin(t.automations, eq(t.automations.id, t.automationRuns.automationId))
+    .where(runIdIs(t))
     .prepare(),
 )
 
 // The batched forms of `automationOwner` / `runOwner` [POD-6149]: the same
 // unfiltered reads, keyed by id, one statement per IN-list chunk.
-const automationOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const automationOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: automations.id, ownerUserId: automations.ownerUserId })
-    .from(automations)
-    .where(inListOf(automations.id, size))
+    .select({ id: t.automations.id, ownerUserId: t.automations.ownerUserId })
+    .from(t.automations)
+    .where(inListOf(t.automations.id, size))
     .prepare(),
 )
 
-const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const runOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: automationRuns.id, ownerUserId: automations.ownerUserId })
-    .from(automationRuns)
-    .innerJoin(automations, eq(automations.id, automationRuns.automationId))
-    .where(inListOf(automationRuns.id, size))
+    .select({ id: t.automationRuns.id, ownerUserId: t.automations.ownerUserId })
+    .from(t.automationRuns)
+    .innerJoin(t.automations, eq(t.automations.id, t.automationRuns.automationId))
+    .where(inListOf(t.automationRuns.id, size))
     .prepare(),
 )
 
@@ -166,19 +171,19 @@ const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 const OWNER_CHUNK = 500
 
 /** Live automations and live runs by id, for building records by id (POD-6763). */
-const liveAutomationsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveAutomationsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(automations)
-    .where(and(inListOf(automations.id, size), isNull(automations.deletedAt)))
+    .from(t.automations)
+    .where(and(inListOf(t.automations.id, size), isNull(t.automations.deletedAt)))
     .prepare(),
 )
 
-const liveRunsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveRunsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(automationRuns)
-    .where(and(inListOf(automationRuns.id, size), isNull(automationRuns.deletedAt)))
+    .from(t.automationRuns)
+    .where(and(inListOf(t.automationRuns.id, size), isNull(t.automationRuns.deletedAt)))
     .prepare(),
 )
 
@@ -199,9 +204,9 @@ const automationColumns = {
   lastRunAt: P('lastRunAt'),
 }
 
-const insertAutomation = prepared((db: StoreDrizzle) =>
+const insertAutomation = prepared((db, t) =>
   db
-    .insert(automations)
+    .insert(t.automations)
     .values({
       id: P('id'),
       ...automationColumns,
@@ -213,34 +218,34 @@ const insertAutomation = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const updateAutomation = prepared((db: StoreDrizzle) =>
-  db.update(automations).set(automationColumns).where(automationIdIs()).prepare(),
+const updateAutomation = prepared((db, t) =>
+  db.update(t.automations).set(automationColumns).where(automationIdIs(t)).prepare(),
 )
 
-const tombstoneAutomation = prepared((db: StoreDrizzle) =>
+const tombstoneAutomation = prepared((db, t) =>
   db
-    .update(automations)
+    .update(t.automations)
     .set({ deletedAt: P('deletedAt') })
-    .where(and(automationIdIs(), isNull(automations.deletedAt)))
+    .where(and(automationIdIs(t), isNull(t.automations.deletedAt)))
     .prepare(),
 )
 
-const tombstoneRunsOf = prepared((db: StoreDrizzle) =>
+const tombstoneRunsOf = prepared((db, t) =>
   db
-    .update(automationRuns)
+    .update(t.automationRuns)
     .set({ deletedAt: P('deletedAt') })
     .where(
       and(
-        eq(automationRuns.automationId, param(automationRuns.automationId, 'id')),
-        isNull(automationRuns.deletedAt),
+        eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'id')),
+        isNull(t.automationRuns.deletedAt),
       ),
     )
     .prepare(),
 )
 
-const insertRun = prepared((db: StoreDrizzle) =>
+const insertRun = prepared((db, t) =>
   db
-    .insert(automationRuns)
+    .insert(t.automationRuns)
     .values({
       id: P('id'),
       automationId: P('automationId'),
@@ -254,57 +259,57 @@ const insertRun = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const liveRunById = prepared((db: StoreDrizzle) =>
+const liveRunById = prepared((db, t) =>
   db
     .select()
-    .from(automationRuns)
-    .where(and(runIdIs(), isNull(automationRuns.deletedAt)))
+    .from(t.automationRuns)
+    .where(and(runIdIs(t), isNull(t.automationRuns.deletedAt)))
     .prepare(),
 )
 
-const finalizeRun = prepared((db: StoreDrizzle) =>
+const finalizeRun = prepared((db, t) =>
   db
-    .update(automationRuns)
+    .update(t.automationRuns)
     .set({ sessionId: P('sessionId'), outcome: P('outcome'), detail: P('detail') })
-    .where(and(runIdIs(), isNull(automationRuns.deletedAt)))
+    .where(and(runIdIs(t), isNull(t.automationRuns.deletedAt)))
     .prepare(),
 )
 
-const runsOfAutomation = prepared((db: StoreDrizzle) =>
+const runsOfAutomation = prepared((db, t) =>
   db
     .select()
-    .from(automationRuns)
+    .from(t.automationRuns)
     .where(
       and(
-        eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-        isNull(automationRuns.deletedAt),
+        eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
+        isNull(t.automationRuns.deletedAt),
       ),
     )
     // The rowid tie-break makes the order TOTAL: two fires can share a
     // timestamp, and without it the page is whatever the engine returns.
-    .orderBy(desc(automationRuns.firedAt), desc(sql`rowid`))
+    .orderBy(desc(t.automationRuns.firedAt), desc(sql`rowid`))
     .limit(P('limit'))
     .prepare(),
 )
 
-const allLiveRuns = prepared((db: StoreDrizzle) =>
+const allLiveRuns = prepared((db, t) =>
   db
     .select()
-    .from(automationRuns)
-    .where(isNull(automationRuns.deletedAt))
-    .orderBy(asc(automationRuns.firedAt), asc(sql`rowid`))
+    .from(t.automationRuns)
+    .where(isNull(t.automationRuns.deletedAt))
+    .orderBy(asc(t.automationRuns.firedAt), asc(sql`rowid`))
     .prepare(),
 )
 
 /** The live run ids of one automation, through its index (POD-6172). */
-const liveRunIdsOf = prepared((db: StoreDrizzle) =>
+const liveRunIdsOf = prepared((db, t) =>
   db
-    .select({ id: automationRuns.id })
-    .from(automationRuns)
+    .select({ id: t.automationRuns.id })
+    .from(t.automationRuns)
     .where(
       and(
-        eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-        isNull(automationRuns.deletedAt),
+        eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
+        isNull(t.automationRuns.deletedAt),
       ),
     )
     .prepare(),
@@ -324,26 +329,26 @@ const latestSpawnedRowid = (automationId: SQL) => sql`(
 // Driven from `automations` (a small table) rather than from every run
 // (POD-6172): one index seek per automation instead of a read of every run.
 // Every run names an existing automation (the foreign key), so no run is missed.
-const lastSpawnedRuns = prepared((db: StoreDrizzle) =>
+const lastSpawnedRuns = prepared((db, t) =>
   db
     .select({
-      automationId: automationRuns.automationId,
-      sessionId: automationRuns.sessionId,
+      automationId: t.automationRuns.automationId,
+      sessionId: t.automationRuns.sessionId,
     })
-    .from(automations)
+    .from(t.automations)
     .innerJoin(
-      automationRuns,
-      sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${automations.id}`)}`,
+      t.automationRuns,
+      sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(sql`${t.automations.id}`)}`,
     )
     .prepare(),
 )
 
-const lastSpawnedRunOf = prepared((db: StoreDrizzle) =>
+const lastSpawnedRunOf = prepared((db, t) =>
   db
-    .select({ sessionId: automationRuns.sessionId })
-    .from(automationRuns)
+    .select({ sessionId: t.automationRuns.sessionId })
+    .from(t.automationRuns)
     .where(
-      sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`,
+      sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`,
     )
     .prepare(),
 )

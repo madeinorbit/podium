@@ -36,9 +36,14 @@ import {
   type PendingInteractionWire,
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
-import { pendingInteractions } from '../migrations/schema'
+import type { pendingInteractions } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -134,15 +139,11 @@ function toRow(r: InteractionSelect): InteractionRow {
     expiredAt: r.expiredAt,
   }
 }
+const idIs = (t: StoreTables) => eq(t.pendingInteractions.id, param(t.pendingInteractions.id, 'id'))
 
-// Every query this repository runs, prepared once per store [POD-6147].
-
-const t = pendingInteractions
-const idIs = () => eq(t.id, param(t.id, 'id'))
-
-const insertInteraction = prepared((db: StoreDrizzle) =>
+const insertInteraction = prepared((db, t) =>
   db
-    .insert(t)
+    .insert(t.pendingInteractions)
     .values({
       id: sql.placeholder('id'),
       sessionId: sql.placeholder('sessionId'),
@@ -163,74 +164,89 @@ const insertInteraction = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const enrichInteraction = prepared((db: StoreDrizzle) =>
+const enrichInteraction = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({ payloadJson: sql.placeholder('payloadJson') })
-    .where(and(idIs(), eq(t.status, 'asked')))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
 
-const interactionById = prepared((db: StoreDrizzle) => db.select().from(t).where(idIs()).prepare())
+const interactionById = prepared((db, t) =>
+  db.select().from(t.pendingInteractions).where(idIs(t)).prepare(),
+)
 
-const openInteractionByFingerprint = prepared((db: StoreDrizzle) =>
+const openInteractionByFingerprint = prepared((db, t) =>
   db
     .select()
-    .from(t)
+    .from(t.pendingInteractions)
     .where(
       and(
-        eq(t.sessionId, param(t.sessionId, 'sessionId')),
-        eq(t.fingerprint, param(t.fingerprint, 'fingerprint')),
+        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+        eq(
+          t.pendingInteractions.fingerprint,
+          param(t.pendingInteractions.fingerprint, 'fingerprint'),
+        ),
         // OPEN ROWS ONLY, which is what makes the same question asked again
         // after the first was answered a genuinely new ask.
-        eq(t.status, 'asked'),
+        eq(t.pendingInteractions.status, 'asked'),
       ),
     )
     .prepare(),
 )
 
 /** Every open ask, or one session's: two statement texts, as the fluent form had. */
-const openInteractions = prepared((db: StoreDrizzle) =>
+const openInteractions = prepared((db, t) =>
   db
     .select()
-    .from(t)
-    .where(and(eq(t.status, 'asked'), undefined))
-    .orderBy(asc(t.askedAt), asc(t.id))
+    .from(t.pendingInteractions)
+    .where(and(eq(t.pendingInteractions.status, 'asked'), undefined))
+    .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
     .prepare(),
 )
 
 /** The open asks among these ids, keyed by the IN list's bucketed size. */
-const openInteractionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const openInteractionsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(t)
-    .where(and(inListOf(t.id, size, 'ids'), eq(t.status, 'asked')))
+    .from(t.pendingInteractions)
+    .where(
+      and(
+        inListOf(t.pendingInteractions.id, size, 'ids'),
+        eq(t.pendingInteractions.status, 'asked'),
+      ),
+    )
     .prepare(),
 )
 
-const openInteractionsOfSession = prepared((db: StoreDrizzle) =>
+const openInteractionsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(t)
-    .where(and(eq(t.status, 'asked'), eq(t.sessionId, param(t.sessionId, 'sessionId'))))
-    .orderBy(asc(t.askedAt), asc(t.id))
+    .from(t.pendingInteractions)
+    .where(
+      and(
+        eq(t.pendingInteractions.status, 'asked'),
+        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+      ),
+    )
+    .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
     .prepare(),
 )
 
-const interactionsOfSession = prepared((db: StoreDrizzle) =>
+const interactionsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(t)
-    .where(eq(t.sessionId, param(t.sessionId, 'sessionId')))
-    .orderBy(desc(t.askedAt), desc(t.id))
+    .from(t.pendingInteractions)
+    .where(eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')))
+    .orderBy(desc(t.pendingInteractions.askedAt), desc(t.pendingInteractions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const answerInteraction = prepared((db: StoreDrizzle) =>
+const answerInteraction = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({
       status: 'answered',
       answerJson: sql.placeholder('answerJson'),
@@ -238,24 +254,25 @@ const answerInteraction = prepared((db: StoreDrizzle) =>
       deliveredVia: sql.placeholder('deliveredVia'),
       answeredAt: sql.placeholder('answeredAt'),
     })
-    .where(and(idIs(), eq(t.status, 'asked')))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
 
-const recordInteractionDelivery = prepared((db: StoreDrizzle) =>
+const recordInteractionDelivery = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({ deliveredVia: sql.placeholder('deliveredVia') })
-    .where(and(idIs(), eq(t.status, 'answered')))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered')))
     .prepare(),
 )
 
-const answeredBy = () => eq(t.answeredBy, param(t.answeredBy, 'answeredBy'))
+const answeredBy = (t: StoreTables) =>
+  eq(t.pendingInteractions.answeredBy, param(t.pendingInteractions.answeredBy, 'answeredBy'))
 
-const reopenInteraction = prepared((db: StoreDrizzle) =>
+const reopenInteraction = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({
       status: 'asked',
       // FOUR CLEARS. A reopened ask that still carried its answer would be
@@ -266,33 +283,38 @@ const reopenInteraction = prepared((db: StoreDrizzle) =>
       answeredAt: null,
       policyVerdict: 'escalated',
     })
-    .where(and(idIs(), eq(t.status, 'answered'), answeredBy()))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered'), answeredBy(t)))
     .returning()
     .prepare(),
 )
 
-const retireClaimedInteraction = prepared((db: StoreDrizzle) =>
+const retireClaimedInteraction = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(), eq(t.status, 'answered'), answeredBy()))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered'), answeredBy(t)))
     .prepare(),
 )
 
-const closeInteraction = prepared((db: StoreDrizzle) =>
+const closeInteraction = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(), eq(t.status, 'asked')))
+    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
 
-const closeSessionInteractions = prepared((db: StoreDrizzle) =>
+const closeSessionInteractions = prepared((db, t) =>
   db
-    .update(t)
+    .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(eq(t.sessionId, param(t.sessionId, 'sessionId')), eq(t.status, 'asked')))
+    .where(
+      and(
+        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+        eq(t.pendingInteractions.status, 'asked'),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -300,23 +322,23 @@ const closeSessionInteractions = prepared((db: StoreDrizzle) =>
 /** Every status but `asked`: the rows retention may drop. */
 const RESOLVED_STATUSES = InteractionStatus.options.filter((status) => status !== 'asked')
 
-const pruneResolvedInteractions = prepared((db: StoreDrizzle) =>
+const pruneResolvedInteractions = prepared((db, t) =>
   db
-    .delete(t)
+    .delete(t.pendingInteractions)
     .where(
       and(
-        inArray(t.status, RESOLVED_STATUSES),
+        inArray(t.pendingInteractions.status, RESOLVED_STATUSES),
         // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
         // after it is asked, so a row resolved before the cutoff was asked
         // before it too: this takes nothing out of what the next clause
         // selects, and bounds the read to the resolved rows asked before the
         // cutoff. A row whose clocks stamped its ask after its resolution is
         // dropped once its ask passes the cutoff instead.
-        lt(t.askedAt, param(t.askedAt, 'cutoffIso')),
+        lt(t.pendingInteractions.askedAt, param(t.pendingInteractions.askedAt, 'cutoffIso')),
         // The cutoff is compared against the RESOLUTION time, falling back to
         // the ask time only when a row has neither — not against asked_at.
         lt(
-          sql`COALESCE(${t.answeredAt}, ${t.expiredAt}, ${t.askedAt})`,
+          sql`COALESCE(${t.pendingInteractions.answeredAt}, ${t.pendingInteractions.expiredAt}, ${t.pendingInteractions.askedAt})`,
           sql.placeholder('cutoffIso'),
         ),
       ),
@@ -354,9 +376,9 @@ export class InteractionsRepository {
   }
 
   private async write(query: () => Promise<InteractionSelect[]>): Promise<InteractionRow[]> {
-    return (await inChangeLogTransaction(this.feedCapture, this.createOrJoinTransaction, query)).map(
-      toRow,
-    )
+    return (
+      await inChangeLogTransaction(this.feedCapture, this.createOrJoinTransaction, query)
+    ).map(toRow)
   }
 
   /**

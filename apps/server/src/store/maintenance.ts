@@ -1,7 +1,6 @@
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
 import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
-import { maintenanceCommands, maintenanceLeases } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 export interface MaintenanceLeaseRow {
@@ -17,13 +16,17 @@ export interface MaintenanceLeaseRow {
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const leaseByName = prepared((db: StoreDrizzle) =>
-  db.select().from(maintenanceLeases).where(eq(maintenanceLeases.name, param(maintenanceLeases.name, 'name'))).prepare(),
+const leaseByName = prepared((db, t) =>
+  db
+    .select()
+    .from(t.maintenanceLeases)
+    .where(eq(t.maintenanceLeases.name, param(t.maintenanceLeases.name, 'name')))
+    .prepare(),
 )
 
-const upsertLease = prepared((db: StoreDrizzle) =>
+const upsertLease = prepared((db, t) =>
   db
-    .insert(maintenanceLeases)
+    .insert(t.maintenanceLeases)
     .values({
       name: sql.placeholder('name'),
       generationId: sql.placeholder('generationId'),
@@ -34,7 +37,7 @@ const upsertLease = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: maintenanceLeases.name,
+      target: t.maintenanceLeases.name,
       set: {
         generationId: sql.placeholder('generationId'),
         fencingToken: sql.placeholder('fencingToken'),
@@ -47,20 +50,22 @@ const upsertLease = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const commandResult = prepared((db: StoreDrizzle) =>
+const commandResult = prepared((db, t) =>
   db
-    .select({ resultJson: maintenanceCommands.resultJson })
-    .from(maintenanceCommands)
-    .where(and(
-      eq(maintenanceCommands.jobKind, param(maintenanceCommands.jobKind, 'jobKind')),
-      eq(maintenanceCommands.runKey, param(maintenanceCommands.runKey, 'runKey')),
-    ))
+    .select({ resultJson: t.maintenanceCommands.resultJson })
+    .from(t.maintenanceCommands)
+    .where(
+      and(
+        eq(t.maintenanceCommands.jobKind, param(t.maintenanceCommands.jobKind, 'jobKind')),
+        eq(t.maintenanceCommands.runKey, param(t.maintenanceCommands.runKey, 'runKey')),
+      ),
+    )
     .prepare(),
 )
 
-const insertCommand = prepared((db: StoreDrizzle) =>
+const insertCommand = prepared((db, t) =>
   db
-    .insert(maintenanceCommands)
+    .insert(t.maintenanceCommands)
     .values({
       jobKind: sql.placeholder('jobKind'),
       runKey: sql.placeholder('runKey'),
@@ -71,18 +76,23 @@ const insertCommand = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const pruneOldestCommands = prepared((db: StoreDrizzle) => {
+const pruneOldestCommands = prepared((db, t) => {
   const oldest = db
     .select({ rowid: sql<number>`rowid` })
-    .from(maintenanceCommands)
-    .where(lt(maintenanceCommands.appliedAt, param(maintenanceCommands.appliedAt, 'cutoffAppliedAt')))
+    .from(t.maintenanceCommands)
+    .where(
+      lt(
+        t.maintenanceCommands.appliedAt,
+        param(t.maintenanceCommands.appliedAt, 'cutoffAppliedAt'),
+      ),
+    )
     .orderBy(
-      asc(maintenanceCommands.appliedAt),
-      asc(maintenanceCommands.jobKind),
-      asc(maintenanceCommands.runKey),
+      asc(t.maintenanceCommands.appliedAt),
+      asc(t.maintenanceCommands.jobKind),
+      asc(t.maintenanceCommands.runKey),
     )
     .limit(sql.placeholder('batchSize'))
-  return db.delete(maintenanceCommands).where(inArray(sql`rowid`, oldest)).prepare()
+  return db.delete(t.maintenanceCommands).where(inArray(sql`rowid`, oldest)).prepare()
 })
 
 export class MaintenanceRepository {

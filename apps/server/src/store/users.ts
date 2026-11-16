@@ -8,7 +8,7 @@ import type { MemberRows, MemberWrite } from '@podium/identity'
 import type { UserId, UserRole } from '@podium/model'
 import { asUserId, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { grants, settingsAuditEvents, users } from '../migrations/schema'
+import type { users } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -35,124 +35,124 @@ import {
  * Prepared once per store (see {@link prepared}); inside a transaction the
  * executor's router runs it on that transaction.
  */
-const accountById = prepared((db: StoreDrizzle) =>
+const accountById = prepared((db, t) =>
   db
     .select()
-    .from(users)
-    .where(eq(users.id, param(users.id, 'id')))
+    .from(t.users)
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .prepare(),
 )
 
 /** The accounts of a set of ids: the per-operation loader's batch [POD-6218]. */
-const accountsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(users).where(inListOf(users.id, size)).prepare(),
+const accountsByIds = preparedFamily((db, t, size: number) =>
+  db.select().from(t.users).where(inListOf(t.users.id, size)).prepare(),
 )
 
 // Two rows are enough to tell "exactly one" from "more than one".
 /** Machine access records need only enabled members' ids and roles. */
-const activeRecordMembers = prepared((db: StoreDrizzle) =>
+const activeRecordMembers = prepared((db, t) =>
   db
-    .select({ id: users.id, role: users.role })
-    .from(users)
-    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES])))
+    .select({ id: t.users.id, role: t.users.role })
+    .from(t.users)
+    .where(and(isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
     .prepare(),
 )
 
-const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
+const firstTwoActiveMembers = prepared((db, t) =>
   db
     .select()
-    .from(users)
-    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES])))
+    .from(t.users)
+    .where(and(isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
     .limit(2)
     .prepare(),
 )
 
 // Retained disabled/removed people still own their historical usage. Read at
 // most two ids from the covering primary-key index, regardless of roster size.
-const firstTwoMemberIds = prepared((db: StoreDrizzle) =>
-  db.select({ id: users.id }).from(users).limit(2).prepare(),
+const firstTwoMemberIds = prepared((db, t) =>
+  db.select({ id: t.users.id }).from(t.users).limit(2).prepare(),
 )
 
-const earliestAdminRow = prepared((db: StoreDrizzle) =>
+const earliestAdminRow = prepared((db, t) =>
   db
     .select()
-    .from(users)
-    .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
-    .orderBy(asc(users.createdAt), asc(users.id))
+    .from(t.users)
+    .where(and(eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
+    .orderBy(asc(t.users.createdAt), asc(t.users.id))
     .limit(1)
     .prepare(),
 )
 
 /** Every admin who can act: the readers of an instance-wide effect (POD-6358). */
-const activeAdminIdRows = prepared((db: StoreDrizzle) =>
+const activeAdminIdRows = prepared((db, t) =>
   db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
+    .select({ id: t.users.id })
+    .from(t.users)
+    .where(and(eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
     .prepare(),
 )
 
 /** The one key of the earliest-admin loader: the instance has one earliest admin. */
 const EARLIEST_ADMIN = 'earliest-admin'
 
-const userIdByEmail = prepared((db: StoreDrizzle) =>
+const userIdByEmail = prepared((db, t) =>
   db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(sql`lower(${users.email})`, sql.placeholder('email')))
+    .select({ id: t.users.id })
+    .from(t.users)
+    .where(eq(sql`lower(${t.users.email})`, sql.placeholder('email')))
     .prepare(),
 )
 
-const setUserProfile = prepared((db: StoreDrizzle) =>
+const setUserProfile = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .prepare(),
 )
 
-const userIdByAccount = prepared((db: StoreDrizzle) =>
+const userIdByAccount = prepared((db, t) =>
   db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.cloudAccountId, param(users.cloudAccountId, 'accountId')))
+    .select({ id: t.users.id })
+    .from(t.users)
+    .where(eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId')))
     .prepare(),
 )
 
-const userIdsByCreation = prepared((db: StoreDrizzle) =>
-  db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).prepare(),
+const userIdsByCreation = prepared((db, t) =>
+  db.select({ id: t.users.id }).from(t.users).orderBy(asc(t.users.createdAt)).prepare(),
 )
 
 /** Every member row, disabled ones included, for the admins' member list (POD-6298). */
-const everyUserByCreation = prepared((db: StoreDrizzle) =>
-  db.select().from(users).orderBy(asc(users.createdAt), asc(users.id)).prepare(),
+const everyUserByCreation = prepared((db, t) =>
+  db.select().from(t.users).orderBy(asc(t.users.createdAt), asc(t.users.id)).prepare(),
 )
 
 /** One step of the member's authorization generation, returning the row (POD-6293). */
-const bumpAuthzGeneration = prepared((db: StoreDrizzle) =>
+const bumpAuthzGeneration = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({
-      authzGeneration: sql`${users.authzGeneration} + 1`,
+      authzGeneration: sql`${t.users.authzGeneration} + 1`,
       authzChangedAt: sql.placeholder('changedAt'),
     })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .returning()
     .prepare(),
 )
 
 /** Another enabled admin than `id`: a demotion must not leave the instance without one. */
-const stampMemberVersion = prepared((db: StoreDrizzle) =>
+const stampMemberVersion = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({ membershipVersion: sql.placeholder('version') })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .prepare(),
 )
 
-const insertSettingsAudit = prepared((db: StoreDrizzle) =>
+const insertSettingsAudit = prepared((db, t) =>
   db
-    .insert(settingsAuditEvents)
+    .insert(t.settingsAuditEvents)
     .values({
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
@@ -165,15 +165,15 @@ const insertSettingsAudit = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const custodyMachinesOf = prepared((db: StoreDrizzle) =>
+const custodyMachinesOf = prepared((db, t) =>
   db
-    .select({ id: grants.resourceId })
-    .from(grants)
+    .select({ id: t.grants.resourceId })
+    .from(t.grants)
     .where(
       and(
-        eq(grants.resourceKind, 'machine'),
-        eq(grants.custody, true),
-        eq(grants.grantee, param(grants.grantee, 'grantee')),
+        eq(t.grants.resourceKind, 'machine'),
+        eq(t.grants.custody, true),
+        eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
       ),
     )
     .prepare(),
@@ -182,9 +182,9 @@ const custodyMachinesOf = prepared((db: StoreDrizzle) =>
 // ---- the member row as apply-membership writes it (POD-6745) ---------------
 
 /** A member row made by a membership that became active. */
-const insertMemberRow = prepared((db: StoreDrizzle) =>
+const insertMemberRow = prepared((db, t) =>
   db
-    .insert(users)
+    .insert(t.users)
     .values({
       id: sql.placeholder('id'),
       displayName: sql.placeholder('displayName'),
@@ -201,9 +201,9 @@ const insertMemberRow = prepared((db: StoreDrizzle) =>
 )
 
 /** Every identity fact of one member row, with the membership version applied. */
-const writeMemberFacts = prepared((db: StoreDrizzle) =>
+const writeMemberFacts = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({
       role: sql.placeholder('role'),
       disabledAt: sql.placeholder('disabledAt'),
@@ -213,42 +213,42 @@ const writeMemberFacts = prepared((db: StoreDrizzle) =>
       cloudAccountId: sql.placeholder('accountId'),
       membershipVersion: sql.placeholder('membershipVersion'),
     })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .returning()
     .prepare(),
 )
 
 /** The member row that holds an address, in any state. */
-const memberHoldingEmail = prepared((db: StoreDrizzle) =>
+const memberHoldingEmail = prepared((db, t) =>
   db
-    .select({ id: users.id, disabledAt: users.disabledAt })
-    .from(users)
-    .where(eq(sql`lower(${users.email})`, sql.placeholder('email')))
+    .select({ id: t.users.id, disabledAt: t.users.disabledAt })
+    .from(t.users)
+    .where(eq(sql`lower(${t.users.email})`, sql.placeholder('email')))
     .prepare(),
 )
 
 /** The member row that holds an account id, in any state. */
-const memberHoldingAccount = prepared((db: StoreDrizzle) =>
+const memberHoldingAccount = prepared((db, t) =>
   db
-    .select({ id: users.id, disabledAt: users.disabledAt })
-    .from(users)
-    .where(eq(users.cloudAccountId, param(users.cloudAccountId, 'accountId')))
+    .select({ id: t.users.id, disabledAt: t.users.disabledAt })
+    .from(t.users)
+    .where(eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId')))
     .prepare(),
 )
 
-const clearMemberEmail = prepared((db: StoreDrizzle) =>
+const clearMemberEmail = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({ email: null })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .prepare(),
 )
 
-const clearMemberAccount = prepared((db: StoreDrizzle) =>
+const clearMemberAccount = prepared((db, t) =>
   db
-    .update(users)
+    .update(t.users)
     .set({ cloudAccountId: null })
-    .where(eq(users.id, param(users.id, 'id')))
+    .where(eq(t.users.id, param(t.users.id, 'id')))
     .prepare(),
 )
 

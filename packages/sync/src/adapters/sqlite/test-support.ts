@@ -4,6 +4,8 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
+import { sqliteSyncTables } from './binding'
+import { bindTables } from './prepared'
 import type { SyncServerTables } from './server-tables'
 import type { StoreDrizzle, StoreQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
@@ -111,15 +113,19 @@ type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle['transaction
 
 const testTransactionScope = new AsyncLocalStorage<FullTestDrizzle | TestTransactionDrizzle>()
 
+/** The fixture's instance, bound to the sync tables as a store's is (POD-6977). */
 function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
-  return proxyDrizzle(async (statement, params, method) => {
-    const prepared = db.prepare(statement)
-    if (method === 'run') {
-      return { rows: [], ...prepared.run(...params) }
-    }
-    const rows = prepared.values(...params)
-    return { rows: (method === 'get' ? rows[0] : rows) as unknown[] }
-  })
+  return bindTables(
+    proxyDrizzle(async (statement, params, method) => {
+      const prepared = db.prepare(statement)
+      if (method === 'run') {
+        return { rows: [], ...prepared.run(...params) }
+      }
+      const rows = prepared.values(...params)
+      return { rows: (method === 'get' ? rows[0] : rows) as unknown[] }
+    }),
+    sqliteSyncTables,
+  )
 }
 
 export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {

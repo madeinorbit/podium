@@ -30,15 +30,19 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm'
-import {
+import type {
   workflowBindings,
-  workflowEvents,
   workflowRevisions,
   workflowRunSteps,
   workflowRuns,
   workflows as workflowsTable,
 } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -122,12 +126,13 @@ type WorkflowSelection = typeof workflowsTable.$inferSelect & { latestVersion: n
  * every workflow reports latestVersion 0. It throws nothing and logs nothing;
  * store/workflows-golden.test.ts is what caught it.
  */
-const latestVersionOf = sql<number>`COALESCE((SELECT MAX(${workflowRevisions.version}) FROM ${workflowRevisions} WHERE ${workflowRevisions.workflowId} = ${sql.identifier('workflows')}.${sql.identifier('id')}), 0)`
+const latestVersionOf = (t: StoreTables) =>
+  sql<number>`COALESCE((SELECT MAX(${t.workflowRevisions.version}) FROM ${t.workflowRevisions} WHERE ${t.workflowRevisions.workflowId} = ${sql.identifier('workflows')}.${sql.identifier('id')}), 0)`
 
-const workflowSelection = {
-  ...getTableColumns(workflowsTable),
-  latestVersion: latestVersionOf,
-}
+const workflowSelection = (t: StoreTables) => ({
+  ...getTableColumns(t.workflows),
+  latestVersion: latestVersionOf(t),
+})
 
 function toWorkflow(row: WorkflowSelection): WorkflowWire {
   return {
@@ -211,76 +216,76 @@ function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
 
 const P = (name: string) => sql.placeholder(name)
 
-const workflowOwner = prepared((db: StoreDrizzle) =>
+const workflowOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: workflowsTable.ownerUserId })
-    .from(workflowsTable)
-    .where(eq(workflowsTable.id, param(workflowsTable.id, 'id')))
+    .select({ ownerUserId: t.workflows.ownerUserId })
+    .from(t.workflows)
+    .where(eq(t.workflows.id, param(t.workflows.id, 'id')))
     .prepare(),
 )
 
-const revisionOwner = prepared((db: StoreDrizzle) =>
+const revisionOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: workflowsTable.ownerUserId })
-    .from(workflowRevisions)
-    .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
-    .where(eq(workflowRevisions.id, param(workflowRevisions.id, 'id')))
+    .select({ ownerUserId: t.workflows.ownerUserId })
+    .from(t.workflowRevisions)
+    .innerJoin(t.workflows, eq(t.workflows.id, t.workflowRevisions.workflowId))
+    .where(eq(t.workflowRevisions.id, param(t.workflowRevisions.id, 'id')))
     .prepare(),
 )
 
-const bindingIs = () =>
+const bindingIs = (t: StoreTables) =>
   and(
-    eq(workflowBindings.targetKind, param(workflowBindings.targetKind, 'targetKind')),
-    eq(workflowBindings.targetId, param(workflowBindings.targetId, 'targetId')),
+    eq(t.workflowBindings.targetKind, param(t.workflowBindings.targetKind, 'targetKind')),
+    eq(t.workflowBindings.targetId, param(t.workflowBindings.targetId, 'targetId')),
   )
 
-const bindingOwner = prepared((db: StoreDrizzle) =>
+const bindingOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: workflowBindings.ownerUserId })
-    .from(workflowBindings)
-    .where(bindingIs())
+    .select({ ownerUserId: t.workflowBindings.ownerUserId })
+    .from(t.workflowBindings)
+    .where(bindingIs(t))
     .prepare(),
 )
 
-const runOwner = prepared((db: StoreDrizzle) =>
+const runOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: workflowRuns.ownerUserId })
-    .from(workflowRuns)
-    .where(eq(workflowRuns.id, param(workflowRuns.id, 'id')))
+    .select({ ownerUserId: t.workflowRuns.ownerUserId })
+    .from(t.workflowRuns)
+    .where(eq(t.workflowRuns.id, param(t.workflowRuns.id, 'id')))
     .prepare(),
 )
 
 /** Keyed by which of the three optional filters are set, e.g. `a1|s0|r1`. */
-const workflowsWhere = preparedFamily((db: StoreDrizzle, key: string) => {
+const workflowsWhere = preparedFamily((db, t, key: string) => {
   const [archived, scope, scopeRef] = key.split('|')
   const clauses: SQL[] = []
-  if (archived === 'a0') clauses.push(isNull(workflowsTable.archivedAt))
-  if (scope === 's1') clauses.push(eq(workflowsTable.scope, param(workflowsTable.scope, 'scope')))
+  if (archived === 'a0') clauses.push(isNull(t.workflows.archivedAt))
+  if (scope === 's1') clauses.push(eq(t.workflows.scope, param(t.workflows.scope, 'scope')))
   if (scopeRef === 'r1') {
-    clauses.push(eq(workflowsTable.scopeRef, param(workflowsTable.scopeRef, 'scopeRef')))
+    clauses.push(eq(t.workflows.scopeRef, param(t.workflows.scopeRef, 'scopeRef')))
   }
   return (
     db
-      .select(workflowSelection)
-      .from(workflowsTable)
+      .select(workflowSelection(t))
+      .from(t.workflows)
       .where(clauses.length ? and(...clauses) : undefined)
       // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
-      .orderBy(sql`${workflowsTable.name} COLLATE NOCASE`, asc(workflowsTable.createdAt))
+      .orderBy(sql`${t.workflows.name} COLLATE NOCASE`, asc(t.workflows.createdAt))
       .prepare()
   )
 })
 
-const workflowById = prepared((db: StoreDrizzle) =>
+const workflowById = prepared((db, t) =>
   db
-    .select(workflowSelection)
-    .from(workflowsTable)
-    .where(eq(workflowsTable.id, param(workflowsTable.id, 'id')))
+    .select(workflowSelection(t))
+    .from(t.workflows)
+    .where(eq(t.workflows.id, param(t.workflows.id, 'id')))
     .prepare(),
 )
 
-const insertWorkflowRow = prepared((db: StoreDrizzle) =>
+const insertWorkflowRow = prepared((db, t) =>
   db
-    .insert(workflowsTable)
+    .insert(t.workflows)
     .values({
       id: P('id'),
       name: P('name'),
@@ -296,34 +301,34 @@ const insertWorkflowRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const revisionsOf = prepared((db: StoreDrizzle) =>
+const revisionsOf = prepared((db, t) =>
   db
     .select()
-    .from(workflowRevisions)
-    .where(eq(workflowRevisions.workflowId, param(workflowRevisions.workflowId, 'workflowId')))
-    .orderBy(desc(workflowRevisions.version))
+    .from(t.workflowRevisions)
+    .where(eq(t.workflowRevisions.workflowId, param(t.workflowRevisions.workflowId, 'workflowId')))
+    .orderBy(desc(t.workflowRevisions.version))
     .prepare(),
 )
 
-const revisionById = prepared((db: StoreDrizzle) =>
+const revisionById = prepared((db, t) =>
   db
     .select()
-    .from(workflowRevisions)
-    .where(eq(workflowRevisions.id, param(workflowRevisions.id, 'id')))
+    .from(t.workflowRevisions)
+    .where(eq(t.workflowRevisions.id, param(t.workflowRevisions.id, 'id')))
     .prepare(),
 )
 
-const latestRevisionVersion = prepared((db: StoreDrizzle) =>
+const latestRevisionVersion = prepared((db, t) =>
   db
-    .select({ version: max(workflowRevisions.version) })
-    .from(workflowRevisions)
-    .where(eq(workflowRevisions.workflowId, param(workflowRevisions.workflowId, 'workflowId')))
+    .select({ version: max(t.workflowRevisions.version) })
+    .from(t.workflowRevisions)
+    .where(eq(t.workflowRevisions.workflowId, param(t.workflowRevisions.workflowId, 'workflowId')))
     .prepare(),
 )
 
-const insertRevisionRow = prepared((db: StoreDrizzle) =>
+const insertRevisionRow = prepared((db, t) =>
   db
-    .insert(workflowRevisions)
+    .insert(t.workflowRevisions)
     .values({
       id: P('id'),
       workflowId: P('workflowId'),
@@ -337,39 +342,39 @@ const insertRevisionRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const setLatestRevision = prepared((db: StoreDrizzle) =>
+const setLatestRevision = prepared((db, t) =>
   db
-    .update(workflowsTable)
+    .update(t.workflows)
     .set({ latestRevisionId: P('revisionId'), updatedAt: P('now') })
-    .where(eq(workflowsTable.id, param(workflowsTable.id, 'workflowId')))
+    .where(eq(t.workflows.id, param(t.workflows.id, 'workflowId')))
     .prepare(),
 )
 
-const publishRevisionRow = prepared((db: StoreDrizzle) =>
+const publishRevisionRow = prepared((db, t) =>
   db
-    .update(workflowRevisions)
+    .update(t.workflowRevisions)
     // COALESCE: a published revision has ONE publication moment, so a repeat
     // must not re-date it.
-    .set({ publishedAt: sql`COALESCE(${workflowRevisions.publishedAt}, ${P('now')})` })
-    .where(eq(workflowRevisions.id, param(workflowRevisions.id, 'revisionId')))
+    .set({ publishedAt: sql`COALESCE(${t.workflowRevisions.publishedAt}, ${P('now')})` })
+    .where(eq(t.workflowRevisions.id, param(t.workflowRevisions.id, 'revisionId')))
     .prepare(),
 )
 
-const bindingOf = prepared((db: StoreDrizzle) =>
-  db.select().from(workflowBindings).where(bindingIs()).prepare(),
+const bindingOf = prepared((db, t) =>
+  db.select().from(t.workflowBindings).where(bindingIs(t)).prepare(),
 )
 
-const allBindings = prepared((db: StoreDrizzle) =>
+const allBindings = prepared((db, t) =>
   db
     .select()
-    .from(workflowBindings)
-    .orderBy(asc(workflowBindings.targetKind), asc(workflowBindings.targetId))
+    .from(t.workflowBindings)
+    .orderBy(asc(t.workflowBindings.targetKind), asc(t.workflowBindings.targetId))
     .prepare(),
 )
 
-const upsertBinding = prepared((db: StoreDrizzle) =>
+const upsertBinding = prepared((db, t) =>
   db
-    .insert(workflowBindings)
+    .insert(t.workflowBindings)
     .values({
       targetKind: P('targetKind'),
       targetId: P('targetId'),
@@ -380,7 +385,7 @@ const upsertBinding = prepared((db: StoreDrizzle) =>
       updatedAt: P('now'),
     })
     .onConflictDoUpdate({
-      target: [workflowBindings.targetKind, workflowBindings.targetId],
+      target: [t.workflowBindings.targetKind, t.workflowBindings.targetId],
       // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
       // rebind may not change the resource owner `ownerOf` authorizes from.
       set: {
@@ -396,104 +401,104 @@ const upsertBinding = prepared((db: StoreDrizzle) =>
 /** One keyset page of the run history, newest first, through
  *  `workflow_runs_started` (POD-6209): the runs before the cursor's
  *  `(started_at, id)`. The first page starts before {@link RUN_HISTORY_START}. */
-const runsPage = prepared((db: StoreDrizzle) =>
+const runsPage = prepared((db, t) =>
   db
     .select()
-    .from(workflowRuns)
+    .from(t.workflowRuns)
     .where(
-      sql`(${workflowRuns.startedAt}, ${workflowRuns.id}) < (${param(workflowRuns.startedAt, 'beforeStartedAt')}, ${param(workflowRuns.id, 'beforeId')})`,
+      sql`(${t.workflowRuns.startedAt}, ${t.workflowRuns.id}) < (${param(t.workflowRuns.startedAt, 'beforeStartedAt')}, ${param(t.workflowRuns.id, 'beforeId')})`,
     )
-    .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
+    .orderBy(desc(t.workflowRuns.startedAt), desc(t.workflowRuns.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const liveRuns = prepared((db: StoreDrizzle) =>
+const liveRuns = prepared((db, t) =>
   db
     .select()
-    .from(workflowRuns)
-    .where(inArray(workflowRuns.status, ['active', 'blocked']))
-    .orderBy(desc(workflowRuns.startedAt))
+    .from(t.workflowRuns)
+    .where(inArray(t.workflowRuns.status, ['active', 'blocked']))
+    .orderBy(desc(t.workflowRuns.startedAt))
     .prepare(),
 )
 
-const runById = prepared((db: StoreDrizzle) =>
+const runById = prepared((db, t) =>
   db
     .select()
-    .from(workflowRuns)
-    .where(eq(workflowRuns.id, param(workflowRuns.id, 'id')))
+    .from(t.workflowRuns)
+    .where(eq(t.workflowRuns.id, param(t.workflowRuns.id, 'id')))
     .prepare(),
 )
 
-const stepsOfRun = prepared((db: StoreDrizzle) =>
+const stepsOfRun = prepared((db, t) =>
   db
     .select()
-    .from(workflowRunSteps)
-    .where(eq(workflowRunSteps.runId, param(workflowRunSteps.runId, 'runId')))
-    .orderBy(asc(workflowRunSteps.position))
+    .from(t.workflowRunSteps)
+    .where(eq(t.workflowRunSteps.runId, param(t.workflowRunSteps.runId, 'runId')))
+    .orderBy(asc(t.workflowRunSteps.position))
     .prepare(),
 )
 
 // THE NARROW PROJECTION IS THE POINT (see `listRunEvents`).
-const eventsOfRun = prepared((db: StoreDrizzle) =>
+const eventsOfRun = prepared((db, t) =>
   db
     .select({
-      kind: workflowEvents.kind,
-      actorKind: workflowEvents.actorKind,
-      actorId: workflowEvents.actorId,
-      onBehalfOf: workflowEvents.onBehalfOf,
-      createdAt: workflowEvents.createdAt,
+      kind: t.workflowEvents.kind,
+      actorKind: t.workflowEvents.actorKind,
+      actorId: t.workflowEvents.actorId,
+      onBehalfOf: t.workflowEvents.onBehalfOf,
+      createdAt: t.workflowEvents.createdAt,
     })
-    .from(workflowEvents)
-    .where(eq(workflowEvents.runId, param(workflowEvents.runId, 'runId')))
-    .orderBy(asc(workflowEvents.id))
+    .from(t.workflowEvents)
+    .where(eq(t.workflowEvents.runId, param(t.workflowEvents.runId, 'runId')))
+    .orderBy(asc(t.workflowEvents.id))
     .prepare(),
 )
 
-const liveRunOfSubject = prepared((db: StoreDrizzle) =>
+const liveRunOfSubject = prepared((db, t) =>
   db
     .select()
-    .from(workflowRuns)
+    .from(t.workflowRuns)
     .where(
       and(
-        eq(workflowRuns.subjectKind, param(workflowRuns.subjectKind, 'subjectKind')),
-        eq(workflowRuns.subjectId, param(workflowRuns.subjectId, 'subjectId')),
-        inArray(workflowRuns.status, ['active', 'blocked']),
+        eq(t.workflowRuns.subjectKind, param(t.workflowRuns.subjectKind, 'subjectKind')),
+        eq(t.workflowRuns.subjectId, param(t.workflowRuns.subjectId, 'subjectId')),
+        inArray(t.workflowRuns.status, ['active', 'blocked']),
       ),
     )
-    .orderBy(desc(workflowRuns.startedAt))
+    .orderBy(desc(t.workflowRuns.startedAt))
     .limit(1)
     .prepare(),
 )
 
-const liveRunOfSession = prepared((db: StoreDrizzle) =>
+const liveRunOfSession = prepared((db, t) =>
   db
-    .selectDistinct(getTableColumns(workflowRuns))
-    .from(workflowRuns)
-    .leftJoin(workflowRunSteps, eq(workflowRunSteps.runId, workflowRuns.id))
+    .selectDistinct(getTableColumns(t.workflowRuns))
+    .from(t.workflowRuns)
+    .leftJoin(t.workflowRunSteps, eq(t.workflowRunSteps.runId, t.workflowRuns.id))
     .where(
       and(
-        inArray(workflowRuns.status, ['active', 'blocked']),
+        inArray(t.workflowRuns.status, ['active', 'blocked']),
         or(
           eq(
-            workflowRuns.coordinatorSessionId,
-            param(workflowRuns.coordinatorSessionId, 'sessionId'),
+            t.workflowRuns.coordinatorSessionId,
+            param(t.workflowRuns.coordinatorSessionId, 'sessionId'),
           ),
           eq(
-            workflowRunSteps.assignedSessionId,
-            param(workflowRunSteps.assignedSessionId, 'sessionId'),
+            t.workflowRunSteps.assignedSessionId,
+            param(t.workflowRunSteps.assignedSessionId, 'sessionId'),
           ),
         ),
       ),
     )
-    .orderBy(desc(workflowRuns.startedAt))
+    .orderBy(desc(t.workflowRuns.startedAt))
     .limit(1)
     .prepare(),
 )
 
-const insertRunRow = prepared((db: StoreDrizzle) =>
+const insertRunRow = prepared((db, t) =>
   db
-    .insert(workflowRuns)
+    .insert(t.workflowRuns)
     .values({
       id: P('id'),
       subjectKind: P('subjectKind'),
@@ -514,9 +519,9 @@ const insertRunRow = prepared((db: StoreDrizzle) =>
  * are its workflow's, so the count comes from a small domain (the family's
  * backstop bounds it regardless).
  */
-const insertRunSteps = preparedFamily((db: StoreDrizzle, count: number) =>
+const insertRunSteps = preparedFamily((db, t, count: number) =>
   db
-    .insert(workflowRunSteps)
+    .insert(t.workflowRunSteps)
     .values(
       Array.from({ length: count }, (_, i) => ({
         runId: P('runId'),
@@ -536,23 +541,23 @@ const insertRunSteps = preparedFamily((db: StoreDrizzle, count: number) =>
     .prepare(),
 )
 
-const setRunStatus = prepared((db: StoreDrizzle) =>
+const setRunStatus = prepared((db, t) =>
   db
-    .update(workflowRuns)
+    .update(t.workflowRuns)
     .set({ status: P('status'), completedAt: P('completedAt') })
-    .where(eq(workflowRuns.id, param(workflowRuns.id, 'id')))
+    .where(eq(t.workflowRuns.id, param(t.workflowRuns.id, 'id')))
     .prepare(),
 )
 
-const stepIs = () =>
+const stepIs = (t: StoreTables) =>
   and(
-    eq(workflowRunSteps.runId, param(workflowRunSteps.runId, 'runId')),
-    eq(workflowRunSteps.stepId, param(workflowRunSteps.stepId, 'stepId')),
+    eq(t.workflowRunSteps.runId, param(t.workflowRunSteps.runId, 'runId')),
+    eq(t.workflowRunSteps.stepId, param(t.workflowRunSteps.stepId, 'stepId')),
   )
 
-const updateStepRow = prepared((db: StoreDrizzle) =>
+const updateStepRow = prepared((db, t) =>
   db
-    .update(workflowRunSteps)
+    .update(t.workflowRunSteps)
     .set({
       status: P('status'),
       assignedSessionId: P('assignedSessionId'),
@@ -563,26 +568,26 @@ const updateStepRow = prepared((db: StoreDrizzle) =>
       startedAt: P('startedAt'),
       completedAt: P('completedAt'),
     })
-    .where(stepIs())
+    .where(stepIs(t))
     .prepare(),
 )
 
-const assignStepRow = prepared((db: StoreDrizzle) =>
+const assignStepRow = prepared((db, t) =>
   db
-    .update(workflowRunSteps)
+    .update(t.workflowRunSteps)
     .set({ assignedSessionId: P('sessionId') })
-    .where(stepIs())
+    .where(stepIs(t))
     .prepare(),
 )
 
-const resetStepRow = prepared((db: StoreDrizzle) =>
+const resetStepRow = prepared((db, t) =>
   db
-    .update(workflowRunSteps)
+    .update(t.workflowRunSteps)
     .set({
       status: 'pending',
       // READ-MODIFY-WRITE IN SQL. Binding a computed value would need a prior
       // read and would be a different statement with a different race.
-      attempt: sql`${workflowRunSteps.attempt} + 1`,
+      attempt: sql`${t.workflowRunSteps.attempt} + 1`,
       summary: '',
       evidenceJson: '{}',
       observationJson: null,
@@ -590,13 +595,13 @@ const resetStepRow = prepared((db: StoreDrizzle) =>
       startedAt: null,
       completedAt: null,
     })
-    .where(stepIs())
+    .where(stepIs(t))
     .prepare(),
 )
 
-const appendEventRow = prepared((db: StoreDrizzle) =>
+const appendEventRow = prepared((db, t) =>
   db
-    .insert(workflowEvents)
+    .insert(t.workflowEvents)
     .values({
       workflowId: P('workflowId'),
       runId: P('runId'),
@@ -616,125 +621,125 @@ const appendEventRow = prepared((db: StoreDrizzle) =>
 const ID_CHUNK = 500
 
 /** Each asked workflow's owner and scope, for the feed's visibility pass. */
-const workflowOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const workflowOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: workflowsTable.id,
-      ownerUserId: workflowsTable.ownerUserId,
-      scope: workflowsTable.scope,
+      id: t.workflows.id,
+      ownerUserId: t.workflows.ownerUserId,
+      scope: t.workflows.scope,
     })
-    .from(workflowsTable)
-    .where(inListOf(workflowsTable.id, size))
+    .from(t.workflows)
+    .where(inListOf(t.workflows.id, size))
     .prepare(),
 )
 
 /** Each asked revision's workflow, with that workflow's owner and scope: a
  *  revision is read as its workflow is (design §1.10). */
-const revisionWorkflowsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const revisionWorkflowsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: workflowRevisions.id,
-      workflowId: workflowRevisions.workflowId,
-      ownerUserId: workflowsTable.ownerUserId,
-      scope: workflowsTable.scope,
+      id: t.workflowRevisions.id,
+      workflowId: t.workflowRevisions.workflowId,
+      ownerUserId: t.workflows.ownerUserId,
+      scope: t.workflows.scope,
     })
-    .from(workflowRevisions)
-    .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
-    .where(inListOf(workflowRevisions.id, size))
+    .from(t.workflowRevisions)
+    .innerJoin(t.workflows, eq(t.workflows.id, t.workflowRevisions.workflowId))
+    .where(inListOf(t.workflowRevisions.id, size))
     .prepare(),
 )
 
 /** The asked bindings of ONE target kind, through the primary key's prefix. */
-const bindingOwnersOfTargets = preparedFamily((db: StoreDrizzle, size: number) =>
+const bindingOwnersOfTargets = preparedFamily((db, t, size: number) =>
   db
     .select({
-      targetKind: workflowBindings.targetKind,
-      targetId: workflowBindings.targetId,
-      ownerUserId: workflowBindings.ownerUserId,
+      targetKind: t.workflowBindings.targetKind,
+      targetId: t.workflowBindings.targetId,
+      ownerUserId: t.workflowBindings.ownerUserId,
     })
-    .from(workflowBindings)
+    .from(t.workflowBindings)
     .where(
       and(
-        eq(workflowBindings.targetKind, param(workflowBindings.targetKind, 'targetKind')),
-        inListOf(workflowBindings.targetId, size),
+        eq(t.workflowBindings.targetKind, param(t.workflowBindings.targetKind, 'targetKind')),
+        inListOf(t.workflowBindings.targetId, size),
       ),
     )
     .prepare(),
 )
 
-const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const runOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: workflowRuns.id, ownerUserId: workflowRuns.ownerUserId })
-    .from(workflowRuns)
-    .where(inListOf(workflowRuns.id, size))
+    .select({ id: t.workflowRuns.id, ownerUserId: t.workflowRuns.ownerUserId })
+    .from(t.workflowRuns)
+    .where(inListOf(t.workflowRuns.id, size))
     .prepare(),
 )
 
 /** Every revision, for the boot reconcile (one read). */
-const everyRevision = prepared((db: StoreDrizzle) =>
-  db.select().from(workflowRevisions).orderBy(asc(workflowRevisions.id)).prepare(),
+const everyRevision = prepared((db, t) =>
+  db.select().from(t.workflowRevisions).orderBy(asc(t.workflowRevisions.id)).prepare(),
 )
 
 /** Every run, live and terminal, with its revision's workflow (one read). */
-const everyRun = prepared((db: StoreDrizzle) =>
+const everyRun = prepared((db, t) =>
   db
-    .select({ ...getTableColumns(workflowRuns), workflowId: workflowRevisions.workflowId })
-    .from(workflowRuns)
-    .innerJoin(workflowRevisions, eq(workflowRevisions.id, workflowRuns.revisionId))
-    .orderBy(asc(workflowRuns.id))
+    .select({ ...getTableColumns(t.workflowRuns), workflowId: t.workflowRevisions.workflowId })
+    .from(t.workflowRuns)
+    .innerJoin(t.workflowRevisions, eq(t.workflowRevisions.id, t.workflowRuns.revisionId))
+    .orderBy(asc(t.workflowRuns.id))
     .prepare(),
 )
 
 /** Every run step, for the boot reconcile (one read), in the primary key's
  *  `(run_id, step_id)` order; each run's steps are put in position order after. */
-const everyRunStep = prepared((db: StoreDrizzle) =>
+const everyRunStep = prepared((db, t) =>
   db
     .select()
-    .from(workflowRunSteps)
-    .orderBy(asc(workflowRunSteps.runId), asc(workflowRunSteps.stepId))
+    .from(t.workflowRunSteps)
+    .orderBy(asc(t.workflowRunSteps.runId), asc(t.workflowRunSteps.stepId))
     .prepare(),
 )
 
 /** The workflow family by id, for building its records by id (POD-6763). */
-const workflowsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const workflowsOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select(workflowSelection)
-    .from(workflowsTable)
-    .where(inListOf(workflowsTable.id, size, 'ids'))
+    .select(workflowSelection(t))
+    .from(t.workflows)
+    .where(inListOf(t.workflows.id, size, 'ids'))
     .prepare(),
 )
 
-const revisionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const revisionsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(workflowRevisions)
-    .where(inListOf(workflowRevisions.id, size, 'ids'))
+    .from(t.workflowRevisions)
+    .where(inListOf(t.workflowRevisions.id, size, 'ids'))
     .prepare(),
 )
 
-const runsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const runsOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ ...getTableColumns(workflowRuns), workflowId: workflowRevisions.workflowId })
-    .from(workflowRuns)
-    .innerJoin(workflowRevisions, eq(workflowRevisions.id, workflowRuns.revisionId))
-    .where(inListOf(workflowRuns.id, size, 'ids'))
+    .select({ ...getTableColumns(t.workflowRuns), workflowId: t.workflowRevisions.workflowId })
+    .from(t.workflowRuns)
+    .innerJoin(t.workflowRevisions, eq(t.workflowRevisions.id, t.workflowRuns.revisionId))
+    .where(inListOf(t.workflowRuns.id, size, 'ids'))
     .prepare(),
 )
 
 /** The runs of these revisions (POD-6920: a revision's change reaches them). */
-const runIdsOfRevisions = preparedFamily((db: StoreDrizzle, size: number) =>
+const runIdsOfRevisions = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: workflowRuns.id })
-    .from(workflowRuns)
-    .where(inListOf(workflowRuns.revisionId, size, 'ids'))
+    .select({ id: t.workflowRuns.id })
+    .from(t.workflowRuns)
+    .where(inListOf(t.workflowRuns.revisionId, size, 'ids'))
     .prepare(),
 )
 
-const stepsOfRuns = preparedFamily((db: StoreDrizzle, size: number) =>
+const stepsOfRuns = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(workflowRunSteps)
-    .where(inListOf(workflowRunSteps.runId, size, 'ids'))
+    .from(t.workflowRunSteps)
+    .where(inListOf(t.workflowRunSteps.runId, size, 'ids'))
     .prepare(),
 )
 

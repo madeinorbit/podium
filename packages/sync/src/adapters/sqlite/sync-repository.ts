@@ -32,31 +32,42 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import type { AppliedMutationFallback } from '../../mutation-ledger'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
+import type { SyncTables } from './binding'
 import {
-  appliedMutations,
-  changes,
-  SELF_HOSTED_TENANT_ID,
-  syncCapture,
-  syncFeed,
-  syncKind,
-} from './schema'
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  preparedFamily as preparedFamilyOn,
+  prepared as preparedOn,
+} from './prepared'
+import { SELF_HOSTED_TENANT_ID } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
+export { type SyncTables, sqliteSyncTables } from './binding'
+
+// The shared helpers, typed for this adapter's instance and tables. The same
+// functions, so each definition's registered site is still its own line.
+const prepared: <P>(build: (db: StoreDrizzle, t: SyncTables) => P) => (db: StoreDrizzle) => P =
+  preparedOn
+const preparedFamily: <K extends string | number, P>(
+  build: (db: StoreDrizzle, t: SyncTables, key: K) => P,
+) => (db: StoreDrizzle, key: K) => P = preparedFamilyOn
+
 /** Take the current transaction's captured rows above a mark (POD-6920).
  *  The table holds only what this transaction wrote since its last drain. */
-const drainCaptureRows = prepared((db: StoreDrizzle) =>
+const drainCaptureRows = prepared((db, t) =>
   db
-    .delete(syncCapture)
-    .where(gt(syncCapture.id, sql.placeholder('after')))
+    .delete(t.syncCapture)
+    .where(gt(t.syncCapture.id, sql.placeholder('after')))
     .returning({
-      id: syncCapture.id,
-      kind: syncCapture.kind,
-      source: syncCapture.source,
-      op: syncCapture.op,
-      oldKey: syncCapture.oldKey,
-      newKey: syncCapture.newKey,
+      id: t.syncCapture.id,
+      kind: t.syncCapture.kind,
+      source: t.syncCapture.source,
+      op: t.syncCapture.op,
+      oldKey: t.syncCapture.oldKey,
+      newKey: t.syncCapture.newKey,
     })
     .prepare(),
 )
@@ -73,39 +84,39 @@ export interface CapturedRow {
 }
 
 /** The newest captured row of the current transaction, 0 when none. */
-const captureHead = prepared((db: StoreDrizzle) =>
+const captureHead = prepared((db, t) =>
   db
-    .select({ head: sql<number>`coalesce(max(${syncCapture.id}), 0)` })
-    .from(syncCapture)
+    .select({ head: sql<number>`coalesce(max(${t.syncCapture.id}), 0)` })
+    .from(t.syncCapture)
     .prepare(),
 )
 
 // One row per registered kind in this tenant, independent of record count.
-const kindGenerations = prepared((db: StoreDrizzle) =>
+const kindGenerations = prepared((db, t) =>
   db
-    .select({ kind: syncKind.kind, generation: syncKind.generation })
-    .from(syncKind)
-    .where(eq(syncKind.tenantId, param(syncKind.tenantId, 'tenantId')))
+    .select({ kind: t.syncKind.kind, generation: t.syncKind.generation })
+    .from(t.syncKind)
+    .where(eq(t.syncKind.tenantId, param(t.syncKind.tenantId, 'tenantId')))
     .prepare(),
 )
 
 /** UPDATE holds this tenant's row lock until the surrounding write commits.
  * Postgres uses the same UPDATE ... RETURNING contract; it must never use a
  * sequence, whose numbers can commit in a different order or survive rollback. */
-const reserveChangeSeqs = prepared((db: StoreDrizzle) =>
+const reserveChangeSeqs = prepared((db, t) =>
   db
-    .update(syncFeed)
-    .set({ headSeq: sql`${syncFeed.headSeq} + ${sql.placeholder('count')}` })
-    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
-    .returning({ headSeq: syncFeed.headSeq })
+    .update(t.syncFeed)
+    .set({ headSeq: sql`${t.syncFeed.headSeq} + ${sql.placeholder('count')}` })
+    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
+    .returning({ headSeq: t.syncFeed.headSeq })
     .prepare(),
 )
 
-const currentFeedState = prepared((db: StoreDrizzle) =>
+const currentFeedState = prepared((db, t) =>
   db
-    .select({ headSeq: syncFeed.headSeq, floorSeq: syncFeed.floorSeq })
-    .from(syncFeed)
-    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .select({ headSeq: t.syncFeed.headSeq, floorSeq: t.syncFeed.floorSeq })
+    .from(t.syncFeed)
+    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
     .prepare(),
 )
 
@@ -116,23 +127,26 @@ const currentFeedState = prepared((db: StoreDrizzle) =>
  * at 1 is an ordinary empty range (0, 1]; a floor of 2 would sit above the
  * load's head and refuse both the load and a delta from 0. Only a head of 0
  * moves; it never renumbers. */
-const raiseEmptyHead = prepared((db: StoreDrizzle) =>
+const raiseEmptyHead = prepared((db, t) =>
   db
-    .update(syncFeed)
+    .update(t.syncFeed)
     .set({ headSeq: 1 })
     .where(
-      and(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')), eq(syncFeed.headSeq, 0)),
+      and(
+        eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')),
+        eq(t.syncFeed.headSeq, 0),
+      ),
     )
     .prepare(),
 )
 
-const advanceFloor = prepared((db: StoreDrizzle) =>
+const advanceFloor = prepared((db, t) =>
   db
-    .update(syncFeed)
+    .update(t.syncFeed)
     .set({
-      floorSeq: sql`coalesce((select min(${changes.seq}) from ${changes} where ${changes.tenantId} = ${sql.placeholder('tenantId')}), ${syncFeed.headSeq} + 1)`,
+      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.tenantId} = ${sql.placeholder('tenantId')}), ${t.syncFeed.headSeq} + 1)`,
     })
-    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
     .prepare(),
 )
 
@@ -143,9 +157,9 @@ const advanceFloor = prepared((db: StoreDrizzle) =>
  * `payload${i}` and the provenance triple `originId${i}`, `causationId${i}`,
  * `mutationId${i}` (POD-6272); every row shares `eventTime`.
  */
-const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
+const insertChangeRows = preparedFamily((db, t, rows: number) =>
   db
-    .insert(changes)
+    .insert(t.changes)
     .values(
       Array.from({ length: rows }, (_, i) => ({
         tenantId: sql.placeholder('tenantId'),
@@ -167,88 +181,88 @@ const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
 // original statement projected plus the provenance triple a reader now needs to
 // confirm a client's write (POD-6272). `event_time` stays unread: no range
 // reader asks for the clock.
-const changesAfter = prepared((db: StoreDrizzle) =>
+const changesAfter = prepared((db, t) =>
   db
     .select({
-      seq: changes.seq,
-      entity: changes.entity,
-      entityId: changes.entityId,
-      op: changes.op,
-      payload: changes.payload,
-      originId: changes.originId,
-      causationId: changes.causationId,
-      mutationId: changes.mutationId,
+      seq: t.changes.seq,
+      entity: t.changes.entity,
+      entityId: t.changes.entityId,
+      op: t.changes.op,
+      payload: t.changes.payload,
+      originId: t.changes.originId,
+      causationId: t.changes.causationId,
+      mutationId: t.changes.mutationId,
     })
-    .from(changes)
+    .from(t.changes)
     .where(
       and(
-        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
-        gt(changes.seq, param(changes.seq, 'cursor')),
+        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        gt(t.changes.seq, param(t.changes.seq, 'cursor')),
       ),
     )
-    .orderBy(asc(changes.seq))
+    .orderBy(asc(t.changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const changesBetween = prepared((db: StoreDrizzle) =>
+const changesBetween = prepared((db, t) =>
   db
     .select({
-      seq: changes.seq,
-      entity: changes.entity,
-      entityId: changes.entityId,
-      op: changes.op,
-      payload: changes.payload,
-      originId: changes.originId,
-      causationId: changes.causationId,
-      mutationId: changes.mutationId,
+      seq: t.changes.seq,
+      entity: t.changes.entity,
+      entityId: t.changes.entityId,
+      op: t.changes.op,
+      payload: t.changes.payload,
+      originId: t.changes.originId,
+      causationId: t.changes.causationId,
+      mutationId: t.changes.mutationId,
     })
-    .from(changes)
+    .from(t.changes)
     .where(
       and(
-        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
-        gt(changes.seq, param(changes.seq, 'from')),
-        lte(changes.seq, param(changes.seq, 'through')),
+        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        gt(t.changes.seq, param(t.changes.seq, 'from')),
+        lte(t.changes.seq, param(t.changes.seq, 'through')),
       ),
     )
-    .orderBy(asc(changes.seq))
+    .orderBy(asc(t.changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
 // see {@link SyncRepository.planChangePrune}.
-const newestAgedSeq = prepared((db: StoreDrizzle) =>
+const newestAgedSeq = prepared((db, t) =>
   db
-    .select({ seq: max(changes.seq) })
-    .from(sql`${changes} indexed by ${sql.identifier('changes_event_time')}`)
+    .select({ seq: max(t.changes.seq) })
+    .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
     .where(
       and(
-        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
-        lt(changes.eventTime, param(changes.eventTime, 'before')),
+        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        lt(t.changes.eventTime, param(t.changes.eventTime, 'before')),
       ),
     )
     .prepare(),
 )
 
-const deleteChangeHead = prepared((db: StoreDrizzle) =>
+const deleteChangeHead = prepared((db, t) =>
   db
-    .delete(changes)
+    .delete(t.changes)
     .where(
       and(
-        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
+        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
         inArray(
-          changes.seq,
+          t.changes.seq,
           db
-            .select({ seq: changes.seq })
-            .from(changes)
+            .select({ seq: t.changes.seq })
+            .from(t.changes)
             .where(
               and(
-                eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
-                lte(changes.seq, param(changes.seq, 'thresholdSeq')),
+                eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+                lte(t.changes.seq, param(t.changes.seq, 'thresholdSeq')),
               ),
             )
-            .orderBy(asc(changes.seq))
+            .orderBy(asc(t.changes.seq))
             .limit(sql.placeholder('batchSize')),
         ),
       ),
@@ -264,77 +278,80 @@ const deleteChangeHead = prepared((db: StoreDrizzle) =>
  * prior. Catch-up reads the log here only to compare two logged records of one
  * row; a pruned prior answers "moved", which costs a re-send, never a fact.
  */
-const priorChange = alias(changes, 'prior')
-const earlierChange = alias(changes, 'earlier')
-const changesWithPrior = preparedFamily((db: StoreDrizzle, size: number) =>
+const priorChange = (t: SyncTables) => alias(t.changes, 'prior')
+const earlierChange = (t: SyncTables) => alias(t.changes, 'earlier')
+const changesWithPrior = preparedFamily((db, t, size: number) =>
   db
     .select({
-      seq: changes.seq,
-      op: changes.op,
-      payload: changes.payload,
+      seq: t.changes.seq,
+      op: t.changes.op,
+      payload: t.changes.payload,
       // Named apart: the row reader keys columns by name, so a second `op` and
       // `payload` would overwrite the change's own.
-      priorOp: sql<string | null>`${priorChange.op}`.as('prior_op'),
-      priorPayload: sql<string | null>`${priorChange.payload}`.as('prior_payload'),
+      priorOp: sql<string | null>`${priorChange(t).op}`.as('prior_op'),
+      priorPayload: sql<string | null>`${priorChange(t).payload}`.as('prior_payload'),
     })
-    .from(changes)
+    .from(t.changes)
     .leftJoin(
-      priorChange,
+      priorChange(t),
       and(
-        eq(priorChange.tenantId, changes.tenantId),
+        eq(priorChange(t).tenantId, t.changes.tenantId),
         eq(
-          priorChange.seq,
+          priorChange(t).seq,
           db
-            .select({ seq: max(earlierChange.seq) })
-            .from(earlierChange)
+            .select({ seq: max(earlierChange(t).seq) })
+            .from(earlierChange(t))
             .where(
               and(
-                eq(earlierChange.tenantId, changes.tenantId),
-                eq(earlierChange.entity, changes.entity),
-                eq(earlierChange.entityId, changes.entityId),
-                lt(earlierChange.seq, changes.seq),
+                eq(earlierChange(t).tenantId, t.changes.tenantId),
+                eq(earlierChange(t).entity, t.changes.entity),
+                eq(earlierChange(t).entityId, t.changes.entityId),
+                lt(earlierChange(t).seq, t.changes.seq),
               ),
             ),
         ),
       ),
     )
     .where(
-      and(eq(changes.tenantId, param(changes.tenantId, 'tenantId')), inListOf(changes.seq, size)),
+      and(
+        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        inListOf(t.changes.seq, size),
+      ),
     )
     .prepare(),
 )
 
 /** Seqs per grouped prior-change read: one parameter each. */
 const SEQ_CHUNK = 500
-const appliedMutationResult = prepared((db: StoreDrizzle) =>
+const appliedMutationResult = prepared((db, t) =>
   db
-    .select({ result: appliedMutations.result })
-    .from(appliedMutations)
-    .where(eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')))
+    .select({ result: t.appliedMutations.result })
+    .from(t.appliedMutations)
+    .where(eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')))
     .prepare(),
 )
 
 /** At most two primary-key hits; choose the current key before the legacy key. */
-const appliedMutationWithFallback = prepared((db: StoreDrizzle) =>
+const appliedMutationWithFallback = prepared((db, t) =>
   db
     .select({
-      mutationId: appliedMutations.mutationId,
-      result: appliedMutations.result,
-      appliedAt: appliedMutations.appliedAt,
+      mutationId: t.appliedMutations.mutationId,
+      result: t.appliedMutations.result,
+      appliedAt: t.appliedMutations.appliedAt,
     })
-    .from(appliedMutations)
+    .from(t.appliedMutations)
     .where(
       or(
-        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')),
-        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'fallbackId')),
+        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
+        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'fallbackId')),
       ),
     )
     .prepare(),
 )
 
-const insertAppliedMutation = prepared((db: StoreDrizzle) =>
+const insertAppliedMutation = prepared((db, t) =>
   db
-    .insert(appliedMutations)
+    .insert(t.appliedMutations)
     .values({
       mutationId: sql.placeholder('mutationId'),
       proc: sql.placeholder('proc'),
@@ -345,18 +362,18 @@ const insertAppliedMutation = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAppliedMutationsBefore = prepared((db: StoreDrizzle) =>
+const deleteAppliedMutationsBefore = prepared((db, t) =>
   db
-    .delete(appliedMutations)
-    .where(lt(appliedMutations.appliedAt, param(appliedMutations.appliedAt, 'before')))
+    .delete(t.appliedMutations)
+    .where(lt(t.appliedMutations.appliedAt, param(t.appliedMutations.appliedAt, 'before')))
     .prepare(),
 )
 
-const currentFeedIdentity = prepared((db: StoreDrizzle) =>
+const currentFeedIdentity = prepared((db, t) =>
   db
-    .select({ feedId: syncFeed.feedId, epoch: syncFeed.epoch })
-    .from(syncFeed)
-    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .select({ feedId: t.syncFeed.feedId, epoch: t.syncFeed.epoch })
+    .from(t.syncFeed)
+    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
     .prepare(),
 )
 
@@ -371,18 +388,18 @@ const initialFeedValues = {
 
 /** Created inside an append, whose reservation moves the head past 0 in the
  *  same transaction, so this row is never observed at head 0. */
-const ensureFeedIdentity = prepared((db: StoreDrizzle) =>
-  db.insert(syncFeed).values(initialFeedValues).onConflictDoNothing().prepare(),
+const ensureFeedIdentity = prepared((db, t) =>
+  db.insert(t.syncFeed).values(initialFeedValues).onConflictDoNothing().prepare(),
 )
 
 /** An identity minted before any append creates the feed at head 1, never 0:
  *  see `raiseEmptyHead` (ADR 2 D12). An existing row keeps its counters. */
-const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
+const upsertFeedIdentity = prepared((db, t) =>
   db
-    .insert(syncFeed)
+    .insert(t.syncFeed)
     .values({ ...initialFeedValues, headSeq: 1 })
     .onConflictDoUpdate({
-      target: syncFeed.tenantId,
+      target: t.syncFeed.tenantId,
       set: {
         feedId: sql`excluded.feed_id`,
         epoch: sql`excluded.epoch`,
@@ -400,7 +417,7 @@ const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
  */
 function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutboxTable) {
   return {
-    insertQueued: prepared((db: StoreDrizzle) =>
+    insertQueued: prepared((db) =>
       db
         .insert(queued)
         .values({
@@ -427,7 +444,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     // predicate, not part of the answer. `queued_at` is the ordering AND an
     // answer since POD-4360: the inbox compares it against the transcript to
     // recognise a row a previous server process already delivered.
-    queuedOfSession: prepared((db: StoreDrizzle) =>
+    queuedOfSession: prepared((db) =>
       db
         .select({
           id: queued.id,
@@ -455,7 +472,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
 
     /** Keyed by the restriction: none, one session, or a set of sessions as a
      *  portable `IN` list keyed by its prepared size ({@link inListSize}). */
-    queuedCounts: preparedFamily((db: StoreDrizzle, scope: 'all' | 'one' | number) =>
+    queuedCounts: preparedFamily((db, _t, scope: 'all' | 'one' | number) =>
       db
         .select({ sessionId: queued.sessionId, n: count() })
         .from(queued)
@@ -470,28 +487,28 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    queuedSessionOf: prepared((db: StoreDrizzle) =>
+    queuedSessionOf: prepared((db) =>
       db
         .select({ sessionId: queued.sessionId })
         .from(queued)
         .where(eq(queued.id, param(queued.id, 'id')))
         .prepare(),
     ),
-    deleteQueued: prepared((db: StoreDrizzle) =>
+    deleteQueued: prepared((db) =>
       db
         .delete(queued)
         .where(eq(queued.id, param(queued.id, 'id')))
         .prepare(),
     ),
 
-    deleteUnreservedQueued: prepared((db: StoreDrizzle) =>
+    deleteUnreservedQueued: prepared((db) =>
       db
         .delete(queued)
         .where(and(eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)))
         .prepare(),
     ),
 
-    requestQueuedRetract: prepared((db: StoreDrizzle) =>
+    requestQueuedRetract: prepared((db) =>
       db
         .update(queued)
         .set({
@@ -501,7 +518,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    clearQueuedRetract: prepared((db: StoreDrizzle) =>
+    clearQueuedRetract: prepared((db) =>
       db
         .update(queued)
         .set({ retractRequestedAt: null })
@@ -509,7 +526,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    reserveQueuedDelivery: prepared((db: StoreDrizzle) =>
+    reserveQueuedDelivery: prepared((db) =>
       db
         .update(queued)
         .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
@@ -517,7 +534,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    releaseQueuedDelivery: prepared((db: StoreDrizzle) =>
+    releaseQueuedDelivery: prepared((db) =>
       db
         .update(queued)
         .set({ deliveryOwner: null, attempts: sql.placeholder('attempts') })
@@ -525,7 +542,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    bumpQueuedAttempts: prepared((db: StoreDrizzle) =>
+    bumpQueuedAttempts: prepared((db) =>
       db
         .update(queued)
         .set({ attempts: sql`${queued.attempts} + 1` })
@@ -533,7 +550,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    resetQueuedAttempts: prepared((db: StoreDrizzle) =>
+    resetQueuedAttempts: prepared((db) =>
       db
         .update(queued)
         .set({ attempts: 0 })
@@ -541,7 +558,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    deleteQueuedOfSession: prepared((db: StoreDrizzle) =>
+    deleteQueuedOfSession: prepared((db) =>
       db
         .delete(queued)
         .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
@@ -551,7 +568,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
     // this report deliberately does not read, and `attempts` belongs to the
     // retired forwarder.
-    parkedUpstream: prepared((db: StoreDrizzle) =>
+    parkedUpstream: prepared((db) =>
       db
         .select({
           mutationId: upstream.mutationId,

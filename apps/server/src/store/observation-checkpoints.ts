@@ -2,14 +2,21 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import type { sessionObservationCheckpoints } from '../migrations/schema'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
-  sessions,
-  sessionObservationCheckpoints,
-  sessionObservationRebinds,
-  sessionTerminalCandidates,
-} from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -59,15 +66,15 @@ export type ObservationRebindResult =
     }
 
 /** The columns every lease read projects — the same list, spelled once. */
-const LEASE_COLUMNS = {
-  sessionId: sessionObservationCheckpoints.sessionId,
-  provider: sessionObservationCheckpoints.provider,
-  providerSessionId: sessionObservationCheckpoints.providerSessionId,
-  bindingVersion: sessionObservationCheckpoints.bindingVersion,
-  observationGeneration: sessionObservationCheckpoints.observationGeneration,
-  checkpointJson: sessionObservationCheckpoints.checkpointJson,
-  updatedAt: sessionObservationCheckpoints.updatedAt,
-}
+const LEASE_COLUMNS = (t: StoreTables) => ({
+  sessionId: t.sessionObservationCheckpoints.sessionId,
+  provider: t.sessionObservationCheckpoints.provider,
+  providerSessionId: t.sessionObservationCheckpoints.providerSessionId,
+  bindingVersion: t.sessionObservationCheckpoints.bindingVersion,
+  observationGeneration: t.sessionObservationCheckpoints.observationGeneration,
+  checkpointJson: t.sessionObservationCheckpoints.checkpointJson,
+  updatedAt: t.sessionObservationCheckpoints.updatedAt,
+})
 
 type LeaseSelect = Pick<
   typeof sessionObservationCheckpoints.$inferSelect,
@@ -83,45 +90,62 @@ type LeaseSelect = Pick<
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const ck = sessionObservationCheckpoints
-const tc = sessionTerminalCandidates
-const ckSessionIs = () => eq(ck.sessionId, param(ck.sessionId, 'sessionId'))
-const tcSessionIs = () => eq(tc.sessionId, param(tc.sessionId, 'sessionId'))
+const ckSessionIs = (t: StoreTables) =>
+  eq(
+    t.sessionObservationCheckpoints.sessionId,
+    param(t.sessionObservationCheckpoints.sessionId, 'sessionId'),
+  )
+const tcSessionIs = (t: StoreTables) =>
+  eq(
+    t.sessionTerminalCandidates.sessionId,
+    param(t.sessionTerminalCandidates.sessionId, 'sessionId'),
+  )
 
-const leaseOf = prepared((db: StoreDrizzle) =>
-  db.select(LEASE_COLUMNS).from(ck).where(ckSessionIs()).prepare(),
+const leaseOf = prepared((db, t) =>
+  db.select(LEASE_COLUMNS(t)).from(t.sessionObservationCheckpoints).where(ckSessionIs(t)).prepare(),
 )
 
-const rebindReceiptOf = prepared((db: StoreDrizzle) =>
+const rebindReceiptOf = prepared((db, t) =>
   db
     .select({
-      provider: sessionObservationRebinds.provider,
-      fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
-      fromBindingVersion: sessionObservationRebinds.fromBindingVersion,
-      fromObservationGeneration: sessionObservationRebinds.fromObservationGeneration,
-      toProviderSessionId: sessionObservationRebinds.toProviderSessionId,
-      resultingBindingVersion: sessionObservationRebinds.resultingBindingVersion,
-      resultingObservationGeneration: sessionObservationRebinds.resultingObservationGeneration,
+      provider: t.sessionObservationRebinds.provider,
+      fromProviderSessionId: t.sessionObservationRebinds.fromProviderSessionId,
+      fromBindingVersion: t.sessionObservationRebinds.fromBindingVersion,
+      fromObservationGeneration: t.sessionObservationRebinds.fromObservationGeneration,
+      toProviderSessionId: t.sessionObservationRebinds.toProviderSessionId,
+      resultingBindingVersion: t.sessionObservationRebinds.resultingBindingVersion,
+      resultingObservationGeneration: t.sessionObservationRebinds.resultingObservationGeneration,
     })
-    .from(sessionObservationRebinds)
-    .where(eq(sessionObservationRebinds.sessionId, param(sessionObservationRebinds.sessionId, 'sessionId')))
+    .from(t.sessionObservationRebinds)
+    .where(
+      eq(
+        t.sessionObservationRebinds.sessionId,
+        param(t.sessionObservationRebinds.sessionId, 'sessionId'),
+      ),
+    )
     .prepare(),
 )
 
 /** The checkpoints of a known set of sessions (POD-6160); tombstones and rows
  *  without a checkpoint excluded. */
-const checkpointedLeasesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const checkpointedLeasesOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select(LEASE_COLUMNS)
-    .from(ck)
-    .innerJoin(sessions, eq(sessions.id, ck.sessionId))
-    .where(and(inListOf(ck.sessionId, size), isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)))
+    .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
+    .innerJoin(t.sessions, eq(t.sessions.id, t.sessionObservationCheckpoints.sessionId))
+    .where(
+      and(
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
+        isNull(t.sessions.deletedAt),
+        isNotNull(t.sessionObservationCheckpoints.checkpointJson),
+      ),
+    )
     .prepare(),
 )
 
-const openLease = prepared((db: StoreDrizzle) =>
+const openLease = prepared((db, t) =>
   db
-    .insert(ck)
+    .insert(t.sessionObservationCheckpoints)
     .values({
       sessionId: P('sessionId'),
       schemaVersion: 1,
@@ -150,23 +174,31 @@ const openLease = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const advanceLeaseGeneration = prepared((db: StoreDrizzle) =>
+const advanceLeaseGeneration = prepared((db, t) =>
   db
-    .update(ck)
+    .update(t.sessionObservationCheckpoints)
     .set({
       // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
       // to advance atomically with respect to any other observer.
-      observationGeneration: sql`${ck.observationGeneration} + 1`,
-      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
+      observationGeneration: sql`${t.sessionObservationCheckpoints.observationGeneration} + 1`,
+      providerSessionId: sql`COALESCE(${t.sessionObservationCheckpoints.providerSessionId}, ${P('providerSessionId')})`,
       updatedAt: P('updatedAt'),
     })
-    .where(and(ckSessionIs(), eq(ck.provider, param(ck.provider, 'provider'))))
+    .where(
+      and(
+        ckSessionIs(t),
+        eq(
+          t.sessionObservationCheckpoints.provider,
+          param(t.sessionObservationCheckpoints.provider, 'provider'),
+        ),
+      ),
+    )
     .prepare(),
 )
 
-const rebindLease = prepared((db: StoreDrizzle) =>
+const rebindLease = prepared((db, t) =>
   db
-    .update(ck)
+    .update(t.sessionObservationCheckpoints)
     .set({
       providerSessionId: P('nextProviderSessionId'),
       bindingVersion: P('nextBindingVersion'),
@@ -176,14 +208,23 @@ const rebindLease = prepared((db: StoreDrizzle) =>
     })
     .where(
       and(
-        ckSessionIs(),
-        eq(ck.provider, param(ck.provider, 'provider')),
-        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
-        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
+        ckSessionIs(t),
+        eq(
+          t.sessionObservationCheckpoints.provider,
+          param(t.sessionObservationCheckpoints.provider, 'provider'),
+        ),
+        eq(
+          t.sessionObservationCheckpoints.bindingVersion,
+          param(t.sessionObservationCheckpoints.bindingVersion, 'bindingVersion'),
+        ),
+        eq(
+          t.sessionObservationCheckpoints.observationGeneration,
+          param(t.sessionObservationCheckpoints.observationGeneration, 'observationGeneration'),
+        ),
         // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
         // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
         // session id be rebound at all, and `= NULL` would match no row.
-        sql`(${ck.providerSessionId} = ${P('providerSessionId')} OR (${ck.providerSessionId} IS NULL AND ${P('providerSessionId')} IS NULL))`,
+        sql`(${t.sessionObservationCheckpoints.providerSessionId} = ${P('providerSessionId')} OR (${t.sessionObservationCheckpoints.providerSessionId} IS NULL AND ${P('providerSessionId')} IS NULL))`,
       ),
     )
     .prepare(),
@@ -200,53 +241,65 @@ const rebindReceiptColumns = {
   updatedAt: P('updatedAt'),
 }
 
-const upsertRebindReceipt = prepared((db: StoreDrizzle) =>
+const upsertRebindReceipt = prepared((db, t) =>
   db
-    .insert(sessionObservationRebinds)
+    .insert(t.sessionObservationRebinds)
     .values({ sessionId: P('sessionId'), ...rebindReceiptColumns })
-    .onConflictDoUpdate({ target: sessionObservationRebinds.sessionId, set: rebindReceiptColumns })
+    .onConflictDoUpdate({
+      target: t.sessionObservationRebinds.sessionId,
+      set: rebindReceiptColumns,
+    })
     .prepare(),
 )
 
-const saveCheckpoint = prepared((db: StoreDrizzle) =>
+const saveCheckpoint = prepared((db, t) =>
   db
-    .update(ck)
+    .update(t.sessionObservationCheckpoints)
     .set({
-      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
+      providerSessionId: sql`COALESCE(${t.sessionObservationCheckpoints.providerSessionId}, ${P('providerSessionId')})`,
       checkpointJson: P('checkpointJson'),
       updatedAt: P('updatedAt'),
     })
     .where(
       and(
-        ckSessionIs(),
-        eq(ck.provider, param(ck.provider, 'provider')),
-        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
-        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
+        ckSessionIs(t),
+        eq(
+          t.sessionObservationCheckpoints.provider,
+          param(t.sessionObservationCheckpoints.provider, 'provider'),
+        ),
+        eq(
+          t.sessionObservationCheckpoints.bindingVersion,
+          param(t.sessionObservationCheckpoints.bindingVersion, 'bindingVersion'),
+        ),
+        eq(
+          t.sessionObservationCheckpoints.observationGeneration,
+          param(t.sessionObservationCheckpoints.observationGeneration, 'observationGeneration'),
+        ),
         // NOT the same predicate as `rebindLease`'s: an UNSET provider session
         // id accepts any writer, where a set one must match. Keeping the two
         // spelled differently is the point.
-        sql`(${ck.providerSessionId} IS NULL OR ${ck.providerSessionId} = ${P('providerSessionId')})`,
+        sql`(${t.sessionObservationCheckpoints.providerSessionId} IS NULL OR ${t.sessionObservationCheckpoints.providerSessionId} = ${P('providerSessionId')})`,
       ),
     )
     .prepare(),
 )
 
-const terminalCandidateOf = prepared((db: StoreDrizzle) =>
+const terminalCandidateOf = prepared((db, t) =>
   db
     .select({
-      proofJson: tc.proofJson,
-      confirmedAt: tc.confirmedAt,
-      consumedAt: tc.consumedAt,
-      updatedAt: tc.updatedAt,
+      proofJson: t.sessionTerminalCandidates.proofJson,
+      confirmedAt: t.sessionTerminalCandidates.confirmedAt,
+      consumedAt: t.sessionTerminalCandidates.consumedAt,
+      updatedAt: t.sessionTerminalCandidates.updatedAt,
     })
-    .from(tc)
-    .where(tcSessionIs())
+    .from(t.sessionTerminalCandidates)
+    .where(tcSessionIs(t))
     .prepare(),
 )
 
-const upsertTerminalProof = prepared((db: StoreDrizzle) =>
+const upsertTerminalProof = prepared((db, t) =>
   db
-    .insert(tc)
+    .insert(t.sessionTerminalCandidates)
     .values({
       sessionId: P('sessionId'),
       proofJson: P('proofJson'),
@@ -255,56 +308,67 @@ const upsertTerminalProof = prepared((db: StoreDrizzle) =>
       updatedAt: P('at'),
     })
     .onConflictDoUpdate({
-      target: tc.sessionId,
+      target: t.sessionTerminalCandidates.sessionId,
       set: { proofJson: P('proofJson'), confirmedAt: null, consumedAt: null, updatedAt: P('at') },
     })
     .prepare(),
 )
 
-const confirmTerminalProof = prepared((db: StoreDrizzle) =>
+const confirmTerminalProof = prepared((db, t) =>
   db
-    .update(tc)
+    .update(t.sessionTerminalCandidates)
     .set({
       proofJson: P('proofJson'),
       // COALESCE, so a second confirmation keeps the FIRST instant.
-      confirmedAt: sql`COALESCE(${tc.confirmedAt}, ${P('confirmedAt')})`,
+      confirmedAt: sql`COALESCE(${t.sessionTerminalCandidates.confirmedAt}, ${P('confirmedAt')})`,
       updatedAt: P('at'),
     })
-    .where(and(tcSessionIs(), isNull(tc.consumedAt)))
+    .where(and(tcSessionIs(t), isNull(t.sessionTerminalCandidates.consumedAt)))
     .prepare(),
 )
 
-const renewTerminalProof = prepared((db: StoreDrizzle) =>
+const renewTerminalProof = prepared((db, t) =>
   db
-    .update(tc)
+    .update(t.sessionTerminalCandidates)
     .set({ proofJson: P('proofJson'), updatedAt: P('at') })
     .where(
       and(
-        tcSessionIs(),
+        tcSessionIs(t),
         // The PREVIOUS proof text is part of the guard: a renewal only lands
         // on the exact row it read, so a concurrent write cannot be
         // overwritten by a translation of a proof that is no longer there.
-        eq(tc.proofJson, param(tc.proofJson, 'previousProof')),
-        sql`${tc.confirmedAt} IS NOT NULL`,
-        isNull(tc.consumedAt),
+        eq(
+          t.sessionTerminalCandidates.proofJson,
+          param(t.sessionTerminalCandidates.proofJson, 'previousProof'),
+        ),
+        sql`${t.sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+        isNull(t.sessionTerminalCandidates.consumedAt),
       ),
     )
     .prepare(),
 )
 
-const consumeTerminalProof = prepared((db: StoreDrizzle) =>
+const consumeTerminalProof = prepared((db, t) =>
   db
-    .update(tc)
+    .update(t.sessionTerminalCandidates)
     .set({ consumedAt: P('at'), updatedAt: P('at') })
-    .where(and(tcSessionIs(), sql`${tc.confirmedAt} IS NOT NULL`, isNull(tc.consumedAt)))
+    .where(
+      and(
+        tcSessionIs(t),
+        sql`${t.sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+        isNull(t.sessionTerminalCandidates.consumedAt),
+      ),
+    )
     .prepare(),
 )
 
-const deleteTerminalCandidate = prepared((db: StoreDrizzle) =>
-  db.delete(tc).where(tcSessionIs()).prepare(),
+const deleteTerminalCandidate = prepared((db, t) =>
+  db.delete(t.sessionTerminalCandidates).where(tcSessionIs(t)).prepare(),
 )
 
-const deleteLease = prepared((db: StoreDrizzle) => db.delete(ck).where(ckSessionIs()).prepare())
+const deleteLease = prepared((db, t) =>
+  db.delete(t.sessionObservationCheckpoints).where(ckSessionIs(t)).prepare(),
+)
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
@@ -407,7 +471,9 @@ export class ObservationCheckpointsRepository {
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const row of await checkpointedLeasesOfIds(this.db, size).all(inListValues(chunk, size))) {
+      for (const row of await checkpointedLeasesOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
         const lease = await this.mapRow(row)
         if (lease?.checkpoint) checkpoints.set(lease.sessionId, lease.checkpoint)
       }
@@ -433,7 +499,12 @@ export class ObservationCheckpointsRepository {
       const updatedAt = new Date().toISOString()
       // `DO NOTHING`, not `OR IGNORE`: see `openLease`.
       await openLease(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
-      await advanceLeaseGeneration(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
+      await advanceLeaseGeneration(this.db).run({
+        sessionId,
+        provider,
+        providerSessionId,
+        updatedAt,
+      })
       // A SPENT proof does not survive its observer's life. Consumption is the
       // last act of one hibernation; a fresh fence means the session is being
       // observed again, and `confirmTerminalCandidate` refuses to touch a

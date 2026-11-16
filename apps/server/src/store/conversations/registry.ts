@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import { and, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
-import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from '../executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -15,44 +19,47 @@ import {
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** One segment by its key, over the `machineId` / `nativeId` placeholders. */
-const segmentKey = () =>
+const segmentKey = (t: StoreTables) =>
   and(
-    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+    eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+    eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
 
-const podiumIdOfSegment = prepared((db: StoreDrizzle) =>
+const podiumIdOfSegment = prepared((db, t) =>
   db
-    .select({ podiumId: conversationSegments.podiumId })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ podiumId: t.conversationSegments.podiumId })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
 /** One machine's podium ids for a set of native ids (POD-6160). */
-const podiumIdsOfSegments = preparedFamily((db: StoreDrizzle, size: number) =>
+const podiumIdsOfSegments = preparedFamily((db, t, size: number) =>
   db
-    .select({ nativeId: conversationSegments.nativeId, podiumId: conversationSegments.podiumId })
-    .from(conversationSegments)
+    .select({
+      nativeId: t.conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+    })
+    .from(t.conversationSegments)
     .where(
       and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        inListOf(conversationSegments.nativeId, size),
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        inListOf(t.conversationSegments.nativeId, size),
       ),
     )
     .prepare(),
 )
 
 /** The batch reads below are keyed by the chunk's prepared IN-list size; values are `in0`, `in1`, ... */
-const segmentsWithPaths = preparedFamily((db: StoreDrizzle, size: number) =>
+const segmentsWithPaths = preparedFamily((db, t, size: number) =>
   db
     .select({
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
-      podiumId: conversationSegments.podiumId,
-      path: conversationSegments.path,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+      path: t.conversationSegments.path,
     })
-    .from(conversationSegments)
+    .from(t.conversationSegments)
     // SCOPED BY MACHINE, like every other lookup in this file. The caller
     // trusts the returned `machineId` as the transcript's identity, so an
     // unscoped match would let a path that also exists in another host's
@@ -60,72 +67,72 @@ const segmentsWithPaths = preparedFamily((db: StoreDrizzle, size: number) =>
     // bank it under the wrong (machineId, nativeId) key.
     .where(
       and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        inListOf(conversationSegments.path, size),
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        inListOf(t.conversationSegments.path, size),
       ),
     )
     .prepare(),
 )
 
-const parentsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const parentsOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      podiumId: conversationIdentities.podiumId,
-      parentPodiumId: conversationIdentities.parentPodiumId,
+      podiumId: t.conversationIdentities.podiumId,
+      parentPodiumId: t.conversationIdentities.parentPodiumId,
     })
-    .from(conversationIdentities)
+    .from(t.conversationIdentities)
     .where(
       and(
-        isNotNull(conversationIdentities.parentPodiumId),
-        inListOf(conversationIdentities.podiumId, size),
+        isNotNull(t.conversationIdentities.parentPodiumId),
+        inListOf(t.conversationIdentities.podiumId, size),
       ),
     )
     .prepare(),
 )
 
-const nativeIdsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const nativeIdsOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      podiumId: conversationSegments.podiumId,
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
     })
-    .from(conversationSegments)
-    .where(inListOf(conversationSegments.podiumId, size))
-    .orderBy(conversationSegments.seqInConv)
+    .from(t.conversationSegments)
+    .where(inListOf(t.conversationSegments.podiumId, size))
+    .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
 
-const pathsOfNativeIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const pathsOfNativeIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
-    .from(conversationSegments)
+    .select({ nativeId: t.conversationSegments.nativeId, path: t.conversationSegments.path })
+    .from(t.conversationSegments)
     .where(
       and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        isNotNull(conversationSegments.path),
-        inListOf(conversationSegments.nativeId, size),
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        isNotNull(t.conversationSegments.path),
+        inListOf(t.conversationSegments.nativeId, size),
       ),
     )
     .prepare(),
 )
 
-const pathOfSegment = prepared((db: StoreDrizzle) =>
+const pathOfSegment = prepared((db, t) =>
   db
-    .select({ path: conversationSegments.path })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ path: t.conversationSegments.path })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const adoptParent = prepared((db: StoreDrizzle) =>
+const adoptParent = prepared((db, t) =>
   db
-    .update(conversationIdentities)
+    .update(t.conversationIdentities)
     .set({ parentPodiumId: sql.placeholder('parentPodiumId') })
     .where(
       and(
-        eq(conversationIdentities.podiumId, param(conversationIdentities.podiumId, 'podiumId')),
-        isNull(conversationIdentities.parentPodiumId),
+        eq(t.conversationIdentities.podiumId, param(t.conversationIdentities.podiumId, 'podiumId')),
+        isNull(t.conversationIdentities.parentPodiumId),
       ),
     )
     .prepare(),
@@ -137,28 +144,28 @@ const adoptParent = prepared((db: StoreDrizzle) =>
 // the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
 // against the value the SET would assign makes the no-op write vanish
 // while a real change still lands.
-const refreshSegmentFile = prepared((db: StoreDrizzle) => {
+const refreshSegmentFile = prepared((db, t) => {
   const path = sql.placeholder('path')
   const reportedBytes = sql.placeholder('reportedBytes')
   return db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({
-      path: sql`COALESCE(${path}, ${conversationSegments.path})`,
-      reportedBytes: sql`COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes})`,
+      path: sql`COALESCE(${path}, ${t.conversationSegments.path})`,
+      reportedBytes: sql`COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes})`,
     })
     .where(
       and(
-        segmentKey(),
-        sql`(${conversationSegments.path} IS NOT COALESCE(${path}, ${conversationSegments.path})
-                   OR ${conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes}))`,
+        segmentKey(t),
+        sql`(${t.conversationSegments.path} IS NOT COALESCE(${path}, ${t.conversationSegments.path})
+                   OR ${t.conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes}))`,
       ),
     )
     .prepare()
 })
 
-const insertIdentity = prepared((db: StoreDrizzle) =>
+const insertIdentity = prepared((db, t) =>
   db
-    .insert(conversationIdentities)
+    .insert(t.conversationIdentities)
     .values({
       podiumId: sql.placeholder('podiumId'),
       parentPodiumId: sql.placeholder('parentPodiumId'),
@@ -167,9 +174,9 @@ const insertIdentity = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
+const insertDiscoveredSegment = prepared((db, t) =>
   db
-    .insert(conversationSegments)
+    .insert(t.conversationSegments)
     .values({
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -195,9 +202,9 @@ const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
 const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
 const offered = (field: string) => sql`value ->> ${`$.${field}`}`
 
-const insertIdentities = prepared((db: StoreDrizzle) =>
+const insertIdentities = prepared((db, t) =>
   db
-    .insert(conversationIdentities)
+    .insert(t.conversationIdentities)
     .select(
       db
         .select({
@@ -210,9 +217,9 @@ const insertIdentities = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const insertDiscoveredSegments = prepared((db: StoreDrizzle) =>
+const insertDiscoveredSegments = prepared((db, t) =>
   db
-    .insert(conversationSegments)
+    .insert(t.conversationSegments)
     .select(
       db
         .select({
@@ -232,17 +239,17 @@ const insertDiscoveredSegments = prepared((db: StoreDrizzle) =>
 )
 
 /** {@link adoptParent} for many identities, one row each, for those that have none. */
-const adoptParents = prepared((db: StoreDrizzle) =>
+const adoptParents = prepared((db, t) =>
   db
-    .update(conversationIdentities)
+    .update(t.conversationIdentities)
     .set({
       parentPodiumId: sql`(SELECT ${offered('parentPodiumId')} FROM ${offeredRows()}
-        WHERE ${offered('podiumId')} = ${conversationIdentities.podiumId})`,
+        WHERE ${offered('podiumId')} = ${t.conversationIdentities.podiumId})`,
     })
     .where(
       and(
-        isNull(conversationIdentities.parentPodiumId),
-        sql`${conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
+        isNull(t.conversationIdentities.parentPodiumId),
+        sql`${t.conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
       ),
     )
     .prepare(),
@@ -253,35 +260,35 @@ const adoptParents = prepared((db: StoreDrizzle) =>
  * row per native id, with the same trailing predicate: an unchanged segment
  * is not rewritten.
  */
-const refreshSegmentFiles = prepared((db: StoreDrizzle) => {
+const refreshSegmentFiles = prepared((db, t) => {
   const of = (field: string) =>
-    sql`(SELECT ${offered(field)} FROM ${offeredRows()} WHERE ${offered('nativeId')} = ${conversationSegments.nativeId})`
-  const path = sql`COALESCE(${of('path')}, ${conversationSegments.path})`
-  const reportedBytes = sql`COALESCE(${of('reportedBytes')}, ${conversationSegments.reportedBytes})`
+    sql`(SELECT ${offered(field)} FROM ${offeredRows()} WHERE ${offered('nativeId')} = ${t.conversationSegments.nativeId})`
+  const path = sql`COALESCE(${of('path')}, ${t.conversationSegments.path})`
+  const reportedBytes = sql`COALESCE(${of('reportedBytes')}, ${t.conversationSegments.reportedBytes})`
   return db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ path, reportedBytes })
     .where(
       and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        sql`${conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
-        sql`(${conversationSegments.path} IS NOT ${path} OR ${conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        sql`${t.conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
+        sql`(${t.conversationSegments.path} IS NOT ${path} OR ${t.conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
       ),
     )
     .prepare()
 })
 
-const highestSeqInConversation = prepared((db: StoreDrizzle) =>
+const highestSeqInConversation = prepared((db, t) =>
   db
-    .select({ m: max(conversationSegments.seqInConv) })
-    .from(conversationSegments)
-    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
+    .select({ m: max(t.conversationSegments.seqInConv) })
+    .from(t.conversationSegments)
+    .where(eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')))
     .prepare(),
 )
 
-const insertRolledSegment = prepared((db: StoreDrizzle) =>
+const insertRolledSegment = prepared((db, t) =>
   db
-    .insert(conversationSegments)
+    .insert(t.conversationSegments)
     .values({
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -295,15 +302,15 @@ const insertRolledSegment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const segmentsOfConversation = prepared((db: StoreDrizzle) =>
+const segmentsOfConversation = prepared((db, t) =>
   db
     .select({
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
     })
-    .from(conversationSegments)
-    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
-    .orderBy(conversationSegments.seqInConv)
+    .from(t.conversationSegments)
+    .where(eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')))
+    .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
 

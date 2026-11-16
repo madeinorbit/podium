@@ -46,25 +46,16 @@ import {
   type Placeholder,
   sql,
 } from 'drizzle-orm'
-import {
-  issueComments,
-  issueDeps,
-  issueLabels,
-  issueMessages,
-  issueMessageUserState,
-  issueRefLetters,
-  issues,
-  issueTextRevisions,
-  issueUserState,
-  labels,
-  machines,
-  meta,
-  sessions,
-} from '../migrations/schema'
+import type { issues, issueTextRevisions, labels } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -114,19 +105,19 @@ const log = createLogger('server:store')
 // statements that WRITE the `issues` table are the exception in placement, not
 // in kind: they are prepared inside their own method (see `issueWrites`).
 
-const issueRevision = prepared((db: StoreDrizzle) =>
+const issueRevision = prepared((db, t) =>
   db
-    .select({ revision: issues.revision })
-    .from(issues)
-    .where(eq(issues.id, param(issues.id, 'id')))
+    .select({ revision: t.issues.revision })
+    .from(t.issues)
+    .where(eq(t.issues.id, param(t.issues.id, 'id')))
     .prepare(),
 )
 
-const issueById = prepared((db: StoreDrizzle) =>
+const issueById = prepared((db, t) =>
   db
     .select()
-    .from(issues)
-    .where(eq(issues.id, param(issues.id, 'id')))
+    .from(t.issues)
+    .where(eq(t.issues.id, param(t.issues.id, 'id')))
     .prepare(),
 )
 
@@ -154,52 +145,52 @@ function closedOf(
 }
 
 /** The closure columns for a set of ids; one shape per IN-list size. */
-const issueClosureRowsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const issueClosureRowsOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: issues.id,
-      stage: issues.stage,
-      closedReason: issues.closedReason,
-      deletedAt: issues.deletedAt,
+      id: t.issues.id,
+      stage: t.issues.stage,
+      closedReason: t.issues.closedReason,
+      deletedAt: t.issues.deletedAt,
     })
-    .from(issues)
-    .where(inListOf(issues.id, size, 'ids'))
+    .from(t.issues)
+    .where(inListOf(t.issues.id, size, 'ids'))
     .prepare(),
 )
 
 /** One shape per IN-list size bucket; `getIssues` chunks at 500. */
-const issuesByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const issuesByIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(issues)
-    .where(inListOf(issues.id, size, 'ids'))
+    .from(t.issues)
+    .where(inListOf(t.issues.id, size, 'ids'))
     .prepare(),
 )
 
-const liveIssueParentEdges = prepared((db: StoreDrizzle) =>
+const liveIssueParentEdges = prepared((db, t) =>
   db
-    .select({ id: issues.id, parentId: issues.parentId })
-    .from(issues)
-    .where(isNull(issues.deletedAt))
+    .select({ id: t.issues.id, parentId: t.issues.parentId })
+    .from(t.issues)
+    .where(isNull(t.issues.deletedAt))
     .prepare(),
 )
 
-const issueRowsOfRepo = prepared((db: StoreDrizzle) =>
+const issueRowsOfRepo = prepared((db, t) =>
   db
     .select()
-    .from(issues)
+    .from(t.issues)
     .where(
       or(
-        eq(issues.repoId, param(issues.repoId, 'repoId')),
-        and(isNull(issues.repoId), eq(issues.repoPath, param(issues.repoPath, 'repoPath'))),
+        eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
+        and(isNull(t.issues.repoId), eq(t.issues.repoPath, param(t.issues.repoPath, 'repoPath'))),
       ),
     )
-    .orderBy(asc(issues.seq))
+    .orderBy(asc(t.issues.seq))
     .prepare(),
 )
 
-const allIssueRows = prepared((db: StoreDrizzle) =>
-  db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).prepare(),
+const allIssueRows = prepared((db, t) =>
+  db.select().from(t.issues).orderBy(asc(t.issues.repoPath), asc(t.issues.seq)).prepare(),
 )
 
 /**
@@ -208,16 +199,16 @@ const allIssueRows = prepared((db: StoreDrizzle) =>
  * reconcile walks the whole table this way through the primary key instead of
  * reading the issue map (POD-6158).
  */
-const issueRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+const issueRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
   db
     .select()
-    .from(issues)
+    .from(t.issues)
     .where(
       from === 'start'
-        ? gte(issues.id, param(issues.id, 'id'))
-        : gt(issues.id, param(issues.id, 'id')),
+        ? gte(t.issues.id, param(t.issues.id, 'id'))
+        : gt(t.issues.id, param(t.issues.id, 'id')),
     )
-    .orderBy(asc(issues.id))
+    .orderBy(asc(t.issues.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -250,35 +241,36 @@ export function folderOwnerKeys(cwd: string): { literal: string[]; folded: strin
   return { literal: [...literal], folded: [...folded] }
 }
 
-const foldedWorktreePath = sql`lower(replace(${issues.worktreePath}, '/', '\\'))`
+const foldedWorktreePath = (t: StoreTables) =>
+  sql`lower(replace(${t.issues.worktreePath}, '/', '\\'))`
 
 /** Live issues at any of the candidate keys: one index search per arm, no
  *  sort (the caller orders the few rows). Both arms share one IN-list size, so
  *  the family has one shape per size bucket. */
-const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
+const worktreeOwnersOf = preparedFamily((db, t, size: number) => {
   const columns = {
-    id: issues.id,
-    repoPath: issues.repoPath,
-    seq: issues.seq,
-    worktreePath: issues.worktreePath,
-    archived: issues.archived,
-    machineId: issues.machineId,
+    id: t.issues.id,
+    repoPath: t.issues.repoPath,
+    seq: t.issues.seq,
+    worktreePath: t.issues.worktreePath,
+    archived: t.issues.archived,
+    machineId: t.issues.machineId,
   }
   const literal = db
     .select(columns)
-    .from(issues)
-    .where(and(inListOf(issues.worktreePath, size, 'lit'), isNull(issues.deletedAt)))
+    .from(t.issues)
+    .where(and(inListOf(t.issues.worktreePath, size, 'lit'), isNull(t.issues.deletedAt)))
   const folded = db
     .select(columns)
-    .from(issues)
+    .from(t.issues)
     .where(
       and(
         inArray(
-          foldedWorktreePath,
+          foldedWorktreePath(t),
           Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`)),
         ),
-        isNotNull(issues.worktreePath),
-        isNull(issues.deletedAt),
+        isNotNull(t.issues.worktreePath),
+        isNull(t.issues.deletedAt),
       ),
     )
   return literal.unionAll(folded).prepare()
@@ -291,7 +283,7 @@ const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
  * INDEXED BY for the reason `openChat` in `store/messages.ts` gives; read on a
  * custody change, never per request.
  */
-const liveWorktreesOnMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveWorktreesOnMachines = preparedFamily((db, t, size: number) =>
   db
     // Selected by name: drizzle refuses a table column over a raw FROM.
     .select({
@@ -299,11 +291,11 @@ const liveWorktreesOnMachines = preparedFamily((db: StoreDrizzle, size: number) 
       machineId: sql<string | null>`${sql.identifier('machine_id')}`,
       ownerUserId: sql<string>`${sql.identifier('owner_user_id')}`,
     })
-    .from(sql`${issues} INDEXED BY idx_issues_worktree`)
+    .from(sql`${t.issues} INDEXED BY idx_issues_worktree`)
     .where(
       and(
-        sql`${issues.worktreePath} IS NOT NULL AND ${issues.deletedAt} IS NULL`,
-        inListOf(issues.machineId, size, 'machineIds'),
+        sql`${t.issues.worktreePath} IS NOT NULL AND ${t.issues.deletedAt} IS NULL`,
+        inListOf(t.issues.machineId, size, 'machineIds'),
       ),
     )
     .prepare(),
@@ -313,39 +305,39 @@ const liveWorktreesOnMachines = preparedFamily((db: StoreDrizzle, size: number) 
  *  bound-parameter limit. */
 const WORKTREE_OWNER_CHUNK = 2048
 
-const deleteRefLettersOf = prepared((db: StoreDrizzle) =>
+const deleteRefLettersOf = prepared((db, t) =>
   db
-    .delete(issueRefLetters)
-    .where(eq(issueRefLetters.issueId, param(issueRefLetters.issueId, 'issueId')))
+    .delete(t.issueRefLetters)
+    .where(eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')))
     .prepare(),
 )
 
-const deleteOrphanRefLetters = prepared((db: StoreDrizzle) =>
+const deleteOrphanRefLetters = prepared((db, t) =>
   db
-    .delete(issueRefLetters)
-    .where(notInArray(issueRefLetters.issueId, db.select({ id: issues.id }).from(issues)))
+    .delete(t.issueRefLetters)
+    .where(notInArray(t.issueRefLetters.issueId, db.select({ id: t.issues.id }).from(t.issues)))
     .prepare(),
 )
 
-const highestSeqOfRepo = prepared((db: StoreDrizzle) =>
+const highestSeqOfRepo = prepared((db, t) =>
   db
-    .select({ m: max(issues.seq) })
-    .from(issues)
-    .where(eq(issues.repoId, param(issues.repoId, 'repoId')))
+    .select({ m: max(t.issues.seq) })
+    .from(t.issues)
+    .where(eq(t.issues.repoId, param(t.issues.repoId, 'repoId')))
     .prepare(),
 )
 
-const issueSeqRows = prepared((db: StoreDrizzle) =>
+const issueSeqRows = prepared((db, t) =>
   db
     .select({
-      id: issues.id,
-      repoId: issues.repoId,
-      repoPath: issues.repoPath,
-      machineId: issues.machineId,
-      seq: issues.seq,
-      createdAt: issues.createdAt,
+      id: t.issues.id,
+      repoId: t.issues.repoId,
+      repoPath: t.issues.repoPath,
+      machineId: t.issues.machineId,
+      seq: t.issues.seq,
+      createdAt: t.issues.createdAt,
     })
-    .from(issues)
+    .from(t.issues)
     .prepare(),
 )
 
@@ -357,34 +349,34 @@ const issueSeqRows = prepared((db: StoreDrizzle) =>
  * tie-break is load-bearing on equal `created_at`, and `rowid` is not a schema
  * column, so it stays a fragment.
  */
-const issuesUnderPathOutsideRepo = prepared((db: StoreDrizzle) =>
+const issuesUnderPathOutsideRepo = prepared((db, t) =>
   db
-    .select({ id: issues.id, seq: issues.seq })
-    .from(issues)
+    .select({ id: t.issues.id, seq: t.issues.seq })
+    .from(t.issues)
     .where(
       and(
         or(
-          eq(issues.repoPath, param(issues.repoPath, 'repoPath')),
+          eq(t.issues.repoPath, param(t.issues.repoPath, 'repoPath')),
           and(
-            gte(issues.repoPath, param(issues.repoPath, 'under')),
-            lt(issues.repoPath, param(issues.repoPath, 'below')),
+            gte(t.issues.repoPath, param(t.issues.repoPath, 'under')),
+            lt(t.issues.repoPath, param(t.issues.repoPath, 'below')),
           ),
         ),
-        or(isNull(issues.repoId), ne(issues.repoId, param(issues.repoId, 'repoId'))),
+        or(isNull(t.issues.repoId), ne(t.issues.repoId, param(t.issues.repoId, 'repoId'))),
       ),
     )
-    .orderBy(asc(issues.createdAt), sql`rowid asc`)
+    .orderBy(asc(t.issues.createdAt), sql`rowid asc`)
     .prepare(),
 )
 
-const issueIdAtSeq = prepared((db: StoreDrizzle) =>
+const issueIdAtSeq = prepared((db, t) =>
   db
-    .select({ id: issues.id })
-    .from(issues)
+    .select({ id: t.issues.id })
+    .from(t.issues)
     .where(
       and(
-        eq(issues.repoId, param(issues.repoId, 'repoId')),
-        eq(issues.seq, param(issues.seq, 'seq')),
+        eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
+        eq(t.issues.seq, param(t.issues.seq, 'seq')),
       ),
     )
     .prepare(),
@@ -396,45 +388,45 @@ const issueIdAtSeq = prepared((db: StoreDrizzle) =>
  * the boot map's reference index always did. Ordered by repository path, then
  * id, which is the boot map's order for rows it loaded.
  */
-const issueRefColumns = {
-  id: issues.id,
-  repoId: issues.repoId,
-  repoPath: issues.repoPath,
-  machineId: issues.machineId,
-  seq: issues.seq,
+const issueRefColumns = (t: StoreTables) => ({
+  id: t.issues.id,
+  repoId: t.issues.repoId,
+  repoPath: t.issues.repoPath,
+  machineId: t.issues.machineId,
+  seq: t.issues.seq,
   // Read only for the structural quarantine.
-  stage: issues.stage,
-  title: issues.title,
-}
+  stage: t.issues.stage,
+  title: t.issues.title,
+})
 
-const issueRefsAtSeq = prepared((db: StoreDrizzle) =>
+const issueRefsAtSeq = prepared((db, t) =>
   db
-    .select(issueRefColumns)
-    .from(issues)
-    .where(eq(issues.seq, param(issues.seq, 'seq')))
-    .orderBy(asc(issues.repoPath), asc(issues.id))
+    .select(issueRefColumns(t))
+    .from(t.issues)
+    .where(eq(t.issues.seq, param(t.issues.seq, 'seq')))
+    .orderBy(asc(t.issues.repoPath), asc(t.issues.id))
     .prepare(),
 )
 
 /** {@link issueRefsAtSeq} for several numbers; one shape per IN-list size. */
-const issueRefsAtSeqsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const issueRefsAtSeqsOf = preparedFamily((db, t, size: number) =>
   db
-    .select(issueRefColumns)
-    .from(issues)
-    .where(inListOf(issues.seq, size, 'seqs'))
-    .orderBy(asc(issues.seq), asc(issues.repoPath), asc(issues.id))
+    .select(issueRefColumns(t))
+    .from(t.issues)
+    .where(inListOf(t.issues.seq, size, 'seqs'))
+    .orderBy(asc(t.issues.seq), asc(t.issues.repoPath), asc(t.issues.id))
     .prepare(),
 )
 
 /** At most one row: `(repo_id, seq)` is unique. */
-const issueRefAtRepoSeq = prepared((db: StoreDrizzle) =>
+const issueRefAtRepoSeq = prepared((db, t) =>
   db
-    .select(issueRefColumns)
-    .from(issues)
+    .select(issueRefColumns(t))
+    .from(t.issues)
     .where(
       and(
-        eq(issues.repoId, param(issues.repoId, 'repoId')),
-        eq(issues.seq, param(issues.seq, 'seq')),
+        eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
+        eq(t.issues.seq, param(t.issues.seq, 'seq')),
       ),
     )
     .prepare(),
@@ -442,11 +434,11 @@ const issueRefAtRepoSeq = prepared((db: StoreDrizzle) =>
 
 /** Rows the repo-id heal has not stamped yet; their repo is resolved by path.
  *  Unordered: the caller orders the union with the stamped row. */
-const legacyIssueRefsAtSeq = prepared((db: StoreDrizzle) =>
+const legacyIssueRefsAtSeq = prepared((db, t) =>
   db
-    .select(issueRefColumns)
-    .from(issues)
-    .where(and(eq(issues.seq, param(issues.seq, 'seq')), isNull(issues.repoId)))
+    .select(issueRefColumns(t))
+    .from(t.issues)
+    .where(and(eq(t.issues.seq, param(t.issues.seq, 'seq')), isNull(t.issues.repoId)))
     .prepare(),
 )
 
@@ -478,69 +470,69 @@ const storedUserStateOf = (r: {
 })
 
 /** One user's markers for a set of issues; one shape per IN-list size. */
-const issueUserStatesOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const issueUserStatesOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      issueId: issueUserState.issueId,
-      readAt: issueUserState.readAt,
-      tuckedAt: issueUserState.tuckedAt,
-      joinedAt: issueUserState.joinedAt,
-      joinedVia: issueUserState.joinedVia,
-      assignedAt: issueUserState.assignedAt,
-      assignedBy: issueUserState.assignedBy,
+      issueId: t.issueUserState.issueId,
+      readAt: t.issueUserState.readAt,
+      tuckedAt: t.issueUserState.tuckedAt,
+      joinedAt: t.issueUserState.joinedAt,
+      joinedVia: t.issueUserState.joinedVia,
+      assignedAt: t.issueUserState.assignedAt,
+      assignedBy: t.issueUserState.assignedBy,
     })
-    .from(issueUserState)
+    .from(t.issueUserState)
     .where(
       and(
-        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
-        inListOf(issueUserState.issueId, size, 'ids'),
+        eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
+        inListOf(t.issueUserState.issueId, size, 'ids'),
       ),
     )
     .prepare(),
 )
 
-const refLetterNextIndex = prepared((db: StoreDrizzle) =>
+const refLetterNextIndex = prepared((db, t) =>
   db
-    .select({ nextIndex: issueRefLetters.nextIndex })
-    .from(issueRefLetters)
-    .where(eq(issueRefLetters.issueId, param(issueRefLetters.issueId, 'issueId')))
+    .select({ nextIndex: t.issueRefLetters.nextIndex })
+    .from(t.issueRefLetters)
+    .where(eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')))
     .prepare(),
 )
 
-const upsertRefLetterNextIndex = prepared((db: StoreDrizzle) =>
+const upsertRefLetterNextIndex = prepared((db, t) =>
   db
-    .insert(issueRefLetters)
+    .insert(t.issueRefLetters)
     .values({ issueId: sql.placeholder('issueId'), nextIndex: sql.placeholder('nextIndex') })
     .onConflictDoUpdate({
-      target: issueRefLetters.issueId,
+      target: t.issueRefLetters.issueId,
       set: { nextIndex: sql.placeholder('nextIndex') },
     })
     .prepare(),
 )
 
-const issuesMissingRepoIdCount = prepared((db: StoreDrizzle) =>
-  db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).prepare(),
+const issuesMissingRepoIdCount = prepared((db, t) =>
+  db.select({ c: count() }).from(t.issues).where(isNull(t.issues.repoId)).prepare(),
 )
 
-const legacyWorktreeReceipt = prepared((db: StoreDrizzle) =>
+const legacyWorktreeReceipt = prepared((db, t) =>
   db
-    .select({ value: meta.value })
-    .from(meta)
-    .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION))
+    .select({ value: t.meta.value })
+    .from(t.meta)
+    .where(eq(t.meta.key, LEGACY_WORKTREE_MIGRATION))
     .prepare(),
 )
 
-const liveMachineById = prepared((db: StoreDrizzle) =>
+const liveMachineById = prepared((db, t) =>
   db
-    .select({ id: machines.id })
-    .from(machines)
-    .where(and(eq(machines.id, param(machines.id, 'id')), isNull(machines.revokedAt)))
+    .select({ id: t.machines.id })
+    .from(t.machines)
+    .where(and(eq(t.machines.id, param(t.machines.id, 'id')), isNull(t.machines.revokedAt)))
     .prepare(),
 )
 
-const insertLegacyWorktreeReceipt = prepared((db: StoreDrizzle) =>
+const insertLegacyWorktreeReceipt = prepared((db, t) =>
   db
-    .insert(meta)
+    .insert(t.meta)
     .values({ key: LEGACY_WORKTREE_MIGRATION, value: sql.placeholder('value') })
     .prepare(),
 )
@@ -551,9 +543,9 @@ const insertLegacyWorktreeReceipt = prepared((db: StoreDrizzle) =>
  * rows are candidates and which are contradicted. The host machine is the
  * `hostMachineId` placeholder of whichever statement embeds them.
  */
-const legacyWorktreeTerms = prepared((db: StoreDrizzle) => ({
+const legacyWorktreeTerms = prepared((db, t) => ({
   /** Owns a worktree, names no machine — the residue a v0.1.0 build leaves. */
-  legacyWorktreeRow: and(isNotNull(issues.worktreePath), isNull(issues.machineId)),
+  legacyWorktreeRow: and(isNotNull(t.issues.worktreePath), isNull(t.issues.machineId)),
   /**
    * Correlated on `issues.id` in the WHERE, so drizzle qualifies it back to
    * the OUTER row rather than self-joining; the select list is the literal
@@ -563,34 +555,35 @@ const legacyWorktreeTerms = prepared((db: StoreDrizzle) => ({
   contradictorySession: exists(
     db
       .select({ one: sql`1` })
-      .from(sessions)
+      .from(t.sessions)
       .where(
         and(
-          or(eq(sessions.issueId, issues.id), eq(sessions.refIssueId, issues.id)),
-          ne(sessions.machineId, param(sessions.machineId, 'hostMachineId')),
+          or(eq(t.sessions.issueId, t.issues.id), eq(t.sessions.refIssueId, t.issues.id)),
+          ne(t.sessions.machineId, param(t.sessions.machineId, 'hostMachineId')),
         ),
       ),
   ),
 }))
 
 /** Counts the candidates the contradiction evidence tells the backfill to leave alone. */
-const legacyWorktreeSkippedBuilder = prepared((db: StoreDrizzle) => {
+const legacyWorktreeSkippedBuilder = prepared((db, t) => {
   const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
-  return db.select({ c: count() }).from(issues).where(and(legacyWorktreeRow, contradictorySession))
+  return db
+    .select({ c: count() })
+    .from(t.issues)
+    .where(and(legacyWorktreeRow, contradictorySession))
 })
 
-const legacyWorktreeSkipped = prepared((db: StoreDrizzle) =>
-  legacyWorktreeSkippedBuilder(db).prepare(),
-)
+const legacyWorktreeSkipped = prepared((db) => legacyWorktreeSkippedBuilder(db).prepare())
 
 /** Labels by lower-cased name, one shape per IN-list size (see {@link inListSize}). */
-const labelsNamed = preparedFamily((db: StoreDrizzle, size: number) =>
+const labelsNamed = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(labels)
+    .from(t.labels)
     .where(
       inArray(
-        sql`lower(${labels.name})`,
+        sql`lower(${t.labels.name})`,
         Array.from({ length: size }, (_, index) => sql.placeholder(`name${index}`)),
       ),
     )
@@ -598,17 +591,17 @@ const labelsNamed = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 /** A label's colour and/or description; one shape per set of patched columns. */
-const patchLabel = preparedFamily((db: StoreDrizzle, shape: string) =>
+const patchLabel = preparedFamily((db, t, shape: string) =>
   db
-    .update(labels)
+    .update(t.labels)
     .set(placeholdersFor(shape) as Partial<typeof labels.$inferInsert>)
-    .where(eq(labels.id, param(labels.id, 'id')))
+    .where(eq(t.labels.id, param(t.labels.id, 'id')))
     .prepare(),
 )
 
-const insertLabelRow = prepared((db: StoreDrizzle) =>
+const insertLabelRow = prepared((db, t) =>
   db
-    .insert(labels)
+    .insert(t.labels)
     .values({
       name: sql.placeholder('name'),
       color: sql.placeholder('color'),
@@ -619,51 +612,51 @@ const insertLabelRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const labelVocabulary = prepared((db: StoreDrizzle) =>
+const labelVocabulary = prepared((db, t) =>
   db
     .select()
-    .from(labels)
-    .orderBy(asc(sql`lower(${labels.name})`))
+    .from(t.labels)
+    .orderBy(asc(sql`lower(${t.labels.name})`))
     .prepare(),
 )
 
-const deleteLabelsOf = prepared((db: StoreDrizzle) =>
+const deleteLabelsOf = prepared((db, t) =>
   db
-    .delete(issueLabels)
-    .where(eq(issueLabels.issueId, param(issueLabels.issueId, 'issueId')))
+    .delete(t.issueLabels)
+    .where(eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')))
     .prepare(),
 )
 
-const insertLabel = prepared((db: StoreDrizzle) =>
+const insertLabel = prepared((db, t) =>
   db
-    .insert(issueLabels)
+    .insert(t.issueLabels)
     .values({ issueId: sql.placeholder('issueId'), labelId: sql.placeholder('labelId') })
     .onConflictDoNothing()
     .prepare(),
 )
 
-const labelsOf = prepared((db: StoreDrizzle) =>
+const labelsOf = prepared((db, t) =>
   db
-    .select({ label: labels.name })
-    .from(issueLabels)
-    .innerJoin(labels, eq(labels.id, issueLabels.labelId))
-    .where(eq(issueLabels.issueId, param(issueLabels.issueId, 'issueId')))
-    .orderBy(asc(labels.name))
+    .select({ label: t.labels.name })
+    .from(t.issueLabels)
+    .innerJoin(t.labels, eq(t.labels.id, t.issueLabels.labelId))
+    .where(eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')))
+    .orderBy(asc(t.labels.name))
     .prepare(),
 )
 
 /** The issues carrying these labels (POD-6920: a label's rename reaches them). */
-const issuesOfLabels = preparedFamily((db: StoreDrizzle, size: number) =>
+const issuesOfLabels = preparedFamily((db, t, size: number) =>
   db
-    .selectDistinct({ issueId: issueLabels.issueId })
-    .from(issueLabels)
-    .where(inListOf(issueLabels.labelId, size, 'ids'))
+    .selectDistinct({ issueId: t.issueLabels.issueId })
+    .from(t.issueLabels)
+    .where(inListOf(t.issueLabels.labelId, size, 'ids'))
     .prepare(),
 )
 
-const insertDep = prepared((db: StoreDrizzle) =>
+const insertDep = prepared((db, t) =>
   db
-    .insert(issueDeps)
+    .insert(t.issueDeps)
     .values({
       fromId: sql.placeholder('fromId'),
       toId: sql.placeholder('toId'),
@@ -673,60 +666,60 @@ const insertDep = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteDepOfType = prepared((db: StoreDrizzle) =>
+const deleteDepOfType = prepared((db, t) =>
   db
-    .delete(issueDeps)
+    .delete(t.issueDeps)
     .where(
       and(
-        eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')),
-        eq(issueDeps.toId, param(issueDeps.toId, 'toId')),
-        eq(issueDeps.type, param(issueDeps.type, 'type')),
+        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
+        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
+        eq(t.issueDeps.type, param(t.issueDeps.type, 'type')),
       ),
     )
     .prepare(),
 )
 
-const deleteDepsBetween = prepared((db: StoreDrizzle) =>
+const deleteDepsBetween = prepared((db, t) =>
   db
-    .delete(issueDeps)
+    .delete(t.issueDeps)
     .where(
       and(
-        eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')),
-        eq(issueDeps.toId, param(issueDeps.toId, 'toId')),
+        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
+        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
       ),
     )
     .prepare(),
 )
 
-const depsFrom = prepared((db: StoreDrizzle) =>
+const depsFrom = prepared((db, t) =>
   db
-    .select({ toId: issueDeps.toId, type: issueDeps.type })
-    .from(issueDeps)
-    .where(eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')))
-    .orderBy(asc(issueDeps.toId), asc(issueDeps.type))
+    .select({ toId: t.issueDeps.toId, type: t.issueDeps.type })
+    .from(t.issueDeps)
+    .where(eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')))
+    .orderBy(asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
 
-const allDeps = prepared((db: StoreDrizzle) =>
+const allDeps = prepared((db, t) =>
   db
-    .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
-    .from(issueDeps)
-    .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
+    .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
+    .from(t.issueDeps)
+    .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
 
-const depsTo = prepared((db: StoreDrizzle) =>
+const depsTo = prepared((db, t) =>
   db
-    .select({ fromId: issueDeps.fromId, type: issueDeps.type })
-    .from(issueDeps)
-    .where(eq(issueDeps.toId, param(issueDeps.toId, 'toId')))
-    .orderBy(asc(issueDeps.fromId), asc(issueDeps.type))
+    .select({ fromId: t.issueDeps.fromId, type: t.issueDeps.type })
+    .from(t.issueDeps)
+    .where(eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')))
+    .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.type))
     .prepare(),
 )
 
-const insertComment = prepared((db: StoreDrizzle) =>
+const insertComment = prepared((db, t) =>
   db
-    .insert(issueComments)
+    .insert(t.issueComments)
     .values({
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -739,47 +732,47 @@ const insertComment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const commentsOf = prepared((db: StoreDrizzle) =>
+const commentsOf = prepared((db, t) =>
   db
     .select()
-    .from(issueComments)
-    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
-    .orderBy(asc(issueComments.createdAt), asc(issueComments.id))
+    .from(t.issueComments)
+    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
+    .orderBy(asc(t.issueComments.createdAt), asc(t.issueComments.id))
     .prepare(),
 )
 
-const commentById = prepared((db: StoreDrizzle) =>
+const commentById = prepared((db, t) =>
   db
     .select()
-    .from(issueComments)
-    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .from(t.issueComments)
+    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
     .prepare(),
 )
 
 /** Rewrites the body and the edit stamp only: the author columns never move. */
-const editComment = prepared((db: StoreDrizzle) =>
+const editComment = prepared((db, t) =>
   db
-    .update(issueComments)
+    .update(t.issueComments)
     .set({
       body: sql.placeholder('body') as unknown as string,
       editedAt: sql.placeholder('editedAt') as unknown as string,
       editedBy: sql.placeholder('editedBy') as unknown as string,
       editedOnBehalfOf: sql.placeholder('editedOnBehalfOf') as unknown as string,
     })
-    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
     .prepare(),
 )
 
-const deleteComment = prepared((db: StoreDrizzle) =>
+const deleteComment = prepared((db, t) =>
   db
-    .delete(issueComments)
-    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .delete(t.issueComments)
+    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
     .prepare(),
 )
 
-const insertTextRevision = prepared((db: StoreDrizzle) =>
+const insertTextRevision = prepared((db, t) =>
   db
-    .insert(issueTextRevisions)
+    .insert(t.issueTextRevisions)
     .values({
       issueId: sql.placeholder('issueId'),
       field: sql.placeholder('field'),
@@ -795,63 +788,63 @@ const insertTextRevision = prepared((db: StoreDrizzle) =>
 )
 
 /** One field's history, oldest first: the index order, so no sort. */
-const textRevisionsOf = prepared((db: StoreDrizzle) =>
+const textRevisionsOf = prepared((db, t) =>
   db
     .select()
-    .from(issueTextRevisions)
+    .from(t.issueTextRevisions)
     .where(
       and(
-        eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')),
-        eq(issueTextRevisions.field, sql.placeholder('field')),
+        eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')),
+        eq(t.issueTextRevisions.field, sql.placeholder('field')),
       ),
     )
-    .orderBy(asc(issueTextRevisions.id))
+    .orderBy(asc(t.issueTextRevisions.id))
     .prepare(),
 )
 
 /** Does this field have any history yet? Index-only probe. */
-const anyTextRevisionOf = prepared((db: StoreDrizzle) =>
+const anyTextRevisionOf = prepared((db, t) =>
   db
-    .select({ id: issueTextRevisions.id })
-    .from(issueTextRevisions)
+    .select({ id: t.issueTextRevisions.id })
+    .from(t.issueTextRevisions)
     .where(
       and(
-        eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')),
-        eq(issueTextRevisions.field, sql.placeholder('field')),
+        eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')),
+        eq(t.issueTextRevisions.field, sql.placeholder('field')),
       ),
     )
     .limit(1)
     .prepare(),
 )
 
-const textRevisionById = prepared((db: StoreDrizzle) =>
+const textRevisionById = prepared((db, t) =>
   db
     .select()
-    .from(issueTextRevisions)
-    .where(eq(issueTextRevisions.id, sql.placeholder('id')))
+    .from(t.issueTextRevisions)
+    .where(eq(t.issueTextRevisions.id, sql.placeholder('id')))
     .prepare(),
 )
 
-const deleteTextRevisionsOf = prepared((db: StoreDrizzle) =>
+const deleteTextRevisionsOf = prepared((db, t) =>
   db
-    .delete(issueTextRevisions)
-    .where(eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')))
+    .delete(t.issueTextRevisions)
+    .where(eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')))
     .prepare(),
 )
 
-const commentCountOf = prepared((db: StoreDrizzle) =>
+const commentCountOf = prepared((db, t) =>
   db
     .select({ n: count() })
-    .from(issueComments)
-    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
+    .from(t.issueComments)
+    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
     .prepare(),
 )
 
-const commentCountsByIssue = prepared((db: StoreDrizzle) =>
+const commentCountsByIssue = prepared((db, t) =>
   db
-    .select({ issueId: issueComments.issueId, n: count() })
-    .from(issueComments)
-    .groupBy(issueComments.issueId)
+    .select({ issueId: t.issueComments.issueId, n: count() })
+    .from(t.issueComments)
+    .groupBy(t.issueComments.issueId)
     .prepare(),
 )
 
@@ -860,22 +853,22 @@ const commentCountsByIssue = prepared((db: StoreDrizzle) =>
  * drizzle's `like()` emits no ESCAPE, so this stays a fragment; dropping it
  * would make a query of `100%` match every comment.
  */
-const commentSearch = preparedFamily((db: StoreDrizzle, limited: 'all' | 'limited') => {
+const commentSearch = preparedFamily((db, t, limited: 'all' | 'limited') => {
   const base = db
     .select({
-      issueId: issueComments.issueId,
-      body: issueComments.body,
-      createdAt: issueComments.createdAt,
+      issueId: t.issueComments.issueId,
+      body: t.issueComments.body,
+      createdAt: t.issueComments.createdAt,
     })
-    .from(issueComments)
-    .where(sql`${issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`)
-    .orderBy(desc(issueComments.createdAt))
+    .from(t.issueComments)
+    .where(sql`${t.issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`)
+    .orderBy(desc(t.issueComments.createdAt))
   return limited === 'all' ? base.prepare() : base.limit(sql.placeholder('limit')).prepare()
 })
 
-const insertMessage = prepared((db: StoreDrizzle) =>
+const insertMessage = prepared((db, t) =>
   db
-    .insert(issueMessages)
+    .insert(t.issueMessages)
     .values({
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -889,149 +882,149 @@ const insertMessage = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const messageById = prepared((db: StoreDrizzle) =>
+const messageById = prepared((db, t) =>
   db
     .select()
-    .from(issueMessages)
-    .where(eq(issueMessages.id, param(issueMessages.id, 'id')))
+    .from(t.issueMessages)
+    .where(eq(t.issueMessages.id, param(t.issueMessages.id, 'id')))
     .prepare(),
 )
 
-const messagesOf = prepared((db: StoreDrizzle) =>
+const messagesOf = prepared((db, t) =>
   db
     .select()
-    .from(issueMessages)
-    .where(eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')))
-    .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+    .from(t.issueMessages)
+    .where(eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')))
+    .orderBy(asc(t.issueMessages.createdAt), asc(t.issueMessages.id))
     .prepare(),
 )
 
-const messagesOfWithStatus = prepared((db: StoreDrizzle) =>
+const messagesOfWithStatus = prepared((db, t) =>
   db
     .select()
-    .from(issueMessages)
+    .from(t.issueMessages)
     .where(
       and(
-        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
-        eq(issueMessages.status, param(issueMessages.status, 'status')),
+        eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
+        eq(t.issueMessages.status, param(t.issueMessages.status, 'status')),
       ),
     )
-    .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+    .orderBy(asc(t.issueMessages.createdAt), asc(t.issueMessages.id))
     .prepare(),
 )
 
-const unreadMessageCountOf = prepared((db: StoreDrizzle) =>
+const unreadMessageCountOf = prepared((db, t) =>
   db
     .select({ n: count() })
-    .from(issueMessages)
+    .from(t.issueMessages)
     .where(
       and(
-        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
-        eq(issueMessages.status, 'unread'),
+        eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
+        eq(t.issueMessages.status, 'unread'),
       ),
     )
     .prepare(),
 )
 
 /** Only `unread` flips, so a `claimed` message never regresses to `read`. */
-const markMessageRead = prepared((db: StoreDrizzle) =>
+const markMessageRead = prepared((db, t) =>
   db
-    .update(issueMessages)
+    .update(t.issueMessages)
     .set({ status: 'read' })
     .where(
       and(
-        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
-        eq(issueMessages.id, param(issueMessages.id, 'id')),
-        eq(issueMessages.status, 'unread'),
+        eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
+        eq(t.issueMessages.id, param(t.issueMessages.id, 'id')),
+        eq(t.issueMessages.status, 'unread'),
       ),
     )
     .prepare(),
 )
 
-const upsertMessageReadAt = prepared((db: StoreDrizzle) =>
+const upsertMessageReadAt = prepared((db, t) =>
   db
-    .insert(issueMessageUserState)
+    .insert(t.issueMessageUserState)
     .values({
       userId: sql.placeholder('userId'),
       issueMessageId: sql.placeholder('issueMessageId'),
       readAt: sql.placeholder('readAt'),
     })
     .onConflictDoUpdate({
-      target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
+      target: [t.issueMessageUserState.userId, t.issueMessageUserState.issueMessageId],
       set: { readAt: sql.placeholder('readAt') },
     })
     .prepare(),
 )
 
-const messageReadAtOf = prepared((db: StoreDrizzle) =>
+const messageReadAtOf = prepared((db, t) =>
   db
     .select({
-      issueMessageId: issueMessageUserState.issueMessageId,
-      readAt: issueMessageUserState.readAt,
+      issueMessageId: t.issueMessageUserState.issueMessageId,
+      readAt: t.issueMessageUserState.readAt,
     })
-    .from(issueMessageUserState)
-    .where(eq(issueMessageUserState.userId, param(issueMessageUserState.userId, 'userId')))
+    .from(t.issueMessageUserState)
+    .where(eq(t.issueMessageUserState.userId, param(t.issueMessageUserState.userId, 'userId')))
     .prepare(),
 )
 
-const issueUserStateFeedColumns = {
-  userId: issueUserState.userId,
-  entityId: issueUserState.issueId,
-  readAt: issueUserState.readAt,
-  tuckedAt: issueUserState.tuckedAt,
-  joinedAt: issueUserState.joinedAt,
-  joinedVia: issueUserState.joinedVia,
-  assignedAt: issueUserState.assignedAt,
-  assignedBy: issueUserState.assignedBy,
-}
+const issueUserStateFeedColumns = (t: StoreTables) => ({
+  userId: t.issueUserState.userId,
+  entityId: t.issueUserState.issueId,
+  readAt: t.issueUserState.readAt,
+  tuckedAt: t.issueUserState.tuckedAt,
+  joinedAt: t.issueUserState.joinedAt,
+  joinedVia: t.issueUserState.joinedVia,
+  assignedAt: t.issueUserState.assignedAt,
+  assignedBy: t.issueUserState.assignedBy,
+})
 
-const allIssueUserStateRows = prepared((db: StoreDrizzle) =>
-  db.select(issueUserStateFeedColumns).from(issueUserState).prepare(),
+const allIssueUserStateRows = prepared((db, t) =>
+  db.select(issueUserStateFeedColumns(t)).from(t.issueUserState).prepare(),
 )
 
-const issueUserStateRowsOf = prepared((db: StoreDrizzle) =>
+const issueUserStateRowsOf = prepared((db, t) =>
   db
-    .select(issueUserStateFeedColumns)
-    .from(issueUserState)
-    .where(eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')))
+    .select(issueUserStateFeedColumns(t))
+    .from(t.issueUserState)
+    .where(eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')))
     .prepare(),
 )
 
-const issueUserStateOne = prepared((db: StoreDrizzle) =>
+const issueUserStateOne = prepared((db, t) =>
   db
     .select({
-      readAt: issueUserState.readAt,
-      tuckedAt: issueUserState.tuckedAt,
-      joinedAt: issueUserState.joinedAt,
-      joinedVia: issueUserState.joinedVia,
-      assignedAt: issueUserState.assignedAt,
-      assignedBy: issueUserState.assignedBy,
+      readAt: t.issueUserState.readAt,
+      tuckedAt: t.issueUserState.tuckedAt,
+      joinedAt: t.issueUserState.joinedAt,
+      joinedVia: t.issueUserState.joinedVia,
+      assignedAt: t.issueUserState.assignedAt,
+      assignedBy: t.issueUserState.assignedBy,
     })
-    .from(issueUserState)
+    .from(t.issueUserState)
     .where(
       and(
-        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
-        eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')),
+        eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
+        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
 
-const deleteIssueUserStateOne = prepared((db: StoreDrizzle) =>
+const deleteIssueUserStateOne = prepared((db, t) =>
   db
-    .delete(issueUserState)
+    .delete(t.issueUserState)
     .where(
       and(
-        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
-        eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')),
+        eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
+        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
 
-const upsertIssueUserState = prepared((db: StoreDrizzle) =>
+const upsertIssueUserState = prepared((db, t) =>
   db
-    .insert(issueUserState)
+    .insert(t.issueUserState)
     .values({
       userId: sql.placeholder('userId'),
       issueId: sql.placeholder('issueId'),
@@ -1043,7 +1036,7 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
       assignedBy: sql.placeholder('assignedBy'),
     })
     .onConflictDoUpdate({
-      target: [issueUserState.userId, issueUserState.issueId],
+      target: [t.issueUserState.userId, t.issueUserState.issueId],
       set: {
         readAt: sql.placeholder('readAt'),
         tuckedAt: sql.placeholder('tuckedAt'),
@@ -1056,51 +1049,54 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteIssueUserStateOf = prepared((db: StoreDrizzle) =>
+const deleteIssueUserStateOf = prepared((db, t) =>
   db
-    .delete(issueUserState)
-    .where(eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')))
+    .delete(t.issueUserState)
+    .where(eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')))
     .prepare(),
 )
 
 /** Single UPDATE guarded on status, so there is no read-then-write race. */
-const claimMessage = prepared((db: StoreDrizzle) =>
+const claimMessage = prepared((db, t) =>
   db
-    .update(issueMessages)
+    .update(t.issueMessages)
     .set({
       status: 'claimed',
       claimedBy: sql.placeholder('claimedBy'),
       claimedAt: sql.placeholder('claimedAt'),
     })
     .where(
-      and(eq(issueMessages.id, param(issueMessages.id, 'id')), ne(issueMessages.status, 'claimed')),
-    )
-    .prepare(),
-)
-
-const deleteMessagesOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(issueMessages)
-    .where(eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')))
-    .prepare(),
-)
-
-const deleteDepsTouching = prepared((db: StoreDrizzle) =>
-  db
-    .delete(issueDeps)
-    .where(
-      or(
-        eq(issueDeps.fromId, param(issueDeps.fromId, 'issueId')),
-        eq(issueDeps.toId, param(issueDeps.toId, 'issueId')),
+      and(
+        eq(t.issueMessages.id, param(t.issueMessages.id, 'id')),
+        ne(t.issueMessages.status, 'claimed'),
       ),
     )
     .prepare(),
 )
 
-const deleteCommentsOf = prepared((db: StoreDrizzle) =>
+const deleteMessagesOf = prepared((db, t) =>
   db
-    .delete(issueComments)
-    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
+    .delete(t.issueMessages)
+    .where(eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')))
+    .prepare(),
+)
+
+const deleteDepsTouching = prepared((db, t) =>
+  db
+    .delete(t.issueDeps)
+    .where(
+      or(
+        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'issueId')),
+        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'issueId')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteCommentsOf = prepared((db, t) =>
+  db
+    .delete(t.issueComments)
+    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
     .prepare(),
 )
 
@@ -1647,7 +1643,7 @@ export class IssuesRepository {
     // The SHAPE is the set of keys this row actually sets: drizzle renders an
     // undefined `values` key as NULL and drops an undefined `set` key, so a
     // row with an undefined column is a different statement, as it always was.
-    const upsert = (this.issueWrites.upsert ??= preparedFamily((db: StoreDrizzle, key: string) => {
+    const upsert = (this.issueWrites.upsert ??= preparedFamily((db, t, key: string) => {
       const reassign = key.startsWith(REASSIGN_SHAPE_PREFIX)
       const placeholders = placeholdersFor(reassign ? key.slice(REASSIGN_SHAPE_PREFIX.length) : key)
       const set: Record<string, Placeholder> = {}
@@ -1663,14 +1659,14 @@ export class IssuesRepository {
       const changed = Object.keys(set)
         .filter((column) => column !== 'revision')
         .map((column) => {
-          const stored = issues[column as keyof typeof issues.$inferInsert]
+          const stored = t.issues[column as keyof typeof issues.$inferInsert]
           return sql`${stored} IS NOT excluded.${sql.identifier(stored.name)}`
         })
       return db
-        .insert(issues)
+        .insert(t.issues)
         .values(placeholders as unknown as typeof issues.$inferInsert)
         .onConflictDoUpdate({
-          target: issues.id,
+          target: t.issues.id,
           set: set as unknown as Partial<typeof issues.$inferInsert>,
           setWhere: sql.join(changed, sql` OR `),
         })
@@ -1714,19 +1710,19 @@ export class IssuesRepository {
     // read out would turn the CAS into a race. `revision` is bumped from its own
     // stored value, so the expression references the column rather than a bound
     // parameter.
-    const transition = (this.issueWrites.shippingStage ??= prepared((db: StoreDrizzle) =>
+    const transition = (this.issueWrites.shippingStage ??= prepared((db, t) =>
       db
-        .update(issues)
+        .update(t.issues)
         .set({
           stage: sql.placeholder('nextStage'),
           updatedAt: sql.placeholder('updatedAt'),
-          revision: sql`COALESCE(${issues.revision}, 0) + 1`,
+          revision: sql`COALESCE(${t.issues.revision}, 0) + 1`,
         })
         .where(
           and(
-            eq(issues.id, param(issues.id, 'id')),
-            eq(issues.stage, param(issues.stage, 'expectedStage')),
-            isNull(issues.deletedAt),
+            eq(t.issues.id, param(t.issues.id, 'id')),
+            eq(t.issues.stage, param(t.issues.stage, 'expectedStage')),
+            isNull(t.issues.deletedAt),
           ),
         )
         .returning()
@@ -2320,10 +2316,10 @@ export class IssuesRepository {
     // covered.
     await deleteRefLettersOf(this.db).run({ issueId: asIssueId(id) })
     await this.invalidateRowCache()
-    const remove = (this.issueWrites.remove ??= prepared((db: StoreDrizzle) =>
+    const remove = (this.issueWrites.remove ??= prepared((db, t) =>
       db
-        .delete(issues)
-        .where(eq(issues.id, param(issues.id, 'id')))
+        .delete(t.issues)
+        .where(eq(t.issues.id, param(t.issues.id, 'id')))
         .returning()
         .prepare(),
     ))
@@ -2403,11 +2399,11 @@ export class IssuesRepository {
     // The span covers the UPDATE loop only. The read and the planning above are
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
-    const setSeq = (this.issueWrites.seq ??= prepared((db: StoreDrizzle) =>
+    const setSeq = (this.issueWrites.seq ??= prepared((db, t) =>
       db
-        .update(issues)
+        .update(t.issues)
         .set({ seq: sql.placeholder('seq') })
-        .where(eq(issues.id, param(issues.id, 'id')))
+        .where(eq(t.issues.id, param(t.issues.id, 'id')))
         .returning()
         .prepare(),
     ))
@@ -2443,11 +2439,11 @@ export class IssuesRepository {
     let next = (highest?.m ?? 0) + 1
     const taken = async (seq: number) => await issueIdAtSeq(this.db).get({ repoId, seq })
     await this.invalidateRowCache()
-    const setRepoIdAndSeq = (this.issueWrites.repoIdAndSeq ??= prepared((db: StoreDrizzle) =>
+    const setRepoIdAndSeq = (this.issueWrites.repoIdAndSeq ??= prepared((db, t) =>
       db
-        .update(issues)
+        .update(t.issues)
         .set({ repoId: sql.placeholder('repoId'), seq: sql.placeholder('seq') })
-        .where(eq(issues.id, param(issues.id, 'id')))
+        .where(eq(t.issues.id, param(t.issues.id, 'id')))
         .returning()
         .prepare(),
     ))
@@ -2519,10 +2515,10 @@ export class IssuesRepository {
       // enforces: invalidating afterwards would still empty the map, but a read
       // taken in between would cache rows read inside this open transaction.
       await this.invalidateRowCache()
-      const backfill = (this.issueWrites.legacyMachine ??= prepared((db: StoreDrizzle) => {
+      const backfill = (this.issueWrites.legacyMachine ??= prepared((db, t) => {
         const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
         return db
-          .update(issues)
+          .update(t.issues)
           .set({ machineId: sql.placeholder('hostMachineId') })
           .where(and(legacyWorktreeRow, not(contradictorySession)))
           .returning()

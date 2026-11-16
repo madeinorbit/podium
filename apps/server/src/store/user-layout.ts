@@ -33,75 +33,99 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { userDockShell, userLayout } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared, preparedFamily } from './executor/sync-drizzle'
 
 // Every query these repositories run, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const layoutUserIs = () => eq(userLayout.userId, param(userLayout.userId, 'userId'))
-const layoutKeyIs = () => and(layoutUserIs(), eq(userLayout.key, param(userLayout.key, 'key')))
+const layoutUserIs = (t: StoreTables) =>
+  eq(t.userLayout.userId, param(t.userLayout.userId, 'userId'))
+const layoutKeyIs = (t: StoreTables) =>
+  and(layoutUserIs(t), eq(t.userLayout.key, param(t.userLayout.key, 'key')))
 
-const layoutOfUser = prepared((db: StoreDrizzle) =>
-  db.select({ key: userLayout.key, value: userLayout.value }).from(userLayout).where(layoutUserIs()).prepare(),
-)
-
-const layoutValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: userLayout.value }).from(userLayout).where(layoutKeyIs()).prepare(),
-)
-
-const upsertLayout = prepared((db: StoreDrizzle) =>
+const layoutOfUser = prepared((db, t) =>
   db
-    .insert(userLayout)
+    .select({ key: t.userLayout.key, value: t.userLayout.value })
+    .from(t.userLayout)
+    .where(layoutUserIs(t))
+    .prepare(),
+)
+
+const layoutValue = prepared((db, t) =>
+  db.select({ value: t.userLayout.value }).from(t.userLayout).where(layoutKeyIs(t)).prepare(),
+)
+
+const upsertLayout = prepared((db, t) =>
+  db
+    .insert(t.userLayout)
     .values({ userId: P('userId'), key: P('key'), value: P('value'), updatedAt: P('updatedAt') })
     .onConflictDoUpdate({
-      target: [userLayout.userId, userLayout.key],
+      target: [t.userLayout.userId, t.userLayout.key],
       set: { value: P('value'), updatedAt: P('updatedAt') },
     })
     .prepare(),
 )
 
-const deleteLayoutKey = prepared((db: StoreDrizzle) =>
-  db.delete(userLayout).where(layoutKeyIs()).prepare(),
-)
+const deleteLayoutKey = prepared((db, t) => db.delete(t.userLayout).where(layoutKeyIs(t)).prepare())
 
 /** Every user's layout rows in primary-key order, one page after a cursor:
  *  the boot reconcile's full truth, read a page at a time through the key. */
-const layoutRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+const layoutRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
   db
-    .select({ userId: userLayout.userId, key: userLayout.key, value: userLayout.value })
-    .from(userLayout)
+    .select({ userId: t.userLayout.userId, key: t.userLayout.key, value: t.userLayout.value })
+    .from(t.userLayout)
     // The first page starts at the lowest key, `>=`, so it is a seek like the rest.
-    .where(from === 'start'
-      ? sql`(${userLayout.userId}, ${userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
-      : sql`(${userLayout.userId}, ${userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`)
-    .orderBy(asc(userLayout.userId), asc(userLayout.key))
+    .where(
+      from === 'start'
+        ? sql`(${t.userLayout.userId}, ${t.userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
+        : sql`(${t.userLayout.userId}, ${t.userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`,
+    )
+    .orderBy(asc(t.userLayout.userId), asc(t.userLayout.key))
     .limit(P('limit'))
     .prepare(),
 )
 
-const layoutKeysOfUser = prepared((db: StoreDrizzle) =>
-  db.select({ key: userLayout.key }).from(userLayout).where(layoutUserIs()).orderBy(asc(userLayout.key)).prepare(),
-)
-
-const shellUserIs = () => eq(userDockShell.userId, param(userDockShell.userId, 'userId'))
-const shellSlotIs = () =>
-  and(shellUserIs(), eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey')))
-const shellWorktreeIs = () =>
-  eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey'))
-const shellSessionIs = () => eq(userDockShell.sessionId, param(userDockShell.sessionId, 'sessionId'))
-
-const dockShellOfSlot = prepared((db: StoreDrizzle) =>
-  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellSlotIs()).prepare(),
-)
-
-const dockShellsOfUser = prepared((db: StoreDrizzle) =>
+const layoutKeysOfUser = prepared((db, t) =>
   db
-    .select({ worktreeKey: userDockShell.worktreeKey, sessionId: userDockShell.sessionId })
-    .from(userDockShell)
-    .where(shellUserIs())
-    .orderBy(asc(userDockShell.worktreeKey))
+    .select({ key: t.userLayout.key })
+    .from(t.userLayout)
+    .where(layoutUserIs(t))
+    .orderBy(asc(t.userLayout.key))
+    .prepare(),
+)
+
+const shellUserIs = (t: StoreTables) =>
+  eq(t.userDockShell.userId, param(t.userDockShell.userId, 'userId'))
+const shellSlotIs = (t: StoreTables) =>
+  and(
+    shellUserIs(t),
+    eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey')),
+  )
+const shellWorktreeIs = (t: StoreTables) =>
+  eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey'))
+const shellSessionIs = (t: StoreTables) =>
+  eq(t.userDockShell.sessionId, param(t.userDockShell.sessionId, 'sessionId'))
+
+const dockShellOfSlot = prepared((db, t) =>
+  db
+    .select({ sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellSlotIs(t))
+    .prepare(),
+)
+
+const dockShellsOfUser = prepared((db, t) =>
+  db
+    .select({ worktreeKey: t.userDockShell.worktreeKey, sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellUserIs(t))
+    .orderBy(asc(t.userDockShell.worktreeKey))
     .prepare(),
 )
 
@@ -112,59 +136,65 @@ const dockShellValues = {
   updatedAt: P('updatedAt'),
 }
 
-const claimDockShell = prepared((db: StoreDrizzle) =>
+const claimDockShell = prepared((db, t) =>
   db
-    .insert(userDockShell)
+    .insert(t.userDockShell)
     .values(dockShellValues)
-    .onConflictDoNothing({ target: [userDockShell.userId, userDockShell.worktreeKey] })
+    .onConflictDoNothing({ target: [t.userDockShell.userId, t.userDockShell.worktreeKey] })
     .prepare(),
 )
 
-const upsertDockShell = prepared((db: StoreDrizzle) =>
+const upsertDockShell = prepared((db, t) =>
   db
-    .insert(userDockShell)
+    .insert(t.userDockShell)
     .values(dockShellValues)
     .onConflictDoUpdate({
-      target: [userDockShell.userId, userDockShell.worktreeKey],
+      target: [t.userDockShell.userId, t.userDockShell.worktreeKey],
       set: { sessionId: P('sessionId'), updatedAt: P('updatedAt') },
     })
     .prepare(),
 )
 
-const deleteDockShellSlot = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellSlotIs()).prepare(),
+const deleteDockShellSlot = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellSlotIs(t)).prepare(),
 )
 
-const dockShellsOfWorktree = prepared((db: StoreDrizzle) =>
-  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellWorktreeIs()).prepare(),
-)
-
-const deleteDockShellsOfWorktree = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellWorktreeIs()).prepare(),
-)
-
-const deleteDockShellsOfSession = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellSessionIs()).prepare(),
-)
-
-const worktreesOfSession = prepared((db: StoreDrizzle) =>
+const dockShellsOfWorktree = prepared((db, t) =>
   db
-    .select({ userId: userDockShell.userId, worktreeKey: userDockShell.worktreeKey })
-    .from(userDockShell)
-    .where(shellSessionIs())
+    .select({ sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellWorktreeIs(t))
+    .prepare(),
+)
+
+const deleteDockShellsOfWorktree = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellWorktreeIs(t)).prepare(),
+)
+
+const deleteDockShellsOfSession = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellSessionIs(t)).prepare(),
+)
+
+const worktreesOfSession = prepared((db, t) =>
+  db
+    .select({ userId: t.userDockShell.userId, worktreeKey: t.userDockShell.worktreeKey })
+    .from(t.userDockShell)
+    .where(shellSessionIs(t))
     .prepare(),
 )
 
 /** One JSON parameter, not an IN list: see `worktreesForSessions`. */
-const worktreesOfSessions = prepared((db: StoreDrizzle) =>
+const worktreesOfSessions = prepared((db, t) =>
   db
     .select({
-      sessionId: userDockShell.sessionId,
-      userId: userDockShell.userId,
-      worktreeKey: userDockShell.worktreeKey,
+      sessionId: t.userDockShell.sessionId,
+      userId: t.userDockShell.userId,
+      worktreeKey: t.userDockShell.worktreeKey,
     })
-    .from(userDockShell)
-    .where(sql`${userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`)
+    .from(t.userDockShell)
+    .where(
+      sql`${t.userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`,
+    )
     .orderBy(sql`rowid`)
     .prepare(),
 )
@@ -211,9 +241,14 @@ export class UserLayoutRepository {
     const values: LayoutWire[] = []
     let after: { afterUserId: UserId; afterKey: string } | null = null
     for (;;) {
-      const rows: Array<{ userId: UserId; key: string; value: string }> = after === null
-        ? await layoutRowsPage(this.db, 'start').all({ afterUserId: '', afterKey: '', limit: pageSize })
-        : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
+      const rows: Array<{ userId: UserId; key: string; value: string }> =
+        after === null
+          ? await layoutRowsPage(this.db, 'start').all({
+              afterUserId: '',
+              afterKey: '',
+              limit: pageSize,
+            })
+          : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
       for (const row of rows) {
         try {
           values.push({ userId: row.userId, key: row.key, value: JSON.parse(row.value) })
@@ -290,7 +325,12 @@ export class UserLayoutRepository {
    * uniqueness constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE`
    * exactly (checklist item 1, as amended: every column is named).
    */
-  private async write(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
+  private async write(
+    userId: UserId,
+    key: string,
+    value: unknown,
+    updatedAt: string,
+  ): Promise<void> {
     const encoded = JSON.stringify(value ?? null)
     await upsertLayout(this.db).run({ userId, key, value: encoded, updatedAt })
   }

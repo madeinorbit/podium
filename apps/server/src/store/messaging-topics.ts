@@ -5,8 +5,7 @@
 
 import type { IssueId, ThreadId } from '@podium/model'
 import { and, eq, sql } from 'drizzle-orm'
-import { messagingIssueTopics } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 export interface MessagingIssueTopicRow {
@@ -19,43 +18,43 @@ export interface MessagingIssueTopicRow {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const topicsOfChat = prepared((db: StoreDrizzle) =>
+const topicsOfChat = prepared((db, t) =>
   db
     .select()
-    .from(messagingIssueTopics)
-    .where(eq(messagingIssueTopics.chatId, param(messagingIssueTopics.chatId, 'chatId')))
+    .from(t.messagingIssueTopics)
+    .where(eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')))
     .prepare(),
 )
 
-const topicOfIssue = prepared((db: StoreDrizzle) =>
+const topicOfIssue = prepared((db, t) =>
   db
     .select()
-    .from(messagingIssueTopics)
+    .from(t.messagingIssueTopics)
     .where(
       and(
-        eq(messagingIssueTopics.chatId, param(messagingIssueTopics.chatId, 'chatId')),
-        eq(messagingIssueTopics.issueId, param(messagingIssueTopics.issueId, 'issueId')),
+        eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')),
+        eq(t.messagingIssueTopics.issueId, param(t.messagingIssueTopics.issueId, 'issueId')),
       ),
     )
     .prepare(),
 )
 
-const topicOfThreadRef = prepared((db: StoreDrizzle) =>
+const topicOfThreadRef = prepared((db, t) =>
   db
     .select()
-    .from(messagingIssueTopics)
+    .from(t.messagingIssueTopics)
     .where(
       and(
-        eq(messagingIssueTopics.chatId, param(messagingIssueTopics.chatId, 'chatId')),
-        eq(messagingIssueTopics.threadRef, param(messagingIssueTopics.threadRef, 'threadRef')),
+        eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')),
+        eq(t.messagingIssueTopics.threadRef, param(t.messagingIssueTopics.threadRef, 'threadRef')),
       ),
     )
     .prepare(),
 )
 
-const upsertTopic = prepared((db: StoreDrizzle) =>
+const upsertTopic = prepared((db, t) =>
   db
-    .insert(messagingIssueTopics)
+    .insert(t.messagingIssueTopics)
     .values({
       issueId: sql.placeholder('issueId'),
       chatId: sql.placeholder('chatId'),
@@ -64,7 +63,7 @@ const upsertTopic = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [messagingIssueTopics.issueId, messagingIssueTopics.chatId],
+      target: [t.messagingIssueTopics.issueId, t.messagingIssueTopics.chatId],
       set: {
         threadRef: sql.placeholder('threadRef'),
         superagentThreadId: sql.placeholder('superagentThreadId'),
@@ -102,7 +101,10 @@ export class MessagingTopicsRepository {
     return await topicOfIssue(this.db).get({ chatId, issueId })
   }
 
-  async getByThreadRef(chatId: string, threadRef: string): Promise<MessagingIssueTopicRow | undefined> {
+  async getByThreadRef(
+    chatId: string,
+    threadRef: string,
+  ): Promise<MessagingIssueTopicRow | undefined> {
     return await topicOfThreadRef(this.db).get({ chatId, threadRef })
   }
 

@@ -10,32 +10,36 @@ import {
   type MachineId,
 } from '@podium/model'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { agentProfiles, issues } from '../migrations/schema'
+import type { agentProfiles } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 const P = (name: string) => sql.placeholder(name)
 
-const allProfiles = prepared((db: StoreDrizzle) =>
-  db.select().from(agentProfiles).orderBy(agentProfiles.name).prepare(),
+const allProfiles = prepared((db, t) =>
+  db.select().from(t.agentProfiles).orderBy(t.agentProfiles.name).prepare(),
 )
 
-const profileById = prepared((db: StoreDrizzle) =>
-  db.select().from(agentProfiles).where(eq(agentProfiles.id, param(agentProfiles.id, 'id'))).prepare(),
-)
-
-const profileByName = prepared((db: StoreDrizzle) =>
+const profileById = prepared((db, t) =>
   db
     .select()
-    .from(agentProfiles)
-    .where(sql`${agentProfiles.name} = ${param(agentProfiles.name, 'name')} COLLATE NOCASE`)
+    .from(t.agentProfiles)
+    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
     .prepare(),
 )
 
-const insertProfile = prepared((db: StoreDrizzle) =>
+const profileByName = prepared((db, t) =>
   db
-    .insert(agentProfiles)
+    .select()
+    .from(t.agentProfiles)
+    .where(sql`${t.agentProfiles.name} = ${param(t.agentProfiles.name, 'name')} COLLATE NOCASE`)
+    .prepare(),
+)
+
+const insertProfile = prepared((db, t) =>
+  db
+    .insert(t.agentProfiles)
     .values({
       id: P('id'),
       name: P('name'),
@@ -51,9 +55,9 @@ const insertProfile = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const updateProfile = prepared((db: StoreDrizzle) =>
+const updateProfile = prepared((db, t) =>
   db
-    .update(agentProfiles)
+    .update(t.agentProfiles)
     .set({
       name: P('name'),
       description: P('description'),
@@ -63,19 +67,27 @@ const updateProfile = prepared((db: StoreDrizzle) =>
       updatedBy: P('actor'),
       updatedAt: P('now'),
     })
-    .where(eq(agentProfiles.id, param(agentProfiles.id, 'id')))
+    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
     .prepare(),
 )
 
-const deleteProfile = prepared((db: StoreDrizzle) =>
-  db.delete(agentProfiles).where(eq(agentProfiles.id, param(agentProfiles.id, 'id'))).prepare(),
+const deleteProfile = prepared((db, t) =>
+  db
+    .delete(t.agentProfiles)
+    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
+    .prepare(),
 )
 
-const liveIssuesUsingProfile = prepared((db: StoreDrizzle) =>
+const liveIssuesUsingProfile = prepared((db, t) =>
   db
-    .select({ seq: issues.seq, stage: issues.stage, closedReason: issues.closedReason })
-    .from(issues)
-    .where(and(eq(issues.agentProfileId, param(issues.agentProfileId, 'id')), isNull(issues.deletedAt)))
+    .select({ seq: t.issues.seq, stage: t.issues.stage, closedReason: t.issues.closedReason })
+    .from(t.issues)
+    .where(
+      and(
+        eq(t.issues.agentProfileId, param(t.issues.agentProfileId, 'id')),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 

@@ -21,6 +21,13 @@
  * so `apps/server`'s repositories and this package's adapter share one
  * implementation.
  *
+ * TABLES COME FROM THE BINDING [POD-6977, POD-6958 design §2.1]. A definition
+ * names no table it imports: it is `prepared((db, t) => db.select().from(t.x)…)`,
+ * and `t` is the table set bound to the drizzle instance it is built on
+ * ({@link bindTables}). On SQLite that set is the SQLite schema, so the SQL is
+ * what naming the imported tables produced; an engine with its own tables binds
+ * those, and the same definition source builds on them.
+ *
  * Rules for a converted query:
  *   - A comparison value is `param(column, 'name')`, never a bare
  *     `sql.placeholder`: drizzle applies the column's encoder (JSON, boolean,
@@ -50,7 +57,8 @@ import {
 /**
  * One `prepared(...)` or `preparedFamily(...)` call, as the query-plan audit
  * (`apps/server/src/store/query-plan-audit.test.ts`) reads it: the audit calls
- * `build` itself on a drizzle instance that records instead of running, so it
+ * `build` itself on a drizzle instance that records instead of running (and
+ * `build` takes the instance's bound tables as the definition's `t`), so it
  * sees every repository query whether or not a test ever executes it, and
  * `site` names the definition (the audit maps its stack to the source).
  */
@@ -83,14 +91,49 @@ export function preparedDefinitions(): readonly PreparedDefinition[] {
 /** The registry's bound; the audit asserts it was never reached. */
 export const PREPARED_DEFINITION_LIMIT = DEFINITION_LIMIT
 
-/** One query, prepared on first use and reused for the drizzle instance's life. */
-export function prepared<D extends object, P>(build: (db: D) => P): (db: D) => P {
-  register('prepared', build as PreparedDefinition['build'])
+// ---------------------------------------------------------------------------
+// The table binding [POD-6977]
+// ---------------------------------------------------------------------------
+
+const bindings = new WeakMap<object, object>()
+
+/**
+ * Bind `tables` to the drizzle instance `db`: every definition built on `db`
+ * gets them as its `t`. Done once, where the instance is made; a second binding
+ * of a different set would leave definitions already built on the first, so it
+ * throws.
+ */
+export function bindTables<D extends object>(db: D, tables: object): D {
+  const bound = bindings.get(db)
+  if (bound !== undefined && bound !== tables) {
+    throw new Error('this drizzle instance is already bound to another table set')
+  }
+  bindings.set(db, tables)
+  return db
+}
+
+/** The table set bound to `db`; throws when the instance was never bound. */
+export function boundTables(db: object): object {
+  const tables = bindings.get(db)
+  if (tables === undefined) {
+    throw new Error(
+      'a query definition was built on a drizzle instance with no table binding (bindTables)',
+    )
+  }
+  return tables
+}
+
+/**
+ * One query, prepared on first use and reused for the drizzle instance's life.
+ * `build` gets the instance and the tables bound to it.
+ */
+export function prepared<D extends object, T, P>(build: (db: D, t: T) => P): (db: D) => P {
+  register('prepared', ((db: D) => build(db, boundTables(db) as T)) as PreparedDefinition['build'])
   const cache = new WeakMap<D, P>()
   return (db) => {
     const hit = cache.get(db)
     if (hit !== undefined) return hit
-    const made = build(db)
+    const made = build(db, boundTables(db) as T)
     cache.set(db, made)
     return made
   }
@@ -119,10 +162,11 @@ export function preparedFamilyOverflows(): number {
  * prepared once, the first time it is asked for, and the SQL text of every
  * shape is the text the fluent form produced for the same call.
  */
-export function preparedFamily<D extends object, K extends string | number, P>(
-  build: (db: D, key: K) => P,
+export function preparedFamily<D extends object, T, K extends string | number, P>(
+  build: (db: D, t: T, key: K) => P,
 ): (db: D, key: K) => P {
-  register('family', build as PreparedDefinition['build'])
+  register('family', ((db: D, key: K) =>
+    build(db, boundTables(db) as T, key)) as PreparedDefinition['build'])
   const cache = new WeakMap<D, Map<K, P>>()
   return (db, key) => {
     let family = cache.get(db)
@@ -137,7 +181,7 @@ export function preparedFamily<D extends object, K extends string | number, P>(
       const oldest = family.keys().next().value as K
       family.delete(oldest)
     }
-    const made = build(db, key)
+    const made = build(db, boundTables(db) as T, key)
     family.set(key, made)
     return made
   }

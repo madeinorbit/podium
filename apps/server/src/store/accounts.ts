@@ -16,13 +16,13 @@
 
 import { type AccountId, asAccountId, type MachineId, type UserId } from '@podium/model'
 import { and, asc, eq, isNotNull, or, sql } from 'drizzle-orm'
-import {
-  accountMachineSends,
-  accounts,
-  nativeLoginOptIns,
-  nativeLoginTransfers,
-} from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { accounts } from '../migrations/schema'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** The grantee that means every user of this instance. */
@@ -138,75 +138,75 @@ const storageIdFor = (ownerUserId: UserId, accountKey: AccountId): AccountId =>
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const accountsByCreation = prepared((db: StoreDrizzle) =>
-  db.select().from(accounts).orderBy(asc(accounts.createdAt), asc(accounts.id)).prepare(),
+const accountsByCreation = prepared((db, t) =>
+  db.select().from(t.accounts).orderBy(asc(t.accounts.createdAt), asc(t.accounts.id)).prepare(),
 )
 
 /** Every owned row WITHOUT its credential, for the admin's keys read. */
-const keySummaries = prepared((db: StoreDrizzle) =>
+const keySummaries = prepared((db, t) =>
   db
     .select({
-      ownerUserId: accounts.ownerUserId,
-      accountKey: accounts.accountKey,
-      provider: accounts.provider,
-      kind: accounts.kind,
-      identity: accounts.identity,
-      createdAt: accounts.createdAt,
-      sharedWith: accounts.sharedWith,
+      ownerUserId: t.accounts.ownerUserId,
+      accountKey: t.accounts.accountKey,
+      provider: t.accounts.provider,
+      kind: t.accounts.kind,
+      identity: t.accounts.identity,
+      createdAt: t.accounts.createdAt,
+      sharedWith: t.accounts.sharedWith,
     })
-    .from(accounts)
-    .where(and(isNotNull(accounts.ownerUserId), isNotNull(accounts.accountKey)))
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .from(t.accounts)
+    .where(and(isNotNull(t.accounts.ownerUserId), isNotNull(t.accounts.accountKey)))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
 
-const accountsOfOwner = prepared((db: StoreDrizzle) =>
+const accountsOfOwner = prepared((db, t) =>
   db
     .select()
-    .from(accounts)
-    .where(eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')))
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .from(t.accounts)
+    .where(eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
 
-const ownAccount = prepared((db: StoreDrizzle) =>
+const ownAccount = prepared((db, t) =>
   db
     .select()
-    .from(accounts)
+    .from(t.accounts)
     .where(
       and(
-        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
-        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+        eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
+        eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
     )
     .prepare(),
 )
 
 /** Every row of one account id that its owner shares with somebody. */
-const sharedAccountsOfKey = prepared((db: StoreDrizzle) =>
+const sharedAccountsOfKey = prepared((db, t) =>
   db
     .select()
-    .from(accounts)
+    .from(t.accounts)
     .where(
       and(
         or(
-          eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
-          eq(accounts.accountKey, param(accounts.accountKey, 'earlierKey')),
+          eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
+          eq(t.accounts.accountKey, param(t.accounts.accountKey, 'earlierKey')),
         ),
-        isNotNull(accounts.sharedWith),
+        isNotNull(t.accounts.sharedWith),
       ),
     )
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
 
 /** Every row someone shares, for the list's "shared with you" rows. */
-const sharedAccounts = prepared((db: StoreDrizzle) =>
+const sharedAccounts = prepared((db, t) =>
   db
     .select()
-    .from(accounts)
-    .where(isNotNull(accounts.sharedWith))
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .from(t.accounts)
+    .where(isNotNull(t.accounts.sharedWith))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
 
@@ -230,12 +230,12 @@ const connectPlaceholders = {
  * `accounts_owner_account_key` unique index; `id` is not in the `set`, so the
  * row keeps its storage key.
  */
-const connectAccount = prepared((db: StoreDrizzle) =>
+const connectAccount = prepared((db, t) =>
   db
-    .insert(accounts)
+    .insert(t.accounts)
     .values(connectPlaceholders)
     .onConflictDoUpdate({
-      target: [accounts.ownerUserId, accounts.accountKey],
+      target: [t.accounts.ownerUserId, t.accounts.accountKey],
       set: {
         ref: sql.placeholder('accountKey'),
         provider: sql.placeholder('provider'),
@@ -249,84 +249,85 @@ const connectAccount = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteOwnAccount = prepared((db: StoreDrizzle) =>
+const deleteOwnAccount = prepared((db, t) =>
   db
-    .delete(accounts)
+    .delete(t.accounts)
     .where(
       and(
-        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
-        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+        eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
+        eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
     )
-    .returning({ id: accounts.id })
+    .returning({ id: t.accounts.id })
     .prepare(),
 )
 
-const shareOwnAccount = prepared((db: StoreDrizzle) =>
+const shareOwnAccount = prepared((db, t) =>
   db
-    .update(accounts)
+    .update(t.accounts)
     .set({ sharedWith: sql.placeholder('sharedWith') })
     .where(
       and(
-        eq(accounts.ownerUserId, param(accounts.ownerUserId, 'ownerUserId')),
-        eq(accounts.accountKey, param(accounts.accountKey, 'accountKey')),
+        eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
+        eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
     )
-    .returning({ id: accounts.id })
+    .returning({ id: t.accounts.id })
     .prepare(),
 )
 
-const deleteSendsOf = prepared((db: StoreDrizzle) =>
+const deleteSendsOf = prepared((db, t) =>
   db
-    .delete(accountMachineSends)
-    .where(eq(accountMachineSends.accountId, param(accountMachineSends.accountId, 'accountId')))
+    .delete(t.accountMachineSends)
+    .where(eq(t.accountMachineSends.accountId, param(t.accountMachineSends.accountId, 'accountId')))
     .prepare(),
 )
 
-const ownerIs = () => eq(accounts.ownerUserId, param(accounts.ownerUserId, 'owner'))
-const refIs = () => eq(accounts.accountKey, param(accounts.accountKey, 'ref'))
+const ownerIs = (t: StoreTables) =>
+  eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'owner'))
+const refIs = (t: StoreTables) => eq(t.accounts.accountKey, param(t.accounts.accountKey, 'ref'))
 
-const sentMachines = prepared((db: StoreDrizzle) =>
+const sentMachines = prepared((db, t) =>
   db
-    .select({ machineId: accountMachineSends.machineId, sentAt: accountMachineSends.sentAt })
-    .from(accountMachineSends)
-    .innerJoin(accounts, eq(accounts.id, accountMachineSends.accountId))
-    .where(and(ownerIs(), refIs()))
+    .select({ machineId: t.accountMachineSends.machineId, sentAt: t.accountMachineSends.sentAt })
+    .from(t.accountMachineSends)
+    .innerJoin(t.accounts, eq(t.accounts.id, t.accountMachineSends.accountId))
+    .where(and(ownerIs(t), refIs(t)))
     // The primary key's order after `account_id`: no sort (query-plan audit).
-    .orderBy(asc(accountMachineSends.machineId))
+    .orderBy(asc(t.accountMachineSends.machineId))
     .prepare(),
 )
 
 /** Every send of the owner's connections, in one read for the Accounts list. */
-const sendsOfOwner = prepared((db: StoreDrizzle) =>
+const sendsOfOwner = prepared((db, t) =>
   db
     .select({
-      accountKey: accounts.accountKey,
-      machineId: accountMachineSends.machineId,
-      sentAt: accountMachineSends.sentAt,
+      accountKey: t.accounts.accountKey,
+      machineId: t.accountMachineSends.machineId,
+      sentAt: t.accountMachineSends.sentAt,
     })
-    .from(accounts)
-    .innerJoin(accountMachineSends, eq(accountMachineSends.accountId, accounts.id))
-    .where(ownerIs())
+    .from(t.accounts)
+    .innerJoin(t.accountMachineSends, eq(t.accountMachineSends.accountId, t.accounts.id))
+    .where(ownerIs(t))
     .prepare(),
 )
 
-const deleteSend = prepared((db: StoreDrizzle) =>
+const deleteSend = prepared((db, t) =>
   db
-    .delete(accountMachineSends)
+    .delete(t.accountMachineSends)
     .where(
       and(
-        eq(accountMachineSends.accountId, param(accountMachineSends.accountId, 'accountId')),
-        eq(accountMachineSends.machineId, param(accountMachineSends.machineId, 'machineId')),
+        eq(t.accountMachineSends.accountId, param(t.accountMachineSends.accountId, 'accountId')),
+        eq(t.accountMachineSends.machineId, param(t.accountMachineSends.machineId, 'machineId')),
       ),
     )
-    .returning({ machineId: accountMachineSends.machineId })
+    .returning({ machineId: t.accountMachineSends.machineId })
     .prepare(),
 )
 
-const insertSend = prepared((db: StoreDrizzle) =>
+const insertSend = prepared((db, t) =>
   db
-    .insert(accountMachineSends)
+    .insert(t.accountMachineSends)
     .values({
       accountId: sql.placeholder('accountId'),
       machineId: sql.placeholder('machineId'),
@@ -358,44 +359,44 @@ export interface NativeLoginTransferRecord {
   at: string
 }
 
-const optInOwnerIs = () =>
-  eq(nativeLoginOptIns.ownerUserId, param(nativeLoginOptIns.ownerUserId, 'owner'))
+const optInOwnerIs = (t: StoreTables) =>
+  eq(t.nativeLoginOptIns.ownerUserId, param(t.nativeLoginOptIns.ownerUserId, 'owner'))
 
-const optInColumns = {
-  harness: nativeLoginOptIns.harness,
-  fingerprint: nativeLoginOptIns.fingerprint,
-  enabled: nativeLoginOptIns.enabled,
-  revision: nativeLoginOptIns.revision,
-}
+const optInColumns = (t: StoreTables) => ({
+  harness: t.nativeLoginOptIns.harness,
+  fingerprint: t.nativeLoginOptIns.fingerprint,
+  enabled: t.nativeLoginOptIns.enabled,
+  revision: t.nativeLoginOptIns.revision,
+})
 
-const optInsOfOwner = prepared((db: StoreDrizzle) =>
+const optInsOfOwner = prepared((db, t) =>
   db
-    .select(optInColumns)
-    .from(nativeLoginOptIns)
-    .where(optInOwnerIs())
+    .select(optInColumns(t))
+    .from(t.nativeLoginOptIns)
+    .where(optInOwnerIs(t))
     // The primary key's order after `owner_user_id`: no sort.
-    .orderBy(asc(nativeLoginOptIns.harness), asc(nativeLoginOptIns.fingerprint))
+    .orderBy(asc(t.nativeLoginOptIns.harness), asc(t.nativeLoginOptIns.fingerprint))
     .prepare(),
 )
 
-const optInOf = prepared((db: StoreDrizzle) =>
+const optInOf = prepared((db, t) =>
   db
-    .select(optInColumns)
-    .from(nativeLoginOptIns)
+    .select(optInColumns(t))
+    .from(t.nativeLoginOptIns)
     .where(
       and(
-        optInOwnerIs(),
-        eq(nativeLoginOptIns.harness, param(nativeLoginOptIns.harness, 'harness')),
-        eq(nativeLoginOptIns.fingerprint, param(nativeLoginOptIns.fingerprint, 'fingerprint')),
+        optInOwnerIs(t),
+        eq(t.nativeLoginOptIns.harness, param(t.nativeLoginOptIns.harness, 'harness')),
+        eq(t.nativeLoginOptIns.fingerprint, param(t.nativeLoginOptIns.fingerprint, 'fingerprint')),
       ),
     )
     .prepare(),
 )
 
 /** Every change bumps the revision, so a transfer can tell it went stale. */
-const upsertOptIn = prepared((db: StoreDrizzle) =>
+const upsertOptIn = prepared((db, t) =>
   db
-    .insert(nativeLoginOptIns)
+    .insert(t.nativeLoginOptIns)
     .values({
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
@@ -406,42 +407,44 @@ const upsertOptIn = prepared((db: StoreDrizzle) =>
     })
     .onConflictDoUpdate({
       target: [
-        nativeLoginOptIns.ownerUserId,
-        nativeLoginOptIns.harness,
-        nativeLoginOptIns.fingerprint,
+        t.nativeLoginOptIns.ownerUserId,
+        t.nativeLoginOptIns.harness,
+        t.nativeLoginOptIns.fingerprint,
       ],
       set: {
         enabled: sql.placeholder('enabled'),
-        revision: sql`${nativeLoginOptIns.revision} + 1`,
+        revision: sql`${t.nativeLoginOptIns.revision} + 1`,
         updatedAt: sql.placeholder('at'),
       },
     })
     .prepare(),
 )
 
-const transfersOfOwner = prepared((db: StoreDrizzle) =>
+const transfersOfOwner = prepared((db, t) =>
   db
     .select({
-      harness: nativeLoginTransfers.harness,
-      fingerprint: nativeLoginTransfers.fingerprint,
-      machineId: nativeLoginTransfers.machineId,
-      outcome: nativeLoginTransfers.outcome,
-      at: nativeLoginTransfers.at,
+      harness: t.nativeLoginTransfers.harness,
+      fingerprint: t.nativeLoginTransfers.fingerprint,
+      machineId: t.nativeLoginTransfers.machineId,
+      outcome: t.nativeLoginTransfers.outcome,
+      at: t.nativeLoginTransfers.at,
     })
-    .from(nativeLoginTransfers)
-    .where(eq(nativeLoginTransfers.ownerUserId, param(nativeLoginTransfers.ownerUserId, 'owner')))
+    .from(t.nativeLoginTransfers)
+    .where(
+      eq(t.nativeLoginTransfers.ownerUserId, param(t.nativeLoginTransfers.ownerUserId, 'owner')),
+    )
     // The primary key's order after `owner_user_id`: no sort.
     .orderBy(
-      asc(nativeLoginTransfers.harness),
-      asc(nativeLoginTransfers.fingerprint),
-      asc(nativeLoginTransfers.machineId),
+      asc(t.nativeLoginTransfers.harness),
+      asc(t.nativeLoginTransfers.fingerprint),
+      asc(t.nativeLoginTransfers.machineId),
     )
     .prepare(),
 )
 
-const upsertTransfer = prepared((db: StoreDrizzle) =>
+const upsertTransfer = prepared((db, t) =>
   db
-    .insert(nativeLoginTransfers)
+    .insert(t.nativeLoginTransfers)
     .values({
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
@@ -453,10 +456,10 @@ const upsertTransfer = prepared((db: StoreDrizzle) =>
     })
     .onConflictDoUpdate({
       target: [
-        nativeLoginTransfers.ownerUserId,
-        nativeLoginTransfers.harness,
-        nativeLoginTransfers.fingerprint,
-        nativeLoginTransfers.machineId,
+        t.nativeLoginTransfers.ownerUserId,
+        t.nativeLoginTransfers.harness,
+        t.nativeLoginTransfers.fingerprint,
+        t.nativeLoginTransfers.machineId,
       ],
       set: {
         outcome: sql.placeholder('outcome'),

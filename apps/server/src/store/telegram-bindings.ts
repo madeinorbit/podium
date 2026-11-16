@@ -32,7 +32,7 @@
 import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { asc, eq, sql } from 'drizzle-orm'
-import { telegramChatBindings } from '../migrations/schema'
+import type { telegramChatBindings } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
@@ -97,8 +97,8 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const bindingsByTime = prepared((db: StoreDrizzle) =>
-  db.select().from(telegramChatBindings).orderBy(asc(telegramChatBindings.boundAt)).prepare(),
+const bindingsByTime = prepared((db, t) =>
+  db.select().from(t.telegramChatBindings).orderBy(asc(t.telegramChatBindings.boundAt)).prepare(),
 )
 
 const bindingPlaceholders = {
@@ -110,25 +110,25 @@ const bindingPlaceholders = {
   onBehalfOf: sql.placeholder('onBehalfOf'),
 }
 
-const upsertBinding = prepared((db: StoreDrizzle) =>
+const upsertBinding = prepared((db, t) =>
   db
-    .insert(telegramChatBindings)
+    .insert(t.telegramChatBindings)
     .values(bindingPlaceholders)
-    .onConflictDoUpdate({ target: telegramChatBindings.chatId, set: bindingPlaceholders })
+    .onConflictDoUpdate({ target: t.telegramChatBindings.chatId, set: bindingPlaceholders })
     .prepare(),
 )
 
-const deleteBinding = prepared((db: StoreDrizzle) =>
+const deleteBinding = prepared((db, t) =>
   db
-    .delete(telegramChatBindings)
-    .where(eq(telegramChatBindings.chatId, param(telegramChatBindings.chatId, 'chatId')))
+    .delete(t.telegramChatBindings)
+    .where(eq(t.telegramChatBindings.chatId, param(t.telegramChatBindings.chatId, 'chatId')))
     .prepare(),
 )
 
-const deleteBindingsForUser = prepared((db: StoreDrizzle) =>
+const deleteBindingsForUser = prepared((db, t) =>
   db
-    .delete(telegramChatBindings)
-    .where(eq(telegramChatBindings.userId, param(telegramChatBindings.userId, 'userId')))
+    .delete(t.telegramChatBindings)
+    .where(eq(t.telegramChatBindings.userId, param(t.telegramChatBindings.userId, 'userId')))
     .prepare(),
 )
 

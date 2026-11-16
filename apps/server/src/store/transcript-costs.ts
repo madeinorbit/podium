@@ -16,12 +16,18 @@
  * zero writes exactly the row it wrote before.
  */
 
-import { foldModelTotals } from '@podium/model'
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
+import { foldModelTotals } from '@podium/model'
 import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
-import { issues, transcriptCosts } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { transcriptCosts } from '../migrations/schema'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -96,9 +102,9 @@ const toCost = (row: Row): TranscriptCost => ({
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const recordCost = prepared((db: StoreDrizzle) =>
+const recordCost = prepared((db, t) =>
   db
-    .insert(transcriptCosts)
+    .insert(t.transcriptCosts)
     .values({
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -116,7 +122,7 @@ const recordCost = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [transcriptCosts.machineId, transcriptCosts.nativeId],
+      target: [t.transcriptCosts.machineId, t.transcriptCosts.nativeId],
       set: {
         path: sql`excluded.path`,
         harness: sql`excluded.harness`,
@@ -133,9 +139,9 @@ const recordCost = prepared((db: StoreDrizzle) =>
         // later harvest can put the id back. A task missing spend it once had
         // is the shape to look for; the row is still there, with session_id and
         // issue_id NULL and its token totals intact.
-        sessionId: sql`COALESCE(excluded.session_id, ${transcriptCosts.sessionId})`,
-        issueId: sql`COALESCE(excluded.issue_id, ${transcriptCosts.issueId})`,
-        scannedBytes: sql`MAX(${transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
+        sessionId: sql`COALESCE(excluded.session_id, ${t.transcriptCosts.sessionId})`,
+        issueId: sql`COALESCE(excluded.issue_id, ${t.transcriptCosts.issueId})`,
+        scannedBytes: sql`MAX(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
         firstTsMs: sql`excluded.first_ts_ms`,
         lastTsMs: sql`excluded.last_ts_ms`,
         messages: sql`excluded.messages`,
@@ -148,40 +154,41 @@ const recordCost = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const costsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(transcriptCosts).where(inListOf(transcriptCosts.issueId, size)).prepare(),
+const costsOfIssues = preparedFamily((db, t, size: number) =>
+  db.select().from(t.transcriptCosts).where(inListOf(t.transcriptCosts.issueId, size)).prepare(),
 )
 
-const attributedCosts = prepared((db: StoreDrizzle) =>
-  db.select().from(transcriptCosts).where(isNotNull(transcriptCosts.issueId)).prepare(),
+const attributedCosts = prepared((db, t) =>
+  db.select().from(t.transcriptCosts).where(isNotNull(t.transcriptCosts.issueId)).prepare(),
 )
 
-const ownCohortFolds = prepared((db: StoreDrizzle) =>
+const ownCohortFolds = prepared((db, t) =>
   db
-    .select({ folds: sql<string>`json_group_array(${transcriptCosts.modelsJson})` })
-    .from(transcriptCosts)
-    .innerJoin(issues, eq(issues.id, transcriptCosts.issueId))
-    .where(isNull(issues.deletedAt))
-    .groupBy(transcriptCosts.issueId)
-    .having(gt(sum(transcriptCosts.messages), sql.placeholder('minReplies')))
+    .select({ folds: sql<string>`json_group_array(${t.transcriptCosts.modelsJson})` })
+    .from(t.transcriptCosts)
+    .innerJoin(t.issues, eq(t.issues.id, t.transcriptCosts.issueId))
+    .where(isNull(t.issues.deletedAt))
+    .groupBy(t.transcriptCosts.issueId)
+    .having(gt(sum(t.transcriptCosts.messages), sql.placeholder('minReplies')))
     .prepare(),
 )
 
-const costedSessions = prepared((db: StoreDrizzle) =>
+const costedSessions = prepared((db, t) =>
   db
-    .selectDistinct({ sessionId: transcriptCosts.sessionId })
-    .from(transcriptCosts)
-    .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
+    .selectDistinct({ sessionId: t.transcriptCosts.sessionId })
+    .from(t.transcriptCosts)
+    .where(and(isNotNull(t.transcriptCosts.sessionId), gt(t.transcriptCosts.messages, 0)))
     .prepare(),
 )
 
-const latestWindow = prepared((db: StoreDrizzle) =>
-  db.select({ m: max(transcriptCosts.windowSinceMs) }).from(transcriptCosts).prepare(),
+const latestWindow = prepared((db, t) =>
+  db
+    .select({ m: max(t.transcriptCosts.windowSinceMs) })
+    .from(t.transcriptCosts)
+    .prepare(),
 )
 
-const costCount = prepared((db: StoreDrizzle) =>
-  db.select({ n: count() }).from(transcriptCosts).prepare(),
-)
+const costCount = prepared((db, t) => db.select({ n: count() }).from(t.transcriptCosts).prepare())
 
 export class TranscriptCostsRepository {
   private readonly rootDb: StoreDrizzle
@@ -248,9 +255,7 @@ export class TranscriptCostsRepository {
    * grouped SQL read; no issue bodies, window folds, sessions or rollups. */
   async ownCohortTotals(minReplies: number): Promise<CostModelTotalWire[][]> {
     const rows = await ownCohortFolds(this.db).all({ minReplies })
-    return rows.map((row) =>
-      foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)),
-    )
+    return rows.map((row) => foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)))
   }
 
   /** Which sessions already have a fold — the `pending` state's other half. */

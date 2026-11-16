@@ -7,8 +7,12 @@
 
 import type { IssueId, RepoId, SessionId } from '@podium/model'
 import { and, asc, eq, lte, sql } from 'drizzle-orm'
-import { locks, lockWaiters } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
@@ -84,43 +88,51 @@ const asColumnSession = (key: LockSessionKey): SessionId => key as SessionId
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const lockIs = () =>
-  and(eq(locks.repoId, param(locks.repoId, 'repoId')), eq(locks.name, param(locks.name, 'name')))
+const lockIs = (t: StoreTables) =>
+  and(
+    eq(t.locks.repoId, param(t.locks.repoId, 'repoId')),
+    eq(t.locks.name, param(t.locks.name, 'name')),
+  )
 
-const lockByName = prepared((db: StoreDrizzle) => db.select().from(locks).where(lockIs()).prepare())
+const lockByName = prepared((db, t) => db.select().from(t.locks).where(lockIs(t)).prepare())
 
-const locksOfRepo = prepared((db: StoreDrizzle) =>
+const locksOfRepo = prepared((db, t) =>
   db
     .select()
-    .from(locks)
-    .where(eq(locks.repoId, param(locks.repoId, 'repoId')))
-    .orderBy(asc(locks.name))
+    .from(t.locks)
+    .where(eq(t.locks.repoId, param(t.locks.repoId, 'repoId')))
+    .orderBy(asc(t.locks.name))
     .prepare(),
 )
 
 // INCLUSIVE at the instant: a lease expiring exactly now is expired.
-const expiredLocksOfRepo = prepared((db: StoreDrizzle) =>
+const expiredLocksOfRepo = prepared((db, t) =>
   db
     .select()
-    .from(locks)
-    .where(and(eq(locks.repoId, param(locks.repoId, 'repoId')), lte(locks.expiresAt, param(locks.expiresAt, 'nowIso'))))
+    .from(t.locks)
+    .where(
+      and(
+        eq(t.locks.repoId, param(t.locks.repoId, 'repoId')),
+        lte(t.locks.expiresAt, param(t.locks.expiresAt, 'nowIso')),
+      ),
+    )
     .prepare(),
 )
 
 // EQUALITY, not `IS` — and unlike `renewLockOf` that is the point: a NULL
 // holder is the operator's lease, and the session-exit sweep must not pick it
 // up. The two predicates in this file differ on purpose.
-const locksHeldBy = prepared((db: StoreDrizzle) =>
+const locksHeldBy = prepared((db, t) =>
   db
     .select()
-    .from(locks)
-    .where(eq(locks.holderSessionId, param(locks.holderSessionId, 'sessionId')))
+    .from(t.locks)
+    .where(eq(t.locks.holderSessionId, param(t.locks.holderSessionId, 'sessionId')))
     .prepare(),
 )
 
-const upsertLockRow = prepared((db: StoreDrizzle) =>
+const upsertLockRow = prepared((db, t) =>
   db
-    .insert(locks)
+    .insert(t.locks)
     .values({
       repoId: sql.placeholder('repoId'),
       name: sql.placeholder('name'),
@@ -132,7 +144,7 @@ const upsertLockRow = prepared((db: StoreDrizzle) =>
       expiresAt: sql.placeholder('expiresAt'),
     })
     .onConflictDoUpdate({
-      target: [locks.repoId, locks.name],
+      target: [t.locks.repoId, t.locks.name],
       set: {
         holderSessionId: sql.placeholder('holderSessionId'),
         holderIssueId: sql.placeholder('holderIssueId'),
@@ -150,28 +162,33 @@ const upsertLockRow = prepared((db: StoreDrizzle) =>
 // unrenewable and expire under its holder. A `sql` FRAGMENT rather than a
 // conditional `isNull`/`eq` so this stays ONE statement text — the branch
 // would put two entries in the statement cache for one call site.
-const renewLockOf = prepared((db: StoreDrizzle) =>
+const renewLockOf = prepared((db, t) =>
   db
-    .update(locks)
+    .update(t.locks)
     .set({ expiresAt: sql.placeholder('expiresAt') })
-    .where(and(lockIs(), sql`${locks.holderSessionId} IS ${sql.placeholder('holderSessionId')}`))
+    .where(and(lockIs(t), sql`${t.locks.holderSessionId} IS ${sql.placeholder('holderSessionId')}`))
     .prepare(),
 )
 
-const deleteLockRow = prepared((db: StoreDrizzle) => db.delete(locks).where(lockIs()).prepare())
+const deleteLockRow = prepared((db, t) => db.delete(t.locks).where(lockIs(t)).prepare())
 
-const waitersOf = prepared((db: StoreDrizzle) =>
+const waitersOf = prepared((db, t) =>
   db
     .select()
-    .from(lockWaiters)
-    .where(and(eq(lockWaiters.repoId, param(lockWaiters.repoId, 'repoId')), eq(lockWaiters.name, param(lockWaiters.name, 'name'))))
-    .orderBy(asc(lockWaiters.id))
+    .from(t.lockWaiters)
+    .where(
+      and(
+        eq(t.lockWaiters.repoId, param(t.lockWaiters.repoId, 'repoId')),
+        eq(t.lockWaiters.name, param(t.lockWaiters.name, 'name')),
+      ),
+    )
+    .orderBy(asc(t.lockWaiters.id))
     .prepare(),
 )
 
-const enqueueWaiterRow = prepared((db: StoreDrizzle) =>
+const enqueueWaiterRow = prepared((db, t) =>
   db
-    .insert(lockWaiters)
+    .insert(t.lockWaiters)
     .values({
       repoId: sql.placeholder('repoId'),
       name: sql.placeholder('name'),
@@ -183,7 +200,7 @@ const enqueueWaiterRow = prepared((db: StoreDrizzle) =>
       enqueuedAt: sql.placeholder('enqueuedAt'),
     })
     .onConflictDoUpdate({
-      target: [lockWaiters.repoId, lockWaiters.name, lockWaiters.sessionId],
+      target: [t.lockWaiters.repoId, t.lockWaiters.name, t.lockWaiters.sessionId],
       // TWO COLUMNS AND ONLY TWO. `label`, `issue_id` and `enqueued_at` are
       // deliberately absent: a re-acquire updates what the waiter is asking
       // for, never its identity or its place in the queue.
@@ -192,29 +209,32 @@ const enqueueWaiterRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteWaiterById = prepared((db: StoreDrizzle) =>
-  db.delete(lockWaiters).where(eq(lockWaiters.id, param(lockWaiters.id, 'id'))).prepare(),
+const deleteWaiterById = prepared((db, t) =>
+  db
+    .delete(t.lockWaiters)
+    .where(eq(t.lockWaiters.id, param(t.lockWaiters.id, 'id')))
+    .prepare(),
 )
 
-const deleteWaiterOfSession = prepared((db: StoreDrizzle) =>
+const deleteWaiterOfSession = prepared((db, t) =>
   db
-    .delete(lockWaiters)
+    .delete(t.lockWaiters)
     .where(
       and(
-        eq(lockWaiters.repoId, param(lockWaiters.repoId, 'repoId')),
-        eq(lockWaiters.name, param(lockWaiters.name, 'name')),
-        eq(lockWaiters.sessionId, param(lockWaiters.sessionId, 'sessionId')),
+        eq(t.lockWaiters.repoId, param(t.lockWaiters.repoId, 'repoId')),
+        eq(t.lockWaiters.name, param(t.lockWaiters.name, 'name')),
+        eq(t.lockWaiters.sessionId, param(t.lockWaiters.sessionId, 'sessionId')),
       ),
     )
     .prepare(),
 )
 
-const waitsOfSession = prepared((db: StoreDrizzle) =>
+const waitsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(lockWaiters)
-    .where(eq(lockWaiters.sessionId, param(lockWaiters.sessionId, 'sessionId')))
-    .orderBy(asc(lockWaiters.id))
+    .from(t.lockWaiters)
+    .where(eq(t.lockWaiters.sessionId, param(t.lockWaiters.sessionId, 'sessionId')))
+    .orderBy(asc(t.lockWaiters.id))
     .prepare(),
 )
 
@@ -240,9 +260,7 @@ export class LocksRepository {
   }
 
   async getLock(repoId: RepoId, name: string): Promise<LockRow | null> {
-    return (
-      await lockByName(this.db).get({ repoId, name }) ?? null
-    )
+    return (await lockByName(this.db).get({ repoId, name })) ?? null
   }
 
   async listLocks(repoId: RepoId): Promise<LockRow[]> {
@@ -318,7 +336,11 @@ export class LocksRepository {
     await deleteWaiterById(this.db).run({ id })
   }
 
-  async removeWaiterBySession(repoId: RepoId, name: string, sessionId: LockSessionKey): Promise<void> {
+  async removeWaiterBySession(
+    repoId: RepoId,
+    name: string,
+    sessionId: LockSessionKey,
+  ): Promise<void> {
     await deleteWaiterOfSession(this.db).run({
       repoId,
       name,

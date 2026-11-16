@@ -7,27 +7,28 @@
 
 import type { SessionId } from '@podium/model'
 import { and, eq, sql } from 'drizzle-orm'
-import { recapWatermarks } from '../migrations/schema'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const recapWatermarkOf = prepared((db: StoreDrizzle) =>
+const recapWatermarkOf = prepared((db, t) =>
   db
-    .select({ watermark: recapWatermarks.watermark })
-    .from(recapWatermarks)
-    .where(and(
-      eq(recapWatermarks.reader, param(recapWatermarks.reader, 'reader')),
-      eq(recapWatermarks.sessionId, param(recapWatermarks.sessionId, 'sessionId')),
-    ))
+    .select({ watermark: t.recapWatermarks.watermark })
+    .from(t.recapWatermarks)
+    .where(
+      and(
+        eq(t.recapWatermarks.reader, param(t.recapWatermarks.reader, 'reader')),
+        eq(t.recapWatermarks.sessionId, param(t.recapWatermarks.sessionId, 'sessionId')),
+      ),
+    )
     .prepare(),
 )
 
-const upsertRecapWatermark = prepared((db: StoreDrizzle) =>
+const upsertRecapWatermark = prepared((db, t) =>
   db
-    .insert(recapWatermarks)
+    .insert(t.recapWatermarks)
     .values({
       reader: sql.placeholder('reader'),
       sessionId: sql.placeholder('sessionId'),
@@ -35,7 +36,7 @@ const upsertRecapWatermark = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('at'),
     })
     .onConflictDoUpdate({
-      target: [recapWatermarks.reader, recapWatermarks.sessionId],
+      target: [t.recapWatermarks.reader, t.recapWatermarks.sessionId],
       set: { watermark: sql.placeholder('watermark'), updatedAt: sql.placeholder('at') },
     })
     .prepare(),
@@ -73,7 +74,12 @@ export class ReadWatermarksRepository {
    * `DO UPDATE SET`; nothing reads it back through this repository, so its
    * golden test reads it off the table.
    */
-  async setRecapWatermark(reader: ReaderRef, sessionId: SessionId, watermark: string, at: string): Promise<void> {
+  async setRecapWatermark(
+    reader: ReaderRef,
+    sessionId: SessionId,
+    watermark: string,
+    at: string,
+  ): Promise<void> {
     await upsertRecapWatermark(this.db).run({ reader, sessionId, watermark, at })
   }
 }

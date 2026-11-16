@@ -7,8 +7,13 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, getTableColumns, gt, isNotNull, or, type SQL, sql } from 'drizzle-orm'
-import { conversationSegments, conversations } from '../../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
+import type { conversations } from '../../migrations/schema'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from '../executor/sync-drizzle'
 import {
   executeRaw,
   inListOf,
@@ -20,26 +25,32 @@ import {
 } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
-const recordColumns = { ...getTableColumns(conversations), podiumId: conversationSegments.podiumId }
-const segmentOf = and(
-  eq(conversationSegments.machineId, conversations.machineId),
-  eq(conversationSegments.nativeId, conversations.id),
-)
-const recordRows = preparedFamily((db: StoreDrizzle, size: number) =>
+const recordColumns = (t: StoreTables) => ({
+  ...getTableColumns(t.conversations),
+  podiumId: t.conversationSegments.podiumId,
+})
+const segmentOf = (t: StoreTables) =>
+  and(
+    eq(t.conversationSegments.machineId, t.conversations.machineId),
+    eq(t.conversationSegments.nativeId, t.conversations.id),
+  )
+const recordRows = preparedFamily((db, t, size: number) =>
   db
-    .select(recordColumns)
-    .from(conversations)
-    .leftJoin(conversationSegments, segmentOf)
-    .where(inListOf(conversations.id, size))
+    .select(recordColumns(t))
+    .from(t.conversations)
+    .leftJoin(t.conversationSegments, segmentOf(t))
+    .where(inListOf(t.conversations.id, size))
     .prepare(),
 )
-const recordPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const recordPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select(recordColumns)
-    .from(conversations)
-    .leftJoin(conversationSegments, segmentOf)
-    .where(phase === 'after' ? gt(conversations.id, param(conversations.id, 'after')) : undefined)
-    .orderBy(asc(conversations.id))
+    .select(recordColumns(t))
+    .from(t.conversations)
+    .leftJoin(t.conversationSegments, segmentOf(t))
+    .where(
+      phase === 'after' ? gt(t.conversations.id, param(t.conversations.id, 'after')) : undefined,
+    )
+    .orderBy(asc(t.conversations.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -70,10 +81,10 @@ function conversationRecordOf(
  * [POD-6227]: a discovery re-offers a machine's whole corpus, and one upsert
  * per row ran one statement per conversation.
  */
-const upsertConversations = prepared((db: StoreDrizzle) => {
+const upsertConversations = prepared((db, t) => {
   const field = (name: string) => sql.raw(`value ->> '$.${name}'`)
   return db
-    .insert(conversations)
+    .insert(t.conversations)
     .select(
       db
         .select({
@@ -96,124 +107,122 @@ const upsertConversations = prepared((db: StoreDrizzle) => {
         .where(sql`true`),
     )
     .onConflictDoUpdate({
-      target: conversations.id,
+      target: t.conversations.id,
       set: {
         agentKind: sql`excluded.agent_kind`,
         providerId: sql`excluded.provider_id`,
         machineId: sql`excluded.machine_id`,
-        title: sql`COALESCE(excluded.title,${conversations.title})`,
-        projectPath: sql`COALESCE(excluded.project_path,${conversations.projectPath})`,
-        resumeKind: sql`COALESCE(excluded.resume_kind,${conversations.resumeKind})`,
-        resumeValue: sql`COALESCE(excluded.resume_value,${conversations.resumeValue})`,
-        createdAt: sql`COALESCE(excluded.created_at,${conversations.createdAt})`,
-        updatedAt: sql`COALESCE(excluded.updated_at,${conversations.updatedAt})`,
-        messageCount: sql`COALESCE(excluded.message_count,${conversations.messageCount})`,
-        parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+        title: sql`COALESCE(excluded.title,${t.conversations.title})`,
+        projectPath: sql`COALESCE(excluded.project_path,${t.conversations.projectPath})`,
+        resumeKind: sql`COALESCE(excluded.resume_kind,${t.conversations.resumeKind})`,
+        resumeValue: sql`COALESCE(excluded.resume_value,${t.conversations.resumeValue})`,
+        createdAt: sql`COALESCE(excluded.created_at,${t.conversations.createdAt})`,
+        updatedAt: sql`COALESCE(excluded.updated_at,${t.conversations.updatedAt})`,
+        messageCount: sql`COALESCE(excluded.message_count,${t.conversations.messageCount})`,
+        parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${t.conversations.parentConversationId})`,
       },
       // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
       // compared against the effective value the SET would assign, `IS NOT`
       // so NULL compares like any other value. A row that would change
       // still changes; only a write with nothing to say is skipped.
-      setWhere: sql`${conversations.agentKind} IS NOT excluded.agent_kind
-         OR ${conversations.providerId} IS NOT excluded.provider_id
-         OR ${conversations.machineId} IS NOT excluded.machine_id
-         OR ${conversations.title} IS NOT COALESCE(excluded.title,${conversations.title})
-         OR ${conversations.projectPath} IS NOT COALESCE(excluded.project_path,${conversations.projectPath})
-         OR ${conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${conversations.resumeKind})
-         OR ${conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${conversations.resumeValue})
-         OR ${conversations.createdAt} IS NOT COALESCE(excluded.created_at,${conversations.createdAt})
-         OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
-         OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
-         OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+      setWhere: sql`${t.conversations.agentKind} IS NOT excluded.agent_kind
+         OR ${t.conversations.providerId} IS NOT excluded.provider_id
+         OR ${t.conversations.machineId} IS NOT excluded.machine_id
+         OR ${t.conversations.title} IS NOT COALESCE(excluded.title,${t.conversations.title})
+         OR ${t.conversations.projectPath} IS NOT COALESCE(excluded.project_path,${t.conversations.projectPath})
+         OR ${t.conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${t.conversations.resumeKind})
+         OR ${t.conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${t.conversations.resumeValue})
+         OR ${t.conversations.createdAt} IS NOT COALESCE(excluded.created_at,${t.conversations.createdAt})
+         OR ${t.conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${t.conversations.updatedAt})
+         OR ${t.conversations.messageCount} IS NOT COALESCE(excluded.message_count,${t.conversations.messageCount})
+         OR ${t.conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${t.conversations.parentConversationId})`,
     })
     .prepare()
 })
 
 // The FTS5 index and the three triggers that keep it fed, in the order the
 // original script had (see `enableFts`).
-const createFtsTable = prepared((db: StoreDrizzle) =>
+const createFtsTable = prepared((db) =>
   db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
         title, name, summary, project_path, content='conversations', content_rowid='rowid')`),
 )
-const createFtsInsertTrigger = prepared((db: StoreDrizzle) =>
+const createFtsInsertTrigger = prepared((db) =>
   db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
         VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`),
 )
-const createFtsDeleteTrigger = prepared((db: StoreDrizzle) =>
+const createFtsDeleteTrigger = prepared((db) =>
   db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END`),
 )
-const createFtsUpdateTrigger = prepared((db: StoreDrizzle) =>
+const createFtsUpdateTrigger = prepared((db) =>
   db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path);
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
         VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`),
 )
-const rebuildFts = prepared((db: StoreDrizzle) =>
+const rebuildFts = prepared((db) =>
   db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`),
 )
-const dropFtsInsertTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`),
-)
-const dropFtsDeleteTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`),
-)
-const dropFtsUpdateTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`DROP TRIGGER IF EXISTS conversations_au`),
-)
+const dropFtsInsertTrigger = prepared((db) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`))
+const dropFtsDeleteTrigger = prepared((db) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`))
+const dropFtsUpdateTrigger = prepared((db) => db.run(sql`DROP TRIGGER IF EXISTS conversations_au`))
 
 /** The ids are ONE bound json_each parameter, `ids`, so the statement has one shape. */
-const deleteMachineConversations = prepared((db: StoreDrizzle) =>
+const deleteMachineConversations = prepared((db, t) =>
   db
-    .delete(conversations)
+    .delete(t.conversations)
     .where(
       and(
-        eq(conversations.machineId, param(conversations.machineId, 'machineId')),
-        sql`${conversations.id} in (select value from json_each(${sql.placeholder('ids')}))`,
+        eq(t.conversations.machineId, param(t.conversations.machineId, 'machineId')),
+        sql`${t.conversations.id} in (select value from json_each(${sql.placeholder('ids')}))`,
       ),
     )
-    .returning({ id: conversations.id })
+    .returning({ id: t.conversations.id })
     .prepare(),
 )
 
 /** The curated names and summaries of the conversations asked for, by primary key (POD-6172). */
-const curatedConversationsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const curatedConversationsOf = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
-    .from(conversations)
+    .select({
+      id: t.conversations.id,
+      name: t.conversations.name,
+      summary: t.conversations.summary,
+    })
+    .from(t.conversations)
     .where(
       and(
-        inListOf(conversations.id, size),
-        or(isNotNull(conversations.name), isNotNull(conversations.summary)),
+        inListOf(t.conversations.id, size),
+        or(isNotNull(t.conversations.name), isNotNull(t.conversations.summary)),
       ),
     )
     .prepare(),
 )
 
-const conversationPresent = prepared((db: StoreDrizzle) =>
+const conversationPresent = prepared((db, t) =>
   db
     .select({ one: sql<number>`1` })
-    .from(conversations)
-    .where(eq(conversations.id, param(conversations.id, 'id')))
+    .from(t.conversations)
+    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
     .prepare(),
 )
 
-const setConversationName = prepared((db: StoreDrizzle) =>
+const setConversationName = prepared((db, t) =>
   db
-    .update(conversations)
+    .update(t.conversations)
     .set({ name: sql.placeholder('name') })
-    .where(eq(conversations.id, param(conversations.id, 'id')))
+    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
     .prepare(),
 )
 
-const setConversationSummary = prepared((db: StoreDrizzle) =>
+const setConversationSummary = prepared((db, t) =>
   db
-    .update(conversations)
+    .update(t.conversations)
     .set({ summary: sql.placeholder('summary') })
-    .where(eq(conversations.id, param(conversations.id, 'id')))
+    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
     .prepare(),
 )
 
@@ -264,7 +273,7 @@ type RecentShape = `${'dated' | 'undated'}|${PathShape}`
  * before the cursor's `(updated_at, id)`; `undated` reads the rows with no
  * `updated_at` (which sort last) before the cursor's `id`.
  */
-const recentConversations = preparedFamily((db: StoreDrizzle, shape: RecentShape) => {
+const recentConversations = preparedFamily((db, _t, shape: RecentShape) => {
   const [phase, path] = shape.split('|')
   const filter = machinePathFilter(path!)
   const limit = sql` LIMIT ${sql.placeholder('limit')}`
@@ -289,7 +298,7 @@ const RECENT_START = '\uffff'
  * The term search statements, one per {@link SearchShape}: the path filter's
  * values and `fts` or `like` for the match.
  */
-const searchConversations = preparedFamily((db: StoreDrizzle, shape: SearchShape) => {
+const searchConversations = preparedFamily((db, _t, shape: SearchShape) => {
   const [match, path] = shape.split('|')
   const filter = machinePathFilter(path!)
   const order = sql` ORDER BY c.updated_at DESC NULLS LAST`

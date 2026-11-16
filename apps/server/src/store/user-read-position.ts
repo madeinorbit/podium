@@ -34,7 +34,6 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { userReadPosition } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared, preparedFamily } from './executor/sync-drizzle'
 
@@ -46,29 +45,29 @@ export interface StoredReadPosition {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const positionsOfUser = prepared((db: StoreDrizzle) =>
+const positionsOfUser = prepared((db, t) =>
   db
     .select({
-      streamId: userReadPosition.streamId,
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      streamId: t.userReadPosition.streamId,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
-    .where(eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')))
+    .from(t.userReadPosition)
+    .where(eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')))
     .prepare(),
 )
 
-const positionOf = prepared((db: StoreDrizzle) =>
+const positionOf = prepared((db, t) =>
   db
     .select({
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
+    .from(t.userReadPosition)
     .where(
       and(
-        eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')),
-        eq(userReadPosition.streamId, param(userReadPosition.streamId, 'streamId')),
+        eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')),
+        eq(t.userReadPosition.streamId, param(t.userReadPosition.streamId, 'streamId')),
       ),
     )
     .prepare(),
@@ -76,21 +75,21 @@ const positionOf = prepared((db: StoreDrizzle) =>
 
 /** Every position, a keyset page at a time in primary-key order: the
  *  `userReadPosition` kind's full truth (POD-6763). */
-const positionRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+const positionRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
   db
     .select({
-      userId: userReadPosition.userId,
-      streamId: userReadPosition.streamId,
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      userId: t.userReadPosition.userId,
+      streamId: t.userReadPosition.streamId,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
+    .from(t.userReadPosition)
     .where(
       from === 'start'
-        ? sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
-        : sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+        ? sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
+        : sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
     )
-    .orderBy(asc(userReadPosition.userId), asc(userReadPosition.streamId))
+    .orderBy(asc(t.userReadPosition.userId), asc(t.userReadPosition.streamId))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -103,12 +102,12 @@ const positionPlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertPosition = prepared((db: StoreDrizzle) =>
+const upsertPosition = prepared((db, t) =>
   db
-    .insert(userReadPosition)
+    .insert(t.userReadPosition)
     .values(positionPlaceholders)
     .onConflictDoUpdate({
-      target: [userReadPosition.userId, userReadPosition.streamId],
+      target: [t.userReadPosition.userId, t.userReadPosition.streamId],
       set: positionPlaceholders,
     })
     .prepare(),

@@ -33,8 +33,13 @@ import {
   type UserId,
 } from '@podium/model'
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
-import { quotaWindows } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { quotaWindows } from '../migrations/schema'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
@@ -116,31 +121,31 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const seriesIs = () =>
+const seriesIs = (t: StoreTables) =>
   and(
-    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
-    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
+    eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
+    eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
   )
 
-const bucketIs = () =>
+const bucketIs = (t: StoreTables) =>
   and(
-    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
-    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
-    eq(quotaWindows.resetsAtBucket, param(quotaWindows.resetsAtBucket, 'bucket')),
+    eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
+    eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
+    eq(t.quotaWindows.resetsAtBucket, param(t.quotaWindows.resetsAtBucket, 'bucket')),
   )
 
-const newestWindowOfSeries = prepared((db: StoreDrizzle) =>
+const newestWindowOfSeries = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
-    .where(seriesIs())
-    .orderBy(desc(quotaWindows.resetsAtMs))
+    .from(t.quotaWindows)
+    .where(seriesIs(t))
+    .orderBy(desc(t.quotaWindows.resetsAtMs))
     .limit(1)
     .prepare(),
 )
 
-const windowOfBucket = prepared((db: StoreDrizzle) =>
-  db.select().from(quotaWindows).where(bucketIs()).prepare(),
+const windowOfBucket = prepared((db, t) =>
+  db.select().from(t.quotaWindows).where(bucketIs(t)).prepare(),
 )
 
 const windowPlaceholders = {
@@ -166,9 +171,9 @@ const windowPlaceholders = {
 // `excluded`, which the builder has no expression for. The conflict target
 // is the composite primary key, unchanged, and this statement was already an
 // `ON CONFLICT` rather than an `OR REPLACE`.
-const insertWindow = prepared((db: StoreDrizzle) =>
+const insertWindow = prepared((db, t) =>
   db
-    .insert(quotaWindows)
+    .insert(t.quotaWindows)
     .values({
       accountKey: sql.placeholder('accountKey'),
       agent: sql.placeholder('agent'),
@@ -178,66 +183,70 @@ const insertWindow = prepared((db: StoreDrizzle) =>
       ...windowPlaceholders,
     })
     .onConflictDoUpdate({
-      target: [quotaWindows.accountKey, quotaWindows.windowKey, quotaWindows.resetsAtBucket],
+      target: [t.quotaWindows.accountKey, t.quotaWindows.windowKey, t.quotaWindows.resetsAtBucket],
       set: {
-        peakPercent: sql`MAX(${quotaWindows.peakPercent}, excluded.peak_percent)`,
-        lastSeenMs: sql`MAX(${quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
-        sampleCount: sql`${quotaWindows.sampleCount} + 1`,
+        peakPercent: sql`MAX(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
+        lastSeenMs: sql`MAX(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+        sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
       },
     })
     .prepare(),
 )
 
-const updateWindow = prepared((db: StoreDrizzle) =>
-  db.update(quotaWindows).set(windowPlaceholders).where(bucketIs()).prepare(),
+const updateWindow = prepared((db, t) =>
+  db.update(t.quotaWindows).set(windowPlaceholders).where(bucketIs(t)).prepare(),
 )
 
-const windowsSince = prepared((db: StoreDrizzle) =>
+const windowsSince = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
-    .where(gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')))
+    .from(t.quotaWindows)
+    .where(gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')))
     .orderBy(
-      asc(quotaWindows.accountKey),
-      asc(quotaWindows.windowKey),
-      asc(quotaWindows.resetsAtMs),
+      asc(t.quotaWindows.accountKey),
+      asc(t.quotaWindows.windowKey),
+      asc(t.quotaWindows.resetsAtMs),
     )
     .prepare(),
 )
 
 /** One owner's windows that reset at or after `sinceMs`, in the served order,
  *  read along `idx_quota_windows_owner` (POD-6300). */
-const ownerWindowsSince = prepared((db: StoreDrizzle) =>
+const ownerWindowsSince = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
+    .from(t.quotaWindows)
     .where(
       and(
-        eq(quotaWindows.ownerUserId, param(quotaWindows.ownerUserId, 'owner')),
-        gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')),
+        eq(t.quotaWindows.ownerUserId, param(t.quotaWindows.ownerUserId, 'owner')),
+        gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')),
       ),
     )
     .orderBy(
-      asc(quotaWindows.accountKey),
-      asc(quotaWindows.windowKey),
-      asc(quotaWindows.resetsAtMs),
+      asc(t.quotaWindows.accountKey),
+      asc(t.quotaWindows.windowKey),
+      asc(t.quotaWindows.resetsAtMs),
     )
     .prepare(),
 )
 
-const trailOfBucket = prepared((db: StoreDrizzle) =>
-  db.select({ trailJson: quotaWindows.trailJson }).from(quotaWindows).where(bucketIs()).prepare(),
-)
-
-const pruneWindows = prepared((db: StoreDrizzle) =>
+const trailOfBucket = prepared((db, t) =>
   db
-    .delete(quotaWindows)
-    .where(lt(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'cutoffMs')))
+    .select({ trailJson: t.quotaWindows.trailJson })
+    .from(t.quotaWindows)
+    .where(bucketIs(t))
     .prepare(),
 )
 
-const windowCount = prepared((db: StoreDrizzle) =>
-  db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).prepare(),
+const pruneWindows = prepared((db, t) =>
+  db
+    .delete(t.quotaWindows)
+    .where(lt(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'cutoffMs')))
+    .prepare(),
+)
+
+const windowCount = prepared((db, t) =>
+  db.select({ n: sql<number>`COUNT(*)` }).from(t.quotaWindows).prepare(),
 )
 
 /** The rewritable columns of one window instance, as placeholder values. */

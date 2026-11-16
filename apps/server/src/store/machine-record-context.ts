@@ -1,33 +1,32 @@
 import { DEFAULT_FLEET_UPDATE_CHANNEL, UpdateChannel } from '@podium/model'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { meta } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
 import { prepared } from './executor/sync-drizzle'
 import { MachineRecordWrites } from './machine-record-writes'
 
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
-const channelRow = prepared((db: StoreDrizzle) =>
-  db.select({ value: meta.value }).from(meta).where(eq(meta.key, FLEET_CHANNEL)).prepare(),
+const channelRow = prepared((db, t) =>
+  db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, FLEET_CHANNEL)).prepare(),
 )
-const contextRows = prepared((db: StoreDrizzle) =>
+const contextRows = prepared((db, t) =>
   db
-    .select({ key: meta.key, value: meta.value })
-    .from(meta)
-    .where(inArray(meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
+    .select({ key: t.meta.key, value: t.meta.value })
+    .from(t.meta)
+    .where(inArray(t.meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
     .prepare(),
 )
-const setChannel = prepared((db: StoreDrizzle) =>
+const setChannel = prepared((db, t) =>
   db
-    .insert(meta)
+    .insert(t.meta)
     .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
     .onConflictDoUpdate({
-      target: meta.key,
+      target: t.meta.key,
       set: { value: sql`excluded.value` },
-      setWhere: sql`${meta.value} <> excluded.value`,
+      setWhere: sql`${t.meta.value} <> excluded.value`,
     })
-    .returning({ key: meta.key })
+    .returning({ key: t.meta.key })
     .prepare(),
 )
 

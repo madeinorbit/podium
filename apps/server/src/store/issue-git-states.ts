@@ -1,8 +1,7 @@
 import { asIssueId, IssueGitState, type IssueGitStateProjection } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
-import { issueGitStates, issues } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, StoreTables } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -12,54 +11,54 @@ import {
   preparedFamily,
 } from './executor/sync-drizzle'
 
-const columns = {
-  id: issueGitStates.issueId,
-  facts: issueGitStates.factsJson,
-  updatedAt: issueGitStates.updatedAt,
-}
+const columns = (t: StoreTables) => ({
+  id: t.issueGitStates.issueId,
+  facts: t.issueGitStates.factsJson,
+  updatedAt: t.issueGitStates.updatedAt,
+})
 
-const byIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const byIds = preparedFamily((db, t, size: number) =>
   db
-    .select(columns)
-    .from(issueGitStates)
-    .innerJoin(issues, eq(issues.id, issueGitStates.issueId))
-    .where(and(inListOf(issueGitStates.issueId, size), isNull(issues.deletedAt)))
+    .select(columns(t))
+    .from(t.issueGitStates)
+    .innerJoin(t.issues, eq(t.issues.id, t.issueGitStates.issueId))
+    .where(and(inListOf(t.issueGitStates.issueId, size), isNull(t.issues.deletedAt)))
     .prepare(),
 )
 
-const pageOf = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
+const pageOf = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
-    .select(columns)
-    .from(issueGitStates)
-    .innerJoin(issues, eq(issues.id, issueGitStates.issueId))
+    .select(columns(t))
+    .from(t.issueGitStates)
+    .innerJoin(t.issues, eq(t.issues.id, t.issueGitStates.issueId))
     .where(
       and(
-        isNull(issues.deletedAt),
+        isNull(t.issues.deletedAt),
         phase === 'after'
-          ? gt(issueGitStates.issueId, param(issueGitStates.issueId, 'after'))
+          ? gt(t.issueGitStates.issueId, param(t.issueGitStates.issueId, 'after'))
           : undefined,
       ),
     )
-    .orderBy(asc(issueGitStates.issueId))
+    .orderBy(asc(t.issueGitStates.issueId))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 /** Only fact changes replace the observation time. A repeated probe writes nothing. */
-const save = prepared((db: StoreDrizzle) =>
+const save = prepared((db, t) =>
   db
-    .insert(issueGitStates)
+    .insert(t.issueGitStates)
     .values({
       issueId: sql.placeholder('id'),
       factsJson: sql.placeholder('facts'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: issueGitStates.issueId,
+      target: t.issueGitStates.issueId,
       set: { factsJson: sql`excluded.facts_json`, updatedAt: sql`excluded.updated_at` },
-      setWhere: sql`${issueGitStates.factsJson} <> excluded.facts_json`,
+      setWhere: sql`${t.issueGitStates.factsJson} <> excluded.facts_json`,
     })
-    .returning(columns)
+    .returning(columns(t))
     .prepare(),
 )
 

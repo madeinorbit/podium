@@ -331,10 +331,14 @@ export function rawSqlSites(file: string, source: string): RawSqlSite[] {
       const [first, second] = node.arguments
       if (ts.isPropertyAccessExpression(callee) && first) {
         const method = callee.name.text
-        const text = ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first) ? first.text : undefined
+        const text =
+          ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first)
+            ? first.text
+            : undefined
         // A statement prepare takes the SQL alone; other `prepare` methods take more.
         if (method === 'prepare' && node.arguments.length === 1) record(node, first)
-        else if (method === 'query' && text !== undefined && SQL_TEXT.test(text)) record(node, first)
+        else if (method === 'query' && text !== undefined && SQL_TEXT.test(text))
+          record(node, first)
       } else if (ts.isIdentifier(callee) && callee.text === 'iterate' && second) {
         record(node, second)
       }
@@ -342,5 +346,83 @@ export function rawSqlSites(file: string, source: string): RawSqlSite[] {
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
+  return found
+}
+
+/**
+ * THE TABLE BINDING CENSUS [POD-6977, POD-6958 design §2.1 and contract C2 (1)].
+ *
+ * A query definition takes its tables from the store's binding,
+ * `prepared((db, t) => … t.issues …)`, so the same source can be built on
+ * another engine's tables. This finds every place a census file names a table
+ * of a table module as a VALUE instead: a value import of a table (used in a
+ * definition body, in a helper a definition calls, or anywhere else, since a
+ * column read outside a definition can still be closed into one), or a
+ * namespace import of a table module. A type-only import (`import type`, or a
+ * `type` specifier, for `typeof issues.$inferSelect`) names no value and is
+ * allowed.
+ *
+ * `tableModules` maps each table module, as a repository path, to the names of
+ * the tables it exports. A relative specifier and a `@podium/<package>/<sub>`
+ * specifier are resolved to repository paths by `resolve`.
+ */
+export interface DirectTableReference {
+  readonly file: string
+  readonly line: number
+  /** The imported table, or `* as name` for a namespace import. */
+  readonly table: string
+  /** The table module it was imported from, as a repository path. */
+  readonly module: string
+}
+
+export function directTableReferences(
+  file: string,
+  source: string,
+  tableModules: ReadonlyMap<string, ReadonlySet<string>>,
+  resolve: (from: string, specifier: string) => string | undefined,
+): DirectTableReference[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const found: DirectTableReference[] = []
+  const lineOf = (node: ts.Node) =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+  for (const statement of sourceFile.statements) {
+    const isImport = ts.isImportDeclaration(statement)
+    const isReexport = ts.isExportDeclaration(statement)
+    if (!isImport && !isReexport) continue
+    const specifier = statement.moduleSpecifier
+    if (!specifier || !ts.isStringLiteral(specifier)) continue
+    const module = resolve(file, specifier.text)
+    const tables = module === undefined ? undefined : tableModules.get(module)
+    if (module === undefined || tables === undefined) continue
+    if (isImport) {
+      const clause = statement.importClause
+      if (!clause || clause.isTypeOnly) continue
+      const bindings = clause.namedBindings
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        found.push({ file, line: lineOf(bindings), table: `* as ${bindings.name.text}`, module })
+        continue
+      }
+      if (!bindings) continue
+      for (const element of bindings.elements) {
+        const name = (element.propertyName ?? element.name).text
+        if (!element.isTypeOnly && tables.has(name)) {
+          found.push({ file, line: lineOf(element), table: name, module })
+        }
+      }
+    } else if (!statement.isTypeOnly) {
+      const clause = statement.exportClause
+      if (!clause) {
+        found.push({ file, line: lineOf(statement), table: '*', module })
+        continue
+      }
+      if (!ts.isNamedExports(clause)) continue
+      for (const element of clause.elements) {
+        const name = (element.propertyName ?? element.name).text
+        if (!element.isTypeOnly && tables.has(name)) {
+          found.push({ file, line: lineOf(element), table: name, module })
+        }
+      }
+    }
+  }
   return found
 }

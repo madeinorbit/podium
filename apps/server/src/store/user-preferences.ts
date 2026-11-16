@@ -52,8 +52,12 @@ import {
   type UserPreferencesWire,
 } from '@podium/model'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { userPreferences } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
@@ -70,22 +74,26 @@ export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFER
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const preferencesOfUser = prepared((db: StoreDrizzle) =>
+const preferencesOfUser = prepared((db, t) =>
   db
-    .select({ key: userPreferences.key, value: userPreferences.value })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
+    .select({ key: t.userPreferences.key, value: t.userPreferences.value })
+    .from(t.userPreferences)
+    .where(eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')))
     .prepare(),
 )
 
-const onePreference = () =>
+const onePreference = (t: StoreTables) =>
   and(
-    eq(userPreferences.userId, param(userPreferences.userId, 'userId')),
-    eq(userPreferences.key, param(userPreferences.key, 'key')),
+    eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+    eq(t.userPreferences.key, param(t.userPreferences.key, 'key')),
   )
 
-const preferenceValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: userPreferences.value }).from(userPreferences).where(onePreference()).prepare(),
+const preferenceValue = prepared((db, t) =>
+  db
+    .select({ value: t.userPreferences.value })
+    .from(t.userPreferences)
+    .where(onePreference(t))
+    .prepare(),
 )
 
 const preferencePlaceholders = {
@@ -95,36 +103,40 @@ const preferencePlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertPreference = prepared((db: StoreDrizzle) =>
+const upsertPreference = prepared((db, t) =>
   db
-    .insert(userPreferences)
+    .insert(t.userPreferences)
     .values(preferencePlaceholders)
     .onConflictDoUpdate({
-      target: [userPreferences.userId, userPreferences.key],
+      target: [t.userPreferences.userId, t.userPreferences.key],
       set: preferencePlaceholders,
     })
     .prepare(),
 )
 
-const deletePreference = prepared((db: StoreDrizzle) =>
-  db.delete(userPreferences).where(onePreference()).prepare(),
+const deletePreference = prepared((db, t) =>
+  db.delete(t.userPreferences).where(onePreference(t)).prepare(),
 )
 
-const preferenceKeysOfUser = prepared((db: StoreDrizzle) =>
+const preferenceKeysOfUser = prepared((db, t) =>
   db
-    .select({ key: userPreferences.key })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
-    .orderBy(asc(userPreferences.key))
+    .select({ key: t.userPreferences.key })
+    .from(t.userPreferences)
+    .where(eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')))
+    .orderBy(asc(t.userPreferences.key))
     .prepare(),
 )
 
 // Every person's preference rows: the `userPreferences` kind's full truth for
 // the boot reconcile (POD-6673).
-const allPreferenceRows = prepared((db: StoreDrizzle) =>
+const allPreferenceRows = prepared((db, t) =>
   db
-    .select({ userId: userPreferences.userId, key: userPreferences.key, value: userPreferences.value })
-    .from(userPreferences)
+    .select({
+      userId: t.userPreferences.userId,
+      key: t.userPreferences.key,
+      value: t.userPreferences.value,
+    })
+    .from(t.userPreferences)
     .prepare(),
 )
 
@@ -147,7 +159,10 @@ export class UserPreferencesRepository {
 
   /** `written` runs after every preference write: the settings repository's
    *  per-operation resolution is invalidated by it (POD-6218). */
-  constructor(queries: StoreQueries, private readonly written: () => void = () => {}) {
+  constructor(
+    queries: StoreQueries,
+    private readonly written: () => void = () => {},
+  ) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }

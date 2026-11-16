@@ -6,8 +6,7 @@
 
 import type { SessionId, UserId } from '@podium/model'
 import { and, eq, sql } from 'drizzle-orm'
-import { messagingSessionAttachments } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 export interface MessagingSessionAttachmentRow {
@@ -24,38 +23,41 @@ export interface MessagingSessionAttachmentRow {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const attachmentOfConversation = prepared((db: StoreDrizzle) =>
+const attachmentOfConversation = prepared((db, t) =>
   db
     .select()
-    .from(messagingSessionAttachments)
+    .from(t.messagingSessionAttachments)
     .where(
       and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
+        ),
+        eq(
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
         ),
       ),
     )
     .prepare(),
 )
 
-const attachmentsOfSession = prepared((db: StoreDrizzle) =>
+const attachmentsOfSession = prepared((db, t) =>
   db
     .select()
-    .from(messagingSessionAttachments)
+    .from(t.messagingSessionAttachments)
     .where(
       eq(
-        messagingSessionAttachments.sessionId,
-        param(messagingSessionAttachments.sessionId, 'sessionId'),
+        t.messagingSessionAttachments.sessionId,
+        param(t.messagingSessionAttachments.sessionId, 'sessionId'),
       ),
     )
     .prepare(),
 )
 
-const upsertAttachment = prepared((db: StoreDrizzle) =>
+const upsertAttachment = prepared((db, t) =>
   db
-    .insert(messagingSessionAttachments)
+    .insert(t.messagingSessionAttachments)
     .values({
       chatId: sql.placeholder('chatId'),
       threadRef: sql.placeholder('threadRef'),
@@ -65,7 +67,7 @@ const upsertAttachment = prepared((db: StoreDrizzle) =>
       relayedItemId: sql.placeholder('relayedItemId'),
     })
     .onConflictDoUpdate({
-      target: [messagingSessionAttachments.chatId, messagingSessionAttachments.threadRef],
+      target: [t.messagingSessionAttachments.chatId, t.messagingSessionAttachments.threadRef],
       set: {
         userId: sql.placeholder('userId'),
         sessionId: sql.placeholder('sessionId'),
@@ -76,15 +78,18 @@ const upsertAttachment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAttachment = prepared((db: StoreDrizzle) =>
+const deleteAttachment = prepared((db, t) =>
   db
-    .delete(messagingSessionAttachments)
+    .delete(t.messagingSessionAttachments)
     .where(
       and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
+        ),
+        eq(
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
         ),
       ),
     )
@@ -93,20 +98,23 @@ const deleteAttachment = prepared((db: StoreDrizzle) =>
 
 /** Guarded by the session id: a relay that finishes after the conversation was
  *  re-attached elsewhere must not stamp its watermark on the new attachment. */
-const markRelayed = prepared((db: StoreDrizzle) =>
+const markRelayed = prepared((db, t) =>
   db
-    .update(messagingSessionAttachments)
+    .update(t.messagingSessionAttachments)
     .set({ relayedItemId: sql.placeholder('relayedItemId') })
     .where(
       and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
         ),
         eq(
-          messagingSessionAttachments.sessionId,
-          param(messagingSessionAttachments.sessionId, 'sessionId'),
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
+        ),
+        eq(
+          t.messagingSessionAttachments.sessionId,
+          param(t.messagingSessionAttachments.sessionId, 'sessionId'),
         ),
       ),
     )

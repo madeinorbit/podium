@@ -1,23 +1,33 @@
 import type { MachineId } from '@podium/model'
 import { and, desc, eq, isNotNull, isNull, max, ne, or, type SQL, sql } from 'drizzle-orm'
-import { conversationSegmentIncarnations, conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from '../executor/sync-drizzle'
 import { param, prepared, preparedFamily } from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** One segment by its key, over the `machineId` / `nativeId` placeholders. */
-const segmentKey = () =>
+const segmentKey = (t: StoreTables) =>
   and(
-    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+    eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+    eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
 
 /** One segment's incarnations, over the same two placeholders. */
-const incarnationKey = () =>
+const incarnationKey = (t: StoreTables) =>
   and(
-    eq(conversationSegmentIncarnations.machineId, param(conversationSegmentIncarnations.machineId, 'machineId')),
-    eq(conversationSegmentIncarnations.nativeId, param(conversationSegmentIncarnations.nativeId, 'nativeId')),
+    eq(
+      t.conversationSegmentIncarnations.machineId,
+      param(t.conversationSegmentIncarnations.machineId, 'machineId'),
+    ),
+    eq(
+      t.conversationSegmentIncarnations.nativeId,
+      param(t.conversationSegmentIncarnations.nativeId, 'nativeId'),
+    ),
   )
 
 /**
@@ -28,92 +38,90 @@ const incarnationKey = () =>
  * the two statements this replaces did: a segment with no path has no lake
  * file to mirror, and the returned `path` is typed as present because of it.
  */
-const segmentsToMirror = preparedFamily((db: StoreDrizzle, which: 'all' | 'dirty') => {
-  const machine = eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId'))
+const segmentsToMirror = preparedFamily((db, t, which: 'all' | 'dirty') => {
+  const machine = eq(
+    t.conversationSegments.machineId,
+    param(t.conversationSegments.machineId, 'machineId'),
+  )
   const where: SQL | undefined =
     which === 'all'
       ? machine
       : and(
           machine,
           or(
-            isNull(conversationSegments.reportedBytes),
-            ne(conversationSegments.reportedBytes, conversationSegments.mirroredBytes),
+            isNull(t.conversationSegments.reportedBytes),
+            ne(t.conversationSegments.reportedBytes, t.conversationSegments.mirroredBytes),
           ),
         )
   return db
     .select({
-      nativeId: conversationSegments.nativeId,
-      path: conversationSegments.path,
-      mirroredBytes: conversationSegments.mirroredBytes,
+      nativeId: t.conversationSegments.nativeId,
+      path: t.conversationSegments.path,
+      mirroredBytes: t.conversationSegments.mirroredBytes,
     })
-    .from(conversationSegments)
-    .where(and(where, isNotNull(conversationSegments.path)))
+    .from(t.conversationSegments)
+    .where(and(where, isNotNull(t.conversationSegments.path)))
     .prepare()
 })
 
-const setSegmentReportedBytes = prepared((db: StoreDrizzle) =>
+const setSegmentReportedBytes = prepared((db, t) =>
   db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ reportedBytes: sql.placeholder('bytes') })
-    .where(segmentKey())
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const segmentReportedBytes = prepared((db: StoreDrizzle) =>
+const segmentReportedBytes = prepared((db, t) =>
   db
-    .select({ reportedBytes: conversationSegments.reportedBytes })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ reportedBytes: t.conversationSegments.reportedBytes })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const segmentMirrorCursor = prepared((db: StoreDrizzle) =>
+const segmentMirrorCursor = prepared((db, t) =>
   db
-    .select({ mirroredBytes: conversationSegments.mirroredBytes })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ mirroredBytes: t.conversationSegments.mirroredBytes })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const setSegmentMirrorCursor = prepared((db: StoreDrizzle) =>
+const setSegmentMirrorCursor = prepared((db, t) =>
   db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ mirroredBytes: sql.placeholder('bytes'), mirroredAt: sql.placeholder('at') })
-    .where(segmentKey())
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const activeIncarnationOf = prepared((db: StoreDrizzle) =>
+const activeIncarnationOf = prepared((db, t) =>
   db
     .select({
-      sequence: conversationSegmentIncarnations.sequence,
-      device: conversationSegmentIncarnations.device,
-      inode: conversationSegmentIncarnations.inode,
+      sequence: t.conversationSegmentIncarnations.sequence,
+      device: t.conversationSegmentIncarnations.device,
+      inode: t.conversationSegmentIncarnations.inode,
     })
-    .from(conversationSegmentIncarnations)
-    .where(
-      and(
-        incarnationKey(),
-        isNull(conversationSegmentIncarnations.retiredAt),
-      ),
-    )
-    .orderBy(desc(conversationSegmentIncarnations.sequence))
+    .from(t.conversationSegmentIncarnations)
+    .where(and(incarnationKey(t), isNull(t.conversationSegmentIncarnations.retiredAt)))
+    .orderBy(desc(t.conversationSegmentIncarnations.sequence))
     .limit(1)
     .prepare(),
 )
 
-const highestIncarnation = prepared((db: StoreDrizzle) =>
+const highestIncarnation = prepared((db, t) =>
   db
-    .select({ sequence: max(conversationSegmentIncarnations.sequence) })
-    .from(conversationSegmentIncarnations)
-    .where(incarnationKey())
+    .select({ sequence: max(t.conversationSegmentIncarnations.sequence) })
+    .from(t.conversationSegmentIncarnations)
+    .where(incarnationKey(t))
     .prepare(),
 )
 
 /** A fresh incarnation: a clean cursor, not retired. */
-const insertIncarnation = prepared((db: StoreDrizzle) =>
+const insertIncarnation = prepared((db, t) =>
   db
-    .insert(conversationSegmentIncarnations)
+    .insert(t.conversationSegmentIncarnations)
     .values({
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -127,39 +135,42 @@ const insertIncarnation = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const retireIncarnation = prepared((db: StoreDrizzle) =>
+const retireIncarnation = prepared((db, t) =>
   db
-    .update(conversationSegmentIncarnations)
+    .update(t.conversationSegmentIncarnations)
     .set({ mirroredBytes: sql.placeholder('archivedBytes'), retiredAt: sql.placeholder('at') })
     .where(
       and(
-        incarnationKey(),
-        eq(conversationSegmentIncarnations.sequence, param(conversationSegmentIncarnations.sequence, 'sequence')),
+        incarnationKey(t),
+        eq(
+          t.conversationSegmentIncarnations.sequence,
+          param(t.conversationSegmentIncarnations.sequence, 'sequence'),
+        ),
       ),
     )
     .prepare(),
 )
 
-const resetSegmentCursors = prepared((db: StoreDrizzle) =>
+const resetSegmentCursors = prepared((db, t) =>
   db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ mirroredBytes: 0, mirroredAt: sql.placeholder('at'), indexedBytes: 0 })
-    .where(segmentKey())
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const incarnationsOf = prepared((db: StoreDrizzle) =>
+const incarnationsOf = prepared((db, t) =>
   db
     .select({
-      sequence: conversationSegmentIncarnations.sequence,
-      device: conversationSegmentIncarnations.device,
-      inode: conversationSegmentIncarnations.inode,
-      mirroredBytes: conversationSegmentIncarnations.mirroredBytes,
-      retiredAt: conversationSegmentIncarnations.retiredAt,
+      sequence: t.conversationSegmentIncarnations.sequence,
+      device: t.conversationSegmentIncarnations.device,
+      inode: t.conversationSegmentIncarnations.inode,
+      mirroredBytes: t.conversationSegmentIncarnations.mirroredBytes,
+      retiredAt: t.conversationSegmentIncarnations.retiredAt,
     })
-    .from(conversationSegmentIncarnations)
-    .where(incarnationKey())
-    .orderBy(conversationSegmentIncarnations.sequence)
+    .from(t.conversationSegmentIncarnations)
+    .where(incarnationKey(t))
+    .orderBy(t.conversationSegmentIncarnations.sequence)
     .prepare(),
 )
 
@@ -203,11 +214,16 @@ export class TranscriptMirrorRepository {
   }
 
   /** {@link segmentsToMirror}'s rows, with `path` typed as present. */
-  private async rows(which: 'all' | 'dirty', machineId: MachineId): Promise<{
-    nativeId: string
-    path: string
-    mirroredBytes: number
-  }[]> {
+  private async rows(
+    which: 'all' | 'dirty',
+    machineId: MachineId,
+  ): Promise<
+    {
+      nativeId: string
+      path: string
+      mirroredBytes: number
+    }[]
+  > {
     const rows = await segmentsToMirror(this.db, which).all({ machineId })
     return rows.map((row) => ({
       nativeId: row.nativeId,
@@ -232,7 +248,12 @@ export class TranscriptMirrorRepository {
     return row?.mirroredBytes ?? 0
   }
 
-  async setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): Promise<void> {
+  async setMirrorCursor(
+    machineId: MachineId,
+    nativeId: string,
+    bytes: number,
+    at: string,
+  ): Promise<void> {
     await setSegmentMirrorCursor(this.db).run({ machineId, nativeId, bytes, at })
   }
 
@@ -277,7 +298,13 @@ export class TranscriptMirrorRepository {
         await this.startIncarnation(machineId, nativeId, identity, at)
         return
       }
-      await retireIncarnation(this.db).run({ machineId, nativeId, sequence: active.sequence, archivedBytes, at })
+      await retireIncarnation(this.db).run({
+        machineId,
+        nativeId,
+        sequence: active.sequence,
+        archivedBytes,
+        at,
+      })
       await insertIncarnation(this.db).run({
         machineId,
         nativeId,

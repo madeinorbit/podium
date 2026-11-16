@@ -13,8 +13,12 @@
 import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CheckoutReach } from '../checkout-reach'
-import { checkoutLost, checkoutReach, checkouts } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -37,61 +41,61 @@ export interface CheckoutRow {
   readonly prunable: boolean
 }
 
-const COLUMNS = {
-  machineId: checkouts.machineId,
-  path: checkouts.path,
-  root: checkouts.root,
-  kind: checkouts.kind,
-  repoId: checkouts.repoId,
-  branch: checkouts.branch,
-  originUrl: checkouts.originUrl,
-  locked: checkouts.locked,
-  prunable: checkouts.prunable,
-}
+const COLUMNS = (t: StoreTables) => ({
+  machineId: t.checkouts.machineId,
+  path: t.checkouts.path,
+  root: t.checkouts.root,
+  kind: t.checkouts.kind,
+  repoId: t.checkouts.repoId,
+  branch: t.checkouts.branch,
+  originUrl: t.checkouts.originUrl,
+  locked: t.checkouts.locked,
+  prunable: t.checkouts.prunable,
+})
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const checkoutsOfMachine = prepared((db: StoreDrizzle) =>
+const checkoutsOfMachine = prepared((db, t) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
+    .select(COLUMNS(t))
+    .from(t.checkouts)
     .where(
       and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        isNull(checkouts.removedAt),
+        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+        isNull(t.checkouts.removedAt),
       ),
     )
-    .orderBy(asc(checkouts.path))
+    .orderBy(asc(t.checkouts.path))
     .prepare(),
 )
 
 /** Every row: the `checkout` kind's full truth for the boot reconcile. */
-const allCheckouts = prepared((db: StoreDrizzle) =>
+const allCheckouts = prepared((db, t) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
-    .where(isNull(checkouts.removedAt))
-    .orderBy(asc(checkouts.machineId), asc(checkouts.path))
+    .select(COLUMNS(t))
+    .from(t.checkouts)
+    .where(isNull(t.checkouts.removedAt))
+    .orderBy(asc(t.checkouts.machineId), asc(t.checkouts.path))
     .prepare(),
 )
 
 /** The live checkouts of several machines, whole rows, for building `checkout`
  *  records by id (POD-6763). */
-const checkoutsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const checkoutsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
+    .select(COLUMNS(t))
+    .from(t.checkouts)
+    .where(and(inListOf(t.checkouts.machineId, size), isNull(t.checkouts.removedAt)))
     .prepare(),
 )
 
 /** The live checkout paths of several machines, each marked root or not: the
  *  feed's re-send when a member's reach on a machine moves. */
-const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const pathsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select({ machineId: checkouts.machineId, path: checkouts.path, root: checkouts.root })
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
+    .select({ machineId: t.checkouts.machineId, path: t.checkouts.path, root: t.checkouts.root })
+    .from(t.checkouts)
+    .where(and(inListOf(t.checkouts.machineId, size), isNull(t.checkouts.removedAt)))
     .prepare(),
 )
 
@@ -99,30 +103,30 @@ const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
  *  how the feed tells a root, which managers may read, from a worktree.
  *  Removed roots too, through their tombstones: a root's removal goes to the
  *  same readers the root had. */
-const rootPathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const rootPathsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select({ machineId: checkouts.machineId, path: checkouts.path })
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), eq(checkouts.root, checkouts.path)))
+    .select({ machineId: t.checkouts.machineId, path: t.checkouts.path })
+    .from(t.checkouts)
+    .where(and(inListOf(t.checkouts.machineId, size), eq(t.checkouts.root, t.checkouts.path)))
     .prepare(),
 )
 
 /** The recorded checkout reach of every member on several machines. */
-const reachOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const reachOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({
-      userId: checkoutReach.userId,
-      machineId: checkoutReach.machineId,
-      reach: checkoutReach.reach,
+      userId: t.checkoutReach.userId,
+      machineId: t.checkoutReach.machineId,
+      reach: t.checkoutReach.reach,
     })
-    .from(checkoutReach)
-    .where(inListOf(checkoutReach.machineId, size))
+    .from(t.checkoutReach)
+    .where(inListOf(t.checkoutReach.machineId, size))
     .prepare(),
 )
 
-const upsertReach = preparedFamily((db: StoreDrizzle, size: number) =>
+const upsertReach = preparedFamily((db, t, size: number) =>
   db
-    .insert(checkoutReach)
+    .insert(t.checkoutReach)
     .values(
       Array.from({ length: size }, (_, i) => ({
         userId: sql.placeholder(`userId${i}`),
@@ -132,21 +136,21 @@ const upsertReach = preparedFamily((db: StoreDrizzle, size: number) =>
       })),
     )
     .onConflictDoUpdate({
-      target: [checkoutReach.userId, checkoutReach.machineId],
+      target: [t.checkoutReach.userId, t.checkoutReach.machineId],
       set: { reach: sql`excluded.reach`, updatedAt: sql`excluded.updated_at` },
     })
     .prepare(),
 )
 
-const deleteReach = preparedFamily((db: StoreDrizzle, size: number) =>
+const deleteReach = preparedFamily((db, t, size: number) =>
   db
-    .delete(checkoutReach)
+    .delete(t.checkoutReach)
     .where(
       or(
         ...Array.from({ length: size }, (_, i) =>
           and(
-            eq(checkoutReach.userId, param(checkoutReach.userId, `userId${i}`)),
-            eq(checkoutReach.machineId, param(checkoutReach.machineId, `machineId${i}`)),
+            eq(t.checkoutReach.userId, param(t.checkoutReach.userId, `userId${i}`)),
+            eq(t.checkoutReach.machineId, param(t.checkoutReach.machineId, `machineId${i}`)),
           ),
         ),
       ),
@@ -155,22 +159,22 @@ const deleteReach = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 /** The lost checkouts of every member on several machines. */
-const lostOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const lostOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({
-      userId: checkoutLost.userId,
-      machineId: checkoutLost.machineId,
-      path: checkoutLost.path,
-      root: checkoutLost.root,
+      userId: t.checkoutLost.userId,
+      machineId: t.checkoutLost.machineId,
+      path: t.checkoutLost.path,
+      root: t.checkoutLost.root,
     })
-    .from(checkoutLost)
-    .where(inListOf(checkoutLost.machineId, size))
+    .from(t.checkoutLost)
+    .where(inListOf(t.checkoutLost.machineId, size))
     .prepare(),
 )
 
-const insertLost = preparedFamily((db: StoreDrizzle, size: number) =>
+const insertLost = preparedFamily((db, t, size: number) =>
   db
-    .insert(checkoutLost)
+    .insert(t.checkoutLost)
     .values(
       Array.from({ length: size }, (_, i) => ({
         userId: sql.placeholder(`userId${i}`),
@@ -184,16 +188,16 @@ const insertLost = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-const deleteLost = preparedFamily((db: StoreDrizzle, size: number) =>
+const deleteLost = preparedFamily((db, t, size: number) =>
   db
-    .delete(checkoutLost)
+    .delete(t.checkoutLost)
     .where(
       or(
         ...Array.from({ length: size }, (_, i) =>
           and(
-            eq(checkoutLost.userId, param(checkoutLost.userId, `userId${i}`)),
-            eq(checkoutLost.machineId, param(checkoutLost.machineId, `machineId${i}`)),
-            eq(checkoutLost.path, param(checkoutLost.path, `path${i}`)),
+            eq(t.checkoutLost.userId, param(t.checkoutLost.userId, `userId${i}`)),
+            eq(t.checkoutLost.machineId, param(t.checkoutLost.machineId, `machineId${i}`)),
+            eq(t.checkoutLost.path, param(t.checkoutLost.path, `path${i}`)),
           ),
         ),
       ),
@@ -230,12 +234,12 @@ const checkoutPlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertCheckout = prepared((db: StoreDrizzle) =>
+const upsertCheckout = prepared((db, t) =>
   db
-    .insert(checkouts)
+    .insert(t.checkouts)
     .values(checkoutPlaceholders)
     .onConflictDoUpdate({
-      target: [checkouts.machineId, checkouts.path],
+      target: [t.checkouts.machineId, t.checkouts.path],
       set: {
         root: sql.placeholder('root'),
         kind: sql.placeholder('kind'),
@@ -253,26 +257,26 @@ const upsertCheckout = prepared((db: StoreDrizzle) =>
 )
 
 /** A removed root keeps its row as a tombstone (see `checkouts.removedAt`). */
-const tombstoneRoot = prepared((db: StoreDrizzle) =>
+const tombstoneRoot = prepared((db, t) =>
   db
-    .update(checkouts)
+    .update(t.checkouts)
     .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
     .where(
       and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        eq(checkouts.path, param(checkouts.path, 'path')),
+        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+        eq(t.checkouts.path, param(t.checkouts.path, 'path')),
       ),
     )
     .prepare(),
 )
 
-const deleteCheckout = prepared((db: StoreDrizzle) =>
+const deleteCheckout = prepared((db, t) =>
   db
-    .delete(checkouts)
+    .delete(t.checkouts)
     .where(
       and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        eq(checkouts.path, param(checkouts.path, 'path')),
+        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+        eq(t.checkouts.path, param(t.checkouts.path, 'path')),
       ),
     )
     .prepare(),

@@ -1,7 +1,11 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
-import { conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreQueries,
+  StoreTables,
+  TransactionRunner,
+} from '../executor/sync-drizzle'
 import { executeRaw, param, prepared } from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -9,13 +13,13 @@ import { executeRaw, param, prepared } from '../executor/sync-drizzle'
 // model to build against, so its statements stay whole raw SQL.
 
 /** One segment by its key, over the `machineId` / `nativeId` placeholders. */
-const segmentKey = () =>
+const segmentKey = (t: StoreTables) =>
   and(
-    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+    eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+    eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
 
-const createTranscriptFts = prepared((db: StoreDrizzle) =>
+const createTranscriptFts = prepared((db) =>
   db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
         content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`),
 )
@@ -35,49 +39,49 @@ const createTranscriptFts = prepared((db: StoreDrizzle) =>
  * them the first time, after that the rows a build from before this table
  * appended, normally none.
  */
-const createTranscriptKeys = prepared((db: StoreDrizzle) =>
+const createTranscriptKeys = prepared((db) =>
   db.run(sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
         fts_rowid INTEGER PRIMARY KEY, machine_id TEXT NOT NULL, native_id TEXT NOT NULL)`),
 )
 
-const createTranscriptKeysIndex = prepared((db: StoreDrizzle) =>
+const createTranscriptKeysIndex = prepared((db) =>
   db.run(sql`CREATE INDEX IF NOT EXISTS idx_transcript_fts_keys_segment
         ON transcript_fts_keys (machine_id, native_id)`),
 )
 
 /** Key every FTS row past the last keyed one: a rowid range of `transcript_fts`. */
-const catchUpKeys = prepared((db: StoreDrizzle) =>
+const catchUpKeys = prepared((db) =>
   db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
         SELECT rowid, machine_id, native_id FROM transcript_fts
         WHERE rowid > (SELECT coalesce(max(fts_rowid), 0) FROM transcript_fts_keys)`),
 )
 
-const segmentsBehindMirror = prepared((db: StoreDrizzle) =>
+const segmentsBehindMirror = prepared((db, t) =>
   db
     .select({
-      nativeId: conversationSegments.nativeId,
-      mirroredBytes: conversationSegments.mirroredBytes,
-      indexedBytes: conversationSegments.indexedBytes,
+      nativeId: t.conversationSegments.nativeId,
+      mirroredBytes: t.conversationSegments.mirroredBytes,
+      indexedBytes: t.conversationSegments.indexedBytes,
     })
-    .from(conversationSegments)
+    .from(t.conversationSegments)
     .where(
       and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        gt(conversationSegments.mirroredBytes, conversationSegments.indexedBytes),
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        gt(t.conversationSegments.mirroredBytes, t.conversationSegments.indexedBytes),
       ),
     )
     .prepare(),
 )
 
-const segmentIndexedCursor = prepared((db: StoreDrizzle) =>
+const segmentIndexedCursor = prepared((db, t) =>
   db
-    .select({ indexedBytes: conversationSegments.indexedBytes })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ indexedBytes: t.conversationSegments.indexedBytes })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const insertTranscriptRow = prepared((db: StoreDrizzle) =>
+const insertTranscriptRow = prepared((db) =>
   db.run(
     sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
               VALUES(${sql.placeholder('content')},${sql.placeholder('machineId')},${sql.placeholder('nativeId')},${sql.placeholder('itemUuid')},${sql.placeholder('ts')})`,
@@ -90,30 +94,36 @@ const insertTranscriptRow = prepared((db: StoreDrizzle) =>
  * insert between the two. REPLACE: a key left behind by a build from before
  * this table, whose FTS row was deleted and its rowid reused, is stale.
  */
-const insertTranscriptKey = prepared((db: StoreDrizzle) =>
+const insertTranscriptKey = prepared((db) =>
   db.run(
     sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
               VALUES(last_insert_rowid(),${sql.placeholder('machineId')},${sql.placeholder('nativeId')})`,
   ),
 )
 
-const setSegmentIndexedBytes = prepared((db: StoreDrizzle) =>
+const setSegmentIndexedBytes = prepared((db, t) =>
   db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ indexedBytes: sql.placeholder('indexedBytes') })
-    .where(segmentKey())
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const resetSegmentIfAt = prepared((db: StoreDrizzle) =>
+const resetSegmentIfAt = prepared((db, t) =>
   db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })
     .where(
       and(
-        segmentKey(),
-        eq(conversationSegments.mirroredBytes, param(conversationSegments.mirroredBytes, 'mirroredBytes')),
-        eq(conversationSegments.indexedBytes, param(conversationSegments.indexedBytes, 'indexedBytes')),
+        segmentKey(t),
+        eq(
+          t.conversationSegments.mirroredBytes,
+          param(t.conversationSegments.mirroredBytes, 'mirroredBytes'),
+        ),
+        eq(
+          t.conversationSegments.indexedBytes,
+          param(t.conversationSegments.indexedBytes, 'indexedBytes'),
+        ),
       ),
     )
     .prepare(),
@@ -125,11 +135,11 @@ const segmentKeys = () =>
       WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`
 
 /** One segment's FTS rows, each found by rowid; then {@link deleteTranscriptKeys}. */
-const deleteTranscriptRows = prepared((db: StoreDrizzle) =>
+const deleteTranscriptRows = prepared((db) =>
   db.run(sql`DELETE FROM transcript_fts WHERE rowid IN (${segmentKeys()})`),
 )
 
-const deleteTranscriptKeys = prepared((db: StoreDrizzle) =>
+const deleteTranscriptKeys = prepared((db) =>
   db.run(
     sql`DELETE FROM transcript_fts_keys
       WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
@@ -137,7 +147,7 @@ const deleteTranscriptKeys = prepared((db: StoreDrizzle) =>
 )
 
 /** One segment's rows in insertion order, each found by rowid from its key. */
-const transcriptRowsOf = prepared((db: StoreDrizzle) =>
+const transcriptRowsOf = prepared((db) =>
   db.all<Record<string, unknown>>(
     sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_fts_keys k
       CROSS JOIN transcript_fts f ON f.rowid=k.fts_rowid
@@ -146,7 +156,7 @@ const transcriptRowsOf = prepared((db: StoreDrizzle) =>
   ),
 )
 
-const searchTranscripts = prepared((db: StoreDrizzle) =>
+const searchTranscripts = prepared((db) =>
   db.all<Record<string, unknown>>(
     sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
@@ -290,7 +300,10 @@ export class TranscriptIndexRepository {
     nativeId: string,
   ): Promise<{ content: string; itemUuid?: string; ts?: string }[]> {
     if (!this.available) return []
-    const rows: Record<string, unknown>[] = await executeRaw(transcriptRowsOf(this.db), { machineId, nativeId })
+    const rows: Record<string, unknown>[] = await executeRaw(transcriptRowsOf(this.db), {
+      machineId,
+      nativeId,
+    })
     return rows.map((row) => ({
       content: row.content as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,

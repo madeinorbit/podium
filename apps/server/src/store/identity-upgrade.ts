@@ -3,10 +3,9 @@
 import { asUserId } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { memberInvites, userCredentials } from '../migrations/identity-import-schema'
-import { clientSessions } from '../migrations/schema'
-import { prepared, type StoreDrizzle, type StoreQueries } from './executor/sync-drizzle'
+import { prepared, type StoreQueries } from './executor/sync-drizzle'
 
-const passwords = prepared((db: StoreDrizzle) =>
+const passwords = prepared((db) =>
   db
     .select({ userId: userCredentials.userId, passwordHash: userCredentials.passwordHash })
     .from(userCredentials)
@@ -15,13 +14,13 @@ const passwords = prepared((db: StoreDrizzle) =>
     )
     .prepare(),
 )
-const links = prepared((db: StoreDrizzle) =>
+const links = prepared((db) =>
   db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).prepare(),
 )
-const retiredSessions = prepared((db: StoreDrizzle) =>
+const retiredSessions = prepared((db, t) =>
   db
-    .delete(clientSessions)
-    .where(inArray(clientSessions.label, ['upstream', 'server-transfer-claim']))
+    .delete(t.clientSessions)
+    .where(inArray(t.clientSessions.label, ['upstream', 'server-transfer-claim']))
     .prepare(),
 )
 

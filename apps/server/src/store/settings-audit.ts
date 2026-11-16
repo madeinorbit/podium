@@ -46,7 +46,7 @@
 import type { RedactionReport } from '@podium/commands'
 import { and, asc, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
-import { settingsAuditEvents } from '../migrations/schema'
+import type { settingsAuditEvents } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared, preparedFamily } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
@@ -122,9 +122,9 @@ export function settingsAuditRow(input: {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const appendAudit = prepared((db: StoreDrizzle) =>
+const appendAudit = prepared((db, t) =>
   db
-    .insert(settingsAuditEvents)
+    .insert(t.settingsAuditEvents)
     .values({
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
@@ -138,11 +138,11 @@ const appendAudit = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const auditInOrder = prepared((db: StoreDrizzle) =>
+const auditInOrder = prepared((db, t) =>
   db
     .select()
-    .from(settingsAuditEvents)
-    .orderBy(asc(settingsAuditEvents.id))
+    .from(t.settingsAuditEvents)
+    .orderBy(asc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -173,44 +173,44 @@ export interface SecurityEventFilters {
 
 type SecurityEventShape = `${SecurityEventKind | 'all'}|${0 | 1}|${0 | 1}`
 
-const securityEventsNewestFirst = preparedFamily((db: StoreDrizzle, shape: SecurityEventShape) => {
+const securityEventsNewestFirst = preparedFamily((db, t, shape: SecurityEventShape) => {
   const [kind, actor, refused] = shape.split('|')
   const prefix = (value: string) =>
     and(
-      gte(settingsAuditEvents.command, value),
-      lt(settingsAuditEvents.command, prefixUpperBound(value)),
+      gte(t.settingsAuditEvents.command, value),
+      lt(t.settingsAuditEvents.command, prefixUpperBound(value)),
     )
   const commands =
     kind === 'people'
       ? prefix('members.')
       : kind === 'machines'
-        ? or(prefix('machines.'), eq(settingsAuditEvents.command, 'takeover'))
+        ? or(prefix('machines.'), eq(t.settingsAuditEvents.command, 'takeover'))
         : kind === 'credentials'
-          ? inArray(settingsAuditEvents.command, [
+          ? inArray(t.settingsAuditEvents.command, [
               'settings.setSecret',
               'settings.clearSecret',
               'accounts.unsend',
             ])
           : kind === 'comments'
-            ? inArray(settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
+            ? inArray(t.settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
             : or(
                 ...SECURITY_EVENT_PREFIXES.map(prefix),
-                inArray(settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
+                inArray(t.settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
               )
   return db
     .select()
-    .from(settingsAuditEvents)
+    .from(t.settingsAuditEvents)
     .where(
       and(
-        lt(settingsAuditEvents.id, param(settingsAuditEvents.id, 'beforeId')),
+        lt(t.settingsAuditEvents.id, param(t.settingsAuditEvents.id, 'beforeId')),
         commands,
         actor === '1'
-          ? eq(settingsAuditEvents.onBehalfOf, param(settingsAuditEvents.onBehalfOf, 'actor'))
+          ? eq(t.settingsAuditEvents.onBehalfOf, param(t.settingsAuditEvents.onBehalfOf, 'actor'))
           : undefined,
-        refused === '1' ? eq(settingsAuditEvents.outcome, 'refused') : undefined,
+        refused === '1' ? eq(t.settingsAuditEvents.outcome, 'refused') : undefined,
       ),
     )
-    .orderBy(desc(settingsAuditEvents.id))
+    .orderBy(desc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare()
 })

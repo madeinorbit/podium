@@ -43,7 +43,6 @@ import {
 } from '@podium/runtime/config'
 import { TIER_DEFAULTS } from '@podium/telemetry'
 import { eq, sql } from 'drizzle-orm'
-import { meta } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -81,19 +80,19 @@ function needsTelemetryIdentity(
 const APPLIED_MEMBERSHIP_VERSION_KEY = 'identity.appliedMembershipVersion'
 const LEGACY_LINKS_IMPORTED_KEY = 'identity.legacyLinksImported'
 
-const metaValue = prepared((db: StoreDrizzle) =>
+const metaValue = prepared((db, t) =>
   db
-    .select({ value: meta.value })
-    .from(meta)
-    .where(eq(meta.key, param(meta.key, 'key')))
+    .select({ value: t.meta.value })
+    .from(t.meta)
+    .where(eq(t.meta.key, param(t.meta.key, 'key')))
     .prepare(),
 )
 
-const upsertMeta = prepared((db: StoreDrizzle) =>
+const upsertMeta = prepared((db, t) =>
   db
-    .insert(meta)
+    .insert(t.meta)
     .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
-    .onConflictDoUpdate({ target: meta.key, set: { value: sql.placeholder('value') } })
+    .onConflictDoUpdate({ target: t.meta.key, set: { value: sql.placeholder('value') } })
     .prepare(),
 )
 
