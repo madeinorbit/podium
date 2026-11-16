@@ -211,7 +211,8 @@ const liveEffectsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 // Tombstones included and left out by the caller: a `deleted_at IS NULL`
-// filter here lets the planner take `idx_effects_deleted` and sort.
+// filter here let the planner take the full soft-delete index and sort
+// (`idx_effects_deleted`; partial since POD-7034).
 const effectsPage = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -241,7 +242,8 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 // listed kind crossed with every listed id, seeking `idx_effects_target`; the
 // caller keeps only the (kind, id) pairs it asked for. Keyed `<kinds>x<ids>`.
 // The index is named with INDEXED BY: on default statistics the planner costs
-// `deleted_at IS NULL` on `idx_effects_deleted` below the crossed seeks, and
+// `deleted_at IS NULL` on the full soft-delete index (partial since POD-7034)
+// below the crossed seeks, and
 // that walk reads every live record (POD-6599). Ordered as the index is, by
 // target, then `created_at`, then rowid, so the seeks need no sort: the caller
 // orders across targets itself and needs only each target's oldest-first order.
@@ -511,7 +513,8 @@ const tombstoneEffect = prepared((db: StoreDrizzle) =>
 
 // THE SWEEP'S STATEMENTS NAME THEIR INDEX (POD-6970). Each one runs every
 // minute and is meant to read only the rows it acts on. Under real statistics
-// the planner costs `deleted_at IS NULL` on `idx_effects_deleted` as a few rows:
+// the planner costed `deleted_at IS NULL` on the full soft-delete index (partial
+// since POD-7034) as a few rows:
 // ANALYZE counts each NULL as its own value, so the live set looks selective.
 // It then walked every live record (41k on the operator's server, nearly all
 // finished machine scans with their results) and sorted them, twice a minute,
@@ -636,7 +639,7 @@ const purgeOffFeedFinished = prepared((db: StoreDrizzle) =>
 )
 
 /** Tombstones older than the feed's retention: gone from every device already.
- *  A range on `idx_effects_deleted`, which skips the live (NULL) rows. */
+ *  A range on `idx_effects_tombstones`, which holds only the tombstones. */
 const purgeTombstones = prepared((db: StoreDrizzle) =>
   db
     .delete(effects)
@@ -645,7 +648,7 @@ const purgeTombstones = prepared((db: StoreDrizzle) =>
         effects.id,
         db
           .select({ id: sql<string>`id` })
-          .from(sql`${effects} INDEXED BY idx_effects_deleted`)
+          .from(sql`${effects} INDEXED BY idx_effects_tombstones`)
           .where(lte(effects.deletedAt, param(effects.deletedAt, 'cutoff')))
           .limit(P('limit')),
       ),

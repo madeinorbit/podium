@@ -782,9 +782,13 @@ const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) =
         'session',
         inArray(
           subscriptions.subscriberId,
+          // Through `idx_sessions_issue` by name (POD-7034): the list is padded to
+          // the largest of the poll's three lists, and at a few hundred anchors
+          // the planner prices the seeks above a scan of every session.
           db
-            .select({ id: sessionsTable.id })
-            .from(sessionsTable)
+            // Selected by name: drizzle refuses a table column over a raw FROM.
+            .select({ id: sql<string>`${sql.identifier('id')}` })
+            .from(sql`${sessionsTable} INDEXED BY idx_sessions_issue`)
             .where(
               and(inListOf(sessionsTable.issueId, size, 'anchor'), isNull(sessionsTable.deletedAt)),
             ),

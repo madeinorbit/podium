@@ -653,10 +653,14 @@ const labelsOf = prepared((db: StoreDrizzle) =>
 )
 
 /** The issues carrying these labels (POD-6920: a label's rename reaches them). */
+// Through `idx_issue_labels_label_id` by name (POD-7034): from 16 labels the
+// statistics (a label's issues averaged over the labels in use) price the
+// seeks above a walk of every issue's labels.
 const issuesOfLabels = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .selectDistinct({ issueId: issueLabels.issueId })
-    .from(issueLabels)
+    // Selected by name: drizzle refuses a table column over a raw FROM.
+    .selectDistinct({ issueId: sql<string>`${sql.identifier('issue_id')}` })
+    .from(sql`${issueLabels} INDEXED BY idx_issue_labels_label_id`)
     .where(inListOf(issueLabels.labelId, size, 'ids'))
     .prepare(),
 )

@@ -367,7 +367,12 @@ export const sessions = sqliteTable(
     index('idx_sessions_lifecycle_pending')
       .on(table.machineId)
       .where(sql`${table.revision} > ${table.observedRevision} AND ${table.deletedAt} IS NULL`),
-    index('idx_sessions_deleted_at').on(table.deletedAt),
+    // TOMBSTONES ONLY [POD-7034]. Partial, so `deleted_at IS NULL` can never
+    // seek it: ANALYZE counts each NULL as its own value, so a full index read
+    // as four sessions per key and live-session reads walked every live row
+    // through it. The tombstone reads (`deleted_at < ?`, `IS NOT NULL`) imply
+    // the predicate and still seek it.
+    index('idx_sessions_tombstones').on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL`),
     // The second half of POD-1858's per-file resolution: segment identity to the
     // session that owns it. Also the join `conversation_segments` has always
     // implied and never had an index for.
@@ -1878,7 +1883,9 @@ export const issues = sqliteTable(
     startedBySession: text('started_by_session').$type<SessionId>(),
   },
   (table) => [
-    index('idx_issues_deleted_at').on(table.deletedAt),
+    // TOMBSTONES ONLY [POD-7034]: partial, so a live-issue read never walks
+    // every live issue through it (see `idx_sessions_tombstones`).
+    index('idx_issues_tombstones').on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL`),
     // COVERS the finished-work projection [POD-1931]. It used to read four
     // narrow columns off EVERY issue; since POD-6155 `closedIssueIdsAmong()`
     // reads them for the asked ids only, and leading with `id` this index
@@ -1900,7 +1907,10 @@ export const issues = sqliteTable(
       table.deletedAt,
     ),
     uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
-    index('idx_issues_parent').on(table.parentId),
+    // CHILDREN ONLY [POD-7034]: partial, so a top-level read (`parent_id IS
+    // NULL`, most issues) never walks it; a lookup of a parent's children
+    // (`parent_id = ?`, `IN (...)`) implies the predicate and seeks it.
+    index('idx_issues_children').on(table.parentId).where(sql`${table.parentId} IS NOT NULL`),
     // A bare `#N` reference names every repository's issue N (POD-6158); with
     // the repository path and id after it, the matches come back in the order
     // they are reported without a sort.
@@ -3340,7 +3350,9 @@ export const effects = sqliteTable(
     // The sweep: pending by deadline, running, finished rows by age, tombstones.
     index('idx_effects_status_deadline').on(table.status, table.deadlineAt),
     index('idx_effects_status_finished').on(table.status, table.finishedAt),
-    index('idx_effects_deleted').on(table.deletedAt),
+    // Tombstones only [POD-7034]: partial, so a live-record read never walks
+    // every live record through it (see `idx_sessions_tombstones`).
+    index('idx_effects_tombstones').on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL`),
     // An issue's, a session's or a machine's effects.
     index('idx_effects_target').on(table.targetKind, table.targetId, table.createdAt),
     // One kind's records on one target, newest first: a machine's latest scan,

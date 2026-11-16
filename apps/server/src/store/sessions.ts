@@ -204,6 +204,29 @@ function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
   return db.select().from(sessionsTable).where(where).prepare()
 }
 
+/** Every column by its bare name, mapped as the table maps it: for a FROM
+ *  that is an INDEXED BY clause rather than the table object. */
+const SESSION_COLUMNS = Object.fromEntries(
+  Object.entries(getTableColumns(sessionsTable)).map(([key, column]) => [
+    key,
+    sql`${sql.identifier(column.name)}`.mapWith(column),
+  ]),
+) as { [K in keyof SessionSelect]: SQL<SessionSelect[K]> }
+
+/**
+ * {@link sessionsMatching} through one named index [POD-7034]. For an IN list
+ * whose keys are sparse while a few common values hold many rows: the
+ * statistics give the average, and at a few hundred keys the planner prices
+ * the seeks above a scan of every session, though each asked key holds a few.
+ */
+function sessionsMatchingThrough(db: StoreDrizzle, index: string, where: SQL | undefined) {
+  return db
+    .select(SESSION_COLUMNS)
+    .from(sql`${sessionsTable} INDEXED BY ${sql.raw(index)}`)
+    .where(where)
+    .prepare()
+}
+
 /**
  * THE MOST-EXECUTED SESSION STATEMENT, PREPARED ONCE [POD-3854].
  *
@@ -333,10 +356,15 @@ const liveSessionsOfDraft = prepared((db: StoreDrizzle) =>
   ),
 )
 
-/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
+/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160).
+ *  Through `idx_sessions_spawned_by` by name (POD-7034): the operator's
+ *  statistics average 15 sessions a value, a mean over one `user` value that
+ *  holds a third of all sessions and many parents with a few children; at a
+ *  few hundred parents they price the seeks above a scan of every session. */
 const liveSessionsSpawnedBy = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(
+  sessionsMatchingThrough(
     db,
+    'idx_sessions_spawned_by',
     and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt)),
   ),
 )

@@ -730,10 +730,24 @@ const runIdsOfRevisions = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+/** Every step column by its bare name, mapped as the table maps it: for a FROM
+ *  that is an INDEXED BY clause rather than the table object. */
+const STEP_COLUMNS = Object.fromEntries(
+  Object.entries(getTableColumns(workflowRunSteps)).map(([key, column]) => [
+    key,
+    sql`${sql.identifier(column.name)}`.mapWith(column),
+  ]),
+) as {
+  [K in keyof typeof workflowRunSteps.$inferSelect]: SQL<(typeof workflowRunSteps.$inferSelect)[K]>
+}
+
+// Through the primary key (run_id, step_id) by name (POD-7034): from about 128
+// runs the statistics (a run's steps averaged over every run) price the seeks
+// above a scan of every run's steps.
 const stepsOfRuns = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .select()
-    .from(workflowRunSteps)
+    .select(STEP_COLUMNS)
+    .from(sql`${workflowRunSteps} INDEXED BY sqlite_autoindex_workflow_run_steps_1`)
     .where(inListOf(workflowRunSteps.runId, size, 'ids'))
     .prepare(),
 )
