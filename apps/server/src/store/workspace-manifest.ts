@@ -14,7 +14,7 @@
  *              the fleet's job lease. Hosted has one installation for all workspaces.
  *   transient  rows that live inside one write transaction (change capture) or are engine
  *              bookkeeping. Never read across a commit.
- *   derived    search indexes and their keys, built from a workspace table and scoped through it.
+ *   derived    FTS5 search indexes, built from a workspace table and scoped by joining it.
  *
  * Where a table comes from (`origin`):
  *
@@ -61,6 +61,12 @@ export interface ManifestEntry {
    * search on. Without it, the manifest test requires the table to exist.
    */
   readonly mayBeAbsent?: string
+  /**
+   * A workspace table whose workspace_id column a later task adds, not the column migration
+   * (POD-7012). The non-null workspace_id rule skips it, and the manifest test fails once the
+   * column exists, so the task that adds it also removes this field.
+   */
+  readonly workspaceColumnPending?: string
 }
 
 const workspace = <const G extends IdGeneration>(idgen: G, reason: string, hard?: true) =>
@@ -358,11 +364,13 @@ export const TABLE_MANIFEST = {
     reason: 'FTS5 over transcript items; scoped through transcript_fts_keys',
   },
   transcript_fts_keys: {
-    class: 'derived',
+    class: 'workspace',
     origin: 'runtime',
     idgen: 'natural',
     reason:
-      'segment of each FTS row; gains workspace_id so a search joins it with the workspace predicate',
+      'segment of each FTS row; carries workspace_id so a search joins it with the workspace predicate',
+    workspaceColumnPending:
+      'POD-7022 adds workspace_id to its runtime DDL (store/conversations/transcript-index.ts)',
   },
 
   // ---- engine bookkeeping ----

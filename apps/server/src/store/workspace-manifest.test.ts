@@ -253,23 +253,39 @@ describe('workspace table manifest', () => {
     expect(listed).toEqual(declaredInstall)
   })
 
+  const liveWorkspaceColumn = (name: string): { not_null: number } | undefined =>
+    (
+      db
+        .prepare(
+          `SELECT "notnull" AS not_null FROM pragma_table_info(?) WHERE name = 'workspace_id'`,
+        )
+        .all(name) as { not_null: number }[]
+    )[0]
+
+  it('keeps a pending workspace column marker only while the column is missing', () => {
+    const marked = Object.entries(manifest).filter(([, entry]) => entry.workspaceColumnPending)
+    expect(marked.map(([name]) => name)).toEqual(['transcript_fts_keys'])
+    for (const [name, entry] of marked) {
+      expect(entry.class).toBe('workspace')
+      // The task that adds the column removes the marker; this fails until it does.
+      expect(liveWorkspaceColumn(name)).toBeUndefined()
+    }
+  })
+
   // Task A4 (POD-7012) adds the column and removes `.skip`.
   it.skip('gives every workspace table a non-null workspace_id column', () => {
     const missing: string[] = []
     for (const name of WORKSPACE_TABLES) {
       const entry: ManifestEntry = manifest[name] as ManifestEntry
-      if (entry.origin === 'planned') continue
+      if (entry.origin === 'planned' || entry.workspaceColumnPending) continue
       const table = declared.get(name)
-      const column =
-        table && getTableConfig(table.table).columns.find((c) => c.name === 'workspace_id')
-      const liveColumn = (
-        db
-          .prepare(
-            `SELECT "notnull" AS not_null FROM pragma_table_info(?) WHERE name = 'workspace_id'`,
-          )
-          .all(name) as { not_null: number }[]
-      )[0]
-      if (column?.notNull !== true || liveColumn?.not_null !== 1) missing.push(name)
+      // A runtime table has no Drizzle declaration; only its live column is checked.
+      const declaredOk =
+        table === undefined
+          ? entry.origin === 'runtime'
+          : getTableConfig(table.table).columns.find((c) => c.name === 'workspace_id')?.notNull ===
+            true
+      if (!declaredOk || liveWorkspaceColumn(name)?.not_null !== 1) missing.push(name)
     }
     expect(missing).toEqual([])
   })
