@@ -66,9 +66,7 @@ describe('Sign in with ChatGPT', () => {
     const { openUrl } = show(commands)
     expect((screen.getByRole('radio', { name: /On Desk/ }) as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }))
-    expect((
-      await screen.findByText(/Waiting for you to finish signing in to ChatGPT/),
-    ).toBeTruthy()
+    expect(await screen.findByText(/Waiting for you to finish signing in to ChatGPT/)).toBeTruthy()
     expect(commands.chatgptSignInStart.mutate).toHaveBeenCalledWith({ machineId: 'machine:desk' })
     expect(openUrl).toHaveBeenCalledWith(AUTHORIZE)
     await waitFor(() => expect(commands.chatgptSignInStatus.query).toHaveBeenCalled())
@@ -85,43 +83,35 @@ describe('Sign in with ChatGPT', () => {
     expect((await screen.findByRole('status')).textContent).toContain(
       'Signed in as person@example.test',
     )
-    'Signed in as person@example.test',
-      expect(
-        screen.getByRole('link', { name: 'ChatGPT’s usage settings' }).getAttribute('href'),
-      ).toBe('https://chatgpt.com/settings/usage')
-    expect((reload).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('link', { name: 'ChatGPT’s usage settings' })).getAttribute('href')).toBe('https://chatgpt.com/settings/usage')
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole('link', { name: 'ChatGPT’s usage settings' }).getAttribute('href'),
+    ).toBe('https://chatgpt.com/settings/usage')
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(onDone).toHaveBeenCalled()
   })
 
   it('paste instead: with no machine of mine, the person pastes the address the browser ended on', async () => {
+    const commands = fakeServer({ via: 'paste' })
+    show(commands, [])
     expect(
       (screen.getByRole('radio', { name: /paste the address/ }) as HTMLInputElement).checked,
     ).toBe(true)
-    show(commands, [])
-    expect(screen.getByRole('radio', { name: /paste the address/ }) as HTMLInputElement).checked
-    ).toBe(true)
-    fireEvent.change(screen.getByLabelText('Name'),
-    value: 'My ChatGPT'
-    )
-    fireEvent.click(screen.getByRole('button',
-    name: 'Continue with ChatGPT'
-    expect((await screen.findByRole('status')).textContent).toContain(
-      'Signed in as person@example.test',
-    )
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'My ChatGPT' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }))
     const field = await screen.findByLabelText('Address from the browser')
     expect(commands.chatgptSignInStart.mutate).toHaveBeenCalledWith({ label: 'My ChatGPT' })
     fireEvent.change(field, {
       target: { value: '  http://127.0.0.1:1455/auth/callback?code=FAKE&state=FAKE  ' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Finish sign-in' }))
-    expect(await screen.findByRole('status')).textContent
-    ).toContain('Signed in as person@example.test')
-    expect((commands.chatgptSignInComplete.mutate).toHaveBeenCalledWith(
-    attemptId: 'chatgpt_1', pastedUrl
-    : 'http://127.0.0.1:1455/auth/callback?code=FAKE&state=FAKE',
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'Signed in as person@example.test',
     )
+    expect(commands.chatgptSignInComplete.mutate).toHaveBeenCalledWith({
+      attemptId: 'chatgpt_1',
+      pastedUrl: 'http://127.0.0.1:1455/auth/callback?code=FAKE&state=FAKE',
+    })
   })
 
   it('paste instead while a machine listens', async () => {
@@ -136,7 +126,7 @@ describe('Sign in with ChatGPT', () => {
     const commands = fakeServer({ via: 'paste' })
     commands.chatgptSignInComplete.mutate.mockResolvedValueOnce({
       state: 'failed',
-    expect((await screen.findByRole('alert')).textContent).toContain('cancelled in the browser')
+      reason: 'The sign-in was cancelled in the browser. Nothing was stored.',
     })
     const { reload } = show(commands, [])
     fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }))
@@ -144,15 +134,10 @@ describe('Sign in with ChatGPT', () => {
       target: { value: 'http://127.0.0.1:1455/auth/callback?error=access_denied&state=FAKE' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Finish sign-in' }))
-    expect(await screen.findByRole('alert')).textContent
-    ).toContain('cancelled in the browser')
-    expect((reload).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button',
-    name: 'Try again'
-    expect((await screen.findByRole('alert')).textContent).toContain('too old to listen')
-    expect(screen.getByRole('button',
-    name: 'Continue with ChatGPT'
-    )).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain('cancelled in the browser')
+    expect(reload).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(screen.getByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy()
   })
 
   it('a refused start shows the server’s sentence', async () => {
@@ -162,8 +147,7 @@ describe('Sign in with ChatGPT', () => {
     )
     show(commands)
     fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }))
-    expect(await screen.findByRole('alert')).textContent
-    ).toContain('too old to listen')
+    expect((await screen.findByRole('alert')).textContent).toContain('too old to listen')
   })
 
   it('offers only my own machines that are online', () => {

@@ -15,9 +15,9 @@ import {
 
 const DECLARED: readonly CredentialContractName[] = [
   'add',
+  'allowMachine',
   'chatgptSignInComplete',
   'chatgptSignInStart',
-  'allowMachine',
   'disallowMachine',
   'remove',
   'rename',
