@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { HarnessExecRequestMessage } from './harness'
 import { HeadlessTurnRequestMessage } from './headless'
 import { RuntimeDurableSendRequestMessage, RuntimeSendRequestMessage } from './runtime'
-import { SpawnMessage } from './terminal'
+import { DriverSelectedMessage, SpawnMessage } from './terminal'
 
 /**
  * POSTURE ON THE WIRE (POD-6858 Task 9, harness-session-posture.md §4.2–4.3).
@@ -90,5 +90,45 @@ describe.each(frames)('%s carries a posture', (_name, schema, frame) => {
     {},
   ])('refuses the posture %j', (posture) => {
     expect(schema.safeParse({ ...frame, posture }).success).toBe(false)
+  })
+})
+
+/**
+ * WHAT A LAUNCH COULD NOT MEET, REPORTED BACK (POD-6858 Task 11, §4.2 and §5).
+ *
+ * The daemon reports the applied terms on the frame it already sends for the
+ * driver decision: the harness mode Podium asked for and every requirement
+ * this launch cannot meet, with the reason in words. An older daemon sends
+ * none, and the frame still parses.
+ */
+describe('driverSelected carries the launch report', () => {
+  const selected = { type: 'driverSelected', sessionId: 's-posture', driverId: 'generic-pty' }
+
+  it('round-trips a report with one unmet requirement', () => {
+    const posture = {
+      requestedMode: 'auto',
+      unmet: [{ requirement: 'autonomy', reason: 'Pi has no approval gate to supervise with' }],
+    }
+    const parsed = DriverSelectedMessage.parse({ ...selected, posture })
+    expect(parsed.posture).toEqual(posture)
+    expect(DriverSelectedMessage.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed)
+  })
+
+  it('round-trips a report with no requested mode and nothing unmet', () => {
+    const parsed = DriverSelectedMessage.parse({
+      ...selected,
+      posture: { requestedMode: null, unmet: [] },
+    })
+    expect(parsed.posture).toEqual({ requestedMode: null, unmet: [] })
+  })
+
+  it('parses a frame from a daemon that sends no report', () => {
+    const parsed = DriverSelectedMessage.parse(selected)
+    expect('posture' in parsed).toBe(false)
+  })
+
+  it('refuses a requirement that is not one of the five', () => {
+    const posture = { requestedMode: null, unmet: [{ requirement: 'folder-trust', reason: 'x' }] }
+    expect(DriverSelectedMessage.safeParse({ ...selected, posture }).success).toBe(false)
   })
 })
