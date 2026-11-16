@@ -334,6 +334,21 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 // packages/client-graph — CredentialModel (`pool.model('credential', id)`, request:credentials.list)
 //   credentials.signInStart({ type, machineId, label }) → { credentialId, terminalSessionId }
 //   credentials.chatgptSignInStart | chatgptSignInComplete ; query credentials.list
+//   chatgptSignInStart({ label?, machineId?, credentialId? }) → { attemptId, authorizeUrl,
+//     via: 'machine' | 'paste' }; chatgptSignInComplete({ attemptId, pastedUrl }) and query
+//     credentials.chatgptSignInStatus({ attemptId }) → { state: 'waiting' } | { state: 'signed-in',
+//     credentialId, label, email?, planEnabled, updated } | { state: 'failed', reason }
+//   credentials.remove → { ok: true, providerRevocation?: 'confirmed' | 'not-confirmed' }
+// apps/server/src/modules/credentials/chatgpt-plan (Task 14) — registry.modules.chatgptPlan
+//   (ChatgptPlanService: signIn, keeper); ChatgptPlanKeeper.accessToken(credentialId) → a token
+//   with ≥ 5 min left; .revoke(credentialId); CompleteDeps.chatgptPlan: { accessToken }
+//   CHATGPT_APP_NAME = 'Podium' (openai.ts): agent_name_hint, and Codex's clientInfo.name (Task 15)
+//   the sealed secret is the token set as JSON (ChatgptTokenSet: seq = its vault version,
+//   clientId, accessToken, refreshToken, idToken, expiresAt, scopes, savedAt)
+// packages/protocol oauth-loopback.ts — CAP_OAUTH_LOOPBACK = 'oauth.loopback.v1';
+//   oauthLoopbackRequest { requestId, port, path, state, ttlMs } → oauthLoopbackResult
+//   { requestId, listening, error? }; oauthLoopbackCallback { requestId, code?, state?, clientId?,
+//   scope?, error?, errorDescription? } (strict); oauthLoopbackCancel { requestId }
 // packages/commands/src/sessions
 //   sessions.switchCredential({ sessionId, credentialId | null, whenBusy: 'wait' | 'interrupt' })
 //     → { continuedAs: 'resume' | 'handoff' | 'next-wake' }
