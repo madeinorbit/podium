@@ -66,6 +66,7 @@
  * by ONE pending frame per connection, and cannot overflow anything.
  */
 
+import { type Principal, principalRoutingId } from '@podium/protocol'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { ScopedDelivery } from '../authority/scoping'
 import type {
@@ -78,7 +79,6 @@ import type {
 } from '../replica/types'
 import type { FeedIdentity, FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
-import { type Principal, principalRoutingId } from '@podium/protocol'
 
 /**
  * The retention floor, read live (ADR 2 D5).

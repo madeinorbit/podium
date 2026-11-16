@@ -95,7 +95,12 @@ function hold(machine: MachineId): TopicState[] {
 
 const frames: string[] = []
 const dump = (): string =>
-  JSON.stringify({ connected: hub.connected, sockets, health: hub.connectionHealth(), frames: frames.slice(-12) })
+  JSON.stringify({
+    connected: hub.connected,
+    sockets,
+    health: hub.connectionHealth(),
+    frames: frames.slice(-12),
+  })
 async function until(pred: () => boolean): Promise<void> {
   const deadline = Date.now() + 10_000
   while (!pred()) {

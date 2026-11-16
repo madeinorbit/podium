@@ -10,6 +10,8 @@
  * connection's position from advancing.
  */
 
+import { asMutationId } from '@podium/model'
+import type { Principal } from '@podium/protocol'
 import {
   asAgentIdentityId,
   asCapabilityRef,
@@ -17,13 +19,11 @@ import {
   asDeviceId,
   asUserId,
 } from '@podium/protocol'
-import { asMutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { DeltaFrame, ServerFrame } from '../replica/types'
 import { FeedIdentityRegistry, type FeedIdentityStore } from './identity'
 import { FeedPublisher, type FeedRetentionPort } from './publisher'
-import type { Principal } from '@podium/protocol'
 
 const ULIDS = [
   '01JQ0P8Z3M4N5R6T7V8W9XAYBZ',
@@ -97,7 +97,7 @@ const emit = async (
 ): Promise<void> => {
   await feed.publish(ALICE, {
     kind: 'batch',
-    throughSeq: throughSeq ?? (changes[changes.length - 1]?.seq ?? 0),
+    throughSeq: throughSeq ?? changes[changes.length - 1]?.seq ?? 0,
     changes,
   })
 }
@@ -296,7 +296,12 @@ describe('provenance rides the envelope (ADR 2 D8)', () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
     await emit(feed, [
-      { ...change(1, 'a'), causationId: 'cmd-1', mutationId: asMutationId('mut-1'), originId: 'peer-1' },
+      {
+        ...change(1, 'a'),
+        causationId: 'cmd-1',
+        mutationId: asMutationId('mut-1'),
+        originId: 'peer-1',
+      },
       change(2, 'b'),
     ])
 
@@ -314,10 +319,7 @@ describe('provenance rides the envelope (ADR 2 D8)', () => {
   it('a remove carries NO payload and an upsert always does', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
-    await emit(feed, [
-      { seq: 1, entity: 'session', entityId: 'a', op: 'remove' },
-      change(2, 'b'),
-    ])
+    await emit(feed, [{ seq: 1, entity: 'session', entityId: 'a', op: 'remove' }, change(2, 'b')])
 
     const [removal, upsert] = deltas(await connection.drain())[0]?.changes ?? []
     expect(removal && 'payload' in removal).toBe(false)
