@@ -1126,7 +1126,9 @@ describe('daemon multi-bridge', () => {
     await waitFor(() => fixtureFrame(sessionId) !== undefined)
     expect(existsSync(uploadDir)).toBe(true)
     // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
-    send({ type: 'input', sessionId, data: btoa('\x03') })
+    // A person's keypress: automation bytes for a contracted session (claude-code
+    // is one) are refused at the input adapter (POD-4279).
+    send({ type: 'input', sessionId, data: btoa('\x03'), inputOrigin: 'human' })
     // With backend=none the master IS the process; when it exits the onExit fires
     // and (with the fix) removeSessionUploads is called before agentExit.
     await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
