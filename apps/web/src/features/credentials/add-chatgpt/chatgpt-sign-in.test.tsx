@@ -80,8 +80,8 @@ describe('Sign in with ChatGPT', () => {
     const commands = fakeServer({ via: 'machine', status: [{ state: 'waiting' }, SIGNED_IN] })
     const { reload, onDone } = show(commands)
     fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }))
-    expect((await screen.findByRole('status')).textContent).toContain(
-      'Signed in as person@example.test',
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('Signed in as person@example.test'),
     )
     expect(reload).toHaveBeenCalledTimes(1)
     expect(
@@ -105,8 +105,8 @@ describe('Sign in with ChatGPT', () => {
       target: { value: '  http://127.0.0.1:1455/auth/callback?code=FAKE&state=FAKE  ' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Finish sign-in' }))
-    expect((await screen.findByRole('status')).textContent).toContain(
-      'Signed in as person@example.test',
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('Signed in as person@example.test'),
     )
     expect(commands.chatgptSignInComplete.mutate).toHaveBeenCalledWith({
       attemptId: 'chatgpt_1',
