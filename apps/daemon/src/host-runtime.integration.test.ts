@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { shellCommand } from '@podium/harness'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
-import { asMachineId, asSessionId, type SessionId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+} from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { BindingStore } from './binding-store'
@@ -353,13 +359,29 @@ describe('legacy member recovery at host boot', () => {
         dir: join(fixture.root, 'runtime', 'session-bindings'),
       })
       expect(await store.read(asSessionId('legacy-pane'))).toBeNull()
-      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      // The owner arrives as the server's binding confirmation for the pane: its
+      // delegation (POD-3961), not the retired session-to-owner map.
+      const confirmations = {
+        'legacy-pane': {
+          delegation: {
+            actor: asAgentIdentityId('legacy-pane'),
+            onBehalfOf: asUserId('mem_migrated-owner'),
+            grantedScope: { kind: 'none' as const },
+            parentBindingId: null,
+            revision: 1,
+          },
+          owner: 'mem_migrated-owner',
+          machineId: '11111111-1111-4111-8111-111111111111',
+          closed: false,
+        },
+      }
+      fixture.host.connected(undefined, confirmations)
       await vi.waitFor(async () => {
         const binding = await store.read(asSessionId('legacy-pane'))
         expect(binding?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_migrated-owner')
         expect(binding?.observations.some((row) => row.value === 'thread-live')).toBe(true)
       })
-      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      fixture.host.connected(undefined, confirmations)
       await fixture.host.close()
       expect(JSON.stringify(await store.read(asSessionId('legacy-pane')))).not.toContain(
         'user:sole',
