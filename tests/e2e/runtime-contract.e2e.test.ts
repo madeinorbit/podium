@@ -42,16 +42,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-  stateDir,
-} from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import type { AppRouter } from '../../apps/server/src/router'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local 9923).
@@ -93,7 +89,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
@@ -258,7 +254,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
@@ -321,7 +317,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,

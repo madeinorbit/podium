@@ -67,13 +67,9 @@ import {
   type RuntimeEvent,
 } from '@podium/harness/driver/host'
 import type { MachineId, SessionId } from '@podium/model'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-  stateDir,
-} from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { startDaemonProcess } from './daemon-restart-harness'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -241,7 +237,7 @@ describe('e2e harness: a daemon in its own process', () => {
         dir: join(tmp, 'harness'),
         options: {
           serverUrl: `ws://localhost:${srv.port}`,
-          machineToken: readOrCreateDaemonSecret(stateDir()),
+          machineToken: srv.machineToken,
           machineId: hostMachineId(),
           identityDir: tmp,
           backend: 'none',
@@ -288,7 +284,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
     const srv = await startServer()
     const daemonOptions = {
       serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp,
       // No `launch` override is possible across a process boundary, and none is
