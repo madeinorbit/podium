@@ -708,7 +708,12 @@ export async function createDaemonHostRuntime(args: {
                 ctx.access.homeIdOf(sessionId) === homeId,
             )
             .map(([sessionId]) => sessionId),
-        stopSession: (sessionId) => stopSessionProcess(ctx, { sessionId: sessionId as SessionId }),
+        // The daemon's own decision, not the server's kill: so it says the
+        // process ended, the way an exit would, or the session reads live.
+        stopSession: async (sessionId) => {
+          await stopSessionProcess(ctx, { sessionId: sessionId as SessionId })
+          ctx.send({ type: 'agentExit', sessionId: sessionId as SessionId, code: 143 })
+        },
         codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
         commandEnv: settledCommandEnv,
       }),
