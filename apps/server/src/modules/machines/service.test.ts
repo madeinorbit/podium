@@ -1100,10 +1100,17 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toEqual([])
       }
-      expect(await store.settingsAudit.list()).toEqual([expect.objectContaining({
-        command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
-        detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
-      })])
+      // The admin's share is audited too (POD-6700), under the admin's own name.
+      expect(await store.settingsAudit.list()).toEqual([
+        expect.objectContaining({
+          command: 'machines.share', actorKind: 'user', actorId: admin, onBehalfOf: admin,
+          detail: { machineId: MACHINE, grantee: OWNER_B, verb: 'use' },
+        }),
+        expect.objectContaining({
+          command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
+          detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
+        }),
+      ])
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1134,6 +1141,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const { svc, store, dir } = await transferWorld()
     try {
       await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: OWNER_A, onBehalfOf: OWNER_A })
+      // The share writes its own audit row (POD-6700); the takeover must add none.
+      const auditBefore = await store.settingsAudit.list()
+      expect(auditBefore).toEqual([expect.objectContaining({ command: 'machines.share' })])
       const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
       await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
       append.mockRestore()
@@ -1142,7 +1152,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
       }
-      expect(await store.settingsAudit.list()).toEqual([])
+      expect(await store.settingsAudit.list()).toEqual(auditBefore)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
