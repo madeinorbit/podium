@@ -15,7 +15,15 @@ import {
   type PostureRequest,
 } from '../../posture-types.js'
 import { codexManifest } from './index.js'
-import { codexPosture } from './posture.js'
+import { codexLaunchHookTrustSupported, codexPosture } from './posture.js'
+
+/** Quiet start, unmet: a Codex not measured to take per-launch hook trust. */
+function hookReviewUnmet(named: string) {
+  return {
+    requirement: 'quiet-start',
+    reason: `Codex ${named} is not measured to take trust for Podium's hooks per launch (from 0.147.0), so it may ask to review them at startup`,
+  }
+}
 
 const HOME = '/home/podium-test'
 const CODEX_HOME = `${HOME}/.codex`
@@ -268,9 +276,44 @@ describe('codexPosture', () => {
             requirement: 'autonomy',
             reason: 'Codex 0.146.0 has no automatic review; it arrived in 0.147.0',
           },
+          ...(mode === 'terminal' ? [hookReviewUnmet('version "0.146.0"')] : []),
         ])
       })
     }
+  })
+
+  describe('hook review at startup (POD-6999)', () => {
+    it('terminal: from 0.147.0 the hook install trusts Podium handlers per launch; nothing unmet', () => {
+      for (const version of ['0.147.0', '0.167.2', '0.169.0', '1.0.0']) {
+        const out = codexPosture(BUILDER.terminal, request('terminal', SUPERVISED, { version }))
+        expect(out.unmet).toEqual([])
+      }
+    })
+
+    it('terminal: below 0.147.0 or with an unknown version, quiet start is unmet', () => {
+      for (const [version, named] of [
+        ['0.146.9', 'version "0.146.9"'],
+        ['', 'of unknown version'],
+        ['codex-cli dev', 'version "codex-cli dev"'],
+      ] as const) {
+        const out = codexPosture(BUILDER.terminal, request('terminal', SUPERVISED, { version }))
+        expect(out.unmet).toEqual([hookReviewUnmet(named)])
+      }
+    })
+
+    it('engine, turn and client report no quiet-start entry for hooks', () => {
+      for (const mode of ['engine', 'turn', 'client'] as const) {
+        const out = codexPosture(BUILDER[mode], request(mode, AUTONOMOUS, { version: '' }))
+        expect(out.unmet.map((entry) => entry.requirement)).not.toContain('quiet-start')
+      }
+    })
+
+    it('agrees with the version predicate the hook install uses', () => {
+      expect(codexLaunchHookTrustSupported('0.147.0')).toBe(true)
+      expect(codexLaunchHookTrustSupported('codex-cli 0.169.0')).toBe(true)
+      expect(codexLaunchHookTrustSupported('0.146.9')).toBe(false)
+      expect(codexLaunchHookTrustSupported('')).toBe(false)
+    })
   })
 
   describe('a native mode', () => {

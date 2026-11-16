@@ -8,6 +8,7 @@ import type {
   PostureResult,
   UnmetRequirement,
 } from '../../posture-types.js'
+import { parseHarnessVersion } from '../../version-policy.js'
 
 /**
  * Grok's own permission-mode words (`--permission-mode`, and the ACP
@@ -27,8 +28,14 @@ export const GROK_PERMISSION_MODES: readonly string[] = [
 /**
  * Grok's launch terms (POD-6858, docs/design/harness-session-posture.md §4.8).
  *
- * - Trust: met by default. A signed-in Grok draws no folder prompt (measured,
- *   1.0.70).
+ * - Trust: `--trust` in terminal, client and turn. Grok asks "Do you trust the
+ *   contents of this directory?" in every folder while the home holds a hook
+ *   of the person's own, and Podium's hook file `$GROK_HOME/hooks/podium.json`
+ *   is one (measured, 1.0.70; 1.0.52 did not ask). `--trust` answers it and
+ *   Grok records the grant in `trusted_folders.toml`, as the documented
+ *   `/hooks-trust` does. It is missing from `--help` but accepted from 1.0.5
+ *   (the oldest measured). `grok agent stdio` refuses it; a headless engine
+ *   counts the folder as trusted for the person's own hooks (user guide).
  * - The Podium CLI: `--allow 'Bash(<cli> *)'` in the TUI and a `--single`
  *   turn; in `Bash(...)` a `*` matches anything, spaces included (measured in
  *   the TUI, 1.0.70). The ACP engine takes no allow rule per launch and its
@@ -65,7 +72,9 @@ export function grokPosture(launch: PostureLaunch, request: PostureRequest): Pos
     return { launch, homeEdits: edit ? [edit] : [], requestedMode: mode, unmet }
   }
 
+  const trust = trustArgs(request, unmet)
   const options = [
+    ...trust,
     ...(mode ? ['--permission-mode', mode] : []),
     '--allow',
     `Bash(${request.grants.podiumCli.name} *)`,
@@ -106,6 +115,29 @@ function podiumAllowEdit(request: PostureRequest): HomeEdit | undefined {
     serves: 'podium-cli',
     createIfMissing: true,
   }
+}
+
+/** The oldest Grok measured to accept `--trust` (POD-6999). */
+const TRUST_FLAG_SINCE = { major: 1, minor: 0, patch: 5 } as const
+
+/**
+ * `--trust`, or nothing (and unmet) when the installed Grok is not known to
+ * take it: an older Grok exits on an argument it does not know, so a guess
+ * would stop the session from starting.
+ */
+function trustArgs(request: PostureRequest, unmet: UnmetRequirement[]): string[] {
+  const version = request.context.installation.version
+  const parsed = parseHarnessVersion(version)
+  const since = TRUST_FLAG_SINCE
+  const below = parsed
+    ? parsed.major - since.major || parsed.minor - since.minor || parsed.patch - since.patch
+    : -1
+  if (below >= 0) return ['--trust']
+  unmet.push({
+    requirement: 'workspace-trust',
+    reason: `Grok ${version ? `version "${version}"` : 'of unknown version'} is not known to take --trust (from ${since.major}.${since.minor}.${since.patch}), so it may ask whether to trust the folder`,
+  })
+  return []
 }
 
 /** The Grok mode word for this posture, or null (and unmet) when it has none. */

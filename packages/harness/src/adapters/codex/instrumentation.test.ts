@@ -14,7 +14,9 @@ import { testAccount } from '../../driver/testing/harness-context.js'
 import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
+  codexHookTrustedHash,
   codexInstrumentation,
+  codexLaunchHookTrustOverride,
   ensurePodiumCodexHooks,
   PODIUM_CODEX_HOOK_COMMAND,
   PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
@@ -363,6 +365,107 @@ describe('codex hook trust detection (POD-4076)', () => {
     expect(podiumHookPositions(doc)).toEqual([
       { event: 'Stop', snake: 'stop', group: 1, handler: 0 },
     ])
+  })
+})
+
+/**
+ * Per-launch trust for Podium's own handlers (POD-6999). The fixtures are what
+ * real Codex 0.169.0 wrote: a hooks.json Podium installed, and the config.toml
+ * Codex saved after "Trust all and continue". Only the home folder in the keys
+ * was renamed to /home/user; the hashes do not depend on it (measured).
+ */
+describe('codex per-launch hook trust (POD-6999)', () => {
+  const FIXTURES = join(import.meta.dirname, 'fixtures', 'hook-trust-0.169.0')
+  const HOOKS_JSON = '/home/user/.codex/hooks.json'
+
+  async function fixture(name: 'trust' | 'matcher') {
+    const doc = JSON.parse(await readFile(join(FIXTURES, `${name}.hooks.json`), 'utf8'))
+    const written = parseCodexHookTrustState(
+      await readFile(join(FIXTURES, `${name}.config.toml`), 'utf8'),
+    )
+    return { doc, written }
+  }
+
+  function entriesOf(override: string | undefined): Map<string, string> {
+    const entries = new Map<string, string>()
+    for (const match of (override ?? '').matchAll(/"([^"]+)"=\{trusted_hash="([^"]+)"\}/g)) {
+      entries.set(match[1] as string, match[2] as string)
+    }
+    return entries
+  }
+
+  it("reproduces the hashes Codex 0.169.0 wrote for Podium's six handlers, byte for byte", async () => {
+    const { doc, written } = await fixture('trust')
+    const override = codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc })
+    expect(override?.startsWith('hooks.state={')).toBe(true)
+    const ours = entriesOf(override)
+    expect(ours.size).toBe(6)
+    expect(written.size).toBe(6)
+    for (const [key, entry] of written) expect(ours.get(key)).toBe(entry.trustedHash)
+  })
+
+  it('keeps a group matcher in the hash and gives a foreign handler beside Podium no entry', async () => {
+    // PreToolUse holds one group, matcher "Bash": a foreign handler at 0:0 and
+    // Podium's at 0:1. Codex wrote trust for both; Podium names only its own.
+    const { doc, written } = await fixture('matcher')
+    const ours = entriesOf(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc }))
+    const foreign = `${HOOKS_JSON}:pre_tool_use:0:0`
+    expect(written.has(foreign)).toBe(true)
+    expect(ours.has(foreign)).toBe(false)
+    expect(ours.get(`${HOOKS_JSON}:pre_tool_use:0:1`)).toBe(
+      written.get(`${HOOKS_JSON}:pre_tool_use:0:1`)?.trustedHash,
+    )
+    expect(ours.size).toBe(written.size - 1)
+    for (const [key, hash] of ours) expect(written.get(key)?.trustedHash).toBe(hash)
+  })
+
+  it('a changed handler hashes differently, so Codex asks again rather than trusting it', () => {
+    const handler = { type: 'command', command: PODIUM_CODEX_HOOK_COMMAND, timeout: 5 }
+    const ours = codexHookTrustedHash({ snake: 'stop', matcher: undefined, handler })
+    expect(ours).toBe('sha256:bde712998083bff83f7e1eeb73800c4c83e5fe5a561c25ecf8727696f29dd515')
+    expect(
+      codexHookTrustedHash({
+        snake: 'stop',
+        matcher: undefined,
+        handler: { ...handler, command: `${PODIUM_CODEX_HOOK_COMMAND} ` },
+      }),
+    ).not.toBe(ours)
+  })
+
+  it('names no handler when the doc holds none of Podium', () => {
+    const doc = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine', timeout: 5 }] }] } }
+    expect(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc })).toBeUndefined()
+  })
+
+  it('ensurePodiumCodexHooks: launch trust counts as trust and writes nothing', async () => {
+    const dir = await home()
+    const onDegraded = vi.fn()
+    const res = await ensureHooks({ homeDir: dir, launchTrust: true, onDegraded })
+    expect(res).toMatchObject({ installed: true, trusted: true, untrustedEvents: [] })
+    expect(res.degraded).toBeUndefined()
+    expect(onDegraded).not.toHaveBeenCalled()
+    expect(entriesOf(res.launchTrustOverride).size).toBe(6)
+    expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+  })
+
+  it('ensurePodiumCodexHooks: without launch trust the untrusted fallback is unchanged', async () => {
+    const dir = await home()
+    const res = await ensureHooks({ homeDir: dir })
+    expect(res.trusted).toBe(false)
+    expect(res.launchTrustOverride).toBeUndefined()
+  })
+
+  it('ensurePodiumCodexHooks: a handler the user turned off stays reported', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const hooksJsonPath = join(dir, '.codex', 'hooks.json')
+    await writeFile(
+      join(dir, '.codex', 'config.toml'),
+      `[hooks.state."${hooksJsonPath}:stop:0:0"]\nenabled = false\n`,
+    )
+    const res = await ensureHooks({ homeDir: dir, launchTrust: true })
+    expect(res.trusted).toBe(false)
+    expect(res.untrustedEvents).toEqual(['Stop'])
   })
 })
 

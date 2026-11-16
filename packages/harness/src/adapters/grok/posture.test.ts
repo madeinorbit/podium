@@ -88,6 +88,7 @@ describe('grokPosture', () => {
         'uuid-1',
         '--model',
         'grok-4.6',
+        '--trust',
         '--permission-mode',
         'default',
         ...ALLOW,
@@ -109,6 +110,7 @@ describe('grokPosture', () => {
       'uuid-1',
       '--model',
       'grok-4.6',
+      '--trust',
       '--permission-mode',
       'auto',
       ...ALLOW,
@@ -131,6 +133,7 @@ describe('grokPosture', () => {
           'uuid-1',
           '--rules',
           'be brief',
+          '--trust',
           '--permission-mode',
           word,
           ...ALLOW,
@@ -147,7 +150,14 @@ describe('grokPosture', () => {
 
     it(`client / ${posture.mode}: the attached TUI runs its own tools, so it gets the terminal's terms`, () => {
       const out = grokPosture(BUILDER.client, request('client', posture))
-      expect(out.launch.args).toEqual(['--resume', 'uuid-1', '--permission-mode', word, ...ALLOW])
+      expect(out.launch.args).toEqual([
+        '--resume',
+        'uuid-1',
+        '--trust',
+        '--permission-mode',
+        word,
+        ...ALLOW,
+      ])
       expect(out.requestedMode).toBe(word)
       expect(out.unmet).toEqual([])
     })
@@ -221,11 +231,55 @@ describe('grokPosture', () => {
     expect(out.launch.args).toEqual([
       '--resume',
       'uuid-1',
+      '--trust',
       '--permission-mode',
       'auto',
       '--allow',
       'Bash(podium-dev *)',
     ])
+  })
+
+  describe('folder trust (POD-6999)', () => {
+    function at(mode: LaunchMode, version: string): PostureRequest {
+      return {
+        ...request(mode, SUPERVISED),
+        context: testHarnessContext({ kind: 'grok', version }),
+      }
+    }
+
+    it('passes --trust from 1.0.5, the oldest Grok measured to take it', () => {
+      for (const version of ['1.0.5', '1.0.52', '1.0.70', '2.0.0']) {
+        for (const mode of ['terminal', 'turn', 'client'] as const) {
+          const out = grokPosture(BUILDER[mode], at(mode, version))
+          expect(out.launch.args).toContain('--trust')
+          expect(out.unmet).toEqual([])
+        }
+      }
+    })
+
+    it('passes nothing below 1.0.5 or with an unknown version, and reports trust unmet', () => {
+      for (const [version, named] of [
+        ['1.0.4', 'version "1.0.4"'],
+        ['0.2.23', 'version "0.2.23"'],
+        ['', 'of unknown version'],
+        ['grok dev build', 'version "grok dev build"'],
+      ] as const) {
+        const out = grokPosture(BUILDER.terminal, at('terminal', version))
+        expect(out.launch.args).not.toContain('--trust')
+        expect(out.unmet).toEqual([
+          {
+            requirement: 'workspace-trust',
+            reason: `Grok ${named} is not known to take --trust (from 1.0.5), so it may ask whether to trust the folder`,
+          },
+        ])
+      }
+    })
+
+    it('engine: grok agent stdio refuses --trust, so the engine gets none', () => {
+      const out = grokPosture(BUILDER.engine, at('engine', '1.0.70'))
+      expect(out.launch.args).not.toContain('--trust')
+      expect(out.unmet).toEqual([])
+    })
   })
 
   it('passes the contract checks in every launch mode', () => {

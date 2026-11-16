@@ -22,6 +22,31 @@ export const CODEX_APPROVAL_MODES: readonly string[] = ['on-request', 'auto-revi
  *  (measured on 0.147.0, also the version floor). */
 const AUTO_REVIEW_SINCE = { major: 0, minor: 147, patch: 0 } as const
 
+/**
+ * The first Codex measured to honour per-launch trust for hooks (POD-6999): a
+ * `-c hooks.state={…}` override trusts exactly the handlers it names, for that
+ * launch, and writes nothing. Measured on 0.147.0 (also the version floor),
+ * 0.167.2 and 0.169.0. Each draws a startup modal, "Hooks need review", for
+ * hooks it has not trusted, and the modal swallows the first message. The
+ * override itself is built by the hook install (./instrumentation.ts), the one
+ * place that knows where Podium's handlers sit in `hooks.json`.
+ */
+const LAUNCH_HOOK_TRUST_SINCE = { major: 0, minor: 147, patch: 0 } as const
+
+/**
+ * Whether Podium passes per-launch trust for its own hooks to this Codex. An
+ * unknown version gets none (coordinator decision, POD-6999): the session then
+ * degrades as it did before, never on a guess.
+ */
+export function codexLaunchHookTrustSupported(version: string): boolean {
+  const parsed = parseHarnessVersion(version)
+  if (!parsed) return false
+  const since = LAUNCH_HOOK_TRUST_SINCE
+  const below =
+    parsed.major - since.major || parsed.minor - since.minor || parsed.patch - since.patch
+  return below >= 0
+}
+
 /** The rule file Podium owns in the Codex home (§4.7, decision 6). */
 const RULE_FILE = ['rules', 'podium.rules'] as const
 
@@ -42,7 +67,10 @@ const RULE_FILE = ['rules', 'podium.rules'] as const
  *   `--approve-for-me`. A client gets no permission flag: Codex refuses any
  *   permission override on `resume --remote`.
  * - Quiet start: `check_for_update_on_startup=false` in terminal and client,
- *   the two launches that draw the update menu.
+ *   the two launches that draw the update menu. The terminal's hook-review
+ *   modal is answered by the hook install's per-launch trust for Podium's own
+ *   handlers; where it passes none (version unknown or below
+ *   `LAUNCH_HOOK_TRUST_SINCE`) quiet start is reported unmet.
  * - Podium material: Podium's MCP servers mounted by this launch get
  *   `default_tools_approval_mode="approve"`. Reads outside the folder are
  *   unrestricted by default.
@@ -66,6 +94,16 @@ export function codexPosture(launch: PostureLaunch, request: PostureRequest): Po
     ]),
     ...approval.args,
   ]
+
+  if (request.mode === 'terminal') {
+    const version = request.context.installation.version
+    if (!codexLaunchHookTrustSupported(version)) {
+      unmet.push({
+        requirement: 'quiet-start',
+        reason: `Codex ${version ? `version "${version}"` : 'of unknown version'} is not measured to take trust for Podium's hooks per launch (from ${dotted(LAUNCH_HOOK_TRUST_SINCE)}), so it may ask to review them at startup`,
+      })
+    }
+  }
 
   const ruleEdit = podiumRuleEdit(request)
   if (!ruleEdit) {

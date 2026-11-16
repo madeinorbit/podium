@@ -14,10 +14,20 @@ import {
 /** The installation every harness launch below is bound to (POD-6536): argv[0]
  *  is the context's executable, never the CLI's bare name. */
 const exe = (kind: string): string => `/opt/podium-test/bin/${kind}`
+/** Installed versions where a launch term depends on one (POD-6999): Codex's
+ *  per-launch hook trust and Grok's `--trust` are passed only to a version
+ *  measured to take them. */
+const VERSIONS: Partial<Record<AgentKind, string>> = { codex: '0.169.0', grok: '1.0.70' }
+
 /** The session context a harness launch takes; the shell takes none. */
 const ctx = (kind: AgentKind, home?: string) => {
   if (kind === 'shell') return {}
-  const harnessContext = testHarnessContext({ kind, ...(home ? { home } : {}) })
+  const version = VERSIONS[kind]
+  const harnessContext = testHarnessContext({
+    kind,
+    ...(home ? { home } : {}),
+    ...(version ? { version } : {}),
+  })
   const { context: _context, ...posture } = testLaunchPosture(harnessContext)
   return { harnessContext, posture }
 }
@@ -144,7 +154,7 @@ function opencodePlain(spec: LaunchSpec): Record<string, unknown> {
  * posture (POD-6858 §4.8), ahead of any `--` prompt boundary. Moved to
  * posture: these used to be absent from the terminal launch.
  */
-const GROK_POSTURE_ARGS = ['--permission-mode', 'auto', '--allow', 'Bash(podium *)']
+const GROK_POSTURE_ARGS = ['--trust', '--permission-mode', 'auto', '--allow', 'Bash(podium *)']
 
 /** A Grok terminal launch with its terms checked, shaped like {@link plain}. */
 function grokPlain(spec: LaunchSpec): Record<string, unknown> {

@@ -48,8 +48,10 @@ function normalizeName(value: string | undefined): string | undefined {
 }
 
 /**
- * Grok Build reads personal hooks from GROK_HOME/hooks without project trust.
- * Podium installs one env-gated command hook per lifecycle event: Podium-spawned
+ * Grok Build reads personal hooks from GROK_HOME/hooks. Older builds ran them
+ * without folder trust; 1.0.70 runs them only in a trusted folder and, while
+ * such a hook exists, asks for trust in every folder, so Podium's launches pass
+ * `--trust` (./posture.ts, POD-6999). Podium installs one env-gated command hook per lifecycle event: Podium-spawned
  * sessions inherit their own callback URL; every other Grok process exits 0
  * before touching the network. The command streams the daemon response back to
  * Grok so PreToolUse decisions remain usable; passive event responses are ignored.

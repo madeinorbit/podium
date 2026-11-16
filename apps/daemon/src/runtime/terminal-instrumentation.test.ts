@@ -60,16 +60,37 @@ describe('terminal instrumentation installation', () => {
       sections: terminalInstrumentationSectionsFor('codex'),
       settingsDir: join(homeDir, 'settings'),
     })
+    // POD-6999: the launch trusts Podium's own handlers itself, so the session
+    // is not degraded; the foreign handler gets no entry and stays Codex's to review.
     expect(wiring).toMatchObject({
-      degradedKind: 'untrusted',
       env: { PODIUM_CODEX_HOOK_URL: selected.instrumentation!.endpointUrl },
     })
+    expect(wiring.degradedKind).toBeUndefined()
+    const override = wiring.args[wiring.args.indexOf('-c') + 1] ?? ''
+    expect(override.startsWith('hooks.state={')).toBe(true)
+    expect(override.match(/trusted_hash=/g)).toHaveLength(6)
+    expect(override).toContain(`"${hooksPath}:stop:1:0"`)
+    expect(override).not.toContain(`"${hooksPath}:stop:0:0"`)
     const hooks = JSON.parse(await readFile(hooksPath, 'utf8'))
     expect(hooks.hooks.Stop[0].hooks).toContainEqual(foreign)
     expect(Object.keys(hooks.hooks)).toHaveLength(6)
     expect(await readFile(join(homeDir, '.codex', 'config.toml'), 'utf8')).toBe(
       '# retain trust state\n',
     )
+  })
+
+  it('below the measured minimum passes no hook trust and degrades untrusted, as before', async () => {
+    const homeDir = await directory()
+    await mkdir(join(homeDir, '.codex'))
+    const wiring = await installTerminalInstrumentation({
+      sessionId: asSessionId('old-codex'),
+      harness: 'codex',
+      spec: spec('codex', undefined, { home: homeDir, version: 'codex-cli 0.146.0' }),
+      sections: terminalInstrumentationSectionsFor('codex'),
+      settingsDir: join(homeDir, 'settings'),
+    })
+    expect(wiring.degradedKind).toBe('untrusted')
+    expect(wiring.args.some((arg) => arg.startsWith('hooks.state='))).toBe(false)
   })
 
   it('degrades missing selected-version context without a bare Codex lookup or config writes', async () => {
