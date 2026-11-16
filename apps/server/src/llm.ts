@@ -373,7 +373,9 @@ async function readResponsesStream(res: Response): Promise<LlmAnswer> {
     } else if (type === 'response.completed') {
       completed = (event.response ?? {}) as typeof completed
     } else if (type === 'response.failed' || type === 'error') {
-      const response = event.response as { error?: { code?: unknown; message?: unknown } } | undefined
+      const response = event.response as
+        | { error?: { code?: unknown; message?: unknown } }
+        | undefined
       const error = (response?.error ?? event.error ?? event) as {
         code?: unknown
         message?: unknown
@@ -465,7 +467,12 @@ export async function listChatgptModels(
   }
   return (body.models ?? []).flatMap((m) =>
     m.visibility === 'list' && typeof m.slug === 'string'
-      ? [{ slug: m.slug, displayName: typeof m.display_name === 'string' ? m.display_name : m.slug }]
+      ? [
+          {
+            slug: m.slug,
+            displayName: typeof m.display_name === 'string' ? m.display_name : m.slug,
+          },
+        ]
       : [],
   )
 }

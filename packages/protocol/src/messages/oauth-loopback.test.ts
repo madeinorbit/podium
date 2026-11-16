@@ -15,7 +15,16 @@ const shapeKeys = (schema: { shape: Record<string, unknown> }) => Object.keys(sc
 describe('oauthLoopback messages (credential management §11)', () => {
   it('the callback carries code, state, the issued client id, the scope or an error, and nothing else', () => {
     expect(shapeKeys(OauthLoopbackCallbackMessage)).toEqual(
-      ['clientId', 'code', 'error', 'errorDescription', 'requestId', 'scope', 'state', 'type'].sort(),
+      [
+        'clientId',
+        'code',
+        'error',
+        'errorDescription',
+        'requestId',
+        'scope',
+        'state',
+        'type',
+      ].sort(),
     )
     const ok = OauthLoopbackCallbackMessage.safeParse({
       type: 'oauthLoopbackCallback',

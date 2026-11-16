@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../../store'
 import { newCredentialId } from '../../../store/credentials'
 import { CredentialRefusal } from '../../sessions/launch-config'
-import { attentionNoticeKey, type CredentialNotice, CredentialHealth } from '../health'
+import { attentionNoticeKey, CredentialHealth, type CredentialNotice } from '../health'
 import { sealCredentialSecret, withSecret } from '../vault'
 import { CHATGPT_PLAN_TYPE } from './authorize'
 import { FAKE_CLIENT_ID, fakeOpenAi, refreshInvalidated } from './fake-openai'
@@ -45,7 +45,13 @@ describe('ChatgptPlanKeeper', () => {
     primeFirstAdminMember(await firstAdminMemberId(store))
     for (const id of [OWNER]) {
       await store.users.create(
-        { id, displayName: id, role: 'member', createdAt: new Date(T0).toISOString(), disabledAt: null },
+        {
+          id,
+          displayName: id,
+          role: 'member',
+          createdAt: new Date(T0).toISOString(),
+          disabledAt: null,
+        },
         'not-a-real-hash',
       )
     }
@@ -179,9 +185,13 @@ describe('ChatgptPlanKeeper', () => {
   describe('acceptance 7: final and passing renewal errors', () => {
     const finals = [...FINAL_REFRESH_ERRORS].map((code) => ({
       name: `400 ${code}`,
-      answer: () => Response.json({ error: code }, { status: code === 'invalid_client' ? 401 : 400 }),
+      answer: () =>
+        Response.json({ error: code }, { status: code === 'invalid_client' ? 401 : 400 }),
     }))
-    finals.push({ name: 'disconnected grant (refresh_token_invalidated)', answer: refreshInvalidated })
+    finals.push({
+      name: 'disconnected grant (refresh_token_invalidated)',
+      answer: refreshInvalidated,
+    })
 
     it.each(finals)('$name moves the credential to attention and raises one notice', async ({
       answer,

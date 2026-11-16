@@ -30,7 +30,7 @@
  */
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { type CredentialId, type UserId, asCredentialId } from '@podium/model'
+import { asCredentialId, type CredentialId, type UserId } from '@podium/model'
 import type { SessionStore } from '../../../store'
 import { type CredentialRecord, newCredentialId } from '../../../store/credentials'
 import { recordCredentialEvent } from '../events'

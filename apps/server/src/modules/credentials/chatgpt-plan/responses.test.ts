@@ -229,18 +229,17 @@ describe('acceptance 8: the Responses request', () => {
     ]),
   }
 
-  it.each(Object.entries(limitAnswers))(
-    'a plan limit %s sets limitReachedUntil to the default back-off, not attention, and tries no other credential',
-    async (_name, answer) => {
-      const { run, provider, s, chosen } = await setup(answer)
-      await expect(run()).rejects.toThrow(/429/)
-      const record = await s.credentials.get(chosen)
-      expect(record?.status).toBe('ok')
-      expect(record?.limitReachedUntil).toBe(new Date(NOW + DEFAULT_LIMIT_MS).toISOString())
-      const tokens = provider.seen.map((x) => x.authorization)
-      expect(tokens).toEqual(['Bearer FAKE-access-chosen'])
-    },
-  )
+  it.each(
+    Object.entries(limitAnswers),
+  )('a plan limit %s sets limitReachedUntil to the default back-off, not attention, and tries no other credential', async (_name, answer) => {
+    const { run, provider, s, chosen } = await setup(answer)
+    await expect(run()).rejects.toThrow(/429/)
+    const record = await s.credentials.get(chosen)
+    expect(record?.status).toBe('ok')
+    expect(record?.limitReachedUntil).toBe(new Date(NOW + DEFAULT_LIMIT_MS).toISOString())
+    const tokens = provider.seen.map((x) => x.authorization)
+    expect(tokens).toEqual(['Bearer FAKE-access-chosen'])
+  })
 
   it('a disconnected grant (401 token_revoked, JSON under text/plain) moves it to attention', async () => {
     const { run, s, chosen } = await setup(

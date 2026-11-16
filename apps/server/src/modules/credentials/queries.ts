@@ -154,6 +154,9 @@ export const CREDENTIAL_QUERIES = {
   chatgptSignInStatus: query(z.object({ attemptId: z.string().min(1).max(100) }), (state, input) =>
     state.chatgpt
       ? state.chatgpt.status(input.attemptId, state.callerUserId)
-      : ({ state: 'failed', reason: 'Sign in with ChatGPT is not available on this server.' } as const),
+      : ({
+          state: 'failed',
+          reason: 'Sign in with ChatGPT is not available on this server.',
+        } as const),
   ),
 }

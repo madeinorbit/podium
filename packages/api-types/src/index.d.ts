@@ -1302,6 +1302,15 @@ interface AgentConcurrencyHistoryResult {
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
 
+/**
+ * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
+ * sign-in, the keeper, and the daemon that listens for the browser's return.
+ * The credential commands reach it as `CredentialsState.chatgpt`; the
+ * composition root builds it (`registry.modules.chatgptPlan`).
+ */
+
+type ChatgptSignInVia = 'machine' | 'paste';
+
 type ReclaimDiskEstimateState = {
     status: 'unknown';
     recoverableBytes: null;
@@ -3010,6 +3019,40 @@ type Output_connect_check = ({
     ok: true;
     resolvedTo: string[];
     url: string;
+});
+type Output_credentials_chatgptSignInComplete = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    planEnabled: boolean;
+    state: "signed-in";
+    updated: boolean;
+}) | ({
+    reason: string;
+    state: "failed";
+}) | ({
+    state: "waiting";
+});
+type Output_credentials_chatgptSignInStart = {
+    attemptId: string;
+    authorizeUrl: string;
+    via: ChatgptSignInVia;
+};
+type Output_credentials_chatgptSignInStatus = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    planEnabled: boolean;
+    state: "signed-in";
+    updated: boolean;
+}) | ({
+    readonly reason: "Sign in with ChatGPT is not available on this server.";
+    readonly state: "failed";
+}) | ({
+    reason: string;
+    state: "failed";
+}) | ({
+    state: "waiting";
 });
 type Output_discovery_lastMachineScan = (null) | ({
     deep: boolean;
@@ -6983,6 +7026,30 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
+        "chatgptSignInComplete": TRPC.TRPCMutationProcedure<{
+            input: {
+                attemptId: string;
+                pastedUrl: string;
+            };
+            output: Output_credentials_chatgptSignInComplete;
+            meta: unknown;
+        }>;
+        "chatgptSignInStart": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId?: string | undefined;
+                label?: string | undefined;
+                machineId?: string | undefined;
+            };
+            output: Output_credentials_chatgptSignInStart;
+            meta: unknown;
+        }>;
+        "chatgptSignInStatus": TRPC.TRPCQueryProcedure<{
+            input: {
+                attemptId: string;
+            };
+            output: Output_credentials_chatgptSignInStatus;
+            meta: unknown;
+        }>;
         "disallowMachine": TRPC.TRPCMutationProcedure<{
             input: {
                 credentialId: string;
@@ -7006,6 +7073,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             output: {
                 ok: true;
+                providerRevocation?: "confirmed" | "not-confirmed" | undefined;
             };
             meta: unknown;
         }>;

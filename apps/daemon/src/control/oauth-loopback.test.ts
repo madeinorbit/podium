@@ -4,8 +4,8 @@
  */
 
 import { createServer } from 'node:net'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import { OauthLoopbackCallbackMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { closeOauthLoopbacks, startOauthLoopback } from './oauth-loopback'
 
@@ -32,7 +32,9 @@ describe('oauth loopback listener', () => {
     const port = await freePort()
     const sent: DaemonMessage[] = []
     await startOauthLoopback(request(port), (m) => sent.push(m))
-    expect(sent).toEqual([{ type: 'oauthLoopbackResult', requestId: `ol-${port}`, listening: true }])
+    expect(sent).toEqual([
+      { type: 'oauthLoopbackResult', requestId: `ol-${port}`, listening: true },
+    ])
 
     expect((await fetch(`http://127.0.0.1:${port}/other`)).status).toBe(404)
     const res = await fetch(

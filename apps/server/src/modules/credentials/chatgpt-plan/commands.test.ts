@@ -9,7 +9,14 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asMachineId, asSessionId, asUserId, type Capability, type UserId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type Capability,
+  type UserId,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from '../../../command-principal'
@@ -59,7 +66,13 @@ async function harness() {
   const store = registry.sessionStore
   for (const id of [OWNER, STRANGER]) {
     await store.users.create(
-      { id, displayName: id, role: 'member', createdAt: new Date().toISOString(), disabledAt: null },
+      {
+        id,
+        displayName: id,
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
       'not-a-real-hash',
     )
   }

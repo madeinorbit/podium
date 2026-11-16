@@ -121,6 +121,10 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
+import { ChatgptSignIn } from './modules/credentials/chatgpt-plan/authorize'
+import { chatgptHostId } from './modules/credentials/chatgpt-plan/host-id'
+import { ChatgptPlanKeeper } from './modules/credentials/chatgpt-plan/keeper'
+import { ChatgptPlanService } from './modules/credentials/chatgpt-plan/service'
 import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,
@@ -128,10 +132,6 @@ import {
   CredentialHealth,
   classifyCredentialFailure,
 } from './modules/credentials/health'
-import { ChatgptSignIn } from './modules/credentials/chatgpt-plan/authorize'
-import { chatgptHostId } from './modules/credentials/chatgpt-plan/host-id'
-import { ChatgptPlanKeeper } from './modules/credentials/chatgpt-plan/keeper'
-import { ChatgptPlanService } from './modules/credentials/chatgpt-plan/service'
 import { Placements } from './modules/credentials/placements'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'

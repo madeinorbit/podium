@@ -16,8 +16,8 @@
  */
 
 import { createServer, type Server } from 'node:http'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { OauthLoopbackRequestMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 
 type Send = (msg: DaemonMessage) => void
 
@@ -59,7 +59,10 @@ function close(port: number, requestId?: string): void {
 }
 
 /** Listen for one OAuth callback on `127.0.0.1:<port>`, answering the request at once. */
-export async function startOauthLoopback(msg: OauthLoopbackRequestMessage, send: Send): Promise<void> {
+export async function startOauthLoopback(
+  msg: OauthLoopbackRequestMessage,
+  send: Send,
+): Promise<void> {
   close(msg.port)
   let relayed = false
   const server = createServer((req, res) => {

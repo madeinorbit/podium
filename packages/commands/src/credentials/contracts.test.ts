@@ -72,7 +72,10 @@ describe('credential contracts', () => {
     const input = { attemptId: 'chatgpt_1', pastedUrl: pasted }
     expect(JSON.stringify(input)).toContain(PLANT)
     expect(JSON.stringify(redactForLog(contract, 'input', input))).not.toContain(PLANT)
-    const output = { attemptId: 'chatgpt_1', authorizeUrl: `https://auth.example/?id_token_hint=${PLANT}` }
+    const output = {
+      attemptId: 'chatgpt_1',
+      authorizeUrl: `https://auth.example/?id_token_hint=${PLANT}`,
+    }
     expect(JSON.stringify(output)).toContain(PLANT)
     expect(
       JSON.stringify(redactForLog(CREDENTIAL_CONTRACTS.chatgptSignInStart, 'output', output)),

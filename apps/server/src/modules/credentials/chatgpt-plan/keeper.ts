@@ -24,8 +24,8 @@
 
 import { createLogger } from '@podium/logger'
 import type { CredentialId } from '@podium/model'
-import { ACCESS_REFUSAL_MESSAGES } from '../access'
 import { CredentialRefusal } from '../../sessions/launch-config'
+import { ACCESS_REFUSAL_MESSAGES } from '../access'
 import { type SecretDeps, SecretUnavailableError, sealCredentialSecret, withSecret } from '../vault'
 import { CHATGPT_PLAN_TYPE } from './authorize'
 import {

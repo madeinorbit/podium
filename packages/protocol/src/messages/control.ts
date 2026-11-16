@@ -4,7 +4,6 @@ import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { CodexCompleteRequestMessage } from './codex'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
-import { OauthLoopbackRequestMessage } from './oauth-loopback'
 import {
   BrowseDirsRequestMessage,
   DirOpRequestMessage,
@@ -45,6 +44,7 @@ import {
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
+import { OauthLoopbackRequestMessage } from './oauth-loopback'
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,

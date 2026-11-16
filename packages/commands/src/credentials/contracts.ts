@@ -364,7 +364,8 @@ export const credentialsChatgptSignInStartContract = {
     distinguishesUnauthorizedFromUnreachable: false,
     note: 'A machine or credential the caller may not use answers as one that does not exist.',
   },
-  conflictRule: 'Each start is a new attempt; a newer listener on the same port replaces the older one',
+  conflictRule:
+    'Each start is a new attempt; a newer listener on the same port replaces the older one',
 } as const satisfies CommandContract<typeof credentialsChatgptSignInStartInput>
 
 export const credentialsChatgptSignInCompleteContract = {

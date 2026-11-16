@@ -28,7 +28,8 @@ import { parseTokenSet } from './openai'
 
 const OWNER = asUserId('user:chatgpt-owner')
 const OTHER = asUserId('user:chatgpt-other')
-const HOST_ID = 'urn:ietf:params:oauth:jwk-thumbprint:sha-256:FAKEhostThumbprint00000000000000000000000000'
+const HOST_ID =
+  'urn:ietf:params:oauth:jwk-thumbprint:sha-256:FAKEhostThumbprint00000000000000000000000000'
 const T0 = Date.parse('2026-11-16T12:00:00Z')
 
 const rawDb = (store: SessionStore): SqlDatabase => (store as unknown as { db: SqlDatabase }).db
@@ -50,7 +51,13 @@ describe('ChatGPT sign-in', () => {
     primeFirstAdminMember(await firstAdminMemberId(store))
     for (const id of [OWNER, OTHER]) {
       await store.users.create(
-        { id, displayName: id, role: 'member', createdAt: new Date(T0).toISOString(), disabledAt: null },
+        {
+          id,
+          displayName: id,
+          role: 'member',
+          createdAt: new Date(T0).toISOString(),
+          disabledAt: null,
+        },
         'not-a-real-hash',
       )
     }
@@ -126,10 +133,11 @@ describe('ChatGPT sign-in', () => {
 
       // The verifier stays on the server: the result has two fields, and the
       // verifier the exchange later sends appears nowhere in them.
-      expect(Object.keys(first).filter((k) => k !== 'url' && k !== 'state').sort()).toEqual([
-        'attemptId',
-        'authorizeUrl',
-      ])
+      expect(
+        Object.keys(first)
+          .filter((k) => k !== 'url' && k !== 'state')
+          .sort(),
+      ).toEqual(['attemptId', 'authorizeUrl'])
       await signIn.complete({
         attemptId: first.attemptId,
         callback: callback(first.state),
