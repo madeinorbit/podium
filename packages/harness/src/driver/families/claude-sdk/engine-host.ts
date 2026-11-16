@@ -840,6 +840,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             onPartialText: input.onPartialText,
             onPermission: input.onPermission,
             ...(input.onToolSummary ? { onToolSummary: input.onToolSummary } : {}),
+            ...(input.onMode ? { onMode: input.onMode } : {}),
             // Status badges (`starting`/`running`/`tool`) were already dropped
             // at the session layer before this change — only partial text
             // travels up through `onPartialText`.

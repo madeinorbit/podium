@@ -406,6 +406,10 @@ export interface ClaudeStreamTurnCallbacks {
   onToolCall?(call: ClaudeStreamToolCall): void
   onToolResult?(result: ClaudeStreamToolResult): void
   onToolSummary?(summary: ClaudeStreamToolSummary): void
+  /** The permission mode the CLI says it is in: `system/init`'s
+   *  `permissionMode` (POD-6858 §4.8), `default` when auto mode was asked for
+   *  and is not available. */
+  onMode?(mode: string): void
   emit(event: HeadlessTurnEvent): void
 }
 
@@ -848,11 +852,13 @@ export function createClaudeStreamClient(
     const turn = openTurn
     switch (type) {
       case 'system': {
-        const init = msg as { subtype?: string; session_id?: string }
+        const init = msg as { subtype?: string; session_id?: string; permissionMode?: unknown }
         if (init.subtype === 'init' && typeof init.session_id === 'string') {
           sessionId = init.session_id
           if (handshaken) resolveReady(sessionId)
           turn?.callbacks.emit({ kind: 'status', status: 'running' })
+          const mode = typeof init.permissionMode === 'string' ? init.permissionMode.trim() : ''
+          if (mode) turn?.callbacks.onMode?.(mode)
         }
         return
       }

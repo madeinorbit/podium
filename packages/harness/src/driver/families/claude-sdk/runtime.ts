@@ -205,6 +205,8 @@ export interface ClaudeSdkRuntimeHost {
     onPermission(request: ClaudeSdkPermissionRequest): void
     /** The CLI's summary of a step's calls, after their results. */
     onToolSummary?(summary: ClaudeSdkToolSummary): void
+    /** The permission mode the CLI says it is in (POD-6858 §4.8). */
+    onMode?(mode: string): void
   }): ClaudeSdkTurnHandle
   /**
    * THE SESSION FILE, TAILED (POD-6280): the Store's tail of the Claude session
@@ -240,6 +242,9 @@ export interface ClaudeSdkRuntimeHost {
     model: string
     effort?: string
   }): void
+  /** Report the permission mode the CLI says the session is in (POD-6858
+   *  §4.8): the chat view's mode chip shows it over the requested one. */
+  reportObservedMode?(input: { sessionId: SessionId; mode: string }): void
   /** Report accepted turns that cannot be delivered after teardown or failure. */
   onQueueAbandoned?: OnQueueAbandoned
   /**
@@ -1001,6 +1006,11 @@ export function createClaudeSdkRuntime(
         onToolSummary(summary) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return
           publishToolSummary(core, summary)
+        },
+        // A fact about the session, not the turn: reported whenever the CLI
+        // states it. The server keeps it only when it changed.
+        onMode(mode) {
+          host.reportObservedMode?.({ sessionId: core.sessionId, mode })
         },
       })
     } catch (error) {

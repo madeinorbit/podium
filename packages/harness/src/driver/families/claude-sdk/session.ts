@@ -215,6 +215,8 @@ export function createClaudeSdkSessionRuntime(
         model,
         ...(effort ? { effort } : {}),
       }),
+    reportObservedMode: ({ sessionId, mode }) =>
+      deps.send({ type: 'agentMode', sessionId, mode, source: 'native' }),
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
     ...(deps.askUserGate ? { askUserGate: deps.askUserGate } : {}),
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),

@@ -476,7 +476,12 @@ describe('the stream client', () => {
       ),
     )
     fake.emitLine(
-      frame({ type: 'system', subtype: 'init', session_id: 'sess-mode', permissionMode: 'default' }),
+      frame({
+        type: 'system',
+        subtype: 'init',
+        session_id: 'sess-mode',
+        permissionMode: 'default',
+      }),
     )
     // An init naming no mode reports nothing.
     fake.emitLine(frame({ type: 'system', subtype: 'init', session_id: 'sess-mode' }))
