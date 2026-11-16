@@ -946,6 +946,24 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the memoising wrapper around a caller-supplied prepared-query builder; it adds no I/O of its own, and the builder is judged at its declaration',
   },
+  // POD-6977 (tables from the binding): the store's and the sync adapter's
+  // typed names for the same two helpers of prepared.ts.
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.prepared': {
+    kind: 'opaque',
+    why: "prepared.ts's prepared under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.preparedFamily': {
+    kind: 'opaque',
+    why: "prepared.ts's preparedFamily under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and shape and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a store definition is (prepared.ts, typed for the store); it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',
+  },
   'apps/server/src/store/executor/operation-loader.ts#OperationLoader.loadMany': {
     kind: 'contained',
     why: "POD-6189: reads rows through the loader's batch on the store's own database (inside a span, on the span's connection) and memoises them for the operation in this process; no publication, and a rollback leaves no memo behind (a span that wrote the rows reads into a frame memo)",
