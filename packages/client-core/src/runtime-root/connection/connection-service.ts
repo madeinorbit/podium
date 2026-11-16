@@ -15,8 +15,10 @@
  * - it tells the outbox when the connection's health returns, so the queue
  *   drains after a server restart behind a healthy network;
  * - it writes the connection condition (state, ping, clock skew, the server's
- *   build and features) into the LiveStore with the frame, and marks every
- *   reading of the present unknown when the connection is declared lost.
+ *   build and features) into the LiveStore with the frame. It does not touch
+ *   the readings: when the connection is declared lost the hub marks every
+ *   held topic unknown and asks it again (POD-6945), and each reading follows
+ *   its topic.
  *
  * Moved out of the old store (engine/runtime.ts and engine/wiring.ts) without
  * changing what it does.
@@ -232,8 +234,6 @@ export class ConnectionService {
         ...(identity?.features !== undefined ? { serverFeatures: identity.features } : {}),
       }
       if (sameConnection(previous, next)) return
-      // DECLARED LOST (D20): every reading of the present goes unknown with it.
-      if (state === 'offline' && previous.state !== 'offline') live.markAllUnknown(health.since)
       live.setConnection(next)
     })
   }

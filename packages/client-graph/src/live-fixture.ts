@@ -39,6 +39,11 @@ export interface LiveFixture {
   sessionCondition(sessionId: string, value: SessionConditionPayload | undefined): void
   /** A session's terminal state: controller, size, exit (undefined: unknown). */
   sessionTerminalState(sessionId: string, value: SessionTerminalStatePayload | undefined): void
+  /**
+   * The connection was declared lost: the hub marks every held topic unknown
+   * (POD-6945), and each reading follows, keeping its last value.
+   */
+  lost(since: number): void
 }
 
 export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()): LiveFixture {
@@ -104,6 +109,20 @@ export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()
           value === undefined ? unknownReading(now()) : knownReading(value, now()),
         ),
       ),
+    lost: (since) =>
+      runInAction(() => {
+        // Unknown without a last value of its own: the store carries the held one.
+        const stale = unknownReading(since)
+        for (const id of [...live.machineConditions.keys()])
+          live.applyTopic('machine.condition', id, stale)
+        for (const id of [...live.machineMetrics.keys()]) live.applyTopic('machine.metrics', id, stale)
+        for (const id of [...live.sessionConditions.keys()])
+          live.applyTopic('session.condition', id, stale)
+        for (const id of [...live.sessionTerminalStates.keys()])
+          live.applyTopic('session.terminalState', id, stale)
+        live.applyTopic('account.quota', 'me', stale)
+        live.applyTopic('account.usage', 'me', stale)
+      }),
   }
 }
 

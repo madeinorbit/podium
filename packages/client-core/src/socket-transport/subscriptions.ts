@@ -28,7 +28,7 @@ export type ClientSubscriptionDurability = 'durable' | 'ephemeral'
  *   `last` is the newest value held before that, for "last seen", and `since`
  *   when it went unknown.
  * - `closed`: the server ended the subscription (refused, revoked, …). It is
- *   asked again after the next reconnect.
+ *   asked again on the next socket, or after a declared loss.
  */
 export type TopicState<P = unknown> =
   | { readonly status: 'pending' }
@@ -52,6 +52,12 @@ export interface TopicEntry {
   state: TopicState
   /** The newest position applied; a log resubscribes from here. */
   position?: TopicPosition
+  /**
+   * The socket this key was last asked on (POD-6945). The hub asks every key
+   * whose socket is not the current one; a declared loss or an overflow
+   * forgets it, so the key is asked again.
+   */
+  askedOn?: object
 }
 
 export interface ClientSubscription {
@@ -210,13 +216,16 @@ export class ClientSubscriptionRegistry {
 
   /**
    * The connection was declared lost: every value becomes unknown, keeping the
-   * last one for "last seen" (D20). Returns the entries that changed.
+   * last one for "last seen" (D20), and every key is owed a new ask, since only
+   * a fresh snapshot can make it known again. Returns the entries that changed.
    */
   markTopicsUnknown(since: number): TopicEntry[] {
     const changed: TopicEntry[] = []
     for (const subscription of this.subscriptions.values()) {
       const entry = subscription.topic
-      if (!entry || topicDeclaration(entry.kind).style !== 'value') continue
+      if (!entry) continue
+      entry.askedOn = undefined
+      if (topicDeclaration(entry.kind).style !== 'value') continue
       if (entry.state.status === 'unknown') continue
       entry.state = { status: 'unknown', last: lastValue(entry.state), since }
       changed.push(entry)
@@ -228,15 +237,29 @@ export class ClientSubscriptionRegistry {
     return [...this.subscriptions.values()].flatMap((s) => (s.topic ? [s.topic] : []))
   }
 
-  /** Every held key, re-asked after a reconnect; a log from its last good position. */
-  topicReconnectFrames(): TopicClientMessage[] {
-    return this.topicEntries().map((entry) => ({
-      type: 'topicSubscribe',
-      key: entry.key,
-      ...(topicDeclaration(entry.kind).style === 'log' && entry.position
-        ? { from: entry.position }
-        : {}),
-    }))
+  /** This key is owed a new ask (the server shed it, or a holder wants a fresh snapshot). */
+  forgetTopicAsk(entry: TopicEntry): void {
+    entry.askedOn = undefined
+  }
+
+  /**
+   * The asks `socket` still owes: every held key not asked on it, a log from
+   * its last good position. They count as asked from here on.
+   */
+  topicsToAsk(socket: object): TopicClientMessage[] {
+    return this.topicEntries().flatMap((entry): TopicClientMessage[] => {
+      if (entry.askedOn === socket) return []
+      entry.askedOn = socket
+      return [
+        {
+          type: 'topicSubscribe',
+          key: entry.key,
+          ...(topicDeclaration(entry.kind).style === 'log' && entry.position
+            ? { from: entry.position }
+            : {}),
+        },
+      ]
+    })
   }
 
   reconnectFrames(): PresenceRoomClientMessage[] {

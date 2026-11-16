@@ -305,7 +305,7 @@ describe('UsageView loading', () => {
     await act(async () => {})
     expect(screen.queryByText(/LAST READ/)).toBeNull()
 
-    act(() => live.live.markAllUnknown(Date.now()))
+    act(() => live.lost(Date.now()))
 
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
     expect(screen.getByText(/^LAST READ \d\d:\d\d$/)).toBeTruthy()

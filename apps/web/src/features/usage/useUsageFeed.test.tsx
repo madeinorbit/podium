@@ -55,7 +55,7 @@ describe('useUsageFeed', () => {
   it('keeps the last reading when the connection is lost, and says it is not current', () => {
     const { result } = renderHook(() => useUsageFeed())
     push(FIRST)
-    act(() => live.live.markAllUnknown(Date.parse(SECOND)))
+    act(() => live.lost(Date.parse(SECOND)))
     expect(result.current).toMatchObject({ buckets: [], failed: true, waiting: false })
     expect(result.current.fetchedAt).toBe(Date.parse(SECOND))
   })

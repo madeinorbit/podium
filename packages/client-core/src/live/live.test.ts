@@ -363,8 +363,18 @@ describe('LiveFeed', () => {
     expect(busy).toBe(true)
     expect(cols).toBe(132)
 
-    // The connection is declared lost: unknown, keeping the last value.
-    live.markAllUnknown(5)
+    // The connection is declared lost: the hub says unknown, keeping the last value.
+    hub.state('session.condition:s1', {
+      status: 'unknown',
+      last: { busy: true, requestsGated: 0 },
+      since: 5,
+    })
+    hub.state('session.terminalState:s1', {
+      status: 'unknown',
+      last: { controller: null, geometry: { cols: 132, rows: 43 } },
+      since: 5,
+    })
+    frames.flush()
     expect(busy).toBeUndefined()
     expect(live.sessionTerminalStates.get('s1')).toEqual({
       known: false,

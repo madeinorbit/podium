@@ -427,11 +427,18 @@ export class TopicRouting {
         : undefined
     const stillHeld = (): boolean =>
       this.states.get(key) === state && this.deps.subscriptions.has(key, subscriberId)
+    // EVERY SUBSCRIBE IS ANSWERED (POD-6945). A read that fails answers the
+    // valid snapshot `unknown` (D20): a key left unanswered has no position, so
+    // its holder would drop every update the producer sends after it.
+    const failed = (err: unknown): void => {
+      log.warn('topic producer failed', { kind: state.ref.kind, verb: 'snapshot', err })
+      if (stillHeld()) send(undefined)
+    }
     let payload: unknown
     try {
       payload = read()
     } catch (err) {
-      log.warn('topic producer failed', { kind: state.ref.kind, verb: 'snapshot', err })
+      failed(err)
       return
     }
     if (!(payload instanceof Promise)) {
@@ -460,9 +467,7 @@ export class TopicRouting {
         }
       }
     }
-    void settle(payload).catch((err) =>
-      log.warn('topic producer failed', { kind: state.ref.kind, verb: 'snapshot', err }),
-    )
+    void settle(payload).catch(failed)
   }
 
   private sendUpdate(state: KeyState, payload: unknown): void {

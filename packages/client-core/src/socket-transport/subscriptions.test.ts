@@ -75,19 +75,30 @@ describe('ClientSubscriptionRegistry topics (ADR 7 Amendment 2 D20)', () => {
     expect(registry.markTopicsUnknown(43)).toEqual([])
   })
 
-  it('re-asks every held key after a reconnect, and lists what one holder holds', () => {
+  it('asks each held key once per socket, and again after a loss or an overflow', () => {
     const registry = new ClientSubscriptionRegistry(false)
     const holder = {}
+    const first = {}
+    const second = {}
     registry.acquireTopic('machine.metrics', 'm1', holder)
     registry.acquireTopic('machine.metrics', 'm2', holder)
-    registry.acquireTopic('machine.condition', 'm1', {})
-    expect(registry.topicReconnectFrames()).toEqual([
+    const { entry } = registry.acquireTopic('machine.condition', 'm1', {})
+    const all = [
       { type: 'topicSubscribe', key: 'machine.metrics:m1' },
       { type: 'topicSubscribe', key: 'machine.metrics:m2' },
       { type: 'topicSubscribe', key: 'machine.condition:m1' },
-    ])
+    ]
+    expect(registry.topicsToAsk(first)).toEqual(all)
+    expect(registry.topicsToAsk(first)).toEqual([])
+    // A new socket owes every key its ask.
+    expect(registry.topicsToAsk(second)).toEqual(all)
+    // An overflow owes one key; a declared loss owes them all.
+    registry.forgetTopicAsk(entry)
+    expect(registry.topicsToAsk(second)).toEqual([all[2]])
+    registry.markTopicsUnknown(1)
+    expect(registry.topicsToAsk(second)).toEqual(all)
     expect(registry.topicIdsHeldBy('machine.metrics', holder)).toEqual(['m1', 'm2'])
     registry.clearForPrincipalChange()
-    expect(registry.topicReconnectFrames()).toEqual([])
+    expect(registry.topicsToAsk(first)).toEqual([])
   })
 })

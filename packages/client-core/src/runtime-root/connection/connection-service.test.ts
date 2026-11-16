@@ -161,7 +161,7 @@ afterEach(() => {
 })
 
 describe('the connection condition in the LiveStore', () => {
-  it('marks every reading unknown when the connection is declared lost, keeping the last value', () => {
+  it('writes the declared loss as the condition and leaves each reading to its topic (POD-6945)', () => {
     const { hub, frames, live, connection, topics } = setup()
     topics.start()
     connection.start()
@@ -180,6 +180,11 @@ describe('the connection condition in the LiveStore', () => {
     hub.emit('connectionHealth', hub.health)
     frames.flush()
     expect(live.connection).toMatchObject({ state: 'offline', since: 3_000 })
+    // The hub is the one owner of "a loss makes values unknown": the reading
+    // changes when its topic does, never behind it.
+    expect(live.quota.known).toBe(true)
+    hub.state('account.quota:me', { status: 'unknown', last: { machines: [] }, since: 3_000 })
+    frames.flush()
     expect(live.quota).toEqual({ known: false, last: { machines: [] }, since: 3_000 })
   })
 

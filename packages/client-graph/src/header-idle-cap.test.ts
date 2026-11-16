@@ -104,7 +104,7 @@ it('counts only fleet machines, and an unknown sample counts as none', () => {
       live.metric('missing', undefined)
       expect(values).toEqual([5, 3, 4])
       // The connection was declared lost: no current sample anywhere.
-      runInAction(() => live.live.markAllUnknown(1))
+      live.lost(1)
       expect(values).toEqual([5, 3, 4, 0])
     } finally {
       stop()

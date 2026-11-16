@@ -10,6 +10,8 @@
  * - Each new value replaces the old one whole (`@observableRef`, frozen maps).
  * - Unknown until the first reading. A reading that goes stale (the connection
  *   was declared lost) becomes unknown again, keeping `last` for "last seen".
+ *   The socket hub decides that, once, for every held topic (POD-6945); the
+ *   reading follows its topic, so this store never marks readings itself.
  * - Written only by services: the live feed applies topics and connection
  *   facts at most once per frame, and the outbox service writes its counts.
  *   Screens and models read it; nothing else writes it.
@@ -361,25 +363,6 @@ export class LiveStore {
     if (this.disposed) return
     if (next.pending === this.outbox.pending && next.deadLetters === this.outbox.deadLetters) return
     this.outbox = Object.freeze({ pending: next.pending, deadLetters: next.deadLetters })
-  }
-
-  /**
-   * The connection was declared lost: every reading of the present is unknown
-   * from `since`, keeping its last value for "last seen".
-   */
-  @action markAllUnknown(since: number): void {
-    if (this.disposed) return
-    const stale = <T>(reading: Reading<T>): Reading<T> =>
-      reading.known ? unknownReading(since, reading.value) : reading
-    this.quota = stale(this.quota)
-    this.usageReading = stale(this.usageReading)
-    for (const [id, reading] of this.machineConditions)
-      this.machineConditions.set(id, stale(reading))
-    for (const [id, reading] of this.machineMetrics) this.machineMetrics.set(id, stale(reading))
-    for (const [id, reading] of this.sessionConditions)
-      this.sessionConditions.set(id, stale(reading))
-    for (const [id, reading] of this.sessionTerminalStates)
-      this.sessionTerminalStates.set(id, stale(reading))
   }
 
   /** Sign-out: forget every reading and stop reporting demand. */

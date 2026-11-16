@@ -657,8 +657,6 @@ export class SocketHub {
   /** The current server explicitly acknowledged binary input in `welcome`. */
   private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
-  /** The open socket a loss was declared on (late pongs), until health recovers. */
-  private lostOnSocket: WebSocketLike | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   /** Null until the server says something this build cannot read; never cleared —
@@ -890,12 +888,8 @@ export class SocketHub {
       for (const frame of this.subscriptionRegistry.reconnectFrames()) {
         this.sendPresenceFrame(frame)
       }
-      // Topics after the feed and rooms (the reconnect order the plan defines):
-      // every key that still has a holder is asked again and answers with a
-      // fresh snapshot, a log from its last good position (D20).
-      for (const frame of this.subscriptionRegistry.topicReconnectFrames()) {
-        this.sendTopicFrame(frame)
-      }
+      // Topics are asked below, by the health evaluation that ends this
+      // handler: a new socket owes every held key its ask (`askTopics`).
       // Re-assert per-session view state the same way: the server starts each new
       // client with empty view state, so a reconnecting client must re-declare which
       // sessions it renders / has focused for output-relay prioritization to resume.
@@ -910,7 +904,8 @@ export class SocketHub {
       this.notifyConnections()
       // Publish even when the coarse health label stays `ok`: mobile reads the
       // hub's exact connected flag on this event, and an offline cold start
-      // must not call a never-opened socket live.
+      // must not call a never-opened socket live. It also asks every held
+      // topic key, after the feed and rooms (the reconnect order D20 defines).
       this.evaluateHealth(true)
     }
     socket.onmessage = (ev) => {
@@ -946,6 +941,10 @@ export class SocketHub {
       if (!this.everConnected) this.opts.onError?.('WebSocket connection failed', ev)
     }
     socket.onclose = (ev) => {
+      // A socket this hub already let go of (`dispose`) reports its close later,
+      // as a real WebSocket does: by then a successor may be the hub's socket,
+      // and this teardown would be its.
+      if (this.socket !== socket) return
       if (!this.intentionalClose && !opened && !reportedError && !this.everConnected) {
         this.opts.onError?.('WebSocket connection closed before connecting')
       }
@@ -1228,8 +1227,9 @@ export class SocketHub {
 
   /**
    * HOLD ONE TOPIC KEY (ADR 7 Amendment 2 D20). Reference-counted per key per
-   * hub: the first holder sends `topicSubscribe`, the last release sends
-   * `topicUnsubscribe`, and every key still held is re-asked after a reconnect.
+   * hub: the first holder asks for it, the last release sends
+   * `topicUnsubscribe`, and every key still held is asked again on each new
+   * socket and after each declared loss (`askTopics`).
    * The listener hears the CURRENT state at once (`pending` until the first
    * snapshot), then every change. Consumers are services and stores; a React
    * component reads them, never this.
@@ -1241,7 +1241,7 @@ export class SocketHub {
   ): () => void {
     const held = listener as TopicListener
     const { fresh, entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
-    if (fresh) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
+    if (fresh) this.askTopics()
     held.onState?.(entry.state)
     let released = false
     return () => {
@@ -1277,16 +1277,18 @@ export class SocketHub {
       }
     }
     for (const id of wanted) {
-      const { fresh, entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
-      if (fresh) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
+      const { entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
       held.onState?.(entry.state)
     }
+    if (wanted.size > 0) this.askTopics()
   }
 
   /** Ask a held producer for a fresh snapshot (focus fallback, never a timer). */
   refreshTopic(kind: TopicKind, id: string): void {
     const entry = this.subscriptionRegistry.topic(kind, id)
-    if (entry) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
+    if (!entry) return
+    this.subscriptionRegistry.forgetTopicAsk(entry)
+    this.askTopics()
   }
 
   /** The current state of a held key, or undefined when nobody holds it. */
@@ -1655,30 +1657,18 @@ export class SocketHub {
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
     const wentDown = next.status === 'down' && this.health.status !== 'down'
-    const cameBack = next.status !== 'down' && this.health.status === 'down'
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
-    // THE CONNECTION WAS DECLARED LOST (D20): by the health rule, not by every
-    // socket blip a reconnect hides. Every held value goes unknown, keeping its
-    // last value for "last seen"; the resubscribe after reconnect refreshes it.
+    // THE CONNECTION WAS DECLARED LOST (D20): by the health rule, on a closed
+    // socket or an open one whose pongs ran late. Every held value goes
+    // unknown, keeping its last value for "last seen", and every key is owed a
+    // new ask: the hub is the one place that marks them, and so the one place
+    // that asks again.
     if (wentDown) {
-      this.lostOnSocket = this.connectedFlag ? this.socket : undefined
       for (const entry of this.subscriptionRegistry.markTopicsUnknown(this.health.since)) {
         this.notifyTopic(entry)
       }
     }
-    // A loss declared while the socket stayed open (its pongs ran past the down
-    // threshold, as a freshly restarted server's can) has no reconnect to re-ask
-    // the keys, and a value topic only speaks again when its value changes. So
-    // the recovery asks every held key again, as `onopen` does after a reconnect.
-    if (cameBack) {
-      const lostOn = this.lostOnSocket
-      this.lostOnSocket = undefined
-      if (lostOn !== undefined && lostOn === this.socket) {
-        for (const frame of this.subscriptionRegistry.topicReconnectFrames()) {
-          this.sendTopicFrame(frame)
-        }
-      }
-    }
+    this.askTopics()
     this.emit('connectionHealth', this.health)
   }
 
@@ -2125,9 +2115,26 @@ export class SocketHub {
   }
 
   /**
-   * Topic subscribe and unsubscribe go out only on an open socket and are never
-   * queued: `onopen` re-asks every key that is held at that moment, which is
-   * the whole truth, while a queued frame could only repeat or contradict it.
+   * THE ONE TOPIC ASK (POD-6945). Every held key remembers the socket it was
+   * last asked on; this sends `topicSubscribe` for each one not asked on the
+   * current socket, whenever that socket is open and the connection is not
+   * declared lost. Nothing else asks. Every event that can make a key miss or
+   * distrust its value only makes it unasked: a new socket (the server forgot
+   * the old one's keys), a declared loss (`markTopicsUnknown`), an `overflow`
+   * close, a fresh holder, a `refreshTopic`. Each answers with a snapshot.
+   */
+  private askTopics(): void {
+    const socket = this.socket
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return
+    if (this.health.status === 'down') return
+    for (const frame of this.subscriptionRegistry.topicsToAsk(socket)) {
+      socket.send(JSON.stringify(frame))
+    }
+  }
+
+  /**
+   * A topic release goes out only on an open socket and is never queued: a
+   * socket that never carried the key holds nothing to release.
    */
   private sendTopicFrame(frame: TopicClientMessage): void {
     const socket = this.socket
@@ -2167,12 +2174,9 @@ export class SocketHub {
       }
       case 'topicClosed':
         if (msg.reason === 'overflow') {
-          // The server shed this key under pressure; ask again from where we are.
-          this.sendTopicFrame({
-            type: 'topicSubscribe',
-            key: entry.key,
-            ...(entry.position ? { from: entry.position } : {}),
-          })
+          // The server shed this key under pressure: it is owed a new ask.
+          this.subscriptionRegistry.forgetTopicAsk(entry)
+          this.askTopics()
           return
         }
         this.subscriptionRegistry.closeTopic(entry, msg.reason)

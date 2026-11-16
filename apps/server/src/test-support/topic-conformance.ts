@@ -1082,7 +1082,8 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
     it('12c. a loss declared on the open socket: the value moves while it is lost', async () => {
       const client = await heldClient()
       client.holdPongs(true)
-      await vi.advanceTimersByTimeAsync(6_000)
+      // The next ping leaves within 2.5 s and is declared down 5 s later.
+      await vi.advanceTimersByTimeAsync(8_000)
       expect(client.hub.connectionHealth().status).toBe('down')
       expect(client.hub.topicState(c.kind, c.id)?.status).toBe('unknown')
       await c.produce(world)

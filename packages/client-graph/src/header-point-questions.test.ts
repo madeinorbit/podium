@@ -118,7 +118,7 @@ it('takes the first fleet machine that has a sample, and an explicit target as a
     f.live.metric('m2', undefined)
     expect(headerView(f.pool).panelMetric(undefined)).toBe(f.metrics[1])
     // The connection was declared lost: no current sample is shown.
-    runInAction(() => f.live.live.markAllUnknown(1))
+    f.live.lost(1)
     expect(headerView(f.pool).panelMetric(undefined)).toBeUndefined()
     expect(headerView(f.pool).panelMetric('m1' as MachineId)).toBeUndefined()
   } finally {
