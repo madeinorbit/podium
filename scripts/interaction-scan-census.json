@@ -34,18 +34,18 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "a1a156b15a8b6f4bc6142de3597fe009f10ade417580a58dd0cefb7d1116210c",
+      "tokens": "da245c7b7ef4956d05f3c3aed8645a7b7a906a5b6e8a9c26cd7b7e380b690d14",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "3c37ee5ddb66f85510f56592c646ab6348efc9eb0ca576944d6fbb54f1396f4f",
+      "fingerprint": "da78e149010b96bf6b59b99bc4e34cf4fbc7f62666f796b9cf35719c44ab5b76",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -8590,20 +8590,20 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "52d7b5d90b626f16c856263d3c5a556a6fbfff124130ff7cb92399d9201e26d7",
+      "tokens": "4b4d5f9fd2a80ac3cf4893a9a26e4c45ad776c12a9c75f535e98467616d8a792",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "b4ba7fabd8a8dcef4dff7a88d00b9e2c39d8d16626a45d5776aa5a9da157fd62",
+      "fingerprint": "590852db2025bff5d34857309bb25aa880583388529a856046e527e05467b945",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -12002,18 +12002,18 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "2815ab0db460dbb80ac441caffc2b788c89d00713cc0851fa7324fdcfd5660db",
+      "tokens": "fef723d9a9c61308e9d6f0cc960e230d14a0be695d29f041e8ae85ef91cfe7f5",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "6f119d3ca1d4c1ebe0bd83d9120330f4cd05d1c56f4bfd30c27d2b25f819e7e3",
+      "fingerprint": "da08cc150d9f8971ed9acd6de44e20dfc0b8cb3206bb72928296c817cffaec95",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -33704,40 +33704,40 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "eded0e084edacd82aea3307e67151c829dd6ecfa695578af6f60f350df265ea7",
+      "tokens": "815d3ff7b7fb01c97942f1e33538717dd275557b12a959b1fd43aa5d4bbdf629",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "8284dcdc31072262acbac7f62eac7e00902ed8a8ae643bbb5db20e46ece05ed0",
+      "fingerprint": "9a474fb47fa8d7543c9faab19b775055c4e4780d48e7a86b2c6fa0cfff3f70b7",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "b7926429b9c3729fad9da8983ea8737343bd987e3de3f0868ef54015ba0267b2",
+      "tokens": "e1d74e542d4b6e7eb3fb4998feef2fb58c84c581ce17c84b49c91ed84a7ebfe7",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "586ace8640fe3af17b0e98adc831e0fbb5a0c555871b332ddd0134d64b8701f4",
+      "fingerprint": "0b05f6314e54e99c9abd70cf059a46263598aba9c9bbf6ce64577ea87951ed6b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -37755,18 +37755,18 @@
       "file": "packages/client-graph/src/settings-owner-fixture.ts",
       "holder": "settingsOwnerFixture/seed",
       "rule": "helper-consumer",
-      "tokens": "582f3e6d321545b91495a40297899e67896e9efbfab1fcae4fd37de520d75bd5",
+      "tokens": "34124ed1c336dd43406dd5cd8b57314922d4762667416bef13c97139d7abe0a2",
       "gate": [],
       "origin": [
         "5b6662695caf9a227c4025e3ba75eaed64cf62a9506ecbaf91b2ed97f5cbe4b3"
       ],
-      "fingerprint": "73fcaf21d24ca15ca5607e6e3bc353ce1ed4f719d66af0b2d76b0848822e6571",
+      "fingerprint": "3a5cb747afbe980b7779c7ac887c39bcd331ec731043164d392317c96c8e1857",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "Test fixture setup or a test moving its fixture",
       "bound": "The fixture rows a test seeds",
-      "reason": "Test support only: seeds machine, access and checkout records as the app receives them (POD-6644). No product interaction runs it. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 09f384329a1f4dd1f8dc114db655d7b201b654a317a329cbcb26e8b708950af2.",
+      "reason": "Test support only: seeds machine, access and checkout records as the app receives them (POD-6644). No product interaction runs it. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 09f384329a1f4dd1f8dc114db655d7b201b654a317a329cbcb26e8b708950af2. POD-6948: rebasing the credential epic onto dev/mw merges both sides' changes to this code (the epic's credential and notice fields with dev/mw's), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "The tests that use the fixture"
     },
     {
@@ -40306,6 +40306,184 @@
       "trigger": "Invocation of SettingsScreenBody/SettingsScreenBody",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxNoticeIds",
+      "rule": "reader-summary",
+      "tokens": "83f0a4a981a28fe973a4570cdd140ffdef4514cbd6ac545d948f7fd405965147",
+      "gate": [
+        "exit:then:18d1d9ba8a64556090012bfe1d100b9839e53dad3076304111d5feb5be0fc318"
+      ],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "c60d4489abe52973712b1e0c4a76ed5ecf96be694d105fdd1c1f9db535b3292c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxNoticeIds)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/ids/computed:callback",
+      "rule": "consume:map",
+      "tokens": "ccc3410082b7320867b74211a059e919e1e40a6cad5d6620a85e0bc018ae5145",
+      "gate": [
+        "exit:then:20a368c557a481997ebadf80527b71843156dc52a46ba45932b221ed41058139"
+      ],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "ac74e945ef5c41f1c81ea59292d4b9be7bb1ef6512a019e7cbf3e24d2d865e6d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/ids/computed:callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/ids/computed:callback",
+      "rule": "consume:sort",
+      "tokens": "298dd9aafbb66ed6553a32b3ece780cd627bc5fd79bb1273ec9e7f3fbfb76b55",
+      "gate": [
+        "exit:then:20a368c557a481997ebadf80527b71843156dc52a46ba45932b221ed41058139"
+      ],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "b9894f17e17feef0c845b13223642af7c1b450107ce3f85432e54005bd8520ef",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/ids/computed:callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/ids/computed:callback/all",
+      "rule": "reader-summary",
+      "tokens": "30fd6b65f7b581369c33829cc4d5584b2e3cccc7b0872d1290bd214e6ec9688b",
+      "gate": [],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "f431cf8b0b383167544aff6078292778d0d90d0abf63a271819677080a9d9256",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/ids/computed:callback/all)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/rows/callback",
+      "rule": "enumerate:values",
+      "tokens": "8b54e2907a7bc0cf73afea3406650ff1f3c0723c81066e7b057f524a3a96d002",
+      "gate": [],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56"
+      ],
+      "fingerprint": "2537018a9568d8a7ed509cd3e48e706d0c5590b4564f44a5d92db856f6d25c70",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/rows/callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/rows/callback",
+      "rule": "spread",
+      "tokens": "fda59355bc14d8c710831589c91de8c78fc5babaca556f74d1f0ed39b595598d",
+      "gate": [],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "5583b1848491ac74cd57da46f8a91ab4925d7f040e127bd0653afb47bd4d6f40",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/rows/callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/unread/computed:callback",
+      "rule": "consume:filter",
+      "tokens": "042fad1ebd17224aed27e2021d85fdb99f94e529c47f24c40e428d9de4dd4bc5",
+      "gate": [],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "ee90612855d627fc8c3a9c3aa22a24e0bf5ad69f4a5953ad22013b26b632823d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/unread/computed:callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "inboxReads/view:callback/unread/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "30fd6b65f7b581369c33829cc4d5584b2e3cccc7b0872d1290bd214e6ec9688b",
+      "gate": [],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "5e541565ba5b2ea30791934faf03416448932b73d8c80cc3ef415ec379cac0a0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (inboxReads/view:callback/unread/computed:callback)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/notice-inbox.ts",
+      "holder": "unreadNoticeCount",
+      "rule": "reader-summary",
+      "tokens": "83f0a4a981a28fe973a4570cdd140ffdef4514cbd6ac545d948f7fd405965147",
+      "gate": [
+        "exit:then:18d1d9ba8a64556090012bfe1d100b9839e53dad3076304111d5feb5be0fc318"
+      ],
+      "origin": [
+        "3346507cc1984a4e3cdd7cb91a2bccd41b468226855284879922e4cd95fb1b56",
+        "d00fc67abce579257e24d12a000835cc761e1a2b9450fb5e37f36686edf18615"
+      ],
+      "fingerprint": "b98d1cb99132d79c850ea3982f591c12a1d191a6a93af21e6e66633cec406749",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6881",
+      "trigger": "A change to my inboxNotice records, or a reader of the notice tray / phone inbox (unreadNoticeCount)",
+      "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
+      "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
