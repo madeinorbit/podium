@@ -71,14 +71,14 @@ describe('HTTP feed sink lifecycle', () => {
     const moved = vi.fn(() => expect(replica.receive).toHaveBeenCalled())
     sink.onAccessMoved(moved)
     const delta = {
-      type: 'feedDelta',
+      type: 'feedDelta' as const,
       feedId: 'f',
       epoch: 'e',
       fromSeq: 2,
       seq: 3,
       minAvailableSeq: 0,
       changes: [],
-    } as const
+    }
     sink.frame(delta)
     expect(moved).not.toHaveBeenCalled()
     sink.frame({ ...delta, fromSeq: 3, seq: 4, access: true })
