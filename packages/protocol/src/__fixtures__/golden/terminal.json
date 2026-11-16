@@ -191,6 +191,34 @@
       "encoded": "{\"type\":\"agentModel\",\"at\":\"2026-01-02T03:04:05.000Z\",\"source\":\"transcript\",\"sessionId\":\"sessionId\",\"model\":\"model\",\"effort\":\"effort\"}"
     },
     {
+      "schema": "AgentModeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentMode",
+        "sessionId": "sessionId",
+        "mode": "mode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentMode\",\"sessionId\":\"sessionId\",\"mode\":\"mode\"}"
+    },
+    {
+      "schema": "AgentModeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentMode",
+        "at": "2026-01-02T03:04:05.000Z",
+        "source": "transcript",
+        "sessionId": "sessionId",
+        "mode": "mode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentMode\",\"at\":\"2026-01-02T03:04:05.000Z\",\"source\":\"transcript\",\"sessionId\":\"sessionId\",\"mode\":\"mode\"}"
+    },
+    {
       "schema": "AttachedMessage",
       "variant": "minimal",
       "wire": {
@@ -527,12 +555,21 @@
       "wire": {
         "type": "driverSelected",
         "sessionId": "sessionId",
-        "driverId": "driverId"
+        "driverId": "driverId",
+        "posture": {
+          "requestedMode": "posture.requestedMode",
+          "unmet": [
+            {
+              "requirement": "workspace-trust",
+              "reason": "posture.unmet[0].reason"
+            }
+          ]
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"driverSelected\",\"sessionId\":\"sessionId\",\"driverId\":\"driverId\"}"
+      "encoded": "{\"type\":\"driverSelected\",\"sessionId\":\"sessionId\",\"driverId\":\"driverId\",\"posture\":{\"requestedMode\":\"posture.requestedMode\",\"unmet\":[{\"requirement\":\"workspace-trust\",\"reason\":\"posture.unmet[0].reason\"}]}}"
     },
     {
       "schema": "DurableSessionCensusMessage",
