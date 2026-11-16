@@ -55,10 +55,12 @@ const RULE_FILE = ['rules', 'podium.rules'] as const
 /**
  * Codex's launch terms (POD-6858, docs/design/harness-session-posture.md §4.8).
  *
- * - Trust: `-c projects={"<repo>"={trust_level="trusted"}}` in terminal,
- *   engine and turn. Only the inline-table form works; the dotted form is
+ * - Trust: `-c projects={"<repo>"={trust_level="trusted"},…}` in terminal,
+ *   engine and turn, naming the main checkout and, in a worktree, the
+ *   worktree too. Only the inline-table form works; the dotted form is
  *   accepted and does nothing (measured, 0.167.1). A `resume --remote` client
- *   ignores its own copy: the engine it attaches to decides trust.
+ *   ignores its own copy: the engine it attaches to decides trust, on the
+ *   client's `-C` folder as given (POD-7039).
  * - The Podium CLI: a rule file Podium owns, `<CODEX_HOME>/rules/podium.rules`.
  *   Codex has no per-launch channel for rules (`-c rules…` is ignored); the
  *   TUI and the app-server both load this file, and an allowed command runs
@@ -83,9 +85,7 @@ export function codexPosture(launch: PostureLaunch, request: PostureRequest): Po
   const unmet: UnmetRequirement[] = []
   const approval = approvalFor(request, unmet)
   const options = [
-    ...(request.mode !== 'client'
-      ? ['-c', trustOverride(request.repoRoot ?? request.workdir)]
-      : []),
+    ...(request.mode !== 'client' ? ['-c', trustOverride(trustedFolders(request))] : []),
     ...(request.mode === 'terminal' || request.mode === 'client'
       ? ['-c', 'check_for_update_on_startup=false']
       : []),
@@ -227,9 +227,26 @@ function dotted(version: { major: number; minor: number; patch: number }): strin
   return `${version.major}.${version.minor}.${version.patch}`
 }
 
-/** `projects={"<folder>"={trust_level="trusted"}}`: the inline-table form. */
-function trustOverride(folder: string): string {
-  return `projects={${tomlString(folder)}={trust_level="trusted"}}`
+/**
+ * Every folder a launch of this session can open, main checkout first. In a
+ * worktree that is two: Codex resolves a worktree's trust to the main
+ * checkout, but the engine checks a `resume -C <worktree> --remote` client's
+ * folder literally, so trusting the main checkout alone draws "Trust this
+ * folder?" in the CLI tab of a worktree chat view (measured, 0.169.0; POD-7039).
+ */
+function trustedFolders(request: PostureRequest): string[] {
+  const { repoRoot, workdir } = request
+  return repoRoot !== undefined && repoRoot !== workdir ? [repoRoot, workdir] : [workdir]
+}
+
+/**
+ * `projects={"<folder>"={trust_level="trusted"},…}`: the inline-table form, one
+ * table for every folder. A second `-c projects=` would replace the first, not
+ * add to it.
+ */
+function trustOverride(folders: readonly string[]): string {
+  const entries = folders.map((folder) => `${tomlString(folder)}={trust_level="trusted"}`)
+  return `projects={${entries.join(',')}}`
 }
 
 /**
