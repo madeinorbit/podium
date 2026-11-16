@@ -3,7 +3,10 @@ import { DEFAULT_FLEET_UPDATE_CHANNEL } from '@podium/model'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { SyncRepository } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EFFECT_PUBLISHED_INPUT } from '../modules/effects/published-input'
+import {
+  EFFECT_PUBLISHED_INPUT,
+  SYSTEM_EFFECT_KINDS_OFF_FEED,
+} from '../modules/effects/published-input'
 
 const mockedModules = [
   '@podium/harness/browser',
@@ -27,6 +30,7 @@ async function tokens(
     wireDigest?: string
     effectKinds?: string[]
     publicationRules?: unknown
+    systemOffFeed?: readonly string[]
     handoff?: boolean
     driverFamily?: 'server' | 'terminal'
     settings?: unknown
@@ -104,6 +108,7 @@ async function tokens(
   vi.doMock('../modules/effects/published-input', async (original) => ({
     ...(await original<typeof import('../modules/effects/published-input')>()),
     EFFECT_PUBLISHED_INPUT: options.publicationRules ?? EFFECT_PUBLISHED_INPUT,
+    SYSTEM_EFFECT_KINDS_OFF_FEED: options.systemOffFeed ?? SYSTEM_EFFECT_KINDS_OFF_FEED,
   }))
   vi.doMock('../modules/issue-events/feed', async (original) => ({
     ...(await original<typeof import('../modules/issue-events/feed')>()),
@@ -165,6 +170,10 @@ describe('record kind code inputs', () => {
     expect(changedKinds(before, await tokens({ effectKinds: ['session.answer'] }))).toEqual([
       'effect',
     ])
+  })
+
+  it('changes only effect when the system kinds kept off the feed change (POD-6941)', async () => {
+    expect(changedKinds(await tokens(), await tokens({ systemOffFeed: [] }))).toEqual(['effect'])
   })
 
   it('changes only effect when its published input policy changes', async () => {

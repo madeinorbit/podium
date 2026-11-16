@@ -10,7 +10,9 @@
  *    `repo-discovery.ts`), which auto-registers origin matches. The newest
  *    succeeded record IS the machine's last scan (`discovery.lastMachineScan`);
  *    the in-memory `running` / `lastResults` maps are gone. A scan asked for
- *    while the same scan already runs there joins that record.
+ *    while the same scan already runs there joins that record. The server's
+ *    own connect scans (no creator) stay off the feed: no device receives
+ *    them (`effectOnFeed`, POD-6941).
  *  - `repo.clone`: `gh repo clone` on the machine, then the checkout is
  *    registered (`repos.cloneGithub`).
  *

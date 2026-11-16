@@ -224,6 +224,19 @@ async function buildCorpus(): Promise<Corpus> {
       now: AT,
     } as never)
   })
+  // Two machine scans (POD-6941): a person's, on the feed, and the server's
+  // own connect scan, which no device receives and the log never carries.
+  const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+  await seedRows(store, async () => {
+    for (const [id, createdBy] of [
+      ['eff_person_scan', owner],
+      ['eff_system_scan', null],
+    ] as const) {
+      await db.run(
+        sql`INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES (${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
+      )
+    }
+  })
   await settle(reg)
   // The server stops here, so nothing writes between the checks' reads.
   const effects = reg.modules.effects
@@ -515,8 +528,15 @@ describe('record sources (POD-6920)', () => {
       'workflow',
       'instancePreferences',
       'superagentThread',
+      'effect',
     ]
     expect(covered.filter((kind) => !present.has(kind))).toEqual([])
+  })
+
+  it("builds a person's machine scan and not the server's own (POD-6941)", async () => {
+    const records = await corpus.store.transact(async () => await snapshot(corpus.reads))
+    const effects = [...records.keys()].filter((key) => key.startsWith('effect\u0000'))
+    expect(effects).toEqual([recordKey('effect', 'eff_person_scan')])
   })
 
   it('each builder reads only the tables its kind declares', async () => {

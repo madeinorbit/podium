@@ -26,6 +26,26 @@ type PublicationRule =
 
 const defined = (key: string): Field => ({ from: key, when: 'defined' })
 
+/**
+ * SYSTEM-STARTED KINDS THAT STAY OFF THE FEED (POD-6941).
+ *
+ * The janitor's connect scan starts a `machine.scan` record with no creator
+ * for every machine about once a minute, and each scan moves its record four
+ * times (pending, running, its stage, the result with every repository found):
+ * most of the change log, for records no device receives. Feed visibility
+ * admits an effect's creator, its deciders and the readers of an issue or
+ * session target; a creatorless record on a machine has none of them. So such
+ * a record is neither captured (`record-sources.ts`) nor built. The effects
+ * table still holds it: it is a machine's last scan, and the scan a person's
+ * ask joins while it runs. What the scan found reaches devices through the
+ * records that own it (repositories, checkouts).
+ *
+ * The rule is `effectOnFeed` (`feed.ts`) and, in SQL, the `effect`
+ * declaration's row filter; the kind token fingerprints this list, since it
+ * decides which records exist.
+ */
+export const SYSTEM_EFFECT_KINDS_OFF_FEED: readonly string[] = ['machine.scan']
+
 /** The rules, by effect kind. The kind token fingerprints these data, rather
  * than function source, so bundled server and worker builds get the same token. */
 export const EFFECT_PUBLISHED_INPUT = {

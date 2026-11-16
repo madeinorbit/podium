@@ -169,7 +169,11 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
     vi.spyOn(rpc(o), 'scanRepos').mockResolvedValue(scanned([]))
     const host = o.store.hostMachineId
     await connectScanThroughEffect(o.reg.modules, host)
-    const [record] = await records(o)
+    const record = await o.store.effects.newestOnTarget(
+      MACHINE_SCAN_KIND,
+      { kind: 'machine', id: host },
+      'succeeded',
+    )
     expect([record?.kind, record?.status, record?.createdBy]).toEqual([
       MACHINE_SCAN_KIND,
       'succeeded',
@@ -180,6 +184,32 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
       machineId: host,
       deep: false,
     })
+  })
+
+  it("an hour of connect scans adds no effect row to the log; a person's scan still does (POD-6941)", async () => {
+    const o = await makeOracle()
+    vi.spyOn(rpc(o), 'scanRepos').mockResolvedValue(scanned([repo('/src/a')]))
+    const host = o.store.hostMachineId
+    const effectRows = async () => (await changeRows(o)).filter((row) => row.entity === 'effect')
+    // The janitor scans each connected machine about once a minute.
+    for (let minute = 0; minute < 60; minute++) await connectScanThroughEffect(o.reg.modules, host)
+    const last = await o.store.effects.newestOnTarget(
+      MACHINE_SCAN_KIND,
+      { kind: 'machine', id: host },
+      'succeeded',
+    )
+    expect(last?.createdBy).toBeNull()
+    expect(await effectRows()).toEqual([])
+    // A scan someone asked for still moves on their devices, start to result.
+    await o.call.discovery.scanMachine({ machineId: host, deep: false })
+    const rows = await effectRows()
+    const statuses = rows.map(
+      (row) => (JSON.parse(row.payload ?? 'null') as { effect: { status: string } }).effect.status,
+    )
+    expect(new Set(rows.map((row) => row.entityId)).size).toBe(1)
+    expect([statuses[0], statuses.at(-1)]).toEqual(['pending', 'succeeded'])
+    const [record] = await records(o)
+    expect([record?.kind, record?.createdBy === null]).toEqual([MACHINE_SCAN_KIND, false])
   })
 
   it('a scan left running by a stopped server fails as interrupted, never re-run', async () => {

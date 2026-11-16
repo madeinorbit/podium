@@ -110,6 +110,7 @@ import {
   workflowRuns,
   workflows,
 } from '../migrations/schema'
+import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
@@ -578,6 +579,13 @@ const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.
 const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
 
 /**
+ * An effect the server started for no one stays off the feed (`effectOnFeed`,
+ * POD-6941): the connect scan's records reach no device, so their four moves
+ * a scan are not captured. `created_by` and `kind` never change on a row.
+ */
+const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${effects.kind.name} NOT IN (${SYSTEM_EFFECT_KINDS_OFF_FEED.map((kind) => `'${kind}'`).join(', ')}))`
+
+/**
  * A row of a session's satellite table can change only the record of a
  * session that is on the feed: one whose row exists and is not tombstoned.
  * (A satellite of a missing session would otherwise append a remove for a
@@ -912,7 +920,11 @@ export const RECORD_SOURCES: RecordSources = {
       rows: `{row}.${meta.key.name} = 'settings'`,
     }),
   ],
-  effect: [byId(effects, effects.id, { rows: notTombstoned(effects.deletedAt) })],
+  effect: [
+    byId(effects, effects.id, {
+      rows: `${notTombstoned(effects.deletedAt)} AND ${EFFECT_ON_FEED}`,
+    }),
+  ],
   checkout: [
     own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
       checkoutRowId(key[0] as MachineId, str(key[1])),

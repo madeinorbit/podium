@@ -22,7 +22,10 @@ import {
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { SyncRepository } from '@podium/sync'
 import { driverFamilyForId, harnessCapabilitiesFor } from '../harness-manifest'
-import { EFFECT_PUBLISHED_INPUT } from '../modules/effects/published-input'
+import {
+  EFFECT_PUBLISHED_INPUT,
+  SYSTEM_EFFECT_KINDS_OFF_FEED,
+} from '../modules/effects/published-input'
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
 import { OOM_ATTRIBUTION_WINDOW_MS } from '../modules/sessions/session-record'
@@ -128,6 +131,7 @@ export async function readKindTokens(
   // Registration order and repeated entries do not change published records.
   const effectDigest = digestFor('effect', {
     rules: EFFECT_PUBLISHED_INPUT,
+    systemOffFeed: SYSTEM_EFFECT_KINDS_OFF_FEED,
     served: [...new Set(effectKinds)].sort(),
   })
   return Object.fromEntries(

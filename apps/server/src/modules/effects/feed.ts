@@ -8,14 +8,23 @@
  * the table never held, and no status move escapes the feed, whoever made it.
  *
  * A tombstoned row leaves the feed (`remove`); every other row is upserted
- * whole, with the input as its kind publishes it.
+ * whole, with the input as its kind publishes it, except the server's own
+ * machine scans ({@link effectOnFeed}).
  */
 
 import type { EffectRecordWire } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 import { changeLogCommit } from '../../store/change-log-commit'
 import type { EffectFeedCapture, EffectRow } from '../../store/effects'
+import { SYSTEM_EFFECT_KINDS_OFF_FEED } from './published-input'
 import type { EffectExecutorRegistry } from './registry'
+
+/**
+ * Whether an effect record is on the feed: a person's record, or a kind the
+ * server's own starts still publish ({@link SYSTEM_EFFECT_KINDS_OFF_FEED}).
+ */
+export const effectOnFeed = (row: Pick<EffectRow, 'kind' | 'createdBy'>): boolean =>
+  row.createdBy !== null || !SYSTEM_EFFECT_KINDS_OFF_FEED.includes(row.kind)
 
 const iso = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString()

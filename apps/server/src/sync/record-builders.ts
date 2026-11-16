@@ -90,7 +90,7 @@ import {
   RecordBuilderRegistry,
   type RecordPage,
 } from '@podium/sync/record-builders'
-import { effectRecordOf } from '../modules/effects/feed'
+import { effectOnFeed, effectRecordOf } from '../modules/effects/feed'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
 import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
@@ -866,13 +866,15 @@ const effect: Builder = {
   kind: 'effect',
   shape: 'row',
   build: async ({ store, effectExecutors }, ids) =>
-    (await store.effects.liveByIds(ids)).map((row) => ({
+    (await store.effects.liveByIds(ids)).filter(effectOnFeed).map((row) => ({
       id: row.id,
       value: effectRecordOf(row, effectExecutors as EffectExecutorRegistry),
     })),
   async *streamAll({ store, effectExecutors }) {
     for await (const page of store.effects.livePages(RECORD_PAGE_SIZE)) {
-      yield page.map((row) => ({
+      const onFeed = page.filter(effectOnFeed)
+      if (onFeed.length === 0) continue
+      yield onFeed.map((row) => ({
         id: row.id,
         value: effectRecordOf(row, effectExecutors as EffectExecutorRegistry),
       }))
