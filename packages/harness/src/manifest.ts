@@ -1031,6 +1031,17 @@ export interface InstrumentationDestination {
   /** Host telemetry plumbing: report one harness `--version` probe's raw output.
    *  Best-effort observations only, never an admission requirement. */
   reportVersionProbe?: (harness: string, output: string) => void
+  /**
+   * Trust for hooks a harness takes at launch, in a home Podium created
+   * (credential management §10): the harness's own hash per hook key for
+   * exactly these launch flags, read from the harness and cached by the host.
+   * Undefined when it cannot be had; the install then degrades as untrusted.
+   * Codex only today.
+   */
+  launchHookTrust?: (
+    installation: HarnessContext['installation'],
+    flags: readonly string[],
+  ) => Promise<Readonly<Record<string, string>> | undefined>
 }
 
 /** What an install produced: CLI wiring plus how degraded the global part is.

@@ -862,6 +862,85 @@ async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentSt
 }
 
 // ---------------------------------------------------------------------------
+// Hooks at launch, for a home Podium created (credential management §10).
+// ---------------------------------------------------------------------------
+
+/**
+ * Podium's handlers as Codex launch flags: `-c hooks.<Event>=[…]`, one per
+ * event, the same handler hooks.json would hold. Codex keys flag-supplied
+ * hooks by a fixed path that does not depend on the home, so one trust entry
+ * per event serves every Podium home (POD-6893 S2).
+ */
+export function codexHookLaunchFlags(): string[] {
+  const handler = [
+    'type="command"',
+    `command=${JSON.stringify(PODIUM_CODEX_HOOK_COMMAND)}`,
+    `commandWindows=${JSON.stringify(PODIUM_CODEX_HOOK_COMMAND_WINDOWS)}`,
+    `timeout=${PODIUM_CODEX_HOOK_TIMEOUT_SEC}`,
+  ].join(',')
+  return CODEX_HOOK_EVENTS.flatMap((event) => ['-c', `hooks.${event}=[{hooks=[{${handler}}]}]`])
+}
+
+/**
+ * Trust for exactly those handlers, as one launch flag. The inline-table form:
+ * a dotted `hooks.state."<key>".trusted_hash` does not address the key (S2).
+ * Codex merges it with the trust in the home's config and never writes it.
+ */
+export function codexHookTrustFlag(trust: Readonly<Record<string, string>>): string[] {
+  const entries = Object.entries(trust).map(
+    ([key, hash]) => `${JSON.stringify(key)}={trusted_hash=${JSON.stringify(hash)}}`,
+  )
+  return entries.length === 0 ? [] : ['-c', `hooks.state={${entries.join(',')}}`]
+}
+
+/**
+ * The hook keys and Codex's own hashes for the handlers it took from launch
+ * flags, out of an app-server `hooks/list` result. Only `sessionFlags`
+ * hooks: trust is never read for, or given to, a hook from a file.
+ */
+export function codexSessionFlagHookHashes(result: unknown): Record<string, string> {
+  const hashes: Record<string, string> = {}
+  const entries = isRecord(result) && Array.isArray(result.data) ? result.data : []
+  for (const entry of entries) {
+    const hooks = isRecord(entry) && Array.isArray(entry.hooks) ? entry.hooks : []
+    for (const hook of hooks) {
+      const key = strField(hook, 'key')
+      const hash = strField(hook, 'currentHash')
+      if (key && hash && strField(hook, 'source') === 'sessionFlags') hashes[key] = hash
+    }
+  }
+  return hashes
+}
+
+/**
+ * The install in a Podium home: Podium's handlers and their trust as launch
+ * flags, and nothing written in the home (the exception to POD-4076 that §10
+ * records: Podium supplies trust only for its own handlers, only at launch,
+ * only in homes it created). Without trust from the host the handlers are not
+ * passed at all and the session runs poll-only, reported as untrusted.
+ */
+async function installCodexLaunchHooks(
+  destination: InstrumentationDestination,
+  wiring: { args: string[]; env: Record<string, string> },
+): Promise<InstalledInstrumentation> {
+  const flags = codexHookLaunchFlags()
+  let trust: Readonly<Record<string, string>> | undefined
+  try {
+    trust = await destination.launchHookTrust?.(destination.harnessContext.installation, flags)
+  } catch {
+    trust = undefined
+  }
+  if (!trust || Object.keys(trust).length === 0) {
+    return {
+      ...wiring,
+      degradedReason: 'untrusted codex hooks: their trust could not be read for this home',
+      degradedKind: 'untrusted',
+    }
+  }
+  return { ...wiring, args: [...wiring.args, ...flags, ...codexHookTrustFlag(trust)] }
+}
+
+// ---------------------------------------------------------------------------
 // Install: global hooks.json layout + per-session env wiring (POD-4472).
 // ---------------------------------------------------------------------------
 
@@ -877,6 +956,7 @@ async function installCodexInstrumentation(
       ...(destination.socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: destination.socketPath } : {}),
     },
   }
+  if (context.harnessHome) return await installCodexLaunchHooks(destination, wiring)
   // Per-launch trust for Podium's own handlers (POD-6999): without it Codex
   // opens a "Hooks need review" modal that swallows the first message. Below
   // the measured minimum, with an unknown version, or on Windows (whose hash

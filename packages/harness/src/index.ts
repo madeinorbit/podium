@@ -34,7 +34,13 @@ export * from './adapters/claude-code/state-locate.js'
 export * from './adapters/claude-code/state-provider.js'
 export * from './adapters/codex/auth-identity.js'
 export * from './adapters/codex/credential-absence-grace.js'
+export { probeCodexLaunchHookTrust } from './adapters/codex/hook-trust-probe.js'
 export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
+export {
+  codexHookLaunchFlags,
+  codexHookTrustFlag,
+  codexSessionFlagHookHashes,
+} from './adapters/codex/instrumentation.js'
 export * from './adapters/codex/responses.js'
 export * from './adapters/codex/state-provider.js'
 export { codexPromptTextMatches } from './adapters/codex/transcript.js'
