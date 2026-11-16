@@ -42,6 +42,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asMachineId } from '@podium/model'
 import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -67,9 +68,24 @@ const fixtureLaunch: NonNullable<DaemonOptions['launch']> = () => ({
 
 const hostMachineId = (): string => readOrCreateLocalMachineId()
 
-async function waitFor(pred: () => boolean, timeoutMs = 15_000): Promise<void> {
+/** The enrolled transport fixture registers the host as a server only; agent
+ *  sessions need it assigned to run them too (as resume-send-delivery does). */
+async function startAgentServer() {
+  const srv = await startServer()
+  await srv.registry.modules.machines.changeAssignment(
+    asMachineId(hostMachineId()),
+    { server: true, agentExecution: true },
+    'runtime-contract-lane',
+  )
+  return srv
+}
+
+async function waitFor(
+  pred: () => boolean | undefined | Promise<boolean | undefined>,
+  timeoutMs = 15_000,
+): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
@@ -86,7 +102,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     // admission always builds a driver handle for profile-bearing kinds, so
     // this lane spawns without any env setup and still drives through it.
 
-    const srv = await startServer()
+    const srv = await startAgentServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       machineToken: srv.machineToken,
@@ -111,17 +127,18 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
 
     try {
       await waitFor(
-        () =>
-          srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
+        async () =>
+          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
             ?.online === true,
       )
 
       // A HARNESS KIND, not a shell: the flag only reaches a kind whose manifest
       // declares a terminal runtime, and `terminalProfileFor` returns undefined
       // for a shell by design — there are no turns to be honest about.
-      const { sessionId } = sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
+        async () =>
+          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
       )
 
       // ---- 0. hibernate REFUSES before the harness has minted a resume ref -
@@ -203,7 +220,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // going offline and a parked session, none of which a machine-local queue
       // could promise.
       expect(
-        sessions.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount,
+        (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.queuedMessageCount,
       ).toBeGreaterThan(0)
 
       // ---- 4. interrupt REQUESTS a fence, over the same path ---------------
@@ -251,7 +268,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-runtime-contract-off-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
 
-    const srv = await startServer()
+    const srv = await startAgentServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       machineToken: srv.machineToken,
@@ -268,22 +285,25 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
 
     try {
       await waitFor(
-        () =>
-          srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
+        async () =>
+          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
             ?.online === true,
       )
-      const { sessionId } = sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
+        async () =>
+          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
       )
 
       // No flag anywhere, yet the session is behind the contract: the row
       // records the bind-reported handle fact.
-      await waitFor(() => {
-        const row = sessions.listSessions().find((s) => s.sessionId === sessionId)
-        if (!row?.runtimeContract) throw new Error('waiting for contract bind')
+      await waitFor(async () => {
+        const row = (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
+        return row?.runtimeContract === true
       })
-      expect(sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('live')
+      expect((await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+        'live',
+      )
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
@@ -314,7 +334,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     // machine-wide contract switch is gone), and this lane would quietly stop
     // testing the per-spawn field if it set one.
 
-    const srv = await startServer()
+    const srv = await startAgentServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       machineToken: srv.machineToken,
@@ -346,10 +366,10 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // which discovery reports after the connection is up, so waiting only for
       // `online` races it — and loses as a "harness is not installed" error that
       // says nothing about the driver id this lane is actually about.
-      await waitFor(() => {
-        const machine = srv.registry.modules.machines
-          .listMachines()
-          .find((m) => m.id === hostMachineId())
+      await waitFor(async () => {
+        const machine = (await srv.registry.modules.machines.listMachines()).find(
+          (m) => m.id === hostMachineId(),
+        )
         return (
           machine?.online === true &&
           machine.inventory?.agents.some((a) => a.kind === 'opencode' && a.installed) === true
@@ -371,7 +391,9 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // measured that at 11–15s on the build host (budget 60s). A tighter
       // deadline here would fail on a loaded box and read as a broken refusal.
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'exited',
+        async () =>
+          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status ===
+          'exited',
         90_000,
       )
       // Read back through the wire projection too, because that is where an
@@ -408,8 +430,9 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
           runtimeContract: 'opencode-server',
         })
         await waitFor(
-          () =>
-            sessions.listSessions().find((s) => s.sessionId === live.sessionId)?.status === 'live',
+          async () =>
+            (await sessions.listSessions()).find((s) => s.sessionId === live.sessionId)?.status ===
+            'live',
           90_000,
         )
         // THE JOURNAL IS THE FAMILY TEST, not `runtimeContract: true` — the
