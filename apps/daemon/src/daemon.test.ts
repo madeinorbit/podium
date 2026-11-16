@@ -2257,8 +2257,12 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await new Promise((r) => setTimeout(r, 800))
       // The agent is not touched by the reattach: not moved, not signalled, not
-      // even sent a redraw key. Nothing has asked it for anything.
-      expect(painted()).toBe('')
+      // even sent a redraw key. Nothing has asked it for anything. What does
+      // reach this pictureless server is the host's ring replay (POD-4290 seeds
+      // the recovered screen from it): the program's LAST screen, at the paint
+      // counter it already had. A new paint would mean the program was asked.
+      const reattachPaints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+      expect(reattachPaints.every((paint) => paint <= lastPaintBefore)).toBe(true)
       expect(painted()).not.toContain('cols=120')
       // AND THE BIND SAYS SO (POD-3279). A real daemon, a real podium-host
       // survivor, a real size-neutral attach — and the frame that comes back
