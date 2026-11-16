@@ -626,7 +626,7 @@ What it takes in the daemon, which today assumes one home (86 references in 17 f
 | The sign-in terminal runs in the daemon's home. | It runs in a chosen home. |
 | Hooks are installed in one directory. | Installed per home at launch. The install already takes the directory. |
 | Transcript discovery scans one home. | It scans every home. |
-| A server-driver engine process serves the machine's one login. | One per home in use. |
+| One engine per session, run in the daemon's one home. | One engine per session, run in its session's home; removing a home stops them and Codex's managed daemon. |
 | Quota and model probes read one home. | They read per home. |
 
 ### Who keeps what

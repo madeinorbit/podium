@@ -319,6 +319,29 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   session's access from memory; no separate wire message)
 //   AgentInventory.logins?: { homeId: string; state; identity?; freshness? }[]
 //   homeEnsureRequest/Result, homeRemoveRequest/Result, oauthLoopbackRequest/Result
+// packages/protocol/src/messages/homes.ts (Task 8) — harness homes
+//   CAP_HARNESS_HOMES = 'harness.homes.v1' gates homeEnsure*, homeRemove* and credentialRemove*
+//   DEFAULT_HOME_ID = 'default' (the harness's own directory; never created or removed)
+//   HOME_HARNESSES = ['claude-code', 'codex']; HomeHarness
+//   homeIdFor(credentialId, harness) → '<credentialId>:<harness>'; parseHomeId(id) → { credentialId, harness } | null
+//   homeEnsureRequest { requestId, credentialId, harness } → homeEnsureResult { ok, homeId?, created?, error? }
+//   homeRemoveRequest { requestId, homeId } → homeRemoveResult { ok, removed?, freedBytes?, error? }
+//   credentialRemoveRequest { requestId, harness, fingerprint }
+//     → credentialRemoveResult { outcome: 'removed' | 'absent' | 'changed' | 'failed', error? }
+//   A home is per credential and harness on a machine: two members using one shared
+//   credential on one machine share its directory, as they share the default home today.
+// packages/model machine.ts — AgentInventory.logins?: HomeLogin[] { homeId, state, identity?, freshness? }
+//   ('default' first); AgentQuotaWire.homeId? (absent: default); modelProbeResult.byHome?
+// apps/daemon/src/homes/registry.ts — HomeRegistry { ensure, get, list, remove }, homes at
+//   <stateDir>/homes/<credentialId>/<harness>/ (0700); DaemonContext.homes
+// packages/harness — HarnessContext.harnessHome?: { id, dir, variable }; withHarnessHome(context, home),
+//   withHomeScope(kind, scope, dir), harnessHomeVariable(kind). harnessChildEnv sets the home's
+//   variable after every other layer, so the claude-sdk and codex engine hosts (Task 15) run in the
+//   session's home by passing the context through; they need no home logic of their own.
+//   turnChildEnv input carries sessionId. InstrumentationDestination.launchHookTrust (Codex hooks
+//   and their trust as -c flags in a Podium home).
+// apps/server/src/modules/machines/rpc.ts — homeEnsure, homeRemove, credentialRemove;
+//   apps/server/src/modules/credentials/home-removers.ts — placementRemovers(), bound in relay.ts
 //   server transfer promote request: vaultDataKey?: string | null, vaultCheck?: string (the source's
 //     expected value; the target refuses a key that does not match it before changing anything)
 //   promote result and inspect result: vaultCheck?: string
@@ -1021,6 +1044,9 @@ propagation; `apps/web/src/features/credentials/add-subscription/` (new).
 10. Lanes: the lean gate and the web tests, on a remote lane.
 
 **Not in this task:** homes on the daemon (Task 8), remove-everywhere as a whole (Task 13).
+
+Note from Task 8: `queries.ts` names a home placement `podium:<credentialId>`; switch it to
+`homeIdFor(credentialId, harness)` from `@podium/protocol`, the id the daemon uses.
 
 ### Task 10: Session credential choice
 
