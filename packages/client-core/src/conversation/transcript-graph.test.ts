@@ -333,7 +333,7 @@ it('keeps mail commands in their stretch across in-place updates', () => {
   // Updating a call to mail preserves the same stretch and its identity.
   f.apply({ changed: [send] })
   expect(f.graph.snapshot().rows.map((row) => row.kind)).toEqual(['tools'])
-  expect(f.graph.run('a')?.summary).toBe('Ran 2 commands, sent a note')
+  expect(f.graph.run('a')?.summary).toBe('2 commands, sent a note')
   // And back.
   f.apply({ changed: [bash('b', 'pwd')] })
   expect(f.graph.snapshot().rows.map((row) => row.kind)).toEqual(['tools'])
@@ -359,7 +359,7 @@ it('keeps mixed stretches, note counts, search aliases and summary rows in parit
     text: `${note('notes', 'issue:POD-2287', true).text}\n${note('second').text}`,
   }
   f.apply({ changed: [two] })
-  expect(run?.summary).toBe('Read a file, read 2 notes, ran a command')
+  expect(run?.summary).toBe('Read a file, read 2 notes, 1 command')
   expect(f.graph.rowIds.slice()).toEqual(['first'])
   for (const to of ['the operator', 'operator']) {
     f.apply({ changed: [note('notes', to, true)] })
@@ -395,7 +395,11 @@ it('carries harness tool summaries on their calls and runs, never as rows, acros
   // item never becomes a row of its own.
   append(summary('sum-b', 'Read the config', ['use-b']))
   expect(graph.structuralRows.map((row) => row.kind)).toEqual(['tools', 'block'])
-  expect(graph.block('b')?.harnessSummary).toEqual({ id: 'sum-b', text: 'Read the config' })
+  expect(graph.block('b')?.harnessSummary).toEqual({
+    id: 'sum-b',
+    text: 'Read the config',
+    toolUseIds: ['use-b'],
+  })
   expect(graph.run('b')?.title).toBe('Read the config')
   // An older page brings an earlier call of the same run and its own summary.
   prepend(
@@ -408,4 +412,123 @@ it('carries harness tool summaries on their calls and runs, never as rows, acros
   // Without a summary, a call keeps Podium's own name for itself.
   append(call('c', 'use-c'))
   expect(graph.block('c')?.harnessSummary).toBeUndefined()
+})
+
+it('retains an inline command result as its call and preserves exact summary membership', () => {
+  const command: TranscriptItem = {
+    ...call('native', 'native', 'Bash'),
+    toolExecution: {
+      kind: 'commands',
+      inputs: [{ kind: 'command', toolName: 'Bash', text: 'true', capture: 'complete' }],
+      status: 'running',
+    },
+  }
+  const f = fixture([
+    command,
+    {
+      id: 'summary',
+      role: 'system',
+      text: 'Check the command',
+      systemKind: 'tool-summary',
+      summarizes: ['native'],
+    },
+  ])
+  const run = f.graph.run('native')
+  const complete = {
+    ...command,
+    toolResult: '',
+    toolExecution: {
+      ...command.toolExecution,
+      status: 'completed' as const,
+      exitCode: 0,
+      output: { capture: 'complete' as const },
+    },
+  }
+  f.apply({ changed: [complete] })
+  expect(f.graph.run('native')).toBe(run)
+  expect(f.graph.block('native')?.execution?.output.label).toBe('No output')
+  expect(f.graph.block('native')?.harnessSummary?.text).toBe('Check the command')
+  expect(run?.executionSections[0]?.summary).toBe('Check the command')
+  expect(run?.executionCount).toBe(1)
+  f.graph.dispose()
+})
+
+it('keeps empty failed results visible in summary and refreshes the addressed execution', () => {
+  const command: TranscriptItem = {
+    ...call('native', 'native', 'Bash'),
+    toolExecution: {
+      kind: 'commands',
+      inputs: [{ kind: 'command', toolName: 'Bash', text: 'false', capture: 'complete' }],
+    },
+  }
+  const f = fixture([command])
+  f.append({
+    ...result('native-result', 'native', ''),
+    toolExecution: { status: 'failed', exitCode: 1, output: { capture: 'complete' } },
+  })
+  expect(f.graph.snapshot('summary').rows).toHaveLength(1)
+  expect(f.graph.block('native')?.execution?.status).toBe('failed')
+  expect(f.graph.run('native')?.failures).toBe(1)
+  f.apply({
+    changed: [
+      {
+        ...result('native-result', 'native', ''),
+        toolExecution: { status: 'completed', exitCode: 0, output: { capture: 'complete' } },
+      },
+    ],
+  })
+  expect(f.graph.snapshot('summary').rows).toHaveLength(0)
+  expect(f.graph.run('native')?.failures).toBe(0)
+  f.graph.dispose()
+})
+
+it('does not carry an earlier result verdict onto a later result with unknown outcome', () => {
+  const command: TranscriptItem = {
+    ...call('native', 'native', 'Bash'),
+    toolExecution: {
+      kind: 'commands',
+      inputs: [{ kind: 'command', toolName: 'Bash', text: 'check', capture: 'complete' }],
+    },
+  }
+  const f = fixture([
+    command,
+    {
+      ...result('first', 'native', ''),
+      toolExecution: {
+        status: 'failed',
+        exitCode: 1,
+        durationMs: 20,
+        output: { capture: 'complete' },
+      },
+    },
+  ])
+  f.append({
+    ...result('last', 'native', 'latest result'),
+    toolExecution: { output: { capture: 'complete' } },
+  })
+  expect(f.graph.block('native')?.execution?.status).toBe('returned')
+  expect(f.graph.block('native')?.execution?.exitCode).toBeUndefined()
+  expect(f.graph.run('native')?.failures).toBe(0)
+  f.graph.dispose()
+})
+
+it('searches retained command text beyond the input preview in both graph and snapshot readers', () => {
+  const command: TranscriptItem = {
+    ...call('search', 'search', 'Bash'),
+    toolInput: 'echo preview…',
+    toolExecution: {
+      kind: 'commands',
+      inputs: [
+        {
+          kind: 'command',
+          toolName: 'Bash',
+          text: `echo ${'a'.repeat(300)} full-command-needle`,
+          capture: 'complete',
+        },
+      ],
+    },
+  }
+  const f = fixture([command])
+  expect(f.graph.search('full-command-needle', 0).total).toBe(1)
+  f.graph.dispose()
 })

@@ -1,3 +1,4 @@
+// LEGACY(remove-after: 2027-02): shell-command payloads for clients predating typed executions.
 import { TOOL_INPUT_MAX, TOOL_INPUT_TEXT_BUDGETS } from './tool-input-budget'
 
 export type ToolCommandPayload = {

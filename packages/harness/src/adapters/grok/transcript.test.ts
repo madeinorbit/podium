@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import { commandExecution } from '../shared/execution.js'
 import { grokRecordEndsTurn, grokRecordToItems } from './transcript.js'
 
 // One `updates.jsonl` line as Grok 1.0.44 writes it (shapes from real sessions
@@ -137,6 +138,7 @@ describe('grokRecordToItems', () => {
         text: '',
         toolName: 'Bash',
         toolInput: 'podium issue prime',
+        toolExecution: commandExecution('podium issue prime', 'Prime current issue and ready work'),
         toolTitle: 'Prime current issue and ready work',
         toolUseId: 'call-1d7d7f3e-0',
       },
@@ -171,7 +173,8 @@ describe('grokRecordToItems', () => {
         role: 'tool',
         ts: at,
         text: '',
-        toolResult: 'exit: 0\nUsage: podium issue',
+        toolResult: 'exit: 0\nUsage: podium issue\n',
+        toolExecution: { status: 'completed', output: { capture: 'complete' } },
         toolUseId: 'call-1d7d7f3e-0',
       },
     ])
@@ -233,7 +236,9 @@ describe('grokRecordToItems', () => {
     expect(result({ type: 'ListDir', Content: { content: '- /repo/\n  - a.ts' } })).toBe(
       '- /repo/\n  - a.ts',
     )
-    expect(result({ type: 'TaskOutput', Result: { output: 'done\n', task_id: 't1' } })).toBe('done')
+    expect(result({ type: 'TaskOutput', Result: { output: 'done\n', task_id: 't1' } })).toBe(
+      'done\n',
+    )
     expect(result({ type: 'Todo', TodosUpdated: { summary_for_prompt: '2 open' } })).toBe('2 open')
     expect(
       result(
@@ -242,8 +247,8 @@ describe('grokRecordToItems', () => {
         'failed',
       ),
     ).toBe('Hook denied: read your mail')
-    // Nothing to show, nothing emitted.
-    expect(result({ type: 'Monitor', taskId: 't1' })).toBeUndefined()
+    // Completion remains recorded even when no text was retained.
+    expect(result({ type: 'Monitor', taskId: 't1' })).toBe('')
   })
 
   it('carries AskUserQuestion structure so the chat can render the card', () => {

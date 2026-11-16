@@ -1,3 +1,5 @@
+import { commandExecution, executionOutput } from '../../../adapters/shared/execution.js'
+
 /**
  * codex app-server PROTOCOL → THE CONTRACT'S VOCABULARY (POD-1761 W6; plan §3).
  *
@@ -40,8 +42,8 @@
  * opinions. The rollout path is untouched and still serves the terminal driver.
  */
 
-import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { TranscriptItem } from '@podium/model'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { InteractionAnswer, PendingInteraction, Refusal } from '../../host.js'
 import {
   type CodexApprovalDecision,
@@ -114,8 +116,15 @@ export function threadItemToItems(
     case 'commandExecution': {
       const command = str(item.command) ?? ''
       const cwd = str(item.cwd)
-      const output = str(item.aggregatedOutput)
+      const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : undefined
       const done = item.status === 'completed' || item.status === 'failed'
+      const captured = done
+        ? executionOutput(output, {
+            status: item.status === 'failed' ? 'failed' : 'completed',
+            ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
+            ...(typeof item.durationMs === 'number' ? { durationMs: item.durationMs } : {}),
+          })
+        : undefined
       return [
         {
           id: item.id,
@@ -130,7 +139,11 @@ export function threadItemToItems(
           // place rather than emitting a separate output record. Only a
           // finished command has one; an in-progress item carries the call
           // alone, which is what `item/started` means.
-          ...(done && output ? { toolResult: truncate(output, 2000) } : {}),
+          ...(captured ? { toolResult: captured.toolResult } : {}),
+          toolExecution: {
+            ...commandExecution(command),
+            ...(captured?.toolExecution ?? { status: 'running' as const }),
+          },
         },
       ]
     }

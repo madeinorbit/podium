@@ -638,40 +638,40 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "6d671ab1238911dda1a3e4c764a060f626fb202cfd6654e0b449154b1895ce5a",
+      "tokens": "e166b4737b6d4f2ac5e211fd4818b75eff6f4d2c127e649bf58a59899525ee68",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "bf76f340522ddebada54ab82b901f400180e048ae3a6abbec94a83e5f46810f8",
+      "fingerprint": "430a485cf0770ec26593a254569fe84a1a8d91f774eb1ef65c81bdc172add319",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged. POD-6952 predecessor: bf76f340522ddebada54ab82b901f400180e048ae3a6abbec94a83e5f46810f8. Execution metadata is paired in the existing snapshot pass; invocation, scan count and unbounded-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "6d671ab1238911dda1a3e4c764a060f626fb202cfd6654e0b449154b1895ce5a",
+      "tokens": "e166b4737b6d4f2ac5e211fd4818b75eff6f4d2c127e649bf58a59899525ee68",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "d558e542cabce883dd14f7cd2fb69b30cf63d0711a25d4adc48fa37465c8bb93",
+      "fingerprint": "8d2b28b8a80280e39bdee35b33133ff31fd870b725cfbcde76a70c03a7c614a0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged. POD-6952 predecessor: d558e542cabce883dd14f7cd2fb69b30cf63d0711a25d4adc48fa37465c8bb93. Execution metadata is paired in the existing snapshot pass; invocation, scan count and unbounded-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -15802,18 +15802,18 @@
       "file": "packages/client-core/src/values/chat.ts",
       "holder": "pairToolResults",
       "rule": "loop:for-of",
-      "tokens": "84622e9dbf0d88fe29875be6f52fbea6d65cfcc07569c1a0fe94036b48ebcbf8",
+      "tokens": "829a9e953d6755fb41a76cfb0be7c6c25e63539c1a3b1acfa8ca0cfd8a58019d",
       "gate": [],
       "origin": [
         "90ee1d7345d047e422a587a7587f40920186d2bbc15ec4fc7a94fc2f2cbb12f6"
       ],
-      "fingerprint": "8c1bc78295db72c3090b7bf5abc53108fb2c0f3faa13918ca596eb77d40f507b",
+      "fingerprint": "a25e096340ae97cd1d86e343da88e41d78e51ae7156c1a9a4745ad2f5b4af3e6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of pairToolResults",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0a5609d1a7a8881d1c330e6fb12ff05a1a14a514656a0f450a815cae79c6e23b.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0a5609d1a7a8881d1c330e6fb12ff05a1a14a514656a0f450a815cae79c6e23b. POD-6952 predecessor: 8c1bc78295db72c3090b7bf5abc53108fb2c0f3faa13918ca596eb77d40f507b. Execution metadata is paired in the existing snapshot pass; invocation, scan count and unbounded-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -23916,18 +23916,18 @@
       "file": "packages/client-core/src/values/transcript-compute.ts",
       "holder": "computeTranscript/blocks",
       "rule": "helper-consumer",
-      "tokens": "71a5c561bd5d8e80e2c8fbda2e7dc1fd1129d3d58044f490cb832e883c0eca9d",
+      "tokens": "70b01f331c35c8e95102d0abff6ebe816ca812216ca2412205cd725d9b46bdb4",
       "gate": [],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "7170adcb095a50434623af53c53ddbf34cad834862c32150753e7c4f1ba49378",
+      "fingerprint": "e393dd0e3da9a2b3fbca266ff743fdcae173cd36b0117eb17e0921ed9e3a640a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of computeTranscript/blocks",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 8e524a4ce527077b3f14f1e6a4be87bb5456948b3a078f1a36cb6852603f1a07.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 8e524a4ce527077b3f14f1e6a4be87bb5456948b3a078f1a36cb6852603f1a07. POD-6952 predecessor: 7170adcb095a50434623af53c53ddbf34cad834862c32150753e7c4f1ba49378. Execution metadata is paired in the existing snapshot pass; invocation, scan count and unbounded-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -23970,18 +23970,18 @@
       "file": "packages/client-core/src/values/transcript-compute.ts",
       "holder": "computeTranscript/blocks",
       "rule": "helper-consumer",
-      "tokens": "71a5c561bd5d8e80e2c8fbda2e7dc1fd1129d3d58044f490cb832e883c0eca9d",
+      "tokens": "70b01f331c35c8e95102d0abff6ebe816ca812216ca2412205cd725d9b46bdb4",
       "gate": [],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "c4cd5ead891795d43936981fc48ef2ea7a3f76dd03754941be3e1662138dfbf2",
+      "fingerprint": "04d5af52469248d246fc8059fad72ca94e798f94dd69472240dbd7ef44f01cc1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of computeTranscript/blocks",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: f6d357da39fc77f55b632aa4046c105366062caaed8072416086ddb529214c8c.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: f6d357da39fc77f55b632aa4046c105366062caaed8072416086ddb529214c8c. POD-6952 predecessor: c4cd5ead891795d43936981fc48ef2ea7a3f76dd03754941be3e1662138dfbf2. Execution metadata is paired in the existing snapshot pass; invocation, scan count and unbounded-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

@@ -1,4 +1,4 @@
-import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import type { TranscriptItem, TranscriptTag, TranscriptToolExecution } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import type {
   HarnessRuntimeObservation,
@@ -7,6 +7,7 @@ import type {
 } from '../../transcript-types.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import { toolInputPreview } from '../claude-code/transcript.js'
+import { commandExecution, executionOutput, executionText } from '../shared/execution.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { locateGrokTranscript } from './state-locate.js'
 
@@ -174,6 +175,7 @@ function toolCallItem(
     ...(ts ? { ts } : {}),
     text: '',
     toolName: display.toolName,
+    ...(display.toolExecution ? { toolExecution: display.toolExecution } : {}),
     ...(display.toolInput ? { toolInput: display.toolInput } : {}),
     ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
     ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
@@ -191,7 +193,7 @@ function toolCallItem(
  * `…for_prompt`), else the display content, else the few `rawOutput` shapes
  * that carry no display content (a directory listing, a background task's
  * output); checked against the tool results of 29 real Grok sessions
- * (2026-09-29). No text, no item — the same as an empty result before.
+ * (2026-09-29). Empty and non-text returns still carry completion metadata.
  */
 function toolResultItem(
   update: Record<string, unknown>,
@@ -202,22 +204,21 @@ function toolResultItem(
   const toolUseId = stringField(update, 'toolCallId')
   if (!toolUseId) return undefined
   const raw = recordField(update, 'rawOutput')
-  const text = (
-    stringField(raw, 'output_for_prompt') ??
+  const text =
+    textField(raw, 'output_for_prompt') ??
     variantForPrompt(raw) ??
-    displayText(update.content) ??
-    stringField(recordField(raw, 'Content'), 'content') ??
-    stringField(recordField(raw, 'Result'), 'output') ??
-    stringField(recordField(raw, 'Result'), 'message') ??
-    ''
-  ).trim()
-  if (!text) return undefined
+    (Array.isArray(update.content) && update.content.length > 0
+      ? executionText(update.content)
+      : undefined) ??
+    textField(recordField(raw, 'Content'), 'content') ??
+    textField(recordField(raw, 'Result'), 'output') ??
+    textField(recordField(raw, 'Result'), 'message')
   return {
     id: `${toolUseId}:out`,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
-    toolResult: truncate(text, 2000),
+    ...executionOutput(text, { status }),
     toolUseId,
   }
 }
@@ -244,6 +245,7 @@ function displayText(content: unknown): string | undefined {
 }
 
 interface GrokToolDisplay {
+  toolExecution?: TranscriptToolExecution
   toolName: string
   toolInput?: string
   toolTitle?: string
@@ -269,6 +271,7 @@ function grokToolDisplay(wireName: string, input: unknown): GrokToolDisplay {
     case 'exec_command':
       return {
         toolName: 'Bash',
+        ...(command !== undefined ? { toolExecution: commandExecution(command, description) } : {}),
         ...(command || preview ? { toolInput: command ?? preview } : {}),
         ...(description ? { toolTitle: description } : {}),
       }
@@ -484,3 +487,7 @@ export async function grokChainPaths(input: TranscriptSourceInput): Promise<stri
 export const grokTranscript = supported(
   fileTranscript(grokChainPaths, grokRecordToItems, grokRuntime),
 )
+
+function textField(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  return typeof value?.[key] === 'string' ? value[key] : undefined
+}

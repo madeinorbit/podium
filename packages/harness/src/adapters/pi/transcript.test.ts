@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { commandExecution } from '../shared/execution.js'
 import { piRecordToItems, piRuntime } from './transcript.js'
 
 const ts = '2026-09-02T09:48:47.074Z'
@@ -50,6 +51,8 @@ describe('piRecordToItems', () => {
         text: '',
         toolName: 'bash',
         toolInput: 'echo hello-from-tool',
+        toolExecution: commandExecution('echo hello-from-tool'),
+        toolBatch: { id: '57f31578', kind: 'message' },
         toolUseId: 'call_1',
         ts,
       },
@@ -89,7 +92,8 @@ describe('piRecordToItems', () => {
         id: 'ab5a0a4e',
         role: 'tool',
         text: '',
-        toolResult: 'hello-from-tool',
+        toolResult: 'hello-from-tool\n',
+        toolExecution: { status: 'completed', output: { capture: 'complete' } },
         toolUseId: 'call_1',
         ts,
       },
@@ -98,7 +102,17 @@ describe('piRecordToItems', () => {
       piRecordToItems(
         entry('e', { role: 'toolResult', toolCallId: 'c', content: [], isError: true }),
       ),
-    ).toEqual([{ id: 'e', role: 'tool', text: '', toolResult: '(tool error)', toolUseId: 'c', ts }])
+    ).toEqual([
+      {
+        id: 'e',
+        role: 'tool',
+        text: '',
+        toolResult: '',
+        toolExecution: { status: 'failed', output: { capture: 'complete' } },
+        toolUseId: 'c',
+        ts,
+      },
+    ])
   })
 
   it('renders a provider error as the assistant turn that failed', () => {
@@ -133,10 +147,19 @@ describe('piRecordToItems', () => {
         text: '',
         toolName: 'bash',
         toolInput: 'git status',
+        toolExecution: commandExecution('git status'),
         toolUseId: 'b1',
         ts,
       },
-      { id: 'b1:result', role: 'tool', text: '', toolResult: 'clean', toolUseId: 'b1', ts },
+      {
+        id: 'b1:result',
+        role: 'tool',
+        text: '',
+        toolResult: 'clean',
+        toolExecution: { status: 'completed', exitCode: 0, output: { capture: 'complete' } },
+        toolUseId: 'b1',
+        ts,
+      },
     ])
     expect(
       piRecordToItems(

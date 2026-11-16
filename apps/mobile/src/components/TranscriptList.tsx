@@ -9,6 +9,7 @@ import {
   pointerFallbackBody,
   resultPreview,
   toolBatchTitles,
+  toolExecutionSections,
   toolRunFailures,
   toolVerdict,
 } from '@podium/client-core/values'
@@ -315,82 +316,233 @@ const ToolsRun = observer(function ToolsRun({
         <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
       </PressableScale>
       {expanded
-        ? (run?.blocks ?? blocks).map((b) => {
-            const { item } = b
-            const display = activitySingletonDisplay(b)
-            if (display.kind === 'received-notes')
-              return (
-                <View key={item.id}>
-                  {display.batch.envelopes.map((envelope) => (
-                    <EnvelopeRow key={envelope.id} envelope={envelope} onRefPress={onRefPress} />
-                  ))}
-                </View>
-              )
-            const mail =
-              display.kind === 'sent-note' || display.kind === 'inbox-read'
-                ? display.mail
-                : undefined
-            if (mail)
-              return (
-                <View key={item.id}>
-                  <Text style={styles.toolPreview}>
-                    {mail.op === 'note'
-                      ? `Note to ${mail.to}`
-                      : mail.notes === undefined
-                        ? 'Read notes'
-                        : `Read ${mail.notes} notes`}
-                  </Text>
-                  <RichMarkdown
-                    text={
-                      mail.op === 'note'
-                        ? (mail.preview ?? 'Sent')
-                        : (b.result ?? item.toolResult ?? '')
-                    }
-                    onRefPress={onRefPress}
-                  />
-                </View>
-              )
-            const result = b.result ?? item.toolResult
-            const verdict = toolVerdict(result)
-            const desc =
-              item.toolName === 'Bash'
-                ? (item.toolInput ?? item.toolTitle ?? '')
-                : (item.toolTitle ?? item.toolInput ?? '')
-            const files = item.toolPaths?.length ?? 0
-            const preview = resultPreview(result)
-            return (
-              <View key={item.id}>
-                <View style={styles.trow}>
-                  <Text
-                    style={[
-                      styles.toolGlyph,
-                      verdict === 'ok' && styles.toolGlyphOk,
-                      verdict === 'err' && styles.toolGlyphErr,
-                    ]}
-                  >
-                    {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
-                  </Text>
-                  <Text style={styles.toolName}>{item.toolName ?? 'result'}</Text>
-                  <ToolDescription toolName={item.toolName} command={desc} />
-                  {files > 1 ? <Text style={styles.toolMag}>{files} files</Text> : null}
-                </View>
-                {verdict === 'err' ? (
-                  <Text style={styles.toolFail} numberOfLines={1}>
-                    {failLine(result)}
-                  </Text>
-                ) : preview ? (
-                  <Text style={styles.toolPreview} numberOfLines={1}>
-                    {preview.line}
-                    {preview.more > 0 ? `  +${preview.more}` : ''}
-                  </Text>
-                ) : null}
-              </View>
-            )
-          })
+        ? (run?.executionSections ?? toolExecutionSections(blocks)).map((section) => (
+            <View key={section.blocks[0]!.item.id}>
+              {(section.summary || (section.batchKind && section.blocks.length > 1)) && (
+                <Text style={styles.executionBatch}>
+                  {section.summary ?? toolBatchTitles([...section.blocks]).summary}
+                </Text>
+              )}
+              {section.blocks.map((b) => {
+                const { item } = b
+                const display = activitySingletonDisplay(b)
+                if (display.kind === 'received-notes')
+                  return (
+                    <View key={item.id}>
+                      {display.batch.envelopes.map((envelope) => (
+                        <EnvelopeRow
+                          key={envelope.id}
+                          envelope={envelope}
+                          onRefPress={onRefPress}
+                        />
+                      ))}
+                    </View>
+                  )
+                const mail =
+                  display.kind === 'sent-note' || display.kind === 'inbox-read'
+                    ? display.mail
+                    : undefined
+                if (mail)
+                  return (
+                    <View key={item.id}>
+                      <Text style={styles.toolPreview}>
+                        {mail.op === 'note'
+                          ? `Note to ${mail.to}`
+                          : mail.notes === undefined
+                            ? 'Read notes'
+                            : `Read ${mail.notes} notes`}
+                      </Text>
+                      <RichMarkdown
+                        text={
+                          mail.op === 'note'
+                            ? (mail.preview ?? 'Sent')
+                            : (b.result ?? item.toolResult ?? '')
+                        }
+                        onRefPress={onRefPress}
+                      />
+                    </View>
+                  )
+                if (b.execution)
+                  return <MobileCommandExecution key={item.id} block={b} forceOpen={forceOpen} />
+                const result = b.result ?? item.toolResult
+                const verdict = toolVerdict(result, item.toolEffects, item.toolExecution)
+                const desc =
+                  item.toolName === 'Bash'
+                    ? (item.toolInput ?? item.toolTitle ?? '')
+                    : (item.toolTitle ?? item.toolInput ?? '')
+                const files = item.toolPaths?.length ?? 0
+                const preview = resultPreview(result)
+                return (
+                  <View key={item.id}>
+                    <View style={styles.trow}>
+                      <Text
+                        style={[
+                          styles.toolGlyph,
+                          verdict === 'ok' && styles.toolGlyphOk,
+                          verdict === 'err' && styles.toolGlyphErr,
+                        ]}
+                      >
+                        {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
+                      </Text>
+                      <Text style={styles.toolName}>{item.toolName ?? 'result'}</Text>
+                      <ToolDescription toolName={item.toolName} command={desc} />
+                      {files > 1 ? <Text style={styles.toolMag}>{files} files</Text> : null}
+                    </View>
+                    {verdict === 'err' ? (
+                      <Text style={styles.toolFail} numberOfLines={1}>
+                        {failLine(result)}
+                      </Text>
+                    ) : preview ? (
+                      <Text style={styles.toolPreview} numberOfLines={1}>
+                        {preview.line}
+                        {preview.more > 0 ? `  +${preview.more}` : ''}
+                      </Text>
+                    ) : null}
+                  </View>
+                )
+              })}
+            </View>
+          ))
         : null}
     </View>
   )
 })
+
+function MobileCommandExecution({ block, forceOpen }: { block: ChatBlock; forceOpen: boolean }) {
+  const { open, toggle } = useActivityDisclosure({ forceOpen })
+  const [copied, setCopied] = useState<string>()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const execution = block.execution!
+  const first = execution.inputs[0]!
+  const title =
+    execution.count === 1
+      ? first.description
+        ? `${first.description} (${first.text.split('\n')[0]})`
+        : first.text.split('\n')[0]
+      : execution.label
+  const copy = async (text: string, key: string) => {
+    try {
+      await Clipboard.setStringAsync(text)
+      setCopied(key)
+    } catch {
+      setCopied('failed')
+    }
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setCopied(undefined), 1800)
+  }
+  return (
+    <View style={[styles.commandExecution, open && styles.commandExecutionOpen]}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
+        onPress={toggle}
+        style={styles.executionHeader}
+      >
+        <Text style={styles.executionTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={styles.executionCue}>{execution.output.label}</Text>
+        <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textMicro} />
+      </PressableScale>
+      {open && (
+        <>
+          <View style={styles.executionInputs}>
+            <Text style={styles.executionSection}>
+              {execution.kind === 'commands'
+                ? execution.count === 1
+                  ? 'Command'
+                  : 'Commands'
+                : 'Inputs'}
+            </Text>
+            {execution.inputs.map((input, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: inputs keep their native order inside one immutable execution.
+              <View key={`${block.item.id}:${index}`} style={styles.executionInput}>
+                {execution.count > 1 && input.description && (
+                  <Text style={styles.executionSection}>{input.description}</Text>
+                )}
+                <Text selectable style={styles.executionCode}>
+                  {input.text}
+                </Text>
+                {input.capture !== 'complete' && (
+                  <Text style={styles.executionCue}>
+                    {input.capture === 'truncated'
+                      ? 'Input truncated. Only retained text is available.'
+                      : 'The record may contain only an input preview.'}
+                  </Text>
+                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy retained input"
+                  onPress={() => {
+                    void copy(input.text, String(index))
+                  }}
+                >
+                  <Text style={styles.executionCopy}>
+                    {copied === String(index) ? 'Copied' : 'Copy'}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
+            {execution.omittedInputs > 0 && (
+              <Text style={styles.executionCue}>
+                {execution.omittedInputs} more inputs were not retained.
+              </Text>
+            )}
+          </View>
+          <View style={styles.executionOutput}>
+            <View style={styles.trow}>
+              <Text style={styles.executionSection}>Output</Text>
+              {execution.output.text ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy retained output"
+                  onPress={() => {
+                    void copy(execution.output.text!, 'output')
+                  }}
+                >
+                  <Text style={styles.executionCopy}>
+                    {copied === 'output' ? 'Copied' : 'Copy'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {execution.output.text ? (
+              <ScrollView style={styles.executionScroll} nestedScrollEnabled>
+                <Text selectable style={styles.executionCode}>
+                  {execution.output.text}
+                </Text>
+              </ScrollView>
+            ) : (
+              <Text style={styles.executionCue}>
+                {execution.output.capture === 'complete' && execution.output.text === ''
+                  ? 'No output was returned.'
+                  : (execution.output.note ?? 'The transcript does not include captured output.')}
+              </Text>
+            )}
+            {execution.output.text && execution.output.note && (
+              <Text style={styles.executionCue}>{execution.output.note}</Text>
+            )}
+            {execution.exitCode !== undefined && (
+              <Text style={styles.executionCue}>Exit {execution.exitCode}</Text>
+            )}
+            {(execution.status === 'failed' || execution.status === 'interrupted') && (
+              <Text style={styles.toolGlyphErr}>
+                {execution.status === 'failed' ? 'Failed' : 'Interrupted'}
+              </Text>
+            )}
+            {copied === 'failed' && (
+              <Text accessibilityLiveRegion="polite" style={styles.executionCue}>
+                Unable to copy. Select the text to copy it.
+              </Text>
+            )}
+          </View>
+        </>
+      )}
+    </View>
+  )
+}
 
 /** An answered AskUserQuestion, collapsed to "? question — picked" so past
  *  decisions stay auditable without spending attention. */
@@ -1834,6 +1986,37 @@ const styles = StyleSheet.create({
   toolGlyphErr: {
     color: color.dangerText,
   },
+  commandExecution: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 9,
+    marginVertical: 2,
+    overflow: 'hidden',
+  },
+  commandExecutionOpen: { borderColor: color.hairline, marginVertical: 8 },
+  executionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 40,
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  executionTitle: { ...mono(400), flex: 1, color: color.textDim, fontSize: font.tiny },
+  executionCue: { color: color.textMicro, fontSize: font.micro, lineHeight: 18 },
+  executionInputs: { padding: 12, gap: 10, borderTopWidth: 1, borderTopColor: color.hairline },
+  executionSection: { color: color.textMicro, fontSize: font.micro, marginBottom: 4 },
+  executionInput: { gap: 4, minWidth: 0 },
+  executionCode: { ...mono(400), color: color.textDim, fontSize: font.tiny, lineHeight: 20 },
+  executionCopy: {
+    color: color.textMicro,
+    fontSize: font.micro,
+    paddingVertical: 6,
+    minHeight: 32,
+  },
+  executionOutput: { borderTopWidth: 1, borderTopColor: color.hairline, padding: 12, gap: 8 },
+  executionScroll: { maxHeight: 280 },
+  executionBatch: { color: color.textDim, fontSize: font.tiny, marginTop: 12, marginBottom: 4 },
   toolName: {
     ...mono(500),
     color: color.textDim,

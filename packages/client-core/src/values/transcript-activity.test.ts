@@ -97,7 +97,12 @@ describe('shared activity facts', () => {
     expect(toolMailCommand(item)).toBeNull()
     expect(toolSubject(item)).toBe('git status')
     expect(isBatchableTool(item)).toBe(true)
-    item.toolInputJson = JSON.stringify({ kind: 'shell-command', command: 'podium mail inbox' })
+    item.toolExecution = {
+      kind: 'commands',
+      inputs: [
+        { kind: 'command', toolName: 'Bash', text: 'podium mail inbox', capture: 'complete' },
+      ],
+    }
     expect(toolMailCommand(item)?.op).toBe('inbox')
     const received = note()
     expect(isQuietNote(received)).toBe(true)

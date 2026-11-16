@@ -94,7 +94,7 @@ describe('Bash tool command colouring', () => {
     expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "second"')
     unfold()
     expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "second"')
-    expect(host.querySelector('pre.tool-cmd')).toBeNull()
+    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('echo "second"')
   })
 })
 
@@ -167,11 +167,12 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   expect(command.length).toBeGreaterThan(160)
   expect(block.item.toolInput).toBe(`${command.slice(0, 160)}…`)
   mount({ ...block.item, toolResult: block.result })
-  const collapsed = host.querySelector('.work-line-row .work-line-code')?.textContent ?? ''
+  const collapsed =
+    host.querySelector('.execution-command-preview')?.textContent?.slice(1, -1) ??
+    host.querySelector('.work-line-row .work-line-code')?.textContent ??
+    ''
   // The existing subject formatter also hides the leading cwd change.
-  expect(collapsed).toMatch(/^cp .*…$/)
-  expect(collapsed.length).toBeLessThanOrEqual(161)
-  expect(collapsed).not.toContain('git log --oneline dev/mw..HEAD')
+  expect(collapsed).toBe(command.split('\n')[0])
   expect(host.querySelector('pre.tool-cmd')).toBeNull()
   unfold()
   expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(command)
@@ -249,20 +250,23 @@ describe('retained Bash command disclosure', () => {
       },
     }).find((i) => i.role === 'tool')
     if (!item) throw new Error('Missing mapped Bash call')
-    const payload = JSON.parse(item.toolInputJson ?? 'null')
-    expect(payload.truncated).toBe(true)
+    const retained = item.toolExecution?.inputs?.[0]
+    expect(retained?.capture).toBe('truncated')
     mount(item)
     expect(host.textContent).not.toContain('Command truncated')
-    expect(host.querySelector('.work-line-row .work-line-code')?.textContent).toBe(item.toolInput)
+    expect(host.querySelector('.work-line-row .work-line-code')?.textContent).toBe(retained?.text)
     unfold()
-    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(payload.command)
+    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(retained?.text)
     expect(host.textContent).toContain('Command truncated — remaining text was not retained.')
   })
 
   it('uses a retained empty command even when a legacy preview exists', () => {
     mount({
       toolInput: 'legacy',
-      toolInputJson: JSON.stringify({ kind: 'shell-command', command: '' }),
+      toolExecution: {
+        kind: 'commands',
+        inputs: [{ kind: 'command', toolName: 'Bash', text: '', capture: 'complete' }],
+      },
     })
     unfold()
     expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('')
@@ -314,88 +318,183 @@ it('defers folded edit-body work across streamed results and unfolds the latest 
   )
 })
 
-describe('Codex script rows', () => {
-  it('lists the script calls above its own output once unfolded', () => {
-    mount({
-      toolName: 'Script',
-      toolTitle: '2 actions',
-      toolInputJson: JSON.stringify({
-        kind: 'script-calls',
-        calls: [
-          { tool: 'Bash', input: 'git diff --stat' },
-          { tool: 'Edit', input: 'src/a.ts' },
-        ],
-      }),
-      toolResult: 'Script completed\nOutput:\n 1 file changed',
-    })
-    expect(host.querySelector('.work-line-phrase')?.textContent).toBe('Ran 2 actions')
-    expect(host.querySelector('.tool-script-calls')).toBeNull()
-
+describe('script execution rows', () => {
+  const script = (commands: string[], toolResult: string): Partial<TranscriptItem> => ({
+    toolName: 'Script',
+    toolExecution: {
+      kind: 'commands',
+      inputs: commands.map((text) => ({
+        kind: 'command',
+        toolName: 'Bash',
+        text,
+        capture: 'complete',
+      })),
+      output: { capture: 'complete' },
+    },
+    toolResult,
+  })
+  it('shows every full command and a single adjacent owned output section', () => {
+    mount(script(['git diff --stat', 'git status --short'], '1 file changed'))
+    expect(host.querySelector('.execution-title')?.textContent).toBe('Run2 commands')
+    expect(host.querySelector('pre')).toBeNull()
     unfold()
-    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) => [
-      line.querySelector('.work-line-phrase')?.textContent,
-    ])
-    expect(lines).toEqual([['git diff --stat'], ['src/a.ts']])
-    expect(host.querySelector('.tool-script-calls .work-line-code')).not.toBeNull()
-    expect(host.querySelector('pre.tool-result-full')?.textContent).toBe(
-      'Script completed\nOutput:\n 1 file changed',
+    expect(
+      [...host.querySelectorAll('.execution-command')].map((line) => line.textContent),
+    ).toEqual(['git diff --stat', 'git status --short'])
+    expect(host.querySelectorAll('.execution-output')).toHaveLength(1)
+    expect(host.querySelector('.execution-output')?.parentElement).toBe(
+      host.querySelector('.execution-inputs')?.parentElement,
     )
+    expect(host.querySelector('.execution-output-text')?.textContent).toBe('1 file changed')
+    expect(host.querySelectorAll('.execution-input button[aria-expanded]')).toHaveLength(0)
   })
-
-  describe('a mail send inside a script (POD-2146)', () => {
-    const send = `podium issue mail send POD-2128 --body 'Ready for review'`
-    const script = (toolResult: string): Partial<TranscriptItem> => ({
-      toolName: 'Script',
-      toolTitle: '3 commands',
-      toolInputJson: JSON.stringify({
-        kind: 'script-calls',
-        calls: [
-          { tool: 'Bash', input: 'git status' },
-          { tool: 'Bash', input: send },
-          { tool: 'Bash', input: 'podium issue mail inbox' },
-        ],
-      }),
-      toolResult,
-    })
-    const lines = (): (string | null | undefined)[][] =>
-      [...host.querySelectorAll('.tool-script-calls li')].map((line) => [
-        line.querySelector('.work-line-phrase')?.textContent,
-      ])
-
-    it('names the note when the output carries its receipt', () => {
-      mount(
-        script(
-          `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: 'mail DELIVERED to POD-2128 (msg_9) — confirmed' })}`,
-        ),
-      )
-      unfold()
-      expect(lines()).toEqual([
-        ['git status'],
-        ['Note to POD-2128 · Ready for review'],
-        ['podium issue mail inbox'],
-      ])
-    })
-
-    it('keeps the shell line without a receipt, or when the script failed', () => {
-      for (const result of [
-        'Script completed\nOutput:\npodium: relay unavailable',
+  it('keeps a proven mail note scoped to its input while retaining the full command', () => {
+    const send = "podium issue mail send POD-2128 --body 'Ready for review'"
+    mount(script(['git status', send], 'mail DELIVERED to POD-2128 (msg_9) — confirmed'))
+    unfold()
+    expect(host.querySelector('.execution-input-description')?.textContent).toBe(
+      'Note to POD-2128 · Ready for review',
+    )
+    expect(
+      [...host.querySelectorAll('.execution-command')].map((line) => line.textContent),
+    ).toEqual(['git status', send])
+  })
+  it('does not treat an unsuccessful send as a delivered note', () => {
+    const send = "podium issue mail send POD-2128 --body 'Ready for review'"
+    mount(
+      script(
+        ['git status', send],
         'Script failed\nOutput:\nmail DELIVERED to POD-2128 (msg_9) — confirmed',
-      ]) {
-        mount(script(result))
-        unfold()
-        expect(lines()[1], result).toEqual([send])
-        act(() => root.render(null))
-      }
-    })
-  })
-
-  it('marks a failed script as failed', () => {
+      ),
+    )
+    // The normalized adapter's outcome is the authority when it supplies one.
     mount({
-      toolName: 'Script',
-      toolTitle: '2 commands',
-      toolResult:
-        'Script failed\nWall time 0.2 seconds\nOutput:\n\nScript error:\nexec_command failed',
+      ...script(['git status', send], 'mail DELIVERED to POD-2128 (msg_9) — confirmed'),
+      toolExecution: { ...script(['git status', send], '').toolExecution, status: 'failed' },
     })
-    expect(host.querySelector('.tool-block')?.getAttribute('data-verdict')).toBe('err')
+    unfold()
+    expect(host.querySelector('.execution-input-description')).toBeNull()
+    expect(host.querySelector('[data-verdict="err"]')).not.toBeNull()
   })
+})
+
+it('shows a command description once, keeps the full command and honest capture cues', () => {
+  mount({
+    toolInput: 'preview',
+    toolExecution: {
+      kind: 'commands',
+      inputs: [
+        {
+          kind: 'command',
+          toolName: 'Bash',
+          text: 'git status --short',
+          description: 'Inspect the working tree',
+          capture: 'complete',
+        },
+      ],
+    },
+  })
+  expect(host.querySelector('.execution-title')?.textContent).toBe(
+    'Inspect the working tree (git status --short)',
+  )
+  expect(host.querySelector('.execution-output-cue')?.textContent).toBe('Output unavailable')
+  unfold()
+  expect(host.querySelectorAll('.execution-description')).toHaveLength(1)
+  expect(host.querySelector('.execution-input-description')).toBeNull()
+  expect(host.querySelector('.execution-command')?.textContent).toBe('git status --short')
+  expect(host.querySelector('.execution-empty-output')?.textContent).not.toContain(
+    'No output was returned',
+  )
+})
+
+it('expands only retained output, supports wrapping and copies complete retained text', async () => {
+  const text = Array.from({ length: 15 }, (_, i) => `line ${i + 1}: retained output`).join('\n')
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  try {
+    mount({
+      toolInput: 'some command',
+      toolResult: text,
+      toolExecution: { output: { capture: 'truncated' } },
+    })
+    unfold()
+    expect(host.querySelector('.execution-more')?.textContent).toContain(
+      'Showing 8 of 15 retained lines',
+    )
+    expect(host.querySelector('.execution-output-text')?.textContent).not.toContain('line 15:')
+    act(() => host.querySelector<HTMLButtonElement>('.execution-more')?.click())
+    expect(host.querySelector('.execution-output-text')?.textContent).toBe(text)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-pressed]')?.click())
+    expect(host.querySelector('.execution-output')?.getAttribute('data-wrap')).toBe('true')
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="Copy retained output"]')?.click(),
+    )
+    expect(writeText).toHaveBeenCalledWith(text)
+    expect(host.textContent).toContain('Only the retained text is available')
+  } finally {
+    if (original) Object.defineProperty(navigator, 'clipboard', original)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  }
+})
+
+it('renders a real Codex script adapter result with one clean owned output', async () => {
+  const { transcriptRecordMapperFor } = await import('@podium/harness/metadata')
+  const parse = transcriptRecordMapperFor('codex')!
+  const records = [
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'outer',
+        input:
+          'await Promise.all([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"git status --short"})])',
+      },
+    },
+    {
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call_output',
+        call_id: 'outer',
+        output:
+          'Script completed\nWall time: 0.2 seconds\nOutput:\n{"exit_code":1,"output":"printed data"}',
+      },
+    },
+  ]
+  const { pairToolResults } = await import('./chat')
+  const block = pairToolResults(records.flatMap(parse))[0]!
+  mount({ ...block.item, toolResult: block.result })
+  expect(host.querySelector('.execution-title')?.textContent).toBe('Run2 commands')
+  unfold()
+  expect(host.querySelectorAll('.execution-command')).toHaveLength(2)
+  expect(host.querySelectorAll('.execution-output')).toHaveLength(1)
+  expect(host.querySelector('.execution-output-text')?.textContent).toBe(
+    '{"exit_code":1,"output":"printed data"}',
+  )
+  expect(host.querySelector('.execution-status')?.textContent).toBe('Completed')
+  expect(host.querySelector('.execution-output')?.textContent).not.toContain('Wall time')
+})
+
+it('uses a neutral tool label for an opaque script and retains its source behind disclosure', () => {
+  mount({
+    toolName: 'Script',
+    toolExecution: {
+      kind: 'actions',
+      inputs: [
+        {
+          kind: 'tool',
+          toolName: 'Script',
+          text: 'const privateImplementation = 1;\ntext(privateImplementation)',
+          capture: 'complete',
+        },
+      ],
+    },
+  })
+  expect(host.querySelector('.execution-title')?.textContent).toBe('Script')
+  expect(host.textContent).not.toContain('privateImplementation')
+  unfold()
+  expect(host.querySelector('.execution-command')?.textContent).toContain(
+    'const privateImplementation = 1;',
+  )
 })

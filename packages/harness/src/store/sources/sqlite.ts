@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import {
+  type OpencodeExecutionBatches,
   type OpencodeMessagePartRow,
   opencodeFileId,
   opencodePartToItems,
@@ -50,11 +51,12 @@ export function stampOpencodeItems(
   rows: OpencodeMessagePartRow[],
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
+  batches: OpencodeExecutionBatches = { steps: new Map(), parts: new Map() },
 ): TranscriptItem[] {
   const fileId = opencodeFileId(sessionId)
   const out: TranscriptItem[] = []
   for (const row of rows) {
-    const items = opencodePartToItems(row)
+    const items = opencodePartToItems(row, batches)
     for (let sub = 0; sub < items.length; sub++) {
       const item = items[sub]
       if (!item) continue

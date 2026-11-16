@@ -1,0 +1,107 @@
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+.command-harness {
+  max-width: 950px;
+  margin: 28px auto;
+  padding: 0 20px;
+  font-family: var(--font-sans);
+}
+.command-harness-controls {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.command-harness-controls button {
+  padding: 6px 12px;
+  border-radius: 7px;
+  color: var(--text-dim);
+}
+.command-harness-controls button[aria-pressed="true"] {
+  background: var(--quiet-well);
+  color: var(--text-strong);
+}
+.command-harness-controls button:last-child {
+  margin-left: auto;
+}
+.command-harness-panel {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--card);
+}
+.command-harness-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 35px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hairline-soft);
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.command-harness-tab svg:last-child {
+  margin-left: auto;
+}
+.command-harness-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hairline-soft);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.command-harness-toolbar-spacer {
+  flex: 1;
+}
+.command-harness-toolbar strong {
+  font-size: 10.5px;
+  color: var(--text-strong);
+  margin-right: 12px;
+}
+.command-harness-feed {
+  padding: 25px 28px 20px;
+}
+.command-harness-feed .feed-column {
+  max-width: 730px;
+  margin-inline: auto;
+}
+.command-harness-composer {
+  padding: 8px 26px 20px;
+}
+.command-harness-composer .chat-composer-well {
+  padding: 13px 16px 8px;
+  border-radius: 9px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.command-harness-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 16px;
+  font-size: 11px;
+}
+.command-harness-composer-tools > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+@media (max-width: 640px) {
+  .command-harness {
+    margin: 10px auto;
+    padding: 0 8px;
+  }
+  .command-harness-feed {
+    padding: 20px 10px;
+  }
+  .command-harness-composer {
+    padding: 8px 10px 12px;
+  }
+}

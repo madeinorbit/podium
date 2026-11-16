@@ -1,14 +1,14 @@
 import './test-support/no-message-attachments'
 import { TranscriptGraph, TranscriptLog, type TurnPreview } from '@podium/client-core/conversation'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import { buildChatRows, pairToolResults, transcriptActivityFacts } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import {
-  fakeTranscriptCache,
-  storedReadSettled,
-} from '@podium/client-core/test-support/transcript-cache'
 import * as markdown from '@/lib/markdown'
 import { ConversationPresentation } from './conversation-presentation'
 import { TranscriptFeed, type TranscriptFeedProps } from './TranscriptFeed'
@@ -127,7 +127,7 @@ it('keeps narration on the page and names the call in flight on one live line', 
   render([prompt, say('intro', 'Checking now.'), call('cmd', 'green'), say('next', 'All green.')])
   expect(line()).toBe(original)
   expect(line().dataset.state).toBe('done')
-  expect(line().querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(line().querySelector('.tl-current')?.textContent).toBe('1 command')
   expect(host.querySelector('[data-row-key="next"] .chat-md')?.textContent).toContain('All green.')
   expect(line().querySelector('[data-row-key="next"]')).toBeNull()
 })
@@ -288,11 +288,11 @@ it('pauses at an interactive card, settles that seam on answer, and starts a new
   expect(line()).toBe(first)
   expect(first.dataset.open).toBe('true')
   expect(first.dataset.state).toBe('done')
-  expect(first.querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(first.querySelector('.tl-current')?.textContent).toBe('1 command')
   expect(first.querySelector('.tl-timer')).toBeNull()
 })
 
-it('names a settled run by its harness summaries, else by its subjects', () => {
+it('counts a settled run and shows native summaries only on their exact expandable groups', () => {
   const commands = Array.from({ length: 5 }, (_, n) => call(`command-${n}`, 'green'))
   const read: TranscriptItem = {
     ...call('read', 'contents'),
@@ -304,7 +304,7 @@ it('names a settled run by its harness summaries, else by its subjects', () => {
   const named = buildChatRows(pairToolResults(plain)).find((row) => row.kind === 'tools')!
   expect(named.kind === 'tools' && named.title).toBeTruthy()
   expect(line().querySelector('.tl-current')?.textContent).toBe(
-    named.kind === 'tools' ? named.title : '',
+    named.kind === 'tools' ? named.summary : '',
   )
   expect(line().querySelector('.tl-counts')).toBeNull()
   const summary = (id: string, text: string, ids: string[]): TranscriptItem => ({
@@ -336,10 +336,12 @@ it('names a settled run by its harness summaries, else by its subjects', () => {
     ],
     { activity: null },
   )
-  expect(line().querySelector('.tl-current')?.textContent).toBe('Ran the test suite · Read file.ts')
-  expect(line().querySelector(':scope > button')?.getAttribute('aria-label')).toContain(
-    'Ran the test suite · Read file.ts',
-  )
+  expect(line().querySelector('.tl-current')?.textContent).toBe('5 commands, read a file')
+  expect(line().textContent).not.toContain('Ran the test suite')
+  toggle()
+  expect(
+    [...line().querySelectorAll('.execution-batch-heading')].map((heading) => heading.textContent),
+  ).toEqual(['Ran the test suite5 commands', 'Read file.tsRead a file'])
   expect(host.textContent).not.toContain('System')
 })
 
@@ -388,7 +390,7 @@ it('restamps a Grok narration into the answer without leaving stale phrase text 
   ]
   render(items)
   const original = line()
-  expect(original.querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(original.querySelector('.tl-current')?.textContent).toBe('1 command')
   expect(host.querySelector('[data-row-key="final"] .chat-md')?.textContent).toContain(
     'The result is ready.',
   )
@@ -539,4 +541,34 @@ it('retains the live line and selected note DOM when a turn crosses the source a
   expect(host.querySelector('.mail-item-body')).toBe(body)
   expect(document.getSelection()!.toString()).toBe(selected)
   document.getSelection()!.removeAllRanges()
+})
+
+it('keeps a single execution chevron functional after opening its turn', () => {
+  const command: TranscriptItem = {
+    ...call('single', ''),
+    toolExecution: {
+      kind: 'commands',
+      inputs: [
+        {
+          kind: 'command',
+          toolName: 'Bash',
+          text: 'true',
+          description: 'Check a quiet command',
+          capture: 'complete',
+        },
+      ],
+      status: 'completed',
+      output: { capture: 'complete' },
+    },
+  }
+  render([prompt, say('intro', 'Checking now.'), command, say('answer', 'Ready.', true)], {
+    activity: null,
+  })
+  toggle()
+  const execution = line().querySelector<HTMLElement>('.command-execution')!
+  expect(execution.dataset.open).toBe('true')
+  act(() => execution.querySelector<HTMLButtonElement>('.execution-heading')!.click())
+  expect(execution.dataset.open).toBe('false')
+  act(() => execution.querySelector<HTMLButtonElement>('.execution-heading')!.click())
+  expect(execution.dataset.open).toBe('true')
 })

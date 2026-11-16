@@ -59,7 +59,8 @@ export function rowSurvivesSummary(row: ChatRow): boolean {
       return (
         isInteractiveTool(item) ||
         row.block.mail?.op === 'note' ||
-        toolVerdict(row.block.result ?? item.toolResult, item.toolEffects) === 'err'
+        toolVerdict(row.block.result ?? item.toolResult, item.toolEffects, item.toolExecution) ===
+          'err'
       )
     return true
   }
@@ -67,15 +68,11 @@ export function rowSurvivesSummary(row: ChatRow): boolean {
   // note — summary keeps mail, folded into a stretch or not (POD-2286).
   return row.blocks.some((b) => {
     if (b.item.role === 'user' || b.mail?.op === 'note') return true
-    const result = b.result ?? b.item.toolResult
-    return result !== undefined && FAILED_RESULT_RE.test(result.trimStart().split('\n', 1)[0] ?? '')
+    return (
+      toolVerdict(b.result ?? b.item.toolResult, b.item.toolEffects, b.item.toolExecution) === 'err'
+    )
   })
 }
-
-/** Kept in step with `toolVerdict` in ./chat — a conservative read of a result's
- *  first line, so ambiguous output never reads as a failure. */
-const FAILED_RESULT_RE =
-  /^\s*(?:error(?::|\b)|[A-Za-z]*Error:|exception\b|traceback \(most recent call last\)|fatal:|command failed|exit code [1-9]|exited with (?:code [1-9]|non-zero))/i
 
 /** Apply a verbosity to a derived row list. `normal` and `verbose` return the
  *  same rows (verbose changes how a run RENDERS, not which rows exist), so this

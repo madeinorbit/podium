@@ -1,4 +1,4 @@
-import { toolSubject, transcriptActivityFacts } from '@podium/client-core/values'
+import { isToolPending, toolSubject, transcriptActivityFacts } from '@podium/client-core/values'
 import { ChevronRight } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
@@ -7,13 +7,19 @@ import { renderMarkdown } from '@/lib/markdown'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, StableMarkdown } from './ChatBlockView'
+import { CommandExecutionGroup } from './CommandExecutionGroup'
 import { handleChatMdClick } from './chat-md-click'
 import { StretchMember } from './ToolBatchView'
 import type { TranscriptFeedProps } from './TranscriptFeed'
 import { transcriptTailState } from './TranscriptTail'
 import { clockLabel, formatWorkDuration, fullTimeLabel, parseTs } from './transcript-time'
 import { FOLD_GEOMETRY_EVENT, type FoldLine, foldLead, type TurnFoldState } from './turn-fold'
-import { buildTurnPreviewMembers, type PresentedTurn, type TurnMember } from './turn-line-model'
+import {
+  buildTurnPreviewMembers,
+  groupTurnMembers,
+  type PresentedTurn,
+  type TurnMember,
+} from './turn-line-model'
 import { useFeedArrivals } from './use-feed-arrivals'
 import { WorkGlyph } from './WorkGlyph'
 
@@ -208,8 +214,8 @@ export const TurnLineView = observer(function TurnLineView({
       ? (liveTool ? toolSubject(liveTool, Infinity) : undefined) || model.eventPhrase
       : settledBad
         ? lead
-        : model.title
-  const counts = settledBad ? model.title : ''
+        : model.countTitle
+  const counts = settledBad ? model.countTitle : ''
   const matching = props.search.filtering ? new Set(props.search.matches) : undefined
   const hits = matching
     ? fold.rows.reduce(
@@ -224,8 +230,8 @@ export const TurnLineView = observer(function TurnLineView({
   const current =
     live &&
     tail.lastRow?.kind === 'tools' &&
-    tail.lastRow.blocks[0]?.result === undefined &&
-    tail.lastRow.blocks[0]?.item.toolResult === undefined
+    tail.lastRow.blocks[0] &&
+    isToolPending(tail.lastRow.blocks[0])
       ? (toolSubject(tail.lastRow.blocks[0]!.item, Infinity) ?? tail.state?.detail)
       : undefined
   const from = parseTs(fold.startedAt),
@@ -286,15 +292,7 @@ export const TurnLineView = observer(function TurnLineView({
                   ? (props.searchQuery ?? props.chat?.view.presentation.query ?? '')
                   : ''
               }
-              code={
-                (live || paused
-                  ? (liveTool ?? model.firstEvent?.item)?.toolName === 'Bash'
-                  : single &&
-                    !failed &&
-                    !stopped &&
-                    !model.harnessSummary &&
-                    model.firstEvent?.item.toolName === 'Bash') ?? false
-              }
+              code={(live || paused) && (liveTool ?? model.firstEvent?.item)?.toolName === 'Bash'}
               phraseKey={
                 live || paused
                   ? (liveTool?.id ?? model.firstEvent?.item.id ?? fold.key)
@@ -306,6 +304,11 @@ export const TurnLineView = observer(function TurnLineView({
                 <span className="tl-bad">, {model.failures} failed</span>
               )}
             </Phrase>
+            {model.executionCount > 0 && model.eventCount > 1 && (
+              <span className="execution-stretch-metrics">
+                {model.executionCount} {model.executionCount === 1 ? 'run' : 'runs'}
+              </span>
+            )}
             {(!singleWell || mode !== 'done') && (
               <ChevronRight
                 className="work-line-chev"
@@ -416,39 +419,43 @@ const TurnList = observer(function TurnList({
         singleWell && 'turn-single-detail',
       )}
     >
-      {members.map((member) => (
-        <TurnEntry
-          key={member.key}
-          id={member.id}
-          memberKey={member.key}
-          index={member.index}
-          snapshot={member.block}
-          chat={props.chat}
-          sessionId={props.sessionId}
-          cwd={props.cwd}
-          openFile={props.openFile}
-          httpOrigin={props.httpOrigin}
-          onOpenImage={props.onOpenImage}
-          onQuote={props.onQuote}
-          onAnswerAsk={props.onAnswerAsk}
-          markdownHtml={
-            member.block.item.role === 'system' ||
-            (member.block.item.role === 'user' &&
-              !transcriptActivityFacts(member.block.item).envelopes)
-              ? props.markdownHtml
-              : undefined
-          }
-          live={live}
-          forceOpen={
-            singleWell ||
-            props.expandRuns === true ||
-            (member.index >= 0 &&
-              (member.blockIndex === props.search.activeMatch ||
-                member.index === props.revealedRow))
-          }
-          arrived={arriving.has(member.key)}
-          initialOpen={primeSingle && member.id === model.firstEvent?.item.id}
-        />
+      {groupTurnMembers(members).map((section) => (
+        <CommandExecutionGroup key={section.members[0]!.key} section={section}>
+          {section.members.map((member) => (
+            <TurnEntry
+              key={member.key}
+              id={member.id}
+              memberKey={member.key}
+              index={member.index}
+              snapshot={member.block}
+              chat={props.chat}
+              sessionId={props.sessionId}
+              cwd={props.cwd}
+              openFile={props.openFile}
+              httpOrigin={props.httpOrigin}
+              onOpenImage={props.onOpenImage}
+              onQuote={props.onQuote}
+              onAnswerAsk={props.onAnswerAsk}
+              markdownHtml={
+                member.block.item.role === 'system' ||
+                (member.block.item.role === 'user' &&
+                  !transcriptActivityFacts(member.block.item).envelopes)
+                  ? props.markdownHtml
+                  : undefined
+              }
+              live={live}
+              forceOpen={
+                (singleWell && !member.block.execution) ||
+                props.expandRuns === true ||
+                (member.index >= 0 &&
+                  (member.blockIndex === props.search.activeMatch ||
+                    member.index === props.revealedRow))
+              }
+              arrived={arriving.has(member.key)}
+              initialOpen={primeSingle && member.id === model.firstEvent?.item.id}
+            />
+          ))}
+        </CommandExecutionGroup>
       ))}
     </div>
   )
@@ -540,12 +547,7 @@ const TurnEntry = observer(function TurnEntry({
           block={block}
           ordinary
           timed
-          live={
-            live &&
-            item.role === 'tool' &&
-            block.result === undefined &&
-            item.toolResult === undefined
-          }
+          live={live && item.role === 'tool' && isToolPending(block)}
           forceOpen={forceOpen}
           initialOpen={initialOpen}
           onBodyClick={bodyClick}

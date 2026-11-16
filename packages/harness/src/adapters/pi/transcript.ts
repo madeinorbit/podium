@@ -4,6 +4,7 @@ import { locatePiSessionFile } from '../../pi/paths.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import { toolInputPreview } from '../claude-code/transcript.js'
+import { commandExecution, executionOutput, executionText } from '../shared/execution.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
@@ -43,7 +44,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
     case 'bashExecution': {
       const command = stringField(message, 'command')
       if (!command) return []
-      const output = typeof message.output === 'string' ? message.output : ''
+      const output = typeof message.output === 'string' ? message.output : undefined
       const id = entryId ?? SYNTHESIZED_ITEM_ID_PREFIX
       return [
         {
@@ -52,21 +53,22 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
           text: '',
           toolName: 'bash',
           toolInput: command,
+          toolExecution: commandExecution(command),
           ...(entryId ? { toolUseId: entryId } : {}),
           ...(ts ? { ts } : {}),
         },
-        ...(output.trim()
-          ? [
-              {
-                id: `${id}:result`,
-                role: 'tool' as const,
-                text: '',
-                toolResult: truncate(output.trim(), 2000),
-                ...(entryId ? { toolUseId: entryId } : {}),
-                ...(ts ? { ts } : {}),
-              },
-            ]
-          : []),
+        {
+          id: `${id}:result`,
+          role: 'tool',
+          text: '',
+          ...executionOutput(output, {
+            ...(typeof message.exitCode === 'number' ? { exitCode: message.exitCode } : {}),
+            ...(message.cancelled === true ? { status: 'interrupted' as const } : {}),
+            ...(message.truncated === true ? { truncated: true } : {}),
+          }),
+          ...(entryId ? { toolUseId: entryId } : {}),
+          ...(ts ? { ts } : {}),
+        },
       ]
     }
     case 'custom': {
@@ -155,12 +157,18 @@ function assistantItems(
       const toolUseId = stringField(part, 'id')
       const input = part.arguments
       const toolInputJson = safeToolEditJsonFromInput(toolName, input)
+      const command =
+        toolName === 'bash' && isRecord(input) && typeof input.command === 'string'
+          ? input.command
+          : undefined
       tools.push({
         id: toolUseId ?? (entryId ? `${entryId}:tool:${sub}` : SYNTHESIZED_ITEM_ID_PREFIX),
         role: 'tool',
         text: '',
         toolName,
         toolInput: toolInputPreview(input),
+        ...(command !== undefined ? { toolExecution: commandExecution(command) } : {}),
+        ...(entryId ? { toolBatch: { id: entryId, kind: 'message' as const } } : {}),
         ...(toolInputJson ? { toolInputJson } : {}),
         ...(toolUseId ? { toolUseId } : {}),
         ...(ts ? { ts } : {}),
@@ -193,14 +201,17 @@ function toolResultItem(
   ts: string | undefined,
 ): TranscriptItem | undefined {
   const toolUseId = stringField(message, 'toolCallId')
-  const resultText = contentToText(message.content).trim()
+  const resultText = executionText(message.content)
   const isError = message.isError === true
-  if (!resultText && !isError) return undefined
   return {
     id: entryId ?? (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
     role: 'tool',
     text: '',
-    toolResult: truncate(resultText || '(tool error)', 2000),
+    ...executionOutput(resultText, {
+      ...(typeof message.isError === 'boolean'
+        ? { status: isError ? ('failed' as const) : ('completed' as const) }
+        : {}),
+    }),
     ...(toolUseId ? { toolUseId } : {}),
     ...(ts ? { ts } : {}),
   }
@@ -229,10 +240,6 @@ function epochIso(value: unknown): string | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}...` : s
 }
 
 // ---------------------------------------------------------------------------

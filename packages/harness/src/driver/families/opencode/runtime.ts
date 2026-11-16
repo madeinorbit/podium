@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
+import type { OpencodeExecutionBatches } from '../../../adapters/opencode/transcript.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
+
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
  *
@@ -40,8 +42,6 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * That refusal is a conformance property, not a comment.
  */
 
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -51,15 +51,17 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
-import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
-import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import { reduceAgentState } from '../../../observer.js'
+import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
+import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -102,20 +104,20 @@ import {
   type Refusal,
   type SendOptions,
   splitAttachments,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { type AskUserGate, askUserRefusal } from '../ask-user-gate.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import {
+  createOpencodeClient,
   type OpencodeClient,
   type OpencodeClientConfig,
   OpencodeHttpError,
-  createOpencodeClient,
 } from './client.js'
 import {
   answerAction,
@@ -127,13 +129,13 @@ import {
   statusToStateEvent,
 } from './map.js'
 import {
+  eventSessionId,
+  eventTimeMs,
   type OpencodeEvent,
   type OpencodeMessageInfo,
   type OpencodePromptAdmission,
   type OpencodeQuestionInfo,
   type OpencodeSessionId,
-  eventSessionId,
-  eventTimeMs,
 } from './protocol.js'
 
 /**
@@ -194,8 +196,12 @@ export interface OpencodeServerEndpoint {
   databasePath?: string
   /** Complete local v1 history, after the host observed EXITED. An unreadable
    * or unidentified store is undefined, never an empty history. */
-  readHistoryAfterExit?(sessionId: OpencodeSessionId):
-    readonly OpencodeMessagePartRow[] | undefined | Promise<readonly OpencodeMessagePartRow[] | undefined>
+  readHistoryAfterExit?(
+    sessionId: OpencodeSessionId,
+  ):
+    | readonly OpencodeMessagePartRow[]
+    | undefined
+    | Promise<readonly OpencodeMessagePartRow[] | undefined>
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -506,6 +512,7 @@ interface DriverSession {
   /** Message info by id, so an orphaned `message.part.updated` can be mapped.
    *  Bounded by the session's message count, which is what the transcript is. */
   messages: Map<string, OpencodeMessageInfo>
+  executionBatches: OpencodeExecutionBatches
   queue: QueuedTurn[]
   /**
    * THREE PROBES PROVED THE SERVER GONE, AND NOTHING WILL DRAIN THIS AGAIN
@@ -718,10 +725,20 @@ export function createOpencodeRuntime(
         // than a missing one. The message.updated that carries it always
         // arrives; when it does, the part's next update maps.
         if (!info) break
-        const items = partToItems(session.opencodeSessionId, info, event.properties.part)
+        const items = partToItems(
+          session.opencodeSessionId,
+          info,
+          event.properties.part,
+          session.executionBatches,
+        )
         for (const item of items) emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
         if (event.properties.part.type === 'text')
-          creditPromptRecord(session, event.properties.part.messageID, event.properties.part.id, items)
+          creditPromptRecord(
+            session,
+            event.properties.part.messageID,
+            event.properties.part.id,
+            items,
+          )
         break
       }
       case 'message.part.delta': {
@@ -837,10 +854,16 @@ export function createOpencodeRuntime(
         // The question is answered with the refusal, which names where to ask;
         // a reject would end the turn and drop the text (RUN 1.18.35).
         const { id, questions } = event.properties
-        void askUserRefusal(host.askUserGate, session.sessionId).then(async (reason) => {
-          if (reason === null) open()
-          else await session.client.replyQuestion(id, questions.map(() => [reason]))
-        }).catch(() => open())
+        void askUserRefusal(host.askUserGate, session.sessionId)
+          .then(async (reason) => {
+            if (reason === null) open()
+            else
+              await session.client.replyQuestion(
+                id,
+                questions.map(() => [reason]),
+              )
+          })
+          .catch(() => open())
         break
       }
       case 'permission.replied':
@@ -1120,7 +1143,12 @@ export function createOpencodeRuntime(
     onProof: SendOptions['onLateProof'],
     signal?: AbortSignal,
   ): void {
-    if ((!onProof && !waiter.onUnrecorded) || waiter.unrecorded || session.disposed || signal?.aborted) {
+    if (
+      (!onProof && !waiter.onUnrecorded) ||
+      waiter.unrecorded ||
+      session.disposed ||
+      signal?.aborted
+    ) {
       session.promptRecords.delete(waiter)
       return
     }
@@ -1196,14 +1224,18 @@ export function createOpencodeRuntime(
         ])
         if (session.disposed) return
         for (const message of messages) {
-          if (message.info.role !== 'user' || message.info.sessionID !== session.opencodeSessionId) continue
+          if (message.info.role !== 'user' || message.info.sessionID !== session.opencodeSessionId)
+            continue
           session.messages.set(message.info.id, message.info)
           for (const part of message.parts) {
             if (
               part.type !== 'text' ||
               part.messageID !== message.info.id ||
               ![...session.promptRecords].some(
-                (waiter) => !waiter.seen && waiter.messageID === message.info.id && waiter.textPartId === part.id,
+                (waiter) =>
+                  !waiter.seen &&
+                  waiter.messageID === message.info.id &&
+                  waiter.textPartId === part.id,
               )
             )
               continue
@@ -1240,7 +1272,9 @@ export function createOpencodeRuntime(
     for (const row of rows) {
       if (
         row.sessionId !== session.opencodeSessionId ||
-        !open.some((waiter) => waiter.messageID === row.messageId && waiter.textPartId === row.partId)
+        !open.some(
+          (waiter) => waiter.messageID === row.messageId && waiter.textPartId === row.partId,
+        )
       )
         continue
       // The shared mapper emits a user prompt only for a stored text part.
@@ -1580,11 +1614,15 @@ export function createOpencodeRuntime(
           const messages = await session.client.messages(session.opencodeSessionId)
           const recorded = messages.find((message) => message.info.id === ids.messageID)
           if (recorded) {
-            const part = recorded.parts.find((part) => part.id === ids.textPartId && part.type === 'text')
+            const part = recorded.parts.find(
+              (part) => part.id === ids.textPartId && part.type === 'text',
+            )
             if (!part || part.type !== 'text' || part.text !== input.text) {
               session.promptFingerprints.delete(ids.messageID)
               persist(session)
-              throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires the same message id, part id and same text')
+              throw new UnsafeOpencodeResendError(
+                'OpenCode v1 recovery requires the same message id, part id and same text',
+              )
             }
           }
         }
@@ -1707,14 +1745,22 @@ export function createOpencodeRuntime(
   function assertPromptIdentity(session: DriverSession, input: TurnInput, ids: PromptIds): void {
     if (session.client.pendingPrompts) return
     if (input.deliveryRecovery && input.id === undefined)
-      throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires a stable message id and part id')
+      throw new UnsafeOpencodeResendError(
+        'OpenCode v1 recovery requires a stable message id and part id',
+      )
     for (const other of sessions.values()) {
       if (other !== session && other.promptFingerprints.has(ids.messageID))
         throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same session')
     }
     const original = session.promptFingerprints.get(ids.messageID)
-    if (original && (original.textPartId !== ids.textPartId || original.textHash !== promptFingerprint(input, ids).textHash))
-      throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same message id, part id and same text')
+    if (
+      original &&
+      (original.textPartId !== ids.textPartId ||
+        original.textHash !== promptFingerprint(input, ids).textHash)
+    )
+      throw new UnsafeOpencodeResendError(
+        'OpenCode v1 resend requires the same message id, part id and same text',
+      )
   }
 
   /**
@@ -1880,7 +1926,13 @@ export function createOpencodeRuntime(
       const ids = promptIdsFor(next.input, session)
       const record = armPromptRecord(session, ids, next.options)
       try {
-        const admission = await deliver(session, next.input, ids, next.options.origin, next.options.onTypingStarted)
+        const admission = await deliver(
+          session,
+          next.input,
+          ids,
+          next.options.origin,
+          next.options.onTypingStarted,
+        )
         if (!session.client.pendingPrompts) {
           const item = await waitForPromptRecord(session, record, next.options.signal)
           if (item) {
@@ -1890,9 +1942,10 @@ export function createOpencodeRuntime(
             watchLatePromptRecord(
               session,
               record,
-              next.options.onLateProof ?? (({ transcriptItem, harnessRef }) => {
-                if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
-              }),
+              next.options.onLateProof ??
+                (({ transcriptItem, harnessRef }) => {
+                  if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
+                }),
               next.options.signal,
             )
           }
@@ -2177,7 +2230,7 @@ export function createOpencodeRuntime(
         }
         const transcriptItem = session.client.pendingPrompts
           ? settlePromptRecord(session, record, admission, options.onTranscriptItem)
-          : (await waitForPromptRecord(session, record, options.signal)) ?? record.seen
+          : ((await waitForPromptRecord(session, record, options.signal)) ?? record.seen)
         if (!session.client.pendingPrompts) {
           if (transcriptItem) session.promptRecords.delete(record)
           else {
@@ -2669,8 +2722,11 @@ export function createOpencodeRuntime(
       interactions: new Map(),
       answered: new Set(),
       messages: new Map(),
+      executionBatches: { steps: new Map(), parts: new Map() },
       promptRecords: new Set(),
-      promptFingerprints: new Map((journalled?.promptFingerprints ?? []).map((entry) => [entry.messageID, entry])),
+      promptFingerprints: new Map(
+        (journalled?.promptFingerprints ?? []).map((entry) => [entry.messageID, entry]),
+      ),
       promptValidations: new Map(),
       queue: [],
       serverGone: false,

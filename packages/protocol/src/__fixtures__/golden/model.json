@@ -17168,6 +17168,35 @@
       "encoded": "{\"machineId\":\"machineId\",\"nativeId\":\"nativeId\",\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
     },
     {
+      "schema": "TranscriptExecutionInput",
+      "variant": "minimal",
+      "wire": {
+        "kind": "command",
+        "toolName": "toolName",
+        "text": "text",
+        "capture": "complete"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"command\",\"toolName\":\"toolName\",\"text\":\"text\",\"capture\":\"complete\"}"
+    },
+    {
+      "schema": "TranscriptExecutionInput",
+      "variant": "full",
+      "wire": {
+        "kind": "command",
+        "toolName": "toolName",
+        "text": "text",
+        "description": "description",
+        "capture": "complete"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"command\",\"toolName\":\"toolName\",\"text\":\"text\",\"description\":\"description\",\"capture\":\"complete\"}"
+    },
+    {
       "schema": "TranscriptItem",
       "variant": "minimal",
       "wire": {
@@ -17230,6 +17259,30 @@
           }
         ],
         "toolUseId": "toolUseId",
+        "toolExecution": {
+          "kind": "commands",
+          "inputs": [
+            {
+              "kind": "command",
+              "toolName": "toolExecution.inputs[0].toolName",
+              "text": "toolExecution.inputs[0].text",
+              "description": "toolExecution.inputs[0].description",
+              "capture": "complete"
+            }
+          ],
+          "omittedInputs": 1,
+          "status": "running",
+          "exitCode": 1,
+          "durationMs": 1,
+          "output": {
+            "capture": "complete",
+            "note": "toolExecution.output.note"
+          }
+        },
+        "toolBatch": {
+          "id": "toolBatch.id",
+          "kind": "message"
+        },
         "tags": [
           {
             "kind": "image",
@@ -17253,7 +17306,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"toolEffects[0].edit.hunks[0].path\",\"oldText\":\"toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":1}"
+      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"toolEffects[0].edit.hunks[0].path\",\"oldText\":\"toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"toolUseId\",\"toolExecution\":{\"kind\":\"commands\",\"inputs\":[{\"kind\":\"command\",\"toolName\":\"toolExecution.inputs[0].toolName\",\"text\":\"toolExecution.inputs[0].text\",\"description\":\"toolExecution.inputs[0].description\",\"capture\":\"complete\"}],\"omittedInputs\":1,\"status\":\"running\",\"exitCode\":1,\"durationMs\":1,\"output\":{\"capture\":\"complete\",\"note\":\"toolExecution.output.note\"}},\"toolBatch\":{\"id\":\"toolBatch.id\",\"kind\":\"message\"},\"tags\":[{\"kind\":\"image\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":1}"
     },
     {
       "schema": "TranscriptItem",
@@ -17296,6 +17349,30 @@
           }
         ],
         "toolUseId": "toolUseId",
+        "toolExecution": {
+          "kind": "actions",
+          "inputs": [
+            {
+              "kind": "tool",
+              "toolName": "toolExecution.inputs[0].toolName",
+              "text": "toolExecution.inputs[0].text",
+              "description": "toolExecution.inputs[0].description",
+              "capture": "truncated"
+            }
+          ],
+          "omittedInputs": 2,
+          "status": "completed",
+          "exitCode": 2,
+          "durationMs": 2,
+          "output": {
+            "capture": "truncated",
+            "note": "toolExecution.output.note"
+          }
+        },
+        "toolBatch": {
+          "id": "toolBatch.id",
+          "kind": "step"
+        },
         "tags": [
           {
             "kind": "file",
@@ -17319,7 +17396,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"toolEffects[0].operation.commit.sha\",\"kind\":\"toolEffects[0].operation.commit.kind\",\"branch\":\"toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"toolEffects[0].operation.branch.ref\",\"action\":\"toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"compaction.notice\"},\"durationMs\":2}"
+      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"toolEffects[0].operation.commit.sha\",\"kind\":\"toolEffects[0].operation.commit.kind\",\"branch\":\"toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"toolEffects[0].operation.branch.ref\",\"action\":\"toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"toolUseId\",\"toolExecution\":{\"kind\":\"actions\",\"inputs\":[{\"kind\":\"tool\",\"toolName\":\"toolExecution.inputs[0].toolName\",\"text\":\"toolExecution.inputs[0].text\",\"description\":\"toolExecution.inputs[0].description\",\"capture\":\"truncated\"}],\"omittedInputs\":2,\"status\":\"completed\",\"exitCode\":2,\"durationMs\":2,\"output\":{\"capture\":\"truncated\",\"note\":\"toolExecution.output.note\"}},\"toolBatch\":{\"id\":\"toolBatch.id\",\"kind\":\"step\"},\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"compaction.notice\"},\"durationMs\":2}"
     },
     {
       "schema": "TranscriptItem",
@@ -17352,6 +17429,30 @@
           }
         ],
         "toolUseId": "toolUseId",
+        "toolExecution": {
+          "kind": "continuation",
+          "inputs": [
+            {
+              "kind": "continuation",
+              "toolName": "toolExecution.inputs[0].toolName",
+              "text": "toolExecution.inputs[0].text",
+              "description": "toolExecution.inputs[0].description",
+              "capture": "unknown"
+            }
+          ],
+          "omittedInputs": 3,
+          "status": "failed",
+          "exitCode": 3,
+          "durationMs": 3,
+          "output": {
+            "capture": "unavailable",
+            "note": "toolExecution.output.note"
+          }
+        },
+        "toolBatch": {
+          "id": "toolBatch.id",
+          "kind": "step"
+        },
         "tags": [
           {
             "kind": "file",
@@ -17375,7 +17476,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"toolEffects[0].taskId\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":3}"
+      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"toolEffects[0].taskId\"}],\"toolUseId\":\"toolUseId\",\"toolExecution\":{\"kind\":\"continuation\",\"inputs\":[{\"kind\":\"continuation\",\"toolName\":\"toolExecution.inputs[0].toolName\",\"text\":\"toolExecution.inputs[0].text\",\"description\":\"toolExecution.inputs[0].description\",\"capture\":\"unknown\"}],\"omittedInputs\":3,\"status\":\"failed\",\"exitCode\":3,\"durationMs\":3,\"output\":{\"capture\":\"unavailable\",\"note\":\"toolExecution.output.note\"}},\"toolBatch\":{\"id\":\"toolBatch.id\",\"kind\":\"step\"},\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":3}"
     },
     {
       "schema": "TranscriptItem",
@@ -17410,6 +17511,30 @@
           }
         ],
         "toolUseId": "toolUseId",
+        "toolExecution": {
+          "kind": "continuation",
+          "inputs": [
+            {
+              "kind": "continuation",
+              "toolName": "toolExecution.inputs[0].toolName",
+              "text": "toolExecution.inputs[0].text",
+              "description": "toolExecution.inputs[0].description",
+              "capture": "unknown"
+            }
+          ],
+          "omittedInputs": 4,
+          "status": "interrupted",
+          "exitCode": 4,
+          "durationMs": 4,
+          "output": {
+            "capture": "unknown",
+            "note": "toolExecution.output.note"
+          }
+        },
+        "toolBatch": {
+          "id": "toolBatch.id",
+          "kind": "step"
+        },
         "tags": [
           {
             "kind": "file",
@@ -17433,7 +17558,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"toolEffects[0].interpretation\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"compaction.notice\"},\"durationMs\":4}"
+      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"toolEffects[0].interpretation\"}],\"toolUseId\":\"toolUseId\",\"toolExecution\":{\"kind\":\"continuation\",\"inputs\":[{\"kind\":\"continuation\",\"toolName\":\"toolExecution.inputs[0].toolName\",\"text\":\"toolExecution.inputs[0].text\",\"description\":\"toolExecution.inputs[0].description\",\"capture\":\"unknown\"}],\"omittedInputs\":4,\"status\":\"interrupted\",\"exitCode\":4,\"durationMs\":4,\"output\":{\"capture\":\"unknown\",\"note\":\"toolExecution.output.note\"}},\"toolBatch\":{\"id\":\"toolBatch.id\",\"kind\":\"step\"},\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"compaction.notice\"},\"durationMs\":4}"
     },
     {
       "schema": "TranscriptItem",
@@ -17466,6 +17591,30 @@
           }
         ],
         "toolUseId": "toolUseId",
+        "toolExecution": {
+          "kind": "continuation",
+          "inputs": [
+            {
+              "kind": "continuation",
+              "toolName": "toolExecution.inputs[0].toolName",
+              "text": "toolExecution.inputs[0].text",
+              "description": "toolExecution.inputs[0].description",
+              "capture": "unknown"
+            }
+          ],
+          "omittedInputs": 5,
+          "status": "interrupted",
+          "exitCode": 5,
+          "durationMs": 5,
+          "output": {
+            "capture": "unknown",
+            "note": "toolExecution.output.note"
+          }
+        },
+        "toolBatch": {
+          "id": "toolBatch.id",
+          "kind": "step"
+        },
         "tags": [
           {
             "kind": "file",
@@ -17489,7 +17638,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"toolEffects[0].key\"}],\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":5}"
+      "encoded": "{\"id\":\"id\",\"streamId\":\"streamId\",\"cursor\":\"cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"harnessRef[0].kind\",\"id\":\"harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"toolEffects[0].key\"}],\"toolUseId\":\"toolUseId\",\"toolExecution\":{\"kind\":\"continuation\",\"inputs\":[{\"kind\":\"continuation\",\"toolName\":\"toolExecution.inputs[0].toolName\",\"text\":\"toolExecution.inputs[0].text\",\"description\":\"toolExecution.inputs[0].description\",\"capture\":\"unknown\"}],\"omittedInputs\":5,\"status\":\"interrupted\",\"exitCode\":5,\"durationMs\":5,\"output\":{\"capture\":\"unknown\",\"note\":\"toolExecution.output.note\"}},\"toolBatch\":{\"id\":\"toolBatch.id\",\"kind\":\"step\"},\"tags\":[{\"kind\":\"file\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"summarizes[0]\"],\"compaction\":{\"trigger\":\"compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"compaction.notice\"},\"durationMs\":5}"
     },
     {
       "schema": "TranscriptItemRef",
@@ -17574,6 +17723,30 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"image\",\"label\":\"label\"}"
+    },
+    {
+      "schema": "TranscriptToolBatch",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "kind": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"kind\":\"message\"}"
+    },
+    {
+      "schema": "TranscriptToolBatch",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "kind": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"kind\":\"message\"}"
     },
     {
       "schema": "TranscriptToolEffect",
@@ -17683,6 +17856,43 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"unknown\",\"key\":\"key\"}"
+    },
+    {
+      "schema": "TranscriptToolExecution",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "TranscriptToolExecution",
+      "variant": "full",
+      "wire": {
+        "kind": "commands",
+        "inputs": [
+          {
+            "kind": "command",
+            "toolName": "inputs[0].toolName",
+            "text": "inputs[0].text",
+            "description": "inputs[0].description",
+            "capture": "complete"
+          }
+        ],
+        "omittedInputs": 1,
+        "status": "running",
+        "exitCode": 1,
+        "durationMs": 1,
+        "output": {
+          "capture": "complete",
+          "note": "output.note"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"commands\",\"inputs\":[{\"kind\":\"command\",\"toolName\":\"inputs[0].toolName\",\"text\":\"inputs[0].text\",\"description\":\"inputs[0].description\",\"capture\":\"complete\"}],\"omittedInputs\":1,\"status\":\"running\",\"exitCode\":1,\"durationMs\":1,\"output\":{\"capture\":\"complete\",\"note\":\"output.note\"}}"
     },
     {
       "schema": "UpdateChannel",
