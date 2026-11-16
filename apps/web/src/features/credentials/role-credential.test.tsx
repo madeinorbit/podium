@@ -79,6 +79,11 @@ describe('the model a picked credential implies', () => {
       kind: 'login',
       harness: 'codex',
     })
+    // A ChatGPT plan offers Codex's models, never an OpenAI API model (§11).
+    expect(credentialModelSource('openai.chatgpt-plan')).toEqual({
+      kind: 'login',
+      harness: 'codex',
+    })
     expect(credentialModelSource('anthropic.claude-token')).toBeUndefined()
     expect(credentialModelSource('someone.else')).toBeUndefined()
   })

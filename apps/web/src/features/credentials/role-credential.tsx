@@ -38,13 +38,16 @@ export type ModelSource =
 /**
  * The model source a picked credential implies: its provider's list for a key
  * the server calls over HTTP, the Codex catalog for a ChatGPT login whose calls
- * run on its machine. `undefined` for a type with no direct-inference route.
+ * run on its machine and for a ChatGPT plan signed in to Podium (its models
+ * are Codex's, §11). `undefined` for a type with no direct-inference route.
  */
 export function credentialModelSource(type: string): ModelSource | undefined {
   if (!isCredentialTypeId(type)) return undefined
   const route = INFERENCE_ROUTES[type]
   if (!route) return undefined
-  if (route.kind === 'on-machine') return { kind: 'login', harness: 'codex' }
+  if (route.kind === 'on-machine' || route.api === 'openai-responses') {
+    return { kind: 'login', harness: 'codex' }
+  }
   return { kind: 'api', provider: CREDENTIAL_TYPES[type].provider }
 }
 
