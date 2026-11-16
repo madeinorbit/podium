@@ -263,3 +263,24 @@ describe('the chat header is gone and find is behind the rail button', () => {
     expect(findInput()).toBeNull()
   })
 })
+
+describe("the composer's model and mode chips (POD-7002)", () => {
+  it('shows the model the agent runs and the mode it reports, from the session row', async () => {
+    // The live web drew neither chip for a Claude session whose row held both:
+    // the chat view hands its chips the shared session model, which had no
+    // getter for either field.
+    storeSessions = [
+      meta({
+        observedModel: 'claude-opus-5-5',
+        observedMode: 'auto',
+        launchPosture: { requestedMode: 'auto', unmet: [] },
+      } as Partial<SessionMetaInput>),
+    ]
+    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
+    const model = container.querySelector('[data-testid="session-model"]')
+    const mode = container.querySelector('[data-testid="session-mode"]')
+    expect(model?.getAttribute('data-provenance')).toBe('observed')
+    expect(mode?.textContent).toBe('auto')
+    expect(mode?.getAttribute('data-provenance')).toBe('observed')
+  })
+})
