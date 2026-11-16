@@ -338,12 +338,18 @@ with the spawn.
 ### 4.7 Writing in the harness home
 
 Where a harness has a per-launch channel, the adapter uses it and writes nothing
-outside the session's runtime folder. Two cells have no such channel:
+outside the session's runtime folder. Three cells have no such channel:
 
 - **Claude Code's trust key.** One documented key in `~/.claude.json`.
 - **Codex's rule for the Podium CLI.** A file Podium owns, `rules/podium.rules`,
   in the Codex home. Decided by the operator: Codex needs it, because without it
   Codex's reviewer often flags Podium's CLI as overstepping.
+- **Grok's engine rule for the Podium CLI.** One entry, `Bash(podium *)`, in
+  `[permission] allow` of the user config `$GROK_HOME/config.toml` (default
+  `~/.grok/config.toml`). Decided by the operator (2026-11-16): `grok agent
+  stdio` takes no allow rule per launch, and its `GROK_CONFIG` overlay ignores
+  permission rules, so without it the chat view asks before every Podium
+  command, or under auto mode often refuses it.
 
 ```ts
 export type HomeEdit =
@@ -351,7 +357,15 @@ export type HomeEdit =
   | { kind: 'owned-file'; file: string; contents: string; serves: PostureRequirement }
   /** One key in a file the harness owns. Nothing else in the file changes. */
   | { kind: 'json-key'; file: string; path: readonly string[]; value: JsonValue; serves: PostureRequirement }
+  /** One string added to an array in a TOML file the harness owns. Every other line stays. */
+  | { kind: 'toml-array-entry'; file: string; path: readonly string[]; value: string; serves: PostureRequirement }
 ```
+
+The TOML edit is not a reformat: the daemon finds the array's place in the
+text and inserts one item in the array's own layout, or adds the key under its
+table header, or the table at the end of the file. A file it cannot read, or a
+table written as an inline table, a dotted key or an array of tables, is left
+untouched and the edit fails.
 
 `serves` names the requirement that becomes unmet when the edit cannot be made.
 
@@ -365,7 +379,7 @@ Rules for the one daemon mechanism that applies them:
 - An adapter may only declare an edit that the vendor documents, or a file Podium
   owns. Vendor-private state is not written (the POD-4076 rule).
 
-**Both edits reach beyond Podium, and that is accepted.** A harness home is
+**All three edits reach beyond Podium, and that is accepted.** A harness home is
 shared with the person's own use of that harness.
 
 - The Claude key marks the repository trusted for their own Claude Code
@@ -375,6 +389,10 @@ shared with the person's own use of that harness.
   start. There the CLI acts with the person's own authority. No per-session way
   to load a Codex rule was found; the spike looks again. A harness home that
   Podium owns (section 9) would remove this.
+- The Grok rule likewise lets every Grok session that uses that home run
+  `podium` without asking, including sessions Podium did not start, in the
+  terminal as well as through the engine. The operator accepted this on the
+  same terms as Codex's rules file.
 
 Pre-approving the Podium CLI is safe inside a Podium session because the server
 authorises each CLI verb by the session's identity. Harness approval is not the
@@ -396,7 +414,7 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
 | **Claude Code** | `json-key` edit on the repo root, all modes | allow rules `Bash(podium *)` and `PowerShell(podium *)` by flag, spelled `--allowedTools=<rule>` | `default` / `auto`; the mode in force is the `permissionMode` of the init event (`default` when auto is unavailable) | met in an onboarded home: the auto-mode notices are not modal. Survey env; `skipDangerousModePermissionPrompt` only matters for a native bypass pick | allow rules `Read(//<uploads>/**)` (two slashes) and `mcp__<server>` |
 | **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
 | **OpenCode** | met by default | `{"bash":{"*":<mode's rule>,"podium *":"allow"}}` in the inline config's `permission` | `bash` and `edit` ask rules / `--auto` (terminal); engine: asks reach chat | met by default | `{"external_directory":{"<uploads>/*":"allow"}}` in the inline config (asks by default); MCP tools allowed by default |
-| **Grok** | met by default (no folder prompt) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `unmet: podium-cli`, "`grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides" | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
+| **Grok** | met by default (no folder prompt) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `toml-array-entry` `Bash(podium *)` in `[permission] allow` of `$GROK_HOME/config.toml` (created only in a home Podium selects with `GROK_HOME`) | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
 | **Pi** | `--approve` (asks in every folder with a fresh home) | met by default | `unmet: autonomy` / met by default | met: the update notice is not modal (`PI_SKIP_VERSION_CHECK=1` hides it) | met by default |
 | **Cursor** | turn: `--trust`; terminal: `unmet: workspace-trust`, "Cursor keeps interactive folder trust in private state that Podium does not write" (screen **unmeasured**: whether `--trust` also covers the terminal) | `unmet: podium-cli`, "Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit" | turn: nothing / `--auto-review` | `unmet: quiet-start`, "unmeasured: no signed-in Cursor account was available to the spike" | `--approve-mcps` for Podium's MCP servers; reads outside the folder: `unmet: podium-material`, "unmeasured" |
 
@@ -415,9 +433,15 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
   today; recorded for the acceptance run.
 - **No per-session Codex rule exists.** The home rule (4.7) stays. The only
   other loading place is the repository's own `.codex/rules/`.
-- **Grok's engine cannot pre-approve the CLI per launch.** The documented key
-  `[permission] allow` in `~/.grok/config.toml` would, as a third home edit
-  (4.7); this phase reports `unmet` instead and leaves that choice open.
+- **Grok's engine pre-approves the CLI through the home.** `grok agent stdio`
+  takes no allow rule per launch, so the rule goes into the documented key
+  `[permission] allow` of the user config, the third home edit (4.7). The rule
+  applies to Grok sessions Podium did not start, as Codex's rules file does;
+  the operator accepted that (2026-11-16). Grok has no PowerShell rule form
+  (its rule tool names are `Bash`, `Read`, `Edit`, `Grep`, `MCPTool`,
+  `WebFetch`, `WebSearch`), so there is one rule on every platform. The person's
+  own `config.toml` is edited, never created; until Grok writes one, the edit
+  fails and the engine reports `unmet: podium-cli` with that reason.
 - **Cursor is documented, not measured.** Its row comes from `--help`
   (2026.07.23) and its installed bundle; the cells that depend on what Cursor
   draws once signed in are marked **unmeasured**. It can be measured later, once

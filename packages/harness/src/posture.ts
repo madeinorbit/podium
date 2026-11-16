@@ -131,6 +131,9 @@ export function applyTerms(
     if (edit.kind === 'json-key' && edit.path.length === 0) {
       throw new Error(`json-key home edit of ${edit.file} names no key`)
     }
+    if (edit.kind === 'toml-array-entry' && edit.path.length < 2) {
+      throw new Error(`toml-array-entry home edit of ${edit.file} names no table and key`)
+    }
   }
 
   for (const entry of result.unmet) {

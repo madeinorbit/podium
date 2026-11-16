@@ -100,6 +100,21 @@ export type HomeEdit =
        */
       createIfMissing?: true
     }
+  /**
+   * One string in an array in a TOML file the harness owns, added when the
+   * array does not hold it yet. `path` is the table, then the key
+   * (`['permission', 'allow']`). Every other line of the file, comments
+   * included, stays as it is; a missing key or table is added.
+   */
+  | {
+      kind: 'toml-array-entry'
+      file: string
+      path: readonly string[]
+      value: string
+      serves: PostureRequirement
+      /** As for `json-key`: only for a file in a home Podium owns. */
+      createIfMissing?: true
+    }
 
 /** A requirement this harness cannot meet in this launch mode, and why. */
 export interface UnmetRequirement {

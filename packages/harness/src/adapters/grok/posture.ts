@@ -1,5 +1,7 @@
+import { join } from 'node:path'
 import { optionArgs } from '../../posture.js'
 import type {
+  HomeEdit,
   LaunchMode,
   PostureLaunch,
   PostureRequest,
@@ -29,8 +31,11 @@ export const GROK_PERMISSION_MODES: readonly string[] = [
  *   1.0.70).
  * - The Podium CLI: `--allow 'Bash(<cli> *)'` in the TUI and a `--single`
  *   turn; in `Bash(...)` a `*` matches anything, spaces included (measured in
- *   the TUI, 1.0.70). The ACP engine takes no allow rule per launch, so there
- *   it is reported unmet.
+ *   the TUI, 1.0.70). The ACP engine takes no allow rule per launch and its
+ *   `GROK_CONFIG` overlay ignores permission rules, so there the rule goes
+ *   into `[permission] allow` of `$GROK_HOME/config.toml`, the user config
+ *   (operator decision, 2026-11-16). It applies to every Grok session that
+ *   uses that home, Podium's or not.
  * - The mode: `--permission-mode default` / `auto`. The engine takes no flag:
  *   the grok-acp family sets the session's initial mode from `requestedMode`
  *   (`_meta.autoMode` for `auto`, `session/set_mode` otherwise).
@@ -49,12 +54,15 @@ export function grokPosture(launch: PostureLaunch, request: PostureRequest): Pos
   const mode = permissionMode(request, unmet)
 
   if (request.mode === 'engine') {
-    unmet.push({
-      requirement: 'podium-cli',
-      reason:
-        '`grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides',
-    })
-    return { launch, homeEdits: [], requestedMode: mode, unmet }
+    const edit = podiumAllowEdit(request)
+    if (!edit) {
+      unmet.push({
+        requirement: 'podium-cli',
+        reason:
+          'the Grok home folder is not known for this launch, so the Podium CLI allow rule has nowhere to go',
+      })
+    }
+    return { launch, homeEdits: edit ? [edit] : [], requestedMode: mode, unmet }
   }
 
   const options = [
@@ -72,6 +80,30 @@ export function grokPosture(launch: PostureLaunch, request: PostureRequest): Pos
     homeEdits: [],
     requestedMode: mode,
     unmet,
+  }
+}
+
+/**
+ * `Bash(<cli> *)` in `[permission] allow` of the user config Grok reads,
+ * `$GROK_HOME/config.toml` (default `~/.grok/config.toml`). Grok has no
+ * PowerShell rule form: its rule tool names are `Bash`, `Read`, `Edit`,
+ * `Grep`, `MCPTool`, `WebFetch` and `WebSearch` (user guide, 1.0.77).
+ *
+ * A `GROK_HOME` the context selects is Podium's own agent home: the edit may
+ * create its `config.toml`, which Grok itself writes only once a setting
+ * changes. The person's own `~/.grok/config.toml` is never created by Podium.
+ */
+function podiumAllowEdit(request: PostureRequest): HomeEdit | undefined {
+  const state = request.context.roots.state
+  if (!state) return undefined
+  const selected = request.context.env.GROK_HOME?.trim()
+  return {
+    kind: 'toml-array-entry',
+    file: join(state, 'config.toml'),
+    path: ['permission', 'allow'],
+    value: `Bash(${request.grants.podiumCli.name} *)`,
+    serves: 'podium-cli',
+    ...(selected ? { createIfMissing: true as const } : {}),
   }
 }
 

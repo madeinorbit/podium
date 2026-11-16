@@ -298,6 +298,132 @@ describe('applyHomeEdits', () => {
   })
 })
 
+const G = '/home/u/.grok/config.toml'
+
+const grokAllow = (value = 'Bash(podium *)'): Extract<HomeEdit, { kind: 'toml-array-entry' }> => ({
+  kind: 'toml-array-entry',
+  file: G,
+  path: ['permission', 'allow'],
+  value,
+  serves: 'podium-cli',
+})
+
+describe('applyHomeEdits: toml-array-entry', () => {
+  it('fails on a config that does not exist yet and creates nothing', async () => {
+    const { fs, writes, ports } = memoryPorts()
+    const out = await applyHomeEdits([grokAllow()], ports)
+    expect(out[0]?.status).toBe('failed')
+    expect(out[0]?.status === 'failed' && out[0].reason).toMatch(/has not created this file yet/)
+    expect(writes).toEqual([])
+    expect(fs.has(G)).toBe(false)
+  })
+
+  it('creates a missing config holding only the table and the rule when the edit allows it', async () => {
+    const { get, writes, ports } = memoryPorts()
+    const out = await applyHomeEdits([{ ...grokAllow(), createIfMissing: true }], ports)
+    expect(out[0]?.status).toBe('applied')
+    expect(get(G)).toBe('[permission]\nallow = ["Bash(podium *)"]\n')
+    expect(writes).toHaveLength(1)
+  })
+
+  it('adds the table at the end of a config without one, keeping every other line', async () => {
+    const { fs, get, ports } = memoryPorts()
+    const body = '# my grok\n[ui]\npermission_mode = "default" # keep\n\n[models]\ndefault = "grok-4.7"\n'
+    fs.set(G, body)
+    const out = await applyHomeEdits([grokAllow()], ports)
+    expect(out[0]?.status).toBe('applied')
+    expect(get(G)).toBe(`${body}\n[permission]\nallow = ["Bash(podium *)"]\n`)
+  })
+
+  it('appends to an allow array that holds other rules, keeping its comments', async () => {
+    const { fs, get, ports } = memoryPorts()
+    fs.set(
+      G,
+      [
+        '[permission]',
+        '# rules I trust',
+        'allow = [',
+        '  "Bash(git *)", # git',
+        '  "Bash(gh *)" # gh',
+        ']',
+        'deny = ["Bash(rm -rf *)"]',
+        '',
+      ].join('\n'),
+    )
+    const out = await applyHomeEdits([grokAllow()], ports)
+    expect(out[0]?.status).toBe('applied')
+    expect(get(G)).toBe(
+      [
+        '[permission]',
+        '# rules I trust',
+        'allow = [',
+        '  "Bash(git *)", # git',
+        '  "Bash(gh *)", # gh',
+        '  "Bash(podium *)"',
+        ']',
+        'deny = ["Bash(rm -rf *)"]',
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('writes nothing when the rule is already there', async () => {
+    const { fs, writes, logs, ports } = memoryPorts()
+    fs.set(G, "[permission]\nallow = ['Bash(git *)', 'Bash(podium *)']\n")
+    const out = await applyHomeEdits([grokAllow()], ports)
+    expect(out).toEqual([{ edit: grokAllow(), status: 'already' }])
+    expect(writes).toEqual([])
+    expect(logs).toEqual([])
+  })
+
+  it('applies once, then finds the rule on the next launch', async () => {
+    const { fs, writes, ports } = memoryPorts()
+    fs.set(G, '[permission]\nallow = ["Bash(git *)"]\n')
+    expect((await applyHomeEdits([grokAllow()], ports))[0]?.status).toBe('applied')
+    expect((await applyHomeEdits([grokAllow()], ports))[0]?.status).toBe('already')
+    expect(writes).toHaveLength(1)
+  })
+
+  it('runs two sessions’ edits to one config one after the other, and both rules end up there', async () => {
+    const { fs, get, ports } = memoryPorts()
+    fs.set(G, '[permission]\nallow = []\n')
+    const [a, b] = await Promise.all([
+      applyHomeEdits([grokAllow()], ports),
+      applyHomeEdits([grokAllow('Bash(podium-dev *)')], ports),
+    ])
+    expect(a[0]?.status).toBe('applied')
+    expect(b[0]?.status).toBe('applied')
+    expect(get(G)).toBe('[permission]\nallow = ["Bash(podium *)", "Bash(podium-dev *)"]\n')
+  })
+
+  it('fails on a config it cannot read and leaves it untouched', async () => {
+    const { fs, get, writes, ports } = memoryPorts()
+    fs.set(G, '[permission\nallow = [\n')
+    const out = await applyHomeEdits([grokAllow()], ports)
+    expect(out[0]?.status).toBe('failed')
+    expect(out[0]?.status === 'failed' && out[0].reason).toMatch(/not TOML this edit can read/)
+    expect(out[0]?.status === 'failed' && out[0].reason).toContain(G)
+    expect(writes).toEqual([])
+    expect(get(G)).toBe('[permission\nallow = [\n')
+  })
+
+  it('logs the applied edit with its file and key', async () => {
+    const { logs, ports } = memoryPorts()
+    await applyHomeEdits([{ ...grokAllow(), createIfMissing: true }], ports)
+    expect(logs).toEqual([
+      {
+        message: expect.any(String),
+        fields: {
+          kind: 'toml-array-entry',
+          file: G,
+          key: ['permission', 'allow'],
+          serves: 'podium-cli',
+        },
+      },
+    ])
+  })
+})
+
 describe('nodeHomeEditPorts', () => {
   let dir: string
   beforeEach(async () => {

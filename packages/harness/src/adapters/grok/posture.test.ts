@@ -69,8 +69,14 @@ const ALLOW = [
   'MCPTool(issue tracker__*)',
 ]
 
-const ENGINE_CLI_REASON =
-  '`grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides'
+/** The engine's allow rule: one entry in the user config's `[permission] allow`. */
+const ENGINE_ALLOW_EDIT = {
+  kind: 'toml-array-entry',
+  file: '/home/podium-test/.grok/config.toml',
+  path: ['permission', 'allow'],
+  value: 'Bash(podium *)',
+  serves: 'podium-cli',
+} as const
 
 describe('grokPosture', () => {
   it('terminal / supervised: --permission-mode default and the allow rules, before the prompt boundary', () => {
@@ -145,12 +151,12 @@ describe('grokPosture', () => {
       expect(out.unmet).toEqual([])
     })
 
-    it(`engine / ${posture.mode}: no flag; the family sets ${word}; the CLI rule is unmet`, () => {
+    it(`engine / ${posture.mode}: no flag; the family sets ${word}; the CLI rule goes into the user config`, () => {
       const out = grokPosture(BUILDER.engine, request('engine', posture))
       expect(out.launch).toEqual(BUILDER.engine)
-      expect(out.homeEdits).toEqual([])
+      expect(out.homeEdits).toEqual([ENGINE_ALLOW_EDIT])
       expect(out.requestedMode).toBe(word)
-      expect(out.unmet).toEqual([{ requirement: 'podium-cli', reason: ENGINE_CLI_REASON }])
+      expect(out.unmet).toEqual([])
     })
   }
 
@@ -174,6 +180,45 @@ describe('grokPosture', () => {
           'Grok has no permission mode named "on-request", so it starts in the mode its own settings choose',
       },
     ])
+  })
+
+  it('engine: the person’s own config is edited, never created', () => {
+    const out = grokPosture(BUILDER.engine, request('engine', SUPERVISED))
+    expect(out.homeEdits[0]).not.toHaveProperty('createIfMissing')
+  })
+
+  it('engine: a GROK_HOME the context selects is Podium’s agent home; its config.toml may be created', () => {
+    const base = request('engine', AUTONOMOUS)
+    const out = grokPosture(BUILDER.engine, {
+      ...base,
+      context: testHarnessContext({
+        kind: 'grok',
+        version: '1.0.70',
+        env: { GROK_HOME: '/var/lib/podium/agent-home/.grok' },
+      }),
+    })
+    expect(out.homeEdits).toEqual([
+      {
+        ...ENGINE_ALLOW_EDIT,
+        file: '/var/lib/podium/agent-home/.grok/config.toml',
+        createIfMissing: true,
+      },
+    ])
+    expect(out.unmet).toEqual([])
+  })
+
+  it('engine: names the CLI by its granted name in the rule', () => {
+    const out = grokPosture(BUILDER.engine, {
+      ...request('engine', SUPERVISED),
+      grants: { podiumCli: { name: 'podium-dev', path: '/x' }, uploadsDir: '/u', mcpServers: [] },
+    })
+    expect(out.homeEdits).toEqual([{ ...ENGINE_ALLOW_EDIT, value: 'Bash(podium-dev *)' }])
+  })
+
+  it('terminal, turn and client carry the rule by flag and edit no home', () => {
+    for (const mode of ['terminal', 'turn', 'client'] as const) {
+      expect(grokPosture(BUILDER[mode], request(mode, SUPERVISED)).homeEdits).toEqual([])
+    }
   })
 
   it('names the CLI by its granted name', () => {

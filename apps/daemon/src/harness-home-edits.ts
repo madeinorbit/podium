@@ -2,17 +2,19 @@
  * Applies a posture's edits to a harness home (harness-session-posture §4.7).
  *
  * A harness with no per-launch channel for a fact gets one narrow edit in its
- * own home: one vendor-documented key in a JSON file the harness owns, or one
- * file Podium owns outright. The home is shared with the harness itself and
- * with other sessions, so every edit is written to survive another writer:
+ * own home: one vendor-documented key in a JSON file the harness owns, one
+ * string added to a vendor-documented array in a TOML file the harness owns,
+ * or one file Podium owns outright. The home is shared with the harness itself
+ * and with other sessions, so every edit is written to survive another writer:
  *
  * - Nothing is written when the home already holds the value.
  * - Edits to one file run one at a time across the whole daemon.
- * - A `json-key` edit reads the file, sets the one key, reads again and writes
- *   only if the file did not change in between, so a newer file is never
- *   replaced with an older copy. It writes beside the file and renames over it,
- *   then reads once more to check the key held. When another program won, the
- *   whole sequence runs once more, then the edit fails.
+ * - A `json-key` or `toml-array-entry` edit reads the file, sets the one key
+ *   (or adds the one array entry, every other line kept), reads again and
+ *   writes only if the file did not change in between, so a newer file is
+ *   never replaced with an older copy. It writes beside the file and renames
+ *   over it, then reads once more to check the value held. When another
+ *   program won, the whole sequence runs once more, then the edit fails.
  * - A failed edit is an outcome, not an error: the caller reports it as an
  *   unmet requirement and the session still starts.
  *
@@ -32,6 +34,7 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { HomeEdit } from '@podium/harness'
+import { planTomlArrayEntry, tomlArrayHolds } from './harness-home-toml.js'
 
 export type HomeEditOutcome =
   | { edit: HomeEdit; status: 'already' | 'applied' }
@@ -87,12 +90,12 @@ export async function applyHomeEdits(
 async function applyOne(edit: HomeEdit, ports: HomeEditPorts): Promise<HomeEditOutcome> {
   try {
     const result =
-      edit.kind === 'json-key' ? await applyJsonKey(edit, ports) : await applyOwnedFile(edit, ports)
+      edit.kind === 'owned-file' ? await applyOwnedFile(edit, ports) : await applyKeyed(edit, ports)
     if (result.status === 'applied') {
       ports.log('harness home edit applied', {
         kind: edit.kind,
         file: edit.file,
-        ...(edit.kind === 'json-key' ? { key: [...edit.path] } : {}),
+        ...(edit.kind === 'owned-file' ? {} : { key: [...edit.path] }),
         serves: edit.serves,
       })
     }
@@ -103,6 +106,7 @@ async function applyOne(edit: HomeEdit, ports: HomeEditPorts): Promise<HomeEditO
 }
 
 type JsonKeyEdit = Extract<HomeEdit, { kind: 'json-key' }>
+type TomlArrayEntryEdit = Extract<HomeEdit, { kind: 'toml-array-entry' }>
 type OwnedFileEdit = Extract<HomeEdit, { kind: 'owned-file' }>
 
 async function applyOwnedFile(edit: OwnedFileEdit, ports: HomeEditPorts): Promise<HomeEditOutcome> {
@@ -116,14 +120,45 @@ async function applyOwnedFile(edit: OwnedFileEdit, ports: HomeEditPorts): Promis
   return { edit, status: 'failed', reason: anotherWriter(edit.file) }
 }
 
-async function applyJsonKey(edit: JsonKeyEdit, ports: HomeEditPorts): Promise<HomeEditOutcome> {
+/** How a keyed edit reads and changes its file's format. */
+interface KeyedFormat {
+  /** The body a missing file is planned from. */
+  empty: string
+  /** The new body, `next: undefined` when the file already holds the value, or why not. */
+  plan(body: string): { next: string | undefined } | { reason: string }
+  holds(body: string): boolean
+}
+
+function keyedFormat(edit: JsonKeyEdit | TomlArrayEntryEdit): KeyedFormat {
+  if (edit.kind === 'json-key') {
+    return {
+      empty: '{}',
+      plan: (body) => planJsonKey(body, edit),
+      holds: (body) => holdsValue(body, edit),
+    }
+  }
+  return {
+    empty: '',
+    plan: (body) => {
+      const planned = planTomlArrayEntry(body, edit.path, edit.value)
+      return 'reason' in planned ? { reason: `${edit.file}: ${planned.reason}` } : planned
+    },
+    holds: (body) => tomlArrayHolds(body, edit.path, edit.value),
+  }
+}
+
+async function applyKeyed(
+  edit: JsonKeyEdit | TomlArrayEntryEdit,
+  ports: HomeEditPorts,
+): Promise<HomeEditOutcome> {
   if (edit.path.length === 0) {
     return {
       edit,
       status: 'failed',
-      reason: 'a json-key edit needs a key path; refusing to replace the whole file',
+      reason: `a ${edit.kind} edit needs a key path; refusing to replace the whole file`,
     }
   }
+  const format = keyedFormat(edit)
   let wrote = false
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const body = await ports.readFile(edit.file)
@@ -135,21 +170,21 @@ async function applyJsonKey(edit: JsonKeyEdit, ports: HomeEditPorts): Promise<Ho
           reason: `the harness has not created this file yet: ${edit.file}`,
         }
       }
-      // A file in a home Podium owns: start it from an empty object. Created
-      // exclusively, so a file the harness wrote in the meantime is never
-      // replaced; the next attempt edits that file instead.
-      const created = planJsonKey('{}', edit)
+      // A file in a home Podium owns: start it from an empty document.
+      // Created exclusively, so a file the harness wrote in the meantime is
+      // never replaced; the next attempt edits that file instead.
+      const created = format.plan(format.empty)
       if ('reason' in created || created.next === undefined) {
         return { edit, status: 'failed', reason: `could not plan a new ${edit.file}` }
       }
       if (await ports.createFileExclusive(edit.file, created.next)) {
         wrote = true
         const after = await ports.readFile(edit.file)
-        if (after !== undefined && holdsValue(after, edit)) return { edit, status: 'applied' }
+        if (after !== undefined && format.holds(after)) return { edit, status: 'applied' }
       }
       continue
     }
-    const planned = planJsonKey(body, edit)
+    const planned = format.plan(body)
     if ('reason' in planned) return { edit, status: 'failed', reason: planned.reason }
     if (planned.next === undefined) return { edit, status: wrote ? 'applied' : 'already' }
     // Write only over the very file the edit was planned from: a body that
@@ -158,7 +193,7 @@ async function applyJsonKey(edit: JsonKeyEdit, ports: HomeEditPorts): Promise<Ho
     await ports.writeFileAtomic(edit.file, planned.next)
     wrote = true
     const after = await ports.readFile(edit.file)
-    if (after !== undefined && holdsValue(after, edit)) return { edit, status: 'applied' }
+    if (after !== undefined && format.holds(after)) return { edit, status: 'applied' }
   }
   return { edit, status: 'failed', reason: anotherWriter(edit.file) }
 }
