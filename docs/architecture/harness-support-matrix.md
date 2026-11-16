@@ -137,7 +137,7 @@ What `{"mode":"autonomous"}` comes to for a current install, from each adapter's
 | codex | turn | `auto-review` | met | home edit | met | met | met |
 | codex | client | none | met | home edit | met | met | met |
 | grok | terminal | `auto` | met | met | met | met | met |
-| grok | engine | `auto` | met | unmet | met | met | met |
+| grok | engine | `auto` | met | home edit | met | met | met |
 | grok | turn | `auto` | met | met | met | met | met |
 | grok | client | `auto` | met | met | met | met | met |
 | opencode | terminal | `auto` | met | met | met | met | met |
@@ -155,7 +155,6 @@ What `{"mode":"autonomous"}` comes to for a current install, from each adapter's
 
 Unmet, and why:
 
-- grok, engine, `podium-cli`: `grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides
 - cursor, terminal, `workspace-trust`: Cursor keeps interactive folder trust in private state that Podium does not write
 - cursor, terminal, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
 - cursor, terminal, `autonomy`: unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose
