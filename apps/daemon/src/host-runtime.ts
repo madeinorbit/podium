@@ -13,7 +13,6 @@ import {
   harnessRoots,
   launchPosture,
   manifestFor,
-  probeCodexLaunchHookTrust,
 } from '@podium/harness'
 import type {
   DaemonClaudeSdkRuntime,
@@ -158,6 +157,7 @@ import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { managementQuotaFetcher, resolveManagementAccount } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
+import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
 import { CodexHookTrust } from './homes/codex-hook-trust'
 import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'

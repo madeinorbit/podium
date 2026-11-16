@@ -7,11 +7,12 @@
  * hook identity, not a plain digest Podium could compute). So it is read from
  * Codex: an app-server is started with exactly the launch flags a session
  * will get, and `hooks/list` reports each flag hook's key and `currentHash`.
- * The caller caches the answer per Codex version and flag text.
+ * The caller caches the answer per Codex version and flag text. Here in the
+ * daemon, not in the harness package: a harness never starts a process itself.
  */
 
 import { spawn } from 'node:child_process'
-import { codexSessionFlagHookHashes } from './instrumentation.js'
+import { codexSessionFlagHookHashes } from '@podium/harness'
 
 export interface CodexHookTrustProbeInput {
   /** The Codex executable the inventory verified. */
