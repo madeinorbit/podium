@@ -111,6 +111,10 @@ export function daemonRuntimeHost(
         sections: terminalInstrumentationSectionsFor(spec.harness),
         settingsDir: ctx.settingsDir,
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
+        // Hooks at launch in a Podium home need Codex's trust (§10).
+        ...(ctx.codexHookTrust
+          ? { launchHookTrust: ctx.codexHookTrust.trustFor.bind(ctx.codexHookTrust) }
+          : {}),
       }),
     launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {

@@ -144,6 +144,8 @@ export interface DaemonContext {
    * session that names one is refused.
    */
   homes?: import('../homes/registry').HomeRegistry
+  /** Codex's trust for Podium's launch-flag hooks in Podium homes (§10). */
+  codexHookTrust?: import('../homes/codex-hook-trust').CodexHookTrust
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
   sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */

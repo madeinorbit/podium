@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import {
@@ -13,6 +13,7 @@ import {
   harnessRoots,
   launchPosture,
   manifestFor,
+  probeCodexLaunchHookTrust,
 } from '@podium/harness'
 import type {
   DaemonClaudeSdkRuntime,
@@ -157,6 +158,7 @@ import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { managementQuotaFetcher } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
+import { CodexHookTrust } from './homes/codex-hook-trust'
 import { HomeRegistry } from './homes/registry'
 import { stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
@@ -1081,8 +1083,39 @@ export async function createDaemonHostRuntime(args: {
   })
   // Podium's harness homes (credential management §10). Removing one first
   // stops what runs in it: wired below once the engines exist.
+  const homesRoot = opts.homesDir ?? join(stateDir(), 'homes')
+  const settledCommandEnv = (): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    )
+  const codexHookTrust = new CodexHookTrust({
+    root: homesRoot,
+    probe: ({ installation, flags, probeHome }) =>
+      probeCodexLaunchHookTrust({
+        executable: installation.executable,
+        env: { ...settledCommandEnv(), CODEX_HOME: probeHome },
+        flags,
+        cwd: probeHome,
+      }),
+    // The throwaway home: Codex's daemon there stopped, then deleted.
+    cleanProbeHome: async (probeHome) => {
+      await stopHome(
+        { homeId: 'probe', credentialId: 'probe', harness: 'codex', dir: probeHome },
+        {
+          ...systemProcessPorts,
+          sessionsIn: () => [],
+          stopSession: async () => undefined,
+          codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+          commandEnv: settledCommandEnv,
+        },
+      )
+      await rm(probeHome, { recursive: true, force: true })
+    },
+  })
   const homes = new HomeRegistry({
-    root: opts.homesDir ?? join(stateDir(), 'homes'),
+    root: homesRoot,
     beforeRemove: (home) =>
       stopHome(home, {
         ...systemProcessPorts,
@@ -1096,12 +1129,7 @@ export async function createDaemonHostRuntime(args: {
             .map(([sessionId]) => sessionId),
         stopSession: (sessionId) => stopSessionProcess(ctx, { sessionId: sessionId as SessionId }),
         codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
-        commandEnv: () =>
-          Object.fromEntries(
-            Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
-              (entry): entry is [string, string] => entry[1] !== undefined,
-            ),
-          ),
+        commandEnv: settledCommandEnv,
       }),
   })
   const ctx: DaemonContext = {
@@ -1112,6 +1140,7 @@ export async function createDaemonHostRuntime(args: {
       markers: createEngineJournal<AccessMarker>({ namespace: 'session-access' }),
     }),
     homes,
+    codexHookTrust,
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
