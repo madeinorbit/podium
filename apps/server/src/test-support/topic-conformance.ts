@@ -693,16 +693,13 @@ export async function createTopicWorld(
         current = { socket, conn }
         // The server accepts on the next turn, like a real upgrade, or one
         // round trip later on a slow link.
-        setTimeout(
-          () => {
-            if (socket.closed) return
-            serverSockets.set(id, socket)
-            clients.add(conn)
-            socket.open = true
-            socket.onopen?.({})
-          },
-          link?.rttMs(0) ?? 0,
-        )
+        setTimeout(() => {
+          if (socket.closed) return
+          serverSockets.set(id, socket)
+          clients.add(conn)
+          socket.open = true
+          socket.onopen?.({})
+        }, link?.rttMs(0) ?? 0)
         return socket
       }
       const hub = new SocketHub({ url: 'ws://conformance', makeSocket })
