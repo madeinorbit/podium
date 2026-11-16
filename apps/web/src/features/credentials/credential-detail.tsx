@@ -18,8 +18,11 @@ import {
   Section,
   ValueRow,
 } from '@/features/settings/sections/shared'
+import { CHATGPT_USAGE_URL } from './add-chatgpt/chatgpt-sign-in'
+import { ChatgptSignInSection } from './add-chatgpt/section'
 import {
   identityText,
+  providerName,
   removalSentence,
   statusLines,
   typeSpecOf,
@@ -95,6 +98,8 @@ export const CredentialDetail = observer(function CredentialDetail({
   const [error, setError] = useState<string | null>(null)
   const spec = typeSpecOf(view.type)
   const renewable = spec?.obtain.includes('paste') === true && isCredentialTypeId(view.type)
+  // A ChatGPT sign-in is renewed by signing in again (§11), its owner's own act.
+  const signInAgain = spec?.obtain.includes('oauth') === true && view.access === 'owner'
   const lines = statusLines(view, {
     now: deps.now(),
     ownerName: deps.nameOf,
@@ -167,7 +172,37 @@ export const CredentialDetail = observer(function CredentialDetail({
             </Button>
           </Row>
         )}
-        {renewing && isCredentialTypeId(view.type) && (
+        {signInAgain && (
+          <ValueRow
+            label="Usage"
+            value={
+              <a href={CHATGPT_USAGE_URL} target="_blank" rel="noreferrer" className="underline">
+                ChatGPT’s usage settings
+              </a>
+            }
+          />
+        )}
+        {signInAgain && (
+          <Row
+            label="Sign in again"
+            description="Sign in with the same ChatGPT account. Everything that uses this credential keeps using it."
+          >
+            <Button type="button" size="sm" variant="outline" onClick={() => setRenewing(true)}>
+              Sign in again…
+            </Button>
+          </Row>
+        )}
+        {renewing && signInAgain && (
+          <div className="mt-2 mb-4 border-l-2 border-border-strong py-2 pl-4">
+            <ChatgptSignInSection
+              deps={deps}
+              credentialId={view.id}
+              label={view.label}
+              onDone={() => setRenewing(false)}
+            />
+          </div>
+        )}
+        {renewing && renewable && isCredentialTypeId(view.type) && (
           <div className="mt-2 mb-4 border-l-2 border-border-strong py-2 pl-4">
             <PasteForm
               mode={{ kind: 'renew', credentialId: view.id, type: view.type, label: view.label }}
@@ -241,9 +276,19 @@ export const CredentialDetail = observer(function CredentialDetail({
             destructive
             onCancel={() => setRemoving(false)}
             onConfirm={async () => {
-              await deps.commands.remove.mutate({ credentialId: view.id })
+              const removed = await deps.commands.remove.mutate({ credentialId: view.id })
               deps.reload()
-              toast(`Removed ${view.label}`)
+              if (
+                'providerRevocation' in removed &&
+                removed.providerRevocation === 'not-confirmed'
+              ) {
+                toast(
+                  `Removed ${view.label} from Podium. ${providerName(view.type)} did not confirm that it withdrew Podium’s access; disconnect Podium in ChatGPT’s settings to be sure.`,
+                  { duration: 15_000 },
+                )
+              } else {
+                toast(`Removed ${view.label}`)
+              }
               onClose()
             }}
           />

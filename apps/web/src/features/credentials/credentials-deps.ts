@@ -6,10 +6,23 @@
 
 import type { Trpc } from '@/app/trpc'
 
-/** The eight credential writes (epic Task 4), each a `{ mutate }` like the tRPC client's. */
+/**
+ * The credential writes (epic Task 4), each a `{ mutate }` like the tRPC
+ * client's, and Sign in with ChatGPT's two writes and its status read (Task 14).
+ */
 export type CredentialCommands = Pick<
   Trpc['credentials'],
-  'add' | 'rename' | 'renew' | 'remove' | 'share' | 'unshare' | 'allowMachine' | 'disallowMachine'
+  | 'add'
+  | 'rename'
+  | 'renew'
+  | 'remove'
+  | 'share'
+  | 'unshare'
+  | 'allowMachine'
+  | 'disallowMachine'
+  | 'chatgptSignInStart'
+  | 'chatgptSignInComplete'
+  | 'chatgptSignInStatus'
 >
 
 export interface PersonChoice {
