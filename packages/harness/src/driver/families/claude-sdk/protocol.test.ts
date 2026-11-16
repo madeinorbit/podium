@@ -456,6 +456,35 @@ describe('the stream client', () => {
     await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'reported-1' })
   })
 
+  it("reports the mode the CLI says it is in, from system/init's permissionMode (POD-6858 §4.8)", async () => {
+    // The engine writes no `permission-mode` record to its session file, so
+    // the init event is where the chat view learns the mode in force: `default`
+    // when auto mode was asked for and is not available.
+    const fake = fakeTransport()
+    const modes: string[] = []
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-mode' })
+    const turn = client.turn('hello', {
+      onPartialText: () => {},
+      onPermission: () => {},
+      onMode: (mode) => modes.push(mode),
+      emit: () => {},
+    })
+    answerInitialize(fake)
+    await vi.waitFor(() =>
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
+    )
+    fake.emitLine(
+      frame({ type: 'system', subtype: 'init', session_id: 'sess-mode', permissionMode: 'default' }),
+    )
+    // An init naming no mode reports nothing.
+    fake.emitLine(frame({ type: 'system', subtype: 'init', session_id: 'sess-mode' }))
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
+    await turn.done
+    expect(modes).toEqual(['default'])
+  })
+
   it('routes a permission ask and answers it on the wire', async () => {
     const fake = fakeTransport()
     const asked: Array<{ id: string; toolName: string }> = []

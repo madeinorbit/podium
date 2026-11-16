@@ -637,7 +637,12 @@ describe('Claude SDK daemon host adapter', () => {
                 // The CLI acks the line by its uuid before anything else
                 // (claude 2.1.284, POD-4836).
                 stdout({ type: 'command_lifecycle', command_uuid: msg.uuid, state: 'queued' })
-                stdout({ type: 'system', subtype: 'init', session_id: claudeSessionId })
+                stdout({
+                  type: 'system',
+                  subtype: 'init',
+                  session_id: claudeSessionId,
+                  permissionMode: 'default',
+                })
                 // The stream's assistant line carries the uuid its file record
                 // gets; the record itself is what the session file holds.
                 const message = {
@@ -753,6 +758,14 @@ describe('Claude SDK daemon host adapter', () => {
         : [],
     )
     expect(replies.map((item) => item.id)).toEqual(['reply-record'])
+    // The mode the CLI's init names is the session's observed mode (POD-6858
+    // §4.8): the chat view's chip shows it, not only the mode Podium asked for.
+    expect(sent).toContainEqual({
+      type: 'agentMode',
+      sessionId: SESSION_ID,
+      mode: 'default',
+      source: 'native',
+    })
     // The journal names the conversation the invocation minted.
     expect(bound).toHaveBeenCalledWith(expect.objectContaining({ claudeSessionId }))
     runtime.dispose()
