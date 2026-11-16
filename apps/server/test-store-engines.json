@@ -302,6 +302,7 @@
     "apps/server/src/store/executor/state-models.test.ts",
     "apps/server/src/store/executor/statement-probe.test.ts",
     "apps/server/src/store/executor/sync-drizzle.test.ts",
+    "apps/server/src/store/executor/workspace-context.test.ts",
     "apps/server/src/store/grants-read-parity.test.ts",
     "apps/server/src/store/grants.test.ts",
     "apps/server/src/store/index-friendly-shapes.test.ts",
