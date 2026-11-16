@@ -657,6 +657,8 @@ export class SocketHub {
   /** The current server explicitly acknowledged binary input in `welcome`. */
   private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
+  /** The open socket a loss was declared on (late pongs), until health recovers. */
+  private lostOnSocket: WebSocketLike | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   /** Null until the server says something this build cannot read; never cleared —
@@ -1653,13 +1655,28 @@ export class SocketHub {
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
     const wentDown = next.status === 'down' && this.health.status !== 'down'
+    const cameBack = next.status !== 'down' && this.health.status === 'down'
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
     // THE CONNECTION WAS DECLARED LOST (D20): by the health rule, not by every
     // socket blip a reconnect hides. Every held value goes unknown, keeping its
     // last value for "last seen"; the resubscribe after reconnect refreshes it.
     if (wentDown) {
+      this.lostOnSocket = this.connectedFlag ? this.socket : undefined
       for (const entry of this.subscriptionRegistry.markTopicsUnknown(this.health.since)) {
         this.notifyTopic(entry)
+      }
+    }
+    // A loss declared while the socket stayed open (its pongs ran past the down
+    // threshold, as a freshly restarted server's can) has no reconnect to re-ask
+    // the keys, and a value topic only speaks again when its value changes. So
+    // the recovery asks every held key again, as `onopen` does after a reconnect.
+    if (cameBack) {
+      const lostOn = this.lostOnSocket
+      this.lostOnSocket = undefined
+      if (lostOn !== undefined && lostOn === this.socket) {
+        for (const frame of this.subscriptionRegistry.topicReconnectFrames()) {
+          this.sendTopicFrame(frame)
+        }
       }
     }
     this.emit('connectionHealth', this.health)
