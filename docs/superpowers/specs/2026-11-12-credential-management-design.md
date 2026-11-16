@@ -550,6 +550,14 @@ used. Two copies that both renew invalidate each other, and one side ends up log
 OpenAI's developer documentation says the same of its own sign-in tokens: serialise renewals so
 that concurrent processes do not race on a rotating token.
 
+Claude Code's documented way to sign in a directory without a browser,
+`CLAUDE_CODE_OAUTH_REFRESH_TOKEN`, does not copy a login either; it moves it. When a home was
+signed in from another home's renewal token, the other home's next request failed ("OAuth
+session expired and could not be refreshed"). Its status still read "logged in" until that
+request, and then Claude Code removed its tokens (S7). Podium therefore never signs a home in
+from an existing login, and judges a login's state by its last request, not by the status
+command alone.
+
 Rule R3 removes the problem instead of managing it: **the login has one keeper. Everything else
 runs where the keeper is, or gets something that cannot renew.**
 
@@ -567,7 +575,11 @@ A **home** is that directory, managed by Podium:
   default directory is the home Podium did not create; a login found there is used where it is.
 - The person signs in once per home, through the vendor's own sign-in, run in a Podium
   terminal. The login stays in the home and the harness renews it there. The home is the
-  keeper.
+  keeper. Measured on Linux (S1): `claude auth login` prints a link and takes the code pasted
+  back. Codex runs as `codex login --device-auth`, a link and a one-time code, because its
+  default sign-in calls back to `localhost` on the machine it runs on, which a browser on
+  another computer cannot reach. ChatGPT may ask the person to allow device codes in its
+  security settings first.
 - A session on that credential starts with the harness's directory variable pointed at the
   home. Podium's hooks reach it at launch, never as a file in the home (S2):
   - Claude Code takes them per session through `--settings`, as today.
@@ -599,7 +611,8 @@ A **home** is that directory, managed by Podium:
     it.
 - Conversations live in the home that ran them. Podium reads transcripts from every home and
   copies a conversation into the target home when a session switches (section 9).
-- Each home reports its own login state, identity, quota and model list.
+- Each home reports its own login state, identity, quota and model list. A refused request
+  counts as signed out even while the harness's status command still says signed in (S7).
 
 So Podium does end up managing several Codex homes, and several Claude Code homes. There is no
 other supported way to hold two subscription logins for one harness on one machine.
@@ -953,6 +966,36 @@ Each answers one question and decides one thing. None blocks the foundation work
 | S5 | Is Claude Code's one-shot mode fast and cheap enough for background features? | Whether a Claude subscription is offered for direct inference. |
 | S6 | Does Sign in with ChatGPT work end to end as documented: registration from a self-hosted server, a Responses call, Codex's server driver on the token, and restart-and-resume when the token is replaced? | Whether the Codex half ships as designed or only direct inference does. **Answered 2026-11-16: yes, every step works; the Codex half ships as designed, with the changes recorded in §11.** |
 | S7 | Can a second Claude home be signed in from an existing login without a browser, through Claude Code's documented `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` provisioning, and does the first home stay signed in? | Whether "sign in once, use on every machine" is possible for Claude logins. A possible improvement, not needed for this epic. |
+
+### Answers (POD-6893, measured 2026-11-13 and 2026-11-16 on Linux)
+
+The report with the commands and observations is attached to POD-6893.
+
+- **S1.** Yes on Linux, for both harnesses, with no change to the vendor flow. Codex runs as
+  `codex login --device-auth` (section 10). macOS was not measured: the Mac runner was
+  offline.
+- **S2.** Linking is safe for everything shareable. Two things cannot be linked: Claude Code's
+  `.claude.json`, which is seeded and has the person's MCP servers copied in, and Codex hook
+  trust, which is passed at launch. Both server drivers run with the directory variable set
+  and read that home (section 10).
+- **S3.** A copy of the one conversation file is enough to resume in another home, on every
+  driver; Codex needs no SQLite rows.
+  - Claude Code answered after a change of credential in the same home and after a copy to
+    another home. A thinking block with a foreign signature reached the API and caused no
+    error.
+  - Codex, on both drivers, fails with `400 invalid_encrypted_content` while the history holds
+    reasoning items the account cannot decrypt, and answers once they are removed.
+  - Codex refuses a thread recorded under a provider that is not configured, and the home's
+    thread index wins over the file. A switch has to handle both.
+  - No pairing needs a handoff. Not measured: two real accounts of one vendor (one of each was
+    available).
+- **S5.** Passes. Twenty one-shot calls (`claude -p --tools ""`, Haiku, a title prompt) took a
+  median of 3.45 s and 4.56 s at the 95th percentile. Claude Code sends about 3,700 input
+  tokens of its own per call, mostly cache reads, against an estimated 60 for the prompt
+  sent directly. `--system-prompt` with `--setting-sources ""` cuts that to about 620.
+- **S7.** It works without a browser, but it moves the login: the first home was signed out on
+  its next request. "Sign in once, use on every machine" is not possible this way, and Podium
+  never provisions from an existing login (section 10).
 
 ## 20. Calls made in this document
 
