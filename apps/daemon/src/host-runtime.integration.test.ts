@@ -378,7 +378,9 @@ describe('legacy member recovery at host boot', () => {
       fixture.host.connected(undefined, confirmations)
       await vi.waitFor(async () => {
         const binding = await store.read(asSessionId('legacy-pane'))
-        expect(binding?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_migrated-owner')
+        // The current delegation is the server's record (POD-3961);
+        // delegationHistory is host evidence only and starts empty.
+        expect(binding?.delegation?.onBehalfOf).toBe('mem_migrated-owner')
         expect(binding?.observations.some((row) => row.value === 'thread-live')).toBe(true)
       })
       fixture.host.connected(undefined, confirmations)
