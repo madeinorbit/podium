@@ -31,12 +31,16 @@ describe('tenant feed migration', () => {
           string,
           unknown
         >[]
+        // The tenant migration itself keeps every generation. A later migration
+        // that rewrites a synced table bumps its kinds' generations, as the
+        // sync-generation audit requires, so this is read right after it.
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+        expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
+          generations.map((r) => ({ ...r, tenant_id: 'local' })),
+        )
         runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
         expect(db.prepare('SELECT * FROM changes ORDER BY seq').all()).toEqual(
           before.map((r) => ({ ...r, tenant_id: 'local' })),
-        )
-        expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
-          generations.map((r) => ({ ...r, tenant_id: 'local' })),
         )
         const sync = new SyncRepository(syncQueriesOver(db), syncServerTables)
         expect(await sync.readFeedIdentity()).toEqual({
