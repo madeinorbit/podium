@@ -137,6 +137,9 @@ export interface SessionInit {
   agentColor?: string
   observedModel?: string
   observedEffort?: string
+  /** The harness-reported mode and the last launch's applied terms (POD-6858). */
+  observedMode?: string
+  launchPosture?: LaunchPostureReport
   handoffTargetMachineId?: MachineId
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
@@ -410,11 +413,11 @@ export class Session {
    *  learned alongside observedModel. */
   observedEffort: string | undefined
   /** The permission mode the HARNESS reports it is in (POD-6858 Task 11),
-   *  learned from its own records. Not persisted: re-learned on reattach. */
+   *  learned from its own records. Stored, like the observed model. */
   observedMode: string | undefined
   /** What the last launch asked for and could not meet, as the daemon reported
-   *  it before the process started (POD-6858 Task 11). Not persisted: every
-   *  launch reports it again. */
+   *  it before the process started (POD-6858 Task 11). Stored: it describes
+   *  the session until it launches again. */
   launchPosture: LaunchPostureReport | undefined
   /** The model/effort this session was last ASKED for through `sessions.configure`
    *  (POD-3081). Undefined until someone changes it, and then the launch pair
@@ -615,6 +618,8 @@ export class Session {
     this.agentColor = d.agentColor
     this.observedModel = d.observedModel
     this.observedEffort = d.observedEffort
+    this.observedMode = d.observedMode
+    this.launchPosture = d.launchPosture
     this.draftSyncEngine = d.draftSyncEngine
     this.handoffTargetMachineId = d.handoffTargetMachineId
     this.onUnreadRearm = init.onUnreadRearm
@@ -1112,6 +1117,8 @@ export class Session {
       agentColor: d.agentColor ?? null,
       observedModel: d.observedModel ?? null,
       observedEffort: d.observedEffort ?? null,
+      observedMode: d.observedMode ?? null,
+      launchPosture: d.launchPosture ?? null,
       handoffTargetMachineId: d.handoffTargetMachineId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,

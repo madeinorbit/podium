@@ -244,6 +244,16 @@ export const sessions = sqliteTable(
     agentStateJson: text('agent_state_json'),
     observedModel: text('observed_model'),
     observedEffort: text('observed_effort'),
+    /**
+     * THE LAUNCH'S TERMS AS THE DAEMON REPORTED THEM (POD-6858 Task 11): the
+     * permission mode the harness itself last reported (`observed_mode`), and
+     * the mode Podium asked for at launch with each requirement the launch
+     * could not meet (`launch_posture_json`, a `LaunchPostureReport`). Each
+     * describes the session until it launches again. NULL = not reported, or a
+     * row from before these columns.
+     */
+    observedMode: text('observed_mode'),
+    launchPostureJson: text('launch_posture_json'),
     handoffTargetMachineId: text('handoff_target_machine_id').$type<MachineId>(),
     /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).

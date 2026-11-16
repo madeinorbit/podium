@@ -12,6 +12,7 @@ import {
   actorFromColumns,
   asSessionId,
   type IssueId,
+  LaunchPostureReport,
   type MachineId,
   machinePathSeparator,
   type PinWire,
@@ -609,6 +610,8 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     agentColor: value('agentColor'),
     observedModel: value('observedModel'),
     observedEffort: value('observedEffort'),
+    observedMode: value('observedMode'),
+    launchPostureJson: value('launchPostureJson'),
     handoffTargetMachineId: value('handoffTargetMachineId'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
@@ -794,6 +797,8 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
     agentColor: row.agentColor ?? null,
     observedModel: row.observedModel ?? null,
     observedEffort: row.observedEffort ?? null,
+    observedMode: row.observedMode ?? null,
+    launchPostureJson: row.launchPosture ? JSON.stringify(row.launchPosture) : null,
     handoffTargetMachineId: row.handoffTargetMachineId ?? null,
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
@@ -2727,6 +2732,8 @@ function mapSession(r: SessionSelect): SessionRow {
     agentColor: r.agentColor ?? null,
     observedModel: r.observedModel ?? null,
     observedEffort: r.observedEffort ?? null,
+    observedMode: r.observedMode ?? null,
+    launchPosture: parseLaunchPosture(r.launchPostureJson),
     handoffTargetMachineId: r.handoffTargetMachineId ?? null,
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
@@ -2821,6 +2828,17 @@ function parseHistory(raw: string | null): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
+  }
+}
+
+/** A launch report that no longer parses is absent: the next launch reports again. */
+function parseLaunchPosture(value: string | null): SessionRow['launchPosture'] {
+  if (value === null) return null
+  try {
+    const parsed = LaunchPostureReport.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }
 

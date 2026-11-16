@@ -339,6 +339,8 @@ export function storedSessionInit(
     ...(r.agentColor ? { agentColor: r.agentColor } : {}),
     ...(r.observedModel ? { observedModel: r.observedModel } : {}),
     ...(r.observedEffort ? { observedEffort: r.observedEffort } : {}),
+    ...(r.observedMode ? { observedMode: r.observedMode } : {}),
+    ...(r.launchPosture ? { launchPosture: r.launchPosture } : {}),
     ...(r.handoffTargetMachineId ? { handoffTargetMachineId: r.handoffTargetMachineId } : {}),
     // Passed through, never defaulted: a row from before this column exists
     // makes no claim about whether its launch ever had a conversation, and

@@ -501,11 +501,11 @@ export const SessionLiveOverlay = z.object({
   agentColor: z.string().optional(),
   observedModel: z.string().optional(),
   observedEffort: z.string().optional(),
-  /** The mode the harness reports it is in (POD-6858 Task 11). Re-learned from
-   *  the harness's next report. */
+  /** The mode the harness reports it is in (POD-6858 Task 11), as the
+   *  transcript tail last showed it. */
   observedMode: z.string().optional(),
-  /** The last launch's applied terms (POD-6858 Task 11). Re-reported by every
-   *  launch. */
+  /** The last launch's applied terms (POD-6858 Task 11), until the next
+   *  launch reports its own. */
   launchPosture: LaunchPostureReport.optional(),
   transcriptAvailable: z.boolean().optional(),
   /** Live authority for terminal size. */

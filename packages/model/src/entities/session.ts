@@ -612,12 +612,13 @@ export const SessionMetaEntity = z.object({
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
   /** The permission mode the HARNESS reports it is in (POD-6858 Task 11), e.g.
-   *  Claude Code's hook `permission_mode`. Absent until the harness reports
-   *  one; the chip then falls back to `launchPosture.requestedMode`. */
+   *  Claude Code's `permission-mode` transcript record. Absent until the
+   *  harness reports one; the chip then falls back to
+   *  `launchPosture.requestedMode`. */
   observedMode: z.string().optional(),
   /** What this session's last launch asked for and could not meet, as the
    *  daemon reported it before the process started (POD-6858 Task 11). One
-   *  notice per `unmet` entry. Re-reported by every launch, so not a column. */
+   *  notice per `unmet` entry. Replaced by the next launch's report. */
   launchPosture: LaunchPostureReport.optional(),
   /** The model/effort this session was last ASKED for at RUNTIME, through
    *  `sessions.configure` (POD-3081). Absent until someone changes it, and then

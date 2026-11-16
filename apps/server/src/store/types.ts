@@ -11,6 +11,7 @@ import type {
   HarnessRefEntry,
   IssueId,
   IssueJoinVia,
+  LaunchPostureReport,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
@@ -213,6 +214,9 @@ export interface SessionRow {
   agentColor?: string | null
   observedModel?: string | null
   observedEffort?: string | null
+  /** The harness-reported mode and the last launch's applied terms (POD-6858). */
+  observedMode?: string | null
+  launchPosture?: LaunchPostureReport | null
   handoffTargetMachineId?: MachineId | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
