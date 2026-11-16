@@ -256,7 +256,22 @@ const TEST_BINDING_USER = asUserId('daemon-runtime-test-user')
  * Runtime tests exercise authenticated server traffic. Supply the binding
  * instruction that production server composition writes; the dedicated
  * session-binding control tests bypass this helper to prove absence refuses.
+ *
+ * That instruction carries the server-authored delegation (POD-3961): the
+ * binding store refuses a spawn or reattach without one (`delegation-missing`),
+ * so a helper that sent only the principal had every spawn below refused.
+ * The record is the one `binding-mint.ts` writes for a user's root session.
  */
+function testDelegation(sessionId: string) {
+  return {
+    actor: asAgentIdentityId(sessionId),
+    onBehalfOf: TEST_BINDING_USER,
+    grantedScope: { kind: 'none' as const },
+    parentBindingId: null,
+    revision: 1,
+  }
+}
+
 function withTestBindingInstruction(message: unknown): unknown {
   if (!message || typeof message !== 'object') return message
   const frame = message as Record<string, unknown>
@@ -269,6 +284,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         transitionId: `test:spawn:${sessionId}`,
         machineAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -280,6 +296,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         machineAccess: 'allowed',
         sessionAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -1298,6 +1315,10 @@ function defaultServerSpawnContext(
   return {
     send: (msg: DaemonMessage) => void sent.push(msg),
     machineId: 'default-server-machine',
+    // Every bind reads the session's applied size from the registry
+    // (`sendBind` → `sessionSize`), so a context without one throws on the
+    // first bind a path sends itself, like the parked-resume arm.
+    sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `default-server-${id}`,
     sessionBinding: {
       transition: async () => ({ status: 'applied' }),
