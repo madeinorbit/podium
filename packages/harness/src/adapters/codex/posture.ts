@@ -28,8 +28,10 @@ const AUTO_REVIEW_SINCE = { major: 0, minor: 147, patch: 0 } as const
  * launch, and writes nothing. Measured on 0.147.0 (also the version floor),
  * 0.167.2 and 0.169.0. Each draws a startup modal, "Hooks need review", for
  * hooks it has not trusted, and the modal swallows the first message. The
- * override itself is built by the hook install (./instrumentation.ts), the one
- * place that knows where Podium's handlers sit in `hooks.json`.
+ * override itself is built in ./instrumentation.ts, the one place that knows
+ * where Podium's handlers sit in `hooks.json`: by the hook install for the
+ * terminal and from the file as it is for the app-server (POD-7028), whose
+ * trust covers a `resume --remote` client (measured, 0.169.0).
  */
 const LAUNCH_HOOK_TRUST_SINCE = { major: 0, minor: 147, patch: 0 } as const
 
@@ -67,10 +69,12 @@ const RULE_FILE = ['rules', 'podium.rules'] as const
  *   `--approve-for-me`. A client gets no permission flag: Codex refuses any
  *   permission override on `resume --remote`.
  * - Quiet start: `check_for_update_on_startup=false` in terminal and client,
- *   the two launches that draw the update menu. The terminal's hook-review
- *   modal is answered by the hook install's per-launch trust for Podium's own
- *   handlers; where it passes none (version unknown or below
- *   `LAUNCH_HOOK_TRUST_SINCE`) quiet start is reported unmet.
+ *   the two launches that draw the update menu. The hook-review modal is
+ *   answered by per-launch trust for Podium's own handlers: the terminal's
+ *   from its hook install, a client's from the engine it joins (the engine
+ *   decides hook review, as it decides folder trust; POD-7028), both built in
+ *   ./instrumentation.ts. Where none is passed (version unknown or below
+ *   `LAUNCH_HOOK_TRUST_SINCE`) quiet start is reported unmet for both.
  * - Podium material: Podium's MCP servers mounted by this launch get
  *   `default_tools_approval_mode="approve"`. Reads outside the folder are
  *   unrestricted by default.
@@ -95,7 +99,9 @@ export function codexPosture(launch: PostureLaunch, request: PostureRequest): Po
     ...approval.args,
   ]
 
-  if (request.mode === 'terminal') {
+  // The terminal takes the trust itself; a client is covered by the engine it
+  // joins (POD-7028), which takes it on the same version rule.
+  if (request.mode === 'terminal' || request.mode === 'client') {
     const version = request.context.installation.version
     if (!codexLaunchHookTrustSupported(version)) {
       unmet.push({

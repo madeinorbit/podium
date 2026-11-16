@@ -53,6 +53,11 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
+import {
+  codexEngineHookTrustArgs,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+} from '../../../adapters/codex/instrumentation.js'
 import { codexTranscript } from '../../../adapters/codex/transcript.js'
 import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
@@ -199,6 +204,9 @@ export function codexAppServerConfigArgs(input: {
     env: mcp.env,
   }
 }
+
+/** The hook wiring a Codex terminal gets and an engine never may. */
+const ENGINE_HOOK_ENV = [PODIUM_CODEX_HOOK_URL_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV] as const
 
 // ---------------------------------------------------------------------------
 // The host
@@ -670,9 +678,17 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           await deps.launchFoldersFor(input.sessionId, input.workdir),
         ),
       )
+      // Per-launch trust for Podium's own hooks (POD-7028): the engine decides
+      // hook review for every `resume --remote` client that joins it, and a
+      // client facing untrusted hooks opens "Hooks need review" over its
+      // first message. Read from the home's hooks.json, never written.
+      const hookTrust = await codexEngineHookTrustArgs({
+        hooksRoot: input.harnessContext.roots.hooks ?? input.harnessContext.roots.state,
+        version: input.harnessContext.installation.version,
+      })
       const command = harnessCommand(
         input.harnessContext,
-        { args: [...deps.facts.serverArgs, ...config.args] },
+        { args: [...deps.facts.serverArgs, ...config.args, ...hookTrust] },
         agentLaunchTerms(terms.manifest, 'engine', terms.posture),
       )
 
@@ -685,6 +701,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         ...(input.env ? { sessionEnv: input.env } : {}),
         harnessEnv: { ...config.env, ...command.env },
       })
+      // CHANNEL EXCLUSIVITY (./session.ts): the trust above makes Podium's
+      // handlers run in the engine, where they stay inert only while the hook
+      // env is absent. A daemon started inside a Podium Codex terminal would
+      // otherwise hand its own down, and the engine would report every turn
+      // twice. Removed here and at the spawn boundary.
+      for (const key of ENGINE_HOOK_ENV) delete env[key]
 
       /**
        * THE ENGINE, UNDER THE HOST. The session owner starts `codex app-server`
@@ -707,7 +729,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           listen: { argv: (address) => ['--listen', address] },
           cwd: input.workdir,
           env,
-          stripEnv: deps.facts.stripEnv,
+          stripEnv: [...deps.facts.stripEnv, ...ENGINE_HOOK_ENV],
         })
         clientAddress = started.address
         held = await claimEngine(input.sessionId, label, started.attachment)

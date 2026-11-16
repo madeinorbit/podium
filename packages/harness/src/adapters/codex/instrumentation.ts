@@ -380,23 +380,45 @@ export function codexHookTrustedHash(input: {
   return `sha256:${createHash('sha256').update(canonicalJson(identity), 'utf8').digest('hex')}`
 }
 
+/** Exactly the handler `upsertHooksJson` writes today: a marker match with any
+ *  other command, timeout or `async` is not one Podium vouches for. */
+function isCurrentPodiumHandler(h: HookHandler): boolean {
+  return (
+    h.type === 'command' &&
+    h.command === PODIUM_CODEX_HOOK_COMMAND &&
+    h.timeout === PODIUM_CODEX_HOOK_TIMEOUT_SEC &&
+    (h.async === undefined || h.async === false)
+  )
+}
+
 /**
  * The `-c` value that trusts Podium's own handlers in `doc` for one launch, or
  * undefined when the doc holds none. Only the handlers `podiumHookPositions`
- * finds get an entry; a user's handler, even beside Podium's in one group, is
- * left to Codex's own review. The inline-table form is the one that works: a
- * session-layer table merges with the user's persisted `[hooks.state]`, so
- * hooks the user already trusted stay trusted (measured, 0.169.0).
+ * finds AND that are exactly the handler Podium writes today get an entry; a
+ * user's handler, even beside Podium's in one group, is left to Codex's own
+ * review, and so is an older or look-alike handler carrying Podium's marker.
+ * After the terminal's install every Podium position is current, so the
+ * filter only bites on a file read as it is (the engine, POD-7028). The
+ * inline-table form is the one that works: a session-layer table merges with
+ * the user's persisted `[hooks.state]`, so hooks the user already trusted stay
+ * trusted (measured, 0.169.0).
  */
 export function codexLaunchHookTrustOverride(input: {
   hooksJsonPath: string
   doc: Record<string, unknown>
 }): string | undefined {
   const hooks = (isRecord(input.doc.hooks) ? input.doc.hooks : {}) as Record<string, unknown>
-  const entries = podiumHookPositions(input.doc).map((position) => {
+  const handlerAt = (position: PodiumHookPosition): HookHandler => {
     const groups = hooks[position.event] as HookGroup[]
     const group = groups[position.group] as HookGroup
-    const handler = (group.hooks as HookHandler[])[position.handler] as HookHandler
+    return (group.hooks as HookHandler[])[position.handler] as HookHandler
+  }
+  const current = podiumHookPositions(input.doc).filter((position) =>
+    isCurrentPodiumHandler(handlerAt(position)),
+  )
+  const entries = current.map((position) => {
+    const group = (hooks[position.event] as HookGroup[])[position.group] as HookGroup
+    const handler = handlerAt(position)
     const key = `${input.hooksJsonPath}:${position.snake}:${position.group}:${position.handler}`
     const hash = codexHookTrustedHash({
       snake: position.snake,
@@ -406,6 +428,46 @@ export function codexLaunchHookTrustOverride(input: {
     return `${tomlString(key)}={trusted_hash=${tomlString(hash)}}`
   })
   return entries.length > 0 ? `hooks.state={${entries.join(',')}}` : undefined
+}
+
+/**
+ * The app-server's per-launch trust for Podium's own hooks (POD-7028): the
+ * `-c` pair for `codex app-server`, or none.
+ *
+ * Hook review is the ENGINE's. Measured on 0.169.0: a `resume --remote` client
+ * (the chat view's terminal) draws "Hooks need review" for Podium's handlers,
+ * and swallows the prompt it was started with, unless the app-server it joins
+ * was started with this override; the same `-c` on the client is ignored. With
+ * it there is no modal, the prompt is answered and nothing is written. An
+ * engine without it runs none of the hooks and says nothing over JSON-RPC.
+ *
+ * READ, NEVER WRITTEN. The engine does not install hooks: its state channel is
+ * JSON-RPC, and the handlers are inert there because the hook env never
+ * reaches it (engine-host strips it). So this reads the hooks.json the home
+ * holds as it is and trusts only the handlers that are exactly Podium's
+ * current one. Same conditions as the terminal: from 0.147.0, never on an
+ * unknown version, never on Windows (the hash input there is unmeasured).
+ * Anything unreadable passes nothing, and Codex asks as before.
+ */
+export async function codexEngineHookTrustArgs(input: {
+  /** The harness context's hooks folder: where Codex reads `hooks.json`. */
+  hooksRoot: string
+  /** The installation's version, as the inventory read it. */
+  version: string
+  platform?: NodeJS.Platform
+}): Promise<string[]> {
+  if ((input.platform ?? process.platform) === 'win32') return []
+  if (!codexLaunchHookTrustSupported(input.version)) return []
+  const hooksJsonPath = join(input.hooksRoot, 'hooks.json')
+  let doc: unknown
+  try {
+    doc = JSON.parse(await readFile(hooksJsonPath, 'utf8'))
+  } catch {
+    return []
+  }
+  if (!isRecord(doc)) return []
+  const override = codexLaunchHookTrustOverride({ hooksJsonPath, doc })
+  return override ? ['-c', override] : []
 }
 
 /**
