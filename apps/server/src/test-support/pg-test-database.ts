@@ -13,7 +13,8 @@
  *   dropped when the worker's test file ends (`pg-test-worker-setup.ts`).
  * - {@link clonePgTestDatabase}: one more fresh clone. `openTestStore` takes one per
  *   store, so two stores in one test never share rows, exactly as two
- *   `':memory:'` SQLite stores do not.
+ *   `':memory:'` SQLite stores do not. A clone made inside a test is dropped when
+ *   that test ends; one made in `beforeAll` or at module scope when the file ends.
  *
  * Every name is `t_<run>_<pool>_<pid>_<n>`: unique per run, per vitest pool slot,
  * per process and per clone, and old enough runs are swept by the next lane.
@@ -77,14 +78,17 @@ type PgClientConstructor = new (
  * `toEqual` would compare too.
  */
 export function connectPgTest(url: string, max = 1): PgTestClient {
-  const runtime = globalThis as typeof globalThis & { Bun?: { SQL?: PgClientConstructor } }
+  // Through `unknown`: a package that also loads Bun's own types would otherwise
+  // intersect them with this narrow shape and pick Bun's signatures.
+  const runtime = globalThis as unknown as { Bun?: { SQL?: PgClientConstructor } }
   const SQL = runtime.Bun?.SQL
   if (SQL === undefined) throw new Error('the Postgres test harness needs Bun (Bun.SQL)')
   const client = new SQL(url, { max, idleTimeout: 30 })
   return {
-    unsafe: async <Row>(query: string, params?: unknown[]) => [
-      ...(await client.unsafe<Row>(query, params)),
-    ],
+    async unsafe<Row>(query: string, params?: unknown[]): Promise<Row[]> {
+      const rows: Row[] = await client.unsafe<Row>(query, params)
+      return Array.from(rows)
+    },
     close: (options) => client.close(options),
   }
 }
@@ -127,14 +131,28 @@ export function pgRunPrefix(run: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Per-process state. A vitest fork runs one test file at a time; the worker
-// setup file drops everything made here when that file ends.
+// Per-process state. A vitest fork runs one test file at a time. The worker
+// setup file drops a database when the test that made it ends, or when the file
+// ends for one made outside any test (module scope, `beforeAll`).
 // ---------------------------------------------------------------------------
+
+/** How long a database lives: until its test ends, or until its file ends. */
+export type PgTestScope = 'test' | 'file'
 
 let admin: PgTestClient | undefined
 let workerDatabase: Promise<PgTestDatabase> | undefined
-let created: string[] = []
+let created: { readonly name: string; readonly scope: PgTestScope }[] = []
 let sequence = 0
+let currentScope: () => PgTestScope = () => 'file'
+
+/**
+ * Tell the harness whether a test is running. The worker setup file installs a
+ * reader over vitest's state; this module imports no vitest itself, because
+ * `openTestStore` also runs under `bun test`.
+ */
+export function setPgTestScopeReader(read: () => PgTestScope): void {
+  currentScope = read
+}
 
 function adminClient(url: string): PgTestClient {
   // Two connections, so a test that clones while another clone is in flight
@@ -150,51 +168,69 @@ function nextDatabaseName(run: string): string {
 }
 
 /**
- * A fresh database cloned from this run's template.
+ * A fresh database cloned from this run's template. One made inside a test (or its
+ * `beforeEach`) is dropped when that test ends; an empty Postgres database is about
+ * 8 MB of tmpfs, and a file that opens a store per test would otherwise hold them all.
  *
  * FILE_COPY copies the template's files instead of writing every page through
  * the WAL. On a tmpfs-backed test server that is the cheaper strategy for a small
  * template (measured in docs/agents/testing.md, "Postgres store lane").
  */
-export async function clonePgTestDatabase(): Promise<PgTestDatabase> {
+export async function clonePgTestDatabase(
+  scope: PgTestScope = currentScope(),
+): Promise<PgTestDatabase> {
   const environment = pgTestEnvironment()
   const name = nextDatabaseName(environment.run)
   await adminClient(environment.url).unsafe(
     `CREATE DATABASE ${quotePgIdentifier(name)} TEMPLATE ${quotePgIdentifier(environment.template)} STRATEGY FILE_COPY`,
   )
-  created.push(name)
+  created.push({ name, scope })
   return { name, url: pgUrlForDatabase(environment.url, name) }
 }
 
-/** This worker's own database, made on first use. */
+/** This worker's own database, made on first use and kept until the file ends. */
 export function pgWorkerDatabase(): Promise<PgTestDatabase> {
-  workerDatabase ??= clonePgTestDatabase()
+  workerDatabase ??= clonePgTestDatabase('file')
   return workerDatabase
 }
 
 /** The databases this process has made and not yet dropped. */
 export function pgTestDatabasesCreated(): readonly string[] {
-  return [...created]
+  return created.map((database) => database.name)
+}
+
+async function drop(client: PgTestClient, names: readonly string[]): Promise<void> {
+  // `WITH (FORCE)` ends connections a test left open (a store it never closed),
+  // so a leaked pool cannot keep a database alive.
+  for (const name of names) {
+    await client.unsafe(`DROP DATABASE IF EXISTS ${quotePgIdentifier(name)} WITH (FORCE)`)
+  }
+}
+
+/** Drop the databases made during the test that just ended. */
+export async function dropPgTestScopedDatabases(): Promise<void> {
+  const ending = created.filter((database) => database.scope === 'test')
+  if (ending.length === 0 || admin === undefined) return
+  created = created.filter((database) => database.scope !== 'test')
+  await drop(
+    admin,
+    ending.map((database) => database.name),
+  )
 }
 
 /**
- * Drop every database this process made, then close the admin client.
- *
- * `WITH (FORCE)` ends connections a test left open (a store it never closed), so
- * a leaked pool cannot keep a database alive. Called when a test file ends; the
- * lane's teardown sweeps whatever a killed worker left behind.
+ * Drop every database this process made, then close the admin client. Called when
+ * a test file ends; the lane's teardown sweeps whatever a killed worker left behind.
  */
 export async function dropPgTestDatabases(): Promise<void> {
-  const names = created
+  const names = pgTestDatabasesCreated()
   created = []
   workerDatabase = undefined
   const client = admin
   admin = undefined
   if (client === undefined) return
   try {
-    for (const name of names) {
-      await client.unsafe(`DROP DATABASE IF EXISTS ${quotePgIdentifier(name)} WITH (FORCE)`)
-    }
+    await drop(client, names)
   } finally {
     await client.close({ timeout: 5 })
   }
