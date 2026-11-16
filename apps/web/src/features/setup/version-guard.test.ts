@@ -1,6 +1,8 @@
+import { observeLiveConnection } from '@podium/client-core/live-connection'
+import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { actorUser, asMutationId, asUserId } from '@podium/model'
-import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, encode, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +11,7 @@ import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
 import { freshInterfaceUrl } from '@/lib/reload-route'
 import {
+  checkRefusedReconnect,
   checkServedAssets,
   checkServerVersion,
   forceReload,
@@ -455,6 +458,114 @@ describe('recoverFromWireSkew', () => {
     expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('reloaded')
     expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('ignored')
     expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * THE OPEN TAB WHOSE RECONNECTS ARE REFUSED (POD-6940). A real hub: its first
+ * socket is welcomed and drops (the server restarts), and every redial after
+ * that fails, which is all a browser sees of the new server's 426.
+ */
+describe('checkRefusedReconnect over a hub whose reconnects keep failing', () => {
+  const matched = {
+    wireVersion: CLIENT_WIRE_VERSION,
+    minSupportedVersion: CLIENT_WIRE_VERSION,
+    appVersion: 'test',
+    wireSchemaDigest: wireSchemaDigest(),
+  }
+  const newerWire = {
+    wireVersion: CLIENT_WIRE_VERSION + 1,
+    minSupportedVersion: CLIENT_WIRE_VERSION + 1,
+    appVersion: 'test',
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    resetSkewNotice()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Runs `dials` refused redials after one welcomed connection drops. */
+  async function refuseRedials(dials: number): Promise<void> {
+    const sockets: WebSocketLike[] = []
+    const hub = new SocketHub({
+      url: 'wss://relay.test/ws',
+      onError: () => {},
+      makeSocket: () => {
+        const socket: WebSocketLike = {
+          send: () => {},
+          close: () => socket.onclose?.({}),
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null,
+        }
+        sockets.push(socket)
+        return socket
+      },
+    })
+    const stop = observeLiveConnection(hub, {
+      onReconnectRefused: () => {
+        void checkRefusedReconnect(ORIGIN)
+      },
+    })
+    hub.connect()
+    const first = sockets[0]!
+    first.onopen?.({})
+    first.onmessage?.({ data: encode({ type: 'welcome', kindTokens: {}, clientId: 'c' }) })
+    first.onclose?.({ code: 1006 })
+    for (let dial = 0; dial < dials; dial++) {
+      // The backoff never waits 10 s, so each advance fires exactly one redial.
+      await vi.advanceTimersByTimeAsync(10_000)
+      const socket = sockets.at(-1)!
+      socket.onerror?.({})
+      socket.onclose?.({ code: 1006 })
+    }
+    await vi.advanceTimersByTimeAsync(10_000)
+    stop()
+    hub.dispose()
+  }
+
+  it('hard-reloads exactly once when /version reports a newer wire', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(versionResponse(newerWire))
+    vi.stubGlobal('fetch', fetchMock)
+    await refuseRedials(5)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${ORIGIN}/version`)
+    expect(unregister).toHaveBeenCalledTimes(1)
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 1))
+  })
+
+  it('takes the desktop update path in the bundled app, never a reload', async () => {
+    stubLocation('tauri://localhost')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(newerWire)))
+    await refuseRedials(5)
+    expect(currentSkew()).toMatchObject({
+      severe: true,
+      message: expect.stringContaining('Update Podium to continue'),
+    })
+    expect(reload).not.toHaveBeenCalled()
+    expect(cacheDelete).not.toHaveBeenCalled()
+  })
+
+  it('leaves an ordinary restart alone when /version matches', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(versionResponse(matched))
+    vi.stubGlobal('fetch', fetchMock)
+    await refuseRedials(5)
+    expect(fetchMock).toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('leaves a server that is still restarting alone when /version fails', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    await refuseRedials(5)
+    expect(fetchMock).toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()).toBeNull()
   })
 })
 

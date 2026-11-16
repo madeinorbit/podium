@@ -18,6 +18,25 @@ export function onReconnect(
   })
 }
 
+/**
+ * A RECONNECT THE SERVER KEEPS REFUSING (POD-6940). Every lost link after the
+ * first one since the last welcome: the first is the drop itself, each later
+ * one is a dial that failed. The hub dials once per backoff step, so this fires
+ * at most once per step. A browser cannot read why an upgrade was refused (a
+ * server on a newer wire answers 426), so the caller asks over plain HTTP.
+ */
+export function onReconnectRefused(hub: Pick<SocketHub, 'on'>, refused: () => void): () => void {
+  let lost = false
+  return hub.on('link', (state) => {
+    if (state === 'welcomed') {
+      lost = false
+      return
+    }
+    if (lost) refused()
+    lost = true
+  })
+}
+
 export interface WakeSource {
   subscribe(hidden: () => void, shown: () => void): () => void
 }
@@ -49,6 +68,7 @@ export interface LiveConnectionObservers {
   onDisconnected?: () => void
   onWireSkew?: (skew: WireSkew) => void
   onReconnect?: () => void
+  onReconnectRefused?: () => void
 }
 
 /** Both roots use this attachment. It owns subscriptions, not the hub or store;
@@ -63,6 +83,7 @@ export function observeLiveConnection(
   if (options.onWireSkew) stops.push(hub.onWireSkew(options.onWireSkew))
   if (options.onReconnect)
     stops.push(onReconnect(hub.onConnectionHealth.bind(hub), options.onReconnect))
+  if (options.onReconnectRefused) stops.push(onReconnectRefused(hub, options.onReconnectRefused))
   if (options.onDisconnected) {
     let observedInitialHealth = false
     stops.push(

@@ -391,7 +391,38 @@ export async function recoverFromWireSkew(
   return await checkServerVersion(httpOrigin)
 }
 
-/** Test-only: the once-per-page latch outlives a test file's cases. */
+/**
+ * THE TAB WHOSE RECONNECTS ARE REFUSED (POD-6940).
+ *
+ * A server that moved to a newer wire refuses this bundle's WebSocket upgrade
+ * (HTTP 426), and a browser socket cannot see that status: the hub only sees a
+ * failed dial and retries forever, and none of the checks above runs, because
+ * each needs a connection that worked. So a refused reconnect re-runs the boot
+ * handshake over `/version`. An unreachable `/version` (the server is still
+ * restarting) and a matching one (an ordinary restart) change nothing; a
+ * mismatch takes the boot path: the budgeted hard reload in a browser, the
+ * "Update Podium" notice in the desktop app.
+ *
+ * One check at a time, and none once a reload is under way: the page is going
+ * away, and a second check would spend a second attempt of the reload budget
+ * on the same navigation.
+ */
+let refusedCheckBusy = false
+
+export async function checkRefusedReconnect(httpOrigin: string): Promise<VersionCheck | 'ignored'> {
+  if (refusedCheckBusy) return 'ignored'
+  refusedCheckBusy = true
+  let result: VersionCheck | undefined
+  try {
+    result = await checkServerVersion(httpOrigin)
+    return result
+  } finally {
+    if (result !== 'reloaded') refusedCheckBusy = false
+  }
+}
+
+/** Test-only: the once-per-page latches outlive a test file's cases. */
 export function resetWireSkewRecovery(): void {
   recoveryAttempted = false
+  refusedCheckBusy = false
 }

@@ -555,6 +555,8 @@ function MobileHubAttach({
       onDisconnected,
       onWireSkew: version.onWireSkew,
       onReconnect: networkEnabled ? version.onReconnect : undefined,
+      // A server on a newer wire refuses every dial (POD-6940): ask /version then too.
+      onReconnectRefused: networkEnabled ? version.onReconnect : undefined,
     })
     return () => {
       stop()

@@ -27,7 +27,11 @@ import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { SetupGate, SetupRecoveryOnConnect } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
+import {
+  checkRefusedReconnect,
+  checkServedAssets,
+  recoverFromWireSkew,
+} from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
@@ -207,6 +211,9 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
         },
         onReconnect: () => {
           void checkServedAssets(httpOrigin)
+        },
+        onReconnectRefused: () => {
+          void checkRefusedReconnect(httpOrigin)
         },
       }),
     [hub, httpOrigin],
