@@ -128,25 +128,22 @@ describe('provenance on frame rows', () => {
     expect(Object.keys(frame.changes[0] ?? {})).toEqual(['seq', 'entity', 'entityId', 'op'])
   })
   it('keeps bootstrap rows provenance-free, because the install cursor covers them', () => {
-    const chunk = toBootstrapChunk(
-      {
-        type: 'feedBootstrap',
-        ...range,
-        fromSeq: 0,
-        last: true,
-        changes: [
-          {
-            seq: 3,
-            entity: 'repo',
-            entityId: 'r1',
-            op: 'upsert',
-            value: { id: 'r1' },
-            ...provenance,
-          },
-        ] as never,
-      },
-      { repo: 'shape:0' },
-    )
+    const chunk = toBootstrapChunk({
+      type: 'feedBootstrap',
+      ...range,
+      fromSeq: 0,
+      last: true,
+      changes: [
+        {
+          seq: 3,
+          entity: 'repo',
+          entityId: 'r1',
+          op: 'upsert',
+          value: { id: 'r1' },
+          ...provenance,
+        },
+      ] as never,
+    }, { repo: 'shape:0' })
     expect(chunk.changes).toEqual([
       { seq: 3, entity: 'repo', entityId: 'r1', op: 'upsert', payload: { id: 'r1' } },
     ])

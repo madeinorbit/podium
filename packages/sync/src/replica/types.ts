@@ -18,9 +18,9 @@
  */
 
 import type {
+  ChangeOp as ModelChangeOp,
   ChangeProvenanceFields,
   ChangeTargetFields,
-  ChangeOp as ModelChangeOp,
 } from '@podium/model'
 
 /**
