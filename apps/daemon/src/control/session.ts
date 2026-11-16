@@ -57,6 +57,7 @@ import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
 import { managementLoginCommandFor } from '../harness-management.js'
+import { trustClaudeFolder } from '../homes/share'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { decideReopenScreen } from '../reopen-policy'
@@ -116,9 +117,9 @@ import {
 } from '../session-posture-store'
 import { Terminal } from '../terminal/terminal.js'
 import { deliveryOverlay } from './access'
-import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
+import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { shellChildEnv } from './session-env'
 
@@ -822,9 +823,18 @@ export async function launchTerminalProcess(
     // account context, built now, for this one launch. Its env and its strip
     // list follow that harness, never the 'shell' kind the pane is filed as.
     const loginContext = loginHarness
-      ? await buildSessionHarnessContext(ctx, loginHarness)
+      ? await buildSessionHarnessContext(ctx, loginHarness, sessionId)
       : undefined
     const childContext = loginContext ?? harnessContext
+    // A Claude terminal in a Podium home asks to trust its folder before the
+    // first turn; the person's own directory already knows their folders.
+    if (
+      childContext?.harnessHome &&
+      childContext.installation.kind === 'claude-code' &&
+      !loginContext
+    ) {
+      trustClaudeFolder(childContext.harnessHome.dir, spec.workdir)
+    }
     const cmd: LaunchSpec =
       loginCommand && loginContext
         ? harnessCommand(
@@ -1136,7 +1146,7 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
     const base = sessionSpecForSpawn(
       msg,
       { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
-      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind, msg.sessionId),
     )
     recordSessionPosture(msg.sessionId, base.posture)
     const spec: SessionSpec = {
@@ -1742,6 +1752,7 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
       const harnessContext = await buildSessionHarnessContext(
         ctx,
         msg.agentKind as BuiltinHarnessKind,
+        msg.sessionId,
       )
       const mcpServers: SessionSpec['mcpServers'] = {
         supported: false,
@@ -2170,6 +2181,7 @@ export async function launchServerDriverSession(
           admissionSnapshot,
           msg.agentKind as BuiltinHarnessKind,
           driverId,
+          msg.sessionId,
         )
       } catch {
         context = undefined
@@ -2412,6 +2424,7 @@ export async function launchServerDriverSession(
           ctx,
           msg.agentKind as BuiltinHarnessKind,
           resolution.driverId,
+          msg.sessionId,
         )),
     )
     recordSessionPosture(msg.sessionId, spec.posture)

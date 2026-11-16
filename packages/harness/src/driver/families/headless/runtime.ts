@@ -194,6 +194,8 @@ export interface HeadlessDriverHost {
    *  at the process boundary. Precedence is the daemon's decision. */
   turnChildEnv(input: {
     agent: HarnessAgent
+    /** The session the turn is for: its access names the home it runs in. */
+    sessionId: SessionId
     specEnv: Record<string, string> | undefined
     /** The turn's managed credential (`TurnInput.env`, POD-6733): the only
      *  explicitly selected credential a headless child carries. */
@@ -1116,6 +1118,7 @@ export function createHeadlessRuntime(
           childEnv: (invocation) =>
             host.turnChildEnv({
               agent,
+              sessionId: session.sessionId,
               specEnv,
               ...(credentialEnv ? { credentialEnv } : {}),
               snapshot,

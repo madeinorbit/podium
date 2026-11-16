@@ -157,6 +157,8 @@ import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { managementQuotaFetcher } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
+import { HomeRegistry } from './homes/registry'
+import { stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
@@ -1077,6 +1079,31 @@ export async function createDaemonHostRuntime(args: {
     read: (roots) => readMemoryBreakdown(ctx, roots),
     onError: (err) => log.warn('process topic sample failed', { err }),
   })
+  // Podium's harness homes (credential management §10). Removing one first
+  // stops what runs in it: wired below once the engines exist.
+  const homes = new HomeRegistry({
+    root: opts.homesDir ?? join(stateDir(), 'homes'),
+    beforeRemove: (home) =>
+      stopHome(home, {
+        ...systemProcessPorts,
+        sessionsIn: (homeId) =>
+          [...ctx.sessions.entries()]
+            .filter(
+              ([sessionId, session]) =>
+                session.harnessContext?.harnessHome?.id === homeId ||
+                ctx.access.homeIdOf(sessionId) === homeId,
+            )
+            .map(([sessionId]) => sessionId),
+        stopSession: (sessionId) => stopSessionProcess(ctx, { sessionId: sessionId as SessionId }),
+        codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+        commandEnv: () =>
+          Object.fromEntries(
+            Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
+              (entry): entry is [string, string] => entry[1] !== undefined,
+            ),
+          ),
+      }),
+  })
   const ctx: DaemonContext = {
     send,
     topicWatches,
@@ -1084,6 +1111,7 @@ export async function createDaemonHostRuntime(args: {
     access: new SessionAccessStore({
       markers: createEngineJournal<AccessMarker>({ namespace: 'session-access' }),
     }),
+    homes,
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1626,9 +1654,24 @@ export async function createDaemonHostRuntime(args: {
       engines: () => sessionEngines,
       // ONE RECIPE (POD-6535): the turn's account context over this snapshot,
       // the same credential home every other session child runs under.
-      turnChildEnv: ({ agent, specEnv, credentialEnv, snapshot, execEnv, envOverlay }) => {
+      turnChildEnv: ({
+        agent,
+        sessionId,
+        specEnv,
+        credentialEnv,
+        snapshot,
+        execEnv,
+        envOverlay,
+      }) => {
         const { env, strip } = headlessTurnChildEnv({
-          context: driverHarnessContextFrom(ctx, snapshot, agent as BuiltinHarnessKind, undefined),
+          // In the session's home when its credential names one (§10).
+          context: driverHarnessContextFrom(
+            ctx,
+            snapshot,
+            agent as BuiltinHarnessKind,
+            undefined,
+            sessionId,
+          ),
           ...(credentialEnv ? { credentialEnv } : {}),
           ...(specEnv ? { instanceEnv: specEnv } : {}),
           ...(execEnv ? { execEnv } : {}),

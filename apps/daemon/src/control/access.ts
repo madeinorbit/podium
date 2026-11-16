@@ -19,7 +19,7 @@
 
 import { harnessHideFromCommands } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
-import type { AccessField } from '@podium/protocol'
+import { type AccessField, HomeHarness, homeIdFor } from '@podium/protocol'
 
 /** What survives a restart: that a session needs a credential, never the secret. */
 export interface AccessMarker {
@@ -94,6 +94,34 @@ export class SessionAccessStore {
   /** The harness the session runs, as its spawn or its marker named it. */
   agentKindOf(sessionId: SessionId): AgentKind | undefined {
     return this.held.get(sessionId)?.agentKind ?? this.marker(sessionId)?.agentKind
+  }
+
+  /**
+   * The Podium home the session runs in (credential management §10), or
+   * undefined for the harness's own directory. From the access held in
+   * memory; after a restart, before the server's refresh, from the marker: a
+   * home delivery's home is the credential's home for the session's harness.
+   */
+  homeIdOf(sessionId: SessionId): string | undefined {
+    const held = this.held.get(sessionId)
+    if (held) {
+      const delivery = held.access.delivery
+      return delivery.kind === 'home' && delivery.homeId !== DEFAULT_HOME
+        ? delivery.homeId
+        : undefined
+    }
+    const marker = this.marker(sessionId)
+    if (marker?.delivery !== 'home') return undefined
+    // A home that cannot be named from the marker is still a home: an id no
+    // home has, so the start is refused rather than run on the default login.
+    const unnamed = `${marker.credentialId}:${marker.agentKind ?? 'unknown'}`
+    const harness = HomeHarness.safeParse(marker.agentKind)
+    if (!harness.success) return unnamed
+    try {
+      return homeIdFor(marker.credentialId, harness.data)
+    } catch {
+      return unnamed
+    }
   }
 
   /**

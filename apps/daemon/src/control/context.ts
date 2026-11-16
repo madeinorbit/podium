@@ -137,6 +137,13 @@ export interface DaemonContext {
    * process start for a session applies it from here (`control/access.ts`).
    */
   access: import('./access').SessionAccessStore
+  /**
+   * Podium's harness homes on this machine (credential management §10): one
+   * directory per credential and harness. A session whose access names one
+   * runs in it. Absent in hand-built contexts: then no home exists, and a
+   * session that names one is refused.
+   */
+  homes?: import('../homes/registry').HomeRegistry
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
   sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
@@ -173,7 +180,11 @@ export interface DaemonContext {
   shipping: ShippingExecutionPlane
 
   /** Starts the promoted server and returns only after the expected state is serving. */
-  promoteMachineAssignment?: (input: { sourceMachineId: string; targetMachineId: string; requestId: string }) => Promise<void>
+  promoteMachineAssignment?: (input: {
+    sourceMachineId: string
+    targetMachineId: string
+    requestId: string
+  }) => Promise<void>
   restartAfterTransfer?: (
     expected: ServerTransferServingProof,
   ) => Promise<ServerTransferServingProof> | ServerTransferServingProof

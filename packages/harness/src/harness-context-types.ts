@@ -27,6 +27,19 @@ export interface HarnessInstallation {
   readonly generation: number
 }
 
+/**
+ * A Podium home the context runs in (credential management §10): the
+ * harness's configuration directory for one credential, named by the
+ * harness's own variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). The account HOME
+ * stays as it is; only the harness's directory moves.
+ */
+export interface HarnessHomeRef {
+  /** `<credentialId>:<harness>`. */
+  readonly id: string
+  readonly dir: string
+  readonly variable: string
+}
+
 /** Installation + account. Everything that touches a harness takes this. */
 export interface HarnessContext {
   readonly installation: HarnessInstallation
@@ -36,4 +49,10 @@ export interface HarnessContext {
   readonly env: Readonly<Record<string, string>>
   /** Resolved once from the adapter's `roots` declaration. */
   readonly roots: Readonly<HarnessRoots>
+  /**
+   * The Podium home this context runs in. Absent: the harness's own directory
+   * (the `default` home). `env` and `roots` already follow it, and
+   * `harnessChildEnv` sets its variable after every other layer.
+   */
+  readonly harnessHome?: HarnessHomeRef
 }

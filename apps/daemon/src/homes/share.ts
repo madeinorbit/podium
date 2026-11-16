@@ -57,8 +57,10 @@ export function linkShared(home: HarnessHome, defaultDir: string): { linked: str
 export interface HomeLaunchInput {
   /** The harness's own directory (`~/.claude`, `~/.codex`) on this machine. */
   defaultDir: string
-  /** The session's working directory: trusted in a Claude home. */
-  cwd: string
+  /** The session's working directory, trusted in a Claude home. A terminal
+   *  needs it (Claude asks before its first turn there); a headless or stream
+   *  run never asks, so it may leave it out. */
+  cwd?: string
   /** The person's own Claude Code state file (`~/.claude.json`), read only. */
   personClaudeState?: string
 }
@@ -67,6 +69,15 @@ export interface HomeLaunchInput {
 export function prepareHomeLaunch(home: HarnessHome, input: HomeLaunchInput): void {
   linkShared(home, input.defaultDir)
   if (home.harness === 'claude-code') prepareClaudeState(home.dir, input)
+}
+
+/**
+ * Trust `cwd` in a Claude Code home, so a terminal there opens on its first
+ * turn rather than on Claude's folder-trust prompt. Starting a Podium session
+ * in a folder is the person's choice of that folder.
+ */
+export function trustClaudeFolder(homeDir: string, cwd: string): void {
+  prepareClaudeState(homeDir, { defaultDir: '', cwd })
 }
 
 /**
@@ -87,9 +98,11 @@ function prepareClaudeState(homeDir: string, input: HomeLaunchInput): void {
   const person = input.personClaudeState ? readObject(input.personClaudeState) : undefined
   const personServers = asObject(person?.mcpServers)
   if (personServers) next.mcpServers = { ...asObject(next.mcpServers), ...personServers }
-  const projects = { ...asObject(next.projects) }
-  projects[input.cwd] = { ...asObject(projects[input.cwd]), hasTrustDialogAccepted: true }
-  next.projects = projects
+  if (input.cwd !== undefined) {
+    const projects = { ...asObject(next.projects) }
+    projects[input.cwd] = { ...asObject(projects[input.cwd]), hasTrustDialogAccepted: true }
+    next.projects = projects
+  }
   if (current && JSON.stringify(current) === JSON.stringify(next)) return
   const temporary = `${path}.podium-${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })

@@ -182,3 +182,40 @@ describe('deliveryOverlay', () => {
     ).toEqual(none)
   })
 })
+
+describe('SessionAccessStore.homeIdOf (credential management §10)', () => {
+  const CRED = 'cred_dddddddd-0000-4000-8000-000000000004'
+  const homeAccess = (homeId: string): AccessField => ({
+    credentialId: CRED,
+    delivery: { kind: 'home', homeId },
+  })
+
+  it('names the home the session runs in, and none for the default directory or a secret', () => {
+    const store = new SessionAccessStore({ markers: fileMarkers(markerDir()) })
+    store.remember(SESSION, homeAccess(`${CRED}:codex`), 'codex')
+    expect(store.homeIdOf(SESSION)).toBe(`${CRED}:codex`)
+    store.remember(SESSION, homeAccess('default'), 'codex')
+    expect(store.homeIdOf(SESSION)).toBeUndefined()
+    store.remember(SESSION, envAccess, 'codex')
+    expect(store.homeIdOf(SESSION)).toBeUndefined()
+  })
+
+  it('after a restart, names the same home from the marker alone', () => {
+    const dir = markerDir()
+    new SessionAccessStore({ markers: fileMarkers(dir) }).remember(
+      SESSION,
+      homeAccess(`${CRED}:claude-code`),
+      'claude-code',
+    )
+    const restarted = new SessionAccessStore({ markers: fileMarkers(dir) })
+    expect(restarted.current(SESSION)).toBeUndefined()
+    expect(restarted.homeIdOf(SESSION)).toBe(`${CRED}:claude-code`)
+  })
+
+  it('a marker whose harness has no homes names a home that cannot exist, never the default', () => {
+    const markers = fileMarkers(markerDir())
+    markers.write({ sessionId: SESSION, credentialId: CRED, delivery: 'home', agentKind: 'grok' })
+    const store = new SessionAccessStore({ markers })
+    expect(store.homeIdOf(SESSION)).toBe(`${CRED}:grok`)
+  })
+})
