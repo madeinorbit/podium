@@ -191,14 +191,17 @@ class BridgeSocket implements WebSocketLike {
   onclose: ((ev: unknown) => void) | null = null
   onerror: ((ev: unknown) => void) | null = null
   open = false
+  closed = false
   constructor(private readonly receive: (msg: ClientMessage) => void) {}
   send(data: string | Uint8Array): void {
     if (this.open && typeof data === 'string') this.receive(JSON.parse(data) as ClientMessage)
   }
+  /** The close event comes later, as a real WebSocket's does: a handler detached first never hears it. */
   close(): void {
-    if (!this.open) return
+    if (this.closed) return
+    this.closed = true
     this.open = false
-    this.onclose?.({})
+    queueMicrotask(() => this.onclose?.({}))
   }
   /** Asynchronous, as a network is: a reply never lands inside the sender's turn. */
   deliver(msg: ServerMessage): void {
@@ -225,6 +228,8 @@ export interface ConformanceClient {
   setPressure(on: boolean): void
   /** Hold this client's pongs (a busy server); releasing answers every held ping. */
   holdPongs(on: boolean): void
+  /** Hold EVERY server frame to this client (a silent server); releasing delivers them. */
+  silence(on: boolean): void
   /** Frames of one type for one key. */
   frames(type: ServerMessage['type'], key?: string): ServerMessage[]
 }
@@ -236,6 +241,7 @@ export interface ConformanceClient {
 export interface TopicWorld {
   readonly subscriptions: SubscriptionRegistry
   readonly clients: ClientRegistry
+  /** The CURRENT server's routing: {@link restartServer} replaces it. */
   readonly topics: TopicRouting
   readonly daemon: FakeDaemon
   /** Producer start/stop calls per kind, for the lifecycle case. */
@@ -278,6 +284,13 @@ export interface TopicWorld {
   restartDaemon(): Promise<void>
   /** Re-check visibility for every connection, as a feed rescope does. */
   revalidate(): Promise<void>
+  /**
+   * The server process restarts: every client socket is closed from the server
+   * side and a new routing, with a new epoch, serves the reconnects.
+   */
+  restartServer(): Promise<void>
+  /** The next `count` snapshot reads fail: the producer throws, or its promise rejects. */
+  failSnapshots(count: number, how: 'throw' | 'reject'): void
   dispose(): void
 }
 
@@ -293,6 +306,10 @@ export async function createTopicWorld(
   ) as Record<TopicKind, { start: number; stop: number }>
   const hubs: SocketHub[] = []
   let legacyBroadcasts = 0
+  /** Every open server-side socket, by connection id: a server restart closes them all. */
+  const serverSockets = new Map<string, BridgeSocket>()
+  let serverGeneration = 0
+  const snapshotFailures = { count: 0, how: 'throw' as 'throw' | 'reject' }
 
   // Late-bound exactly as relay.ts does: the producers close over the routing.
   let topics!: TopicRouting
@@ -318,6 +335,17 @@ export async function createTopicWorld(
     producer: TopicProducers[TopicKind],
   ): TopicProducers[TopicKind] => ({
     ...producer,
+    ...(producer.snapshot
+      ? {
+          snapshot: (id: string) => {
+            if (snapshotFailures.count === 0) return producer.snapshot?.(id)
+            snapshotFailures.count -= 1
+            const failure = new Error('conformance: snapshot read failed')
+            if (snapshotFailures.how === 'throw') throw failure
+            return Promise.reject(failure)
+          },
+        }
+      : {}),
     start: (id) => {
       lifecycle[kind].start += 1
       producer.start?.(id)
@@ -441,20 +469,22 @@ export async function createTopicWorld(
     }),
     'account.events': counted('account.events', {}),
   }
-  topics = new TopicRouting({
-    subscriptions,
-    clients,
-    prepareVisibility: async (): Promise<VisibilityResolver> => ({
-      canSee: (principal, entity) =>
-        principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
-    }),
-    prepareMachineUse: async () => ({
-      canSee: (principal, entity) =>
-        principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
-    }),
-    producers,
-    epoch: 'conformance',
-  })
+  const startServer = (): TopicRouting =>
+    new TopicRouting({
+      subscriptions,
+      clients,
+      prepareVisibility: async (): Promise<VisibilityResolver> => ({
+        canSee: (principal, entity) =>
+          principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
+      }),
+      prepareMachineUse: async () => ({
+        canSee: (principal, entity) =>
+          principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
+      }),
+      producers,
+      epoch: serverGeneration === 0 ? 'conformance' : `conformance-restart-${serverGeneration}`,
+    })
+  topics = startServer()
 
   // As relay.ts binds it: an account notice goes on the topic when held.
   clients.routeAccountEvents(
@@ -514,7 +544,9 @@ export async function createTopicWorld(
   const world: TopicWorld = {
     subscriptions,
     clients,
-    topics,
+    get topics() {
+      return topics
+    },
     daemon,
     lifecycle,
     visible,
@@ -565,6 +597,8 @@ export async function createTopicWorld(
       let pressure = false
       let pongsHeld = false
       const heldPongs: (() => void)[] = []
+      let silenced = false
+      const heldFrames: (() => void)[] = []
       const makeSocket = (): WebSocketLike => {
         const id = clients.nextId()
         let socket!: BridgeSocket
@@ -574,13 +608,15 @@ export async function createTopicWorld(
           send: (msg) => {
             received.push(msg)
             receivedAt.push(Date.now())
-            socket.deliver(msg)
+            if (silenced) heldFrames.push(() => socket.deliver(msg))
+            else socket.deliver(msg)
           },
           sendStream: (msg) => {
             if (pressure) return false
             received.push(msg)
             receivedAt.push(Date.now())
-            socket.deliver(msg)
+            if (silenced) heldFrames.push(() => socket.deliver(msg))
+            else socket.deliver(msg)
             return true
           },
           viewports: new Map(),
@@ -622,11 +658,14 @@ export async function createTopicWorld(
             topics.disconnect(conn)
             clients.delete(id)
           }
+          serverSockets.delete(id)
           origClose()
         }
         current = { socket, conn }
         // The server accepts on the next turn, like a real upgrade.
         setTimeout(() => {
+          if (socket.closed) return
+          serverSockets.set(id, socket)
           clients.add(conn)
           socket.open = true
           socket.onopen?.({})
@@ -650,6 +689,10 @@ export async function createTopicWorld(
         holdPongs: (on) => {
           pongsHeld = on
           if (!on) for (const answer of heldPongs.splice(0)) answer()
+        },
+        silence: (on) => {
+          silenced = on
+          if (!on) for (const deliver of heldFrames.splice(0)) deliver()
         },
         frames: (type, key) =>
           received.filter(
@@ -679,6 +722,18 @@ export async function createTopicWorld(
         [...clients.values()].map((conn) => asSubscriberId(conn.id)),
       )
       await settle()
+    },
+    async restartServer() {
+      // The old process ends: each socket closes on the server's side, which
+      // also forgets every key the old routing held for it.
+      for (const socket of [...serverSockets.values()]) socket.close()
+      serverGeneration += 1
+      topics = startServer()
+      await settle()
+    },
+    failSnapshots(count, how) {
+      snapshotFailures.count = count
+      snapshotFailures.how = how
     },
     dispose() {
       for (const hub of hubs) hub.dispose()
@@ -723,6 +778,34 @@ export function holdTopic<K extends TopicKind>(
 
 const serverHolds = (world: TopicWorld, kind: TopicKind, id: string): number =>
   world.subscriptions.subscribers(topicRoutingKey({ kind, id })).length
+
+/**
+ * THE LIFECYCLE ORACLE: the server's current value of a key is what a brand-new
+ * client's first snapshot says. A held key is correct when it is known, at the
+ * same position, with the same value. Any coalesced update is let through first,
+ * so the two read the same instant.
+ */
+export async function expectCurrent<K extends TopicKind>(
+  world: TopicWorld,
+  client: ConformanceClient,
+  c: TopicConformanceCase<K>,
+): Promise<void> {
+  await vi.advanceTimersByTimeAsync(TOPIC_KINDS[c.kind].minIntervalMs * 2 + 1)
+  const fresh = await world.client()
+  const truth = holdTopic(fresh, c.kind, c.id)
+  await settle()
+  const server = truth.states.at(-1)
+  truth.release()
+  fresh.hub.dispose()
+  await settle()
+  const held = client.hub.topicState(c.kind, c.id)
+  expect(server?.status).toBe('value')
+  expect(held?.status).toBe('value')
+  if (held?.status !== 'value' || server?.status !== 'value') return
+  expect(held.position).toEqual(server.position)
+  expect(c.describeValue(held.value)).toBe(c.describeValue(server.value))
+  expect(serverHolds(world, c.kind, c.id)).toBe(1)
+}
 
 /** The D25 cases, for one value kind. */
 export function describeTopicConformance<K extends TopicKind>(c: TopicConformanceCase<K>): void {
@@ -956,6 +1039,144 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
       expect(life.stop).toBe(1)
       if (decl.producer === 'daemon') expect(world.daemon.watching).toBe(0)
     })
+
+    // -----------------------------------------------------------------------
+    // 12. LIFECYCLE (POD-6945): after every event that can make a client miss
+    // or distrust a value, the held key ends known at the server's current
+    // value. Where the event allows, the value moves while the client cannot
+    // hear it, so a stale value cannot pass.
+    // -----------------------------------------------------------------------
+
+    /** A held key with its first value, on one client. */
+    const heldClient = async (): Promise<ConformanceClient> => {
+      const client = await world.client()
+      holdTopic(client, c.kind, c.id)
+      await settle()
+      expect(client.hub.topicState(c.kind, c.id)?.status).toBe('value')
+      return client
+    }
+
+    it('12a. a dropped socket: the value moves during the outage, the reconnect brings it', async () => {
+      const client = await heldClient()
+      client.drop()
+      await settle()
+      await c.produce(world)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expectCurrent(world, client, c)
+    })
+
+    it('12b. a server restart: a new routing and epoch serve the reconnect', async () => {
+      const client = await heldClient()
+      const before = client.hub.topicState(c.kind, c.id)
+      await world.restartServer()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(decl.minIntervalMs)
+      await c.produce(world)
+      await expectCurrent(world, client, c)
+      const after = client.hub.topicState(c.kind, c.id)
+      expect(before?.status === 'value' && after?.status === 'value').toBe(true)
+      if (before?.status === 'value' && after?.status === 'value')
+        expect(after.position.epoch).not.toBe(before.position.epoch)
+    })
+
+    it('12c. a loss declared on the open socket: the value moves while it is lost', async () => {
+      const client = await heldClient()
+      client.holdPongs(true)
+      await vi.advanceTimersByTimeAsync(6_000)
+      expect(client.hub.connectionHealth().status).toBe('down')
+      expect(client.hub.topicState(c.kind, c.id)?.status).toBe('unknown')
+      await c.produce(world)
+      client.holdPongs(false)
+      await settle()
+      expect(client.hub.connectionHealth().status).not.toBe('down')
+      await expectCurrent(world, client, c)
+    })
+
+    it('12d. a silent server: the heartbeat closes the socket and the next one asks again', async () => {
+      const client = await heldClient()
+      const first = client.conn()
+      client.silence(true)
+      await vi.advanceTimersByTimeAsync(13_000)
+      expect(client.conn()).not.toBe(first)
+      await c.produce(world)
+      client.silence(false)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expectCurrent(world, client, c)
+    })
+
+    it('12e. the phone is backgrounded and foregrounded: the value moved meanwhile', async () => {
+      const client = await heldClient()
+      client.hub.suspend()
+      await settle()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await c.produce(world)
+      client.hub.connectNow()
+      await settle()
+      await expectCurrent(world, client, c)
+    })
+
+    it('12f. the client follows its server to a new origin', async () => {
+      const client = await heldClient()
+      await c.produce(world)
+      client.hub.retarget('https://moved.example')
+      await settle()
+      await expectCurrent(world, client, c)
+    })
+
+    it('12g. a wake tears the socket down and dials again', async () => {
+      const client = await heldClient()
+      client.hub.wake()
+      await c.produce(world)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expectCurrent(world, client, c)
+    })
+
+    it('12h. a key the server shed under pressure is asked again and recovers', async () => {
+      const client = await heldClient()
+      client.setPressure(true)
+      await vi.advanceTimersByTimeAsync(decl.minIntervalMs)
+      await c.produce(world)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(client.frames('topicClosed', key)).toContainEqual({
+        type: 'topicClosed',
+        key,
+        reason: 'overflow',
+      })
+      client.setPressure(false)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expectCurrent(world, client, c)
+    })
+
+    it('12i. a stopped hub started again ignores its old socket closing late', async () => {
+      const client = await heldClient()
+      // A runtime stop and start (a React remount): the old socket's close event
+      // arrives after the new socket exists.
+      client.hub.dispose()
+      client.hub.connect()
+      await settle()
+      expect(client.hub.connectionHealth().status).not.toBe('down')
+      expect(client.hub.topicState(c.kind, c.id)?.status).toBe('value')
+      await vi.advanceTimersByTimeAsync(2_000)
+      // One connection: no orphaned socket on the server.
+      expect([...world.clients.values()]).toHaveLength(1)
+      await c.produce(world)
+      await expectCurrent(world, client, c)
+    })
+
+    for (const how of ['throw', 'reject'] as const) {
+      it(`12j. a snapshot read that fails (${how}) is answered unknown, and the next value lands`, async () => {
+        const client = await world.client()
+        world.failSnapshots(1, how)
+        holdTopic(client, c.kind, c.id)
+        await settle()
+        // Answered, not left waiting: an honest unknown with a position.
+        expect(client.frames('topicSnapshot', key)).toHaveLength(1)
+        expect(client.hub.topicState(c.kind, c.id)?.status).not.toBe('pending')
+        await vi.advanceTimersByTimeAsync(decl.minIntervalMs)
+        await c.produce(world)
+        await expectCurrent(world, client, c)
+      })
+    }
   })
 }
 
