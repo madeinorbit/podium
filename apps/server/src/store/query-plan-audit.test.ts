@@ -1831,7 +1831,7 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     for (const [name, pattern] of expected) {
       const plan = plans.get(name)
       expect(plan, name).toBeDefined()
-      expect(`${name}: ${plan}`).toMatch(pattern)
+      expect(plan, name).toMatch(pattern)
       expect(`${name}: ${plan}`).not.toMatch(/SCAN (effects|candidate|newer)\b|TEMP B-TREE/)
     }
   })

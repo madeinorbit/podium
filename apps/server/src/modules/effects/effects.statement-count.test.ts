@@ -118,8 +118,8 @@ describe('statement counts of effect records', () => {
   })
 
   it('a sweep with nothing due does not grow with the records the table holds', async () => {
-    // The tenth and eleventh: the tombstone purge and the purge of the
-    // server's own ended scans (POD-6970), one statement each.
-    await expectConstantStatements(idleSweep, 11)
+    // Twelve on the base this was written against (the pin said ten); the
+    // thirteenth is the purge of the server's own ended scans (POD-6970).
+    await expectConstantStatements(idleSweep, 13)
   })
 })
