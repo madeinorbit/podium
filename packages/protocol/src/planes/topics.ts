@@ -495,7 +495,7 @@ export const TOPIC_CLOSED_REASONS = [
   'refused',
   'gone',
   'revoked',
-  'overflow',
+  'transient',
   'unsupported',
   'shutdown',
 ] as const
@@ -503,7 +503,10 @@ export type TopicClosedReason = (typeof TOPIC_CLOSED_REASONS)[number]
 
 /**
  * The subscription ended. `refused` covers both "not visible" and "does not
- * exist" (D14: a refusal looks exactly like a missing key).
+ * exist" (D14: a refusal looks exactly like a missing key). `transient` is the
+ * one reason the client asks again: the server shed the key under pressure, or
+ * could not decide it (a failed visibility read). It asks on its next
+ * heartbeat, so a failure that persists costs one ask per heartbeat.
  */
 export const TopicClosedMessage = z.object({
   type: z.literal('topicClosed'),

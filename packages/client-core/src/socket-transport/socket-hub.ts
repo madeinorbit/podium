@@ -397,6 +397,15 @@ const RECONNECT_MAX_MS = 10_000
 const DEGRADED_RTT_MS = 400
 const PING_DEGRADED_AFTER_MS = 1_500
 const PING_DOWN_AFTER_MS = 5_000
+// A SLOW LINK IS NOT A DEAD ONE (POD-6947). An unanswered ping is declared lost
+// after three of the link's own recent round trips (their median), never
+// sooner than 5 s and never later than 30 s: a link that keeps answering is
+// never declared down, and a fast link keeps today's 5 s. The opening
+// handshake costs at least one round trip and seeds the measurement, so a link
+// that is slow from its first ping is not declared down by it either.
+const PING_DOWN_RTT_FACTOR = 3
+const PING_DOWN_MAX_MS = 30_000
+const RTT_SAMPLES = 5
 // Unanswered pings older than the force-close window can't accumulate meaningfully;
 // the cap just bounds the queue if pongs stop while other traffic keeps us alive.
 const PING_QUEUE_CAP = 8
@@ -658,6 +667,8 @@ export class SocketHub {
   private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
+  /** This socket's recent round trips, newest last; the down threshold reads them. */
+  private rttSamples: number[] = []
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   /** Null until the server says something this build cannot read; never cleared —
    *  the disagreement is a property of the pair, and it does not heal by a later
@@ -809,6 +820,7 @@ export class SocketHub {
 
     let opened = false
     let reportedError = false
+    const dialledAt = Date.now()
     this.intentionalClose = false
     this.sawTraffic = false
     this.disposed = false
@@ -824,7 +836,7 @@ export class SocketHub {
       this.everConnected = true
       // The backoff is NOT reset here — see `markAlive`. A TCP accept is not
       // evidence that the server works.
-      this.startHeartbeat()
+      this.startHeartbeat(Date.now() - dialledAt)
       // WHAT THIS CONNECTION ASKS FOR, decided before `hello` is built and used
       // twice below: once as the fields it carries, once as what the sink is told
       // it bought. Read the opaque fields once for a consistent hello.
@@ -1036,16 +1048,21 @@ export class SocketHub {
     this.connect()
   }
 
-  private startHeartbeat(): void {
+  /** `handshakeMs`: how long the socket took to open, the link's first round trip. */
+  private startHeartbeat(handshakeMs: number): void {
     this.stopHeartbeat()
+    this.rttSamples = [handshakeMs]
     // First ping right away: it seeds the latency measurement on connect and, after
     // a reconnect, confirms the server is actually answering — an open socket alone
     // already cleared the indicator, and this verifies that optimism within ~1.5s.
     this.sendPing()
-    this.heartbeatTimer = setInterval(
-      () => this.sendPing(),
-      this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
-    )
+    this.heartbeatTimer = setInterval(() => {
+      this.sendPing()
+      // The retry cadence of a `transient` topic close: a key the server shed
+      // or could not decide is asked again here, never at once, so a failure
+      // that persists costs one ask per heartbeat and cannot spin.
+      this.askTopics()
+    }, this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS)
   }
 
   private sendPing(): void {
@@ -1061,16 +1078,27 @@ export class SocketHub {
 
   /** Two-stage alarm on the oldest unanswered ping: degraded, then down. Without
    *  this the health would only be re-checked when a message arrives — exactly what
-   *  isn't happening on a stalling connection. */
+   *  isn't happening on a stalling connection. Armed for whichever ping is oldest
+   *  now, so on a link with several pings in flight it follows each one. */
   private armStaleTimer(): void {
     this.clearStaleTimer()
+    const oldest = this.pingQueue[0]
+    if (oldest === undefined) return
+    const waitedMs = Date.now() - oldest
+    const next = [PING_DEGRADED_AFTER_MS, this.pingDownAfterMs()].find((at) => at > waitedMs)
+    if (next === undefined) return
     this.staleTimer = setTimeout(() => {
-      this.staleTimer = setTimeout(() => {
-        this.staleTimer = undefined
-        this.evaluateHealth()
-      }, PING_DOWN_AFTER_MS - PING_DEGRADED_AFTER_MS)
+      this.staleTimer = undefined
       this.evaluateHealth()
-    }, PING_DEGRADED_AFTER_MS)
+      this.armStaleTimer()
+    }, next - waitedMs)
+  }
+
+  /** How long a ping may go unanswered before the link is declared down. */
+  private pingDownAfterMs(): number {
+    const sorted = [...this.rttSamples].sort((a, b) => a - b)
+    const median = sorted[Math.floor((sorted.length - 1) / 2)] ?? 0
+    return Math.min(PING_DOWN_MAX_MS, Math.max(PING_DOWN_AFTER_MS, PING_DOWN_RTT_FACTOR * median))
   }
 
   private clearStaleTimer(): void {
@@ -1086,6 +1114,7 @@ export class SocketHub {
     this.clearStaleTimer()
     this.pingQueue = []
     this.lastRttMs = null
+    this.rttSamples = []
   }
 
   /** Any inbound traffic proves the connection is alive; clear the ping deadline. */
@@ -1682,7 +1711,8 @@ export class SocketHub {
     const oldest = this.pingQueue[0]
     if (oldest !== undefined) {
       const waitedMs = Date.now() - oldest
-      if (waitedMs >= PING_DOWN_AFTER_MS) return { status: 'down', rttMs: this.lastRttMs, since }
+      if (waitedMs >= this.pingDownAfterMs())
+        return { status: 'down', rttMs: this.lastRttMs, since }
       if (waitedMs >= PING_DEGRADED_AFTER_MS)
         return { status: 'degraded', rttMs: this.lastRttMs, since }
     }
@@ -1950,9 +1980,10 @@ export class SocketHub {
       if (sentAt !== undefined) {
         const receivedAt = Date.now()
         this.lastRttMs = receivedAt - sentAt
+        this.rttSamples = [...this.rttSamples, this.lastRttMs].slice(-RTT_SAMPLES)
         if (typeof msg.serverTime === 'number')
           this.noteClockSkew(sentAt, receivedAt, msg.serverTime)
-        if (this.pingQueue.length === 0) this.clearStaleTimer()
+        this.armStaleTimer()
         this.evaluateHealth()
       }
     },
@@ -2120,8 +2151,9 @@ export class SocketHub {
    * current socket, whenever that socket is open and the connection is not
    * declared lost. Nothing else asks. Every event that can make a key miss or
    * distrust its value only makes it unasked: a new socket (the server forgot
-   * the old one's keys), a declared loss (`markTopicsUnknown`), an `overflow`
-   * close, a fresh holder, a `refreshTopic`. Each answers with a snapshot.
+   * the old one's keys), a declared loss (`markTopicsUnknown`), a `transient`
+   * close (asked on the next heartbeat), a fresh holder, a `refreshTopic`.
+   * Each answers with a snapshot.
    */
   private askTopics(): void {
     const socket = this.socket
@@ -2173,10 +2205,10 @@ export class SocketHub {
         return
       }
       case 'topicClosed':
-        if (msg.reason === 'overflow') {
-          // The server shed this key under pressure: it is owed a new ask.
+        if (msg.reason === 'transient') {
+          // The server shed this key under pressure, or could not decide it: it
+          // is owed a new ask, sent by the next heartbeat (`startHeartbeat`).
           this.subscriptionRegistry.forgetTopicAsk(entry)
-          this.askTopics()
           return
         }
         this.subscriptionRegistry.closeTopic(entry, msg.reason)

@@ -202,7 +202,19 @@ export class TopicRouting {
       this.close(conn, key, 'refused')
       return
     }
-    const visible = await this.visibleTo(conn.principal, [{ kind, id: ref.id }])
+    let visible: boolean[]
+    try {
+      visible = await this.visibleTo(conn.principal, [{ kind, id: ref.id }])
+    } catch (err) {
+      // EVERY SUBSCRIBE IS ANSWERED (POD-6947), and a failed read decides
+      // nothing: not refused, and never admitted. `transient` makes the client
+      // ask again on its next heartbeat, when the read is tried anew.
+      log.warn('topic visibility read failed', { kind, err })
+      if (this.deps.clients.get(conn.id) !== conn) return
+      if (held) this.remove(routingKey, subscriberId)
+      this.close(conn, key, 'transient')
+      return
+    }
     // The read may outlive the socket. Never resurrect a disconnected subscriber.
     if (this.deps.clients.get(conn.id) !== conn) return
     if (!visible[0]) {
@@ -522,7 +534,7 @@ export class TopicRouting {
     this.deps.subscriptions.unsubscribe(key, subscriberId)
     this.resendStreak.delete(pairKey(subscriberId, key))
     const conn = this.deps.clients.get(String(subscriberId))
-    if (conn) this.close(conn, wireKey, 'overflow')
+    if (conn) this.close(conn, wireKey, 'transient')
     this.settleIfEmpty(key)
   }
 

@@ -54,8 +54,8 @@ export interface TopicEntry {
   position?: TopicPosition
   /**
    * The socket this key was last asked on (POD-6945). The hub asks every key
-   * whose socket is not the current one; a declared loss or an overflow
-   * forgets it, so the key is asked again.
+   * whose socket is not the current one; a declared loss or a `transient`
+   * close forgets it, so the key is asked again.
    */
   askedOn?: object
 }

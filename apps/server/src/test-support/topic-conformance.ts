@@ -1177,10 +1177,11 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
       expect(client.frames('topicClosed', key)).toContainEqual({
         type: 'topicClosed',
         key,
-        reason: 'overflow',
+        reason: 'transient',
       })
       client.setPressure(false)
-      await vi.advanceTimersByTimeAsync(1_000)
+      // Asked again on the next heartbeat (2.5 s).
+      await vi.advanceTimersByTimeAsync(3_000)
       await expectCurrent(world, client, c)
     })
 

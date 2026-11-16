@@ -1061,12 +1061,12 @@
       "wire": {
         "type": "topicClosed",
         "key": "machine.condition:machineId",
-        "reason": "overflow"
+        "reason": "transient"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"topicClosed\",\"key\":\"machine.condition:machineId\",\"reason\":\"overflow\"}"
+      "encoded": "{\"type\":\"topicClosed\",\"key\":\"machine.condition:machineId\",\"reason\":\"transient\"}"
     },
     {
       "schema": "TopicSnapshotMessage",

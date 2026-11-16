@@ -77,7 +77,7 @@ This replaces the transcript's opaque cursor as the resume point; the cursor sta
 - `topics.subscribe(key, { from?: Position })` returns a handle, and is **reference-counted per key per runtime**. Two views on the same transcript share one subscription.
 - The first message for a handle is always a `snapshot`. For a value, `unknown` is a valid snapshot.
 - After the socket reconnects, the client resubscribes every key that still has a holder. A log resubscribes from its last good position.
-- **One ask (POD-6945).** The hub sends every subscribe from one place: each held key remembers the socket it was last asked on, and the hub asks every key not asked on the current socket whenever that socket is open and the connection is not declared lost. A new socket, a declared loss, an `overflow` close, a new holder and a refresh only make a key unasked. The hub is also the only place that marks values unknown; the LiveStore's readings follow their topics. The server answers every subscribe it accepts: a snapshot read that fails answers `unknown`.
+- **One ask (POD-6945).** The hub sends every subscribe from one place: each held key remembers the socket it was last asked on, and the hub asks every key not asked on the current socket whenever that socket is open and the connection is not declared lost. A new socket, a declared loss, a `transient` close, a new holder and a refresh only make a key unasked; a `transient` key is asked on the next heartbeat, never at once (POD-6947). The hub is also the only place that marks values unknown; the LiveStore's readings follow their topics. The server answers every subscribe it accepts: a snapshot read that fails answers `unknown`.
 - When the connection service declares the connection lost, every value goes to `{ state: 'unknown', last, since }`. That uses its existing health rule, not every brief socket blip, so a quick reconnect does not flicker the screen. The UI shows unknown, and may show "last seen" from `last`. This is ADR 12's "honest code shows unknown".
 - **Topic frames never wait behind the sync feed.** They are applied on their own path, not on the feed's yielding task queue (`socket-hub.ts` `scheduleFeedTask`), and at most once per animation frame per consumer. Target: a topic frame reaches its MobX value within 50 ms p95 during a feed catch-up.
 - **Terminal bytes never touch MobX:** the terminal consumer writes them straight to the terminal renderer.
@@ -110,7 +110,7 @@ Server → client:
 - `topicSnapshot { key, position, payload, reset?, hasOlder? }`
 - `topicUpdate { key, position, payload }`
 - `topicEvent { key, payload }`
-- `topicClosed { key, reason }`, where reason is `refused`, `gone`, `revoked`, `overflow`, `unsupported` or `shutdown`
+- `topicClosed { key, reason }`, where reason is `refused`, `gone`, `revoked`, `transient`, `unsupported` or `shutdown`. `transient` (the server shed the key under pressure, or a visibility read failed) is the only reason the client asks again.
 
 Server → daemon: `topicWatch { key, on }`. Daemon → server: `topicPublish { key, payload }`.
 
