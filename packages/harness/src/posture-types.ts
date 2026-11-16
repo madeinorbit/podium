@@ -112,7 +112,12 @@ export type HomeEdit =
       path: readonly string[]
       value: string
       serves: PostureRequirement
-      /** As for `json-key`: only for a file in a home Podium owns. */
+      /**
+       * Create the file, holding only this table and key, when it does not
+       * exist yet. Unlike `json-key`, also for the person's own file where
+       * the operator decided so and a file holding only this table is
+       * measured to start the harness exactly like no file (Grok, §4.8).
+       */
       createIfMissing?: true
     }
 

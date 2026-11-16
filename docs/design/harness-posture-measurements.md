@@ -92,6 +92,41 @@ sign-in was needed. Config was passed inline with `OPENCODE_CONFIG_CONTENT`.
 | Per-launch allow channel for the engine | **None.** The documented places for an allow rule outside the command line are `~/.grok/config.toml` `[permission] allow = [...]`, a project `.grok/config.toml`, and `.claude/settings.json` (user or project). Grok also reads the user's `~/.claude/settings.json` permission rules. |
 | Reading outside the folder | `read_file`, `list_dir` and `grep` are read-only tools that "run without prompting, in every mode" unless a deny rule or hook blocks them (docs). Not measured. |
 
+### The engine's allow rule in the user config (POD-6949, 1.0.70)
+
+Measured over ACP with `grok agent stdio`, one fresh process and session per
+run, in scratch homes (`HOME` and `GROK_HOME` both scratch, so no
+`~/.claude/settings.json` rules apply; only `auth.json` copied in). "With the
+rule": `$GROK_HOME/config.toml` holds exactly what Podium's edit writes into a
+missing file, `[permission]` / `allow = ["Bash(podium *)"]`. "Without": no
+`config.toml`. The prompt asks the agent to run one command and nothing else;
+a permission request is answered with reject. Runs marked *stub* put a
+`podium` that only echoes first on `PATH`: the rule and the classifier judge
+the command text, and the stub keeps a write-looking verb inert.
+
+| Mode, command | Without the rule | With the rule |
+|---|---|---|
+| default (`session/set_mode default`), `podium --version` | **asks**: `session/request_permission` "Execute `podium --version`", 3 of 3 | **no ask, ran**: 3 of 3 |
+| `_meta.autoMode`, `podium --version` | no ask, ran: 8 of 8 | no ask, ran: 8 of 8 |
+| `_meta.autoMode`, `podium issue update --id 1 --stage review` (stub) | no ask, ran: 8 of 8 | no ask, ran: 8 of 8 |
+| `_meta.autoMode`, `podium issue delete 1` (stub) | **blocked, no ask**: 7 of 8. The tool call fails with "Auto mode blocked this action (Deleting a remote issue is an irreversible destructive write …)" and the agent stops; one run ran | **ran**: 8 of 8 |
+| `_meta.autoMode`, `podium merge-lock steal main` (stub) | blocked (1 of 1) | ran: 3 of 3 |
+| `_meta.autoMode`, `podium auth mint-session` (stub) | blocked (1 of 1) | not run |
+
+So the engine reads `[permission] allow` from the user config, and a matching
+rule approves the call before the auto-mode classifier sees it, as the docs
+say (a command that matches no allow rule "falls through to the mode"). An
+unidentified ACP client gets a classifier block as a failed tool call, not a
+`session/request_permission`.
+
+A config holding only that table, at first start (TUI, `posture-probe.ts`,
+fresh home, signed in): the screen is identical to a home with no
+`config.toml` (same welcome box, the "New /learn skill!" line, the prompt;
+nothing modal, still signed in). Grok writes the same files in both homes; the
+two `config.toml` files then differ only by the `[permission]` table, above
+Grok's own first-start keys (`[marketplace]`, `[[marketplace.sources]]`). An
+ACP start writes the same keys and keeps the table.
+
 ## Pi 1.5.0
 
 | Question | Result |

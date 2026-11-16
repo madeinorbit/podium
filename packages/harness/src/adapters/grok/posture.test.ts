@@ -76,6 +76,7 @@ const ENGINE_ALLOW_EDIT = {
   path: ['permission', 'allow'],
   value: 'Bash(podium *)',
   serves: 'podium-cli',
+  createIfMissing: true,
 } as const
 
 describe('grokPosture', () => {
@@ -182,12 +183,7 @@ describe('grokPosture', () => {
     ])
   })
 
-  it('engine: the person’s own config is edited, never created', () => {
-    const out = grokPosture(BUILDER.engine, request('engine', SUPERVISED))
-    expect(out.homeEdits[0]).not.toHaveProperty('createIfMissing')
-  })
-
-  it('engine: a GROK_HOME the context selects is Podium’s agent home; its config.toml may be created', () => {
+  it('engine: the rule follows a GROK_HOME the context selects', () => {
     const base = request('engine', AUTONOMOUS)
     const out = grokPosture(BUILDER.engine, {
       ...base,
@@ -198,11 +194,7 @@ describe('grokPosture', () => {
       }),
     })
     expect(out.homeEdits).toEqual([
-      {
-        ...ENGINE_ALLOW_EDIT,
-        file: '/var/lib/podium/agent-home/.grok/config.toml',
-        createIfMissing: true,
-      },
+      { ...ENGINE_ALLOW_EDIT, file: '/var/lib/podium/agent-home/.grok/config.toml' },
     ])
     expect(out.unmet).toEqual([])
   })

@@ -89,21 +89,22 @@ export function grokPosture(launch: PostureLaunch, request: PostureRequest): Pos
  * PowerShell rule form: its rule tool names are `Bash`, `Read`, `Edit`,
  * `Grep`, `MCPTool`, `WebFetch` and `WebSearch` (user guide, 1.0.77).
  *
- * A `GROK_HOME` the context selects is Podium's own agent home: the edit may
- * create its `config.toml`, which Grok itself writes only once a setting
- * changes. The person's own `~/.grok/config.toml` is never created by Podium.
+ * The edit creates a missing `config.toml`, in the person's own home too
+ * (operator decision, 2026-11-16), holding only that table. Measured on 1.0.70:
+ * a home whose config holds only the table starts exactly like one with none
+ * (same sign-in state, nothing modal), and Grok adds its own first-start keys
+ * below the table.
  */
 function podiumAllowEdit(request: PostureRequest): HomeEdit | undefined {
   const state = request.context.roots.state
   if (!state) return undefined
-  const selected = request.context.env.GROK_HOME?.trim()
   return {
     kind: 'toml-array-entry',
     file: join(state, 'config.toml'),
     path: ['permission', 'allow'],
     value: `Bash(${request.grants.podiumCli.name} *)`,
     serves: 'podium-cli',
-    ...(selected ? { createIfMissing: true as const } : {}),
+    createIfMissing: true,
   }
 }
 
