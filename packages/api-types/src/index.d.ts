@@ -5985,6 +5985,16 @@ type Output_machines_applyUpdate = {
                     };
                     state: "in" | "out" | "unknown";
                 };
+                logins?: undefined | {
+                    freshness?: number | undefined;
+                    homeId: string;
+                    identity?: undefined | {
+                        email?: string | undefined;
+                        fingerprint: string;
+                        providerAccountId?: string | undefined;
+                    };
+                    state: "in" | "out" | "unknown";
+                }[];
                 path?: string | undefined;
                 probeError?: undefined | {
                     reason: "timed-out";
