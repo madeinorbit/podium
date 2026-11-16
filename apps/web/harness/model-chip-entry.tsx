@@ -60,7 +60,8 @@ function ModeRow({ label, observedMode }: { label: string; observedMode?: string
     <div className="flex items-center gap-4 py-2" data-row={`mode-${label}`}>
       <span className="w-20 text-[12px] text-text-faint">{label}</span>
       <span className="flex min-w-0 items-center">
-        <SessionModelChip session={running(`mode-${label}`)} />
+        {/* The read-only face: the launch terms do not need a live driver. */}
+        <SessionModelChip session={{ ...running(`mode-${label}`), configureFields: [] }} />
         <SessionModeChip
           session={{
             ...(observedMode ? { observedMode } : {}),
@@ -72,12 +73,15 @@ function ModeRow({ label, observedMode }: { label: string; observedMode?: string
   )
 }
 
+const POSTURE_ONLY = new URLSearchParams(window.location.search).has('posture')
+
 function Page(): JSX.Element {
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-background p-6 text-foreground">
-        <Row label="idle" id="idle" />
-        <Row label="pending" id="pending" />
+        {/* `?posture` draws the launch terms alone (POD-6858). */}
+        {!POSTURE_ONLY && <Row label="idle" id="idle" />}
+        {!POSTURE_ONLY && <Row label="pending" id="pending" />}
         <ModeRow label="requested" />
         <ModeRow label="observed" observedMode="default" />
         <div className="mt-4 w-[34rem] rounded-[10px] border border-border p-3" data-row="notices">

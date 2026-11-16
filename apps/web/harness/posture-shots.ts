@@ -22,7 +22,7 @@ for (const theme of ['dark', 'light'] as const) {
   page.on('pageerror', (e) => errors.push(String(e.stack ?? e)))
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await page.addInitScript((mode) => localStorage.setItem('podium.theme.mode', mode), theme)
-  await page.goto('http://localhost:55595/model-chip-harness.html')
+  await page.goto('http://localhost:55595/model-chip-harness.html?posture')
   // A cold vite optimizes dependencies on the first load and reloads the page.
   await page.waitForSelector('[data-testid="posture-notices"]', { timeout: 120_000 }).catch((e) => {
     console.log('errors', JSON.stringify(errors.slice(0, 8)))
