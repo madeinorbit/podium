@@ -27,6 +27,7 @@ import {
   createTestSyncDatabase,
   createTestSyncQueries,
   createTestSyncRepository,
+  TEST_WORKSPACE_ID,
   testQueuedMessages,
   testSyncServerTables,
   testUpstreamOutbox,
@@ -146,7 +147,11 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(db),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 

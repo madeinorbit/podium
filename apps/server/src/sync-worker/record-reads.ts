@@ -9,6 +9,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { AutomationsRepository } from '../store/automations'
 import { CheckoutsRepository } from '../store/checkouts'
@@ -68,7 +69,9 @@ export function recordReadsOf(
       observationCheckpoints: new ObservationCheckpointsRepository(q),
       // Nothing writes on this connection, so nothing announces a write.
       repos: new ReposRepository(q, unsupported, new TableWrites()),
-      sync: new SyncRepository(q, syncServerTables),
+      // The self-hosted install's one workspace until each read request carries
+      // its workspace (POD-7021).
+      sync: new SyncRepository(q, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
     },
     effectExecutors: options.effectExecutors,
     now: options.now ?? Date.now,

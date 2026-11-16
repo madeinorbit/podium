@@ -2,14 +2,26 @@ import { bootStage } from './boot-timing'
 /**
  * Durable server-side store. Single writer (the server).
  *
- * SessionStore is the store's COMPOSITION ROOT, nothing more: it opens the
- * database, runs the versioned migration chain (src/migrations/), sequences the
- * per-boot identity refusals and idempotent heals, and constructs the
- * per-aggregate repositories in `./store/` — including the two cross-aggregate
- * late-bound lambdas (issues resolve their stable repo_id via the repos
- * aggregate; re-identifying a repo dual-writes onto its issues). Callers hold
- * the aggregate repository they need
- * (`store.issues`, `store.sync`, …) — there are no forwarding methods here.
+ * The store's COMPOSITION ROOT, nothing more, in two halves [POD-6959 design
+ * 2.4, "The store splits in two"]:
+ *
+ *  - StoreDatabase opens the database, runs the versioned migration chain
+ *    (src/migrations/) and the boot imports, owns the executor and the
+ *    lifecycle, sets up search and the change capture, holds the global
+ *    repositories, and provisions workspaces and opens their stores.
+ *  - SessionStore is ONE WORKSPACE's repositories over that database: it
+ *    sequences the workspace's identity refusals and idempotent heals, and
+ *    constructs the per-aggregate repositories in `./store/`, each bound to the
+ *    workspace — including the two cross-aggregate late-bound lambdas (issues
+ *    resolve their stable repo_id via the repos aggregate; re-identifying a repo
+ *    dual-writes onto its issues). Callers hold the aggregate repository they
+ *    need (`store.issues`, `store.sync`, …); the only forwarding methods are the
+ *    database's lifecycle, so a caller holding a store keeps working.
+ *
+ * Both classes live in this file because each needs the other at run time: a
+ * database opens its boot workspace's store, and `SessionStore.open` opens a
+ * database. Two modules would be a runtime import cycle, which the server's
+ * composition graph refuses (`scripts/server-composition-graph.ts`).
  *
  * Aggregate map:
  *  - sessions (+ pins/snoozes/tab_order/session_drafts) → store/sessions.ts
@@ -43,7 +55,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { IdentityDatabase, SqliteDb } from '@podium/identity'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type MachineId } from '@podium/model'
+import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
@@ -69,12 +81,14 @@ import {
 import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { importConfigSettings } from './settings-config-import'
 import { AccountsRepository } from './store/accounts'
 import { AgentProfilesRepository } from './store/agent-profiles'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
 import { ConversationsRepository } from './store/conversations'
+import { provisionWorkspaceFeed } from './store/database'
 import { EffectsRepository } from './store/effects'
 import { EventsRepository } from './store/events'
 import {
@@ -84,6 +98,12 @@ import {
   type StoreRefusal,
   type WatchdogOptions,
 } from './store/executor'
+import { type StoreContext, workspaceContext } from './store/executor/executor'
+import {
+  type GlobalQueries,
+  type LegacyWorkspaceQueries,
+  legacyWorkspaceQueries,
+} from './store/executor/sync-drizzle'
 import { GrantsRepository } from './store/grants'
 import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
@@ -127,143 +147,72 @@ export function defaultDbPath(): string {
   return join(stateDir(), 'podium.db')
 }
 
-export class SessionStore {
-  private readonly db: SqlDatabase
+/** What {@link StoreDatabase.open} takes beyond the path and the host machine. */
+export type StoreDatabaseOptions = SnapshotVerifierDeps & {
+  queryOnly?: boolean
   /**
-   * WHAT THE REPOSITORY SET IS BOUND TO [POD-3254, spec §3.1].
-   *
-   * Every repository below takes this object rather than the connection, so that
-   * converting one to the query layer is a change to that repository's own file
-   * and to nothing here — which is the whole reason this edit is made once, up
-   * front, instead of thirty-eight times during the conversion waves.
-   *
-   * An unconverted repository reads `executor.legacy`, the same connection this
-   * store opened; POD-3267 deletes that field at the end of Stage A, and the
-   * compiler then names anything still on it. Lifecycle operations and close
-   * now use the same scheduler as repository work.
+   * `whenLogAttaches` is a test store's (`openTestStore`): no change is
+   * captured until a change log attaches to the store
+   * ({@link StoreDatabase.attachChangeLog}), so a fixture that seeds rows
+   * with no log in the test has nothing to drain. Production captures
+   * from the end of the boot (POD-6920).
    */
-  private readonly executor: RootStoreExecutor<QueryClient>
-  private readonly publicationIdleSubscriptions = new Set<() => void>()
-  /** The synchronous query capability, handed to converted repositories. */
-  private readonly queries: RootStoreExecutor<QueryClient>['queries']
+  changeCapture?: 'atBoot' | 'whenLogAttaches'
   /**
-   * The store's per-table write announcement (POD-3247).
-   *
-   * Raised by write paths that do not go through the repository owning a cached
-   * read of that table. It has NO caller in the tree today: the one it was built
-   * for — the boot machine-identity upgrade, which wrote `repos` on the raw handle
-   * with SQL built from `sqlite_master` — was retired at POD-3246. The writer went;
-   * the shape did not. Every statement the async query layer runs through an
-   * executor is one, and a repository holding a cached read subscribes here rather
-   * than being named by each writer in turn. See `store/table-writes.ts`.
+   * THE WORKSPACE THE BOOT OPENS. Its repositories run the per-boot identity
+   * refusals and repairs, its settings decide whether this boot carries a
+   * full-text index, and the imports that predate workspaces (the enrollment
+   * ledger) write into it. A self-hosted install passes
+   * `SELF_HOSTED_WORKSPACE_ID`; nothing here chooses one.
+   */
+  bootWorkspace: WorkspaceId
+}
+
+/**
+ * ONE DATABASE [POD-6959 design 2.4, "The store splits in two"].
+ *
+ * Owns what there is one of per database: the executor, the migrations and the
+ * boot imports, the lifecycle (transfer, snapshots, planner statistics, close),
+ * search setup, the change-capture install, the global repositories, and the
+ * workspaces' stores. A workspace's repositories are {@link SessionStore}s,
+ * made by {@link StoreDatabase.workspace} and kept for the database's life.
+ */
+export class StoreDatabase {
+  /**
+   * The base query capability: the store's one drizzle instance with the global
+   * context. Global repositories take it; each workspace's queries are made
+   * from it ({@link legacyWorkspaceQueries}), so every workspace shares its
+   * prepared statements.
+   */
+  readonly queries: GlobalQueries
+  /**
+   * The store's per-table write announcement (POD-3247). One per database: a
+   * repository holding a cached read of a table subscribes here whichever
+   * workspace's store it belongs to. See `store/table-writes.ts`.
    */
   readonly tableWrites = new TableWrites()
+  /**
+   * Server-owned secrets (ADR 1 D6), over the install tables `server_secrets`
+   * and `meta`: a GLOBAL repository. POD-7013 moves the keys that belong to a
+   * workspace (the settings fingerprint key, the Telegram bot token) into
+   * `workspace_secrets` and gives them a workspace repository.
+   */
+  readonly secrets: ServerSecretsRepository
+  /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
+  readonly hostMachineId: MachineId
   /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
   private readonly snapshotVerifier: SnapshotVerifier
-  readonly repos: ReposRepository
-  /** Each machine's checkouts, as its scans reported them (POD-6644). */
-  readonly checkouts: CheckoutsRepository
-  readonly sessions: SessionsRepository
-  /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
-  readonly observationCheckpoints: ObservationCheckpointsRepository
-  readonly issues: IssuesRepository
-  readonly conversations: ConversationsRepository
-  readonly sync: SyncRepository
-  readonly identityUpgrade: IdentityUpgradeRepository
-  readonly superagent: SuperagentRepository
-  readonly settings: SettingsRepository
-  /** Sidebar/tab layout rows keyed `(user_id, key)` (POD-1350) — the shell chrome
-   *  that follows a person across devices. Device-local route/selection/geometry
-   *  stay in client ui-state. */
-  readonly layout: UserLayoutRepository
-  /** Server-owned dock-shell mapping keyed `(user_id, worktree_key)` (POD-4436) —
-   *  which shell belongs to a worktree, so the same dock shell opens on every
-   *  device. Device-local `podium.dockShells` remains as a cache; the server wins. */
-  readonly dockShells: UserDockShellRepository
-  /** Event-stream read positions keyed `(user_id, stream_id)` (POD-1380) — how far
-   *  a person has read the issue-event log, on every device they use. */
-  readonly readPositions: UserReadPositionRepository
-  /** Server-owned secrets (ADR 1 D6) — the keyed store POD-419 lifted them into,
-   *  out of the settings blob that round-trips to the browser. Same reasoning as
-   *  `accounts` below, now applied to the material that was left behind. */
-  readonly secrets: ServerSecretsRepository
-  /** The settings family's append-only audit trail (POD-421, ADR 9 D5 A3) — who
-   *  changed which setting, and who was refused. Server-only and projected into
-   *  nothing; see `store/settings-audit.ts` for why that is load-bearing. */
-  readonly settingsAudit: SettingsAuditRepository
-  /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
-   *  Deliberately NOT in the settings blob, which round-trips to the browser. */
-  readonly accounts: AccountsRepository
-  readonly machines: MachinesRepository
-  /** The `(entityRef, granteeUserId, verb)` grant edges (POD-1079, ADR 9 D2) —
-   *  read live at every access decision, never cached into a rights snapshot. */
-  readonly grants: GrantsRepository
-  /** User accounts (POD-1075's table, POD-1079's first reader) — the instance
-   *  role a command contract's `roleFloor` is compared against. */
-  readonly users: UsersRepository
-  /** Old sign-ins from before shared sign-in, and their carry records (POD-6751). */
-  readonly signInCarryOver: SignInCarryOverRepository
-  /** `(chatId -> UserId)` bindings (POD-1080, ADR 3 Amendment 1 D22) — the ONLY
-   *  thing an inbound Telegram message may be resolved against. An unbound chat
-   *  gets no principal and is refused; it never falls back to an operator. */
-  readonly telegramBindings: TelegramBindingsRepository
-  readonly events: EventsRepository
-  /** Cross-producer notification deduplication [spec:SP-ba61]. */
-  readonly notificationFacts: NotificationFactsRepository
-  /** One row per run of a plan quota window (POD-1571) — the only place Podium
-   *  keeps a quota number after the live read that produced it goes stale. */
-  readonly quotaHistory: QuotaHistoryRepository
-  /** One row per transcript the usage harvest has read (POD-1858) — what a task
-   *  cost, after the harvest's 7-day window has rolled past the work. */
-  readonly transcriptCosts: TranscriptCostsRepository
-  /** Unified agent messaging (#237) [spec:SP-34d7]. */
-  readonly messages: MessagesRepository
-  /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
-  readonly readWatermarks: ReadWatermarksRepository
-  /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
-  readonly interactions: InteractionsRepository
-  readonly workflows: WorkflowsRepository
-  readonly agentProfiles: AgentProfilesRepository
-  /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
-  readonly locks: LocksRepository
-  /** Janitor generation fencing + deterministic command outcomes [spec:SP-c29e]. */
-  readonly maintenance: MaintenanceRepository
-  /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
-  readonly automations: AutomationsRepository
-  /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
-  readonly effects: EffectsRepository
-  /** Normalized, restart-safe Shipping aggregate family. */
-  readonly shipping: ShippingRepository
-  /** Durable long-running operations (POD-2097) — updates now, server moves later. */
-  readonly updateRecovery: UpdateRecoveryStore
-  readonly operations: OperationStore
-  /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
-  readonly messagingTopics: MessagingTopicsRepository
-  /** Telegram conversation ↔ directly attached session (POD-6212). */
-  readonly messagingSessionAttachments: MessagingSessionAttachmentsRepository
-
-  /**
-   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
-   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
-   *
-   * It is a CONSTRUCTOR ARGUMENT rather than a file read here because the store must
-   * not decide who it is: the server, the split daemon and the CLI all read the same
-   * file, and a second reader is a second opinion waiting to happen.
-   *
-   * The default MINTS one instead of falling back to a constant. An unconfigured
-   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
-   * and saying so with a real UUID keeps the "an id is minted material or nothing"
-   * rule true everywhere. The old `'__local__'` default said the opposite: that
-   * unattributed rows are a legitimate durable state.
-   */
-  readonly hostMachineId: MachineId
+  private readonly publicationIdleSubscriptions = new Set<() => void>()
+  /** Each workspace's store, made once: a workspace's repositories hold its caches. */
+  private readonly workspaces = new Map<WorkspaceId, Promise<SessionStore>>()
+  private closing: Promise<void> | undefined
 
   /**
    * Whether this boot has a full-text search index — the resolved
-   * `command-palette` flag (PDM-25). Readers that must NOT offer a search the
-   * index cannot back (the superagent's `search_conversations`/`search_all`)
-   * ask this rather than re-resolving the flag, so they can never disagree with
-   * what the constructor actually built.
+   * `command-palette` flag (PDM-25) of the boot workspace. Readers that must NOT
+   * offer a search the index cannot back (the superagent's
+   * `search_conversations`/`search_all`) ask this rather than re-resolving the
+   * flag, so they can never disagree with what the boot actually built.
    */
   private searchIndexEnabledValue = false
 
@@ -272,24 +221,14 @@ export class SessionStore {
   }
 
   static async open(
-    path: string = defaultDbPath(),
-    hostMachineId: MachineId = asMachineId(randomUUID()),
-    options: SnapshotVerifierDeps & {
-      queryOnly?: boolean
-      /**
-       * `whenLogAttaches` is a test store's (`openTestStore`): no change is
-       * captured until a change log attaches to the store
-       * ({@link SessionStore.attachChangeLog}), so a fixture that seeds rows
-       * with no log in the test has nothing to drain. Production captures
-       * from the end of the boot (POD-6920).
-       */
-      changeCapture?: 'atBoot' | 'whenLogAttaches'
-    } = {},
+    path: string,
+    hostMachineId: MachineId,
+    options: StoreDatabaseOptions,
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
       onReportFailure: (error) => log.error('transaction watchdog sink failed', { err: error }),
     },
-  ): Promise<SessionStore> {
+  ): Promise<StoreDatabase> {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     /**
      * The executor's report sinks, defined ONCE for both constructions below: a
@@ -343,7 +282,7 @@ export class SessionStore {
         importFingerprintKey(database, path === ':memory:' ? undefined : dirname(path))
         importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
         if (path !== ':memory:') {
-          importEnrollmentLedger(database, dirname(path))
+          importEnrollmentLedger(database, dirname(path), options.bootWorkspace)
           importUpdateSigningKey(database, dirname(path))
         }
         bootStage('imports', importsStarted)
@@ -359,9 +298,9 @@ export class SessionStore {
         executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
         await executor.exclusive(async () => configureStoreConnection(database))
       }
-      const store = new SessionStore(path, hostMachineId, options, database, executor)
+      const store = new StoreDatabase(path, hostMachineId, options, database, executor)
       const backfillStarted = performance.now()
-      await store.initialize()
+      await store.boot(options.bootWorkspace, options.queryOnly === true)
       bootStage('backfill', backfillStarted)
       // DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
       // synced record reads is captured, and a transaction that does not drain
@@ -392,199 +331,91 @@ export class SessionStore {
   private constructor(
     private readonly path: string,
     hostMachineId: MachineId,
-    options: SnapshotVerifierDeps & { queryOnly?: boolean },
-    database: SqlDatabase,
-    executor: RootStoreExecutor<QueryClient>,
+    options: SnapshotVerifierDeps,
+    /** The connection itself, for the exclusive-lane lifecycle steps only. */
+    readonly db: SqlDatabase,
+    /**
+     * WHAT EVERY REPOSITORY IS BOUND TO [POD-3254, spec §3.1]: the executor's
+     * query capability, through {@link queries} or a workspace's queries made
+     * from it. Lifecycle operations and close use the same scheduler as
+     * repository work.
+     */
+    private readonly executor: RootStoreExecutor<QueryClient>,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
     this.snapshotVerifier = new SnapshotVerifier(path, options)
-    this.db = database
-    this.executor = executor
-
-    /**
-     * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
-     * converted repository takes THIS OBJECT in the constructor slot its
-     * `SqlDatabase` occupied — `{ rootDb, createOrJoinTransaction }` together,
-     * because they are one
-     * capability — so it carries no branch for a case its own constructor cannot
-     * produce and no repository names the executor at all.
-     *
-     * B1 fills this same field from the ASYNCHRONOUS pair. The construction sites
-     * below do not change and the repositories' query bodies do not change; only
-     * their signatures gain `async` and their calls gain `await`.
-     *
-     * Absent only on a non-bun handle. Every path that builds a SessionStore is
-     * bun-backed; the restore path builds its own executor and does not come here.
-     */
-    this.queries = this.executor.queries
-
-    // Compose the per-aggregate repositories. The three cross-aggregate edges are
-    // injected as late-bound lambdas, bound WITHIN the set being built: sessions
-    // purge observation checkpoints, issues resolve their stable repo_id via the
-    // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
-    this.observationCheckpoints = new ObservationCheckpointsRepository(this.queries)
-    this.sessions = new SessionsRepository(
-      this.queries,
-      async (id) => await this.observationCheckpoints.purge(id),
-    )
-    this.issues = new IssuesRepository(
-      this.queries,
-      async (repoPath, machineId) => await this.repos.resolveIssueRepoId(repoPath, machineId),
-    )
-    this.repos = new ReposRepository(
-      this.queries,
-      async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
-      this.tableWrites,
-    )
-    this.checkouts = new CheckoutsRepository(this.queries)
-    this.interactions = new InteractionsRepository(this.queries)
-    this.conversations = new ConversationsRepository(this.queries)
-    // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it
-    // takes the narrow port the PACKAGE declares and `this.queries` satisfies
-    // structurally — `StoreQueries`, the same inversion `syncServerTables` uses one
-    // line's worth of reasoning away (POD-3338, spec §6 rule 20). Converted at
-    // POD-3416, so the argument is the same capability object every line above
-    // and below passes; the seam's undefined-check is the one asserted above,
-    // once, for the whole set (spec §6 rule 27b).
-    this.sync = new SyncRepository(this.queries, syncServerTables)
-    this.identityUpgrade = new IdentityUpgradeRepository(this.queries)
-    this.superagent = new SuperagentRepository(this.queries)
-    this.settings = new SettingsRepository(this.queries)
-    this.layout = new UserLayoutRepository(this.queries)
-    this.dockShells = new UserDockShellRepository(this.queries)
-    this.readPositions = new UserReadPositionRepository(this.queries)
+    this.queries = executor.queries
     this.secrets = new ServerSecretsRepository(this.queries)
-    this.settingsAudit = new SettingsAuditRepository(this.queries)
-    this.accounts = new AccountsRepository(this.queries)
-    this.grants = new GrantsRepository(this.queries)
-    this.machines = new MachinesRepository(
-      this.queries,
-      this.grants,
-      this.grants.machineRecordWrites,
-    )
-    this.signInCarryOver = new SignInCarryOverRepository(this.queries)
-    this.users = new UsersRepository(this.queries, this.machines, this.grants, this.signInCarryOver)
-    this.users.setMemberCreated(
-      async (userId) => await this.superagent.seedMemberGlobalThread(userId),
-    )
-    this.telegramBindings = new TelegramBindingsRepository(this.queries)
-    this.events = new EventsRepository(this.queries)
-    this.notificationFacts = new NotificationFactsRepository(this.queries)
-    this.quotaHistory = new QuotaHistoryRepository(this.queries)
-    this.transcriptCosts = new TranscriptCostsRepository(this.queries)
-    this.messages = new MessagesRepository(this.queries)
-    this.readWatermarks = new ReadWatermarksRepository(this.queries)
-    this.workflows = new WorkflowsRepository(this.queries)
-    this.agentProfiles = new AgentProfilesRepository(this.queries)
-    this.locks = new LocksRepository(this.queries)
-    this.maintenance = new MaintenanceRepository(this.queries)
-    this.automations = new AutomationsRepository(this.queries)
-    this.effects = new EffectsRepository(this.queries)
-    this.shipping = new ShippingRepository(this.queries)
-    this.updateRecovery = new UpdateRecoveryStore(this.queries, this.grants.machineRecordWrites)
-    this.operations = new OperationStore(this.queries)
-    this.messagingTopics = new MessagingTopicsRepository(this.queries)
-    this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)
-  }
-
-  private async initialize(): Promise<void> {
-    await this.settings.initializeSnapshot()
-    // Per-boot runtime steps (environment-conditional FTS objects, the identity
-    // refusals and the remaining data heals) — never schema DDL.
-    //
-    // THE IDENTITY REFUSALS RUN FIRST, ahead of every reader in the process. The
-    // one-time rewrites they replaced ran here for a reason that outlived them
-    // (POD-318): it is not just that nothing may WRITE a pre-upgrade row, nothing
-    // may READ one either. `SessionRegistry` loads the sessions map in its
-    // constructor, before the composition root can call `ensureHostMachine`. A
-    // check that ran there would let live Session objects be built on rows the
-    // process is about to declare unservable.
-    // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
-    // also decides whether this boot carries a full-text index at all. Read ONCE,
-    // here — flipping the toggle takes effect at the next boot, so nothing has to
-    // rebuild an index underneath a running process. `settings` is constructed
-    // above, so a config-forced value is honoured on the very first boot.
-    // #140 defense in depth (ported from main's boot migrate): renumber any
-    // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
-    // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
-    // POD-1926: references left behind by a hard purge of an empty draft. Neither
-    // `sessions.issue_id` nor `issue_ref_letters.issue_id` declares a foreign key,
-    // so before the purge learned to scrub them a deleted draft left a session row
-    // (and a letter counter) naming an issue that no longer exists. Runs HERE, in
-    // the facade constructor, for the same reason the identity refusals do:
-    // ahead of every reader, so no in-memory `Session` can be holding the stale
-    // pointer when it is cleared.
-    await this.refuseLegacyIdentities()
-    await this.backfillLegacyWorktreeMachines()
-    this.searchIndexEnabledValue = isFeatureEnabled(
-      'command-palette',
-      await this.settings.getSettings(),
-    )
-    await this.conversations.ensureFts(this.searchIndexEnabledValue)
-    await this.superagent.seedGlobalThread()
-    // UNIQUE(repo_id, seq) is installed by the schema migrations. Historical
-    // dangling references are repaired once by sync-without-boot-reconcile,
-    // which also invalidates their synced records with generation changes.
-  }
-
-  /** Run-once historical migration; no receipt until the host is enrolled. */
-  private async backfillLegacyWorktreeMachines(): Promise<void> {
-    const result = await this.issues.backfillLegacyWorktreeMachineIds(this.hostMachineId)
-    if (result && (result.backfilled > 0 || result.skipped > 0)) {
-      log.warn(
-        `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
-          `left ${result.skipped} for manual recovery (a session on another machine contradicts this host)`,
-      )
-    }
   }
 
   /**
-   * THE TWO IDENTITY REFUSALS THIS DATABASE MUST PASS BEFORE ANYTHING READS IT.
-   *
-   * Both are the residue halves of one-time boot upgrades that were retired once
-   * their deletion horizon passed (POD-3246). The rewrites are gone; the reads
-   * that told them whether they had worked are not, because what they answer is
-   * not "did the rewrite run" but "is this database servable at all".
-   *
-   *   - A RETIRED MACHINE SENTINEL (POD-318) means rows naming a machine that
-   *     does not exist while the fleet answers to a minted UUID. Serving that is
-   *     how the placeholder era stranded people's sessions.
-   *   - A MISSING repo_id (POD-1360) means issues that belong to no repo, since
-   *     `repo_id` is what they are bucketed and numbered by.
-   *
-   * Both refuse the boot rather than warning, and both name what they found, so
-   * an operator gets a database to restore instead of a week of wrong answers.
-   * A MISSING PREFIX only warns, on the same grading as before: it costs a repo
-   * its human-facing refs until the next `addRepo` repairs it, and refusing to
-   * boot over it would trade a cosmetic defect for an outage.
+   * The boot's per-database steps around the boot workspace's own: provision it,
+   * run its identity refusals and repairs, and decide search from its settings.
+   * The order inside is the order the single store always had: search is set up
+   * after the repairs and before the global thread is seeded.
    */
-  private async refuseLegacyIdentities(): Promise<void> {
-    const sentinels = await this.machines.legacyMachineSentinelSites()
-    if (sentinels.length > 0) {
-      throw new Error(
-        `retired machine sentinels (${RETIRED_MACHINE_SENTINELS.join(', ')}) are still stored ` +
-          `in ${sentinels.join(', ')} — this database predates POD-318 and no shipped ` +
-          'Podium can serve it; restore a backup taken after the upgrade',
-      )
-    }
-    const { repoIdsMissing, prefixesMissing } = await this.repos.legacyRepoResidue()
-    const issuesMissing = await this.issues.issuesMissingRepoId()
-    if (repoIdsMissing > 0 || issuesMissing > 0) {
-      throw new Error(
-        `legacy repo identity is unfilled (repos: ${repoIdsMissing}, issues: ${issuesMissing}) — ` +
-          'this database predates POD-1360 and no shipped Podium can serve it; refusing to ' +
-          'serve rows that belong to no repo',
-      )
-    }
-    if (prefixesMissing > 0) {
-      log.warn(
-        `${prefixesMissing} repo(s) have no human-facing prefix; refs for them ` +
-          'resolve once the repo is re-registered',
-      )
-    }
+  private async boot(bootWorkspace: WorkspaceId, queryOnly: boolean): Promise<void> {
+    // A self-hosted install's row exists from the upgrade (contract C4); this
+    // makes it so for any boot workspace. A store that cannot be written
+    // provisions nothing.
+    if (!queryOnly) await this.provisionWorkspace(bootWorkspace)
+    const store = new SessionStore(this, bootWorkspace)
+    this.workspaces.set(bootWorkspace, Promise.resolve(store))
+    await store.refuseAndRepair()
+    // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
+    // also decides whether this boot carries a full-text index at all. Read ONCE,
+    // here — flipping the toggle takes effect at the next boot, so nothing has to
+    // rebuild an index underneath a running process. `settings` is initialized
+    // by the repairs above, so a config-forced value is honoured on the very
+    // first boot.
+    this.searchIndexEnabledValue = isFeatureEnabled(
+      'command-palette',
+      await store.settings.getSettings(),
+    )
+    await store.conversations.ensureFts(this.searchIndexEnabledValue)
+    await store.seed()
+  }
+
+  /**
+   * Create `workspaceId`'s provisioning row (`store/database.ts`), in the global
+   * context. Idempotent: a provisioned workspace keeps its row.
+   */
+  async provisionWorkspace(workspaceId: WorkspaceId): Promise<void> {
+    await this.queries.createOrJoinTransaction(async () => {
+      await provisionWorkspaceFeed(this.queries.db).run({
+        workspaceId,
+        feedId: randomUUID(),
+        epoch: randomUUID(),
+        mintedAt: Date.now(),
+      })
+    })
+  }
+
+  /**
+   * `workspaceId`'s store: its repositories over this database, made on the
+   * first call and the same object on every later one. The first call runs the
+   * workspace's boot steps (the settings snapshot, the identity refusals and
+   * repairs, the global thread). It provisions nothing: a workspace is
+   * provisioned by whoever creates it ({@link provisionWorkspace}).
+   */
+  async workspace(workspaceId: WorkspaceId): Promise<SessionStore> {
+    const open = this.workspaces.get(workspaceId)
+    if (open !== undefined) return await open
+    const opening = (async () => {
+      const store = new SessionStore(this, workspaceId)
+      await store.refuseAndRepair()
+      await store.seed()
+      return store
+    })()
+    this.workspaces.set(workspaceId, opening)
+    // A workspace that failed to open is not kept: the next call tries again.
+    opening.catch(() => {
+      if (this.workspaces.get(workspaceId) === opening) this.workspaces.delete(workspaceId)
+    })
+    return await opening
   }
 
   /** The exact newest migration identity the transfer target will verify. */
@@ -689,7 +520,8 @@ export class SessionStore {
    * its capture into the log cannot commit. The boot does this for every
    * server store; a test store does it when its test wires a change log over
    * the store (`SessionRegistry.create`, `logStoreRecords`). Idempotent: a
-   * second call waits for the first.
+   * second call waits for the first. The triggers are the database's, so this
+   * covers every workspace.
    */
   async attachChangeLog(): Promise<void> {
     this.changeLogAttached ??= this.executor.exclusive(
@@ -698,48 +530,28 @@ export class SessionStore {
     await this.changeLogAttached
   }
 
-  /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
-   *  0, SAVEPOINT inside an open transaction). Narrow seam for cross-aggregate
-   *  atomic writes — the write-seam Ledger binds an entity write and its change
-   *  append into one span ([spec:SP-3fe2] #255) — without exposing the db handle.
-   *
-   *  The executor owns the transaction scope and drains registered post-commit
-   *  work after the outermost commit. Nested registrations are discarded on
-   *  rollback or merged into the parent on savepoint release. */
-  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
-    return await this.executor.transact(async () => fn())
-  }
-
   /** Apply retirement DDL only after the local import committed its receipt. */
   async retireImportedIdentityStorage(): Promise<void> {
     await this.executor.exclusive(async () => retireImportedIdentityStorage(this.db))
   }
 
   /**
-   * The database port of the identity package (people and sign-in
-   * specification, section 2.2): the store's one drizzle instance and its
-   * transaction runner. Library statements, the package's statements and the
-   * server's own repository writes therefore join one transaction and roll
-   * back together.
+   * Run `fn` atomically as `context`'s transaction: a root transaction opened
+   * with it, or a savepoint of the open one when `context` may join it
+   * (`assertJoinable`). What {@link SessionStore.transact} runs on.
    */
-  identityDatabase(): IdentityDatabase {
-    const { rootDb, createOrJoinTransaction } = this.queries
-    const db = rootDb as unknown as SqliteDb
-    return {
-      dialect: 'sqlite',
-      db,
-      transaction: (fn) => createOrJoinTransaction(() => fn(db)),
-    }
+  async transactFor<T>(context: StoreContext, fn: () => T | Promise<T>): Promise<T> {
+    return await this.executor.transact(async () => fn(), context)
   }
 
   /** An external effect after the caller's commit: on the open span, or at once
-   *  when none is open, retained, isolated and waited for by {@link close} either
-   *  way [POD-6226]. */
+   *  when none is open, retained, isolated and waited for by {@link close}
+   *  either way [POD-6226]. */
   effect(step: () => void | Promise<void>, label: string): void {
     this.executor.effect(step, label)
   }
 
-  /** Subscribe to publication idle; release explicitly or when this store closes. */
+  /** Subscribe to publication idle; release explicitly or when this database closes. */
   onPublicationIdle(listener: () => void): () => void {
     const stop = this.executor.scheduler.onIdle(listener)
     const unsubscribe = () => {
@@ -764,7 +576,7 @@ export class SessionStore {
     )
   }
 
-  /** Refresh the statistics every `intervalMs` until the store closes. Restarts a running timer. */
+  /** Refresh the statistics every `intervalMs` until the database closes. Restarts a running timer. */
   startPlannerStatistics(intervalMs: number = PLANNER_STATISTICS_INTERVAL_MS): void {
     if (this.plannerStatisticsTimer !== undefined) clearInterval(this.plannerStatisticsTimer)
     this.plannerStatisticsTimer = setInterval(() => {
@@ -775,7 +587,17 @@ export class SessionStore {
     this.plannerStatisticsTimer.unref?.()
   }
 
+  /**
+   * Close the database, and with it every workspace's store. The first call
+   * closes; a later one (another workspace's store closing the same database)
+   * waits for it.
+   */
   async close(persist?: () => Promise<void>): Promise<void> {
+    this.closing ??= this.closeOnce(persist)
+    await this.closing
+  }
+
+  private async closeOnce(persist?: () => Promise<void>): Promise<void> {
     if (this.plannerStatisticsTimer !== undefined) clearInterval(this.plannerStatisticsTimer)
     this.plannerStatisticsTimer = undefined
     // Abort the detached verifier first, then await its child inside close so a
@@ -783,8 +605,11 @@ export class SessionStore {
     // exclusive-lane membership — the proof never held exclusive.
     for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
     // Grouped event appends still waiting for their transaction are written,
-    // not dropped with the connection (POD-6233).
-    await this.events.settleGroupedAppends()
+    // not dropped with the connection (POD-6233), in every workspace.
+    const opened = await Promise.allSettled(this.workspaces.values())
+    for (const result of opened) {
+      if (result.status === 'fulfilled') await result.value.events.settleGroupedAppends()
+    }
     const verifierClosed = this.snapshotVerifier.close()
     await this.executor.close(async () => {
       try {
@@ -793,5 +618,434 @@ export class SessionStore {
         await verifierClosed
       }
     })
+  }
+}
+
+/**
+ * ONE WORKSPACE'S REPOSITORIES over a {@link StoreDatabase} [POD-6959 design
+ * 2.4]. Made by `database.workspace(id)`; callers hold the aggregate repository
+ * they need (`store.issues`, `store.sync`, …).
+ *
+ * Every repository here is handed this workspace's queries: a transaction it
+ * opens is for this workspace, and joins only this workspace's work. Until a
+ * repository's scoping task lands (POD-7015 to POD-7023) its statements still
+ * run unbound on the legacy `rootDb` ({@link LegacyWorkspaceQueries}).
+ *
+ * The lifecycle methods below are the database's, forwarded so a caller holding
+ * the store keeps working; on a self-hosted install there is one workspace, so
+ * closing its store closes the database.
+ */
+export class SessionStore {
+  /** The database these repositories run over. */
+  readonly database: StoreDatabase
+  /** The workspace every repository here is bound to. */
+  readonly workspaceId: WorkspaceId
+  /** The connection, for the tests that read rows under the repositories. */
+  protected readonly db: SqlDatabase
+  /** This workspace's queries; every repository below takes them. */
+  private readonly queries: LegacyWorkspaceQueries
+  /** The context of this workspace's transactions. */
+  private readonly context: StoreContext
+  readonly repos: ReposRepository
+  /** Each machine's checkouts, as its scans reported them (POD-6644). */
+  readonly checkouts: CheckoutsRepository
+  readonly sessions: SessionsRepository
+  /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
+  readonly observationCheckpoints: ObservationCheckpointsRepository
+  readonly issues: IssuesRepository
+  readonly conversations: ConversationsRepository
+  /** The workspace's change log, feed and kind generations: bound to this workspace. */
+  readonly sync: SyncRepository
+  readonly identityUpgrade: IdentityUpgradeRepository
+  readonly superagent: SuperagentRepository
+  readonly settings: SettingsRepository
+  /** Sidebar/tab layout rows keyed `(user_id, key)` (POD-1350) — the shell chrome
+   *  that follows a person across devices. Device-local route/selection/geometry
+   *  stay in client ui-state. */
+  readonly layout: UserLayoutRepository
+  /** Server-owned dock-shell mapping keyed `(user_id, worktree_key)` (POD-4436) —
+   *  which shell belongs to a worktree, so the same dock shell opens on every
+   *  device. Device-local `podium.dockShells` remains as a cache; the server wins. */
+  readonly dockShells: UserDockShellRepository
+  /** Event-stream read positions keyed `(user_id, stream_id)` (POD-1380) — how far
+   *  a person has read the issue-event log, on every device they use. */
+  readonly readPositions: UserReadPositionRepository
+  /** The database's global secrets repository ({@link StoreDatabase.secrets}). */
+  readonly secrets: ServerSecretsRepository
+  /** The settings family's append-only audit trail (POD-421, ADR 9 D5 A3) — who
+   *  changed which setting, and who was refused. Server-only and projected into
+   *  nothing; see `store/settings-audit.ts` for why that is load-bearing. */
+  readonly settingsAudit: SettingsAuditRepository
+  /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
+   *  Deliberately NOT in the settings blob, which round-trips to the browser. */
+  readonly accounts: AccountsRepository
+  readonly machines: MachinesRepository
+  /** The `(entityRef, granteeUserId, verb)` grant edges (POD-1079, ADR 9 D2) —
+   *  read live at every access decision, never cached into a rights snapshot. */
+  readonly grants: GrantsRepository
+  /** User accounts (POD-1075's table, POD-1079's first reader) — the instance
+   *  role a command contract's `roleFloor` is compared against. */
+  readonly users: UsersRepository
+  /** Old sign-ins from before shared sign-in, and their carry records (POD-6751). */
+  readonly signInCarryOver: SignInCarryOverRepository
+  /** `(chatId -> UserId)` bindings (POD-1080, ADR 3 Amendment 1 D22) — the ONLY
+   *  thing an inbound Telegram message may be resolved against. An unbound chat
+   *  gets no principal and is refused; it never falls back to an operator. */
+  readonly telegramBindings: TelegramBindingsRepository
+  readonly events: EventsRepository
+  /** Cross-producer notification deduplication [spec:SP-ba61]. */
+  readonly notificationFacts: NotificationFactsRepository
+  /** One row per run of a plan quota window (POD-1571) — the only place Podium
+   *  keeps a quota number after the live read that produced it goes stale. */
+  readonly quotaHistory: QuotaHistoryRepository
+  /** One row per transcript the usage harvest has read (POD-1858) — what a task
+   *  cost, after the harvest's 7-day window has rolled past the work. */
+  readonly transcriptCosts: TranscriptCostsRepository
+  /** Unified agent messaging (#237) [spec:SP-34d7]. */
+  readonly messages: MessagesRepository
+  /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
+  readonly readWatermarks: ReadWatermarksRepository
+  /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
+  readonly interactions: InteractionsRepository
+  readonly workflows: WorkflowsRepository
+  readonly agentProfiles: AgentProfilesRepository
+  /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
+  readonly locks: LocksRepository
+  /**
+   * Janitor generation fencing + deterministic command outcomes [spec:SP-c29e].
+   * A workspace repository: its command ledger (`maintenance_commands`) is
+   * workspace data, and the install-wide lease (`maintenance_leases`) is an
+   * install table a workspace transaction may write.
+   */
+  readonly maintenance: MaintenanceRepository
+  /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
+  readonly automations: AutomationsRepository
+  /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
+  readonly effects: EffectsRepository
+  /** Normalized, restart-safe Shipping aggregate family. */
+  readonly shipping: ShippingRepository
+  /** Durable long-running operations (POD-2097) — updates now, server moves later. */
+  readonly updateRecovery: UpdateRecoveryStore
+  readonly operations: OperationStore
+  /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
+  readonly messagingTopics: MessagingTopicsRepository
+  /** Telegram conversation ↔ directly attached session (POD-6212). */
+  readonly messagingSessionAttachments: MessagingSessionAttachmentsRepository
+
+  /**
+   * Open a database and return its boot workspace's store: the one-call form
+   * for a single-workspace process (a script, a test, a tool). The workspace is
+   * `options.workspace`, or the self-hosted install's when absent. The server
+   * composition opens the {@link StoreDatabase} itself (`server.ts`).
+   */
+  static async open(
+    path: string = defaultDbPath(),
+    hostMachineId: MachineId = asMachineId(randomUUID()),
+    options: Omit<StoreDatabaseOptions, 'bootWorkspace'> & { workspace?: WorkspaceId } = {},
+    watchdog?: WatchdogOptions,
+  ): Promise<SessionStore> {
+    const { workspace = SELF_HOSTED_WORKSPACE_ID, ...rest } = options
+    const database = await StoreDatabase.open(
+      path,
+      hostMachineId,
+      { ...rest, bootWorkspace: workspace },
+      watchdog,
+    )
+    return await database.workspace(workspace)
+  }
+
+  /** Made by {@link StoreDatabase.workspace} only. */
+  constructor(database: StoreDatabase, workspaceId: WorkspaceId) {
+    this.database = database
+    this.workspaceId = workspaceId
+    this.db = database.db
+    // ONE OBJECT PER WORKSPACE: a workspace definition's bound view is cached
+    // per handle, so the handle is made once here, never per call.
+    this.queries = legacyWorkspaceQueries(database.queries, workspaceId)
+    this.context = workspaceContext(workspaceId)
+    this.secrets = database.secrets
+
+    // Compose the per-aggregate repositories. The three cross-aggregate edges are
+    // injected as late-bound lambdas, bound WITHIN the set being built: sessions
+    // purge observation checkpoints, issues resolve their stable repo_id via the
+    // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
+    this.observationCheckpoints = new ObservationCheckpointsRepository(this.queries)
+    this.sessions = new SessionsRepository(
+      this.queries,
+      async (id) => await this.observationCheckpoints.purge(id),
+    )
+    this.issues = new IssuesRepository(
+      this.queries,
+      async (repoPath, machineId) => await this.repos.resolveIssueRepoId(repoPath, machineId),
+    )
+    this.repos = new ReposRepository(
+      this.queries,
+      async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
+      database.tableWrites,
+    )
+    this.checkouts = new CheckoutsRepository(this.queries)
+    this.interactions = new InteractionsRepository(this.queries)
+    this.conversations = new ConversationsRepository(this.queries)
+    // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it
+    // takes the narrow port the PACKAGE declares and `this.queries` satisfies
+    // structurally (POD-3338, spec §6 rule 20). It is bound to this workspace:
+    // its feed, change log and kind generations are this workspace's.
+    this.sync = new SyncRepository(this.queries, syncServerTables, workspaceId)
+    this.identityUpgrade = new IdentityUpgradeRepository(this.queries)
+    this.superagent = new SuperagentRepository(this.queries)
+    this.settings = new SettingsRepository(this.queries)
+    this.layout = new UserLayoutRepository(this.queries)
+    this.dockShells = new UserDockShellRepository(this.queries)
+    this.readPositions = new UserReadPositionRepository(this.queries)
+    this.settingsAudit = new SettingsAuditRepository(this.queries)
+    this.accounts = new AccountsRepository(this.queries)
+    this.grants = new GrantsRepository(this.queries)
+    this.machines = new MachinesRepository(
+      this.queries,
+      this.grants,
+      this.grants.machineRecordWrites,
+    )
+    this.signInCarryOver = new SignInCarryOverRepository(this.queries)
+    this.users = new UsersRepository(this.queries, this.machines, this.grants, this.signInCarryOver)
+    this.users.setMemberCreated(
+      async (userId) => await this.superagent.seedMemberGlobalThread(userId),
+    )
+    this.telegramBindings = new TelegramBindingsRepository(this.queries)
+    this.events = new EventsRepository(this.queries)
+    this.notificationFacts = new NotificationFactsRepository(this.queries)
+    this.quotaHistory = new QuotaHistoryRepository(this.queries)
+    this.transcriptCosts = new TranscriptCostsRepository(this.queries)
+    this.messages = new MessagesRepository(this.queries)
+    this.readWatermarks = new ReadWatermarksRepository(this.queries)
+    this.workflows = new WorkflowsRepository(this.queries)
+    this.agentProfiles = new AgentProfilesRepository(this.queries)
+    this.locks = new LocksRepository(this.queries)
+    this.maintenance = new MaintenanceRepository(this.queries)
+    this.automations = new AutomationsRepository(this.queries)
+    this.effects = new EffectsRepository(this.queries)
+    this.shipping = new ShippingRepository(this.queries)
+    this.updateRecovery = new UpdateRecoveryStore(this.queries, this.grants.machineRecordWrites)
+    this.operations = new OperationStore(this.queries)
+    this.messagingTopics = new MessagingTopicsRepository(this.queries)
+    this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)
+  }
+
+  /**
+   * The workspace's first boot steps, ahead of every reader of its rows: the
+   * settings snapshot, then the identity refusals and the remaining data heals
+   * — never schema DDL.
+   *
+   * THE IDENTITY REFUSALS RUN FIRST, ahead of every reader in the process. The
+   * one-time rewrites they replaced ran here for a reason that outlived them
+   * (POD-318): it is not just that nothing may WRITE a pre-upgrade row, nothing
+   * may READ one either. `SessionRegistry` loads the sessions map in its
+   * constructor, before the composition root can call `ensureHostMachine`. A
+   * check that ran there would let live Session objects be built on rows the
+   * process is about to declare unservable.
+   *
+   * #140 defense in depth (ported from main's boot migrate): renumber any
+   * (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
+   * no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
+   * POD-1926: references left behind by a hard purge of an empty draft. Neither
+   * `sessions.issue_id` nor `issue_ref_letters.issue_id` declares a foreign key,
+   * so before the purge learned to scrub them a deleted draft left a session row
+   * (and a letter counter) naming an issue that no longer exists. Runs HERE, at
+   * the workspace's first open, for the same reason the identity refusals do:
+   * ahead of every reader, so no in-memory `Session` can be holding the stale
+   * pointer when it is cleared.
+   */
+  async refuseAndRepair(): Promise<void> {
+    await this.settings.initializeSnapshot()
+    await this.refuseLegacyIdentities()
+    await this.backfillLegacyWorktreeMachines()
+  }
+
+  /**
+   * The workspace's seeded rows: its global superagent thread. UNIQUE(repo_id,
+   * seq) is installed by the schema migrations. Historical dangling references
+   * are repaired once by sync-without-boot-reconcile, which also invalidates
+   * their synced records with generation changes.
+   */
+  async seed(): Promise<void> {
+    await this.superagent.seedGlobalThread()
+  }
+
+  /** Run-once historical migration; no receipt until the host is enrolled. */
+  private async backfillLegacyWorktreeMachines(): Promise<void> {
+    const result = await this.issues.backfillLegacyWorktreeMachineIds(this.hostMachineId)
+    if (result && (result.backfilled > 0 || result.skipped > 0)) {
+      log.warn(
+        `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
+          `left ${result.skipped} for manual recovery (a session on another machine contradicts this host)`,
+      )
+    }
+  }
+
+  /**
+   * THE TWO IDENTITY REFUSALS THIS DATABASE MUST PASS BEFORE ANYTHING READS IT.
+   *
+   * Both are the residue halves of one-time boot upgrades that were retired once
+   * their deletion horizon passed (POD-3246). The rewrites are gone; the reads
+   * that told them whether they had worked are not, because what they answer is
+   * not "did the rewrite run" but "is this database servable at all".
+   *
+   *   - A RETIRED MACHINE SENTINEL (POD-318) means rows naming a machine that
+   *     does not exist while the fleet answers to a minted UUID. Serving that is
+   *     how the placeholder era stranded people's sessions.
+   *   - A MISSING repo_id (POD-1360) means issues that belong to no repo, since
+   *     `repo_id` is what they are bucketed and numbered by.
+   *
+   * Both refuse the boot rather than warning, and both name what they found, so
+   * an operator gets a database to restore instead of a week of wrong answers.
+   * A MISSING PREFIX only warns, on the same grading as before: it costs a repo
+   * its human-facing refs until the next `addRepo` repairs it, and refusing to
+   * boot over it would trade a cosmetic defect for an outage.
+   */
+  private async refuseLegacyIdentities(): Promise<void> {
+    const sentinels = await this.machines.legacyMachineSentinelSites()
+    if (sentinels.length > 0) {
+      throw new Error(
+        `retired machine sentinels (${RETIRED_MACHINE_SENTINELS.join(', ')}) are still stored ` +
+          `in ${sentinels.join(', ')} — this database predates POD-318 and no shipped ` +
+          'Podium can serve it; restore a backup taken after the upgrade',
+      )
+    }
+    const { repoIdsMissing, prefixesMissing } = await this.repos.legacyRepoResidue()
+    const issuesMissing = await this.issues.issuesMissingRepoId()
+    if (repoIdsMissing > 0 || issuesMissing > 0) {
+      throw new Error(
+        `legacy repo identity is unfilled (repos: ${repoIdsMissing}, issues: ${issuesMissing}) — ` +
+          'this database predates POD-1360 and no shipped Podium can serve it; refusing to ' +
+          'serve rows that belong to no repo',
+      )
+    }
+    if (prefixesMissing > 0) {
+      log.warn(
+        `${prefixesMissing} repo(s) have no human-facing prefix; refs for them ` +
+          'resolve once the repo is re-registered',
+      )
+    }
+  }
+
+  /**
+   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
+   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
+   *
+   * It is an OPEN ARGUMENT rather than a file read here because the store must
+   * not decide who it is: the server, the split daemon and the CLI all read the same
+   * file, and a second reader is a second opinion waiting to happen.
+   *
+   * The default MINTS one instead of falling back to a constant. An unconfigured
+   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
+   * and saying so with a real UUID keeps the "an id is minted material or nothing"
+   * rule true everywhere. The old `'__local__'` default said the opposite: that
+   * unattributed rows are a legitimate durable state.
+   */
+  get hostMachineId(): MachineId {
+    return this.database.hostMachineId
+  }
+
+  /** The database's per-table write announcement ({@link StoreDatabase.tableWrites}). */
+  get tableWrites(): TableWrites {
+    return this.database.tableWrites
+  }
+
+  /** See {@link StoreDatabase.searchIndexEnabled}. */
+  get searchIndexEnabled(): boolean {
+    return this.database.searchIndexEnabled
+  }
+
+  /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
+   *  0, SAVEPOINT inside an open transaction), as THIS WORKSPACE's transaction.
+   *  Narrow seam for cross-aggregate atomic writes — the write-seam Ledger binds
+   *  an entity write and its change append into one span ([spec:SP-3fe2] #255) —
+   *  without exposing the db handle.
+   *
+   *  The executor owns the transaction scope and drains registered post-commit
+   *  work after the outermost commit. Nested registrations are discarded on
+   *  rollback or merged into the parent on savepoint release. Opened inside
+   *  another workspace's transaction it is refused. */
+  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
+    return await this.database.transactFor(this.context, fn)
+  }
+
+  /**
+   * The database port of the identity package (people and sign-in
+   * specification, section 2.2): the store's one drizzle instance and this
+   * workspace's transaction runner. Library statements, the package's statements
+   * and the server's own repository writes therefore join one transaction of
+   * this workspace and roll back together.
+   */
+  identityDatabase(): IdentityDatabase {
+    const { rootDb, createOrJoinTransaction } = this.queries
+    const db = rootDb as unknown as SqliteDb
+    return {
+      dialect: 'sqlite',
+      db,
+      transaction: (fn) => createOrJoinTransaction(async () => await fn(db)),
+    }
+  }
+
+  // ---- the database's lifecycle, forwarded (see the class comment) ----
+
+  async schemaVersionForTransfer(): Promise<string> {
+    return await this.database.schemaVersionForTransfer()
+  }
+
+  async checkpointForTransfer(): Promise<void> {
+    await this.database.checkpointForTransfer()
+  }
+
+  preflightUpdateBackup(): BackupPreflight {
+    return this.database.preflightUpdateBackup()
+  }
+
+  latestDatabaseSnapshot(): string | undefined {
+    return this.database.latestDatabaseSnapshot()
+  }
+
+  discoverDatabaseSnapshots(): boolean {
+    return this.database.discoverDatabaseSnapshots()
+  }
+
+  get transferFenceActive(): boolean {
+    return this.database.transferFenceActive
+  }
+
+  async beginTransferFence(): Promise<void> {
+    await this.database.beginTransferFence()
+  }
+
+  async endTransferFence(): Promise<void> {
+    await this.database.endTransferFence()
+  }
+
+  async attachChangeLog(): Promise<void> {
+    await this.database.attachChangeLog()
+  }
+
+  async retireImportedIdentityStorage(): Promise<void> {
+    await this.database.retireImportedIdentityStorage()
+  }
+
+  effect(step: () => void | Promise<void>, label: string): void {
+    this.database.effect(step, label)
+  }
+
+  onPublicationIdle(listener: () => void): () => void {
+    return this.database.onPublicationIdle(listener)
+  }
+
+  async refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void> {
+    await this.database.refreshPlannerStatistics(when)
+  }
+
+  startPlannerStatistics(intervalMs?: number): void {
+    this.database.startPlannerStatistics(intervalMs)
+  }
+
+  /** Close the database (and with it every workspace's store over it). */
+  async close(persist?: () => Promise<void>): Promise<void> {
+    await this.database.close(persist)
   }
 }

@@ -25,7 +25,12 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import { SyncRepository } from './sync-repository'
-import { createTestSyncDatabase, createTestSyncQueries, testSyncServerTables } from './test-support'
+import {
+  createTestSyncDatabase,
+  createTestSyncQueries,
+  TEST_WORKSPACE_ID,
+  testSyncServerTables,
+} from './test-support'
 
 const session = (id: string): SessionId => id as SessionId
 
@@ -34,7 +39,7 @@ let repo: SyncRepository
 
 beforeEach(() => {
   db = createTestSyncDatabase()
-  repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+  repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables, TEST_WORKSPACE_ID)
 })
 
 /** Read straight off the fixture connection, so an assertion about what was
@@ -68,7 +73,11 @@ const recordingRepo = (): { repo: SyncRepository; sql: () => string[] } => {
     return realPrepare(s)
   }
   return {
-    repo: new SyncRepository(createTestSyncQueries(connection), testSyncServerTables),
+    repo: new SyncRepository(
+      createTestSyncQueries(connection),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    ),
     sql: () => recorded,
   }
 }

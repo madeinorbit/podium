@@ -86,8 +86,14 @@ export const testSyncServerTables: SyncServerTables = {
  * immediately — POD-305 added the three provenance columns to the real table and
  * this fixture did not have them.
  */
+/**
+ * The workspace a fixture repository is bound to. A `SyncRepository` names its
+ * workspace (POD-7010); the fixtures use the id a self-hosted install has.
+ */
+export const TEST_WORKSPACE_ID = 'local'
+
 export function createTestSyncRepository(): SyncRepository {
-  return new SyncRepository(createTestSyncQueries(), testSyncServerTables)
+  return new SyncRepository(createTestSyncQueries(), testSyncServerTables, TEST_WORKSPACE_ID)
 }
 
 /**

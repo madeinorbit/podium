@@ -34,20 +34,32 @@
  * names the list where such a file belongs.
  */
 
-import { firstAdminMemberId, type MachineId, primeFirstAdminMember } from '@podium/model'
+import {
+  firstAdminMemberId,
+  type MachineId,
+  primeFirstAdminMember,
+  type WorkspaceId,
+} from '@podium/model'
 import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
 import { clonePgTestDatabase, testStoreEngine } from './pg-test-database'
 
 /**
  * Build a `SessionStore` for a test. The parameters are the constructor's, in
  * its order: the database path (`':memory:'` unless the test needs a file), the
- * host machine identity, and the snapshot-verifier seam.
+ * host machine identity, and the snapshot-verifier seam; then the options.
+ *
+ * `workspace` is the workspace the store is for, and the one its database boots
+ * (POD-7010). The self-hosted install's when absent; a test that must not lean
+ * on that id passes another (POD-6959 task C2 runs the boot-wiring files so).
+ * Several workspaces over one database: `openWorkspaceStores`.
  */
 export async function openTestStore(
   path?: string,
   hostMachineId?: MachineId,
   snapshotVerifierDeps?: SnapshotVerifierDeps,
+  options: { workspace?: WorkspaceId } = {},
 ): Promise<SessionStore> {
   // Every parameter of the constructor has a default and an explicit `undefined`
   // selects it, so forwarding all three keeps the state-dir path, the freshly
@@ -59,6 +71,7 @@ export async function openTestStore(
   const store = await SessionStore.open(location, hostMachineId, {
     ...snapshotVerifierDeps,
     changeCapture: 'whenLogAttaches',
+    workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
   })
   primeFirstAdminMember(await firstAdminMemberId(store))
   return store

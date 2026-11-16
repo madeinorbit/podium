@@ -9,6 +9,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { syncServerTables } from '../../migrations/sync-server-tables'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
 import { installChangeCapture } from '../../sync/capture-triggers'
@@ -44,7 +45,7 @@ beforeEach(async () => {
       } as unknown as RecordSources),
   )
   capture = {
-    sync: new SyncRepository(queries, syncServerTables),
+    sync: new SyncRepository(queries, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
     transact: async (fn) => await queries.createOrJoinTransaction(fn),
   }
   runnable = new Set(['claude-code', 'codex'])

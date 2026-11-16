@@ -191,6 +191,7 @@ import { clientAddressForRequest } from './request-scheme'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { createServerReadiness } from './server-readiness'
 import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
@@ -198,7 +199,7 @@ import { closeServerFast } from './shutdown'
 import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
 import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { defaultDbPath, SessionStore } from './store'
+import { defaultDbPath, StoreDatabase } from './store'
 import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
@@ -697,9 +698,12 @@ export async function startServer(
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
-  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
+  // One database, and this install's one workspace over it (POD-7010).
+  const database = await StoreDatabase.open(defaultDbPath(), asMachineId(hostMachineId), {
     queryOnly: recoveryOnly,
+    bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
   })
+  const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)

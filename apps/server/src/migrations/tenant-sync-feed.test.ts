@@ -1,6 +1,7 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -38,7 +39,11 @@ describe('tenant feed migration', () => {
         expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
           generations.map((r) => ({ ...r, tenant_id: 'local' })),
         )
-        const sync = new SyncRepository(syncQueriesOver(db), syncServerTables)
+        const sync = new SyncRepository(
+          syncQueriesOver(db),
+          syncServerTables,
+          SELF_HOSTED_WORKSPACE_ID,
+        )
         expect(await sync.readFeedIdentity()).toEqual({
           feedId: 'feed-existing',
           epoch: 'epoch-existing',

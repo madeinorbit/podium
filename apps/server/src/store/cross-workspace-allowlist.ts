@@ -49,7 +49,6 @@ export const PROVISION_WORKSPACE_FEED: CrossWorkspaceAllowlistEntry = Object.fre
     'workspace lock can cover it; ON CONFLICT DO NOTHING makes a repeat harmless.',
   index: 'sync_feed primary key (workspace_id)',
   issue: 'POD-7010',
-  plannedBy: 'POD-7010',
 })
 
 /** Every entry, in the order they were added. */

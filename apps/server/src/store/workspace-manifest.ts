@@ -487,8 +487,7 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
     'apps/server/src/store/database.ts',
     {
       reason:
-        "the store database (POD-7010): install meta, migrations, and each workspace's provisioning insert",
-      plannedBy: 'POD-7010',
+        "the store database's own statements (POD-7010): each workspace's provisioning insert",
     },
   ],
 ])

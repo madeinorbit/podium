@@ -62,6 +62,7 @@ const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
   ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_retire-the-solo-user')) + 1,
 )
 
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { mintIdsIn, runDrizzleMigrations } from './index'
 
 const MIGRATION = 'retire-the-solo-user'
@@ -614,7 +615,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     if (compacted) upgraded.exec('DELETE FROM changes')
     runDrizzleMigrations(upgraded, ALL_MIGRATIONS)
     const queries = createTestSyncQueries(upgraded)
-    const bootRepo = new SyncRepository(queries, testSyncServerTables)
+    const bootRepo = new SyncRepository(queries, testSyncServerTables, SELF_HOSTED_WORKSPACE_ID)
     const records = new ModelRecords()
     records.set([
       {

@@ -70,6 +70,7 @@ import { copyFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { freeDiskBytes } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -263,7 +264,8 @@ async function remintRestoredEpoch(
   // seam the executor would have built, over its own connection (POD-3338 for the
   // port, POD-3416 for what the port carries). The store's own construction
   // passes `this.queries`.
-  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
+  // A restore re-mints a self-hosted database's feed: its one workspace's.
+  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables, SELF_HOSTED_WORKSPACE_ID)
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: async () => await repo.readFeedIdentity(),
@@ -356,7 +358,10 @@ function removeDbFiles(path: string): void {
 }
 
 /** `restore <backup> [--db <path>]`. Returns a process exit code. */
-export async function restoreCliMain(argv: string[], stdout: (s: string) => void = console.log): Promise<number> {
+export async function restoreCliMain(
+  argv: string[],
+  stdout: (s: string) => void = console.log,
+): Promise<number> {
   // One left-to-right pass, so a flag's VALUE can never be mistaken for the
   // positional. (The tempting `args.find((a, i) => i !== args.indexOf('--db') + 1)`
   // is wrong precisely when --db is absent: indexOf returns -1, so it excludes

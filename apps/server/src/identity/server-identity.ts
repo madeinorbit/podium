@@ -26,13 +26,14 @@ import {
 import { createLogger } from '@podium/logger'
 import { newMemberId } from '@podium/model'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { ensureLocalIdentity } from './ensure-local-identity'
 
 const log = createLogger('server:identity')
 
 /** The workspace id of a self-hosted database: it holds exactly one workspace. */
-export const LOCAL_WORKSPACE_ID = 'local'
+export const LOCAL_WORKSPACE_ID = SELF_HOSTED_WORKSPACE_ID
 
 /** One member row of the workspace database, as the seam shows it. */
 export interface ExistingMember {

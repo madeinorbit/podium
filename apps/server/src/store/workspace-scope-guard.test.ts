@@ -287,11 +287,7 @@ describe('POD-7014 — the workspace rule in the source', () => {
   it('keeps no stale list entry: every listed file exists, or names the task that adds it', () => {
     const lists = [
       ...[...GLOBAL_REPOSITORY_FILES].map(([file, { plannedBy }]) => ({ file, plannedBy })),
-      ...[...WORKSPACE_MINTERS.keys()].map((file) => ({
-        file,
-        // The self-hosted composition arrives with POD-7010.
-        plannedBy: file === 'apps/server/src/self-hosted-workspace.ts' ? 'POD-7010' : undefined,
-      })),
+      ...[...WORKSPACE_MINTERS.keys()].map((file) => ({ file, plannedBy: undefined })),
     ]
     for (const { file, plannedBy } of lists) {
       // A planned file that exists has landed: its task removes `plannedBy` (or this line).

@@ -17,6 +17,7 @@ import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
   createTestSyncQueries,
+  TEST_WORKSPACE_ID,
   testSyncServerTables,
 } from './test-support'
 
@@ -34,7 +35,13 @@ function parkRow(
 describe('listParkedUpstreamMutations — the archived outbox, read-only', () => {
   it('reports nothing on a database with an empty outbox', async () => {
     const db = createTestSyncDatabase()
-    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([])
+    expect(
+      await new SyncRepository(
+        createTestSyncQueries(db),
+        testSyncServerTables,
+        TEST_WORKSPACE_ID,
+      ).listParkedUpstreamMutations(),
+    ).toEqual([])
   })
 
   /**
@@ -49,7 +56,13 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
     parkRow(db, 'm-late', 'close', 3_000)
     parkRow(db, 'm-early', 'update', 1_000)
     parkRow(db, 'm-mid', 'claim', 2_000)
-    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([
+    expect(
+      await new SyncRepository(
+        createTestSyncQueries(db),
+        testSyncServerTables,
+        TEST_WORKSPACE_ID,
+      ).listParkedUpstreamMutations(),
+    ).toEqual([
       { mutationId: 'm-early', proc: 'update', queuedAt: 1_000 },
       { mutationId: 'm-mid', proc: 'claim', queuedAt: 2_000 },
       { mutationId: 'm-late', proc: 'close', queuedAt: 3_000 },
@@ -66,7 +79,11 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
    * a repository that failed to construct.
    */
   it('exposes a reader and NO writer for the archived table', () => {
-    const repo = new SyncRepository(createTestSyncQueries(), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
     const surface = repo as unknown as Record<string, unknown>
     expect(typeof surface.listParkedUpstreamMutations).toBe('function')
     for (const writer of [

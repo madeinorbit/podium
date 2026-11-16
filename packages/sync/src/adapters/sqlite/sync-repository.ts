@@ -41,7 +41,6 @@ import {
   preparedFamily as preparedFamilyOn,
   prepared as preparedOn,
 } from './prepared'
-import { SELF_HOSTED_TENANT_ID } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
@@ -651,10 +650,14 @@ export class SyncRepository {
     return this.rootDb
   }
 
+  /**
+   * `tenantId` is the workspace this repository is bound to, named by whoever
+   * builds it (a workspace's store, POD-7010); there is no default workspace.
+   */
   constructor(
     queries: StoreQueries,
     private readonly tables: SyncServerTables,
-    readonly tenantId: string = SELF_HOSTED_TENANT_ID,
+    readonly tenantId: string,
   ) {
     if (!tenantId) throw new Error('a sync repository requires a tenant')
     this.rootDb = queries.rootDb

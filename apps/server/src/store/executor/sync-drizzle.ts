@@ -347,8 +347,34 @@ export interface WorkspaceQueries {
   readonly createOrJoinTransaction: TransactionRunner
 }
 
-/** LEGACY until POD-7010 moves the callers to {@link GlobalQueries} or {@link WorkspaceQueries}. */
+/**
+ * WHAT A WORKSPACE REPOSITORY IS HANDED UNTIL ITS SCOPING TASK LANDS (POD-7015
+ * to POD-7023): its workspace's queries, plus the bare drizzle instance its
+ * definitions still run on unbound.
+ *
+ * The transaction runner is the workspace's, so every transaction such a
+ * repository opens is for its workspace already. Its statements bind once the
+ * repository reads `db` instead of `rootDb`; that task also narrows the
+ * repository's constructor from {@link StoreQueries} to {@link WorkspaceQueries}.
+ * It satisfies {@link StoreQueries} structurally, which is how the repositories
+ * accept it with no change to their files.
+ */
+export type LegacyWorkspaceQueries = WorkspaceQueries & Pick<GlobalQueries, 'rootDb'>
+
+/**
+ * LEGACY until each repository's scoping task narrows its constructor to
+ * {@link GlobalQueries} or {@link WorkspaceQueries}: the shape every repository
+ * constructor names today. A {@link LegacyWorkspaceQueries} satisfies it.
+ */
 export type StoreQueries = GlobalQueries
+
+/** {@link workspaceQueries} with the legacy `rootDb`, for the repository set of one workspace. */
+export function legacyWorkspaceQueries(
+  base: GlobalQueries,
+  workspaceId: WorkspaceId,
+): LegacyWorkspaceQueries {
+  return Object.freeze({ ...workspaceQueries(base, workspaceId), rootDb: base.rootDb })
+}
 
 /**
  * The executor's ambient transaction: it opens a root transaction with

@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { MachineId, UserId } from '@podium/model'
+import type { MachineId, UserId, WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 const VERSION = 1
@@ -103,8 +103,14 @@ function latestState(snapshot: ValidatedLedgerSnapshot): Map<string, { serial: n
 
 /** Apply a validated snapshot atomically. Rows absent from the database are
  * deliberately ignored: the machine must pair again, so no credential is
- * invented. The caller owns the exclusive upgrade lane. */
-export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boolean {
+ * invented. The caller owns the exclusive upgrade lane, and names the workspace
+ * the ledger's machines belong to (a self-hosted install's, POD-7010): the
+ * import re-mints that workspace's feed epoch. */
+export function importEnrollmentLedger(
+  db: SqlDatabase,
+  stateDir: string,
+  workspaceId: WorkspaceId,
+): boolean {
   const marker = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEDGER_IMPORT_MARKER) as { value: string } | undefined
   if (marker) return false
   const path = join(stateDir, 'enrollment.ledger')
@@ -162,7 +168,7 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
         }
       }
     }
-    db.prepare("UPDATE sync_feed SET epoch = ? WHERE tenant_id = 'local'").run(`ledger-import-${Date.now()}`)
+    db.prepare('UPDATE sync_feed SET epoch = ? WHERE tenant_id = ?').run(`ledger-import-${Date.now()}`, workspaceId)
     db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
     db.exec('COMMIT')
   } catch (error) {
