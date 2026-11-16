@@ -46,9 +46,7 @@ export function homeIdFor(credentialId: string, harness: HomeHarness): string {
 
 /** The credential and harness a Podium home id names; null for `default` and
  *  for anything that is not a well-formed home id. */
-export function parseHomeId(
-  homeId: string,
-): { credentialId: string; harness: HomeHarness } | null {
+export function parseHomeId(homeId: string): { credentialId: string; harness: HomeHarness } | null {
   const parts = homeId.split(':')
   if (parts.length !== 2) return null
   const [credentialId, harness] = parts as [string, string]

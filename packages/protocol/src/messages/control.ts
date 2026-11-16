@@ -5,11 +5,6 @@ import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './b
 import { CodexCompleteRequestMessage } from './codex'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
-  CredentialRemoveRequestMessage,
-  HomeEnsureRequestMessage,
-  HomeRemoveRequestMessage,
-} from './homes'
-import {
   BrowseDirsRequestMessage,
   DirOpRequestMessage,
   RepoOpRequestMessage,
@@ -39,6 +34,11 @@ import {
   HeadlessTurnAckMessage,
   HeadlessTurnRequestMessage,
 } from './headless'
+import {
+  CredentialRemoveRequestMessage,
+  HomeEnsureRequestMessage,
+  HomeRemoveRequestMessage,
+} from './homes'
 import {
   AgentQuotaRequestMessage,
   MemoryBreakdownRequestMessage,

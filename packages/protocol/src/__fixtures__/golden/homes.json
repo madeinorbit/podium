@@ -1,0 +1,231 @@
+{
+  "family": "homes",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "CredentialRemoveOutcome",
+      "variant": "minimal",
+      "wire": "removed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"removed\""
+    },
+    {
+      "schema": "CredentialRemoveOutcome",
+      "variant": "full",
+      "wire": "removed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"removed\""
+    },
+    {
+      "schema": "CredentialRemoveRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "credentialRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code",
+        "fingerprint": "fingerprint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"credentialRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\",\"fingerprint\":\"fingerprint\"}"
+    },
+    {
+      "schema": "CredentialRemoveRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "credentialRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code",
+        "fingerprint": "fingerprint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"credentialRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\",\"fingerprint\":\"fingerprint\"}"
+    },
+    {
+      "schema": "CredentialRemoveResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "credentialRemoveResult",
+        "requestId": "requestId",
+        "outcome": "removed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"credentialRemoveResult\",\"requestId\":\"requestId\",\"outcome\":\"removed\"}"
+    },
+    {
+      "schema": "CredentialRemoveResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "credentialRemoveResult",
+        "requestId": "requestId",
+        "outcome": "removed",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"credentialRemoveResult\",\"requestId\":\"requestId\",\"outcome\":\"removed\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "HomeCredentialId",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "<root>: Invalid"
+    },
+    {
+      "schema": "HomeCredentialId",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "<root>: Invalid"
+    },
+    {
+      "schema": "HomeEnsureRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "homeEnsureRequest",
+        "requestId": "requestId",
+        "credentialId": "credentialId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "credentialId: Invalid"
+    },
+    {
+      "schema": "HomeEnsureRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "homeEnsureRequest",
+        "requestId": "requestId",
+        "credentialId": "credentialId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "credentialId: Invalid"
+    },
+    {
+      "schema": "HomeEnsureResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "homeEnsureResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeEnsureResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HomeEnsureResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "homeEnsureResult",
+        "requestId": "requestId",
+        "ok": true,
+        "homeId": "homeId",
+        "created": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeEnsureResult\",\"requestId\":\"requestId\",\"ok\":true,\"homeId\":\"homeId\",\"created\":true,\"error\":\"error\"}"
+    },
+    {
+      "schema": "HomeHarness",
+      "variant": "minimal",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "HomeHarness",
+      "variant": "full",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "HomeRemoveRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "homeRemoveRequest",
+        "requestId": "requestId",
+        "homeId": "homeId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeRemoveRequest\",\"requestId\":\"requestId\",\"homeId\":\"homeId\"}"
+    },
+    {
+      "schema": "HomeRemoveRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "homeRemoveRequest",
+        "requestId": "requestId",
+        "homeId": "homeId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeRemoveRequest\",\"requestId\":\"requestId\",\"homeId\":\"homeId\"}"
+    },
+    {
+      "schema": "HomeRemoveResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "homeRemoveResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HomeRemoveResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "homeRemoveResult",
+        "requestId": "requestId",
+        "ok": true,
+        "removed": true,
+        "freedBytes": 1,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"homeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"removed\":true,\"freedBytes\":1,\"error\":\"error\"}"
+    }
+  ]
+}

@@ -49,7 +49,12 @@ describe('home ids', () => {
 
 describe('home messages', () => {
   it('parse as control and daemon frames', () => {
-    const ensure = { type: 'homeEnsureRequest', requestId: 'r1', credentialId: CRED, harness: 'claude-code' }
+    const ensure = {
+      type: 'homeEnsureRequest',
+      requestId: 'r1',
+      credentialId: CRED,
+      harness: 'claude-code',
+    }
     const remove = { type: 'homeRemoveRequest', requestId: 'r2', homeId: homeIdFor(CRED, 'codex') }
     const credentialRemove = {
       type: 'credentialRemoveRequest',
@@ -72,7 +77,13 @@ describe('home messages', () => {
       created: true,
     }
     const refused = { type: 'homeEnsureResult', requestId: 'r1', ok: false, error: 'no' }
-    const removed = { type: 'homeRemoveResult', requestId: 'r2', ok: true, removed: true, freedBytes: 12 }
+    const removed = {
+      type: 'homeRemoveResult',
+      requestId: 'r2',
+      ok: true,
+      removed: true,
+      freedBytes: 12,
+    }
     const changed = { type: 'credentialRemoveResult', requestId: 'r3', outcome: 'changed' }
     expect(HomeEnsureResultMessage.parse(ensured)).toEqual(ensured)
     expect(HomeEnsureResultMessage.parse(refused)).toEqual(refused)

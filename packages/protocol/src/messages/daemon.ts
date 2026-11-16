@@ -6,11 +6,6 @@ import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-op
 import { CodexCompleteResultMessage } from './codex'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
-  CredentialRemoveResultMessage,
-  HomeEnsureResultMessage,
-  HomeRemoveResultMessage,
-} from './homes'
-import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
   DirOpResultMessage,
@@ -40,6 +35,11 @@ import {
   HeadlessTurnEventMessage,
   HeadlessTurnResultMessage,
 } from './headless'
+import {
+  CredentialRemoveResultMessage,
+  HomeEnsureResultMessage,
+  HomeRemoveResultMessage,
+} from './homes'
 import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
