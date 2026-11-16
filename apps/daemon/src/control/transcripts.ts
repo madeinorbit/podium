@@ -4,9 +4,11 @@ import { join } from 'node:path'
 import {
   declaredValue,
   discoveryRoots,
+  type HarnessAccountScope,
   harnessKindForResumeKind,
   manifestFor,
   resolveWithinRoots,
+  withHomeScope,
 } from '@podium/harness'
 import {
   fileChainSource,
@@ -22,6 +24,7 @@ import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { managementAccountFor, resolveManagementAccount } from '../harness-management.js'
+import { sessionHomeFor } from '../session-harness-context'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')
@@ -32,13 +35,15 @@ const log = createLogger('daemon:transcripts')
 export type TranscriptArchiveContext = Pick<
   DaemonContext,
   'homeDir' | 'accountHome' | 'harnessRuntime' | 'send'
->
+> &
+  Partial<Pick<DaemonContext, 'access' | 'homes'>>
 
 /** What a transcript read needs to name the account (POD-6534). */
 export type TranscriptAccountContext = Pick<
   DaemonContext,
   'homeDir' | 'accountHome' | 'harnessRuntime'
->
+> &
+  Partial<Pick<DaemonContext, 'access' | 'homes'>>
 
 /**
  * Resolve a session's TRUE harness for the transcript-source layer, which routes
@@ -105,7 +110,7 @@ export async function sourceForRead(
   const account = await resolveManagementAccount(ctx, { wait: false })
   // No home to name at all: nothing to read, never the daemon's own HOME.
   if (!account) return fileChainSource([], () => [])
-  const scope = managementAccountFor(account, agentKind)
+  const scope = inReadHome(ctx, msg.sessionId, agentKind, managementAccountFor(account, agentKind))
   const source = await transcriptSourceFromGrammar(grammar, {
     podiumSessionId: msg.sessionId,
     cwd: msg.cwd,
@@ -115,6 +120,26 @@ export async function sourceForRead(
     transcriptRoot: join(stateDir(), 'transcripts'),
   })
   return withTranscriptAnnotations(source, () => annotations.read(msg.sessionId))
+}
+
+/**
+ * The account scope moved into the session's home, when it runs in one
+ * (credential management §10): its transcripts are there. A home that cannot
+ * be named any more (the session ended, the home went) reads the default
+ * scope, where the server's path hint from discovery still finds the file.
+ */
+function inReadHome(
+  ctx: TranscriptAccountContext,
+  sessionId: SessionId,
+  agentKind: AgentKind,
+  scope: HarnessAccountScope,
+): HarnessAccountScope {
+  try {
+    const home = sessionHomeFor(ctx, sessionId, agentKind)
+    return home ? withHomeScope(agentKind, scope, home.dir) : scope
+  } catch {
+    return scope
+  }
 }
 
 // Unified cursor-anchored read (replaces the old parked-tail + scroll-back-page
@@ -177,10 +202,11 @@ export async function readTranscriptMirror(
   try {
     // The account's home (POD-6534), the one the transcript reads use.
     const account = await resolveManagementAccount(ctx, { wait: false })
-    const real = await resolveWithinRoots(
-      msg.path,
-      discoveryRoots(account?.home ?? ctx.homeDir ?? homedir()),
-    )
+    const real = await resolveWithinRoots(msg.path, [
+      ...discoveryRoots(account?.home ?? ctx.homeDir ?? homedir()),
+      // Podium's homes hold transcripts too (credential management §10).
+      ...(ctx.homes?.list().map((home) => home.dir) ?? []),
+    ])
     if (!real) {
       refuse('denied') // outside every discovery root, or vanished — never read
       return

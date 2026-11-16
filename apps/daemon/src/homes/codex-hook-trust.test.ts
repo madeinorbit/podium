@@ -64,7 +64,7 @@ describe('CodexHookTrust', () => {
 
   it('a failed or empty probe gives no trust and is asked again next time', async () => {
     let attempt = 0
-    const { cache, calls, cleaned } = trust(async () => {
+    const { cache, calls, cleaned } = trust(async (): Promise<Record<string, string>> => {
       attempt += 1
       if (attempt === 1) throw new Error('codex app-server exited')
       if (attempt === 2) return {}

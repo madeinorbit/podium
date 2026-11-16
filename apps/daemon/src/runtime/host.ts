@@ -152,7 +152,10 @@ export function daemonRuntimeHost(
       // (control/transcripts.ts), and refuse anything outside with a typed
       // error. The driver passes only the path the locator just returned, but
       // the guard is what makes that a fact rather than a promise.
-      const real = await resolveWithinRoots(path, discoveryRoots(ctx.homeDir ?? homedir()))
+      const real = await resolveWithinRoots(path, [
+        ...discoveryRoots(ctx.homeDir ?? homedir()),
+        ...(ctx.homes?.list().map((home) => home.dir) ?? []),
+      ])
       if (!real) {
         throw new DriverRefusalError(
           { reason: 'invalid_value', detail: 'archive path outside transcript roots' },

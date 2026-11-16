@@ -163,3 +163,16 @@ function sizeOf(path: string): number {
   for (const name of readNames(path)) total += sizeOf(join(path, name))
   return total
 }
+
+/**
+ * The conversation roots Podium's homes add to discovery: each home's
+ * directory is its harness's state root, the folder the scanner walks for
+ * that harness (`projects/` for Claude Code, `sessions/` for Codex).
+ */
+export function homeDiscoveryRoots(
+  homes: readonly HarnessHome[],
+): Partial<Record<HomeHarness, string[]>> {
+  const roots: Partial<Record<HomeHarness, string[]>> = {}
+  for (const home of homes) roots[home.harness] = [...(roots[home.harness] ?? []), home.dir]
+  return roots
+}

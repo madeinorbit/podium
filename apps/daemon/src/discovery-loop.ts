@@ -1,8 +1,9 @@
+import { createLogger } from '@podium/logger'
+import type { AgentKind } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { type ConversationDeltaWire, createActiveRefresh } from './active-refresh'
 import { countWorker, timeTask } from './loop-attribution'
 import type { DiscoveryWorkerClient } from './worker-client'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:discovery')
 
@@ -29,6 +30,8 @@ export function createDiscoveryLoop(opts: {
   send(msg: DaemonMessage): void
   homeDir?: string | undefined
   cachePath?: string | undefined
+  /** More conversation roots per harness, read at every scan: Podium's homes. */
+  extraRoots?: () => Partial<Record<AgentKind, string[]>>
   /** False disables unsolicited pushes (the periodic loop + connect snapshot). */
   background: boolean
   intervalMs: number
@@ -64,10 +67,15 @@ export function createDiscoveryLoop(opts: {
   // files; it shares kind `'indexRefresh'` with the periodic/full scans, so the
   // worker client may coalesce it onto an in-flight scan and return a superset —
   // still a correct upsert (see createActiveRefresh's note). Failures are loud.
+  const rootsInput = (): { extraRoots?: Partial<Record<AgentKind, string[]>> } => {
+    const extraRoots = opts.extraRoots?.()
+    return extraRoots && Object.keys(extraRoots).length > 0 ? { extraRoots } : {}
+  }
   const activeRefresh = createActiveRefresh({
     runPathsRefresh: (paths) =>
       opts.workerClient.runJob('indexRefresh', {
         paths,
+        ...rootsInput(),
         ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
         ...(opts.cachePath ? { cachePath: opts.cachePath } : {}),
       }) as Promise<ConversationDeltaWire>,
@@ -90,6 +98,7 @@ export function createDiscoveryLoop(opts: {
     inFlight = (async () => {
       try {
         return (await opts.workerClient.runJob('indexRefresh', {
+          ...rootsInput(),
           ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
           ...(opts.cachePath ? { cachePath: opts.cachePath } : {}),
           ...(full ? { full: true } : {}),

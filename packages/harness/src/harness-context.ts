@@ -166,16 +166,16 @@ export function harnessAccount(
  * default directory under another name.
  */
 export function withHomeScope<
-  Scope extends { readonly home: string; readonly env: Readonly<Record<string, string>> },
+  Scope extends { readonly home: string; readonly env: HarnessEnvironment },
 >(
   kind: BuiltinHarnessKind | string,
   scope: Scope,
   dir: string,
-): Scope & { readonly env: Readonly<Record<string, string>>; readonly roots: HarnessRoots } {
+): Scope & { readonly roots: HarnessRoots } {
   const variable = harnessHomeVariable(kind)
   const manifest = manifestFor(kind)
   if (!variable || !manifest) throw new Error(`${kind} keeps no login in a home Podium can make`)
-  const env = Object.freeze({ ...scope.env, [variable]: dir })
+  const env = Object.freeze({ ...scope.env, [variable]: dir }) as Scope['env']
   return Object.freeze({ ...scope, env, roots: Object.freeze(manifest.roots(scope.home, env)) })
 }
 

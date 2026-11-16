@@ -159,7 +159,7 @@ import { managementQuotaFetcher } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import { CodexHookTrust } from './homes/codex-hook-trust'
-import { HomeRegistry } from './homes/registry'
+import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
 import { stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
@@ -661,10 +661,63 @@ export async function createDaemonHostRuntime(args: {
       stopLoopAttribution = startLoopAttribution()
     }
   }
+  // Podium's harness homes (credential management §10). Removing one first
+  // stops what runs in it: wired below once the engines exist.
+  const homesRoot = opts.homesDir ?? join(stateDir(), 'homes')
+  const settledCommandEnv = (): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    )
+  const codexHookTrust = new CodexHookTrust({
+    root: homesRoot,
+    probe: ({ installation, flags, probeHome }) =>
+      probeCodexLaunchHookTrust({
+        executable: installation.executable,
+        env: { ...settledCommandEnv(), CODEX_HOME: probeHome },
+        flags,
+        cwd: probeHome,
+      }),
+    // The throwaway home: Codex's daemon there stopped, then deleted.
+    cleanProbeHome: async (probeHome) => {
+      await stopHome(
+        { homeId: 'probe', credentialId: 'probe', harness: 'codex', dir: probeHome },
+        {
+          ...systemProcessPorts,
+          sessionsIn: () => [],
+          stopSession: async () => undefined,
+          codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+          commandEnv: settledCommandEnv,
+        },
+      )
+      await rm(probeHome, { recursive: true, force: true })
+    },
+  })
+  const homes = new HomeRegistry({
+    root: homesRoot,
+    beforeRemove: (home) =>
+      stopHome(home, {
+        ...systemProcessPorts,
+        sessionsIn: (homeId) =>
+          [...ctx.sessions.entries()]
+            .filter(
+              ([sessionId, session]) =>
+                session.harnessContext?.harnessHome?.id === homeId ||
+                ctx.access.homeIdOf(sessionId) === homeId,
+            )
+            .map(([sessionId]) => sessionId),
+        stopSession: (sessionId) => stopSessionProcess(ctx, { sessionId: sessionId as SessionId }),
+        codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+        commandEnv: settledCommandEnv,
+      }),
+  })
   const discoveryLoop = createDiscoveryLoop({
     workerClient,
     send,
     homeDir,
+    // Every Podium home is scanned too (§10): its directory is that harness's root.
+    extraRoots: () => homeDiscoveryRoots(homes.list()),
     cachePath: opts.discovery?.cachePath,
     background: opts.discovery?.background ?? true,
     intervalMs: opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS,
@@ -1080,57 +1133,6 @@ export async function createDaemonHostRuntime(args: {
     send,
     read: (roots) => readMemoryBreakdown(ctx, roots),
     onError: (err) => log.warn('process topic sample failed', { err }),
-  })
-  // Podium's harness homes (credential management §10). Removing one first
-  // stops what runs in it: wired below once the engines exist.
-  const homesRoot = opts.homesDir ?? join(stateDir(), 'homes')
-  const settledCommandEnv = (): Record<string, string> =>
-    Object.fromEntries(
-      Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    )
-  const codexHookTrust = new CodexHookTrust({
-    root: homesRoot,
-    probe: ({ installation, flags, probeHome }) =>
-      probeCodexLaunchHookTrust({
-        executable: installation.executable,
-        env: { ...settledCommandEnv(), CODEX_HOME: probeHome },
-        flags,
-        cwd: probeHome,
-      }),
-    // The throwaway home: Codex's daemon there stopped, then deleted.
-    cleanProbeHome: async (probeHome) => {
-      await stopHome(
-        { homeId: 'probe', credentialId: 'probe', harness: 'codex', dir: probeHome },
-        {
-          ...systemProcessPorts,
-          sessionsIn: () => [],
-          stopSession: async () => undefined,
-          codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
-          commandEnv: settledCommandEnv,
-        },
-      )
-      await rm(probeHome, { recursive: true, force: true })
-    },
-  })
-  const homes = new HomeRegistry({
-    root: homesRoot,
-    beforeRemove: (home) =>
-      stopHome(home, {
-        ...systemProcessPorts,
-        sessionsIn: (homeId) =>
-          [...ctx.sessions.entries()]
-            .filter(
-              ([sessionId, session]) =>
-                session.harnessContext?.harnessHome?.id === homeId ||
-                ctx.access.homeIdOf(sessionId) === homeId,
-            )
-            .map(([sessionId]) => sessionId),
-        stopSession: (sessionId) => stopSessionProcess(ctx, { sessionId: sessionId as SessionId }),
-        codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
-        commandEnv: settledCommandEnv,
-      }),
   })
   const ctx: DaemonContext = {
     send,
