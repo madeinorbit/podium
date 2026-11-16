@@ -28,6 +28,7 @@ import {
 } from '../harness-management.js'
 import { sendHarnessVersion } from '../harness-version-reporting'
 import { withHomeLogins } from '../homes/logins'
+import { homeModelProbe } from '../homes/probes'
 import { opencode2VersionProbe } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -341,6 +342,7 @@ async function runModelProbe(
   msg: Extract<ControlMessage, { type: 'modelProbeRequest' }>,
 ): Promise<void> {
   let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
+  let byHome: Awaited<ReturnType<typeof homeModelProbe>> = {}
   try {
     // MANAGEMENT CREDENTIAL HOME (POD-4305 F12): the probe must name the account
     // the child will run as — the provisioned native-account HOME when present —
@@ -373,10 +375,23 @@ async function runModelProbe(
         ...(process.env.ANTHROPIC_API_KEY ? { apiKey: process.env.ANTHROPIC_API_KEY } : {}),
       },
     })
+    // Each Podium home's models, read in that home (credential management §10).
+    const homes = ctx.homes?.list() ?? []
+    if (account && homes.length > 0) {
+      byHome = await homeModelProbe(homes, {
+        account: { home: account.home, env: account.machineEnv },
+        context: (kind) => managementContextFor(account, kind as BuiltinHarnessKind),
+      })
+    }
   } catch (err) {
     log.warn('model probe failed', { err, requestId: msg.requestId })
   }
-  ctx.send({ type: 'modelProbeResult', requestId: msg.requestId, byAgent })
+  ctx.send({
+    type: 'modelProbeResult',
+    requestId: msg.requestId,
+    byAgent,
+    ...(Object.keys(byHome).length > 0 ? { byHome } : {}),
+  })
 }
 
 export const inventoryHandlers: Pick<ControlHandlers, 'inventoryRequest' | 'modelProbeRequest'> = {

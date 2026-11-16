@@ -159,6 +159,8 @@ export interface DaemonContext {
   workerClient: DiscoveryWorkerClient
   /** Discovery scan + publish; `full` requests the entire conversation list. */
   refreshAndPublishConversations(full?: boolean): Promise<ConversationDeltaWire>
+  /** Each Podium home's quota, tagged with its home id (credential management §10). */
+  homeQuota?: (refresh: boolean) => Promise<import('@podium/model').AgentQuotaWire[]>
   /** Per-agent plan-quota reader (TTL-cached). */
   quotaFetcher: {
     getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>

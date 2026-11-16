@@ -155,10 +155,11 @@ import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { sweepHandoffStage, transcriptForExport } from './handoff-package'
-import { managementQuotaFetcher } from './harness-management.js'
+import { managementQuotaFetcher, resolveManagementAccount } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import { CodexHookTrust } from './homes/codex-hook-trust'
+import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
 import { stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
@@ -1185,6 +1186,18 @@ export async function createDaemonHostRuntime(args: {
       ...(accountHome ? { accountHome } : {}),
       homeDir: homeDir ?? machineHome,
       ...(harnessRuntime ? { harnessRuntime } : {}),
+    }),
+    // Each Podium home's quota, read in that home (credential management §10).
+    homeQuota: homeQuotaReader({
+      homes: () => homes.list(),
+      account: async () => {
+        const account = await resolveManagementAccount({
+          ...(accountHome ? { accountHome } : {}),
+          homeDir: homeDir ?? machineHome,
+          ...(harnessRuntime ? { harnessRuntime } : {}),
+        })
+        return account ? { home: account.home, env: account.machineEnv } : undefined
+      },
     }),
     usageMemo: {},
     portableStateFence,

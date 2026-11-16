@@ -226,8 +226,18 @@ async function runAgentQuotaScan(
   ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'agentQuotaRequest' }>,
 ): Promise<void> {
-  const agents = await ctx.quotaFetcher.getAgentQuota(msg.refresh ?? false)
-  ctx.send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
+  const refresh = msg.refresh ?? false
+  // The harness's own directory first, then each Podium home's, by `homeId`.
+  const [agents, homes] = await Promise.all([
+    ctx.quotaFetcher.getAgentQuota(refresh),
+    ctx.homeQuota?.(refresh) ?? Promise.resolve([]),
+  ])
+  ctx.send({
+    type: 'agentQuotaResult',
+    requestId: msg.requestId,
+    hostname: hostname(),
+    agents: [...agents, ...homes],
+  })
 }
 
 /**
