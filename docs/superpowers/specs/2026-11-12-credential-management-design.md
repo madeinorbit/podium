@@ -611,7 +611,7 @@ a person signs in. Podium is Apache-2.0. This is in the first release because it
 subscriptions two things homes cannot: direct inference through OpenAI's public API, and
 Codex sessions on any machine without a login file there.
 
-Facts, from OpenAI's developer documentation (read 2026-11-12):
+Facts, from OpenAI's developer documentation (read 2026-11-12, again 2026-11-13):
 
 - Plans: Plus and Pro. The person can cap what each product may spend, in ChatGPT's settings.
 - Sign-in is a browser flow that returns to `http://127.0.0.1:<port>/auth/callback`. No other
@@ -628,6 +628,20 @@ Facts, from OpenAI's developer documentation (read 2026-11-12):
 - OpenAI does not tell the product when the person disconnects it. The product finds out when
   a call or a renewal fails.
 
+Measured end to end from a self-hosted server on 2026-11-16 (Task 7): every step above works
+as documented, Codex included. What the measurement added:
+
+- A disconnect takes effect at once, for the unexpired access token as well. The disconnect
+  is in ChatGPT Settings > Security and login > Login connections > Sign in with ChatGPT >
+  the app > Manage connection > Disconnect. After it, `/v1/responses` and `/v1/models` answer
+  `401` with `error.code` `token_revoked`. Renewal answers `400` with `invalid_grant` and
+  `error_reason` `refresh_token_invalidated`. Codex retries five times and then fails the turn
+  with a message that names `token_revoked`.
+- Revocation through the discovered `revocation_endpoint` answers an empty `200`, also for a
+  token that was already invalid. What it does to a live grant was not observed: the grant
+  had already been disconnected.
+- A plan-limit answer was not produced.
+
 How it fits the model:
 
 - **Type** `openai.chatgpt-plan`: stored in the vault, renewed by Podium, obtained by
@@ -636,20 +650,59 @@ How it fits the model:
   a Podium daemon or the desktop app can listen on that address, and hands the returned code
   to the server. Where nothing can listen (a phone, a browser with no local Podium), the person
   pastes the address their browser ended on. The server exchanges the code; the token set
-  never passes through a daemon.
-- **Host id.** The server's installation identity. The server is the one host that renews.
+  never passes through a daemon. The pasted address worked in the measurement, with the code
+  exchanged seconds after the browser step. The attempt itself does not expire: state, nonce
+  and verifier are Podium's own and were still valid days after the link was made. OpenAI's
+  sign-in page is behind a browser check, so nothing but a browser can test the link in
+  advance.
+- **Host id.** Derived from the server's installation identity, the one host that renews.
+  OpenAI accepts only `urn:ietf:params:oauth:jwk-thumbprint:…`, `urn:uuid:…` or `did:key:…`,
+  so the installation id itself (`pdm_…`) cannot be sent. The host id is the RFC 9278
+  thumbprint URI of the installation's Ed25519 public key,
+  `urn:ietf:params:oauth:jwk-thumbprint:sha-256:<thumbprint>`. It moves with the server
+  because the key does.
+- **Registration and later sign-ins.** The first sign-in returns the issued client id
+  (`oaiapp_…`) and the granted scopes on the return address, next to `code` and `state`. A
+  callback without a client id is an incomplete registration. Later sign-ins send the stored
+  client id, no app name, and the retained ID token as `id_token_hint`. A callback that names
+  a different client id is refused. The credential is usable for inference only if the granted
+  scopes include `chatgpt.tokens.use.direct`; without it the sign-in is kept and the plan is
+  marked not enabled.
+- **What the credential can show.** The ID token gives the account's email, name and subject.
+  It does not give the plan (Plus or Pro), and nothing else in this flow does: Codex's rate
+  limit report on this provider has no plan type, no usage windows and no credits. The
+  credential shows the email and "ChatGPT plan", and links to ChatGPT's usage settings for the
+  rest.
 - **Keeper.** The server renews ahead of expiry, one renewal at a time per credential, and
-  stores each new token set as the next version. A renewal that fails for a reason OpenAI lists
-  as final moves the credential to **needs attention**.
+  stores each new token set as the next version. The token response carries
+  `earliest_refresh_at` (six minutes before expiry). OpenAI does not enforce it: a renewal four
+  minutes after issue succeeded. The keeper renews when fewer than five minutes are left, which
+  falls after that time. A renewal that fails for a reason OpenAI lists as final moves the
+  credential to **needs attention**. The final reasons are `invalid_grant`,
+  `invalid_refresh_token`, `token_expired`, `refresh_token_expired`,
+  `refresh_token_invalidated`, `refresh_token_reused` and `invalid_client`.
 - **Direct inference.** A route for `openai-responses` on the server, with the restrictions
-  above. A plan-limit answer is shown as "limit reached" with a link to ChatGPT's usage
-  settings. It is not treated as a broken credential, and no other credential is tried
-  silently.
+  above. The request carries `store: false`, `stream: true`, the whole conversation in `input`,
+  and any system text in `instructions`. OpenAI refuses a system-role item, `stream: false` and
+  `store: true` before the stream opens, with a 400 and a `{"detail": "…"}` body rather than
+  OpenAI's usual error object. It also lists unsupported fields, among them
+  `max_output_tokens`, `temperature`, `top_p`, `metadata`, `user` and `previous_response_id`.
+  The stream is not labelled `text/event-stream`, so the adapter reads it as a stream because
+  it asked for one. Success is `response.completed` and nothing less. A plan-limit answer
+  (`subscription_sharing_usage_limit_exceeded`, 429, possibly as `response.failed` after the
+  stream opened) is shown as "limit reached" with a link to ChatGPT's usage settings. OpenAI
+  gives no reset time with it, so Podium does not invent one. It is not treated as a broken
+  credential, and no other credential is tried silently.
 - **Codex.** The Codex server driver accepts this type: the engine starts with OpenAI's
   documented provider settings and a token in its environment. Before the token expires, at a
   turn boundary, Podium restarts the engine with a fresh token and resumes the thread, the
   same stop-and-resume path a credential switch uses. The Codex terminal driver does not
-  accept this type, so a session on it uses the server driver.
+  accept this type, so a session on it uses the server driver. Measured: a home with no Codex
+  login answers a turn, and a new process with a replaced token resumes the thread and
+  remembers the earlier turn. Neither process wrote a token or an `auth.json` into the home.
+  The engine's `initialize` sends `clientInfo.name` equal to the app name used at
+  registration. Codex 0.169 calls full-history resume deprecated, so resume passes
+  `excludeTurns: true`.
 - **Hosted Podium.** OpenAI's open registration is for open-source and locally run products;
   a paid or hosted product applies through OpenAI's form. That application is a business step
   outside this design.
@@ -874,7 +927,7 @@ Each answers one question and decides one thing. None blocks the foundation work
 | S3 | Does a switch keep the conversation: same home with a different credential, a conversation copied to another home, Codex with its reasoning items removed, on each driver? | Whether switching is uniform or some pairings fall back to a handoff. |
 | S4 | Does any daemon journal or log write the spawn environment today? | How much has to change to meet "nothing left on disk". |
 | S5 | Is Claude Code's one-shot mode fast and cheap enough for background features? | Whether a Claude subscription is offered for direct inference. |
-| S6 | Does Sign in with ChatGPT work end to end as documented: registration from a self-hosted server, a Responses call, Codex's server driver on the token, and restart-and-resume when the token is replaced? | Whether the Codex half ships as designed or only direct inference does. |
+| S6 | Does Sign in with ChatGPT work end to end as documented: registration from a self-hosted server, a Responses call, Codex's server driver on the token, and restart-and-resume when the token is replaced? | Whether the Codex half ships as designed or only direct inference does. **Answered 2026-11-16: yes, every step works; the Codex half ships as designed, with the changes recorded in §11.** |
 | S7 | Can a second Claude home be signed in from an existing login without a browser, through Claude Code's documented `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` provisioning, and does the first home stay signed in? | Whether "sign in once, use on every machine" is possible for Claude logins. A possible improvement, not needed for this epic. |
 
 ## 20. Calls made in this document
