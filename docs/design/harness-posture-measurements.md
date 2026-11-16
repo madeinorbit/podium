@@ -65,6 +65,32 @@ Raw probe output is attached to POD-6879 as `posture-probe-raw`.
 | Does `git commit` succeed in a worktree under `workspace-write`? | **No.** `codex exec -s workspace-write` in a linked worktree: `fatal: Unable to create '<main>/.git/worktrees/wt/index.lock': Read-only file system`. The same happens in the main checkout itself (`<main>/.git/index.lock`): Codex mounts `.git` read-only inside writable roots. Under `codex sandbox -P :workspace`, adding `<main>/.git` through `-c sandbox_workspace_write.writable_roots=[…]` did not lift it (a permission profile may not read that key; not pursued). A commit needs an escalation (an ask under `on-request`, the reviewer under `--approve-for-me`) or a rule. |
 | Shared background server | 0.167 TUI connects to a shared background app-server unless `--no-daemon`; the daemon is per Codex home. Noted, not measured further. |
 
+### Hook review at startup (POD-6999, 0.147.0, 0.167.2, 0.169.0)
+
+Found by the acceptance run (POD-6867): Codex 0.169.0 in terminal view showed
+"Hooks need review: 6 hooks are new or changed" for the hooks Podium's daemon
+installs into `$CODEX_HOME/hooks.json`, and the first message sent went into
+that modal. Measured on the acceptance test host with `posture-probe.ts`, in
+scratch homes holding only `auth.json` plus that `hooks.json`, a fresh
+`git init` folder, and the posture flags (`-c projects={…trusted}`,
+`-c check_for_update_on_startup=false`). "Hooks fire": a listener on
+`PODIUM_CODEX_HOOK_URL` received the events.
+
+| Question | Result |
+|---|---|
+| Podium's `hooks.json`, nothing else | **Modal** "Hooks need review … › 1. Review hooks / 2. Trust all and continue / 3. Continue without trusting (hooks won't run)". The same on 0.147.0, 0.167.2 and 0.169.0. Without `hooks.json`: no modal. |
+| What Codex documents | Non-managed hooks must be reviewed and trusted; trust is recorded "against the hook's current hash"; `/hooks` reviews them; managed hooks (`requirements.toml`, MDM, system) are trusted by policy; `--dangerously-bypass-hook-trust` runs every enabled hook without persisted trust "for that invocation". The `[hooks.state]` table, its key and its hash are **not documented**. |
+| `--dangerously-bypass-hook-trust` | No modal (one more startup warning). **Rejected:** it trusts every enabled hook, the person's own and a project's included (POD-4076). `-c bypass_hook_trust=true` is not honoured: modal still shown (POD-6867). |
+| What "Trust all" writes | `[hooks.state."<CODEX_HOME>/hooks.json:<event_snake>:<group>:<handler>"]` with `trusted_hash = "sha256:<hex>"` in `config.toml`. The hashes are identical in two homes at different paths: the path is only in the key. |
+| The hash | SHA-256 of the canonical JSON (keys sorted, compact) of `{"event_name":"<snake>","hooks":[{"async":false,"command":…,"timeout":5,"type":"command"}]}`, plus `"matcher"` when the group has one. `commandWindows` is not part of it on Linux. Reproduced byte for byte for all six handlers, and for a handler at index 0:1 of a group with `matcher = "Bash"` (fixtures `packages/harness/src/adapters/codex/fixtures/hook-trust-0.169.0`). |
+| `-c 'hooks.state={"<key>"={trusted_hash="sha256:…"},…}'` for Podium's six handlers | **No modal, hooks fire** (SessionStart, UserPromptSubmit, Stop), a prompt given at launch is answered, nothing is written to `config.toml`. Same startup warning count as a home with no hooks. Works on 0.147.0, 0.167.2 and 0.169.0. |
+| The same, with one foreign handler added beside Podium's | Modal "1 hook is new or changed": only the named handlers are trusted. |
+| The same, in a home whose `config.toml` already trusts a foreign handler the override does not name | No modal: the session-layer table merges with the persisted one. |
+| Re-probe with the committed code (hook install plus posture section, argv as Podium builds it), 0.169.0 | No modal; the launch prompt was answered (`• PONG`); hook events SessionStart, UserPromptSubmit, Stop; no `config.toml` written. |
+
+If Codex changes the hash or the key, the override stops matching and the
+modal comes back: it fails safe. Windows is unmeasured.
+
 ## OpenCode 1.18.35
 
 All turns used the default free model (OpenCode Zen, "Big Pickle"), so no
@@ -126,6 +152,30 @@ nothing modal, still signed in). Grok writes the same files in both homes; the
 two `config.toml` files then differ only by the `[permission]` table, above
 Grok's own first-start keys (`[marketplace]`, `[[marketplace.sources]]`). An
 ACP start writes the same keys and keeps the table.
+
+### Folder trust with Podium's hooks (POD-6999)
+
+Found by the acceptance run (POD-6867): Grok 1.0.70 in terminal view asked "Do
+you trust the contents of this directory? … Yes, proceed / No, quit". The spike
+above saw no prompt because its home held no hooks. The bundled user guide
+(`10-hooks.md`) says personal hooks in `~/.grok/hooks/*.json` load only "after
+folder trust", and "while you have such a hook, folder trust asks in every
+folder but your home directory and filesystem or drive roots". Podium's hook
+install writes `$GROK_HOME/hooks/podium.json`. Measured with `posture-probe.ts`,
+scratch homes holding only `auth.json` (plus that file where named), fresh
+`git init` folders.
+
+| Question | Result |
+|---|---|
+| 1.0.70, no hooks file | No prompt. |
+| 1.0.70, Podium's `hooks/podium.json` | **Prompt.** The cause is the hook file (POD-6867 also removed it from a copy of the acceptance home: no prompt). |
+| 1.0.70, hook file plus `--trust` | No prompt. Grok writes `[folders."<repo>"] trusted = true` to `~/.grok/trusted_folders.toml`. |
+| `--trust` in `--help` | Not listed (1.0.70, 1.0.5), but accepted. |
+| Oldest Grok that takes `--trust` | 1.0.5, the oldest measured, takes it (and records the folder); 1.0.5 rejects an unknown flag ("unexpected argument"), so the flag is real there. 1.0.13 and 1.0.52 take it too. |
+| 1.0.52 with the hook file, no flag | No prompt: the gate arrived after 1.0.52. |
+| `-p` turn with `--trust` | Accepted (1.0.70, 1.0.13); answered "pong". |
+| `grok agent stdio` | Refuses `--trust` ("unexpected argument"), before and after `stdio`. |
+| Re-probe with the committed code (posture section's argv), 1.0.70 | No prompt; the launch prompt was answered (`PONG`); hook events SessionStart, UserPromptSubmit, Stop, SessionEnd reached Podium's listener. A "Help improve Grok [Opt out] [Opt in]" notice appears after the first turn; the composer keeps focus. |
 
 ## Pi 1.5.0
 

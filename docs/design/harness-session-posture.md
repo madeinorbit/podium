@@ -93,7 +93,7 @@ record, with every run, is `harness-posture-measurements.md`.
 | Claude Code | Yes, in the terminal only. The selected row is "No, exit", so a stray Enter ends the session (**live** cc). `-p` and stream sessions never show it, but an untrusted folder's own allow rules are then ignored (**doc**). | Only one way: set `projects["<repo root>"].hasTrustDialogAccepted = true` in `~/.claude.json`. The vendor documents this as "trust it by hand". No flag, no environment variable, and `--settings` cannot set it (**doc**). It works in a fresh home, and the key on the main checkout's root covers a linked worktree elsewhere on disk (**live** cc). A Claude session already running in another folder does not undo it: Claude re-reads the file before each write, and both its own keys and Podium's survived (**live** cc). |
 | Codex | Yes: "Trust this folder? › 1. Trust and continue" (**live** cx). | Per launch, nothing written: `-c 'projects={"<root>"={trust_level="trusted"}}'` (**live** cx). The obvious dotted form `-c 'projects."<root>".trust_level="trusted"'` is accepted and silently does nothing (**live**). A `resume --remote` client accepts the flag but ignores it: trust is decided by the app-server it attaches to, so the engine's flag covers the client (**live** cx). |
 | OpenCode | No (**live** oc). | Nothing needed. |
-| Grok | No, when signed in (**live** gk). Folder trust gates project permission rules, hooks and instructions; headless startup with such project sources needs `--trust` or a prior grant (**doc**). | Nothing needed for the prompt. |
+| Grok | Yes, once the home holds a hook of the person's own: "Do you trust the contents of this directory?", in every folder but the home and filesystem roots. Podium's own hook file `$GROK_HOME/hooks/podium.json` is such a hook, so every Podium terminal asked (**live** gk 1.0.70, POD-6999; the spike's home had no hooks and saw no prompt; 1.0.52 does not ask even with the file). Folder trust also gates project permission rules, hooks and instructions; headless startup with such project sources needs `--trust` or a prior grant (**doc**). | `--trust`, in the terminal and in a `-p` turn. Grok records the grant in `~/.grok/trusted_folders.toml`, as the documented `/hooks-trust` does. The flag is missing from `--help` but accepted from 1.0.5 (the oldest measured) through 1.0.70; `grok agent stdio` refuses it (**live** gk, POD-6999). |
 | Pi | Yes with a fresh home, in every folder, even an empty one: "Trust project folder? → Trust" (**live** pi). | `--approve` removes it (**live** pi). |
 | Cursor | Yes in the terminal (**ref**); the screen itself is **unmeasured**. | Headless: `--trust`. Terminal: a marker file `~/.cursor/projects/<slug>/.workspace-trusted`, which is vendor-private state (**ref**, marker seen on disk). Whether `--trust` also applies to the terminal UI: **unmeasured** (no signed-in Cursor account was available to the spike). |
 
@@ -112,10 +112,10 @@ record, with every run, is `harness-posture-measurements.md`.
 
 | Harness | Found | Suppression |
 |---|---|---|
-| Codex | Two forms of update notice. A banner on first start; on later starts in the same home a **modal** menu "› 1. Update now (runs `bun install -g @openai/codex`)", whose selected row runs the updater on Enter. The menu is drawn by `resume --remote` clients too (**live** cx). | `-c check_for_update_on_startup=false`, which a `resume --remote` client accepts and honours (**live** cx). |
+| Codex | Two forms of update notice. A banner on first start; on later starts in the same home a **modal** menu "› 1. Update now (runs `bun install -g @openai/codex`)", whose selected row runs the updater on Enter. The menu is drawn by `resume --remote` clients too (**live** cx). And a **modal** "Hooks need review: 6 hooks are new or changed" whenever `hooks.json` holds hooks Codex has not trusted, which Podium's own hook install always does in a home that never reviewed them; it swallows the first message (**live** cx 0.147.0, 0.167.2, 0.169.0; POD-6999). | Update menu: `-c check_for_update_on_startup=false`, which a `resume --remote` client accepts and honours (**live** cx). Hook review: a per-launch `-c hooks.state={"<CODEX_HOME>/hooks.json:<event>:<group>:<handler>"={trusted_hash="sha256:…"},…}` naming only Podium's handlers. **Undocumented** key and hash format (section 4.8); fails safe (**live** cx, POD-6999). |
 | Claude Code | In a home that never finished onboarding, the theme picker, even with `--settings '{"theme":"auto"}'` (**live** cc); Podium's credential transfer seeds `hasCompletedOnboarding`. The auto-mode notice and the "auto is now the default" notice are transcript lines, not modal: a prompt given at launch runs (**live** cc). `/auto-mode-setup` did not appear after a first turn under auto mode (**live** cc; it was seen on 2.1.231). Bypass-mode confirmation and the "How is Claude doing?" survey (**doc**). | Nothing needed for the auto-mode notices; `skipAutoPermissionPrompt` does not remove the transcript notice (**live** cc). `skipDangerousModePermissionPrompt` (settings key) and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` (**doc**). |
 | OpenCode | None in a fresh home: one tip line (**live** oc). | Nothing needed. |
-| Grok | None in a fresh signed-in home: a "New /learn skill!" line in the welcome box (**live** gk). | Nothing needed. |
+| Grok | None in a fresh signed-in home: a "New /learn skill!" line in the welcome box (**live** gk). The folder-trust prompt that Podium's hooks bring is under Folder trust. After a first turn, a "Help improve Grok [Opt out] [Opt in]" notice appears above the composer; the composer keeps focus (**live** gk 1.0.70, POD-6999). | Nothing needed. |
 | Pi | "Update Available" transcript notice, not modal; a first start also downloads `fd` (**live** pi). | Nothing needed. `PI_SKIP_VERSION_CHECK=1` removes the notice (**live** pi). |
 | Cursor | **Unmeasured**: the test host's Cursor account was signed out ("Press any key to log in"), and no login was completed. | Unknown. |
 
@@ -412,9 +412,9 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
 | | R1 trust | R2 Podium CLI | R3 mode: supervised / autonomous | R4 quiet start | R5 Podium material |
 |---|---|---|---|---|---|
 | **Claude Code** | `json-key` edit on the repo root, all modes | allow rules `Bash(podium *)` and `PowerShell(podium *)` by flag, spelled `--allowedTools=<rule>` | `default` / `auto`; the mode in force is the `permissionMode` of the init event (`default` when auto is unavailable) | met in an onboarded home: the auto-mode notices are not modal. Survey env; `skipDangerousModePermissionPrompt` only matters for a native bypass pick | allow rules `Read(//<uploads>/**)` (two slashes) and `mcp__<server>` |
-| **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
+| **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client; terminal: per-launch trust for Podium's own hooks, `-c hooks.state={…}`, from 0.147.0 (below that or unknown version: `unmet: quiet-start`) | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
 | **OpenCode** | met by default | `{"bash":{"*":<mode's rule>,"podium *":"allow"}}` in the inline config's `permission` | `bash` and `edit` ask rules / `--auto` (terminal); engine: asks reach chat | met by default | `{"external_directory":{"<uploads>/*":"allow"}}` in the inline config (asks by default); MCP tools allowed by default |
-| **Grok** | met by default (no folder prompt) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `toml-array-entry` `Bash(podium *)` in `[permission] allow` of `$GROK_HOME/config.toml`, created when missing (measured, 1.0.70: no ask in default mode; under auto mode it also runs the podium commands the classifier blocks) | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
+| **Grok** | `--trust` in terminal, client and turn, from 1.0.5 (below that or unknown version: `unmet: workspace-trust`); engine: no flag (`grok agent stdio` refuses it) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `toml-array-entry` `Bash(podium *)` in `[permission] allow` of `$GROK_HOME/config.toml`, created when missing (measured, 1.0.70: no ask in default mode; under auto mode it also runs the podium commands the classifier blocks) | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
 | **Pi** | `--approve` (asks in every folder with a fresh home) | met by default | `unmet: autonomy` / met by default | met: the update notice is not modal (`PI_SKIP_VERSION_CHECK=1` hides it) | met by default |
 | **Cursor** | turn: `--trust`; terminal: `unmet: workspace-trust`, "Cursor keeps interactive folder trust in private state that Podium does not write" (screen **unmeasured**: whether `--trust` also covers the terminal) | `unmet: podium-cli`, "Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit" | turn: nothing / `--auto-review` | `unmet: quiet-start`, "unmeasured: no signed-in Cursor account was available to the spike" | `--approve-mcps` for Podium's MCP servers; reads outside the folder: `unmet: podium-material`, "unmeasured" |
 
@@ -433,6 +433,43 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
   today; recorded for the acceptance run.
 - **No per-session Codex rule exists.** The home rule (4.7) stays. The only
   other loading place is the repository's own `.codex/rules/`.
+- **Codex trusts Podium's own hooks per launch (POD-6999).** Codex opens a
+  "Hooks need review" modal for any hook in `hooks.json` it has not trusted,
+  and the modal swallows the first message. Podium's hook install
+  (`adapters/codex/instrumentation.ts`, the only place that knows where
+  Podium's handlers sit in the file) passes
+  `-c hooks.state={"<CODEX_HOME>/hooks.json:<event>:<group>:<handler>"={trusted_hash="sha256:<hex>"},…}`
+  for Podium's handlers only. The hash is SHA-256 over the canonical JSON
+  (sorted keys, compact) of `{event_name, matcher?, hooks:[{async, command,
+  timeout, type}]}`. **Both the key and the hash format are undocumented**;
+  Codex documents hook review, `/hooks`, managed hooks in `requirements.toml`
+  and `--dangerously-bypass-hook-trust`, nothing more. Measured on 0.169.0 (the
+  hashes reproduce, byte for byte, the ones Codex itself wrote; fixture
+  `adapters/codex/fixtures/hook-trust-0.169.0`) and working on 0.147.0 and
+  0.167.2. Nothing is written; the session-layer table merges with the
+  person's persisted `[hooks.state]`, so hooks they trusted stay trusted and a
+  hook they turned off stays off; a foreign hook, even in the same group as
+  Podium's, still asks. **It fails safe:** if Codex changes the format, the
+  entries stop matching and Codex asks again; it never trusts more than
+  Podium's handlers. Below 0.147.0, with an unknown version, or on Windows (the
+  hash input there is unmeasured), nothing is passed: the session degrades to
+  poll-only with the `codex-hooks-untrusted` report as before, and posture
+  reports `unmet: quiet-start` for the terminal. The client (`resume
+  --remote`) gets nothing; whether it draws the modal is unmeasured.
+  **Rejected: `--dangerously-bypass-hook-trust`.** It trusts every enabled hook
+  for the invocation, including the person's own and a project's hooks that
+  they never reviewed (POD-4076's reason, which still holds). `-c
+  bypass_hook_trust=true` is not honoured (**live**, POD-6867).
+- **Grok trusts the folder by flag (POD-6999).** While the home holds a hook
+  of the person's own, Grok 1.0.70 asks for folder trust in every folder, and
+  Podium's own hook file is such a hook. `--trust` answers it; Grok records the
+  grant in `trusted_folders.toml` (its own documented store, written by Grok,
+  not Podium), and the folder's project hooks, instructions and MCP servers are
+  trusted with it, which is decision R1. It is not in `--help` but is accepted
+  from 1.0.5 (the oldest measured); an older Grok exits on an unknown flag, so
+  below 1.0.5 or with an unknown version nothing is passed and
+  `unmet: workspace-trust` is reported. With the folder trusted, Podium's Grok
+  hooks also run in the terminal; before, they were silently skipped.
 - **Grok's engine pre-approves the CLI through the home.** `grok agent stdio`
   takes no allow rule per launch, so the rule goes into the documented key
   `[permission] allow` of the user config, the third home edit (4.7). The rule
