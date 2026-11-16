@@ -66,6 +66,9 @@ const INVENTORY: Record<string, Sink> = {
   'shipping/journal.ts: return this.write({ ...existing, acknowledgedAt: at })': 'journal',
   'session/engines.ts: journal.write({ ...facts, ...(address !== undefined ? { address } : {}) })':
     'journal',
+  // A session's credential marker (id and delivery kind, never the secret),
+  // kept in the `session-access` engine journal (credential management §8).
+  'control/access.ts: this.options.markers.write({': 'journal',
   'session/engines.ts: write: (data) => session.connection.write(data),':
     'headless engine stdin (no pty)',
 }
