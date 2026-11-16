@@ -104,8 +104,12 @@ export function usesRealMigrationChain(testPath: string): boolean {
  */
 export function installPreMigratedStoreFixtureFor(testPath: string): boolean {
   // A Postgres run's stores clone the run's template database instead of this image
-  // [POD-6980]; the SQLite opener seam does not apply to them.
-  if (testStoreEngine() === 'pg') return false
+  // [POD-6980]. A SQLite store opened there means the file has not been converted,
+  // so the seam refuses it and says where the file belongs.
+  if (testStoreEngine() === 'pg') {
+    installStoreDatabaseOpener(refuseSqliteStore(testPath))
+    return false
+  }
   if (usesRealMigrationChain(testPath)) return false
   if (schemaImagePath() === undefined) return false
   installPreMigratedStoreFixture()
@@ -139,6 +143,25 @@ function primeFirstAdminFromImage(): void {
     if (id !== undefined) primeFirstAdminMember(id)
   } finally {
     db.close()
+  }
+}
+
+/**
+ * The opener a Postgres run installs: any SQLite store open fails, naming the test
+ * file and the list it belongs on. Until the Postgres store driver lands (POD-6979)
+ * that is every store open, `openTestStore()`'s included.
+ */
+export function refuseSqliteStore(testPath: string): (path: string) => never {
+  const at = testPath.replaceAll('\\', '/').lastIndexOf('/apps/server/')
+  const file = at === -1 ? testPath : testPath.slice(at + 1)
+  return (path) => {
+    const location = path.startsWith('postgres') ? 'a Postgres URL' : path
+    throw new Error(
+      `${file} opened a store (${location}) on the Postgres leg, and only SQLite stores ` +
+        'open until the Postgres store driver lands (POD-6979). Add the file to "pending" ' +
+        'in apps/server/test-store-engines.json; if it tests SQLite itself, list it under ' +
+        '"sqliteOnly" with the reason instead.',
+    )
   }
 }
 

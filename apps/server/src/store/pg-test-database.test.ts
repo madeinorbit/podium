@@ -4,6 +4,7 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { openStoreDatabase } from '../store-database'
 import {
   clonePgTestDatabase,
   connectPgTest,
@@ -79,6 +80,14 @@ describe.skipIf(testStoreEngine() !== 'pg')('postgres test databases', () => {
     expect(await existing([...earlier, testScoped?.name as string])).toEqual([])
     const kept = [fileScoped.name, (await pgWorkerDatabase()).name, current]
     expect((await existing(kept)).sort()).toEqual([...kept].sort())
+  })
+
+  it('refuses a SQLite store open and names the list this file belongs on', async () => {
+    for (const location of [':memory:', (await pgWorkerDatabase()).url]) {
+      await expect(openStoreDatabase(location)).rejects.toThrow(
+        /^apps\/server\/src\/store\/pg-test-database\.test\.ts opened a store .*Add the file to "pending" in apps\/server\/test-store-engines\.json/,
+      )
+    }
   })
 
   it('drops every database it made', async () => {

@@ -207,7 +207,9 @@ no database). Name files to run a few; with no files it runs the whole Postgres 
 gives the reason) and `pending` (meant for both engines, not yet passing on Postgres). Making
 a file pass on Postgres means deleting it from `pending`; the list is empty when the Postgres
 store is complete (POD-6994). A new store test file runs on both engines by default, so
-until the Postgres store driver lands (POD-6979), add it to `pending`.
+until the Postgres store driver lands (POD-6979), add it to `pending`: on the Postgres leg
+any SQLite store open fails with "`<file>` opened a SQLite store … Add it to "pending" in
+apps/server/test-store-engines.json …".
 `src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
 a SQLite-only entry without a reason, and a file in both lists.
 
@@ -249,7 +251,7 @@ different databases) needs two and skips with one:
 `postgres:17-bookworm` service container, on pull requests that touch the store,
 migrations, sync, the harness or the lane files, and on every merge-group run.
 
-**Measured cost** (2026-11-16, ludovico, 7 vCPU, host load average 80 to 220 during the
+**Measured cost** (2026-11-16, a shared 7 vCPU development host, load average 80 to 220 during the
 runs, harness commit after `bddcd1b1e0`; the leg held only the five harness files):
 
 | What | Measured |

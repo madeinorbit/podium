@@ -356,6 +356,7 @@
     "apps/server/src/store/user-read-position.test.ts",
     "apps/server/src/store/users-earliest-admin.test.ts",
     "apps/server/src/store/workflows-golden.test.ts",
+    "apps/server/src/store/workspace-manifest.test.ts",
     "apps/server/src/store/written-columns.test.ts",
     "apps/server/src/sync-worker/producer.test.ts",
     "apps/server/src/sync/bootstrap-routes.test.ts",
