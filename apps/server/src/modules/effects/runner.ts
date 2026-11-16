@@ -211,21 +211,19 @@ export class EffectsRunner {
       async (scope) =>
         await repo.pruneFinished(scope, now() - EFFECT_RETENTION_MS, now(), EFFECT_SWEEP_BATCH),
     )
-    await this.sweepWrite(
-      async (scope) =>
-        await repo.purgeTombstones(scope, now() - EFFECT_RETENTION_MS, EFFECT_SWEEP_BATCH),
-    )
-    for (const kind of SYSTEM_EFFECT_KINDS_OFF_FEED) {
-      await this.sweepWrite(
-        async (scope) =>
-          await repo.purgeOffFeedFinished(
-            scope,
-            kind,
-            now() - SYSTEM_EFFECT_RETENTION_MS,
-            EFFECT_SWEEP_BATCH,
-          ),
-      )
-    }
+    await this.sweepWrite(async (scope) => {
+      await repo.purgeTombstones(scope, now() - EFFECT_RETENTION_MS, EFFECT_SWEEP_BATCH)
+      // The server's own records of a kind off the feed: no device ever held
+      // them, so they go outright after their short retention (POD-6970).
+      for (const kind of SYSTEM_EFFECT_KINDS_OFF_FEED) {
+        await repo.purgeOffFeedFinished(
+          scope,
+          kind,
+          now() - SYSTEM_EFFECT_RETENTION_MS,
+          EFFECT_SWEEP_BATCH,
+        )
+      }
+    })
   }
 
   /** Claim one record and run it. Safe to call any number of times for one id. */
