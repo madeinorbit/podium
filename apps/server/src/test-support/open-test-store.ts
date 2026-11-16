@@ -24,11 +24,20 @@
  * takes, so the ambient opener seam in `store-database.ts` — and with it the
  * pre-migrated image and its `globalSetup` env channel — applies here unchanged.
  * The seam stays synchronous at the flip and is called from inside `open()`.
+ *
+ * THE ENGINE SWITCH [POD-6980]. Under `PODIUM_TEST_STORE_ENGINE=pg` (the
+ * `server-store-pg` lane) an in-memory store becomes a store on a fresh Postgres
+ * database cloned from the run's template: one database per store, so two stores in
+ * one test share no rows, exactly as two `':memory:'` SQLite stores do not. The store
+ * opens it from its URL; choosing the engine from the location is the store's job
+ * (POD-6979). A file path is SQLite by definition, so a Postgres run refuses it and
+ * names the list where such a file belongs.
  */
 
-import { primeFirstAdminMember, firstAdminMemberId, type MachineId } from '@podium/model'
+import { firstAdminMemberId, type MachineId, primeFirstAdminMember } from '@podium/model'
 import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
 import { SessionStore } from '../store'
+import { clonePgTestDatabase, testStoreEngine } from './pg-test-database'
 
 /**
  * Build a `SessionStore` for a test. The parameters are the constructor's, in
@@ -46,10 +55,23 @@ export async function openTestStore(
   // would have them.
   // No change capture until the test attaches a change log (POD-6920): a
   // store-level fixture seeds with no log to bypass.
-  const store = await SessionStore.open(path, hostMachineId, {
+  const location = testStoreEngine() === 'pg' ? await postgresLocation(path) : path
+  const store = await SessionStore.open(location, hostMachineId, {
     ...snapshotVerifierDeps,
     changeCapture: 'whenLogAttaches',
   })
   primeFirstAdminMember(await firstAdminMemberId(store))
   return store
+}
+
+/** The location of a Postgres test store standing in for `path`. */
+async function postgresLocation(path: string | undefined): Promise<string> {
+  if (path !== undefined && path !== ':memory:') {
+    throw new Error(
+      `openTestStore: ${path} is a SQLite file, and this run uses Postgres. A test that needs ` +
+        'a store file tests SQLite itself: list it under sqliteOnly in ' +
+        'apps/server/test-store-engines.json.',
+    )
+  }
+  return (await clonePgTestDatabase()).url
 }

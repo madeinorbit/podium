@@ -45,6 +45,7 @@ import { primeFirstAdminMember } from '@podium/model'
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { installStoreDatabaseOpener, resetStoreDatabaseOpener } from '../store-database'
+import { testStoreEngine } from './pg-test-database'
 
 /**
  * Where `globalSetup` left the verified image for THIS run. Passed by environment
@@ -102,6 +103,9 @@ export function usesRealMigrationChain(testPath: string): boolean {
  * that never touches `SessionStore` pays nothing for this.
  */
 export function installPreMigratedStoreFixtureFor(testPath: string): boolean {
+  // A Postgres run's stores clone the run's template database instead of this image
+  // [POD-6980]; the SQLite opener seam does not apply to them.
+  if (testStoreEngine() === 'pg') return false
   if (usesRealMigrationChain(testPath)) return false
   if (schemaImagePath() === undefined) return false
   installPreMigratedStoreFixture()

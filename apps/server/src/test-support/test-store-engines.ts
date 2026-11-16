@@ -1,0 +1,71 @@
+/**
+ * Which store-shard test files run on which engine [POD-6980, POD-6958 design 2.10].
+ *
+ * `apps/server/test-store-engines.json` names the exceptions; this module reads it
+ * and derives the Postgres leg's file list from the store shard's roster in
+ * `apps/server/test-shards.json`. Read by `vitest.store-pg.config.ts` and checked by
+ * `src/store/test-store-engines.test.ts`. No database, no store imports.
+ */
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+// Imported, not read from disk, so the shard scan lists the file as an input of every
+// shard that runs this module and an edit to the lists invalidates their cache.
+import enginesFile from '../../test-store-engines.json'
+
+export interface TestStoreEngines {
+  /** File → why it tests SQLite itself and never runs on Postgres. */
+  readonly sqliteOnly: Readonly<Record<string, string>>
+  /** Files meant for both engines that do not pass on Postgres yet. */
+  readonly pending: readonly string[]
+}
+
+interface ShardManifest {
+  shards: { id: string; testFiles: string[] }[]
+}
+
+export function readTestStoreEngines(): TestStoreEngines {
+  const raw = enginesFile as Partial<TestStoreEngines>
+  return { sqliteOnly: raw.sqliteOnly ?? {}, pending: raw.pending ?? [] }
+}
+
+/** The store shard's files, repository-relative, as `test-shards.json` lists them. */
+export function storeShardFiles(repositoryRoot: string): string[] {
+  const manifest = JSON.parse(
+    readFileSync(join(repositoryRoot, 'apps/server/test-shards.json'), 'utf8'),
+  ) as ShardManifest
+  const store = manifest.shards.find((shard) => shard.id === 'store')
+  if (store === undefined) throw new Error('apps/server/test-shards.json has no store shard')
+  return store.testFiles
+}
+
+/** The files the Postgres leg runs: the store shard minus both lists. */
+export function postgresLegFiles(
+  repositoryRoot: string,
+  engines: TestStoreEngines = readTestStoreEngines(),
+): string[] {
+  const excluded = new Set([...Object.keys(engines.sqliteOnly), ...engines.pending])
+  return storeShardFiles(repositoryRoot).filter((file) => !excluded.has(file))
+}
+
+/** What is wrong with the lists, one line per problem; empty when they are sound. */
+export function testStoreEngineProblems(
+  engines: TestStoreEngines,
+  storeFiles: readonly string[],
+): string[] {
+  const roster = new Set(storeFiles)
+  const problems: string[] = []
+  for (const [file, reason] of Object.entries(engines.sqliteOnly)) {
+    if (!roster.has(file))
+      problems.push(`sqliteOnly names ${file}, which is not a store-shard file`)
+    if (reason.trim().length < 20) problems.push(`sqliteOnly ${file} needs a reason`)
+  }
+  const seen = new Set<string>()
+  for (const file of engines.pending) {
+    if (!roster.has(file)) problems.push(`pending names ${file}, which is not a store-shard file`)
+    if (file in engines.sqliteOnly) problems.push(`${file} is both sqliteOnly and pending`)
+    if (seen.has(file)) problems.push(`pending lists ${file} twice`)
+    seen.add(file)
+  }
+  return problems
+}

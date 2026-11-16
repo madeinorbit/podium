@@ -13,6 +13,12 @@
  * batch members. That is the number a remote database would pay round trips
  * for, which is why it is the one pinned — not drizzle preparations, which the
  * prepared-once rule already pins (`prepared-loop-scaling.test.ts`).
+ *
+ * BOTH ENGINES [POD-6980, POD-6958 design 2.10]. A pin's count is the same on
+ * SQLite and Postgres, because each query definition is one statement on each, so
+ * a plain number pins both. Where a difference is the design, the pin says so with
+ * {@link EngineStatementCounts} and a reason. The engine is the run's
+ * (`PODIUM_TEST_STORE_ENGINE`) unless the caller names one.
  */
 
 import { expect } from 'vitest'
@@ -21,6 +27,7 @@ import {
   type StatementObservation,
   type StatementProbeHolder,
 } from '../store/executor/statement-probe'
+import { type TestStoreEngine, testStoreEngine } from './pg-test-database'
 
 /** What one operation ran. */
 export interface StatementTally {
@@ -125,27 +132,50 @@ export function describeGrowth(small: StatementTally, large: StatementTally): st
   return lines.sort().join('\n')
 }
 
+/** A pin whose count differs by engine, by design. The reason is required. */
+export interface EngineStatementCounts {
+  readonly sqlite: number
+  readonly pg: number
+  readonly reason: string
+}
+
+/** What a pin expects: one count for both engines, or one per engine. */
+export type PinnedStatementCount = number | EngineStatementCounts
+
+/** The count `expected` pins on `engine`. */
+export function pinnedCountFor(expected: PinnedStatementCount, engine: TestStoreEngine): number {
+  if (typeof expected === 'number') return expected
+  if (expected.reason.trim().length === 0) {
+    throw new Error('a pin that differs by engine must say why')
+  }
+  return expected[engine]
+}
+
 /**
- * Assert the operation runs `expected` statements at both sizes.
+ * Assert the operation runs `expected` statements at both sizes, on `engine`.
  *
  * Fails with every query and its count at both sizes, the growing ones marked
  * `!`, so the failure names the loop instead of only a number.
  */
 export async function expectConstantStatements<Fixture>(
   pin: StatementPin<Fixture>,
-  expected: number,
+  expected: PinnedStatementCount,
+  engine: TestStoreEngine = testStoreEngine(),
 ): Promise<PinnedCounts> {
+  const pinned = pinnedCountFor(expected, engine)
   const counts = await measureAtSizes(pin)
   const [smallSize, largeSize] = pin.sizes ?? [5, 200]
   const detail = describeGrowth(counts.small, counts.large)
+  // SQLite messages stay as they were; a Postgres run names its engine.
+  const name = engine === 'sqlite' ? pin.name : `${pin.name} [${engine}]`
   expect(
     counts.large.statements,
-    `${pin.name}: ${counts.small.statements} statements at ${smallSize} rows, ${counts.large.statements} at ${largeSize}\n${detail}`,
+    `${name}: ${counts.small.statements} statements at ${smallSize} rows, ${counts.large.statements} at ${largeSize}\n${detail}`,
   ).toBe(counts.small.statements)
   expect(
     counts.small.statements,
-    `${pin.name}: pinned at ${expected} statements, ran ${counts.small.statements}\n${detail}`,
-  ).toBe(expected)
+    `${name}: pinned at ${pinned} statements, ran ${counts.small.statements}\n${detail}`,
+  ).toBe(pinned)
   return counts
 }
 
@@ -163,8 +193,9 @@ export async function expectConstantStatements<Fixture>(
  */
 export async function expectArmed<Fixture>(
   pin: StatementPin<Fixture>,
-  expected: number,
+  expected: PinnedStatementCount,
   plant: (fixture: Fixture, size: number) => () => void,
+  engine: TestStoreEngine = testStoreEngine(),
 ): Promise<void> {
   const planted: StatementPin<Fixture> = {
     ...pin,
@@ -182,7 +213,7 @@ export async function expectArmed<Fixture>(
     check: undefined,
   }
   const [smallSize, largeSize] = pin.sizes ?? [5, 200]
-  await expect(expectConstantStatements(planted, expected)).rejects.toThrow(
+  await expect(expectConstantStatements(planted, expected, engine)).rejects.toThrow(
     new RegExp(`statements at ${smallSize} rows, \\d+ at ${largeSize}\\n`),
   )
 }
