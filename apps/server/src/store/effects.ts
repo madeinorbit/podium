@@ -288,11 +288,29 @@ const PHASE_STATUSES: Record<EffectPhase, readonly EffectStatus[]> = {
   succeeded: ['succeeded'],
 }
 
-/** One kind's newest live record on one target in a phase (`idx_effects_kind_target`). */
+/**
+ * One kind's newest live record on one target in a phase. EACH PHASE SEEKS THE
+ * SIDE THAT IS SMALL (POD-7031). The active records of the whole table are a
+ * handful, while one target's history of a kind is not: a machine keeps tens of
+ * thousands of finished scans, and the connect scan asks whether one is running
+ * about once a minute. Through `idx_effects_kind_target` that question walked
+ * every scan of the machine, each fetched with its result, to find none. So
+ * `active` seeks `idx_effects_status_deadline` on its two statuses, filters the
+ * few hits by kind and target and sorts them; `succeeded` stays on
+ * `idx_effects_kind_target`, newest first, where its first hit is nearly always
+ * the answer. Named with INDEXED BY: real statistics average the scans over
+ * every target (a few rows a key), so the planner takes the target seek for
+ * both; the query-plan audit checks each under them.
+ */
 const newestOnTargetIn = preparedFamily((db: StoreDrizzle, phase: EffectPhase) =>
   db
-    .select()
-    .from(effects)
+    // Bare column names: the FROM is an INDEXED BY clause, not the table object.
+    .select(EFFECT_COLUMNS)
+    .from(
+      phase === 'active'
+        ? sql`${effects} INDEXED BY idx_effects_status_deadline`
+        : sql`${effects} INDEXED BY idx_effects_kind_target`,
+    )
     .where(
       and(
         eq(effects.kind, param(effects.kind, 'kind')),
@@ -302,7 +320,8 @@ const newestOnTargetIn = preparedFamily((db: StoreDrizzle, phase: EffectPhase) =
         live(),
       ),
     )
-    // The index's own order after its three equalities: no sort.
+    // `succeeded`: the index's own order after its three equalities, no sort.
+    // `active`: a sort of the target's few active records.
     .orderBy(desc(effects.createdAt))
     .limit(1)
     .prepare(),
