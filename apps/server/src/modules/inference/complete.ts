@@ -11,6 +11,8 @@
  *    `withSecret` for the length of the call and never kept, logged or thrown;
  *  - `on-machine`: the machine whose harness home holds the login runs the
  *    call and only the answer comes back (`codex-machine.ts`, POD-4750).
+ *  - `http` with `openai-responses`: a ChatGPT plan signed in to Podium (§11);
+ *    the keeper hands out a fresh access token and the server calls OpenAI.
  *
  * A refused credential throws `CredentialRefusal`; nothing falls back to
  * another key or login. Every answer says which credential served it
@@ -42,9 +44,11 @@ import {
   type LlmAnswer,
   type LlmMessage,
   type LlmTool,
+  listChatgptModels,
   OPENAI_BASE,
   OPENROUTER_BASE,
   openaiChat,
+  openaiResponses,
   type ToolCall,
 } from '../../llm'
 import { LlmConfigError } from '../../llm-error'
@@ -111,6 +115,11 @@ export interface CompleteDeps {
   store: AccessDeps & Pick<SessionStore, 'vault' | 'settings'>
   fetch?: FetchLike
   onMachine?: OnMachineTransport
+  /**
+   * The keeper of ChatGPT plan sign-ins (§11; `ChatgptPlanKeeper`). Absent, a
+   * ChatGPT plan cannot serve calls here.
+   */
+  chatgptPlan?: { accessToken(credentialId: CredentialId): Promise<string> }
   /**
    * The provider rejected the credential, or reported a limit (credential
    * management §7): the health service records it. Absent, nothing is recorded.
@@ -276,10 +285,7 @@ async function runHttp(
   route: Extract<InferenceRoute, { kind: 'http' }>,
   call: RouteCall,
 ): Promise<Served> {
-  if (route.api === 'openai-responses') {
-    // The ChatGPT plan's adapter arrives with epic Task 14.
-    throw new InferenceNotConfigured("This credential cannot serve Podium's own model calls yet.")
-  }
+  if (route.api === 'openai-responses') return await runChatgptPlan(deps, call)
   if (!call.model || call.model === 'auto') {
     throw new InferenceNotConfigured(
       'no model is chosen for this call — pick one in Settings → Agents → Background model',
@@ -299,6 +305,37 @@ async function runHttp(
         ),
   )
   return { answer, model: call.model }
+}
+
+/**
+ * A call on a ChatGPT plan (§11): the keeper's access token, OpenAI's
+ * Responses route. With no model chosen, the first model the plan lists. A
+ * refused or disconnected sign-in throws the keeper's `CredentialRefusal`; a
+ * plan limit is a 429 the caller records as a limit, never as attention.
+ */
+async function runChatgptPlan(deps: CompleteDeps, call: RouteCall): Promise<Served> {
+  if (!deps.chatgptPlan) {
+    throw new InferenceNotConfigured(
+      "This credential cannot serve Podium's own model calls on this server.",
+    )
+  }
+  const token = await deps.chatgptPlan.accessToken(call.credential.id)
+  const fetchImpl = deps.fetch ?? fetch
+  try {
+    let model = call.model
+    if (!model || model === 'auto') {
+      model = (await listChatgptModels(fetchImpl, token))[0]?.slug ?? ''
+      if (!model) {
+        throw new InferenceNotConfigured(
+          'This ChatGPT plan lists no models — pick one in Settings → Agents → Background model.',
+        )
+      }
+    }
+    const answer = await openaiResponses(fetchImpl, token, model, call.messages, call.tools)
+    return { answer, model }
+  } catch (err) {
+    throw redacted(err, token)
+  }
 }
 
 /**

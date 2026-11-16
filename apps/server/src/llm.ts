@@ -2,9 +2,11 @@ export { LlmConfigError } from './llm-error'
 
 /**
  * The wire adapters for Podium's own model calls, with tool calling. One
- * internal message/tool shape; two HTTP adapters, each handed one secret:
+ * internal message/tool shape; three HTTP adapters, each handed one secret:
  *   - OpenAI-compatible (OpenRouter, OpenAI) — /chat/completions
  *   - Anthropic — /v1/messages
+ *   - OpenAI Responses on a ChatGPT plan — /v1/responses (credential
+ *     management §11), with the access token the keeper hands out
  * Which credential a call runs on, and so which secret an adapter receives, is
  * decided by `modules/inference/complete.ts` through the credential resolver.
  * A ChatGPT login's calls run on the machine that holds it (`codex-machine.ts`).
@@ -245,6 +247,227 @@ export async function anthropicMessages(
     text,
     toolCalls,
   }
+}
+
+// ---- OpenAI Responses, on a ChatGPT plan (credential management §11) ----
+
+export const OPENAI_RESPONSES_URL = `${OPENAI_BASE}/responses`
+export const OPENAI_MODELS_URL = `${OPENAI_BASE}/models`
+/** OpenAI's answer when the person's plan limit (or this app's) is reached. */
+export const CHATGPT_PLAN_LIMIT_CODE = 'subscription_sharing_usage_limit_exceeded'
+
+/**
+ * One Responses call on a ChatGPT plan token. What the plan route requires
+ * (POD-6894): `store: false`, `stream: true`, the whole conversation in
+ * `input`, system text in `instructions` (a system item is refused), and none
+ * of the unsupported fields (`max_output_tokens`, `temperature`, `top_p`,
+ * `metadata`, `user`, `previous_response_id`, …). The answer is read as a
+ * server-sent event stream because the request asked for one: it carries no
+ * `text/event-stream` content type. Only `response.completed` is success.
+ *
+ * Errors read `openai-responses <status>: <code or detail>`. A plan limit that
+ * arrives mid-stream as `response.failed` is reported as status 429, the same
+ * as when it arrives before the stream.
+ */
+export async function openaiResponses(
+  fetchImpl: FetchLike,
+  token: string,
+  model: string,
+  messages: LlmMessage[],
+  tools: LlmTool[],
+): Promise<LlmAnswer> {
+  const instructions = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n\n')
+  const input: Record<string, unknown>[] = []
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'user') input.push({ role: 'user', content: m.content })
+    else if (m.role === 'assistant') {
+      if (m.content) input.push({ role: 'assistant', content: m.content })
+      for (const c of m.toolCalls ?? []) {
+        input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: c.arguments })
+      }
+    } else {
+      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
+    }
+  }
+  const res = await fetchWithTimeout(fetchImpl, OPENAI_RESPONSES_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model,
+      ...(instructions ? { instructions } : {}),
+      input,
+      ...(tools.length > 0
+        ? {
+            tools: tools.map((t) => ({
+              type: 'function',
+              name: t.name,
+              description: t.description,
+              parameters: t.parameters,
+            })),
+          }
+        : {}),
+      store: false,
+      stream: true,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+  }
+  return await readResponsesStream(res)
+}
+
+/** `{"detail": …}` (admission) or `{"error": {"code", "message"}}`, whatever the content type. */
+function responsesErrorText(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      detail?: unknown
+      error?: { code?: unknown; message?: unknown }
+    }
+    if (typeof parsed.detail === 'string') return truncate(parsed.detail, 300)
+    const code = typeof parsed.error?.code === 'string' ? parsed.error.code : undefined
+    const message = typeof parsed.error?.message === 'string' ? parsed.error.message : undefined
+    if (code || message) return truncate([code, message].filter(Boolean).join(': '), 300)
+  } catch {
+    // Not JSON: the text itself.
+  }
+  return truncate(body, 300)
+}
+
+interface ResponsesItem {
+  type?: string
+  call_id?: string
+  name?: string
+  arguments?: string
+  content?: { type?: string; text?: string }[]
+}
+
+async function readResponsesStream(res: Response): Promise<LlmAnswer> {
+  if (!res.body) throw new Error('openai-responses: the answer has no body')
+  const decoder = new TextDecoder()
+  const reader = res.body.getReader()
+  let buffer = ''
+  let deltas = ''
+  const doneItems: ResponsesItem[] = []
+  let completed: { output?: ResponsesItem[]; usage?: Record<string, unknown> } | undefined
+  const onEvent = (data: string) => {
+    if (data === '[DONE]') return
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(data) as Record<string, unknown>
+    } catch {
+      return
+    }
+    const type = event.type
+    if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
+      deltas += event.delta
+    } else if (type === 'response.output_item.done' && event.item) {
+      doneItems.push(event.item as ResponsesItem)
+    } else if (type === 'response.completed') {
+      completed = (event.response ?? {}) as typeof completed
+    } else if (type === 'response.failed' || type === 'error') {
+      const response = event.response as { error?: { code?: unknown; message?: unknown } } | undefined
+      const error = (response?.error ?? event.error ?? event) as {
+        code?: unknown
+        message?: unknown
+      }
+      const code = typeof error.code === 'string' ? error.code : undefined
+      const message = typeof error.message === 'string' ? error.message : undefined
+      if (code === CHATGPT_PLAN_LIMIT_CODE) {
+        throw new Error(`openai-responses 429: ${code}`)
+      }
+      throw new Error(
+        `openai-responses failed: ${truncate([code, message].filter(Boolean).join(': ') || 'no reason given', 300)}`,
+      )
+    } else if (type === 'response.incomplete') {
+      throw new Error('openai-responses: the answer stopped before it was complete')
+    }
+  }
+  const drain = (final: boolean) => {
+    const blocks = buffer.split(/\r?\n\r?\n/)
+    buffer = final ? '' : (blocks.pop() ?? '')
+    for (const block of blocks) {
+      const data = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+      if (data) onEvent(data)
+    }
+  }
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      drain(false)
+      if (completed) break
+    }
+    buffer += decoder.decode()
+    if (!completed) drain(true)
+  } finally {
+    reader.releaseLock()
+  }
+  if (!completed) throw new Error('openai-responses: the stream ended without response.completed')
+  const items = completed.output && completed.output.length > 0 ? completed.output : doneItems
+  const text =
+    items
+      .filter((item) => item.type === 'message')
+      .flatMap((item) => item.content ?? [])
+      .filter((part) => part.type === 'output_text')
+      .map((part) => part.text ?? '')
+      .join('') || deltas
+  const toolCalls = items
+    .filter((item) => item.type === 'function_call' && item.name)
+    .map((item) => ({
+      id: item.call_id ?? `call_${Math.random().toString(36).slice(2)}`,
+      name: item.name as string,
+      arguments: item.arguments ?? '{}',
+    }))
+  const usage = completed.usage
+  return {
+    ...(usage && typeof usage.input_tokens === 'number'
+      ? {
+          usage: {
+            inputTokens: usage.input_tokens,
+            outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+          },
+        }
+      : {}),
+    text,
+    toolCalls,
+  }
+}
+
+/** The models a ChatGPT plan offers for display, in OpenAI's order (`visibility: "list"`). */
+export async function listChatgptModels(
+  fetchImpl: FetchLike,
+  token: string,
+): Promise<{ slug: string; displayName: string }[]> {
+  const res = await fetchWithTimeout(
+    fetchImpl,
+    OPENAI_MODELS_URL,
+    { method: 'GET', headers: { authorization: `Bearer ${token}` } },
+    30_000,
+  )
+  if (!res.ok) {
+    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+  }
+  const body = (await res.json()) as {
+    models?: { slug?: unknown; display_name?: unknown; visibility?: unknown }[]
+  }
+  return (body.models ?? []).flatMap((m) =>
+    m.visibility === 'list' && typeof m.slug === 'string'
+      ? [{ slug: m.slug, displayName: typeof m.display_name === 'string' ? m.display_name : m.slug }]
+      : [],
+  )
 }
 
 function parseJson(raw: string): unknown {

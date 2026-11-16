@@ -161,7 +161,7 @@ describe('complete: http routes', () => {
     expect(JSON.stringify(result)).not.toContain(planted(provider, 'chosen'))
   })
 
-  it('a ChatGPT plan credential has a route but no adapter in this version', async () => {
+  it('a ChatGPT plan credential is not configured where no keeper is bound', async () => {
     const s = await open()
     const plan = await keyCredential(s, 'openai.chatgpt-plan', planted('plan', 'chosen'))
     const { received, fetchImpl } = fakeProvider()
