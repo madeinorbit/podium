@@ -48,6 +48,8 @@ describe('ChatGPT sign-in', () => {
     const dir = mkdtempSync(join(tmpdir(), 'chatgpt-sign-in-'))
     store = await SessionStore.open(join(dir, 'podium.db'), undefined, {
       vaultKeyFile: join(dir, 'vault.key'),
+      // A store-level fixture with no change log attached (POD-6920), as health.test.
+      changeCapture: 'whenLogAttaches',
     })
     primeFirstAdminMember(await firstAdminMemberId(store))
     for (const id of [OWNER, OTHER]) {
