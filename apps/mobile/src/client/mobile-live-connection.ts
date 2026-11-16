@@ -17,6 +17,14 @@ export function mobileVersionObservers(options: {
   let recoveryAttempted = false
   let severe = false
   let serverBehind: string | null = null
+  // A refused reconnect re-checks every backoff step (POD-6940): an identical
+  // sentence is not news, and repeating it would undo a dismissal.
+  let lastCheckReport: string | null = null
+  const reportCheck = (message: string): void => {
+    if (message === lastCheckReport) return
+    lastCheckReport = message
+    options.report(message)
+  }
   const unreadable =
     'This app build cannot read what the server is sending, so parts of it may be empty or stuck.'
   const check = async (): Promise<void> => {
@@ -24,15 +32,16 @@ export function mobileVersionObservers(options: {
     if (disposed || !result) return
     if (result.verdict === 'ok') {
       serverBehind = null
+      lastCheckReport = null
       return
     }
     if (result.verdict === 'client-too-new') {
       serverBehind = `Your server is running an older version of Podium than this app (wire ${result.server.wireVersion} against ${CLIENT_WIRE_VERSION}). Update your server to continue.`
-      options.report(severe ? `${unreadable} ${serverBehind}` : serverBehind)
+      reportCheck(severe ? `${unreadable} ${serverBehind}` : serverBehind)
     } else {
       serverBehind = null
       if (severe) return
-      options.report(
+      reportCheck(
         options.credentials.delivery === 'browser'
           ? 'This app and server are running different builds. Reload to pick up the build the server is serving.'
           : 'This app and server are running different builds. Update Podium on this device to continue.',
@@ -46,8 +55,10 @@ export function mobileVersionObservers(options: {
       const failure = notice.severe
         ? unreadable
         : `${skew.quarantined} item${skew.quarantined === 1 ? '' : 's'} from the server could not be read by this app build and are missing from these views.`
-      if (!severe || notice.severe)
+      if (!severe || notice.severe) {
         options.report(serverBehind ? `${failure} ${serverBehind}` : notice.message)
+        lastCheckReport = null
+      }
       severe ||= notice.severe
       if (skew.refusedFrames <= 0 || recoveryAttempted) return
       recoveryAttempted = true

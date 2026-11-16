@@ -71,6 +71,29 @@ describe('mobile version remedy over the shared observer', () => {
     )
     observer.dispose()
   })
+  it('reports a repeated refused-redial verdict once, and again after the server matched', async () => {
+    let server: unknown = { wireVersion: CLIENT_WIRE_VERSION + 1 }
+    const report = vi.fn(),
+      observer = mobileVersionObservers({
+        credentials: { ...cookieCredentials, delivery: 'native' },
+        fetchVersion: async () => server,
+        report,
+      })
+    const step = async (): Promise<void> => {
+      observer.onReconnect!()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await step()
+    await step()
+    await step()
+    expect(report).toHaveBeenCalledOnce()
+    server = { wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
+    await step()
+    server = { wireVersion: CLIENT_WIRE_VERSION + 1 }
+    await step()
+    expect(report).toHaveBeenCalledTimes(2)
+    observer.dispose()
+  })
   it('ignores an unavailable version and an in-flight answer from the previous owner', async () => {
     const report = vi.fn(),
       offline = mobileVersionObservers({

@@ -5,10 +5,10 @@ import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, encode, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
-import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
+import { registerReloadGuard, registerReloadPreparation } from '@/lib/reload-preparation'
 import { freshInterfaceUrl } from '@/lib/reload-route'
 import {
   checkRefusedReconnect,
@@ -487,8 +487,8 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
     vi.useRealTimers()
   })
 
-  /** Runs `dials` refused redials after one welcomed connection drops. */
-  async function refuseRedials(dials: number): Promise<void> {
+  /** A hub whose one welcomed connection has dropped; `refuse` fails its next redials. */
+  function refusingHub(): { refuse(dials: number): Promise<void>; stop(): Promise<void> } {
     const sockets: WebSocketLike[] = []
     const hub = new SocketHub({
       url: 'wss://relay.test/ws',
@@ -516,16 +516,29 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
     first.onopen?.({})
     first.onmessage?.({ data: encode({ type: 'welcome', kindTokens: {}, clientId: 'c' }) })
     first.onclose?.({ code: 1006 })
-    for (let dial = 0; dial < dials; dial++) {
-      // The backoff never waits 10 s, so each advance fires exactly one redial.
-      await vi.advanceTimersByTimeAsync(10_000)
-      const socket = sockets.at(-1)!
-      socket.onerror?.({})
-      socket.onclose?.({ code: 1006 })
+    return {
+      async refuse(dials) {
+        for (let dial = 0; dial < dials; dial++) {
+          // The backoff never waits 10 s, so each advance fires exactly one redial.
+          await vi.advanceTimersByTimeAsync(10_000)
+          const socket = sockets.at(-1)!
+          socket.onerror?.({})
+          socket.onclose?.({ code: 1006 })
+        }
+      },
+      async stop() {
+        await vi.advanceTimersByTimeAsync(10_000)
+        stop()
+        hub.dispose()
+      },
     }
-    await vi.advanceTimersByTimeAsync(10_000)
-    stop()
-    hub.dispose()
+  }
+
+  /** Runs `dials` refused redials after one welcomed connection drops. */
+  async function refuseRedials(dials: number): Promise<void> {
+    const tab = refusingHub()
+    await tab.refuse(dials)
+    await tab.stop()
   }
 
   it('hard-reloads exactly once when /version reports a newer wire', async () => {
@@ -557,6 +570,61 @@ describe('checkRefusedReconnect over a hub whose reconnects keep failing', () =>
     expect(fetchMock).toHaveBeenCalled()
     expect(reload).not.toHaveBeenCalled()
     expect(currentSkew()).toBeNull()
+  })
+
+  it('spends no budget while reload preparation refuses, and reloads once it allows', async () => {
+    const releaseGuard = registerReloadGuard(() => 'This file has unsaved changes.')
+    // A failed assertion must not leave later tests behind a refusing guard.
+    onTestFinished(releaseGuard)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(newerWire)))
+    const tab = refusingHub()
+    await tab.refuse(5)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(reload).not.toHaveBeenCalled()
+    expect(store.has(COUNTER_KEY)).toBe(false)
+    expect(reloadBudgetSpent()).toBe(false)
+    expect(currentSkew()).toBeNull()
+
+    releaseGuard()
+    await tab.refuse(1)
+    await tab.stop()
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 1))
+  })
+
+  it('bounds /version below the backoff cap, so a request that never answers frees the check', async () => {
+    const bounds: number[] = []
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      bounds.push(ms)
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new DOMException('timed out', 'TimeoutError')), ms)
+      return controller.signal
+    })
+    const hangs = (_url: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      })
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(hangs)
+      .mockResolvedValue(versionResponse(newerWire))
+    vi.stubGlobal('fetch', fetchMock)
+    await refuseRedials(5)
+    expect(bounds[0]).toBeLessThan(10_000)
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs a spent budget once per build, not on every refused dial', async () => {
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 2))
+    const logged: LogRecord[] = []
+    setLogLevel('warn')
+    addSink({ name: 'capture', write: (record) => logged.push(record) })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(newerWire)))
+    await refuseRedials(5)
+    expect(reload).not.toHaveBeenCalled()
+    expect(logged.filter((r) => r.level === 'error')).toHaveLength(1)
+    resetLogging()
   })
 
   it('leaves a server that is still restarting alone when /version fails', async () => {
