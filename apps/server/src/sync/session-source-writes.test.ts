@@ -1,4 +1,5 @@
 import { asIssueId, asRepoId, asSessionId, firstAdminMemberId } from '@podium/model'
+import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -154,5 +155,77 @@ describe('session source writes compare before they write', () => {
     const cursor = await f.ledger.cursor()
     await f.store.events.pruneEventBatch({ cutoff: '2026-02-01T00:00:00Z', capThroughId: 0 })
     expect(await f.changes(cursor)).toHaveLength(1)
+  })
+
+  it('builds the record for an observation checkpoint only when what the record reads moves (POD-6970)', async () => {
+    const f = await fixture()
+    await seedRows(
+      f.store,
+      async () =>
+        await f.store.observationCheckpoints.advanceGeneration(
+          f.session.sessionId,
+          'codex',
+          'thread',
+        ),
+    )
+    const at = (ms: number) => new Date(Date.parse('2026-11-10T01:00:00Z') + ms).toISOString()
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: f.session.sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread',
+      bindingVersion: 1,
+      lifecycleObservationGeneration: 1,
+      providerCursor: { segmentId: 'rollout', components: { file: 42 } },
+      bootstrapCursor: { segmentId: 'rollout', components: { file: 42 } },
+      lastAcceptedLiveCursor: null,
+      turnEpoch: 0,
+      providerTurnId: null,
+      providerPromptId: null,
+      turnState: { phase: 'working', since: at(0), workingMsTotal: 0, nativeSubagentCount: 0 },
+      terminalFence: null,
+      providerAt: at(0),
+      acceptedAt: at(0),
+      lastLiveReceiptAt: null,
+      lastTransitionId: 'snapshot-42',
+    }
+    const save = async () =>
+      await f.writer.commit({
+        write: async () => await f.store.observationCheckpoints.save(checkpoint),
+      })
+    // One read of the session's offers per record build.
+    const builds = vi.spyOn(f.store.sessions, 'offersOf')
+    let cursor = await f.ledger.cursor()
+    await save()
+    expect(builds).toHaveBeenCalled()
+    expect(await f.changes(cursor)).toHaveLength(1)
+    // Accepted refreshes: the cursors and times move, the turn state stays.
+    // The record does not change, so it is not built.
+    builds.mockClear()
+    cursor = await f.ledger.cursor()
+    for (let refresh = 1; refresh <= 5; refresh++) {
+      checkpoint.providerCursor = { segmentId: 'rollout', components: { file: 42 + refresh } }
+      checkpoint.providerAt = at(refresh * 1_000)
+      checkpoint.acceptedAt = at(refresh * 1_000)
+      checkpoint.lastLiveReceiptAt = at(refresh * 1_000)
+      checkpoint.lastTransitionId = `refresh-${refresh}`
+      await save()
+    }
+    expect(builds).not.toHaveBeenCalled()
+    expect(await f.changes(cursor)).toEqual([])
+    // The turn ends: the record's state moves, and is logged once.
+    cursor = await f.ledger.cursor()
+    checkpoint.turnState = {
+      phase: 'idle',
+      since: at(9_000),
+      workingMsTotal: 9_000,
+      nativeSubagentCount: 0,
+    }
+    checkpoint.acceptedAt = at(9_000)
+    await save()
+    expect(builds).toHaveBeenCalled()
+    const ended = await f.changes(cursor)
+    expect(ended).toHaveLength(1)
+    expect(ended[0]?.value).toMatchObject({ agentState: { phase: 'idle' } })
   })
 })

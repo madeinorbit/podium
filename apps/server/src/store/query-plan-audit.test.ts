@@ -1740,3 +1740,105 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     }
   })
 })
+
+/**
+ * THE EFFECTS SWEEP UNDER THE OPERATOR'S STATISTICS [POD-6970]. ANALYZE counts
+ * each NULL as its own value, so on a real database `idx_effects_deleted`
+ * reads as ten rows per key and `deleted_at IS NULL` looks selective, though
+ * nearly every record is live. These are the `effects` rows of `sqlite_stat1`
+ * on the operator's server (46k records, 41k of them live finished machine
+ * scans), where the sweep's unpinned reads walked every live record and sorted
+ * them, twice a minute, to return none. Each sweep statement must seek its own
+ * index under them, with no scan and no sort.
+ */
+describe('POD-6970 — the effects sweep under real statistics', () => {
+  const OPERATOR_EFFECTS_STATISTICS: readonly (readonly [string, string])[] = [
+    ['idx_effects_unpublished', '0 0'],
+    ['idx_effects_awaiting', '0 0 0'],
+    ['idx_effects_kind_target', '46241 334 251 6 1'],
+    ['idx_effects_target', '46241 1001 11 1'],
+    ['idx_effects_deleted', '46241 10'],
+    ['idx_effects_status_finished', '46241 334 1'],
+    ['idx_effects_status_deadline', '46241 334 1'],
+    ['sqlite_autoindex_effects_1', '46241 1'],
+  ]
+
+  const useOperatorStatistics = () => {
+    modelLowSelectivity(database)
+    database.exec("DELETE FROM sqlite_stat1 WHERE tbl = 'effects'")
+    const insert = database.prepare(
+      "INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('effects', ?, ?)",
+    )
+    for (const [index, stat] of OPERATOR_EFFECTS_STATISTICS) insert.run(index, stat)
+    database.exec('ANALYZE sqlite_schema')
+  }
+
+  const effectPlans = (): Map<string, string> => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    return new Map(
+      auditDefinitions(keyed)
+        .audited.filter((entry) => entry.key.startsWith('apps/server/src/store/effects.ts:'))
+        .map((entry) => [
+          `${entry.key.split(':')[1]}${entry.shape === undefined ? '' : ` [${String(entry.shape)}]`}`,
+          entry.plan.join(' | '),
+        ]),
+    )
+  }
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('is armed: under them the unpinned status read walks the live records and sorts them', () => {
+    useOperatorStatistics()
+    const plan = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE status = ? AND deleted_at IS NULL AND (decision IS NULL OR decision <> 'awaiting') ORDER BY deadline_at LIMIT ?",
+        )
+        .all(null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(plan).toMatch(/idx_effects_deleted \(deleted_at=\?\)/)
+    expect(plan).toMatch(/TEMP B-TREE FOR ORDER BY/)
+  })
+
+  it('each sweep statement seeks its own index, with no scan and no sort', () => {
+    useOperatorStatistics()
+    const plans = effectPlans()
+    const expected: readonly (readonly [string, RegExp])[] = [
+      // Both statuses build one statement (the status is bound): the audit
+      // plans it once, under its first shape.
+      [
+        'effectsInStatus [pending]',
+        /^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)$/,
+      ],
+      [
+        'expireDueEffects',
+        /SEARCH effects USING INDEX idx_effects_status_deadline \(status=\? AND deadline_at>\? AND deadline_at<\?\)/,
+      ],
+      [
+        'pruneFinishedEffects',
+        /SEARCH effects USING INDEX idx_effects_status_finished \(status=\? AND finished_at<\?\)/,
+      ],
+      ['purgeTombstones', /SEARCH effects USING INDEX idx_effects_deleted \(deleted_at<\?\)/],
+      [
+        'purgeOffFeedFinished',
+        /SEARCH candidate USING INDEX idx_effects_kind_target \(kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
+      ],
+    ]
+    for (const [name, pattern] of expected) {
+      const plan = plans.get(name)
+      expect(plan, name).toBeDefined()
+      expect(plan, name).toMatch(pattern)
+      expect(`${name}: ${plan}`).not.toMatch(/SCAN (effects|candidate|newer)\b|TEMP B-TREE/)
+    }
+  })
+
+  it('no effects statement walks the live records through idx_effects_deleted', () => {
+    useOperatorStatistics()
+    const walks = [...effectPlans()]
+      .filter(([, plan]) => /idx_effects_deleted \(deleted_at=\?\)|SCAN effects\b/.test(plan))
+      .map(([name, plan]) => `${name}: ${plan}`)
+    expect(walks).toEqual([])
+  })
+})

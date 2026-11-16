@@ -25,7 +25,20 @@ import {
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getColumns,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { effects } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { afterCommit } from './executor/executor'
@@ -40,6 +53,15 @@ import {
 } from './executor/sync-drizzle'
 
 type EffectSelect = typeof effects.$inferSelect
+
+/** Every column by its bare name, mapped as the table maps it: for a FROM
+ *  that is an INDEXED BY clause rather than the table object. */
+const EFFECT_COLUMNS = Object.fromEntries(
+  Object.entries(getColumns(effects)).map(([key, column]) => [
+    key,
+    sql`${sql.identifier(column.name)}`.mapWith(column),
+  ]),
+) as { [K in keyof EffectSelect]: SQL<EffectSelect[K]> }
 
 /** One effect record, as the server holds it. Times are epoch milliseconds. */
 export interface EffectRow {
@@ -468,6 +490,16 @@ const tombstoneEffect = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+// THE SWEEP'S STATEMENTS NAME THEIR INDEX (POD-6970). Each one runs every
+// minute and is meant to read only the rows it acts on. Under real statistics
+// the planner costs `deleted_at IS NULL` on `idx_effects_deleted` as a few rows:
+// ANALYZE counts each NULL as its own value, so the live set looks selective.
+// It then walked every live record (41k on the operator's server, nearly all
+// finished machine scans with their results) and sorted them, twice a minute,
+// to return none. INDEXED BY keeps each statement on the index its own terms
+// seek, as `liveOnTargetKeys` above does (POD-6599); the query-plan audit checks
+// them under those statistics.
+
 /** The sweep's expiry: pending records whose deadline has passed, a bounded batch. */
 const expireDueEffects = prepared((db: StoreDrizzle) =>
   db
@@ -484,8 +516,9 @@ const expireDueEffects = prepared((db: StoreDrizzle) =>
       inArray(
         effects.id,
         db
-          .select({ id: effects.id })
-          .from(effects)
+          // Bare column name: the FROM is an INDEXED BY clause, not the table object.
+          .select({ id: sql<string>`id` })
+          .from(sql`${effects} INDEXED BY idx_effects_status_deadline`)
           .where(
             and(
               eq(effects.status, 'pending'),
@@ -505,8 +538,8 @@ const expireDueEffects = prepared((db: StoreDrizzle) =>
 /** Records in one status, oldest first, a bounded page (the sweep's re-dispatch). */
 const effectsInStatus = preparedFamily((db: StoreDrizzle, status: 'pending' | 'running') =>
   db
-    .select()
-    .from(effects)
+    .select(EFFECT_COLUMNS)
+    .from(sql`${effects} INDEXED BY idx_effects_status_deadline`)
     // An awaiting record waits for its person, not for the sweep (POD-6674).
     .where(and(eq(effects.status, status), live(), notAwaiting()))
     // The index's own order after the equality: no sort.
@@ -524,8 +557,8 @@ const pruneFinishedEffects = prepared((db: StoreDrizzle) =>
       inArray(
         effects.id,
         db
-          .select({ id: effects.id })
-          .from(effects)
+          .select({ id: sql<string>`id` })
+          .from(sql`${effects} INDEXED BY idx_effects_status_finished`)
           .where(
             and(
               // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
@@ -541,7 +574,50 @@ const pruneFinishedEffects = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Tombstones older than the feed's retention: gone from every device already. */
+/**
+ * ENDED RECORDS OF ONE KIND THE SERVER STARTED FOR NO ONE, past their short
+ * retention (POD-6970): the connect scan's `machine.scan` records, which no
+ * device receives (`SYSTEM_EFFECT_KINDS_OFF_FEED`, POD-6941). They are deleted
+ * outright, not tombstoned: no device ever held them, so there is no removal
+ * to deliver, and the capture does not see them. The newest succeeded record
+ * on each target stays whatever its age: it is that machine's last scan
+ * (`discovery.lastMachineScan`). Read through `idx_effects_kind_target`, so
+ * the cost follows that kind's records, and each candidate's newer sibling is a
+ * seek on the same index.
+ */
+const purgeOffFeedFinished = prepared((db: StoreDrizzle) =>
+  db
+    .delete(effects)
+    .where(
+      inArray(
+        effects.id,
+        db
+          .select({ id: sql<string>`candidate.id` })
+          .from(sql`${effects} AS candidate INDEXED BY idx_effects_kind_target`)
+          .where(
+            sql`candidate.kind = ${sql.placeholder('kind')}
+              AND candidate.created_by IS NULL
+              AND candidate.deleted_at IS NULL
+              AND candidate.status IN ('succeeded', 'failed', 'cancelled', 'expired')
+              AND candidate.finished_at <= ${sql.placeholder('cutoff')}
+              AND (candidate.status <> 'succeeded' OR EXISTS (
+                SELECT 1 FROM ${effects} AS newer INDEXED BY idx_effects_kind_target
+                WHERE newer.kind = candidate.kind
+                  AND newer.target_kind = candidate.target_kind
+                  AND newer.target_id = candidate.target_id
+                  AND newer.created_at > candidate.created_at
+                  AND newer.status = 'succeeded'
+                  AND newer.deleted_at IS NULL))`,
+          )
+          .limit(P('limit')),
+      ),
+    )
+    .returning({ id: effects.id })
+    .prepare(),
+)
+
+/** Tombstones older than the feed's retention: gone from every device already.
+ *  A range on `idx_effects_deleted`, which skips the live (NULL) rows. */
 const purgeTombstones = prepared((db: StoreDrizzle) =>
   db
     .delete(effects)
@@ -549,8 +625,8 @@ const purgeTombstones = prepared((db: StoreDrizzle) =>
       inArray(
         effects.id,
         db
-          .select({ id: effects.id })
-          .from(effects)
+          .select({ id: sql<string>`id` })
+          .from(sql`${effects} INDEXED BY idx_effects_deleted`)
           .where(lte(effects.deletedAt, param(effects.deletedAt, 'cutoff')))
           .limit(P('limit')),
       ),
@@ -863,6 +939,21 @@ export class EffectsRepository {
     return await this.write(
       async () => await pruneFinishedEffects(this.db).all({ cutoff, now, limit }),
     )
+  }
+
+  /**
+   * Delete the ended records of `kind` that the server started for no one and
+   * that ended at or before `cutoff`, keeping each target's newest succeeded
+   * one (see {@link purgeOffFeedFinished}). Only for a kind that stays off the
+   * feed. A bounded batch; returns how many went.
+   */
+  async purgeOffFeedFinished(
+    _scope: WriteScope,
+    kind: string,
+    cutoff: number,
+    limit: number,
+  ): Promise<number> {
+    return (await purgeOffFeedFinished(this.db).all({ kind, cutoff, limit })).length
   }
 
   /** Hard-delete tombstones; the feed removed them when they were tombstoned. */
