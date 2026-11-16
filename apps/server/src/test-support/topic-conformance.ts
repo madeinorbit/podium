@@ -276,7 +276,7 @@ export interface TopicWorld {
     readonly harvests: number
     produce(): Promise<void>
   }
-  client(user?: UserId): Promise<ConformanceClient>
+  client(user?: UserId, link?: ConformanceLink): Promise<ConformanceClient>
   attachDaemon(): Promise<void>
   /** The daemon's server link drops; the process lives on. */
   detachDaemon(): Promise<void>
@@ -291,7 +291,18 @@ export interface TopicWorld {
   restartServer(): Promise<void>
   /** The next `count` snapshot reads fail: the producer throws, or its promise rejects. */
   failSnapshots(count: number, how: 'throw' | 'reject'): void
+  /** The next `count` visibility reads on subscribe throw (a kernel read failure). */
+  failVisibility(count: number): void
   dispose(): void
+}
+
+/**
+ * A slow link: the socket opens one round trip after it is dialled (a
+ * handshake costs at least one), and the `n`-th pong arrives `rttMs(n)` after
+ * its ping. Every other frame is immediate.
+ */
+export interface ConformanceLink {
+  readonly rttMs: (n: number) => number
 }
 
 export async function createTopicWorld(
@@ -310,6 +321,12 @@ export async function createTopicWorld(
   const serverSockets = new Map<string, BridgeSocket>()
   let serverGeneration = 0
   const snapshotFailures = { count: 0, how: 'throw' as 'throw' | 'reject' }
+  let visibilityFailures = 0
+  const readVisibility = (): void => {
+    if (visibilityFailures === 0) return
+    visibilityFailures -= 1
+    throw new Error('conformance: visibility read failed')
+  }
 
   // Late-bound exactly as relay.ts does: the producers close over the routing.
   let topics!: TopicRouting
@@ -473,14 +490,20 @@ export async function createTopicWorld(
     new TopicRouting({
       subscriptions,
       clients,
-      prepareVisibility: async (): Promise<VisibilityResolver> => ({
-        canSee: (principal, entity) =>
-          principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
-      }),
-      prepareMachineUse: async () => ({
-        canSee: (principal, entity) =>
-          principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
-      }),
+      prepareVisibility: async (): Promise<VisibilityResolver> => {
+        readVisibility()
+        return {
+          canSee: (principal, entity) =>
+            principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
+        }
+      },
+      prepareMachineUse: async () => {
+        readVisibility()
+        return {
+          canSee: (principal, entity) =>
+            principal.kind === 'user' && visible.has(`${principal.user}:${entity.id}`),
+        }
+      },
       producers,
       epoch: serverGeneration === 0 ? 'conformance' : `conformance-restart-${serverGeneration}`,
     })
@@ -590,8 +613,9 @@ export async function createTopicWorld(
     set legacyBroadcasts(value: number) {
       legacyBroadcasts = value
     },
-    async client(user = USER) {
+    async client(user = USER, link) {
       const received: ServerMessage[] = []
+      let pings = 0
       const receivedAt: number[] = []
       let current: { socket: BridgeSocket; conn: ClientConn } | undefined
       let pressure = false
@@ -642,13 +666,18 @@ export async function createTopicWorld(
             return
           }
           if (msg.type === 'ping') {
-            const answer = (): void => conn.send({ type: 'pong' })
+            const rtt = link?.rttMs(++pings)
+            const answer = (): void => {
+              if (rtt === undefined) conn.send({ type: 'pong' })
+              else setTimeout(() => conn.send({ type: 'pong' }), rtt)
+            }
             if (pongsHeld) heldPongs.push(answer)
             else answer()
             return
           }
           if (msg.type === 'topicSubscribe' || msg.type === 'topicUnsubscribe') {
-            void topics.route(conn, msg)
+            // As the mux's per-connection queue does: a failure is logged and dropped.
+            void topics.route(conn, msg).catch(() => {})
           }
         })
         const origClose = socket.close.bind(socket)
@@ -662,14 +691,18 @@ export async function createTopicWorld(
           origClose()
         }
         current = { socket, conn }
-        // The server accepts on the next turn, like a real upgrade.
-        setTimeout(() => {
-          if (socket.closed) return
-          serverSockets.set(id, socket)
-          clients.add(conn)
-          socket.open = true
-          socket.onopen?.({})
-        }, 0)
+        // The server accepts on the next turn, like a real upgrade, or one
+        // round trip later on a slow link.
+        setTimeout(
+          () => {
+            if (socket.closed) return
+            serverSockets.set(id, socket)
+            clients.add(conn)
+            socket.open = true
+            socket.onopen?.({})
+          },
+          link?.rttMs(0) ?? 0,
+        )
         return socket
       }
       const hub = new SocketHub({ url: 'ws://conformance', makeSocket })
@@ -734,6 +767,9 @@ export async function createTopicWorld(
     failSnapshots(count, how) {
       snapshotFailures.count = count
       snapshotFailures.how = how
+    },
+    failVisibility(count) {
+      visibilityFailures = count
     },
     dispose() {
       for (const hub of hubs) hub.dispose()
@@ -1178,6 +1214,85 @@ export function describeTopicConformance<K extends TopicKind>(c: TopicConformanc
         await expectCurrent(world, client, c)
       })
     }
+
+    // A kind visible to its own account reads nothing on subscribe: no read to fail.
+    const readsVisibility = decl.visibility !== 'account.self'
+
+    it.skipIf(!readsVisibility)(
+      '12k. a visibility read that fails is answered transient, and the next heartbeat asks again',
+      async () => {
+        const client = await world.client()
+        world.failVisibility(1)
+        holdTopic(client, c.kind, c.id)
+        await settle()
+        // Answered, not dropped, and never admitted without a decision.
+        expect(client.frames('topicClosed', key)).toEqual([
+          { type: 'topicClosed', key, reason: 'transient' },
+        ])
+        expect(client.frames('topicSnapshot', key)).toHaveLength(0)
+        expect(serverHolds(world, c.kind, c.id)).toBe(0)
+        await vi.advanceTimersByTimeAsync(3_000)
+        await expectCurrent(world, client, c)
+      },
+    )
+
+    it.skipIf(!readsVisibility)(
+      '12l. a visibility read that keeps failing is asked again once per heartbeat, never in a loop',
+      async () => {
+        const client = await world.client()
+        world.failVisibility(Number.POSITIVE_INFINITY)
+        holdTopic(client, c.kind, c.id)
+        await vi.advanceTimersByTimeAsync(10_000)
+        // The first ask, then one per 2.5 s heartbeat: at most five in 10 s.
+        const closes = client.frames('topicClosed', key)
+        expect(closes.length).toBeGreaterThanOrEqual(3)
+        expect(closes.length).toBeLessThanOrEqual(5)
+        world.failVisibility(0)
+        await vi.advanceTimersByTimeAsync(3_000)
+        await expectCurrent(world, client, c)
+      },
+    )
+
+    it('12m. a slow link (6-8 s round trips) is never declared down, and nothing is asked again', async () => {
+      const client = await world.client(USER, { rttMs: (n) => 6_000 + (n % 3) * 1_000 })
+      const statuses: string[] = []
+      client.hub.on('connectionHealth', (health) => statuses.push(health.status))
+      holdTopic(client, c.kind, c.id)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(statuses).not.toContain('down')
+      expect(client.hub.connected).toBe(true)
+      // One socket, one ask, one answer.
+      expect(client.frames('topicSnapshot', key)).toHaveLength(1)
+      await c.produce(world)
+      await expectCurrent(world, client, c)
+    })
+
+    it('12n. on a slow link a real stall is still declared down within a bound, and ok returns after it', async () => {
+      const client = await world.client(USER, { rttMs: () => 7_000 })
+      holdTopic(client, c.kind, c.id)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(client.hub.connectionHealth().status).not.toBe('down')
+      const statuses: { status: string; at: number }[] = []
+      client.hub.on('connectionHealth', (health) =>
+        statuses.push({ status: health.status, at: Date.now() }),
+      )
+      const stalledAt = Date.now()
+      client.silence(true)
+      await vi.advanceTimersByTimeAsync(30_000)
+      const down = statuses.find((entry) => entry.status === 'down')
+      expect(down).toBeDefined()
+      // The heartbeat's 10 s of silence, after the next ping: well inside 25 s.
+      expect((down?.at ?? Number.POSITIVE_INFINITY) - stalledAt).toBeLessThanOrEqual(25_000)
+      client.silence(false)
+      await vi.advanceTimersByTimeAsync(20_000)
+      // The ok moment ConnectionService drains its outbox on comes after the loss.
+      const okAfter = statuses.findIndex(
+        (entry, index) => index > statuses.indexOf(down!) && entry.status === 'ok',
+      )
+      expect(okAfter).toBeGreaterThan(-1)
+      await c.produce(world)
+      await expectCurrent(world, client, c)
+    })
   })
 }
 
