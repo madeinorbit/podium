@@ -583,12 +583,24 @@
             "providerAccountId": "login.identity.providerAccountId"
           },
           "freshness": 1
-        }
+        },
+        "logins": [
+          {
+            "homeId": "logins[0].homeId",
+            "state": "in",
+            "identity": {
+              "fingerprint": "logins[0].identity.fingerprint",
+              "email": "logins[0].identity.email",
+              "providerAccountId": "logins[0].identity.providerAccountId"
+            },
+            "freshness": 1
+          }
+        ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\",\"identity\":{\"fingerprint\":\"login.identity.fingerprint\",\"email\":\"login.identity.email\",\"providerAccountId\":\"login.identity.providerAccountId\"},\"freshness\":1}}"
+      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\",\"identity\":{\"fingerprint\":\"login.identity.fingerprint\",\"email\":\"login.identity.email\",\"providerAccountId\":\"login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"logins[0].identity.fingerprint\",\"email\":\"logins[0].identity.email\",\"providerAccountId\":\"logins[0].identity.providerAccountId\"},\"freshness\":1}]}"
     },
     {
       "schema": "AgentKind",
@@ -823,6 +835,7 @@
       "variant": "full",
       "wire": {
         "agent": "claude-code",
+        "homeId": "homeId",
         "status": "ok",
         "account": {
           "email": "account.email",
@@ -844,7 +857,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"account.email\",\"plan\":\"account.plan\"},\"windows\":[{\"key\":\"windows[0].key\",\"label\":\"windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"windows[0].scopeModel\"}],\"error\":\"error\",\"fetchedAt\":\"fetchedAt\"}"
+      "encoded": "{\"agent\":\"claude-code\",\"homeId\":\"homeId\",\"status\":\"ok\",\"account\":{\"email\":\"account.email\",\"plan\":\"account.plan\"},\"windows\":[{\"key\":\"windows[0].key\",\"label\":\"windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"windows[0].scopeModel\"}],\"error\":\"error\",\"fetchedAt\":\"fetchedAt\"}"
     },
     {
       "schema": "AgentRuntimeState",
@@ -4067,6 +4080,36 @@
       "encoded": "{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60}"
     },
     {
+      "schema": "HomeLogin",
+      "variant": "minimal",
+      "wire": {
+        "homeId": "homeId",
+        "state": "in"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"homeId\":\"homeId\",\"state\":\"in\"}"
+    },
+    {
+      "schema": "HomeLogin",
+      "variant": "full",
+      "wire": {
+        "homeId": "homeId",
+        "state": "in",
+        "identity": {
+          "fingerprint": "identity.fingerprint",
+          "email": "identity.email",
+          "providerAccountId": "identity.providerAccountId"
+        },
+        "freshness": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"homeId\":\"homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"providerAccountId\":\"identity.providerAccountId\"},\"freshness\":1}"
+    },
+    {
       "schema": "HostDiskWire",
       "variant": "minimal",
       "wire": {
@@ -4478,7 +4521,19 @@
                 "providerAccountId": "agents[0].login.identity.providerAccountId"
               },
               "freshness": 1
-            }
+            },
+            "logins": [
+              {
+                "homeId": "agents[0].logins[0].homeId",
+                "state": "in",
+                "identity": {
+                  "fingerprint": "agents[0].logins[0].identity.fingerprint",
+                  "email": "agents[0].logins[0].identity.email",
+                  "providerAccountId": "agents[0].logins[0].identity.providerAccountId"
+                },
+                "freshness": 1
+              }
+            ]
           }
         ],
         "runtimeDrivers": [
@@ -4504,7 +4559,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
       "schema": "InviteId",
@@ -7998,7 +8053,19 @@
                   "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
                 },
                 "freshness": 1
-              }
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "in",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 1
+                }
+              ]
             }
           ],
           "runtimeDrivers": [
@@ -8025,7 +8092,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MachineComponent",
@@ -8214,6 +8281,7 @@
         "agents": [
           {
             "agent": "claude-code",
+            "homeId": "agents[0].homeId",
             "status": "ok",
             "account": {
               "email": "agents[0].account.email",
@@ -8237,7 +8305,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
+      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
       "schema": "MachineServiceAssignment",
@@ -8505,7 +8573,19 @@
                   "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
                 },
                 "freshness": 1
-              }
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "in",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 1
+                }
+              ]
             }
           ],
           "runtimeDrivers": [
@@ -8546,7 +8626,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MemberId",
