@@ -1,6 +1,7 @@
 /* One execution owns the header, every retained input and its captured result. */
 .command-execution {
   position: relative;
+  container: execution / inline-size;
   min-width: 0;
   margin: 1px 0;
   border: 1px solid transparent;
@@ -39,6 +40,7 @@
 .command-execution .execution-title {
   flex: 1;
   min-width: 0;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -97,6 +99,23 @@
 .execution-duration {
   color: var(--text-faint);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.execution-timestamp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.execution-timestamp-label {
+  font-family: var(--font-sans);
+}
+.command-execution[data-open="false"] .execution-timestamp {
+  display: none;
 }
 .execution-chevron {
   flex: none;
@@ -105,10 +124,6 @@
 }
 .command-execution[data-open="true"] .execution-chevron {
   transform: rotate(90deg);
-}
-.command-execution > .quiet-time {
-  top: 6px;
-  right: calc(100% + 20px);
 }
 .execution-body {
   min-width: 0;
@@ -329,16 +344,52 @@
   color: var(--text-faint);
   font-size: 10.5px;
 }
-@media (max-width: 640px) {
+@container execution (max-width: 520px) {
   .command-execution > .execution-heading {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) 12px;
+    column-gap: 7px;
+    row-gap: 2px;
     padding-inline: 8px;
   }
-  .execution-facts {
-    gap: 5px;
+  .command-execution .execution-title {
+    grid-column: 2;
+    grid-row: 1;
   }
-  .execution-status[data-status="completed"] > span,
-  .execution-status[data-status="returned"] {
+  .command-execution[data-open="true"] > .execution-heading {
+    row-gap: 4px;
+    padding-block: 8px;
+  }
+  .command-execution[data-open="true"] .execution-title {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .execution-facts {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    flex-wrap: wrap;
+    column-gap: 9px;
+    row-gap: 4px;
+    line-height: 16px;
+  }
+  .execution-timestamp {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .command-execution .work-line-glyph,
+  .command-execution .execution-chevron {
+    align-self: start;
+    margin-top: 4px;
+  }
+  .command-execution .execution-chevron {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .command-execution[data-open="false"] .execution-status[data-status="completed"] > span,
+  .command-execution[data-open="false"] .execution-status[data-status="returned"] {
     display: none;
   }
   .execution-output-cue {
@@ -370,6 +421,8 @@
     padding-inline: 10px;
     font-size: 10.5px;
   }
+}
+@container feed (max-width: 640px) {
   .execution-batch-members {
     padding-left: 4px;
   }

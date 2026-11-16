@@ -9,7 +9,13 @@ const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }
 const reports: unknown[] = []
 try {
   for (const scene of ['codex', 'claude', 'states']) {
-    for (const width of [390, 1100]) {
+    const layouts: { width: number; paneWidth?: number }[] = [
+      { width: 1100 },
+      { width: 390 },
+      { width: 320 },
+    ]
+    if (scene === 'claude') layouts.push({ width: 1100, paneWidth: 520 })
+    for (const { width, paneWidth } of layouts) {
       const context = await browser.newContext({
         viewport: { width, height: 1000 },
         deviceScaleFactor: 1,
@@ -22,6 +28,10 @@ try {
       await page.goto(`${origin}/harness/command-execution.html?scene=${scene}`, {
         waitUntil: 'networkidle',
       })
+      if (paneWidth)
+        await page.locator('.command-harness').evaluate((element, pixels) => {
+          ;(element as HTMLElement).style.maxWidth = `${pixels}px`
+        }, paneWidth)
       const root = page.getByTestId('turn-line')
       const toggle = root.locator(':scope > button[data-transcript-run-toggle]')
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -33,6 +43,7 @@ try {
       const first = executions.first()
       await first.locator(':scope > button').click()
       await expect(first).toHaveAttribute('data-open', 'true')
+      await expect(first.locator('time')).toBeVisible()
       if (scene === 'codex') {
         await expect(first.locator('.execution-command')).toHaveCount(3)
         await expect(first.locator('.execution-output')).toHaveCount(1)
@@ -90,26 +101,68 @@ try {
         )
       }
       const geometry = await page.evaluate(() => {
-        const frames = [...document.querySelectorAll('.command-execution[data-open="true"]')].map(
-          (frame) => {
-            const input = frame.querySelector('.execution-inputs')!.getBoundingClientRect()
-            const output = frame.querySelector('.execution-output')!.getBoundingClientRect()
-            return {
-              aligned: Math.abs(input.x - output.x) < 1 && Math.abs(input.width - output.width) < 1,
-              adjacent: Math.abs(input.bottom - output.top) < 1,
-            }
-          },
-        )
+        const frames = [...document.querySelectorAll('.command-execution')].map((frame) => {
+          const box = (selector: string) => {
+            const element = frame.querySelector(selector)
+            if (!element) throw new Error(`Execution is missing ${selector}`)
+            return element.getBoundingClientRect()
+          }
+          const heading = box('.execution-heading')
+          const title = box('.execution-title')
+          const facts = box('.execution-facts')
+          const open = frame.getAttribute('data-open') === 'true'
+          const input = open ? box('.execution-inputs') : undefined
+          const output = open ? box('.execution-output') : undefined
+          const stamp = box('time')
+          return {
+            open,
+            aligned:
+              !input ||
+              !output ||
+              (Math.abs(input.x - output.x) < 1 && Math.abs(input.width - output.width) < 1),
+            adjacent: !input || !output || Math.abs(input.bottom - output.top) < 1,
+            timestampContained:
+              (!open && stamp.width === 0) ||
+              (stamp.width > 0 &&
+                stamp.left >= heading.left &&
+                stamp.right <= heading.right &&
+                stamp.top >= heading.top &&
+                stamp.bottom <= heading.bottom),
+            metadataSeparate: title.right <= facts.left || title.bottom <= facts.top,
+            metadataBelow: title.bottom <= facts.top,
+            readableTitle: title.width >= Math.min(160, (heading.width * 2) / 3),
+          }
+        })
         return { viewport: innerWidth, pageWidth: document.documentElement.scrollWidth, frames }
       })
       expect(geometry.pageWidth).toBeLessThanOrEqual(width)
       expect(geometry.frames.every((frame) => frame.aligned && frame.adjacent)).toBe(true)
+      expect(
+        geometry.frames.every((frame) => frame.timestampContained),
+        'Timestamps must stay inside their execution header',
+      ).toBe(true)
+      expect(
+        geometry.frames.every((frame) => frame.metadataSeparate),
+        'Command titles and execution metadata must never overlap',
+      ).toBe(true)
+      if (width < 500 || paneWidth)
+        expect(
+          geometry.frames.every((frame) => frame.readableTitle && frame.metadataBelow),
+          `Narrow headers must reserve the title width and place metadata below: ${JSON.stringify(geometry)}`,
+        ).toBe(true)
       expect(errors).toEqual([])
-      await page.screenshot({ path: `${evidence}/${scene}-${width}.png`, fullPage: true })
-      reports.push({ scene, width, geometry, errors })
+      await page.screenshot({
+        path: `${evidence}/${scene}-${paneWidth ? `pane-${paneWidth}` : width}.png`,
+        fullPage: true,
+      })
+      reports.push({ scene, width, paneWidth, geometry, errors })
       if (scene === 'codex' && width === 1100) {
         await page.evaluate(() => document.documentElement.classList.add('dark'))
         await page.screenshot({ path: `${evidence}/codex-dark.png`, fullPage: true })
+      }
+      if (scene === 'claude' && width === 390) {
+        await page.evaluate(() => document.documentElement.classList.add('dark'))
+        await page.screenshot({ path: `${evidence}/claude-phone-dark.png`, fullPage: true })
       }
       await context.close()
     }

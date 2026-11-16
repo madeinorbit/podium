@@ -163,11 +163,6 @@ export function CommandExecutionBlock({
       data-transcript-retain={userOpen ? '' : undefined}
       data-transcript-run-view={forceOpen && !userOpen ? '' : undefined}
     >
-      {stamp && (
-        <time className="quiet-time" dateTime={item.ts} title={fullTimeLabel(stamp)}>
-          {clockLabel(stamp)}
-        </time>
-      )}
       <button
         type="button"
         data-pressable
@@ -175,6 +170,7 @@ export function CommandExecutionBlock({
         aria-expanded={open}
         aria-controls={`${id}-body`}
         aria-label={`${open ? 'Collapse' : 'Expand'} ${accessibleTitle}`}
+        aria-describedby={`${id}-facts`}
         onClick={toggle}
         data-transcript-run-toggle={forceOpen && !userOpen ? '' : undefined}
       >
@@ -203,16 +199,16 @@ export function CommandExecutionBlock({
             </>
           )}
         </span>
-        <span className="execution-output-cue" data-capture={output.capture}>
-          {output.label}
-        </span>
-        <span className="execution-facts">
+        <span className="execution-facts" id={`${id}-facts`}>
+          <span className="execution-output-cue" data-capture={output.capture}>
+            {output.label}
+          </span>{' '}
           {statusLabel && (
             <span className="execution-status" data-status={status} title={statusLabel}>
               {status === 'completed' && <Check size={11} aria-hidden="true" />}
               <span>{statusLabel}</span>
             </span>
-          )}
+          )}{' '}
           {status === 'running' && live ? (
             <ExecutionLiveDuration since={item.ts} />
           ) : (
@@ -223,6 +219,11 @@ export function CommandExecutionBlock({
                   : formatWorkDuration(execution.durationMs)}
               </span>
             )
+          )}{' '}
+          {stamp && (
+            <time className="execution-timestamp" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+              <span className="execution-timestamp-label">At</span> {clockLabel(stamp)}
+            </time>
           )}
         </span>
         <ChevronRight className="execution-chevron" size={12} aria-hidden="true" />
