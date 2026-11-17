@@ -331,6 +331,7 @@ it('shows shared leaf progress through open phases and puts sub-tasks inside an 
     expect(header?.textContent).toBe('Sub-tasks1/2')
     const card = await screen.findByTestId('sub-issues-card')
     expect(card.contains(screen.getByText('Delivery phase'))).toBe(true)
+    expect(card.contains(screen.getByText('POD-43'))).toBe(true)
     expect(card.contains(screen.getByRole('button', { name: 'Add a sub-task' }))).toBe(true)
     expect(getComputedStyle(card).borderRadius).toBe('8px')
     act(() =>

@@ -22,6 +22,7 @@ import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
 import { WorkingMark } from '../WorkingMark'
 import { Disclosure } from './chrome'
+import { useDetailSize } from './detail-type'
 import { PromptSheet } from './PromptSheet'
 
 /** Reference content stays in native grouped disclosures. The visible sections
@@ -97,6 +98,7 @@ export const TaskSummary = observer(function TaskSummary({
   onComment: (text: string) => void
 }) {
   const { fontScale } = useWindowDimensions()
+  const size = useDetailSize()
   const [failed, setFailed] = useState<string | null>(null)
   const [asking, setAsking] = useState<{
     sessionId: SessionId
@@ -127,14 +129,14 @@ export const TaskSummary = observer(function TaskSummary({
     <View testID="task-summary">
       <GroupHeading label={offer ? 'Next step' : 'Update'} />
       <View style={styles.card}>
-        {notes ? (
-          <Text style={styles.summary} selectable>
-            {notes}
-          </Text>
-        ) : null}
-        {offer?.message && offer.message !== notes ? (
+        {offer?.message ? (
           <Text style={[styles.summary, styles.offerMessage]} selectable>
             {offer.message}
+          </Text>
+        ) : null}
+        {notes && notes !== offer?.message ? (
+          <Text style={[styles.summary, offer?.message && styles.summaryAfterHeadline]} selectable>
+            {notes}
           </Text>
         ) : null}
         {
@@ -190,10 +192,11 @@ export const TaskSummary = observer(function TaskSummary({
                 style={({ pressed }) => [
                   styles.button,
                   styles.buttonSquare,
+                  { width: Math.max(44, size(16) + 24), minHeight: Math.max(44, size(16) + 24) },
                   pressed && styles.buttonPressed,
                 ]}
               >
-                <Icon as={MessagesSquare} size={16} color={color.text} />
+                <Icon as={MessagesSquare} size={size(16)} color={color.text} />
               </PressableScale>
             }
           </View>
@@ -323,6 +326,7 @@ const Thumbnail = observer(function Thumbnail({
   onOpen: () => void
 }) {
   const { bearer } = useServerProfile()
+  const size = useDetailSize()
   const { fontScale } = useWindowDimensions()
   const [broken, setBroken] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
@@ -349,7 +353,7 @@ const Thumbnail = observer(function Thumbnail({
         />
       ) : (
         <View style={styles.thumbFile}>
-          <Icon as={kind === 'video' ? Play : FileText} size={16} color={color.textDim} />
+          <Icon as={kind === 'video' ? Play : FileText} size={size(16)} color={color.textDim} />
         </View>
       )}
       <Text style={styles.thumbLabel}>{label}</Text>
@@ -372,6 +376,7 @@ export const TaskSessions = observer(function TaskSessions({
   sessions: readonly SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
+  const size = useDetailSize()
   const [all, setAll] = useState(false)
   if (sessions.length === 0) return null
   const shown = all ? sessions : sessions.slice(0, SHOWN_SESSIONS)
@@ -399,8 +404,8 @@ export const TaskSessions = observer(function TaskSessions({
             onPress={() => setAll(true)}
             style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
           >
-            <View style={styles.separator} />
-            <View style={styles.gutter} />
+            <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />
+            <View style={[styles.gutter, { width: size(14) }]} />
             <Text style={styles.headingActionText}>Show {rest} more</Text>
           </PressableScale>
         ) : null}
@@ -421,6 +426,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   first: boolean
   onOpenSession: (id: SessionId) => void
 }) {
+  const size = useDetailSize()
   const pool = useMobilePool()
   const session = here(pool?.model('session', sessionId))
   if (!session) return null
@@ -438,15 +444,17 @@ const TaskSessionRow = observer(function TaskSessionRow({
       scaleTo={1}
       style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
     >
-      {!first ? <View style={styles.separator} /> : null}
-      <View style={styles.gutter}>
+      {!first ? (
+        <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />
+      ) : null}
+      <View style={[styles.gutter, { width: size(14), height: size(leading(font.body)) }]}>
         {phase === 'working' ? (
-          <WorkingMark size={14} />
+          <WorkingMark size={size(14)} />
         ) : (
           <View
             style={[
               styles.phaseDot,
-              phase === 'working' && { backgroundColor: color.workingText },
+              { width: size(8), height: size(8), borderRadius: size(4) },
               phase === 'waiting' && { backgroundColor: color.needsYouText },
             ]}
           />
@@ -454,9 +462,14 @@ const TaskSessionRow = observer(function TaskSessionRow({
       </View>
       <View style={styles.sessionBody}>
         <Text style={styles.sessionName}>{name}</Text>
-        <Text style={styles.sessionMeta}>{meta}</Text>
+        <View style={styles.sessionMetaLine}>
+          <Text style={styles.sessionMeta}>{modelName(view.agentKind, readoutModel(view))} ·</Text>
+          <Text style={styles.sessionMeta}>{SESSION_WORD_LABEL[session.word]}</Text>
+        </View>
       </View>
-      <Icon as={ChevronRight} size={14} color={color.textFaint} />
+      <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
+        <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
+      </View>
     </PressableScale>
   )
 })
@@ -468,7 +481,7 @@ const styles = StyleSheet.create({
   heading: {
     minHeight: 20,
     marginBottom: space.sm,
-    paddingLeft: space.md + 14 + space.sm,
+    paddingLeft: space.md,
     paddingRight: space.md,
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -499,7 +512,8 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'prose'),
   },
-  offerMessage: { ...sans(500) },
+  offerMessage: { ...sans(600), paddingBottom: space.xs },
+  summaryAfterHeadline: { paddingTop: 0 },
   buttons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -557,7 +571,7 @@ const styles = StyleSheet.create({
   sessionRow: {
     minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.md,
@@ -571,9 +585,21 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  gutter: { width: 14, alignItems: 'center' },
+  gutter: { width: 14, alignItems: 'center', justifyContent: 'center' },
   phaseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.textFaint },
   sessionBody: { flex: 1, minWidth: 0, gap: space.xs },
-  sessionName: { ...sans(400), color: color.text, fontSize: font.body },
-  sessionMeta: { ...sans(400), color: color.textDim, fontSize: font.tiny },
+  sessionName: {
+    ...sans(400),
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: leading(font.body),
+  },
+  sessionMetaLine: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  sessionMeta: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
 })

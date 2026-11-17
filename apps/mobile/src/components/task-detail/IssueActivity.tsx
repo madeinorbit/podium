@@ -19,6 +19,7 @@ import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, Mail } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { useDetailSize } from './detail-type'
 import { IssueAge } from './IssueAge'
 import { GroupHeading } from './TaskOverview'
 
@@ -136,6 +137,7 @@ const EarlierActivity = observer(function EarlierActivity({
   history: IssueHistoryView
   first: boolean
 }) {
+  const size = useDetailSize()
   if (!history.hasEarlier && !history.error) return null
   return (
     <PressableScale
@@ -148,8 +150,8 @@ const EarlierActivity = observer(function EarlierActivity({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID="activity-earlier"
     >
-      {first ? null : <View style={styles.separator} />}
-      <View style={styles.gutter} />
+      {first ? null : <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />}
+      <View style={[styles.gutter, { width: size(14) }]} />
       <Text style={styles.earlier}>
         {history.loading
           ? 'Loading earlier activity…'
@@ -173,11 +175,13 @@ function eventMark(line: IssueEventLine): RowMark {
 }
 
 function Mark({ mark }: { mark: RowMark }) {
+  const size = useDetailSize()
   if (mark === 'needs' || mark === 'done')
     return (
       <View
         style={[
           styles.dot,
+          { width: size(8), height: size(8), borderRadius: size(4) },
           { backgroundColor: mark === 'done' ? color.successText : color.needsYouText },
         ]}
       />
@@ -186,6 +190,7 @@ function Mark({ mark }: { mark: RowMark }) {
     <View
       style={[
         styles.ring,
+        { width: size(8), height: size(8), borderRadius: size(4), borderWidth: size(1.5) },
         { borderColor: mark === 'working' ? color.workingText : color.textFaint },
       ]}
     />
@@ -274,10 +279,11 @@ function Row({
   onPress?: () => void
   selectable?: boolean
 }) {
+  const size = useDetailSize()
   const body = (
     <>
-      {first ? null : <View style={styles.separator} />}
-      <View style={styles.gutter}>
+      {first ? null : <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />}
+      <View style={[styles.gutter, { width: size(14), height: size(leading(font.small)) }]}>
         <Mark mark={mark} />
       </View>
       <View style={styles.main}>
@@ -290,7 +296,13 @@ function Row({
         </Text>
       </View>
       {onPress ? (
-        <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textFaint} />
+        <View style={{ height: size(leading(font.small)), justifyContent: 'center' }}>
+          <Icon
+            as={expanded ? ChevronDown : ChevronRight}
+            size={size(14)}
+            color={color.textFaint}
+          />
+        </View>
       ) : null}
     </>
   )
@@ -335,7 +347,7 @@ const styles = StyleSheet.create({
   row: {
     minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.md,
@@ -349,11 +361,11 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  gutter: { width: 14, alignItems: 'center' },
+  gutter: { width: 14, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4 },
   ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
   main: { flex: 1, minWidth: 0, gap: space.xs },
-  title: { ...sans(400), color: color.text, fontSize: font.small },
+  title: { ...sans(400), color: color.text, fontSize: font.small, lineHeight: leading(font.small) },
   meta: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
   earlier: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.small },
   section: {

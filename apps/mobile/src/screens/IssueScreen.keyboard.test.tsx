@@ -148,5 +148,15 @@ describe('task page keyboard avoidance', () => {
     const avoider = await screen.findByTestId('issue-keyboard-avoider')
     expect(avoider.contains(await screen.findByText('A task'))).toBe(true)
     expect(screen.queryByTestId('composer-stub')).toBeNull()
+    const description = screen.getByTestId('issue-description-section')
+    const subtasks = screen.getByTestId('sub-issues-card')
+    const activity = screen.getByTestId('issue-activity')
+    expect(
+      description.compareDocumentPosition(subtasks) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      subtasks.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Description' })).toBeNull()
   })
 })

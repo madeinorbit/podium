@@ -15,6 +15,7 @@ import { Icon } from '../Icon'
 import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { useDetailSize } from './detail-type'
 import { IssueAge } from './IssueAge'
 
 /**
@@ -41,6 +42,7 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
    *  deferred items. Both when absent. */
   only?: 'artifacts' | 'deferred'
 }) {
+  const size = useDetailSize()
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
@@ -87,7 +89,12 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
           <SectionHeading label="Deferred" count={String(deferred.length)} />
           {deferred.map((d) => (
             <View key={`${d.addedAt}:${d.text}`} style={styles.deferred}>
-              <View style={styles.deferredDot} />
+              <View
+                style={[
+                  styles.deferredDot,
+                  { width: size(4), height: size(4), borderRadius: size(2) },
+                ]}
+              />
               <Text style={styles.deferredText}>{d.text}</Text>
               <Text style={styles.stamp}>
                 <IssueAge stamp={d.addedAt} />
@@ -114,6 +121,7 @@ const ArtifactRow = observer(function ArtifactRow({
   url: string | null
   onOpen: () => void
 }) {
+  const size = useDetailSize()
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
@@ -152,7 +160,7 @@ const ArtifactRow = observer(function ArtifactRow({
           onPress={canOpen ? onOpen : undefined}
           style={({ pressed }) => [styles.fileRow, pressed && styles.rowPressed]}
         >
-          <Icon as={kind === 'video' ? Play : FileText} size={15} color={color.textDim} />
+          <Icon as={kind === 'video' ? Play : FileText} size={size(15)} color={color.textDim} />
           <Text style={styles.fileName}>{label}</Text>
           <Text style={styles.stamp}>
             <IssueAge stamp={artifact.addedAt} />

@@ -17,6 +17,7 @@ import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, RefreshCw } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { useDetailSize } from './detail-type'
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
@@ -30,6 +31,7 @@ export const GitReviewSection = observer(function GitReviewSection({
   /** Inside a fold whose header already names it: drop the heading, keep refresh. */
   headless?: boolean
 }) {
+  const size = useDetailSize()
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
   const view = useMemo(
     () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }),
@@ -75,7 +77,7 @@ export const GitReviewSection = observer(function GitReviewSection({
       {refreshing ? (
         <ActivityIndicator size="small" color={color.textFaint} />
       ) : (
-        <Icon as={RefreshCw} size={14} color={color.textFaint} />
+        <Icon as={RefreshCw} size={size(14)} color={color.textFaint} />
       )}
     </PressableScale>
   )
@@ -112,7 +114,11 @@ export const GitReviewSection = observer(function GitReviewSection({
                   onPress={() => toggle(entry)}
                   style={({ pressed }) => [styles.fileRow, pressed && styles.fileRowPressed]}
                 >
-                  <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
+                  <Icon
+                    as={open ? ChevronDown : ChevronRight}
+                    size={size(13)}
+                    color={color.textFaint}
+                  />
                   <Text
                     style={[
                       styles.badge,
@@ -278,7 +284,7 @@ const styles = StyleSheet.create({
   fileRow: {
     minHeight: 48,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     marginHorizontal: -space.sm,
     paddingHorizontal: space.sm,

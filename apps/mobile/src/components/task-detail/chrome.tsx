@@ -6,6 +6,7 @@ import { color, font, leading, radius, sans, space, spring } from '../../theme/t
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
+import { useDetailSize } from './detail-type'
 
 /**
  * The task page's shared furniture [POD-724] — the four things every section on
@@ -25,7 +26,7 @@ export function MachineLabel({ children }: { children: ReactNode }) {
   return <Text style={styles.machine}>{children}</Text>
 }
 
-/** Group headings follow the board's 34pt content axis. */
+/** Group headings align with the content inset of plain cards. */
 export function SectionHeading({
   label,
   count,
@@ -89,6 +90,7 @@ export function Disclosure({
   children: ReactNode
   testID?: string
 }) {
+  const size = useDetailSize()
   const reduceMotion = useReduceMotion()
   const spin = useRef(new Animated.Value(open ? 1 : 0)).current
   useEffect(() => {
@@ -121,8 +123,13 @@ export function Disclosure({
           {hint ? <Text style={styles.hint}>{hint}</Text> : null}
         </View>
         {count ? <Text style={styles.count}>{count}</Text> : null}
-        <Animated.View style={[styles.chevron, { transform: [{ rotate }] }]}>
-          <Icon as={ChevronRight} size={14} color={color.textFaint} />
+        <Animated.View
+          style={[
+            styles.chevron,
+            { width: size(14), height: size(leading(font.body)), transform: [{ rotate }] },
+          ]}
+        >
+          <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
         </Animated.View>
       </PressableScale>
       {open ? <View style={styles.discBody}>{children}</View> : null}
@@ -274,7 +281,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingLeft: space.md + 14 + space.sm,
+    paddingLeft: space.md,
     paddingRight: space.md,
     marginBottom: space.sm,
   },
@@ -292,7 +299,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.groupedCard,
   },
   spacer: { flex: 1 },
-  chevron: { width: 14, alignItems: 'center' },
+  chevron: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   discHead: {
     minHeight: 44,
     flexDirection: 'row',

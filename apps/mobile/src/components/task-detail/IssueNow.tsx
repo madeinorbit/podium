@@ -6,7 +6,7 @@ import { isFinished } from '@podium/model/browser'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { alpha } from '../../theme/mix'
-import { color, font, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { AgentMark, kindTone, markSize } from '../AgentMark'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
@@ -14,6 +14,7 @@ import { PressableScale } from '../PressableScale'
 import { WorkingMark } from '../WorkingMark'
 import { GitStampLine } from '../WorkRowParts'
 import { MachineLabel } from './chrome'
+import { useDetailSize } from './detail-type'
 
 /** The session tile on this panel. Named because the mark is sized from it. */
 const NOW_TILE = 22
@@ -58,6 +59,7 @@ export const IssueNow = observer(function IssueNow({
   sessions: SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
+  const size = useDetailSize()
   const ranked = [...sessions]
     .map((session) => ({
       session,
@@ -139,12 +141,31 @@ export const IssueNow = observer(function IssueNow({
               pressed && styles.rowPressed,
             ]}
           >
-            <View style={[styles.tile, { backgroundColor: t.bg, borderColor: alpha(t.fg, 0.4) }]}>
-              <AgentMark kind={session.agentKind} size={markSize(NOW_TILE)} ink={t.fg} />
+            <View
+              style={[
+                styles.tile,
+                {
+                  width: size(NOW_TILE),
+                  height: size(NOW_TILE),
+                  backgroundColor: t.bg,
+                  borderColor: alpha(t.fg, 0.4),
+                },
+              ]}
+            >
+              <AgentMark kind={session.agentKind} size={markSize(size(NOW_TILE))} ink={t.fg} />
             </View>
             <Text style={styles.name}>{sessionTitle(session)}</Text>
-            {phase === 'working' ? <WorkingMark size={12} /> : <View style={styles.waitingDot} />}
-            <Icon as={ChevronRight} size={14} color={color.textFaint} />
+            {phase === 'working' ? (
+              <WorkingMark size={size(12)} />
+            ) : (
+              <View
+                style={[
+                  styles.waitingDot,
+                  { width: size(7), height: size(7), borderRadius: size(4) },
+                ]}
+              />
+            )}
+            <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
           </PressableScale>
         )
       })}
@@ -196,7 +217,7 @@ const styles = StyleSheet.create({
   row: {
     minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
@@ -225,6 +246,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: color.body,
     fontSize: font.small,
+    lineHeight: leading(font.small),
   },
   waitingDot: {
     width: 7,

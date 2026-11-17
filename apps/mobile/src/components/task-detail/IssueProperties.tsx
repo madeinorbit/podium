@@ -27,6 +27,7 @@ import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
 import { Disclosure, MachineLabel } from './chrome'
+import { useDetailSize } from './detail-type'
 
 /**
  * The properties block [POD-724] — the phone's answer to the desktop's rail.
@@ -79,6 +80,7 @@ export const IssueProperties = observer(function IssueProperties({
   onPickParent: () => void
   onAddRelation: () => void
 }) {
+  const size = useDetailSize()
   const [label, setLabel] = useState('')
   const relations =
     'relationGroups' in issue
@@ -103,7 +105,7 @@ export const IssueProperties = observer(function IssueProperties({
                 style={({ pressed }) => [styles.label, pressed && styles.pressed]}
               >
                 <Text style={styles.labelText}>{l}</Text>
-                <Icon as={X} size={11} color={color.accentTint} />
+                <Icon as={X} size={size(11)} color={color.accentTint} />
               </PressableScale>
             ))}
             <TextInput
@@ -281,13 +283,14 @@ export const PropertyBar = observer(function PropertyBar({
   /** Quiet text after the pills — the task's age. */
   trailing?: ReactNode
 }) {
+  const size = useDetailSize()
   return (
     <View style={styles.bar}>
       <Chip
         label={isClosed(issue) ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]}
         accessibilityLabel={`Stage ${ISSUE_STAGE_LABELS[issue.stage]} — change`}
         onPress={onStage}
-        glyph={<StageGlyph stage={issue.stage} size={13} ground={color.surface} />}
+        glyph={<StageGlyph stage={issue.stage} size={size(13)} ground={color.surface} />}
         {...(onSelect
           ? {
               picker: {
@@ -311,7 +314,7 @@ export const PropertyBar = observer(function PropertyBar({
         label={`P${issue.priority}`}
         accessibilityLabel={`Priority P${issue.priority} — change`}
         onPress={onPriority}
-        glyph={<PriorityGlyph priority={issue.priority} size={13} />}
+        glyph={<PriorityGlyph priority={issue.priority} size={size(13)} />}
         {...(onSelect
           ? {
               picker: {
@@ -423,6 +426,7 @@ const PropertyParentReference = observer(function PropertyParentReference({
   resolveEdge: (id: string | undefined | null) => IssueEdge
   onOpenIssue: (id: string) => void
 }) {
+  const size = useDetailSize()
   const edge = resolveEdge(id)
   return edge.render === 'issue' && parent ? (
     <PressableScale
@@ -431,7 +435,7 @@ const PropertyParentReference = observer(function PropertyParentReference({
       onPress={() => onOpenIssue(parent.id)}
       style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
     >
-      <StageGlyph stage={parent.stage} size={13} />
+      <StageGlyph stage={parent.stage} size={size(13)} />
       <View style={styles.referenceBody}>
         <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
         <Text style={styles.linkTitle}>
@@ -439,7 +443,7 @@ const PropertyParentReference = observer(function PropertyParentReference({
         </Text>
       </View>
       {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-      <Icon as={ChevronRight} size={13} color={color.textFaint} />
+      <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
     </PressableScale>
   ) : edge.render === 'opaque' ? (
     <Text style={styles.opaque}>an issue you do not have access to</Text>
@@ -462,6 +466,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
   commands: IssueCommands
   onOpenIssue: (id: string) => void
 }) {
+  const size = useDetailSize()
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
@@ -474,7 +479,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
           onPress={() => onOpenIssue(target.id)}
           style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
         >
-          <StageGlyph stage={target.stage} size={13} />
+          <StageGlyph stage={target.stage} size={size(13)} />
           <View style={styles.referenceBody}>
             <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
             <Text style={styles.linkTitle}>
@@ -497,7 +502,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
         style={styles.removeRelation}
         onPress={() => commands.removeRelation(entry)}
       >
-        <Icon as={X} size={13} color={color.textFaint} />
+        <Icon as={X} size={size(13)} color={color.textFaint} />
       </PressableScale>
     </View>
   )
@@ -509,6 +514,7 @@ const PropertySessionRow = observer(function PropertySessionRow({
   session: SessionView
   onOpenSession: (id: SessionId) => void
 }) {
+  const size = useDetailSize()
   return (
     <PressableScale
       accessibilityRole="button"
@@ -520,7 +526,7 @@ const PropertySessionRow = observer(function PropertySessionRow({
         <Text style={styles.linkTitle}>{sessionTitle(session)}</Text>
         <Text style={styles.meta}>{session.status}</Text>
       </View>
-      <Icon as={ChevronRight} size={13} color={color.textFaint} />
+      <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
     </PressableScale>
   )
 })
@@ -555,6 +561,7 @@ const Ghost = observer(function Ghost({
   icon?: boolean
   primary?: boolean
 }) {
+  const size = useDetailSize()
   return (
     <PressableScale
       accessibilityRole="button"
@@ -568,13 +575,16 @@ const Ghost = observer(function Ghost({
         (busy || pressed) && styles.pressed,
       ]}
     >
-      {icon ? <Icon as={Plus} size={12} color={primary ? color.onAccent : color.textDim} /> : null}
+      {icon ? (
+        <Icon as={Plus} size={size(12)} color={primary ? color.onAccent : color.textDim} />
+      ) : null}
       <Text style={[styles.ghostText, primary && styles.ghostPrimaryText]}>{label}</Text>
     </PressableScale>
   )
 })
 
 const External = observer(function External({ label, url }: { label: string; url: string }) {
+  const size = useDetailSize()
   return (
     <PressableScale
       accessibilityRole="link"
@@ -583,7 +593,7 @@ const External = observer(function External({ label, url }: { label: string; url
       style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
     >
       <Text style={styles.link}>{label}</Text>
-      <Icon as={ExternalLink} size={12} color={color.info} />
+      <Icon as={ExternalLink} size={size(12)} color={color.info} />
     </PressableScale>
   )
 })
@@ -670,6 +680,7 @@ const styles = StyleSheet.create({
   },
   labelText: {
     ...sans(500),
+    flexShrink: 1,
     color: color.accentTint,
     fontSize: font.tiny,
   },
@@ -691,7 +702,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingVertical: space.sm,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingHorizontal: space.sm,
     marginHorizontal: -space.sm,
@@ -762,9 +773,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
     gap: space.sm,
     justifyContent: 'flex-start',
+    alignItems: 'flex-start',
     minHeight: 44,
     paddingVertical: space.sm,
   },
@@ -774,6 +785,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   ghost: {
+    maxWidth: '100%',
     minHeight: 44,
     paddingVertical: space.sm,
     alignSelf: 'flex-start',
@@ -792,6 +804,7 @@ const styles = StyleSheet.create({
   },
   ghostText: {
     ...sans(500),
+    flexShrink: 1,
     color: color.textDim,
     fontSize: font.tiny,
   },

@@ -11,12 +11,13 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { color, font, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
+import { useDetailSize } from './detail-type'
 
 /** FullDeck.buckets reads this same shared execution progress. */
 function useSubTaskCount(issue?: IssueViewModel) {
@@ -81,6 +82,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
 }) {
+  const size = useDetailSize()
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const count = useSubTaskCount(headless ? undefined : issue)
@@ -153,7 +155,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
             onPress={() => setAdding(true)}
             style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
           >
-            <Icon as={Plus} size={14} color={color.textDim} />
+            <Icon as={Plus} size={size(14)} color={color.textDim} />
             <Text style={styles.addChipText}>Add sub-task</Text>
           </PressableScale>
         )}
@@ -178,6 +180,8 @@ const SubTaskRow = observer(function SubTaskRow({
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
+  const size = useDetailSize()
+  const statusWidth = Math.max(44, size(18) + space.xl)
   const count =
     'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = taskStateWord(child, count)
@@ -191,16 +195,20 @@ const SubTaskRow = observer(function SubTaskRow({
           : color.textFaint
   return (
     <View style={[styles.row, (muted || child.archived) && styles.rowMuted]}>
-      {first ? null : <View style={styles.separator} />}
+      {first ? null : <View style={[styles.separator, { left: statusWidth }]} />}
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Change status for ${issueDisplayRef(child)}`}
         accessibilityHint="Opens the status picker"
         onPress={() => onStatus(child)}
         hitSlop={4}
-        style={({ pressed }) => [styles.statusButton, pressed && styles.rowPressed]}
+        style={({ pressed }) => [
+          styles.statusButton,
+          { width: statusWidth, height: size(leading(font.body)) + space.xl },
+          pressed && styles.rowPressed,
+        ]}
       >
-        <StageGlyph stage={child.stage} size={18} ground={color.groupedCard} />
+        <StageGlyph stage={child.stage} size={size(18)} ground={color.groupedCard} />
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
@@ -219,7 +227,9 @@ const SubTaskRow = observer(function SubTaskRow({
             {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
           </View>
         </View>
-        <Icon as={ChevronRight} size={14} color={color.textFaint} />
+        <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
+          <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
+        </View>
       </PressableScale>
     </View>
   )
@@ -248,7 +258,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingRight: space.md,
     paddingVertical: space.md,
@@ -258,7 +268,7 @@ const styles = StyleSheet.create({
   rowMuted: { opacity: 0.72 },
   rowPressed: { backgroundColor: color.surfacePressed },
   ref: { ...sans(400), color: color.textDim, fontSize: font.tiny },
-  title: { ...sans(400), color: color.text, fontSize: font.body },
+  title: { ...sans(400), color: color.text, fontSize: font.body, lineHeight: leading(font.body) },
   archived: { ...sans(400), color: color.textDim, fontSize: font.tiny },
   state: { ...sans(400), fontSize: font.tiny },
   empty: { ...sans(400), color: color.textDim, fontSize: font.small, padding: space.md },
