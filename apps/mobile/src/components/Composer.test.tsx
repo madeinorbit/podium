@@ -4,6 +4,15 @@ import type { View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COMPOSER_LINE, COMPOSER_MAX_LINES } from './composer-height'
 
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
+vi.mock('react-native', async (original) => {
+  const rn = await original<typeof import('react-native')>()
+  return {
+    ...rn,
+    useWindowDimensions: () => ({ ...rn.useWindowDimensions(), fontScale: dimensions.fontScale }),
+  }
+})
+
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
@@ -37,7 +46,10 @@ const { Composer, composerVoiceStatus } = await import('./Composer')
  * [data-testid=composer-voice]" — a failure about leaked DOM that reads exactly
  * like a failure about the composer rendering two microphones.
  */
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  dimensions.fontScale = 1
+})
 
 interface FakeVoiceResult {
   isFinal: boolean
@@ -152,6 +164,48 @@ describe('Composer floating dock', () => {
     // Inside the capsule now, not slung under it [POD-1677].
     expect(container.querySelector('[data-testid="composer-bar"]')?.contains(slot)).toBe(true)
     expect(slot.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('moves session info above controls when Dynamic Type grows and restores it when reduced', () => {
+    const props = {
+      placeholder: 'Message the agent…',
+      onSend: vi.fn(),
+      leading: <div data-testid="model-info">Opus 5.5 · Medium</div>,
+      stackLeadingAtLargeText: true,
+    }
+    const view = render(<Composer {...props} />)
+    const label = () => screen.getByTestId('model-info')
+    const controls = () => screen.getByRole('button', { name: 'Send' }).parentElement
+    expect(controls()?.contains(label())).toBe(true)
+
+    dimensions.fontScale = 3.12
+    view.rerender(<Composer {...props} />)
+    const info = screen.getByTestId('composer-leading-info')
+    expect(info.contains(label())).toBe(true)
+    expect(info.parentElement).toBe(screen.getByTestId('composer-bar'))
+    expect(controls()?.contains(label())).toBe(false)
+
+    dimensions.fontScale = 1
+    view.rerender(<Composer {...props} />)
+    expect(screen.queryByTestId('composer-leading-info')).toBeNull()
+    expect(controls()?.contains(label())).toBe(true)
+  })
+
+  it('keeps other leading controls on their rail at accessibility sizes', () => {
+    dimensions.fontScale = 3.12
+    render(
+      <Composer
+        placeholder="Message the agent…"
+        onSend={vi.fn()}
+        leading={<div data-testid="model-picker">Model picker</div>}
+      />,
+    )
+    expect(screen.queryByTestId('composer-leading-info')).toBeNull()
+    expect(
+      screen
+        .getByRole('button', { name: 'Send' })
+        .parentElement?.contains(screen.getByTestId('model-picker')),
+    ).toBe(true)
   })
 
   it('lets chrome below it replace that inset rather than stacking on it', () => {

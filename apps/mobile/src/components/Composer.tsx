@@ -142,6 +142,7 @@ export function Composer({
   attachments,
   // Aliased: `leading` is also the theme's line-height helper, imported above.
   leading: leadingSlot,
+  stackLeadingAtLargeText = false,
   header,
   bottomInset = 0,
   onRestingHeight,
@@ -191,6 +192,8 @@ export function Composer({
    * is left.
    */
   leading?: ReactNode
+  /** Give session info the full width above controls at accessibility text sizes. */
+  stackLeadingAtLargeText?: boolean
   /**
    * A row above the field that changes where the words go — "Replying to
    * POD-1906" with its cancel (POD-2380). Absent takes no space.
@@ -254,6 +257,7 @@ export function Composer({
   const keyboardVisible = useKeyboardVisible()
   const reduceMotion = useReduceMotion()
   const { width, fontScale } = useWindowDimensions()
+  const stackedLeading = stackLeadingAtLargeText && fontScale > 1.35
   const attached = attachments?.attachments ?? []
   const uploading = attachments?.uploading ?? false
   const takesAttach = Boolean(attachments?.pick ?? attachments?.paste)
@@ -488,12 +492,19 @@ export function Composer({
             submitBehavior="newline"
           />
         </Reanimated.View>
+        {leadingSlot && stackedLeading ? (
+          <View testID="composer-leading-info" style={styles.leadingInfo}>
+            {leadingSlot}
+          </View>
+        ) : null}
         {/* Leading cluster, then the gap, then the trailing cluster. The
             spacer is a flexing view rather than `justifyContent: space-between`
             so the row keeps its shape when one end is empty — a composer with
             no attach control must not centre its send disc. */}
         <View style={styles.controls}>
-          {leadingSlot ? <View style={styles.leading}>{leadingSlot}</View> : null}
+          {leadingSlot && !stackedLeading ? (
+            <View style={styles.leading}>{leadingSlot}</View>
+          ) : null}
           <View style={styles.controlGap} pointerEvents="none" />
           {takesAttach ? (
             <AttachButton
@@ -842,6 +853,10 @@ const styles = StyleSheet.create({
     // The slot leads the row, so it pays back what the row's negative inset
     // took out and the chip's words start on the field's left edge.
     marginLeft: (CONTROL_TARGET - GLYPH) / 2,
+  },
+  leadingInfo: {
+    marginHorizontal: TEXT_INSET,
+    marginTop: space.xs,
   },
   controlGap: {
     flex: 1,

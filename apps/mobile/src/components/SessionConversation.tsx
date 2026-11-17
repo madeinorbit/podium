@@ -49,7 +49,7 @@ import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
-import { ComposerModelChip } from './ComposerModelChip'
+import { ComposerModelLabel } from './ComposerModelLabel'
 import { ComposerReplyHeader } from './ComposerReplyHeader'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
@@ -162,35 +162,26 @@ const SessionComposer = observer(function SessionComposer({
     },
     [reply],
   )
-  // The model chip's result ("applies from the next turn") borrows the caption
-  // line for a few seconds, then the agent's own activity comes back.
-  const [notice, setNotice] = useState<string | null>(null)
-  useEffect(() => {
-    if (!notice) return
-    const timer = setTimeout(() => setNotice(null), NOTICE_MS)
-    return () => clearTimeout(timer)
-  }, [notice])
   return (
     <Composer
       placeholder={replying ? `Reply to ${asker}` : placeholder}
       onSend={replying ? sendReply : onSend}
       value={draft}
       onChangeText={setDraft}
-      caption={replying ? reply.error : (notice ?? caption)}
-      captionTone={replying || notice ? 'attention' : captionTone}
+      caption={replying ? reply.error : caption}
+      captionTone={replying ? 'attention' : captionTone}
       sendDisabled={replying ? reply.sending : sendDisabled}
       draftInsertion={draftInsertion}
       attachments={replying ? undefined : attachments}
       onRestingHeight={onRestingHeight}
       onStop={replying ? undefined : onStop}
       header={replying ? <ComposerReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
-      leading={<ComposerModelChip session={conversation.session} onNotice={setNotice} />}
+      leading={<ComposerModelLabel session={conversation.session} />}
+      stackLeadingAtLargeText
       maxLines={maxLines}
     />
   )
 })
-
-const NOTICE_MS = 4000
 
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
