@@ -44,6 +44,10 @@ export function DeckRow({ children }: { children: ReactNode }) {
   return children
 }
 
+export function DeckTasks({ children }: { children: ReactNode; ids: readonly string[] }) {
+  return children
+}
+
 export function DeckProposals({
   children,
   ids,

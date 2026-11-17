@@ -152,7 +152,7 @@ describe('MissionDeck', () => {
     )
   })
 
-  it('selects exactly one filter, and Done is a toggle that never looks selected', async () => {
+  it('selects exactly one filter and exposes the separate Done toggle state', async () => {
     await mount()
     const selected = () =>
       screen.getAllByRole('tab').filter((tab) => tab.getAttribute('aria-selected') === 'true')
@@ -232,6 +232,102 @@ describe('MissionDeck', () => {
     const heading = screen.getByTestId('deck-phase')
     expect(heading.textContent).toContain('Pricing')
     expect(heading.textContent).toContain('1/2')
+  })
+
+  it('hides completed rows and phases both ways while preserving mission counters and gauge', async () => {
+    const phase = issue({
+      id: asIssueId('build'),
+      parentId: root.id,
+      seq: 4,
+      type: 'phase',
+      title: 'Build',
+    })
+    const release = issue({
+      id: asIssueId('release'),
+      parentId: root.id,
+      seq: 5,
+      type: 'phase',
+      title: 'Release',
+    })
+    const done = issue({
+      id: asIssueId('done'),
+      parentId: phase.id,
+      seq: 6,
+      stage: 'done',
+      title: 'Market evidence',
+    })
+    const todo = { ...quiet, parentId: phase.id }
+    const released = issue({
+      id: asIssueId('released'),
+      parentId: release.id,
+      seq: 7,
+      stage: 'done',
+      title: 'Release notes',
+    })
+    await mount([root, phase, release, done, todo, released])
+    const taskLabels = () =>
+      screen.getAllByTestId('deck-task').map((row) => row.getAttribute('aria-label'))
+    const shown = taskLabels()
+    const gauge = screen.getByTestId('deck-gauge').innerHTML
+    const buildCounter = () =>
+      screen.getAllByTestId('deck-phase').find((row) => row.textContent?.includes('Build'))
+        ?.textContent
+    expect(buildCounter()).toContain('1/2')
+    expect(screen.queryByTestId('deck-done-hidden')).toBeNull()
+
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-done')))
+    expect(screen.queryByText('Market evidence')).toBeNull()
+    expect(screen.queryByText('Release notes')).toBeNull()
+    expect(screen.queryByText('Release')).toBeNull()
+    expect(screen.getByText('Quiet subtask')).toBeTruthy()
+    expect(buildCounter()).toContain('1/2')
+    expect(screen.getByTestId('deck-filter-all').getAttribute('aria-label')).toBe('All, 3')
+    expect(screen.getByTestId('deck-gauge').innerHTML).toBe(gauge)
+    expect(screen.getByText('2 done hidden')).toBeTruthy()
+
+    await act(async () => fireEvent.click(screen.getByTestId('deck-done-hidden')))
+    expect(taskLabels()).toEqual(shown)
+    expect(screen.queryByTestId('deck-done-hidden')).toBeNull()
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-done')))
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-done')))
+    expect(taskLabels()).toEqual(shown)
+    expect(screen.getByTestId('deck-gauge').innerHTML).toBe(gauge)
+  })
+
+  it('counts hidden done leaves in folded parents and reveals them from another filter', async () => {
+    const parent = { ...quiet, title: 'Delivery' }
+    const done = issue({
+      id: asIssueId('nested-done'),
+      parentId: parent.id,
+      seq: 4,
+      stage: 'done',
+      title: 'Nested done',
+    })
+    const todo = issue({
+      id: asIssueId('nested-todo'),
+      parentId: parent.id,
+      seq: 5,
+      title: 'Nested todo',
+    })
+    await mount([root, parent, asking, done, todo])
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse Delivery' })),
+    )
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-needs-you')))
+    expect(screen.getByText('1 done hidden')).toBeTruthy()
+    await act(async () => fireEvent.click(screen.getByTestId('deck-done-hidden')))
+    expect(screen.getByTestId('deck-filter-all').getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByTestId('deck-done-hidden')).toBeNull()
+    // Showing done preserves the person's existing fold preference.
+    expect(screen.queryByText('Nested done')).toBeNull()
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Expand Delivery' })))
+    expect(screen.getByText('Nested done')).toBeTruthy()
+  })
+
+  it('omits the hidden footer when there is no completed work', async () => {
+    await mount()
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-done')))
+    expect(screen.queryByTestId('deck-done-hidden')).toBeNull()
   })
 
   it('names the root lead Coordinator and marks the open seat', async () => {

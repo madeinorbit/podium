@@ -77,6 +77,7 @@ vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: Props) => <div>{children}</div>
   return {
     List: Box,
+    Group: Box,
     Menu: Box,
     Toggle: Box,
     RNHostView: ({ children, matchContents }: Props & { matchContents: unknown }) => (

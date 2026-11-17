@@ -20,7 +20,15 @@ import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
 import { Check, ChevronDown, ChevronRight } from './icons'
-import { DeckContent, DeckGroup, DeckProposals, DeckRow, MissionDeckList } from './MissionDeckList'
+import { DoneHidden, DoneToggle } from './MissionDeckDone'
+import {
+  DeckContent,
+  DeckGroup,
+  DeckProposals,
+  DeckRow,
+  DeckTasks,
+  MissionDeckList,
+} from './MissionDeckList'
 import { DeckAgentRow, DeckPhaseHeading, DeckSeatRow, DeckTaskRow } from './MissionDeckRows'
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { MissionProposalRow } from './MissionProposalRow'
@@ -186,30 +194,33 @@ export const MissionDeck = observer(function MissionDeck({
         </DeckContent>
       ) : null}
 
-      <DeckRows
-        full={full}
-        rowIds={rowIds}
-        currentSessionId={currentSessionId}
-        onOpenSession={openSession}
-        onOpenTask={(id) => {
-          const issue = issueOf(id)
-          if (issue) onOpenTask(issue)
-        }}
-        onOpenTaskMenu={(id) => {
-          const issue = issueOf(id)
-          if (issue) onOpenTaskMenu(issue)
-        }}
-        taskMenu={(id) => {
-          const issue = issueOf(id)
-          return issue
-            ? {
-                issue,
-                onAction: (action) => rowActions.onAction(id, action),
-                onStatus: (value) => rowActions.onStatus(id, value),
-              }
-            : undefined
-        }}
-      />
+      <DeckTasks ids={rowIds}>
+        <DeckRows
+          full={full}
+          rowIds={rowIds}
+          currentSessionId={currentSessionId}
+          onOpenSession={openSession}
+          onOpenTask={(id) => {
+            const issue = issueOf(id)
+            if (issue) onOpenTask(issue)
+          }}
+          onOpenTaskMenu={(id) => {
+            const issue = issueOf(id)
+            if (issue) onOpenTaskMenu(issue)
+          }}
+          taskMenu={(id) => {
+            const issue = issueOf(id)
+            return issue
+              ? {
+                  issue,
+                  onAction: (action) => rowActions.onAction(id, action),
+                  onStatus: (value) => rowActions.onStatus(id, value),
+                }
+              : undefined
+          }}
+        />
+        {acceptedTree?.filterable ? <DoneHidden full={full} /> : null}
+      </DeckTasks>
 
       {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
         <DeckContent>
@@ -395,26 +406,6 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
   )
 })
 
-/** Show or hide done tasks: a toggle that says what a tap does, never a selected chip. */
-const DoneToggle = observer(function DoneToggle({ full }: { full: FullDeck }) {
-  const shown = full.showDone
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      aria-checked={shown}
-      accessibilityLabel={`Show done, ${full.counts.done}`}
-      testID="deck-filter-done"
-      hitSlop={TOGGLE_SLOP}
-      onPress={() => full.toggleShowDone()}
-      style={({ pressed }) => [styles.doneToggle, pressed && styles.dimmed]}
-    >
-      <Text style={styles.doneToggleLabel} numberOfLines={1}>
-        {shown ? 'Hide Done' : 'Show Done'}
-      </Text>
-    </Pressable>
-  )
-})
-
 /** The header of a card with no heading, so List keeps its gap above it. */
 function GroupGap() {
   return <View style={styles.groupGap} />
@@ -540,7 +531,6 @@ const SEGMENT_MAX_SCALE = 1.35
 const SEGMENT_HIT_PAD = 12
 /** How far a 44pt header control reaches past a 22pt title line, each side. */
 const SECTION_HIT_PAD = 11
-const TOGGLE_SLOP = { top: 12, bottom: 12, left: 8, right: 8 }
 const _DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
 const styles = StyleSheet.create({
   head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
@@ -555,9 +545,6 @@ const styles = StyleSheet.create({
   vitalsRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   vitalsStacked: { alignItems: 'flex-start', gap: space.xs },
   vitalsText: { flex: 1, flexShrink: 1, minWidth: 0 },
-  doneToggle: { flexShrink: 0, minHeight: 20, justifyContent: 'center' },
-  doneToggleLabel: { ...sans(400), color: deckColor.live, fontSize: font.tiny },
-  dimmed: { opacity: 0.5 },
   // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
   groupGap: { height: 0 },
   /** The 44pt hit row; the 32pt track sits at its foot, so the reserved band

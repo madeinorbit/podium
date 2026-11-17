@@ -394,6 +394,33 @@ describe('counting', () => {
     full.setFilter('up-next')
     expect(tracked(() => full.counts)).toEqual(before)
   })
+
+  it('keeps phase counters and execution gauge stable through both done-toggle directions', async () => {
+    const { full } = await open()
+    const before = tracked(() => ({
+      counts: full.counts,
+      buckets: full.buckets,
+      build: full.task('build').counter,
+      release: full.task('release').counter,
+    }))
+    const shown = rows(full)
+    full.toggleShowDone()
+    expect(rows(full)).not.toContain('shipped')
+    expect(rows(full)).not.toContain('release')
+    expect(tracked(() => full.doneLine)).toEqual({ phases: 1, tasks: 2 })
+    expect(
+      tracked(() => ({
+        counts: full.counts,
+        buckets: full.buckets,
+        build: full.task('build').counter,
+        release: full.task('release').counter,
+      })),
+    ).toEqual(before)
+    full.toggleShowDone()
+    expect(rows(full)).toEqual(shown)
+    expect(tracked(() => full.doneLine)).toBeNull()
+    expect(tracked(() => full.buckets)).toEqual(before !== LOADING ? before.buckets : null)
+  })
 })
 
 describe('drawing', () => {

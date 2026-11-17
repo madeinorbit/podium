@@ -1,5 +1,5 @@
 import { Host } from '@expo/ui'
-import { List, RNHostView, Section, VStack } from '@expo/ui/swift-ui'
+import { Group, List, RNHostView, Section, VStack } from '@expo/ui/swift-ui'
 import {
   Animation,
   accessibilityIdentifier,
@@ -95,6 +95,17 @@ export function DeckGroup({
  * React view in another cell [POD-2529]. */
 export function DeckRow({ children }: { children: ReactNode }) {
   return children
+}
+
+/** Scope native insert/delete motion to accepted rows, keeping the gauge and bars still. */
+export function DeckTasks({ children, ids }: { children: ReactNode; ids: readonly string[] }) {
+  const reduceMotion = useReduceMotion()
+  const revision = listOrderRevision([{ key: 'tasks', folded: false, ids }])
+  return (
+    <Group modifiers={reduceMotion ? [] : [animation(Animation.default, revision)]}>
+      {children}
+    </Group>
+  )
 }
 
 const sectionMargins = [listSectionMargins({ edges: 'vertical', length: 0 })]
