@@ -804,22 +804,6 @@ export class IssueArtifactStore {
     }
   }
 
-  /** Read one stored member whole (or one range of it). Null = 404. */
-  async read(
-    issueId: IssueId,
-    artifactId: ArtifactId,
-    relPath: string,
-    range?: { offset: number; length: number },
-  ): Promise<{ bytes: Buffer; contentType: string; size: number } | null> {
-    const stored = await this.readStream(issueId, artifactId, relPath, range)
-    if (!stored) return null
-    return {
-      bytes: await bytesOf(stored.body),
-      contentType: stored.contentType,
-      size: stored.size,
-    }
-  }
-
   /** Delete one snapshot (artifact-remove / post-replace cleanup): a prefix delete. */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
     await this.deletePrefix(artifactPrefix(issueId, artifactId))

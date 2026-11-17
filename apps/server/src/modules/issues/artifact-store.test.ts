@@ -46,6 +46,17 @@ function fakeRpc(
   }
 }
 
+/** One member through `readStream`, collected: the store streams, it has no whole-file read. */
+async function readWhole(
+  store: IssueArtifactStore,
+  ...args: Parameters<IssueArtifactStore['readStream']>
+): Promise<{ bytes: Buffer; contentType: string; size: number } | null> {
+  const found = await store.readStream(...args)
+  if (!found) return null
+  const bytes = Buffer.from(await new Response(found.body).arrayBuffer())
+  return { bytes, contentType: found.contentType, size: found.size }
+}
+
 async function keysUnder(files: BlobStore, prefix: string): Promise<string[]> {
   const keys: string[] = []
   for await (const entry of files.list(blobKey(prefix))) keys.push(entry.key)
@@ -137,11 +148,11 @@ describe.each([
       expect(await keysUnder(files, `artifacts/iss_1/${snap.artifactId}`)).toEqual([
         `artifacts/iss_1/${snap.artifactId}/a.png`,
       ])
-      const r = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png')
+      const r = await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'a.png')
       expect(r?.bytes.toString()).toBe('PNG')
       expect(r?.contentType).toBe('image/png')
       expect(r?.size).toBe(3)
-      const slice = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png', {
+      const slice = await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'a.png', {
         offset: 1,
         length: 1,
       })
@@ -191,7 +202,7 @@ describe.each([
       })
       expect(folder.files).toEqual([{ path: 'a.png', size: 3 }])
       expect(
-        (await store.read(asIssueId('iss_1'), folder.artifactId, 'a.png'))?.bytes.toString(),
+        (await readWhole(store, asIssueId('iss_1'), folder.artifactId, 'a.png'))?.bytes.toString(),
       ).toBe('PNG')
     })
 
@@ -204,7 +215,7 @@ describe.each([
       })
       expect(snap).toMatchObject({ entry: 'mock.png', files: [{ path: 'mock.png', size: 3 }] })
       expect(
-        (await store.read(asIssueId('iss_1'), snap.artifactId, 'mock.png'))?.bytes.toString(),
+        (await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'mock.png'))?.bytes.toString(),
       ).toBe('PNG')
     })
 
@@ -218,7 +229,7 @@ describe.each([
       const [key] = await keysUnder(files, `artifacts/iss_1/${snap.artifactId}`)
       expect(key).toMatch(new RegExp(`^artifacts/iss_1/${snap.artifactId}/~[a-z2-7]+$`))
       expect(
-        (await store.read(asIssueId('iss_1'), snap.artifactId, 'Screen Shot 1.png'))?.bytes,
+        (await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'Screen Shot 1.png'))?.bytes,
       ).toEqual(Buffer.from('PNG'))
     })
 
@@ -247,7 +258,7 @@ describe.each([
       })
       expect(calls.length).toBe(3)
       expect(snap.files[0]?.size).toBe(big.length)
-      const r = await store.read(asIssueId('iss_1'), snap.artifactId, 'big.bin')
+      const r = await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'big.bin')
       expect(r?.bytes.equals(big)).toBe(true)
     })
 
@@ -275,7 +286,9 @@ describe.each([
       expect(snap.entry).toBe('index.html')
       expect(snap.files.map((f) => f.path).sort()).toEqual(['img/x.png', 'index.html'])
       expect(
-        (await store.read(asIssueId('iss_1'), snap.artifactId, 'img/x.png'))?.bytes.toString(),
+        (
+          await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'img/x.png')
+        )?.bytes.toString(),
       ).toBe('X')
     })
 
@@ -331,7 +344,7 @@ describe.each([
       const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath })
       expect(snap.entry).toBe(sourcePath === 'C:/shot.png' ? 'shot.png' : sourcePath)
       expect(
-        (await store.read(asIssueId('iss_1'), snap.artifactId, snap.entry))?.bytes.toString(),
+        (await readWhole(store, asIssueId('iss_1'), snap.artifactId, snap.entry))?.bytes.toString(),
       ).toBe('PNG')
     })
 
@@ -371,16 +384,22 @@ describe.each([
       })
       await files.put(blobKey('artifacts/secret.txt'), Buffer.from('top'))
       await files.put(blobKey('artifacts/iss_1/secret.txt'), Buffer.from('top'))
-      expect(await store.read(asIssueId('iss_1'), snap.artifactId, '../../secret.txt')).toBeNull()
-      expect(await store.read(asIssueId('iss_1'), snap.artifactId, '../secret.txt')).toBeNull()
-      expect(await store.read(asIssueId('..'), snap.artifactId, 'a.txt')).toBeNull()
-      expect(await store.read(asIssueId('.'), asArtifactId('.'), 'secret.txt')).toBeNull()
-      expect(await store.read(asIssueId('iss_1'), asArtifactId('../iss_1'), 'a.txt')).toBeNull()
-      expect(await store.read(asIssueId('iss_1'), snap.artifactId, 'missing.txt')).toBeNull()
-      expect(await store.read(asIssueId('iss_1'), snap.artifactId, '')).toBeNull()
-      expect(await store.read(asIssueId('iss_1'), snap.artifactId, 'a//a.txt')).toBeNull()
+      expect(
+        await readWhole(store, asIssueId('iss_1'), snap.artifactId, '../../secret.txt'),
+      ).toBeNull()
+      expect(
+        await readWhole(store, asIssueId('iss_1'), snap.artifactId, '../secret.txt'),
+      ).toBeNull()
+      expect(await readWhole(store, asIssueId('..'), snap.artifactId, 'a.txt')).toBeNull()
+      expect(await readWhole(store, asIssueId('.'), asArtifactId('.'), 'secret.txt')).toBeNull()
+      expect(
+        await readWhole(store, asIssueId('iss_1'), asArtifactId('../iss_1'), 'a.txt'),
+      ).toBeNull()
+      expect(await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'missing.txt')).toBeNull()
+      expect(await readWhole(store, asIssueId('iss_1'), snap.artifactId, '')).toBeNull()
+      expect(await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'a//a.txt')).toBeNull()
       // Staging is not an issue.
-      expect(await store.read(asIssueId('.uploads'), asArtifactId('iss_1'), 'x')).toBeNull()
+      expect(await readWhole(store, asIssueId('.uploads'), asArtifactId('iss_1'), 'x')).toBeNull()
     })
 
     it('remove() deletes one snapshot; removeIssue() deletes every snapshot and upload', async () => {
@@ -390,8 +409,8 @@ describe.each([
       const s2 = await store.snapshot({ issueId, root: '/wt', sourcePath: 'a.txt' })
       expect(s1.artifactId).not.toBe(s2.artifactId)
       await store.remove(issueId, s1.artifactId)
-      expect(await store.read(issueId, s1.artifactId, 'a.txt')).toBeNull()
-      expect((await store.read(issueId, s2.artifactId, 'a.txt'))?.bytes.toString()).toBe('A')
+      expect(await readWhole(store, issueId, s1.artifactId, 'a.txt')).toBeNull()
+      expect((await readWhole(store, issueId, s2.artifactId, 'a.txt'))?.bytes.toString()).toBe('A')
       const uploadId = randomUUID()
       await store.transfer(issueId, {
         action: 'begin',
@@ -417,7 +436,7 @@ describe.each([
       })
       delete (source as Record<string, Buffer>)['/wt/a.txt']
       expect(
-        (await store.read(asIssueId('iss_1'), snap.artifactId, 'a.txt'))?.bytes.toString(),
+        (await readWhole(store, asIssueId('iss_1'), snap.artifactId, 'a.txt'))?.bytes.toString(),
       ).toBe('kept')
       // On a self-hosted disk the key is today's path under the state directory.
       if (backend === 'local') {
@@ -438,7 +457,7 @@ describe.each([
       expect(await files.head(from)).toBeUndefined()
       // A retried claim finds the artifact in place.
       expect((await store.adopt({ ...args, from })).files).toEqual(adopted.files)
-      expect((await store.read(issueId, args.artifactId, 'shot one.png'))?.bytes).toEqual(
+      expect((await readWhole(store, issueId, args.artifactId, 'shot one.png'))?.bytes).toEqual(
         Buffer.from('PNG'),
       )
       await store.relinquish({ ...args, to: from })
@@ -537,10 +556,12 @@ describe.each([
       const result = await store.transfer(issueId, { action: 'commit', uploadId })
       expect(result?.path).toBe('proposal')
       const artifactId = result!.snapshot.artifactId
-      expect((await store.read(issueId, artifactId, 'assets/shot.png'))?.bytes.equals(bytes)).toBe(
-        true,
+      expect(
+        (await readWhole(store, issueId, artifactId, 'assets/shot.png'))?.bytes.equals(bytes),
+      ).toBe(true)
+      expect((await readWhole(store, issueId, artifactId, 'index.html'))?.bytes.toString()).toBe(
+        'x',
       )
-      expect((await store.read(issueId, artifactId, 'index.html'))?.bytes.toString()).toBe('x')
       expect(await keysUnder(files, `artifacts/.uploads/${issueId}/${uploadId}`)).toEqual([])
       expect(await db.artifactUploads.get(issueId, uploadId)).toBeUndefined()
     })
@@ -628,9 +649,9 @@ describe.each([
       expect(await keysUnder(files, `artifacts/${issueId}/keyed1`)).toEqual([
         `artifacts/${issueId}/keyed1/r.md`,
       ])
-      expect((await store.read(issueId, asArtifactId('keyed1'), 'r.md'))?.bytes.toString()).toBe(
-        'x',
-      )
+      expect(
+        (await readWhole(store, issueId, asArtifactId('keyed1'), 'r.md'))?.bytes.toString(),
+      ).toBe('x')
       expect(await keysUnder(files, `artifacts/.uploads/${issueId}/${uploadId}`)).toEqual([])
     })
 
@@ -662,9 +683,11 @@ describe.each([
         { path: 'data/big file.bin', size: big.length },
       ])
       const id = asArtifactId('composed')
-      expect((await store.read(issueId, id, 'data/big file.bin'))?.bytes.equals(big)).toBe(true)
-      expect((await store.read(issueId, id, 'empty.txt'))?.bytes.length).toBe(0)
-      expect((await store.read(issueId, id, 'index.html'))?.contentType).toBe(
+      expect((await readWhole(store, issueId, id, 'data/big file.bin'))?.bytes.equals(big)).toBe(
+        true,
+      )
+      expect((await readWhole(store, issueId, id, 'empty.txt'))?.bytes.length).toBe(0)
+      expect((await readWhole(store, issueId, id, 'index.html'))?.contentType).toBe(
         'text/html; charset=utf-8',
       )
     })

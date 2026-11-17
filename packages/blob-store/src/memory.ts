@@ -5,7 +5,8 @@
  * as on hosted (design 2.2, B1), so two workspaces with the same keys can share
  * one bucket in an isolation test and still never see each other's objects.
  * Puts replace whole objects, conditional writes are honoured, and `list`
- * returns keys in ascending byte order.
+ * returns keys in ascending byte order with each object's write time, read from
+ * the bucket's clock (a test moves it to age objects).
  */
 
 import type { WorkspaceId } from '@podium/model'
@@ -31,12 +32,20 @@ interface MemoryObject {
   bytes: Uint8Array
   etag: string
   contentType: string | undefined
+  /** Epoch ms of the put or copy, from the bucket's clock. */
+  modifiedAt: number
 }
 
 /** One bucket's objects, keyed by `<workspaceId>/<key>`. */
 export class MemoryBucket {
   readonly objects = new Map<string, MemoryObject>()
   private nextEtag = 1
+  /** The clock every write is stamped with. */
+  readonly now: () => number
+
+  constructor(options: { now?: () => number } = {}) {
+    this.now = options.now ?? Date.now
+  }
 
   mintEtag(): string {
     const etag = `"m${this.nextEtag}"`
@@ -76,7 +85,12 @@ class MemoryBlobStore implements BlobStore {
       throw new BlobConditionFailed(key, 'ifMatch')
     }
     const etag = this.bucket.mintEtag()
-    this.bucket.objects.set(name, { bytes, etag, contentType: opts.contentType })
+    this.bucket.objects.set(name, {
+      bytes,
+      etag,
+      contentType: opts.contentType,
+      modifiedAt: this.bucket.now(),
+    })
     return { etag, size: bytes.byteLength }
   }
 
@@ -107,7 +121,11 @@ class MemoryBlobStore implements BlobStore {
       if (!name.startsWith(under)) continue
       const object = this.bucket.objects.get(name)
       if (object === undefined) continue
-      yield { key: blobKey(name.slice(this.prefix.length)), size: object.bytes.byteLength }
+      yield {
+        key: blobKey(name.slice(this.prefix.length)),
+        size: object.bytes.byteLength,
+        modifiedAt: object.modifiedAt,
+      }
     }
   }
 
@@ -118,6 +136,7 @@ class MemoryBlobStore implements BlobStore {
       bytes: source.bytes.slice(),
       etag: this.bucket.mintEtag(),
       contentType: source.contentType,
+      modifiedAt: this.bucket.now(),
     })
   }
 

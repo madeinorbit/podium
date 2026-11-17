@@ -398,7 +398,13 @@ class LocalBlobStore implements BlobStore {
         continue
       }
       const stats = await this.statFile(childPath)
-      if (stats !== undefined) yield { key: childKey as BlobKey, size: Number(stats.size) }
+      if (stats !== undefined) {
+        yield {
+          key: childKey as BlobKey,
+          size: Number(stats.size),
+          modifiedAt: Number(stats.mtimeMs),
+        }
+      }
     }
   }
 

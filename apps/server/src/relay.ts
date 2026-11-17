@@ -12,6 +12,7 @@ import type {
   Attribution,
   EffectTarget,
   IssueId,
+  IssuePanelArtifactWire,
   MachineId,
   MessageHeld,
   NotInConversationCause,
@@ -127,6 +128,8 @@ import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
 import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
+import { type FileStorageJobName, fileStorageJobs } from './modules/files/file-jobs'
+import { ORPHAN_AUDIT_EVERY_MS, OrphanAudit } from './modules/files/orphan-audit'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
 import { registerFolderEffects } from './modules/fleet/folder-effects'
@@ -4964,20 +4967,45 @@ export class SessionRegistry {
         })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
-    // Composer uploads nobody sent within a day (POD-2148). Hourly, and once at
-    // boot; a server-transfer fence skips a pass rather than failing it.
-    const sweepPendingUploads = () => {
-      if (!backgroundDisabled)
-        void pendingUploads.sweep().catch((err: unknown) => {
-          log.warn('pending upload sweep failed', { err })
-        })
-      if (!backgroundDisabled)
-        void issueArtifacts.sweepUploads().catch((err: unknown) => {
-          log.warn('artifact upload sweep failed', { err })
-        })
+    // The workspace's file jobs (POD-6963 design 2.9). Hourly, and once at
+    // boot: composer uploads nobody sent within a day (POD-2148) and CLI
+    // transfers interrupted a day ago, each a query over its table plus
+    // idempotent deletes; a server-transfer fence skips a pass rather than
+    // failing it. Daily, starting an hour after boot: the orphan audit, which
+    // deletes what no row references. All three run in this process until
+    // POD-6962's lease-owned jobs exist; `fileJobs` is the seam it replaces.
+    const fileJobs = fileStorageJobs()
+    const orphanAudit = new OrphanAudit(workspaceFiles, this.store.workspaceId, {
+      pendingUploads: this.store.pendingUploads,
+      artifactUploads: this.store.artifactUploads,
+      panelArtifacts: async (issueIds) =>
+        (await this.store.issues.panel.forIssues(
+          'issuePanelArtifact',
+          issueIds,
+        )) as IssuePanelArtifactWire[],
+      // With the lake off nothing writes parts, and `transcripts/` is not audited.
+      ...(options.transcriptLake ? { lake: this.store.conversations.mirror } : {}),
+    })
+    let nextOrphanAuditAt = Date.now() + PENDING_UPLOAD_SWEEP_MS / 2
+    const runFileJob = (name: FileStorageJobName, job: () => Promise<unknown>) => {
+      void fileJobs.run(name, job).catch((err: unknown) => {
+        log.warn('file storage job failed', { job: name, err })
+      })
     }
-    sweepPendingUploads()
-    this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
+    const sweepFiles = () => {
+      if (backgroundDisabled) return
+      runFileJob('pending-upload-sweep', () => pendingUploads.sweep())
+      runFileJob('artifact-upload-sweep', () => issueArtifacts.sweepUploads())
+      if (Date.now() >= nextOrphanAuditAt) {
+        nextOrphanAuditAt = Date.now() + ORPHAN_AUDIT_EVERY_MS
+        runFileJob('orphan-audit', async () => {
+          const report = await orphanAudit.run()
+          log.info('file orphan audit', { roots: report.roots })
+        })
+      }
+    }
+    sweepFiles()
+    this.pendingUploadSweep = setInterval(sweepFiles, PENDING_UPLOAD_SWEEP_MS)
     this.pendingUploadSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).

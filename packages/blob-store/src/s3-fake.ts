@@ -39,6 +39,8 @@ export interface S3FakeObject {
   bytes: Uint8Array
   etag: string
   contentType: string | undefined
+  /** Epoch ms of the write; listed as `LastModified` (the time of the listing when absent). */
+  modifiedAt?: number
 }
 
 export interface S3FakeRequest {
@@ -244,7 +246,12 @@ export class S3Fake {
     const refused = this.conditionRefusal(name, headers)
     if (refused !== undefined) return refused
     const etag = `"${md5(bytes).toString('hex')}"`
-    this.objects.set(name, { bytes, etag, contentType: headers['content-type'] })
+    this.objects.set(name, {
+      bytes,
+      etag,
+      contentType: headers['content-type'],
+      modifiedAt: Date.now(),
+    })
     return new Response(null, { status: 200, headers: { etag } })
   }
 
@@ -299,7 +306,7 @@ export class S3Fake {
       : undefined
     const object = sourceName === undefined ? undefined : this.objects.get(sourceName)
     if (object === undefined) return s3Error(404, 'NoSuchKey', 'the copy source does not exist')
-    const copied = { ...object, bytes: object.bytes.slice() }
+    const copied = { ...object, bytes: object.bytes.slice(), modifiedAt: Date.now() }
     this.objects.set(name, copied)
     return xml(
       200,
@@ -326,7 +333,7 @@ export class S3Fake {
     const contents = page
       .map((name) => {
         const object = this.objects.get(name) as S3FakeObject
-        return `<Contents><Key>${xmlEscape(name)}</Key><LastModified>${new Date().toISOString()}</LastModified><ETag>${xmlEscape(object.etag)}</ETag><Size>${object.bytes.byteLength}</Size><StorageClass>STANDARD</StorageClass></Contents>`
+        return `<Contents><Key>${xmlEscape(name)}</Key><LastModified>${new Date(object.modifiedAt ?? Date.now()).toISOString()}</LastModified><ETag>${xmlEscape(object.etag)}</ETag><Size>${object.bytes.byteLength}</Size><StorageClass>STANDARD</StorageClass></Contents>`
       })
       .join('')
     const last = page.at(-1)
@@ -388,7 +395,7 @@ export class S3Fake {
       at += part.bytes.byteLength
     }
     const etag = `"${md5(Buffer.concat(present.map((p) => p.md5))).toString('hex')}-${present.length}"`
-    this.objects.set(name, { bytes, etag, contentType: upload.contentType })
+    this.objects.set(name, { bytes, etag, contentType: upload.contentType, modifiedAt: Date.now() })
     this.uploads.delete(uploadId)
     return xml(
       200,

@@ -35,7 +35,7 @@ describe('creation attachments at review', () => {
         upload,
         remove,
         snapshot: vi.fn(),
-        read: async () => null,
+        readStream: async () => null,
         removeIssue: async () => {},
       },
     }

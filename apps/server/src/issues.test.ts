@@ -93,6 +93,16 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
   }
 }
 
+/** A stored member as `IssueArtifactStore.readStream` answers it; null when absent. */
+function streamedMember(member: { bytes: Buffer; contentType: string } | undefined) {
+  if (!member) return null
+  return {
+    body: new Response(new Uint8Array(member.bytes)).body as ReadableStream<Uint8Array>,
+    contentType: member.contentType,
+    size: member.bytes.length,
+  }
+}
+
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
   ({
     sessionId: cwd,
@@ -6718,11 +6728,11 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     }))
     const remove = vi.fn(async () => {})
     // Stands in for the on-disk snapshot dir: keyed by the same
-    // (artifactId, relpath) pair `IssueArtifactStore.read` resolves.
+    // (artifactId, relpath) pair `IssueArtifactStore.readStream` resolves.
     const stored = new Map<string, { bytes: Buffer; contentType: string }>()
-    const read = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) => {
-      return stored.get(`${artifactId}/${relPath}`) ?? null
-    })
+    const readStream = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) =>
+      streamedMember(stored.get(`${artifactId}/${relPath}`)),
+    )
     const repoOp = vi.fn(async (op: string) =>
       op === 'lsFiles'
         ? { ok: true, output: 'shots/a.png\0a.png\0b.png\0' }
@@ -6736,12 +6746,12 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         entry: o.filename,
         files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
       })),
-      read,
+      readStream,
       remove,
       removeIssue: vi.fn(async () => {}),
     }
     const svc = await IssueService.create(h.deps)
-    return { ...h, svc, snapshot, remove, read, stored, repoOp, sessions }
+    return { ...h, svc, snapshot, remove, readStream, stored, repoOp, sessions }
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
@@ -7371,9 +7381,8 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       return { artifactId: asArtifactId(`art${++n}`), entry: files[0]?.path as string, files }
     })
     const stored = new Map<string, { bytes: Buffer; contentType: string }>()
-    const read = vi.fn(
-      async (_issueId: IssueId, artifactId: string, relPath: string) =>
-        stored.get(`${artifactId}/${relPath}`) ?? null,
+    const readStream = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) =>
+      streamedMember(stored.get(`${artifactId}/${relPath}`)),
     )
     h.deps.artifacts = {
       snapshot,
@@ -7382,7 +7391,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
         entry: o.filename,
         files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
       })),
-      read,
+      readStream,
       remove: vi.fn(async () => {}),
       removeIssue: vi.fn(async () => {}),
     }
@@ -7393,7 +7402,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       startNow: false,
     })
     await svc.crud.update(svc.reports.store.serverWriter, issue.id, { worktreePath: '/wt/issue-1' })
-    return { svc, issue, stored, read, snapshot }
+    return { svc, issue, stored, readStream, snapshot }
   }
 
   const text = (s: string, contentType = 'text/markdown; charset=utf-8') => ({

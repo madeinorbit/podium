@@ -91,8 +91,10 @@ const entries = async (o: Oracle, id: IssueId) =>
 const recordsOf = async (o: Oracle, kind: string, id: IssueId) =>
   (await o.store.effects.newestOnTarget(kind, { kind: 'issue', id }, 'succeeded')) ?? undefined
 
-const stored = async (o: Oracle, id: IssueId, artifactId: ArtifactId, file: string) =>
-  (await o.reg.modules.issueArtifacts.read(id, artifactId, file))?.bytes.toString() ?? null
+const stored = async (o: Oracle, id: IssueId, artifactId: ArtifactId, file: string) => {
+  const found = await o.reg.modules.issueArtifacts.readStream(id, artifactId, file)
+  return found ? await new Response(found.body).text() : null
+}
 
 describe('artifact-add as an issue.artifactAdd record', () => {
   it('the old route creates the record, copies the bytes, and answers the issue', async () => {

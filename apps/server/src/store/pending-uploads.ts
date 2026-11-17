@@ -20,7 +20,7 @@
  */
 
 import type { ArtifactId, IssueId, UserId } from '@podium/model'
-import { asc, eq, isNull, lt, sql } from 'drizzle-orm'
+import { asc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
 import type { WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
@@ -175,6 +175,28 @@ const uploadsCreatedBefore = prepared((db, t) =>
     .prepare(),
 )
 
+const uploadsAfter = prepared((db, t) =>
+  db
+    .select({
+      id: t.pendingUploads.id,
+      ownerUserId: t.pendingUploads.ownerUserId,
+      filename: t.pendingUploads.filename,
+      entry: t.pendingUploads.entry,
+      mediaType: t.pendingUploads.mediaType,
+      size: t.pendingUploads.size,
+      createdAt: t.pendingUploads.createdAt,
+      claimedIssueId: t.pendingUploads.claimedIssueId,
+      claimedArtifactId: t.pendingUploads.claimedArtifactId,
+    })
+    .from(t.pendingUploads)
+    .where(
+      inWorkspace(t.pendingUploads, gt(t.pendingUploads.id, param(t.pendingUploads.id, 'after'))),
+    )
+    .orderBy(asc(t.pendingUploads.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
 type StoredRow = {
   id: string
   ownerUserId: UserId
@@ -250,6 +272,14 @@ export class PendingUploadsRepository {
   /** Forget one upload (swept); a missing row is fine. */
   async delete(id: string): Promise<void> {
     await deleteUpload(this.db).run({ id })
+  }
+
+  /**
+   * One page of every upload in id order, after `after` ('' for the first): the
+   * orphan audit's reference set. The table holds about a day of uploads.
+   */
+  async page(after: string, limit: number): Promise<PendingUploadRow[]> {
+    return (await uploadsAfter(this.db).all({ after, limit })).map(fromStored)
   }
 
   /** Uploads made before `before` (epoch ms), oldest first, at most `limit`. */

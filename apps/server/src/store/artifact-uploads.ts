@@ -19,7 +19,7 @@
  */
 
 import type { IssueId } from '@podium/model'
-import { asc, eq, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
@@ -152,6 +152,28 @@ const uploadsCreatedBefore = prepared((db, t) =>
     .prepare(),
 )
 
+const uploadsAfter = prepared((db, t) => {
+  const u = t.artifactUploads
+  return db
+    .select({ issueId: u.issueId, uploadId: u.uploadId })
+    .from(u)
+    .where(
+      inWorkspace(
+        u,
+        or(
+          gt(u.issueId, param(u.issueId, 'afterIssue')),
+          and(
+            eq(u.issueId, param(u.issueId, 'sameIssue')),
+            gt(u.uploadId, param(u.uploadId, 'afterUpload')),
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(u.issueId), asc(u.uploadId))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
 export class ArtifactUploadsRepository {
   private readonly db: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -216,6 +238,19 @@ export class ArtifactUploadsRepository {
   /** Forget every upload of an issue (hard issue deletion). */
   async deleteIssue(issueId: IssueId): Promise<void> {
     await deleteIssueUploads(this.db).run({ issueId })
+  }
+
+  /**
+   * One page of every upload in key order, after `after` (none for the first):
+   * the orphan audit's reference set. The table holds about a day of uploads.
+   */
+  async page(after: ArtifactUploadRef | undefined, limit: number): Promise<ArtifactUploadRef[]> {
+    return await uploadsAfter(this.db).all({
+      afterIssue: after?.issueId ?? '',
+      sameIssue: after?.issueId ?? '',
+      afterUpload: after?.uploadId ?? '',
+      limit,
+    })
   }
 
   /** Uploads begun before `before` (epoch ms), oldest first, at most `limit`. */

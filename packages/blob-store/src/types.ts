@@ -64,6 +64,13 @@ export interface BlobGetResult extends BlobHead {
 export interface BlobListEntry {
   key: BlobKey
   size: number
+  /**
+   * When the object was last written, epoch ms: the file's mtime on local disk,
+   * `LastModified` on S3 (second precision). The orphan audit's age rule reads
+   * it; an adapter that cannot tell answers the time of the listing, so an
+   * object of unknown age is never taken for an old one.
+   */
+  modifiedAt: number
 }
 
 export interface BlobStore {

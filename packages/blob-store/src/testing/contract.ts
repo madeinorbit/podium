@@ -260,6 +260,24 @@ export function describeBlobStoreContract(
     )
 
     it(
+      'lists when each object was last written, a put and a copy alike',
+      withStore(async (store) => {
+        // S3's LastModified has second precision: allow a second either side.
+        const before = Date.now() - 1000
+        await store.put(k('t/a'), bytes('a'))
+        await store.copy(k('t/a'), k('t/b'))
+        const after = Date.now() + 1000
+        const stamps: number[] = []
+        for await (const entry of store.list(k('t'))) stamps.push(entry.modifiedAt)
+        expect(stamps).toHaveLength(2)
+        for (const stamp of stamps) {
+          expect(stamp).toBeGreaterThanOrEqual(before)
+          expect(stamp).toBeLessThanOrEqual(after)
+        }
+      }),
+    )
+
+    it(
       'does not list a deleted key',
       withStore(async (store) => {
         await store.put(k('l/a'), bytes('a'))

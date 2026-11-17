@@ -309,7 +309,11 @@ class S3BlobStore implements BlobStore {
         }
         previous = name
         if (!name.startsWith(under)) continue
-        yield { key: blobKey(name.slice(this.prefix.length)), size: entry.Size ?? 0 }
+        yield {
+          key: blobKey(name.slice(this.prefix.length)),
+          size: entry.Size ?? 0,
+          modifiedAt: entry.LastModified?.getTime() ?? Date.now(),
+        }
       }
       continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
     } while (continuationToken !== undefined)

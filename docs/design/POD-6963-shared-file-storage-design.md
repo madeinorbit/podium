@@ -463,6 +463,20 @@ nothing references and is older than a day) covers crashes between an object wri
 row, and lake parts past a shrink that a crash left behind. It also serves POD-6966's deletion
 obligations. It runs rarely and per workspace.
 
+As built (POD-7057): the sweeps find their work by query only; the CLI-transfer sweep then
+lists the staging prefix of each upload it found, because chunk offsets are the client's. The
+audit (`modules/files/orphan-audit.ts`) lists `artifacts/`, `pending-uploads/` and, while the
+lake is on, `transcripts/` through the workspace's own handle, and judges only keys last
+written more than a day ago, so `BlobListEntry` carries `modifiedAt` (file mtime, S3
+`LastModified`). A member is kept while a panel entry or a composer upload's claim names its
+artifact, staging and composer files while their rows exist, and a lake part while its
+incarnation's cursor reaches into it. Other keys under the first two roots go; under
+`transcripts/` only keys of the lake's own shape are judged, since a co-located daemon writes
+there too. Its reads are one page per upload table, one panel read per 500 issues met, and the
+lake conversion's two cursor pages, pinned by a statement-count test. All three jobs run in
+each server process, hourly sweeps and a daily audit an hour after boot, through
+`modules/files/file-jobs.ts`, the seam POD-6962's leases replace.
+
 ### 2.10 What stays out
 
 - The server's own state files (keys, secrets, instance record, update journal, logs, perf

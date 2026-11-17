@@ -1022,12 +1022,12 @@ export class IssueCrudModule {
       (a) => a.chatUploadId === uploadId && a.artifactId,
     )
     if (!entry?.artifactId) return undefined
-    const found = await store.read(
+    const found = await store.readStream(
       issueId,
       entry.artifactId,
       entry.entry ?? machinePathBasename(entry.path) ?? '',
     )
-    return found ? new Uint8Array(found.bytes) : undefined
+    return found ? new Uint8Array(await new Response(found.body).arrayBuffer()) : undefined
   }
 
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
@@ -1103,20 +1103,23 @@ export class IssueCrudModule {
       )
     }
     const file = input.file ?? entryRow.entry ?? machinePathBasename(entryRow.path) ?? entryRow.path
-    const found = await store.read(row.id, entryRow.artifactId, file)
+    const found = await store.readStream(row.id, entryRow.artifactId, file)
     if (!found) {
       const known = (entryRow.files ?? []).map((f) => f.path).join(', ')
       throw new IssueRefusal(
         `artifact ${at + 1} has no stored file ${file}${known ? ` (bundle holds: ${known})` : ''}`,
       )
     }
-    if (found.bytes.length > ARTIFACT_READ_CAP_BYTES) {
+    // The size is known before any byte is read: over the cap, nothing is buffered.
+    if (found.size > ARTIFACT_READ_CAP_BYTES) {
+      void found.body.cancel().catch(() => {})
       throw new IssueRefusal(
-        `${file} is ${found.bytes.length} bytes — over the ${
+        `${file} is ${found.size} bytes — over the ${
           ARTIFACT_READ_CAP_BYTES / (1024 * 1024)
         }MB command-read cap; fetch it from the server at ${artifactUrl(row.id, entryRow.artifactId, file)}`,
       )
     }
+    const bytes = Buffer.from(await new Response(found.body).arrayBuffer())
     return {
       index: at + 1,
       path: entryRow.path,
@@ -1124,12 +1127,12 @@ export class IssueCrudModule {
       addedAt: entryRow.addedAt,
       artifactId: entryRow.artifactId,
       entry: entryRow.entry ?? file,
-      files: entryRow.files ?? [{ path: file, size: found.bytes.length }],
+      files: entryRow.files ?? [{ path: file, size: bytes.length }],
       file,
       contentType: found.contentType,
-      size: found.bytes.length,
+      size: bytes.length,
       url: artifactUrl(row.id, entryRow.artifactId, file),
-      dataBase64: found.bytes.toString('base64'),
+      dataBase64: bytes.toString('base64'),
     }
   }
 
