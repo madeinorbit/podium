@@ -6,6 +6,7 @@ import approvals from './approvals.json' with { type: 'json' }
 import binaryEnvelope from './binary-envelope.json' with { type: 'json' }
 import browserOpen from './browser-open.json' with { type: 'json' }
 import codex from './codex.json' with { type: 'json' }
+import conversation from './conversation.json' with { type: 'json' }
 import credentials from './credentials.json' with { type: 'json' }
 import daemon from './daemon.json' with { type: 'json' }
 import daemonHandshake from './daemon-handshake.json' with { type: 'json' }
@@ -51,6 +52,7 @@ export const GOLDEN: Record<string, unknown> = {
   'binary-envelope': binaryEnvelope,
   'browser-open': browserOpen,
   codex: codex,
+  conversation: conversation,
   credentials: credentials,
   daemon: daemon,
   'daemon-handshake': daemonHandshake,

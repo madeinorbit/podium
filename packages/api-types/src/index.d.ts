@@ -1086,6 +1086,16 @@ interface ModelCatalogSnapshot {
     version?: number;
 }
 
+/**
+ * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
+ * sign-in, the keeper, and the daemon that listens for the browser's return.
+ * The credential commands reach it as `CredentialsState.chatgpt`; the
+ * composition root builds it with {@link composeChatgptPlan}
+ * (`registry.modules.chatgptPlan`).
+ */
+
+type ChatgptSignInVia = 'machine' | 'paste';
+
 interface WaveMachine {
     id: string;
     name?: string;
@@ -1301,16 +1311,6 @@ interface AgentConcurrencyHistoryResult {
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
-
-/**
- * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
- * sign-in, the keeper, and the daemon that listens for the browser's return.
- * The credential commands reach it as `CredentialsState.chatgpt`; the
- * composition root builds it with {@link composeChatgptPlan}
- * (`registry.modules.chatgptPlan`).
- */
-
-type ChatgptSignInVia = 'machine' | 'paste';
 
 /**
  * ADDING A SUBSCRIPTION BY SIGNING IN ON A MACHINE (credential management §6
@@ -6234,6 +6234,11 @@ type Output_sessions_stop = ({
     ok: boolean;
     reason: string;
 });
+type Output_sessions_switchCredential = {
+    continuedAs: "handoff" | "next-wake" | "resume";
+    handoffSessionId?: (string & z.BRAND<"SessionId">) | undefined;
+    waitingForTurnEnd?: true | undefined;
+};
 type Output_sessions_uploadImage = ({
     attachment: {
         filename: string;
@@ -8793,6 +8798,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 sessionId: string;
             };
             output: Output_sessions_stop;
+            meta: unknown;
+        }>;
+        "switchCredential": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: null | string;
+                sessionId: string;
+                whenBusy: "interrupt" | "wait";
+            };
+            output: Output_sessions_switchCredential;
             meta: unknown;
         }>;
         "transcriptRead": TRPC.TRPCQueryProcedure<{
