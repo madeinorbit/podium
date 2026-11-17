@@ -606,7 +606,7 @@ describe('ShippingService durable recovery debt', () => {
     const db = (store as unknown as { db: SqlDatabase }).db
     for (let i = 0; i < 205; i++) {
       db.prepare(
-        `INSERT INTO ship_recovery_work SELECT ?, kind, order_id, payload FROM ship_recovery_work WHERE kind = 'daemon-ack' LIMIT 1`,
+        `INSERT INTO ship_recovery_work (key, kind, order_id, payload, workspace_id) SELECT ?, kind, order_id, payload, workspace_id FROM ship_recovery_work WHERE kind = 'daemon-ack' LIMIT 1`,
       ).run(`page-test:${String(i).padStart(3, '0')}`)
     }
     service.dispose()
