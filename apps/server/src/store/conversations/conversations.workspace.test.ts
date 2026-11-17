@@ -6,15 +6,18 @@
  * shard, Postgres on the `server-store-pg` lane), each seeded through its own
  * repositories with its own conversations, registry identities and segments, mirror cursors and
  * incarnations, and transcript search rows.
- * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
- * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
- * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
- * both are marked below, and the rest of the conversion is POD-7025's.
+ * Both workspaces hold the SAME ids and natural keys (POD-7025): the same machine, native ids
+ * (conversation and segment) and project. Every key leads with workspace_id (POD-7024), so the
+ * same id is two rows, told apart only by the workspace. The content differs (titles, curated
+ * meta, lake paths, reported sizes, cursors, inodes, transcript text), and podium ids are
+ * minted, so a read that crossed over would answer the other workspace's content. Where a
+ * case needs an id the other workspace does not hold, it plants one only the other holds
+ * (`only-<tag>`).
  *
  * For every repository method of `store/conversations/*`:
  *   - a read answers only its own workspace's rows;
- *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
- *     a write in A addressed at B's own ids, which must find nothing to change.
+ *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, both for
+ *     the ids the two share and for ids only the other holds, which must find nothing to change.
  *
  * On SQLite the transcript search rows are `transcript_fts`, held to a workspace through the key
  * table `transcript_fts_keys`; on Postgres they are `transcript_text`, held to it by the row's own
@@ -24,7 +27,9 @@
  * transcript row whose segment no workspace holds is the self-hosted workspace's (only its
  * search finds it), and the key table's open path (a `transcript_fts_keys` from before the
  * workspace column is made again with it, and its rows are keyed again to the workspace whose
- * segment they belong to).
+ * segment they belong to). That open path is the one case whose two workspaces cannot share a
+ * segment: a key row from before the column names only (machine, native id), so a segment both
+ * hold could be either's. There B's rows are of a segment only B holds.
  */
 
 import { asMachineId, type ConversationId, type MachineId } from '@podium/model'
@@ -47,11 +52,19 @@ const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
 const AT = '2026-11-17T10:00:00.000Z'
 const scope = fixtureWriteScope()
 
-const machine = (tag: Tag): MachineId => asMachineId(`${tag}-machine`)
-/** A native id of `tag`'s workspace: the conversation id and the segment's native id. */
-const nat = (tag: Tag, n: number) => `${tag}-native-${n}`
+const MACHINE: MachineId = asMachineId('machine-1')
+/** A native id: the conversation id and the segment's native id, the same in both. */
+const nat = (n: number) => `native-${n}`
+/** A segment's lake path: content of the segment row, so it differs per workspace. */
 const lakePath = (tag: Tag, n: number) => `/lake/${tag}/${n}.jsonl`
-const project = (tag: Tag) => `/repo-${tag}`
+const PROJECT = '/repo'
+/** The bytes a segment reports, has mirrored, had mirrored when it rotated, and has indexed. */
+const reported = (tag: Tag, n: number) => n * 100 + (tag === 'a' ? 0 : 10)
+const mirrored = (tag: Tag) => (tag === 'a' ? 40 : 45)
+const archived = (tag: Tag) => (tag === 'a' ? 60 : 65)
+const indexed = (tag: Tag) => (tag === 'a' ? 20 : 25)
+/** A native id only `tag`'s workspace holds. */
+const only = (tag: Tag) => `only-${tag}`
 
 /**
  * The tables this group owns, read raw per workspace in key order, for "unchanged"
@@ -85,25 +98,29 @@ async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unk
   return out
 }
 
-/** Every search row of `tag`'s machine, keyed or not: a delete in the other workspace keeps them. */
+/**
+ * Every search row of `tag`'s workspace, its content included: a delete in the other workspace
+ * keeps them. The machine is the same in both, so the workspace's key (SQLite) or the row's
+ * own column (Postgres) is what says whose a row is.
+ */
 const ftsRowsOf = async (store: SessionStore, tag: Tag) =>
   await store.all(
     ON_PG
-      ? sql`SELECT id, content FROM transcript_text WHERE machine_id = ${machine(tag)} ORDER BY id`
-      : sql`SELECT rowid, content FROM transcript_fts WHERE machine_id = ${machine(tag)} ORDER BY rowid`,
+      ? sql`SELECT id, content FROM transcript_text WHERE workspace_id = ${WS[tag]} ORDER BY id`
+      : sql`SELECT f.rowid, f.content FROM transcript_fts f JOIN transcript_fts_keys k ON k.fts_rowid = f.rowid WHERE k.workspace_id = ${WS[tag]} ORDER BY f.rowid`,
   )
 
 function conversation(tag: Tag, n: number, patch: Partial<ConversationIndexRow> = {}) {
   return {
-    id: nat(tag, n),
+    id: nat(n),
     agentKind: 'claude-code',
     providerId: 'claude-code',
     title: `shared ${tag} title ${n}`,
-    projectPath: project(tag),
+    projectPath: PROJECT,
     createdAt: `2026-11-0${n}T00:00:00.000Z`,
     updatedAt: `2026-11-0${n}T00:00:00.000Z`,
     messageCount: n,
-    machineId: machine(tag),
+    machineId: MACHINE,
     ...patch,
   }
 }
@@ -115,56 +132,72 @@ interface Seeded {
 }
 
 /**
+ * One workspace's segment `native`, through its own repositories, with a lake path, a mirror
+ * cursor, two incarnations (one retired) and transcript rows.
+ */
+async function seedSegment(
+  store: SessionStore,
+  tag: Tag,
+  native: string,
+  path: string,
+): Promise<ConversationId> {
+  const { registry, mirror, transcriptIndex } = store.conversations
+  const m = MACHINE
+  const id = await registry.ensure({
+    machineId: m,
+    nativeId: native,
+    providerId: 'claude-code',
+    path,
+    sizeBytes: reported(tag, 1),
+  })
+  expect(await mirror.setMirrorCursor(m, native, 0, archived(tag), AT)).toBe(true)
+  await mirror.startIncarnation(m, native, { device: 'd1', inode: `${tag}-i1` }, AT)
+  expect(
+    await mirror.rotateIncarnation(
+      m,
+      native,
+      { sequence: 1, device: 'd1', inode: `${tag}-i1` },
+      { device: 'd1', inode: `${tag}-i2` },
+      archived(tag),
+      AT,
+    ),
+  ).toBe(true)
+  // The rotation reset the cursor; mirror and index again.
+  expect(await mirror.setMirrorCursor(m, native, 0, mirrored(tag), AT)).toBe(true)
+  await transcriptIndex.append(
+    m,
+    native,
+    [{ content: `needle shared ${tag} one`, itemUuid: `${tag}-u1` }, { content: 'needle two' }],
+    indexed(tag),
+  )
+  return id
+}
+
+/**
  * One workspace's rows, through its own repositories: conversations 1 and 2 (2 a child of 1's
  * identity), segments 1 and 2 with lake paths, segment 3 rolled onto conversation 1, a mirror
  * cursor and two incarnations of segment 1 (one retired), and transcript rows of segment 1.
  */
 async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
-  const { index, registry, mirror, transcriptIndex } = store.conversations
-  const m = machine(tag)
+  const { index, registry } = store.conversations
+  const m = MACHINE
   await index.upsert(scope, [conversation(tag, 1), conversation(tag, 2)])
-  await index.setMeta(scope, nat(tag, 1), { name: `shared ${tag} name`, summary: `${tag} summary` })
-  const root = await registry.ensure({
-    machineId: m,
-    nativeId: nat(tag, 1),
-    providerId: 'claude-code',
-    path: lakePath(tag, 1),
-    sizeBytes: 100,
-  })
+  await index.setMeta(scope, nat(1), { name: `shared ${tag} name`, summary: `${tag} summary` })
+  const root = await seedSegment(store, tag, nat(1), lakePath(tag, 1))
   const child = await registry.ensure({
     machineId: m,
-    nativeId: nat(tag, 2),
+    nativeId: nat(2),
     providerId: 'claude-code',
     parentPodiumId: root,
     path: lakePath(tag, 2),
-    sizeBytes: 200,
+    sizeBytes: reported(tag, 2),
   })
   await registry.linkSegment({
     machineId: m,
-    newNativeId: nat(tag, 3),
-    priorNativeId: nat(tag, 1),
+    newNativeId: nat(3),
+    priorNativeId: nat(1),
     providerId: 'claude-code',
   })
-  expect(await mirror.setMirrorCursor(m, nat(tag, 1), 0, 60, AT)).toBe(true)
-  await mirror.startIncarnation(m, nat(tag, 1), { device: 'd1', inode: `${tag}-i1` }, AT)
-  expect(
-    await mirror.rotateIncarnation(
-      m,
-      nat(tag, 1),
-      { sequence: 1, device: 'd1', inode: `${tag}-i1` },
-      { device: 'd1', inode: `${tag}-i2` },
-      60,
-      AT,
-    ),
-  ).toBe(true)
-  // The rotation reset the cursor; mirror and index again.
-  expect(await mirror.setMirrorCursor(m, nat(tag, 1), 0, 40, AT)).toBe(true)
-  await transcriptIndex.append(
-    m,
-    nat(tag, 1),
-    [{ content: `needle shared ${tag} one`, itemUuid: `${tag}-u1` }, { content: 'needle two' }],
-    20,
-  )
   return { root, child }
 }
 
@@ -182,6 +215,13 @@ afterEach(async () => {
   await stores?.a.close()
 })
 
+/** No content of the other workspace anywhere in `value`. */
+function onlyOwn(value: unknown, tag: Tag): void {
+  const other = tag === 'a' ? 'b' : 'a'
+  const text = JSON.stringify(value)
+  expect(text).not.toMatch(new RegExp(` ${other} |\\b${other}-|/${other}/|only-${other}`))
+}
+
 describe('POD-7022 — conversations and search are a workspace’s', () => {
   it('seeds both workspaces with their own rows', async () => {
     for (const tag of ['a', 'b'] as const) {
@@ -191,6 +231,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
       expect(rows.conversation_segments).toHaveLength(3)
       expect(rows.conversation_segment_incarnations).toHaveLength(2)
       expect(rows.transcript_rows).toHaveLength(2)
+      onlyOwn(rows, tag)
     }
   })
 
@@ -198,101 +239,116 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
     it('reads records, pages, curated meta and searches only its own workspace', async () => {
       for (const tag of ['a', 'b'] as const) {
         const { index } = stores[tag].conversations
-        const other = tag === 'a' ? 'b' : 'a'
-        const ids = [nat(tag, 1), nat(tag, 2), nat(other, 1), nat(other, 2)]
+        const ids = [nat(1), nat(2), only('a'), only('b')]
+        const titles = (rows: { id: string; title?: string | null }[]) =>
+          rows.map((row) => [row.id, row.title]).sort()
+        const own = [1, 2].map((n) => [nat(n), `shared ${tag} title ${n}`])
 
         const entries = await index.recordEntries(ids)
-        expect(entries.map((entry) => entry.value.id).sort()).toEqual([nat(tag, 1), nat(tag, 2)])
-        expect(entries.every((entry) => entry.machineId === machine(tag))).toBe(true)
+        expect(titles(entries.map((entry) => entry.value))).toEqual(own)
+        expect(entries.every((entry) => entry.machineId === MACHINE)).toBe(true)
         // The record names its podium id through the joined segment, and never the workspace.
-        const first = entries.find((entry) => entry.value.id === nat(tag, 1))!
+        const first = entries.find((entry) => entry.value.id === nat(1))!
         expect(first.value.podiumId).toBe(seeded[tag].root)
         expect(first.value).not.toHaveProperty('workspaceId')
-        expect((await index.records(ids)).map((record) => record.id).sort()).toEqual([
-          nat(tag, 1),
-          nat(tag, 2),
-        ])
+        expect(titles(await index.records(ids))).toEqual(own)
 
-        const pages: string[] = []
-        for await (const page of index.recordPages(1)) pages.push(...page.map((r) => r.id))
-        expect(pages).toEqual([nat(tag, 1), nat(tag, 2)])
+        const pages: { id: string; title?: string | null }[] = []
+        for await (const page of index.recordPages(1)) pages.push(...page)
+        expect(titles(pages)).toEqual(own)
 
         expect(Object.fromEntries(await index.curatedMetaOf(ids))).toEqual({
-          [nat(tag, 1)]: { name: `shared ${tag} name`, summary: `${tag} summary` },
+          [nat(1)]: { name: `shared ${tag} name`, summary: `${tag} summary` },
         })
 
         // FTS (search on) and LIKE (search off) both stay in the workspace.
         const fts = await index.search({ query: 'shared' })
-        expect(fts.map((row) => row.id).sort()).toEqual([nat(tag, 1), nat(tag, 2)])
+        expect(titles(fts)).toEqual(own)
         expect(
-          (await index.searchCandidates({ query: 'shared', projectPath: project(other) })).map(
-            (row) => row.id,
-          ),
-        ).toEqual([])
+          titles(await index.searchCandidates({ query: 'shared', projectPath: PROJECT })),
+        ).toEqual(own)
 
         const recent = await index.search({})
-        expect(recent.map((row) => row.id)).toEqual([nat(tag, 2), nat(tag, 1)])
+        expect(recent.map((row) => row.id)).toEqual([nat(2), nat(1)])
+        onlyOwn(recent, tag)
         const page = await index.recentPage({
           limit: 10,
           after: { updatedAt: '2099-01-01T00:00:00.000Z', id: 'zzz' },
         })
-        expect(page.map((row) => row.id)).toEqual([nat(tag, 2), nat(tag, 1)])
-        expect(
-          (await index.recentPage({ limit: 10, projectPath: project(tag) })).map((r) => r.id),
-        ).toEqual([nat(tag, 2), nat(tag, 1)])
+        expect(page.map((row) => row.id)).toEqual([nat(2), nat(1)])
+        onlyOwn(page, tag)
+        const inProject = await index.recentPage({ limit: 10, projectPath: PROJECT })
+        expect(inProject.map((r) => r.id)).toEqual([nat(2), nat(1)])
+        onlyOwn(inProject, tag)
       }
 
       // Search off: the LIKE fallback.
       await stores.a.conversations.index.disableFts()
-      expect(
-        (await stores.a.conversations.index.search({ query: 'shared' })).map((row) => row.id),
-      ).toEqual([nat('a', 2), nat('a', 1)])
+      const like = await stores.a.conversations.index.search({ query: 'shared' })
+      expect(like.map((row) => row.id)).toEqual([nat(2), nat(1)])
+      onlyOwn(like, 'a')
     })
 
     it('an upsert, a delete and a meta write in A leave B unchanged', async () => {
       const { index } = stores.a.conversations
+      // Conversations only B holds.
+      await stores.b.conversations.index.upsert(scope, [
+        conversation('b', 5, { id: `${only('b')}-1` }),
+        conversation('b', 6, { id: `${only('b')}-2` }),
+      ])
       const before = await rowsOf(stores.b, 'b')
 
+      // The ids both hold: A's rows only.
       await index.upsert(scope, [conversation('a', 1, { title: 'retitled' }), conversation('a', 4)])
-      await index.setMeta(scope, nat('a', 2), { name: 'a renamed' })
-      // A's delete and meta write aimed at B's ids find nothing of A's to change.
-      expect(await index.delete(scope, machine('b'), [nat('b', 1), nat('b', 2)])).toEqual([])
-      await expect(index.setMeta(scope, nat('b', 1), { name: 'stolen' })).rejects.toThrow(
+      await index.setMeta(scope, nat(2), { name: 'a renamed' })
+      // A's delete and meta write aimed at ids only B holds find nothing of A's to change.
+      expect(await index.delete(scope, MACHINE, [`${only('b')}-1`, `${only('b')}-2`])).toEqual([])
+      await expect(index.setMeta(scope, `${only('b')}-1`, { name: 'stolen' })).rejects.toThrow(
         /has not been reported/,
       )
-      expect(await index.delete(scope, machine('a'), [nat('a', 4)])).toEqual([nat('a', 4)])
+      expect(await index.delete(scope, MACHINE, [nat(4)])).toEqual([nat(4)])
 
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
-      expect((await index.records([nat('a', 1)]))[0]?.title).toBe('retitled')
-      expect((await index.curatedMetaOf([nat('a', 2)])).get(nat('a', 2))).toEqual({
-        name: 'a renamed',
-      })
+      expect((await index.records([nat(1)]))[0]?.title).toBe('retitled')
+      expect((await index.curatedMetaOf([nat(2)])).get(nat(2))).toEqual({ name: 'a renamed' })
+      expect((await stores.b.conversations.index.records([nat(1)]))[0]?.title).toBe(
+        'shared b title 1',
+      )
     })
   })
 
   describe('the conversation registry', () => {
     it('reads identities, segments and paths only from its own workspace', async () => {
+      // A segment only each workspace holds.
+      for (const tag of ['a', 'b'] as const) {
+        await stores[tag].conversations.registry.ensure({
+          machineId: MACHINE,
+          nativeId: only(tag),
+          providerId: 'claude-code',
+          path: `/lake/${tag}/only.jsonl`,
+          sizeBytes: 1,
+        })
+      }
       for (const tag of ['a', 'b'] as const) {
         const { registry } = stores[tag].conversations
         const other = tag === 'a' ? 'b' : 'a'
-        const m = machine(tag)
+        const m = MACHINE
         const { root, child } = seeded[tag]
         const foreign = seeded[other]
 
-        expect(await registry.podiumId(m, nat(tag, 1))).toBe(root)
-        expect(await registry.podiumId(machine(other), nat(other, 1))).toBeUndefined()
-        expect(Object.fromEntries(await registry.podiumIds(m, [nat(tag, 1), nat(tag, 2)]))).toEqual(
-          {
-            [nat(tag, 1)]: root,
-            [nat(tag, 2)]: child,
-          },
-        )
-        expect((await registry.podiumIds(machine(other), [nat(other, 1)])).size).toBe(0)
+        // Podium ids are minted, so the same native id answers each workspace's own.
+        expect(await registry.podiumId(m, nat(1))).toBe(root)
+        expect(await registry.podiumId(m, only(other))).toBeUndefined()
+        expect(Object.fromEntries(await registry.podiumIds(m, [nat(1), nat(2)]))).toEqual({
+          [nat(1)]: root,
+          [nat(2)]: child,
+        })
+        expect((await registry.podiumIds(m, [only(other)])).size).toBe(0)
 
+        // Lake paths are each segment's own content: the other's path is one only it holds.
         expect([
           ...(await registry.segmentsByPaths(m, [lakePath(tag, 1), lakePath(other, 1)])).keys(),
         ]).toEqual([lakePath(tag, 1)])
-        expect((await registry.segmentsByPaths(machine(other), [lakePath(other, 1)])).size).toBe(0)
 
         expect(Object.fromEntries(await registry.parentPodiumIds([child, foreign.child]))).toEqual({
           [child]: root,
@@ -300,28 +356,26 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
         expect(
           Object.fromEntries(await registry.nativeIdsByPodiumIds([root, foreign.root])),
         ).toEqual({
-          [root]: [nat(tag, 1), nat(tag, 3)],
+          [root]: [nat(1), nat(3)],
         })
-        expect(
-          Object.fromEntries(await registry.pathsByNativeIds(m, [nat(tag, 1), nat(tag, 2)])),
-        ).toEqual({
-          [nat(tag, 1)]: lakePath(tag, 1),
-          [nat(tag, 2)]: lakePath(tag, 2),
+        expect(Object.fromEntries(await registry.pathsByNativeIds(m, [nat(1), nat(2)]))).toEqual({
+          [nat(1)]: lakePath(tag, 1),
+          [nat(2)]: lakePath(tag, 2),
         })
-        expect((await registry.pathsByNativeIds(machine(other), [nat(other, 1)])).size).toBe(0)
-        expect(await registry.segmentPath(m, nat(tag, 2))).toBe(lakePath(tag, 2))
-        expect(await registry.segmentPath(machine(other), nat(other, 2))).toBeUndefined()
+        expect((await registry.pathsByNativeIds(m, [only(other)])).size).toBe(0)
+        expect(await registry.segmentPath(m, nat(2))).toBe(lakePath(tag, 2))
+        expect(await registry.segmentPath(m, only(other))).toBeUndefined()
 
         const siblings = [
-          { machineId: m, nativeId: nat(tag, 1) },
-          { machineId: m, nativeId: nat(tag, 3) },
+          { machineId: m, nativeId: nat(1) },
+          { machineId: m, nativeId: nat(3) },
         ]
-        expect(await registry.siblingSegments(m, nat(tag, 3))).toEqual(siblings)
-        expect(await registry.siblingSegments(machine(other), nat(other, 1))).toEqual([])
+        expect(await registry.siblingSegments(m, nat(3))).toEqual(siblings)
+        expect(await registry.siblingSegments(m, only(other))).toEqual([])
         expect(
           await registry.siblingSegmentsMany([
-            { machineId: m, nativeId: nat(tag, 1) },
-            { machineId: machine(other), nativeId: nat(other, 1) },
+            { machineId: m, nativeId: nat(1) },
+            { machineId: m, nativeId: only(other) },
           ]),
         ).toEqual([siblings, []])
       }
@@ -329,38 +383,40 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
 
     it('ensure, ensureMany and linkSegment in A leave B unchanged', async () => {
       const { registry } = stores.a.conversations
-      const m = machine('a')
+      const m = MACHINE
       const before = await rowsOf(stores.b, 'b')
 
       // Existing rows: adopt a parent and refresh a file, one at a time and many at once.
-      const third = await registry.ensure({ machineId: m, nativeId: nat('a', 5), providerId: 'p' })
+      const third = await registry.ensure({ machineId: m, nativeId: nat(5), providerId: 'p' })
       await registry.ensure({
         machineId: m,
-        nativeId: nat('a', 5),
+        nativeId: nat(5),
         providerId: 'p',
         parentPodiumId: seeded.a.root,
         path: '/lake/a/5.jsonl',
         sizeBytes: 5,
       })
+      // Segment 2 is one both hold: A refreshes its own.
       const many = await registry.ensureMany(m, [
-        { nativeId: nat('a', 2), providerId: 'p', path: '/lake/a/2b.jsonl', sizeBytes: 9 },
-        { nativeId: nat('a', 6), providerId: 'p', parentPodiumId: seeded.a.root },
-        { nativeId: nat('a', 5), providerId: 'p', parentPodiumId: seeded.a.child },
+        { nativeId: nat(2), providerId: 'p', path: '/lake/a/2b.jsonl', sizeBytes: 9 },
+        { nativeId: nat(6), providerId: 'p', parentPodiumId: seeded.a.root },
+        { nativeId: nat(5), providerId: 'p', parentPodiumId: seeded.a.child },
       ])
-      expect(many.get(nat('a', 5))).toBe(third)
+      expect(many.get(nat(5))).toBe(third)
       await registry.linkSegment({
         machineId: m,
-        newNativeId: nat('a', 7),
-        priorNativeId: nat('a', 6),
+        newNativeId: nat(7),
+        priorNativeId: nat(6),
         providerId: 'p',
       })
 
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
-      expect(await registry.segmentPath(m, nat('a', 2))).toBe('/lake/a/2b.jsonl')
+      expect(await registry.segmentPath(m, nat(2))).toBe('/lake/a/2b.jsonl')
+      expect(await stores.b.conversations.registry.segmentPath(m, nat(2))).toBe(lakePath('b', 2))
       expect((await registry.parentPodiumIds([third])).get(third)).toBe(seeded.a.root)
-      expect(await registry.siblingSegments(m, nat('a', 7))).toEqual([
-        { machineId: m, nativeId: nat('a', 6) },
-        { machineId: m, nativeId: nat('a', 7) },
+      expect(await registry.siblingSegments(m, nat(7))).toEqual([
+        { machineId: m, nativeId: nat(6) },
+        { machineId: m, nativeId: nat(7) },
       ])
     })
   })
@@ -369,93 +425,97 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
     it('reads cursors, incarnations and the lake conversion pages only from its own workspace', async () => {
       for (const tag of ['a', 'b'] as const) {
         const { mirror } = stores[tag].conversations
-        const other = tag === 'a' ? 'b' : 'a'
-        const m = machine(tag)
+        const m = MACHINE
 
         // No ORDER BY: Postgres may return them in either order.
         expect((await mirror.segmentsToMirror(m)).map((row) => row.nativeId).sort()).toEqual([
-          nat(tag, 1),
-          nat(tag, 2),
+          nat(1),
+          nat(2),
         ])
-        expect(await mirror.segmentsToMirror(machine(other))).toEqual([])
+        onlyOwn(await mirror.segmentsToMirror(m), tag)
         // No ORDER BY: Postgres may return them in either order.
         expect((await mirror.segmentsToMirrorDirty(m)).map((row) => row.nativeId).sort()).toEqual([
-          nat(tag, 1),
-          nat(tag, 2),
+          nat(1),
+          nat(2),
         ])
-        expect(await mirror.segmentsToMirrorDirty(machine(other))).toEqual([])
 
-        expect(await mirror.reportedBytes(m, nat(tag, 2))).toBe(200)
-        expect(await mirror.reportedBytes(machine(other), nat(other, 2))).toBeUndefined()
-        expect(await mirror.mirrorCursor(m, nat(tag, 1))).toBe(40)
-        expect(await mirror.mirrorCursor(machine(other), nat(other, 1))).toBe(0)
+        expect(await mirror.reportedBytes(m, nat(2))).toBe(reported(tag, 2))
+        expect(await mirror.mirrorCursor(m, nat(1))).toBe(mirrored(tag))
 
-        expect(await mirror.activeIncarnation(m, nat(tag, 1))).toEqual({
+        expect(await mirror.activeIncarnation(m, nat(1))).toEqual({
           sequence: 2,
           device: 'd1',
           inode: `${tag}-i2`,
         })
-        expect(await mirror.activeIncarnation(machine(other), nat(other, 1))).toBeUndefined()
-        expect((await mirror.incarnations(m, nat(tag, 1))).map((row) => row.inode)).toEqual([
+        expect((await mirror.incarnations(m, nat(1))).map((row) => row.inode)).toEqual([
           `${tag}-i1`,
           `${tag}-i2`,
         ])
-        expect(await mirror.incarnations(machine(other), nat(other, 1))).toEqual([])
 
-        expect(await mirror.lakeConversionSegments(undefined, 10)).toEqual([
-          { machineId: m, nativeId: nat(tag, 1), mirroredBytes: 40, activeSequence: 2 },
-        ])
+        const segment = {
+          machineId: m,
+          nativeId: nat(1),
+          mirroredBytes: mirrored(tag),
+          activeSequence: 2,
+        }
+        expect(await mirror.lakeConversionSegments(undefined, 10)).toEqual([segment])
         expect(
           await mirror.lakeConversionSegments({ machineId: asMachineId(''), nativeId: '' }, 10),
-        ).toEqual([{ machineId: m, nativeId: nat(tag, 1), mirroredBytes: 40, activeSequence: 2 }])
-        expect(await mirror.lakeConversionArchived(undefined, 10)).toEqual([
-          { machineId: m, nativeId: nat(tag, 1), sequence: 1, mirroredBytes: 60 },
-        ])
+        ).toEqual([segment])
+        const archive = {
+          machineId: m,
+          nativeId: nat(1),
+          sequence: 1,
+          mirroredBytes: archived(tag),
+        }
+        expect(await mirror.lakeConversionArchived(undefined, 10)).toEqual([archive])
         expect(
           await mirror.lakeConversionArchived(
             { machineId: asMachineId(''), nativeId: '', sequence: 0 },
             10,
           ),
-        ).toEqual([{ machineId: m, nativeId: nat(tag, 1), sequence: 1, mirroredBytes: 60 }])
+        ).toEqual([archive])
       }
     })
 
-    it('cursor writes and rotations in A leave B unchanged, even aimed at B’s segments', async () => {
+    it('cursor writes and rotations in A leave B unchanged, aimed at a segment only B holds or at the ones both hold', async () => {
       const { mirror } = stores.a.conversations
+      const m = MACHINE
+      // A segment only B holds, mirrored and rotated as the shared ones are.
+      await seedSegment(stores.b, 'b', only('b'), '/lake/b/only.jsonl')
       const before = await rowsOf(stores.b, 'b')
-      const mb = machine('b')
 
-      await mirror.setReportedBytes(mb, nat('b', 2), 999)
-      expect(await mirror.setMirrorCursor(mb, nat('b', 1), 40, 99, AT)).toBe(false)
+      await mirror.setReportedBytes(m, only('b'), 999)
+      expect(await mirror.setMirrorCursor(m, only('b'), mirrored('b'), 99, AT)).toBe(false)
       expect(
         await mirror.rotateIncarnation(
-          mb,
-          nat('b', 1),
+          m,
+          only('b'),
           { sequence: 2, device: 'd1', inode: 'b-i2' },
           { device: 'd1', inode: 'stolen' },
-          40,
+          mirrored('b'),
           AT,
         ),
       ).toBe(false)
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
 
-      // A's own writes land, and B still holds what it held.
-      const m = machine('a')
-      await mirror.setReportedBytes(m, nat('a', 2), 250)
-      expect(await mirror.setMirrorCursor(m, nat('a', 1), 40, 80, AT)).toBe(true)
-      await mirror.startIncarnation(m, nat('a', 2), { device: 'd2', inode: 'a-j1' }, AT)
+      // A's own writes of the segments both hold land, and B still holds what it held.
+      await mirror.setReportedBytes(m, nat(2), 250)
+      expect(await mirror.setMirrorCursor(m, nat(1), mirrored('a'), 80, AT)).toBe(true)
+      await mirror.startIncarnation(m, nat(2), { device: 'd2', inode: 'a-j1' }, AT)
       expect(
         await mirror.rotateIncarnation(
           m,
-          nat('a', 2),
+          nat(2),
           { sequence: 1, device: 'd2', inode: 'a-j1' },
           { device: 'd2', inode: 'a-j2' },
           10,
           AT,
         ),
       ).toBe(true)
-      expect(await mirror.reportedBytes(m, nat('a', 2))).toBe(250)
+      expect(await mirror.reportedBytes(m, nat(2))).toBe(250)
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await stores.b.conversations.mirror.mirrorCursor(m, nat(1))).toBe(mirrored('b'))
     })
   })
 
@@ -463,68 +523,70 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
     it('reads cursors, rows and search matches only from its own workspace', async () => {
       for (const tag of ['a', 'b'] as const) {
         const { transcriptIndex } = stores[tag].conversations
-        const other = tag === 'a' ? 'b' : 'a'
-        const m = machine(tag)
+        const m = MACHINE
 
         expect(await transcriptIndex.segmentsToIndex(m)).toEqual([
-          { nativeId: nat(tag, 1), mirroredBytes: 40, indexedBytes: 20 },
+          { nativeId: nat(1), mirroredBytes: mirrored(tag), indexedBytes: indexed(tag) },
         ])
-        expect(await transcriptIndex.segmentsToIndex(machine(other))).toEqual([])
-        expect(await transcriptIndex.indexedCursor(m, nat(tag, 1))).toBe(20)
-        expect(await transcriptIndex.indexedCursor(machine(other), nat(other, 1))).toBe(0)
+        expect(await transcriptIndex.indexedCursor(m, nat(1))).toBe(indexed(tag))
 
-        expect((await transcriptIndex.rows(m, nat(tag, 1))).map((row) => row.content)).toEqual([
+        expect((await transcriptIndex.rows(m, nat(1))).map((row) => row.content)).toEqual([
           `needle shared ${tag} one`,
           'needle two',
         ])
-        expect(await transcriptIndex.rows(machine(other), nat(other, 1))).toEqual([])
 
-        // Both workspaces hold "needle two": a match is only ever this workspace's row.
+        // Both workspaces hold "needle two" in the same segment: a match is only ever this
+        // workspace's row.
         const matches = await transcriptIndex.searchCandidates('needle')
         expect(matches).toHaveLength(2)
         for (const match of matches) {
           expect(match.machineId).toBe(m)
-          expect(match.nativeId).toBe(nat(tag, 1))
+          expect(match.nativeId).toBe(nat(1))
           expect(match.podiumId).toBe(seeded[tag].root)
           expect(match.title).toBe(`shared ${tag} name`)
         }
       }
     })
 
-    it('an append, a drop and a reset in A leave B unchanged, even aimed at B’s segments', async () => {
+    it('an append, a drop and a reset in A leave B unchanged, aimed at a segment only B holds or at the ones both hold', async () => {
       const { transcriptIndex } = stores.a.conversations
+      const m = MACHINE
+      // A segment only B holds, with its transcript rows.
+      await seedSegment(stores.b, 'b', only('b'), '/lake/b/only.jsonl')
       const before = await rowsOf(stores.b, 'b')
       const bFts = await ftsRowsOf(stores.b, 'b')
-      const mb = machine('b')
 
-      await transcriptIndex.drop(mb, nat('b', 1))
+      await transcriptIndex.drop(m, only('b'))
       expect(
-        await transcriptIndex.resetMissingLake(mb, nat('b', 1), {
-          mirroredBytes: 40,
-          indexedBytes: 20,
+        await transcriptIndex.resetMissingLake(m, only('b'), {
+          mirroredBytes: mirrored('b'),
+          indexedBytes: indexed('b'),
         }),
       ).toBe(false)
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
       expect(await ftsRowsOf(stores.b, 'b')).toEqual(bFts)
 
-      const m = machine('a')
-      await transcriptIndex.append(m, nat('a', 2), [{ content: 'needle three' }], 5)
-      await transcriptIndex.drop(m, nat('a', 1))
-      expect(await transcriptIndex.rows(m, nat('a', 1))).toEqual([])
+      // The segments both hold: A's rows only.
+      await transcriptIndex.append(m, nat(2), [{ content: 'needle three' }], 5)
+      await transcriptIndex.drop(m, nat(1))
+      expect(await transcriptIndex.rows(m, nat(1))).toEqual([])
       expect(
-        await transcriptIndex.resetMissingLake(m, nat('a', 2), {
+        await transcriptIndex.resetMissingLake(m, nat(2), {
           mirroredBytes: 0,
           indexedBytes: 5,
         }),
       ).toBe(true)
-      expect(await transcriptIndex.rows(m, nat('a', 2))).toEqual([])
+      expect(await transcriptIndex.rows(m, nat(2))).toEqual([])
       expect(await stores.a.conversations.transcriptIndex.searchCandidates('needle')).toEqual([])
 
       expect(await rowsOf(stores.b, 'b')).toEqual(before)
       expect(await ftsRowsOf(stores.b, 'b')).toEqual(bFts)
       expect(await stores.b.conversations.transcriptIndex.searchCandidates('needle')).toHaveLength(
-        2,
+        4,
       )
+      expect(
+        (await stores.b.conversations.transcriptIndex.rows(m, nat(1))).map((row) => row.content),
+      ).toEqual(['needle shared b one', 'needle two'])
     })
   })
 
@@ -558,10 +620,15 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
       })
 
       it('is made again with it when the index opens, and each workspace keys its own segments’ rows', async () => {
+        // A key row from before the column names only (machine, native id): a segment both
+        // workspaces hold could be either's. So B's rows here are of a segment only B holds.
+        await stores.b.conversations.transcriptIndex.drop(MACHINE, nat(1))
+        await seedSegment(stores.b, 'b', only('b'), '/lake/b/only.jsonl')
+        const segmentOf = (tag: Tag) => (tag === 'a' ? nat(1) : only('b'))
         await oldKeyTable(stores.a)
         expect(await workspaceColumn(stores.a)).toEqual([])
         const contents = async (tag: Tag) =>
-          (await stores[tag].conversations.transcriptIndex.rows(machine(tag), nat(tag, 1))).map(
+          (await stores[tag].conversations.transcriptIndex.rows(MACHINE, segmentOf(tag))).map(
             (row) => row.content,
           )
 
@@ -635,7 +702,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
 })
 
 /**
- * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * THE SAME ID UPSERTED FIRST IN THE OTHER WORKSPACE (POD-7024): every ON CONFLICT target leads with workspace_id,
  * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
  * as it was, and A's second upsert of the id updates A's row only.
  */
