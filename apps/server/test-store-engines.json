@@ -328,8 +328,6 @@
     "apps/server/src/store/operation-loaders.test.ts",
     "apps/server/src/store/prepared-lookups.test.ts",
     "apps/server/src/store/prepared-loop-scaling.test.ts",
-    "apps/server/src/store/quota-history.test.ts",
-    "apps/server/src/store/read-watermarks.test.ts",
     "apps/server/src/store/repos-read-cost.test.ts",
     "apps/server/src/store/repos-registry-golden.test.ts",
     "apps/server/src/store/runtime-event-driver-ordering.test.ts",

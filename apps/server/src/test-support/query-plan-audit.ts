@@ -114,6 +114,8 @@ export function definitionFrame(
     if (!match) continue
     const file = relative(repoRoot, match[1]!).split('\\').join('/')
     if (file.endsWith('adapters/sqlite/prepared.ts')) continue
+    // A two-form definition registers through `prepared` from here [POD-6995].
+    if (file.endsWith('store/executor/dialect-prepared.ts')) continue
     return { file, line: Number(match[2]), column: Number(match[3]) }
   }
   return undefined

@@ -974,6 +974,12 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the memoising wrapper a store definition is (prepared.ts, typed for the store); it adds no I/O of its own, and the builder is judged at its declaration',
   },
+  // POD-6995 (two-engine slice): a two-form definition's statement, typed with its
+  // declared values.
+  'apps/server/src/store/executor/dialect-prepared.ts#DialectStatement.<anonymous>': {
+    kind: 'contained',
+    why: "a two-form definition's run method (get, all, run, values, execute): the statement of the form the store's engine built, one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
+  },
   'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
     kind: 'opaque',
     why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',

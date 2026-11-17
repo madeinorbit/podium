@@ -34,6 +34,7 @@ import {
 } from '@podium/model'
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import type { quotaWindows } from '../migrations/schema'
+import { dialectPrepared } from './executor/dialect-prepared'
 import type {
   StoreDrizzle,
   StoreQueries,
@@ -171,27 +172,55 @@ const windowPlaceholders = {
 // `excluded`, which the builder has no expression for. The conflict target
 // is the composite primary key, unchanged, and this statement was already an
 // `ON CONFLICT` rather than an `OR REPLACE`.
-const insertWindow = prepared((db, t) =>
-  db
-    .insert(t.quotaWindows)
-    .values({
-      accountKey: sql.placeholder('accountKey'),
-      agent: sql.placeholder('agent'),
-      windowKey: sql.placeholder('windowKey'),
-      resetsAtBucket: sql.placeholder('bucket'),
-      ownerUserId: sql.placeholder('owner'),
-      ...windowPlaceholders,
-    })
-    .onConflictDoUpdate({
-      target: [t.quotaWindows.accountKey, t.quotaWindows.windowKey, t.quotaWindows.resetsAtBucket],
-      set: {
-        peakPercent: sql`MAX(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
-        lastSeenMs: sql`MAX(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
-        sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
-      },
-    })
-    .prepare(),
-)
+//
+// TWO FORMS [POD-6995, POD-6958 design 2.1 step 4]: SQLite's scalar `MAX(a, b)`
+// takes two arguments; Postgres's `max` is an aggregate only, and its scalar
+// maximum is `GREATEST(a, b)`. Everything else is the same source. Neither
+// column is nullable, so the two agree on every value (they differ only on NULL:
+// SQLite's `MAX` yields NULL, Postgres's `GREATEST` ignores it).
+const insertWindowPlaceholders = {
+  accountKey: sql.placeholder('accountKey'),
+  agent: sql.placeholder('agent'),
+  windowKey: sql.placeholder('windowKey'),
+  resetsAtBucket: sql.placeholder('bucket'),
+  ownerUserId: sql.placeholder('owner'),
+  ...windowPlaceholders,
+}
+
+const insertWindowTarget = (t: StoreTables) => [
+  t.quotaWindows.accountKey,
+  t.quotaWindows.windowKey,
+  t.quotaWindows.resetsAtBucket,
+]
+
+const insertWindow = dialectPrepared<InsertWindowValues, void>()({
+  sqlite: (db, t) =>
+    db
+      .insert(t.quotaWindows)
+      .values(insertWindowPlaceholders)
+      .onConflictDoUpdate({
+        target: insertWindowTarget(t),
+        set: {
+          peakPercent: sql`MAX(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
+          lastSeenMs: sql`MAX(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+          sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
+        },
+      })
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .insert(t.quotaWindows)
+      .values(insertWindowPlaceholders)
+      .onConflictDoUpdate({
+        target: insertWindowTarget(t),
+        set: {
+          peakPercent: sql`GREATEST(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
+          lastSeenMs: sql`GREATEST(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+          sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
+        },
+      })
+      .prepare(),
+})
 
 const updateWindow = prepared((db, t) =>
   db.update(t.quotaWindows).set(windowPlaceholders).where(bucketIs(t)).prepare(),
@@ -250,7 +279,34 @@ const windowCount = prepared((db, t) =>
 )
 
 /** The rewritable columns of one window instance, as placeholder values. */
-function windowValues(instance: QuotaWindowInstance) {
+interface WindowValues {
+  readonly label: string
+  readonly scopeModel: string | null
+  readonly plan: string | null
+  readonly resetsAtMs: number
+  readonly startedAtMs: number | null
+  readonly windowMinutes: number
+  readonly firstSeenMs: number
+  readonly lastSeenMs: number
+  readonly firstPercent: number
+  readonly peakPercent: number
+  readonly lastPercent: number
+  readonly sampleCount: number
+  readonly partial: boolean
+  readonly source: QuotaWindowInstance['source']
+  readonly trailJson: string
+}
+
+/** The values {@link insertWindow} runs with: a window's key, bucket and owner, and its columns. */
+interface InsertWindowValues extends WindowValues {
+  readonly accountKey: string
+  readonly agent: string
+  readonly windowKey: string
+  readonly bucket: number
+  readonly owner: UserId | null
+}
+
+function windowValues(instance: QuotaWindowInstance): WindowValues {
   return {
     label: instance.label,
     scopeModel: instance.scopeModel ?? null,

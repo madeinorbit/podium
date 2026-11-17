@@ -34,11 +34,11 @@
  */
 
 import { asSessionId, type SessionId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { and, count, eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { stageASeam } from '../test-support/stage-a-seam'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
+import { storeTables } from './executor/sync-drizzle'
 import { ReadWatermarksRepository } from './read-watermarks'
 
 const ALPHA: SessionId = asSessionId('sess_alpha')
@@ -49,28 +49,44 @@ const OTHER_READER: ReaderRef = asSessionId('sess_other')
 const T1 = '2026-09-04T09:00:00.000Z'
 const T2 = '2026-09-04T10:30:00.000Z'
 
-let db: SqlDatabase
+let slice: SliceStore
 let watermarks: ReadWatermarksRepository
 
-/** Read the stored row directly: `updated_at` has no repository reader. */
-function storedRow(
+/**
+ * Read the stored row directly: `updated_at` has no repository reader. Through the
+ * builder on the store's own tables, so on Postgres the value comes back through the
+ * driver's `timestamptz` handler and must equal SQLite's text byte for byte
+ * [POD-6995]. Prepared, because only a prepared query has SQLite's `get` on both
+ * engines (`pg-drizzle.ts`).
+ */
+async function storedRow(
   reader: ReaderRef,
   sessionId: SessionId,
-): { watermark: string; updated_at: string } | undefined {
-  return db
-    .prepare(
-      'SELECT watermark, updated_at FROM recap_watermarks WHERE reader = ? AND session_id = ?',
-    )
-    .get(reader, sessionId) as { watermark: string; updated_at: string } | undefined
+): Promise<{ watermark: string; updated_at: string } | undefined> {
+  const db = slice.queries.rootDb
+  const t = storeTables(db)
+  return await db
+    .select({ watermark: t.recapWatermarks.watermark, updated_at: t.recapWatermarks.updatedAt })
+    .from(t.recapWatermarks)
+    .where(and(eq(t.recapWatermarks.reader, reader), eq(t.recapWatermarks.sessionId, sessionId)))
+    .prepare()
+    .get()
 }
 
-function rowCount(): number {
-  return (db.prepare('SELECT COUNT(*) AS n FROM recap_watermarks').get() as { n: number }).n
+async function rowCount(): Promise<number> {
+  const db = slice.queries.rootDb
+  const t = storeTables(db)
+  const row = await db.select({ n: count() }).from(t.recapWatermarks).prepare().get()
+  return row?.n ?? 0
 }
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  watermarks = new ReadWatermarksRepository(stageASeam(db))
+beforeEach(async () => {
+  slice = await openSliceStore()
+  watermarks = new ReadWatermarksRepository(slice.queries)
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('ReadWatermarksRepository', () => {
@@ -123,11 +139,11 @@ describe('ReadWatermarksRepository', () => {
     await watermarks.setRecapWatermark(READER, ALPHA, 'evt_450', T2)
 
     // One row, not two: the conflict target is the (reader, session_id) pair.
-    expect(rowCount()).toBe(1)
+    expect(await rowCount()).toBe(1)
     expect(await watermarks.getRecapWatermark(READER, ALPHA)).toBe('evt_450')
     // `updated_at` is in the `DO UPDATE SET` list and has no repository reader,
     // so a conversion that dropped it would pass every assertion above.
-    expect(storedRow(READER, ALPHA)).toEqual({ watermark: 'evt_450', updated_at: T2 })
+    expect(await storedRow(READER, ALPHA)).toEqual({ watermark: 'evt_450', updated_at: T2 })
   })
 
   it('a second write moves only its own pair', async () => {
@@ -136,8 +152,8 @@ describe('ReadWatermarksRepository', () => {
 
     await watermarks.setRecapWatermark(READER, ALPHA, 'evt_450', T2)
 
-    expect(rowCount()).toBe(2)
-    expect(storedRow(OTHER_READER, ALPHA)).toEqual({ watermark: 'evt_7', updated_at: T1 })
+    expect(await rowCount()).toBe(2)
+    expect(await storedRow(OTHER_READER, ALPHA)).toEqual({ watermark: 'evt_7', updated_at: T1 })
   })
 
   it('a watermark may move backwards — the repository stores, it does not decide', async () => {

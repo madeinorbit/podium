@@ -47,6 +47,27 @@ const RAW_TERMINALS = new Set(['all', 'get', 'run', 'values'])
  */
 const DEFINERS = new Set(['prepared', 'preparedFamily', 'preparedGlobal', 'preparedAcross'])
 
+/**
+ * A two-form definition, `dialectPrepared<Values, Row>()({ sqlite, pg })` [POD-6995]:
+ * the definition is the second call, and its build callbacks are the properties of
+ * the object it takes.
+ */
+const TWO_FORM_DEFINER = 'dialectPrepared'
+
+/** The definer a call is, or undefined: `prepared(…)`, or the second call of `dialectPrepared<…>()(…)`. */
+function definerOf(call: ts.CallExpression): string | undefined {
+  const callee = call.expression
+  if (ts.isIdentifier(callee)) return DEFINERS.has(callee.text) ? callee.text : undefined
+  if (
+    ts.isCallExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === TWO_FORM_DEFINER
+  ) {
+    return TWO_FORM_DEFINER
+  }
+  return undefined
+}
+
 function isDrizzleHandle(expression: ts.Expression): boolean {
   if (ts.isIdentifier(expression)) {
     return expression.text === 'db' || expression.text === 'tx' || expression.text === 'rootDb'
@@ -57,10 +78,23 @@ function isDrizzleHandle(expression: ts.Expression): boolean {
   return false
 }
 
-/** Inside the build callback of `prepared(...)` / `preparedFamily(...)`? */
+/** Inside the build callback of `prepared(...)` / `preparedFamily(...)`, or a form of `dialectPrepared`? */
 function insideDefinition(node: ts.Node): boolean {
   for (let current = node.parent; current; current = current.parent) {
     if (!ts.isArrowFunction(current) && !ts.isFunctionExpression(current)) continue
+    // A form of a two-form definition: `{ sqlite: (db, t) => …, pg: … }`, its one argument.
+    const form = current.parent
+    if (
+      form &&
+      ts.isPropertyAssignment(form) &&
+      form.initializer === current &&
+      ts.isObjectLiteralExpression(form.parent) &&
+      ts.isCallExpression(form.parent.parent) &&
+      form.parent.parent.arguments[0] === form.parent &&
+      definerOf(form.parent.parent) === TWO_FORM_DEFINER
+    ) {
+      return true
+    }
     const call = current.parent
     if (!call || !ts.isCallExpression(call)) continue
     // The build callback: the first argument, or the second of `preparedAcross(entry, build)`.
@@ -198,8 +232,8 @@ export function censusScope(paths: readonly string[]): string[] {
 }
 
 /**
- * One `prepared(...)`, `preparedFamily(...)`, `preparedGlobal(...)` or
- * `preparedAcross(...)` call in the source [POD-6148].
+ * One `prepared(...)`, `preparedFamily(...)`, `preparedGlobal(...)`,
+ * `preparedAcross(...)` or `dialectPrepared<…>()(...)` call in the source [POD-6148].
  */
 export interface QueryDefinitionSite {
   readonly file: string
@@ -257,8 +291,7 @@ function atModuleLevel(node: ts.Node): boolean {
 }
 
 function isDefinerCall(node: ts.CallExpression): boolean {
-  const callee = node.expression
-  return ts.isIdentifier(callee) && DEFINERS.has(callee.text)
+  return definerOf(node) !== undefined
 }
 
 /** Every query definition in one source file, in source order. */
@@ -267,11 +300,10 @@ export function queryDefinitionSites(file: string, source: string): QueryDefinit
   const found: QueryDefinitionSite[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && isDefinerCall(node)) {
-      const callee = node.expression as ts.Identifier
       found.push({
         file,
         name: definitionName(node),
-        kind: callee.text === 'preparedFamily' ? 'family' : 'prepared',
+        kind: definerOf(node) === 'preparedFamily' ? 'family' : 'prepared',
         startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
         endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
         moduleLevel: atModuleLevel(node),
