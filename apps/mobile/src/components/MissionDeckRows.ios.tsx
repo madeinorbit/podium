@@ -180,10 +180,9 @@ export const DeckTaskRow = observer(function DeckTaskRow({
       spacing={0}
       modifiers={[
         frame({ maxWidth: Infinity, alignment: 'leading' }),
-        // The disclosure's 44pt target ends 2pt from the card edge, so its
-        // chevron lines up with the phase headings' (24pt in).
-        rowInsets(foldable ? 2 : 12),
-        separatorAt(step, first, foldable ? 2 : 12),
+        // The 44pt disclosure target includes its own 12pt trailing glyph inset.
+        rowInsets(foldable ? 0 : 12),
+        separatorAt(step, first, foldable ? 0 : 12),
       ]}
     >
       {menu ? (
@@ -217,7 +216,11 @@ export const DeckTaskRow = observer(function DeckTaskRow({
             systemName={open ? 'chevron.down' : 'chevron.right'}
             size={13}
             color={color.textFaint}
-            modifiers={[frame({ width: 44, height: 44 }), contentShape(shapes.rectangle())]}
+            modifiers={[
+              padding({ trailing: 12 }),
+              frame({ width: 44, height: 44, alignment: 'trailing' }),
+              contentShape(shapes.rectangle()),
+            ]}
           />
         </Button>
       ) : null}
