@@ -310,7 +310,10 @@ describe('a ChatGPT plan signed in to Podium (epic Task 15, acceptance 2)', () =
   const PLAN_TOKEN = 'tok-FAKE-plan-launch-access-0015'
 
   async function planCredential(store: SessionStore): Promise<CredentialId> {
-    return await credential(store, { type: 'openai.chatgpt-plan', secret: planTokenSet(PLAN_TOKEN) })
+    return await credential(store, {
+      type: 'openai.chatgpt-plan',
+      secret: planTokenSet(PLAN_TOKEN),
+    })
   }
 
   it('a launch naming the plan and no driver runs on the Codex server driver, with the token', async () => {

@@ -21,7 +21,6 @@
 import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -68,7 +67,9 @@ function realCodex(): string | undefined {
       const version = execFileSync(candidate, ['--version'], { encoding: 'utf8', timeout: 20_000 })
       const match = /(\d+)\.(\d+)\.(\d+)/.exec(version)
       if (match && (Number(match[1]) > 0 || Number(match[2]) >= 169)) {
-        return candidate.includes('/') ? candidate : execFileSync('which', [candidate], { encoding: 'utf8' }).trim()
+        return candidate.includes('/')
+          ? candidate
+          : execFileSync('which', [candidate], { encoding: 'utf8' }).trim()
       }
     } catch {
       // Not this one.
@@ -211,9 +212,7 @@ class FakeProvider {
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     res.write(sse('response.created', { response: { id: responseId } }))
     res.write(sse('response.output_item.done', { output_index: 0, item }))
-    res.end(
-      sse('response.completed', { response: { id: responseId, status: 'completed', usage } }),
-    )
+    res.end(sse('response.completed', { response: { id: responseId, status: 'completed', usage } }))
     if (answered === 'tool-call' && tool) {
       // The token runs out while Codex works on the tool's result.
       this.now += tool.advanceMs
@@ -232,7 +231,12 @@ let wrapper = ''
 let argvLog = ''
 const provider = new FakeProvider()
 const savedEnv: Record<string, string | undefined> = {}
-const ENV_KEYS = ['HOME', 'PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_INSTANCE', 'XDG_RUNTIME_DIR']
+const ENV_KEYS = [
+  'PODIUM_STATE_DIR',
+  'PODIUM_HOST_SOCKET_DIR',
+  'PODIUM_INSTANCE',
+  'XDG_RUNTIME_DIR',
+]
 const shortDirs: string[] = []
 
 function shortDir(tag: string): string {
@@ -272,8 +276,9 @@ exec ${JSON.stringify(CODEX)} "\${args[@]}"
   )
   chmodSync(wrapper, 0o755)
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
-  // A home with no Codex login: nothing but an empty directory.
-  process.env.HOME = home
+  // A home with no Codex login, nothing but an empty directory: the engine's
+  // HOME (and Codex's home under it) come from the session's harness context.
+  // The test process keeps its own HOME, where podium-host's build lives.
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.PODIUM_HOST_SOCKET_DIR = shortDir('p6902-hs-')
   process.env.PODIUM_INSTANCE = 'plan6902'
@@ -435,9 +440,13 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
     const first = 'tok-FAKE-plan-first-0015'
     const second = 'tok-FAKE-plan-second-0015'
     try {
-      expect(existsSync(join(home, '.codex', 'auth.json'))).toBe(false)
+      expect(filesUnder(home).filter((path) => path.endsWith('auth.json'))).toEqual([])
       let live = await r.start(session, provider.issue(first, 60 * MIN))
-      expect(await live.turn('Remember this code word for later: HELIOTROPE-47. Reply with just "noted".')).toBe('completed')
+      expect(
+        await live.turn(
+          'Remember this code word for later: HELIOTROPE-47. Reply with just "noted".',
+        ),
+      ).toBe('completed')
 
       // Acceptance 1, on the real start: the provider flags are in argv, the token is not.
       const argv = readFileSync(argvLog, 'utf8')
@@ -449,7 +458,9 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
       provider.now += 35 * MIN
       live = await replaceToken(r, live, session, provider.issue(second, 60 * MIN))
       expect(
-        await live.turn('What was the code word I asked you to remember earlier in this conversation? Reply with just the word.'),
+        await live.turn(
+          'What was the code word I asked you to remember earlier in this conversation? Reply with just the word.',
+        ),
       ).toBe('completed')
 
       const answered = provider.calls.filter((c) => c.answered !== '401')
@@ -460,8 +471,8 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
       expect(provider.calls.filter((c) => c.expired)).toEqual([])
 
       // Acceptance 5: no login file, and no token anywhere in the home.
-      expect(existsSync(join(home, '.codex', 'auth.json'))).toBe(false)
       const files = filesUnder(home)
+      expect(files.filter((path) => path.endsWith('auth.json'))).toEqual([])
       expect(files.length).toBeGreaterThan(0)
       const holding = files.filter((path) => {
         const text = readFileSync(path, 'latin1')
@@ -480,7 +491,9 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
     const fresh = 'tok-FAKE-plan-fresh-0015'
     try {
       let live = await r.start(session, provider.issue(short, 30 * MIN))
-      expect(await live.turn('Remember this code word for later: CINNABAR-12. Reply with just "noted".')).toBe('completed')
+      expect(
+        await live.turn('Remember this code word for later: CINNABAR-12. Reply with just "noted".'),
+      ).toBe('completed')
       const threadId = live.handle.binding.resume?.value
       // The next turn makes a tool call; the token runs out while Codex works on it.
       provider.nextToolCall = { advanceMs: 31 * MIN }
@@ -496,7 +509,9 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
       live = await replaceToken(r, live, session, provider.issue(fresh, 60 * MIN))
       expect(live.handle.binding.resume?.value).toBe(threadId)
       expect(
-        await live.turn('What was the code word I asked you to remember earlier in this conversation? Reply with just the word.'),
+        await live.turn(
+          'What was the code word I asked you to remember earlier in this conversation? Reply with just the word.',
+        ),
       ).toBe('completed')
       const last = provider.calls.at(-1)
       expect(last?.token).toBe(fresh)
@@ -516,8 +531,12 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
       const firstToken = provider.issue(before, 60 * MIN)
       let a = await r.start(one, firstToken)
       let b = await r.start(two, firstToken)
-      expect(await a.turn('Remember this code word for later: VERDIGRIS-1. Reply with just "noted".')).toBe('completed')
-      expect(await b.turn('Remember this code word for later: VERDIGRIS-2. Reply with just "noted".')).toBe('completed')
+      expect(
+        await a.turn('Remember this code word for later: VERDIGRIS-1. Reply with just "noted".'),
+      ).toBe('completed')
+      expect(
+        await b.turn('Remember this code word for later: VERDIGRIS-2. Reply with just "noted".'),
+      ).toBe('completed')
       provider.now += 35 * MIN
       const renewed = provider.issue(after, 60 * MIN)
       a = await replaceToken(r, a, one, renewed)
