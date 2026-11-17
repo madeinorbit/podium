@@ -1,22 +1,34 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
+import { StyleSheet, type TextProps } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 
-const metrics = vi.hoisted(() => ({ scale: 1, listeners: new Set<() => void>() }))
-vi.mock('react-native', async (original) => ({
-  ...(await original<object>()),
-  useWindowDimensions: () => {
-    const fontScale = useSyncExternalStore(
-      (listener) => {
-        metrics.listeners.add(listener)
-        return () => metrics.listeners.delete(listener)
-      },
-      () => metrics.scale,
-    )
-    return { width: 320, height: 568, fontScale, scale: 2 }
-  },
+const metrics = vi.hoisted(() => ({
+  scale: 1,
+  listeners: new Set<() => void>(),
+  hint: null as TextProps | null,
 }))
+vi.mock('react-native', async (original) => {
+  const actual = await original<typeof import('react-native')>()
+  return {
+    ...actual,
+    Text: (props: TextProps) => {
+      if (props.children === 'Instructions for the agent') metrics.hint = props
+      return <actual.Text {...props} />
+    },
+    useWindowDimensions: () => {
+      const fontScale = useSyncExternalStore(
+        (listener) => {
+          metrics.listeners.add(listener)
+          return () => metrics.listeners.delete(listener)
+        },
+        () => metrics.scale,
+      )
+      return { width: 320, height: 568, fontScale, scale: 2 }
+    },
+  }
+})
 vi.mock('../RefChip', () => ({ RefChip: () => null }))
 vi.mock('../../lib/podium-link', () => ({ followPodiumLink: vi.fn() }))
 vi.mock('../../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
@@ -30,6 +42,33 @@ afterEach(() => {
   cleanup()
   metrics.scale = 1
   metrics.listeners.clear()
+  metrics.hint = null
+})
+
+it('wraps the Brief subtitle by words within its label width through AX5 without limiting row height', () => {
+  render(
+    <ReferenceGroup>
+      <IssueBrief issue={{ brief: 'Keep this brief expanded.' } as IssueViewModel} />
+    </ReferenceGroup>,
+  )
+  const row = screen.getByRole('button', { name: 'Brief' })
+  fireEvent.click(row)
+  for (const scale of [1, 3.12, 1]) {
+    resize(scale)
+    const hint = metrics.hint as TextProps
+    expect(hint.lineBreakStrategyIOS).toBe('standard')
+    expect(hint.numberOfLines ?? 0).toBe(0)
+    expect(hint.adjustsFontSizeToFit ?? false).toBe(false)
+    const style = StyleSheet.flatten(hint.style)
+    expect(style?.alignSelf).toBe('stretch')
+    for (const property of ['height', 'maxHeight', 'lineHeight'] as const)
+      expect(style?.[property]).toBeUndefined()
+    expect(row.style.height).toBe('')
+    expect(row.style.maxHeight).toBe('')
+    expect(screen.getByRole('button', { name: 'Brief' })).toBe(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Keep this brief expanded.')).toBeTruthy()
+  }
 })
 function resize(scale: number) {
   act(() => {

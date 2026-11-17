@@ -179,7 +179,11 @@ export function Disclosure({
       >
         <View style={styles.discLabel}>
           <Text style={styles.discTitle}>{label}</Text>
-          {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+          {hint ? (
+            <Text lineBreakStrategyIOS="standard" style={styles.hint}>
+              {hint}
+            </Text>
+          ) : null}
         </View>
         {count ? <Text style={styles.count}>{count}</Text> : null}
         <Animated.View
@@ -370,6 +374,7 @@ const styles = StyleSheet.create({
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
+    alignSelf: 'stretch',
   },
   // On the card axis: 12pt in, the chevron in a 14pt gutter, the name after it.
   heading: {
