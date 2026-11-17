@@ -28,8 +28,9 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { DaemonLink } from '../../gateway/daemon-link-kind'
+import { type DaemonLink, daemonLinkFactsOf } from '../../gateway/daemon-link-kind'
 import { SessionRegistry } from '../../relay'
+import { resolveTrustedProxyHops } from '../../server'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -758,6 +759,39 @@ describe('delivery to the daemon (Task 5)', () => {
     await expect(launch).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['connection-not-encrypted'])
     expect(spawns(daemon)).toEqual([])
     expect(open).not.toHaveBeenCalled()
+  })
+
+  /**
+   * POD-7041: a proxy on the server's computer serving plain http to the
+   * network forwards a remote daemon's `/daemon` with no X-Forwarded-* header.
+   * The server is bound to loopback, so it trusts one proxy hop by default.
+   * The link is judged from that upgrade request, as the socket accept does.
+   */
+  it('a same-computer proxy that forwards no X-Forwarded-* header: connection-not-encrypted, nothing sent', async () => {
+    const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
+    expect(hops).toBe(1)
+    const viaProxy = (url: string) => daemonLinkFactsOf(new Request(url), '127.0.0.1', hops)
+
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    await setDefault(store, 'claude-code', id)
+    const { reg, daemon } = await makeRegistry(store, {
+      link: viaProxy('http://podium.example/daemon'),
+    })
+    const open = vi.spyOn(store.vault, 'open')
+    const launch = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    await expect(launch).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['connection-not-encrypted'])
+    expect(spawns(daemon)).toEqual([])
+    expect(open).not.toHaveBeenCalled()
+    expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
+
+    // The control: the server's own daemon dialing loopback directly receives it.
+    const direct = await openTestStore(':memory:')
+    const directId = await credential(direct, { type: 'anthropic.api-key', secret: FAKE_A })
+    await setDefault(direct, 'claude-code', directId)
+    const local = await makeRegistry(direct, { link: viaProxy('http://127.0.0.1:18787/daemon') })
+    await local.reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    expect(delivered(spawns(local.daemon)[0])).toEqual({ ANTHROPIC_API_KEY: FAKE_A })
   })
 
   it('no credential: unchanged on an older daemon and on a plain connection (acceptance 3)', async () => {

@@ -109,6 +109,17 @@ backend access to that proxy. Use the actual hop count for a longer trusted chai
 Restart Podium after changing these process settings. Setting the public address
 alone does not make HTTP secure or enable trust in forwarding headers.
 
+The same applies to the `/daemon` WebSocket when the proxy carries it: the proxy must
+forward `X-Forwarded-Proto` and `X-Forwarded-For` for it too. A proxy that strips
+them fails closed: a daemon that reaches Podium through it is treated as an
+unencrypted connection from another computer, and it receives no credentials. Podium
+recognises a daemon on its own computer by the loopback peer address and by the
+request's `Host`, which must be `localhost` or a loopback address. A proxy that
+rewrites `Host` to its loopback upstream (for example nginx's plain
+`proxy_pass http://127.0.0.1:18787` without `proxy_set_header Host $host`) and also
+strips the forwarding headers is not supported: the server cannot tell its traffic
+from its own daemon's. Keep the original `Host`, or forward the headers above.
+
 For direct TLS, configure both `PODIUM_TLS_KEY_FILE` and `PODIUM_TLS_CERT_FILE` in the
 server process environment, then restart. The certificate must be trusted on every
 client. Advertise the reachable HTTPS address with `PODIUM_PUBLIC_URL` when deployment

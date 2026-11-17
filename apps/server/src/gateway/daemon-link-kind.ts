@@ -12,7 +12,11 @@
  *
  *  - `encrypted`: the request reached the server over TLS, directly or through
  *    a trusted proxy that saw https (`isSecureRequest`, as for sign-in).
- *  - `local`: the peer is this computer and no proxy was involved.
+ *  - `local`: the peer is this computer and no proxy was involved. When the
+ *    server trusts a proxy hop, the request must also have been addressed to a
+ *    loopback name, as for sign-in (`isHostLocalRequest`): a proxy on this
+ *    computer that strips the forwarding headers connects from loopback too,
+ *    but it keeps the public Host it was reached on.
  *  - `trusted`: the client address is inside `daemonLink.trustedNetworks`, a
  *    private encrypted network such as a VPN.
  *  - `plain`: anything else. Credentials are never sent over it.
@@ -23,7 +27,7 @@
 
 import { cidrContains, type MachineId } from '@podium/model'
 import { isSecureRequest } from '../auth-route'
-import { isLoopbackAddress, PROXY_ONLY_HEADERS } from '../readiness-boundary'
+import { isLoopbackAddress, isLoopbackHost, PROXY_ONLY_HEADERS } from '../readiness-boundary'
 import { clientAddressForRequest } from '../request-scheme'
 
 export type DaemonLinkKind = 'encrypted' | 'local' | 'trusted' | 'plain'
@@ -55,10 +59,15 @@ export function classifyDaemonLink(
   if (isSecureRequest(i.url, i.forwardedProto, i.trustedProxyHops)) return 'encrypted'
   // Never left the computer: a loopback peer that no proxy spoke for. With a
   // trusted proxy hop the client is read from its header, so a direct
-  // same-computer daemon (no header) is known only by its socket's peer.
+  // same-computer daemon (no header) is known only by its socket's peer. That
+  // peer is also what a same-computer proxy that forwards no X-Forwarded-*
+  // header looks like (POD-7041), so with a trusted hop the request must also
+  // name this computer: such a proxy passes on the public Host it was reached
+  // on. One that rewrites Host to its loopback upstream is not supported.
   if (
     !i.hasProxyHeaders &&
-    (isLoopbackAddress(i.clientAddress) || isLoopbackAddress(i.peerAddress))
+    (isLoopbackAddress(i.clientAddress) || isLoopbackAddress(i.peerAddress)) &&
+    (i.trustedProxyHops === 0 || isLoopbackUrl(i.url))
   ) {
     return 'local'
   }
@@ -67,6 +76,15 @@ export function classifyDaemonLink(
     return 'trusted'
   }
   return 'plain'
+}
+
+/** Whether a request URL was addressed to this computer by name; unreadable is not. */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    return isLoopbackHost(new URL(url).host)
+  } catch {
+    return false
+  }
 }
 
 /** The facts of one upgrade request, read the way sign-in reads them. */

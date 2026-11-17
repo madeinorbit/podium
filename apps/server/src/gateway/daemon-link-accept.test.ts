@@ -57,7 +57,7 @@ type Handle = Awaited<ReturnType<typeof setup>>['handle']
 /** Upgrade one daemon socket and send its hello; resolves once it is established. */
 async function connect(
   handle: Handle,
-  init: { headers?: Record<string, string>; hello?: Record<string, unknown> } = {},
+  init: { url?: string; headers?: Record<string, string>; hello?: Record<string, unknown> } = {},
 ) {
   let data: unknown
   const server = {
@@ -69,7 +69,7 @@ async function connect(
     },
   }
   const refused = await handle.handleRequest(
-    new Request('http://podium.example:18787/daemon', { headers: init.headers ?? {} }),
+    new Request(init.url ?? 'http://podium.example:18787/daemon', { headers: init.headers ?? {} }),
     server as never,
   )
   expect(refused).toBeUndefined()
@@ -155,8 +155,21 @@ describe('the link a daemon is judged on', () => {
     const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
     expect(hops).toBe(1)
     const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
-    await connect(handle)
+    await connect(handle, { url: 'http://127.0.0.1:18787/daemon' })
     expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('local')
+  })
+
+  /**
+   * POD-7041: a proxy on the server's computer that serves plain http to the
+   * network and forwards `/daemon` without any X-Forwarded-* header. It
+   * connects from loopback like the server's own daemon, but the request still
+   * names the public host it was reached on.
+   */
+  it('a remote daemon a same-computer proxy forwards with no forwarding headers reads plain', async () => {
+    const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
+    const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
+    await connect(handle, { url: 'http://podium.example/daemon' })
+    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
   })
 
   it('a remote daemon a same-computer proxy forwards over http stays plain', async () => {

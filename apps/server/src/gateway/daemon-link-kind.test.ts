@@ -72,12 +72,60 @@ describe('classifyDaemonLink', () => {
     ],
     [
       'a direct loopback peer behind a loopback bind (one trusted hop), no proxy header',
-      { clientAddress: undefined, peerAddress: '127.0.0.1', trustedProxyHops: 1 },
+      {
+        url: 'http://127.0.0.1:18787/daemon',
+        clientAddress: undefined,
+        peerAddress: '127.0.0.1',
+        trustedProxyHops: 1,
+      },
       'local',
     ],
     [
       'a direct IPv6 loopback peer behind a loopback bind, no proxy header',
-      { clientAddress: undefined, peerAddress: '::1', trustedProxyHops: 1 },
+      {
+        url: 'http://[::1]:18787/daemon',
+        clientAddress: undefined,
+        peerAddress: '::1',
+        trustedProxyHops: 1,
+      },
+      'local',
+    ],
+    [
+      'a direct loopback peer behind a loopback bind that dialed localhost',
+      {
+        url: 'http://localhost:18787/daemon',
+        clientAddress: undefined,
+        peerAddress: '127.0.0.1',
+        trustedProxyHops: 1,
+      },
+      'local',
+    ],
+    // POD-7041: a proxy on this computer that forwards a remote daemon over
+    // http and adds no X-Forwarded-* header connects from loopback, but keeps
+    // the public Host it was reached on.
+    [
+      'a loopback peer with no proxy header behind a trusted hop, addressed to a public name',
+      { clientAddress: undefined, peerAddress: '127.0.0.1', trustedProxyHops: 1 },
+      'plain',
+    ],
+    [
+      'an IPv6 loopback peer with no proxy header behind a trusted hop, addressed to a LAN address',
+      {
+        url: 'http://192.168.1.5:18787/daemon',
+        clientAddress: undefined,
+        peerAddress: '::1',
+        trustedProxyHops: 1,
+      },
+      'plain',
+    ],
+    [
+      'a loopback peer behind two trusted hops, addressed to a public name',
+      { clientAddress: undefined, peerAddress: '127.0.0.1', trustedProxyHops: 2 },
+      'plain',
+    ],
+    [
+      'a loopback peer with no proxy header and zero trusted hops, addressed to a public name',
+      { clientAddress: '127.0.0.1', peerAddress: '127.0.0.1', trustedProxyHops: 0 },
       'local',
     ],
     [
@@ -143,6 +191,32 @@ describe('daemonLinkFactsOf', () => {
       peerAddress: '127.0.0.1',
       trustedProxyHops: 1,
     })
+  })
+})
+
+/**
+ * POD-6906 finding S1, inverted (POD-7041): a same-computer proxy serving
+ * plain http to the network, forwarding `/daemon` without X-Forwarded-*
+ * headers, to a loopback-bound server (one trusted hop by default).
+ */
+describe('a same-computer proxy that forwards no X-Forwarded-* header', () => {
+  const judge = (url: string, peer: string, hops: number) =>
+    classifyDaemonLink({
+      ...daemonLinkFactsOf(new Request(url), peer, hops),
+      trustedNetworks: [],
+    })
+
+  it('reads plain when the request names a public host', () => {
+    expect(judge('http://podium.example/daemon', '127.0.0.1', 1)).toBe('plain')
+  })
+
+  it('reads local for a daemon that dialed the loopback-bound server directly', () => {
+    expect(judge('http://127.0.0.1:18787/daemon', '127.0.0.1', 1)).toBe('local')
+    expect(judge('http://localhost:18787/daemon', '::1', 1)).toBe('local')
+  })
+
+  it('reads local with zero trusted hops, as before', () => {
+    expect(judge('http://podium.example/daemon', '127.0.0.1', 0)).toBe('local')
   })
 })
 

@@ -74,7 +74,8 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   )
 }
 
-function isLoopbackHost(host: string | undefined): boolean {
+/** Whether a Host value (`name[:port]`) names this computer: `localhost` or a loopback address. */
+export function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return false
   try {
     const hostname = new URL(`http://${host}`).hostname
