@@ -1,4 +1,10 @@
-import { asCredentialId, asMachineId, asSessionId, asUserId, type CredentialView } from '@podium/model'
+import {
+  asCredentialId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type CredentialView,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeLoginState } from './native-login-actions'
 import { withNativeLoginViews } from './native-login-views'

@@ -131,7 +131,9 @@ test('found-login identity labels render when available', async ({ page }) => {
   await settings.getByRole('button', { name: 'Credentials', exact: true }).click()
 
   const section = credentialsSection(page)
-  const value = section.locator('.settings-entity-title .font-mono').filter({ hasText: E2E_LONG_IDENTITY_EMAIL })
+  const value = section
+    .locator('.settings-entity-title .font-mono')
+    .filter({ hasText: E2E_LONG_IDENTITY_EMAIL })
   await expect(value).toBeVisible()
   // The full identity fits the row without clipping, even for the long fixture.
   const layout = await value.evaluate((element) => ({
