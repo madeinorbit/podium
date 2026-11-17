@@ -307,7 +307,6 @@
     "apps/server/src/store/executor/workspace-context.test.ts",
     "apps/server/src/store/index-friendly-shapes.test.ts",
     "apps/server/src/store/json-column-corruption-oracle.test.ts",
-    "apps/server/src/store/machines-sentinel-scan.test.ts",
     "apps/server/src/store/member-history.test.ts",
     "apps/server/src/store/member-links.test.ts",
     "apps/server/src/store/observation-checkpoints.test.ts",
