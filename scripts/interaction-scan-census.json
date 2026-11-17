@@ -14243,15 +14243,15 @@
       "tokens": "d951be76e189ea640c61c75fcd0e6668526e758dce38b8c2a60a0c34a5850b8f",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "59ff77482e33e510d3d0b8915d827ee9debb29bf1ee794860f5281fd42b2d0dd",
+      "fingerprint": "fc3990f84eba37e4cc0f4efb5e51996d6a1a4f0dd73a2d08b69de2ac0d24933f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor 59ff77482e33e510d3d0b8915d827ee9debb29bf1ee794860f5281fd42b2d0dd. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -14261,15 +14261,15 @@
       "tokens": "6c6f73f46c2ed9761c6445db21c60df66f68cf696b7557c267fba9d81acc2970",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "93175f76f015524f389d0030ddc127c35c904483acc338349bfe2fdb2a050c03",
+      "fingerprint": "6ad79b113c018db26de67bea87ca9cb490dc6bab1f0c99a243ae5d42ec0a87aa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor 93175f76f015524f389d0030ddc127c35c904483acc338349bfe2fdb2a050c03. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -14279,15 +14279,15 @@
       "tokens": "9d568caf5a90b51bebc99904094887220fe92b47cb9082ef9b1c6cb75a567483",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "af0c9517f2618635abb8dcf42d41f71cb909a82c44be1981567d09bec72f1cd2",
+      "fingerprint": "4f0ef11be76a3be4b829715adab9041d0b32eaabfe289533175e903ddd441e16",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor af0c9517f2618635abb8dcf42d41f71cb909a82c44be1981567d09bec72f1cd2. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -14297,15 +14297,15 @@
       "tokens": "91507048cf3a0aa918473b05a097d720856787d6fe7750a41761252d79ee985e",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "c6bbbaff49de6401eac2286c82fbdf68f834d87f7402a83fda60d1690b3a41d6",
+      "fingerprint": "196c15dcfe95fae46ab0ebc7104ad71e76293b67161360907f0f8144ed514c97",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor c6bbbaff49de6401eac2286c82fbdf68f834d87f7402a83fda60d1690b3a41d6. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -14315,15 +14315,15 @@
       "tokens": "13ef17782b6405cf4b9b35419df4cd34bf4a649ee723ae92cf63b01ff4197cee",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "c740114ce0ab6fde80d17ce190f961e77fad376123a73ae28e20070e5a6a4a25",
+      "fingerprint": "114a7ffcbca39738a95b0ba32f25527bac67b88b13909483d1e8be9c1a6ffd34",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor c740114ce0ab6fde80d17ce190f961e77fad376123a73ae28e20070e5a6a4a25. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -14333,15 +14333,33 @@
       "tokens": "8ab2f40bac70a6159fbb5e6fc6c177d5787b6f865de6e8f9a2047ee6fecf75b3",
       "gate": [],
       "origin": [
-        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
       ],
-      "fingerprint": "cd5010126514b6f063005d75dbb6205ee05c39004110ac2c28ac924c6b1446f6",
+      "fingerprint": "51d0f71e39072b53b290c46f40c0e39833ec9988cf2b40954449f5b81462b82f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of draftLaunchEffect",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e. Predecessor cd5010126514b6f063005d75dbb6205ee05c39004110ac2c28ac924c6b1446f6. POD-6904: the launch carries the chosen credential (credential management \u00a79), one more conditional field in this input; the collection bound and classification are unchanged.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "d2d05d1c37ef45cf369f926cb04c72847d22b56a30d5092ea278f52d41786d17",
+      "gate": [],
+      "origin": [
+        "f5b977e6e8ecbf9af1504c61091d5b1917b2e77fd916e4c3e6bfcb71028389ff"
+      ],
+      "fingerprint": "58c5d64e089c9468d2ce23b01dba9e7b90b045108421f4ee4cc3ecd2401814ec",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Added by POD-6904: the chosen credential (an id or null) rides the session.launch input like the driver override beside it.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -40485,6 +40503,78 @@
       "bound": "The caller's own OPEN notices only: the feed carries a notice to its recipient alone, a resolved notice leaves the pool, and read event notices are capped at 50 per person (READ_EVENT_NOTICES_KEPT, POD-6881).",
       "reason": "The tray count and the inbox list read every resident inboxNotice row; that table holds only what still needs this person, so the work follows their open notices, not history or other members.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/credentials/session/SessionCredentialChip.tsx",
+      "holder": "SessionCredentialChip/SessionCredentialChip/onSwitch",
+      "rule": "reader-summary",
+      "tokens": "042263afbc6a4e7d05ae35bce73a0e4089d8be9203dcb615a447dd5497371191",
+      "gate": [],
+      "origin": [
+        "6e4c569103b2678cf828c022f24960b85106f10071b1010c8c8bbfeb99a2d8e9"
+      ],
+      "fingerprint": "e99d5c88c7bc72e5491291a0a87b523fa54ef5678ebb802f672b72ea54ada41e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6904",
+      "trigger": "A person switches the credential of one session (credential management \u00a79).",
+      "bound": "Constant work: one sessions.switchCredential call for one session id; the credential list read is the person's own credentials, at most a handful.",
+      "reason": "The scan follows the word `sessions` in the command path trpc.sessions.switchCredential and the session value handed to the switch; no session, transcript or issue collection is read or iterated here.",
+      "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
+    },
+    {
+      "file": "apps/web/src/features/credentials/session/SessionCredentialChip.tsx",
+      "holder": "useSwitchCredential/callback/outcome",
+      "rule": "helper-consumer",
+      "tokens": "613099bece36c35d89bcf313637b8c85a7b422e0b9c24d682b9939c38d1f9664",
+      "gate": [],
+      "origin": [
+        "6e4c569103b2678cf828c022f24960b85106f10071b1010c8c8bbfeb99a2d8e9"
+      ],
+      "fingerprint": "8ea16bb108541c947626e197b79d1b19cbeca7fd0636bba964ab48da49f975de",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6904",
+      "trigger": "A person switches the credential of one session (credential management \u00a79).",
+      "bound": "Constant work: one sessions.switchCredential call for one session id; the credential list read is the person's own credentials, at most a handful.",
+      "reason": "The scan follows the word `sessions` in the command path trpc.sessions.switchCredential and the session value handed to the switch; no session, transcript or issue collection is read or iterated here.",
+      "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
+    },
+    {
+      "file": "apps/web/src/features/credentials/session/SessionCredentialChip.tsx",
+      "holder": "useSwitchCredential/callback/outcome",
+      "rule": "reader-summary",
+      "tokens": "60da21261786dbdb46fb62dc3d50f55bf5dd0cdbc138367314c7b37d57a58e57",
+      "gate": [],
+      "origin": [
+        "6e4c569103b2678cf828c022f24960b85106f10071b1010c8c8bbfeb99a2d8e9"
+      ],
+      "fingerprint": "a1f669f37dd8115078cad67d97c0a56cf7be3e558e9b890f07fee34057f1eb13",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6904",
+      "trigger": "A person switches the credential of one session (credential management \u00a79).",
+      "bound": "Constant work: one sessions.switchCredential call for one session id; the credential list read is the person's own credentials, at most a handful.",
+      "reason": "The scan follows the word `sessions` in the command path trpc.sessions.switchCredential and the session value handed to the switch; no session, transcript or issue collection is read or iterated here.",
+      "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
+    },
+    {
+      "file": "apps/web/src/features/credentials/session/SessionCredentialNotice.tsx",
+      "holder": "SessionCredentialNotice/SessionCredentialNotice/onSwitch",
+      "rule": "reader-summary",
+      "tokens": "8d10fb1067036a0c6031fa9c8197fbc6f44248adb61e52c11d62c0bcfee09d03",
+      "gate": [],
+      "origin": [
+        "6e4c569103b2678cf828c022f24960b85106f10071b1010c8c8bbfeb99a2d8e9"
+      ],
+      "fingerprint": "ffc1e187de342829bb67b2289a1b81c2462d604e8f7504c7b2514879d900ec90",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6904",
+      "trigger": "A person switches the credential of one session (credential management \u00a79).",
+      "bound": "Constant work: one sessions.switchCredential call for one session id; the credential list read is the person's own credentials, at most a handful.",
+      "reason": "The scan follows the word `sessions` in the command path trpc.sessions.switchCredential and the session value handed to the switch; no session, transcript or issue collection is read or iterated here.",
+      "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
     }
   ]
 }
