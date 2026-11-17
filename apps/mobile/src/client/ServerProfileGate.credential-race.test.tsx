@@ -444,6 +444,62 @@ describe('handoff profile selection', () => {
     expect(seams.router.replace).not.toHaveBeenCalled()
   })
 
+  it('keeps a newer mission link on A after a pending handoff switch to B settles', async () => {
+    await mountActiveProfileA()
+    let releaseProfileB = () => {}
+    const profileBReleased = new Promise<void>((resolve) => {
+      releaseProfileB = resolve
+    })
+    let reportProfileBStarted = () => {}
+    const profileBStarted = new Promise<void>((resolve) => {
+      reportProfileBStarted = resolve
+    })
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://b.example') {
+        reportProfileBStarted()
+        await profileBReleased
+      }
+      return successfulPreflight(origin)
+    })
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://b.example', 'instance-b', 'older-session-on-b'),
+      })
+    })
+    await profileBStarted
+    const olderRequestId = pendingMobileHandoffSnapshot().id
+
+    act(() => {
+      seams.linkListener?.({ url: 'podium://mission/mission-on-a/seat-on-a' })
+    })
+    expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(olderRequestId)
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+
+    await act(async () => {
+      releaseProfileB()
+      await profileBReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.bearer).toBe('token-a')
+    })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual([
+      'https://a.example',
+      'https://b.example',
+      'https://a.example',
+    ])
+    expect(seams.renders.some((row) => row.profileId === 'profile-b')).toBe(false)
+    expect(
+      [...seams.runtime, ...seams.socket].some((row) => row.origin === 'https://b.example'),
+    ).toBe(false)
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
+    expect(screen.queryByText('Opening the matching saved server.')).toBeNull()
+  })
+
   it('handles a mixed-case Podium scheme on cold launch like a warm link', async () => {
     const link = formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' })
     seams.getInitialUrl.mockResolvedValue(link.replace(/^podium:/, 'PoDiUm:'))

@@ -392,73 +392,81 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     [],
   )
 
-  const handleLink = useCallback((raw: string) => {
-    if (Platform.OS !== 'web') {
-      setupOwnsStartup.current = false
-      // +native-intent opens mission URLs on the existing chat/deck screens.
-      // Resetting the router here used to discard that navigation. Retire an
-      // older handoff so its delayed result cannot supersede this newer link.
-      if (nativeMissionHref(raw)) {
-        startupLinkGeneration.current += 1
-        retirePendingMobileHandoff()
+  const handleLink = useCallback(
+    (raw: string) => {
+      if (Platform.OS !== 'web') {
+        setupOwnsStartup.current = false
+        // +native-intent opens mission URLs on the existing chat/deck screens.
+        // Resetting the router here used to discard that navigation. Retire an
+        // older handoff and its profile activation before returning to the router.
+        if (nativeMissionHref(raw)) {
+          startupLinkGeneration.current += 1
+          retirePendingMobileHandoff()
+          switchOperation.current += 1
+          setCredentialOwnerRevision((value) => value + 1)
+          nativeLinkIntent.current = null
+          setHandoffStatus('')
+          if (switchInFlight.current) restartSavedProfile()
+          return
+        }
+      }
+      if (Platform.OS !== 'web' && isHostedReturn(raw)) {
+        try {
+          const link = parseHostedReturn(raw)
+          if (lastHostedCode.current === link.code) return
+          lastHostedCode.current = link.code
+          startupLinkGeneration.current += 1
+          const operation = ++switchOperation.current
+          nativeLinkIntent.current = 'pairing'
+          retirePendingMobileHandoff()
+          setIncoming(null)
+          setLinkError(null)
+          setSetupOpen(true)
+          setHostedReturn({ link, operation })
+          setMembershipRefusal(null)
+          setHandoffStatus('Finishing sign-in…')
+        } catch {
+          setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
+        }
         return
       }
-    }
-    if (Platform.OS !== 'web' && isHostedReturn(raw)) {
-      try {
-        const link = parseHostedReturn(raw)
-        if (lastHostedCode.current === link.code) return
-        lastHostedCode.current = link.code
+      if (Platform.OS !== 'web') {
+        setHostedReturn(null)
+        void hostedSignIn.cancel().catch(() => {})
+      }
+      if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
         startupLinkGeneration.current += 1
-        const operation = ++switchOperation.current
-        nativeLinkIntent.current = 'pairing'
-        retirePendingMobileHandoff()
+        switchOperation.current += 1
+        setCredentialOwnerRevision((value) => value + 1)
+        if (switchInFlight.current) savedProfileRestartPending.current = true
+        nativeLinkIntent.current = 'handoff'
         setIncoming(null)
         setLinkError(null)
-        setSetupOpen(true)
-        setHostedReturn({ link, operation })
-        setMembershipRefusal(null)
-        setHandoffStatus('Finishing sign-in…')
-      } catch {
-        setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
+        setSetupOpen(false)
+        return
       }
-      return
-    }
-    if (Platform.OS !== 'web') {
-      setHostedReturn(null)
-      void hostedSignIn.cancel().catch(() => {})
-    }
-    if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
-      startupLinkGeneration.current += 1
-      switchOperation.current += 1
-      setCredentialOwnerRevision((value) => value + 1)
-      if (switchInFlight.current) savedProfileRestartPending.current = true
-      nativeLinkIntent.current = 'handoff'
-      setIncoming(null)
-      setLinkError(null)
-      setSetupOpen(false)
-      return
-    }
-    if (Platform.OS !== 'web') {
-      startupLinkGeneration.current += 1
-      nativeLinkIntent.current = 'pairing'
-      retirePendingMobileHandoff()
-      switchOperation.current += 1
-      setCredentialOwnerRevision((value) => value + 1)
-    }
-    try {
-      const parsed = parsePairingLink(raw)
-      setIncoming(parsed.envelope)
-      setSetupOpen(true)
-      setLinkError(null)
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      // The reason only: the link itself can carry the pairing secret.
-      pairingLog.warn('pairing link rejected', { reason })
-      setLinkError({ message: reason })
-      setSetupOpen(true)
-    }
-  }, [])
+      if (Platform.OS !== 'web') {
+        startupLinkGeneration.current += 1
+        nativeLinkIntent.current = 'pairing'
+        retirePendingMobileHandoff()
+        switchOperation.current += 1
+        setCredentialOwnerRevision((value) => value + 1)
+      }
+      try {
+        const parsed = parsePairingLink(raw)
+        setIncoming(parsed.envelope)
+        setSetupOpen(true)
+        setLinkError(null)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        // The reason only: the link itself can carry the pairing secret.
+        pairingLog.warn('pairing link rejected', { reason })
+        setLinkError({ message: reason })
+        setSetupOpen(true)
+      }
+    },
+    [restartSavedProfile],
+  )
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: activationRetry is a deliberate retrigger counter — bumping it re-runs activation from the retry buttons
   useEffect(() => {
