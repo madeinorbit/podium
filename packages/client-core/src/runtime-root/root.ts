@@ -271,12 +271,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the hub's first changesSince; entity hydration happens async in start().
     this.replica = init.createReplicaFn(init.principal)
     this.frames = new LiveFrameQueue()
-    // The store's metrics demand reaches the feed it was built before.
+    // Declared live-part demand reaches the feed this store was built before.
     let topics: LiveFeed | undefined
     this.live = new LiveStore({
-      onMetricsDemand: (id, watched) => topics?.watchMetrics(id, watched),
+      onRecordDemand: (kind, id, watched) => topics?.watchRecord(kind, id, watched),
       onUsageDemand: (watched) => topics?.watchUsage(watched),
-      onSessionDemand: (kind, id, watched) => topics?.watchSession(kind, id, watched),
     })
     const connection = new ConnectionService({
       // The member fence (POD-6292): this socket is this principal's, and the

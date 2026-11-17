@@ -28,6 +28,7 @@
  * from the feed's.
  */
 
+import type { RecordLiveTopicKind } from '@podium/model'
 import type { TopicKind, TopicPayload } from '@podium/protocol'
 import type { TopicListener, TopicState } from '../socket-transport/subscriptions'
 import { LiveFrameQueue, type LiveFrameScheduler } from './frame-queue'
@@ -36,7 +37,6 @@ import {
   type LiveStore,
   type LiveTopicKind,
   type Reading,
-  type SessionLiveTopicKind,
   unknownReading,
 } from './live-store'
 
@@ -87,11 +87,6 @@ export function readingOfTopic<T>(state: TopicState<T>, now: number): Reading<T>
   }
 }
 
-const SESSION_KINDS: readonly SessionLiveTopicKind[] = [
-  'session.condition',
-  'session.terminalState',
-]
-
 export class LiveFeed {
   private readonly hub: LiveFeedHub
   private readonly live: LiveStore
@@ -99,9 +94,9 @@ export class LiveFeed {
   private readonly frames: LiveFrameQueue
   /** Whether {@link frames} is this feed's own, to dispose with it. */
   private readonly ownsFrames: boolean
-  private readonly conditions = new Map<string, () => void>()
-  private readonly metrics = new Map<string, () => void>()
-  /** Held session keys, as `kind:id`. */
+  /** Runtime demand: every known machine needs a current online condition. */
+  private machineIds = new Set<string>()
+  /** All held record live parts, as `kind:id`. */
   private readonly readings = new Map<string, () => void>()
   private offs: Array<() => void> = []
   private releaseQuota: (() => void) | undefined
@@ -127,9 +122,7 @@ export class LiveFeed {
     const machines = this.options.machines
     this.offs.push(machines.subscribe(() => this.followMachines(machines.ids())))
     this.followMachines(machines.ids())
-    for (const id of this.live.watchedMetrics) this.watchMetrics(id, true)
-    for (const kind of SESSION_KINDS)
-      for (const id of this.live.watchedSessions(kind)) this.watchSession(kind, id, true)
+    for (const { kind, id } of this.live.watchedRecords()) this.watchRecord(kind, id, true)
     if (this.live.usageWatched) this.watchUsage(true)
   }
 
@@ -140,10 +133,7 @@ export class LiveFeed {
     for (const off of this.offs.splice(0)) off()
     this.releaseQuota?.()
     this.releaseQuota = undefined
-    for (const release of this.conditions.values()) release()
-    this.conditions.clear()
-    for (const release of this.metrics.values()) release()
-    this.metrics.clear()
+    this.machineIds.clear()
     for (const release of this.readings.values()) release()
     this.readings.clear()
     this.releaseUsage?.()
@@ -182,70 +172,39 @@ export class LiveFeed {
     })
   }
 
-  /** The store's demand hook: a reader started or stopped watching a machine's metrics. */
-  watchMetrics(machineId: string, watched: boolean): void {
+  /** First/last watcher of any declared record live part. */
+  watchRecord(kind: RecordLiveTopicKind, id: string, watched: boolean): void {
     if (this.disposed) return
+    const key = `${kind}:${id}`
     if (!watched) {
-      this.metrics.get(machineId)?.()
-      this.metrics.delete(machineId)
-      // Held only while watched: an unwatched reading would go stale silently.
-      this.queue(`machine.metrics:${machineId}`, () =>
-        this.live.applyTopic('machine.metrics', machineId, undefined),
-      )
-      return
-    }
-    if (!this.started || this.metrics.has(machineId)) return
-    this.metrics.set(
-      machineId,
-      this.hub.subscribeTopic('machine.metrics', machineId, {
-        onState: (state) => this.queueTopic('machine.metrics', machineId, state),
-      }),
-    )
-  }
-
-  /**
-   * The store's demand hook: a reader started or stopped watching one of a
-   * session's live readings. Unwatched, the key is released and the reading is
-   * forgotten: an unwatched reading would go stale silently.
-   */
-  watchSession(kind: SessionLiveTopicKind, sessionId: string, watched: boolean): void {
-    if (this.disposed) return
-    const key = `${kind}:${sessionId}`
-    if (!watched) {
+      // The runtime itself watches known machines' conditions (D18). A view
+      // leaving cannot release that lifetime demand.
+      if (kind === 'machine.condition' && this.machineIds.has(id)) return
       this.readings.get(key)?.()
       this.readings.delete(key)
-      this.queue(key, () => this.live.applyTopic(kind, sessionId, undefined))
+      this.queue(key, () => {
+        if (!this.readings.has(key)) this.live.applyTopic(kind, id, undefined)
+      })
       return
     }
     if (!this.started || this.readings.has(key)) return
     this.readings.set(
       key,
-      this.hub.subscribeTopic(kind, sessionId, {
-        onState: (state) => this.queueTopic(kind, sessionId, state),
+      this.hub.subscribeTopic(kind, id, {
+        onState: (state) => this.queueTopic(kind, id, state),
       }),
     )
   }
 
   private followMachines(ids: readonly string[]): void {
     if (!this.started) return
-    const wanted = new Set(ids)
-    for (const [id, release] of this.conditions) {
-      if (wanted.has(id)) continue
-      release()
-      this.conditions.delete(id)
-      this.queue(`machine.condition:${id}`, () =>
-        this.live.applyTopic('machine.condition', id, undefined),
-      )
-    }
-    for (const id of wanted) {
-      if (this.conditions.has(id)) continue
-      this.conditions.set(
-        id,
-        this.hub.subscribeTopic('machine.condition', id, {
-          onState: (state) => this.queueTopic('machine.condition', id, state),
-        }),
-      )
-    }
+    const previous = this.machineIds
+    this.machineIds = new Set(ids)
+    const watched = new Set(this.live.watchedIds('machine.condition'))
+    for (const id of previous)
+      if (!this.machineIds.has(id) && !watched.has(id))
+        this.watchRecord('machine.condition', id, false)
+    for (const id of this.machineIds) this.watchRecord('machine.condition', id, true)
   }
 
   private queueTopic(kind: LiveTopicKind, id: string, state: TopicState<unknown>): void {

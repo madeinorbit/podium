@@ -95,6 +95,9 @@ export interface Collection extends CollectionSpec {
   readonly name: string
 }
 
+/** A live part's topic and payload schema. Each reading replaces its predecessor whole. */
+export type LiveReadings = Readonly<Record<string, z.ZodTypeAny>>
+
 type FieldName<S extends z.ZodTypeAny> = Extract<keyof z.infer<S>, string>
 
 export interface RecordSpec<K extends string, R extends string, S extends z.ZodTypeAny> {
@@ -117,10 +120,10 @@ export interface RecordSpec<K extends string, R extends string, S extends z.ZodT
   /** Live fields the wire schema still names; never sent on the record, never stored. */
   readonly live?: readonly FieldName<S>[]
   /**
-   * Live readings of the record that its wire schema does not carry, each with
-   * the topic that pushes it while watched (`session.condition`). Never stored.
+   * Live parts, keyed by the topic that pushes each payload while watched.
+   * Their schemas declare the live fields; the saved wire schema never carries them.
    */
-  readonly liveReadings?: Readonly<Record<string, string>>
+  readonly liveReadings?: LiveReadings
   /** Fields the server computes from code or other records, not saved with the record. */
   readonly derived?: readonly FieldName<S>[]
   readonly links?: Partial<Readonly<Record<FieldName<S>, LinkSpec>>>
@@ -149,7 +152,7 @@ export interface RecordDeclaration<
   readonly body: Readonly<Record<string, readonly string[]>>
   readonly bodyOf?: string
   readonly live: readonly string[]
-  readonly liveReadings: Readonly<Record<string, string>>
+  readonly liveReadings: LiveReadings
   readonly derived: readonly string[]
   readonly links: Readonly<Record<string, LinkSpec>>
   readonly parentLink?: string
@@ -220,9 +223,13 @@ export function defineRecord<
   const R extends string,
   S extends z.ZodTypeAny,
   const L extends LinksOf<S> = Record<never, never>,
+  const V extends LiveReadings = Record<never, never>,
 >(
-  spec: RecordSpec<K, R, S> & { readonly links?: L },
-): Omit<RecordDeclaration<K, R, S>, 'links'> & { readonly links: L } {
+  spec: RecordSpec<K, R, S> & { readonly links?: L; readonly liveReadings?: V },
+): Omit<RecordDeclaration<K, R, S>, 'links' | 'liveReadings'> & {
+  readonly links: L
+  readonly liveReadings: V
+} {
   const fields = schemaFields(spec.schema)
   const declared = new Set(fields)
   const fail = (message: string): never => {
@@ -265,6 +272,11 @@ export function defineRecord<
   const rowKey = spec.rowKey ?? ((row: z.infer<S>) => (row as Record<string, string>)[key!]!)
   const stubSet = new Set(stub)
   const liveSet = new Set(live)
+  const readings = (spec.liveReadings ?? {}) as V
+  // A payload may repeat saved metadata (host metrics carry a hostname). Its
+  // live fields are only those the saved schema does not already declare.
+  for (const schema of Object.values(readings))
+    for (const field of schemaFields(schema)) if (!declared.has(field)) liveSet.add(field)
   const bodySet = new Set(bodyFields)
   return {
     kind: spec.kind,
@@ -278,7 +290,7 @@ export function defineRecord<
     body: spec.body ?? {},
     ...(spec.bodyOf === undefined ? {} : { bodyOf: spec.bodyOf }),
     live,
-    liveReadings: spec.liveReadings ?? {},
+    liveReadings: readings,
     derived,
     links,
     ...(spec.parentLink === undefined ? {} : { parentLink: spec.parentLink as string }),

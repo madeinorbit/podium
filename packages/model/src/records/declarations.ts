@@ -29,6 +29,7 @@ import {
   IssuePanelStateWire,
   IssuePanelTodoWire,
 } from '../entities/issue-panel-records'
+import { HostMetricsWire } from '../entities/machine'
 import {
   CheckoutWire,
   checkoutRowId,
@@ -67,6 +68,11 @@ import {
   userPreferencesRowId,
 } from '../user-state/synced-records'
 import { type CollectionSpec, defineRecord } from './define-record'
+import {
+  MachineConditionLive,
+  SessionConditionLive,
+  SessionTerminalStateLive,
+} from './live-payloads'
 import { ruleParam as param } from './rule'
 
 // ---------------------------------------------------------------------------
@@ -168,12 +174,8 @@ const session = defineRecord({
   // What only the running process knows (POD-6764): pushed on the session
   // topics while a reader watches, never on the record, never stored.
   liveReadings: {
-    controller: 'session.terminalState',
-    geometry: 'session.terminalState',
-    busy: 'session.condition',
-    requestsGated: 'session.condition',
-    lastInputAt: 'session.condition',
-    contextUsagePercent: 'session.condition',
+    'session.condition': SessionConditionLive,
+    'session.terminalState': SessionTerminalStateLive,
   },
   derived: [
     'resumable',
@@ -517,7 +519,7 @@ const machine = defineRecord({
   schema: MachineProjection,
   key: 'id',
   group: 'always',
-  liveReadings: { condition: 'machine.condition', metrics: 'machine.metrics' },
+  liveReadings: { 'machine.condition': MachineConditionLive, 'machine.metrics': HostMetricsWire },
   collections: { all: ALL },
   why: 'One machine. Its load is a live reading, pushed while watched.',
 })
