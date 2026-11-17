@@ -180,7 +180,7 @@ type SettingSource = 'env' | 'file' | 'settings' | 'default';
  * Reading the tiers off this object: `roles` / `sidebar` / `autoContinue` and
  * three of four `notifications` members are `preferences-personal`;
  * `hibernation` / `gitWorkflow` / `issues` / `steward` / `experimental` are
- * `preferences-instance`; `apiKeys` / `integrations` /
+ * `preferences-instance`; `integrations` /
  * `notifications.telegramBotToken` are `server-secrets`. That mapping is not
  * documentation — it is `SETTINGS_CLASSIFICATION` in `@podium/model`, and
  * `settings.classification.test.ts` fails if this object and that table
@@ -344,19 +344,6 @@ declare const PodiumSettings: z.ZodObject<{
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
      *  domain as the shell the agents already run in. `server-secrets`: never
      *  replicated and never enqueued once POD-419/POD-420 land. */
-    apiKeys: z.ZodDefault<z.ZodObject<{
-        openrouter: z.ZodDefault<z.ZodString>;
-        anthropic: z.ZodDefault<z.ZodString>;
-        openai: z.ZodDefault<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        openrouter: string;
-        anthropic: string;
-        openai: string;
-    }, {
-        openrouter?: string | undefined;
-        anthropic?: string | undefined;
-        openai?: string | undefined;
-    }>>;
     integrations: z.ZodDefault<z.ZodObject<{
         linearApiKey: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
@@ -638,11 +625,6 @@ declare const PodiumSettings: z.ZodObject<{
     daemonLink: {
         trustedNetworks: string[];
     };
-    apiKeys: {
-        openrouter: string;
-        anthropic: string;
-        openai: string;
-    };
     integrations: {
         linearApiKey: string;
     };
@@ -738,11 +720,6 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     daemonLink?: {
         trustedNetworks?: string[] | undefined;
-    } | undefined;
-    apiKeys?: {
-        openrouter?: string | undefined;
-        anthropic?: string | undefined;
-        openai?: string | undefined;
     } | undefined;
     integrations?: {
         linearApiKey?: string | undefined;
@@ -2347,13 +2324,6 @@ type Input_sessions_uploadImage = {
     pending?: true | undefined;
     sessionId: string;
 };
-type Input_settings_clearSecret = {
-    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
-};
-type Input_settings_setSecret = {
-    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
-    value: string;
-};
 type Input_setup_complete = {
     acknowledgeNoPassword?: true | undefined;
     confirmUrlChange?: true | undefined;
@@ -2482,17 +2452,6 @@ type Input_workflows_runs = {
     includeTerminal?: boolean | undefined;
     limit?: number | undefined;
 };
-type Output_accounts_keys = Array<{
-    id: string & z.BRAND<"AccountId">;
-    identity?: string | undefined;
-    kind: "api-key" | "oauth";
-    owner: string & z.BRAND<"UserId">;
-    provider: string;
-    sharing: {
-        everyone: boolean;
-        users: string[];
-    };
-}>;
 type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
@@ -6772,31 +6731,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     transformer: false;
 }, {
     "accounts": {
-        "connect": TRPC.TRPCMutationProcedure<{
-            input: {
-                credential: string;
-                kind: "api-key" | "oauth";
-                provider: "anthropic" | "openai" | "openrouter";
-            };
-            output: {
-                id: string;
-            };
-            meta: unknown;
-        }>;
-        "disconnect": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "keys": TRPC.TRPCQueryProcedure<{
-            input: {};
-            output: Output_accounts_keys;
-            meta: unknown;
-        }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
                 [k: string]: unknown;
@@ -6810,52 +6744,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
             };
             output: Output_accounts_login;
-            meta: unknown;
-        }>;
-        "send": TRPC.TRPCMutationProcedure<{
-            input: {
-                acknowledgeSharedMachine?: boolean | undefined;
-                id: string;
-                machineId: string;
-            };
-            output: ({
-                ok: true;
-                sent: false;
-                warning?: undefined;
-            }) | ({
-                ok: true;
-                sent: true;
-                warning: string;
-            });
-            meta: unknown;
-        }>;
-        "share": TRPC.TRPCMutationProcedure<{
-            input: {
-                everyone: boolean;
-                id: string;
-                owner?: string | undefined;
-                users?: string[] | undefined;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "unsend": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                machineId: string;
-                owner?: string | undefined;
-            };
-            output: ({
-                note: string;
-                ok: true;
-                removed: true;
-            }) | ({
-                note?: undefined;
-                ok: true;
-                removed: false;
-            });
             meta: unknown;
         }>;
         "useOnMyMachines": TRPC.TRPCMutationProcedure<{
@@ -8827,7 +8715,9 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     };
     "settings": {
         "clearSecret": TRPC.TRPCMutationProcedure<{
-            input: Input_settings_clearSecret;
+            input: {
+                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
+            };
             output: _podium_model.SecretPresenceWire;
             meta: unknown;
         }>;
@@ -8837,7 +8727,10 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "setSecret": TRPC.TRPCMutationProcedure<{
-            input: Input_settings_setSecret;
+            input: {
+                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
+                value: string;
+            };
             output: _podium_model.SecretPresenceWire;
             meta: unknown;
         }>;

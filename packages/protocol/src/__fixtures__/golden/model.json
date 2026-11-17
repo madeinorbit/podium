@@ -59,7 +59,6 @@
         "id": "id",
         "provider": "provider",
         "source": "native",
-        "kind": "api-key",
         "harness": "claude-code",
         "identity": "identity",
         "machines": ["machines[0]"],
@@ -70,12 +69,6 @@
           "machineName": "serverAi.machineName",
           "lastError": "serverAi.lastError"
         },
-        "credentialSource": "stored",
-        "sharing": {
-          "everyone": true,
-          "users": ["sharing.users[0]"]
-        },
-        "sharedBy": "sharedBy",
         "loginRequired": true,
         "loginMachines": [
           {
@@ -90,25 +83,6 @@
           "status": "running",
           "error": "loginAttempt.error"
         },
-        "sentTo": [
-          {
-            "id": "sentTo[0].id",
-            "name": "sentTo[0].name"
-          }
-        ],
-        "sendableTo": [
-          {
-            "id": "sendableTo[0].id",
-            "name": "sendableTo[0].name"
-          }
-        ],
-        "sends": [
-          {
-            "id": "sends[0].id",
-            "name": "sends[0].name",
-            "sentAt": "sends[0].sentAt"
-          }
-        ],
         "useOnMyMachines": true,
         "keptOn": [
           {
@@ -120,7 +94,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"kind\":\"api-key\",\"harness\":\"claude-code\",\"identity\":\"identity\",\"machines\":[\"machines[0]\"],\"identityFingerprint\":\"identityFingerprint\",\"status\":\"connected\",\"serverAi\":{\"machineId\":\"serverAi.machineId\",\"machineName\":\"serverAi.machineName\",\"lastError\":\"serverAi.lastError\"},\"credentialSource\":\"stored\",\"sharing\":{\"everyone\":true,\"users\":[\"sharing.users[0]\"]},\"sharedBy\":\"sharedBy\",\"loginRequired\":true,\"loginMachines\":[{\"id\":\"loginMachines[0].id\",\"name\":\"loginMachines[0].name\"}],\"loginAttempt\":{\"sessionId\":\"loginAttempt.sessionId\",\"machineId\":\"loginAttempt.machineId\",\"machineName\":\"loginAttempt.machineName\",\"status\":\"running\",\"error\":\"loginAttempt.error\"},\"sentTo\":[{\"id\":\"sentTo[0].id\",\"name\":\"sentTo[0].name\"}],\"sendableTo\":[{\"id\":\"sendableTo[0].id\",\"name\":\"sendableTo[0].name\"}],\"sends\":[{\"id\":\"sends[0].id\",\"name\":\"sends[0].name\",\"sentAt\":\"sends[0].sentAt\"}],\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"keptOn[0].id\",\"name\":\"keptOn[0].name\"}]}"
+      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"harness\":\"claude-code\",\"identity\":\"identity\",\"machines\":[\"machines[0]\"],\"identityFingerprint\":\"identityFingerprint\",\"status\":\"connected\",\"serverAi\":{\"machineId\":\"serverAi.machineId\",\"machineName\":\"serverAi.machineName\",\"lastError\":\"serverAi.lastError\"},\"loginRequired\":true,\"loginMachines\":[{\"id\":\"loginMachines[0].id\",\"name\":\"loginMachines[0].name\"}],\"loginAttempt\":{\"sessionId\":\"loginAttempt.sessionId\",\"machineId\":\"loginAttempt.machineId\",\"machineName\":\"loginAttempt.machineName\",\"status\":\"running\",\"error\":\"loginAttempt.error\"},\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"keptOn[0].id\",\"name\":\"keptOn[0].name\"}]}"
     },
     {
       "schema": "ActorRef",
@@ -971,32 +945,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"phase\":\"unknown\",\"since\":\"since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"nativeSubagents[0].id\",\"type\":\"nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"need.summary\",\"ask\":{\"toolName\":\"need.ask.toolName\",\"detail\":\"need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"need.interview.questions[0].question\",\"header\":\"need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"need.interview.questions[0].options[0].label\",\"description\":\"need.interview.questions[0].options[0].description\",\"preview\":\"need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"error.class\",\"retryable\":true,\"detail\":\"error.detail\"},\"compactingFrom\":{\"phase\":\"working\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"compactingFrom.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"compactingFrom.need.summary\",\"ask\":{\"toolName\":\"compactingFrom.need.ask.toolName\",\"detail\":\"compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"compactingFrom.need.interview.questions[0].question\",\"header\":\"compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"compactingFrom.error.class\",\"retryable\":true,\"detail\":\"compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"hook\",\"stateConfidence\":1,\"stateObservedAt\":\"stateObservedAt\",\"turnStartedAt\":\"turnStartedAt\"}"
-    },
-    {
-      "schema": "ApiKeySecrets",
-      "variant": "minimal",
-      "wire": {},
-      "parseAdded": {
-        "openrouter": "",
-        "anthropic": "",
-        "openai": ""
-      },
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"openrouter\":\"\",\"anthropic\":\"\",\"openai\":\"\"}"
-    },
-    {
-      "schema": "ApiKeySecrets",
-      "variant": "full",
-      "wire": {
-        "openrouter": "openrouter",
-        "anthropic": "anthropic",
-        "openai": "openai"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"openrouter\":\"openrouter\",\"anthropic\":\"anthropic\",\"openai\":\"openai\"}"
     },
     {
       "schema": "ArtifactId",
@@ -10224,7 +10172,7 @@
       "wire": {
         "presence": [
           {
-            "key": "apiKeys.openrouter",
+            "key": "integrations.linearApiKey",
             "present": true,
             "fingerprint": "presence[0].fingerprint",
             "updatedAt": "presence[0].updatedAt"
@@ -10234,13 +10182,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"presence\":[{\"key\":\"apiKeys.openrouter\",\"present\":true,\"fingerprint\":\"presence[0].fingerprint\",\"updatedAt\":\"presence[0].updatedAt\"}]}"
+      "encoded": "{\"presence\":[{\"key\":\"integrations.linearApiKey\",\"present\":true,\"fingerprint\":\"presence[0].fingerprint\",\"updatedAt\":\"presence[0].updatedAt\"}]}"
     },
     {
       "schema": "SecretPresenceWire",
       "variant": "minimal",
       "wire": {
-        "key": "apiKeys.openrouter",
+        "key": "integrations.linearApiKey",
         "present": true,
         "fingerprint": null,
         "updatedAt": null
@@ -10248,13 +10196,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"key\":\"apiKeys.openrouter\",\"present\":true,\"fingerprint\":null,\"updatedAt\":null}"
+      "encoded": "{\"key\":\"integrations.linearApiKey\",\"present\":true,\"fingerprint\":null,\"updatedAt\":null}"
     },
     {
       "schema": "SecretPresenceWire",
       "variant": "full",
       "wire": {
-        "key": "apiKeys.openrouter",
+        "key": "integrations.linearApiKey",
         "present": true,
         "fingerprint": "fingerprint",
         "updatedAt": "updatedAt"
@@ -10262,51 +10210,51 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"key\":\"apiKeys.openrouter\",\"present\":true,\"fingerprint\":\"fingerprint\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"key\":\"integrations.linearApiKey\",\"present\":true,\"fingerprint\":\"fingerprint\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "ServerSecret",
       "variant": "minimal",
       "wire": {
-        "key": "apiKeys.openrouter",
+        "key": "integrations.linearApiKey",
         "value": "value",
         "updatedAt": "updatedAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"key\":\"apiKeys.openrouter\",\"value\":\"value\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"key\":\"integrations.linearApiKey\",\"value\":\"value\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "ServerSecret",
       "variant": "full",
       "wire": {
-        "key": "apiKeys.openrouter",
+        "key": "integrations.linearApiKey",
         "value": "value",
         "updatedAt": "updatedAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"key\":\"apiKeys.openrouter\",\"value\":\"value\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"key\":\"integrations.linearApiKey\",\"value\":\"value\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "ServerSecretKey",
       "variant": "minimal",
-      "wire": "apiKeys.openrouter",
+      "wire": "integrations.linearApiKey",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "\"apiKeys.openrouter\""
+      "encoded": "\"integrations.linearApiKey\""
     },
     {
       "schema": "ServerSecretKey",
       "variant": "full",
-      "wire": "apiKeys.openrouter",
+      "wire": "integrations.linearApiKey",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "\"apiKeys.openrouter\""
+      "encoded": "\"integrations.linearApiKey\""
     },
     {
       "schema": "SessionActivity",
