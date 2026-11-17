@@ -46,8 +46,9 @@ describe('StoreDatabase.workspace', () => {
     expect(a.sessions).not.toBe(b.sessions)
     expect(a.issues).not.toBe(b.issues)
     expect([a.sync.workspaceId, b.sync.workspaceId]).toEqual([WS_A, WS_B])
+    // Secrets are each workspace's too since POD-7013; the install's are read through them.
+    expect(a.secrets).not.toBe(b.secrets)
     // What there is one of per database is shared.
-    expect(a.secrets).toBe(b.secrets)
     expect(a.tableWrites).toBe(b.tableWrites)
     expect(a.hostMachineId).toBe(b.hostMachineId)
   })

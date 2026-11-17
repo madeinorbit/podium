@@ -171,7 +171,7 @@ export const TABLE_MANIFEST = {
     origin: 'schema',
     idgen: 'natural',
     reason:
-      'install keys only (schema and upgrade marks, installation identity, update execution, fleet channel); its workspace keys move to workspace_meta',
+      'install keys only (INSTALL_META_KEYS: schema and upgrade marks, installation identity, update execution, fleet channel); its workspace keys moved to workspace_meta (POD-7013)',
     hard: true,
   },
   native_login_opt_ins: workspace('natural', 'a member opting a harness login in'),
@@ -214,7 +214,7 @@ export const TABLE_MANIFEST = {
     origin: 'schema',
     idgen: 'natural',
     reason:
-      "install secrets only (installation key, update signing keys, identity signing secret); a workspace's own secrets move to workspace_secrets",
+      "install secrets only (INSTALL_SECRET_KEYS: installation key, update signing keys, identity signing secret); a workspace's own secrets moved to workspace_secrets (POD-7013)",
     hard: true,
   },
   session_drafts: workspace('natural', 'per session'),
@@ -401,21 +401,15 @@ export const TABLE_MANIFEST = {
     mayBeAbsent: 'written by the first ANALYZE, which the store runs on the exclusive lane',
   },
 
-  // ---- planned by POD-6959; task A5 (POD-7013) creates them and sets origin 'schema' ----
-  workspace_meta: {
-    class: 'workspace',
-    origin: 'planned',
-    idgen: 'natural',
-    reason:
-      'the workspace keys of meta: settings, model catalogs, membership version, sign-in carry-over, retired solo member; keyed (workspace_id, key)',
-  },
-  workspace_secrets: {
-    class: 'workspace',
-    origin: 'planned',
-    idgen: 'natural',
-    reason:
-      "a workspace's own secrets: settings fingerprint key, Telegram bot token; keyed (workspace_id, key)",
-  },
+  // ---- the workspace halves of meta and server_secrets (POD-7013) ----
+  workspace_meta: workspace(
+    'natural',
+    'the workspace keys of meta (WORKSPACE_META_KEYS): settings, model catalogs, membership version, sign-in carry-over, retired solo member, its own upgrade receipts; keyed (workspace_id, key)',
+  ),
+  workspace_secrets: workspace(
+    'natural',
+    "a workspace's own secrets (WORKSPACE_SECRET_KEYS): the settings secrets, the settings fingerprint key, native login transfers; keyed (workspace_id, key)",
+  ),
 } as const satisfies Record<string, ManifestEntry>
 
 type Manifest = typeof TABLE_MANIFEST
@@ -473,8 +467,10 @@ export function classifyTable(name: string): ManifestEntry | undefined {
 }
 
 /**
- * The files that hold global repositories: repositories over install tables only, built with
- * the global context. They are the only files that may define a query with `preparedGlobal`
+ * The files that hold global repositories (repositories over install tables only, built with
+ * the global context) or a workspace repository that also reaches install keys (the install
+ * halves of `meta` and `server_secrets`, POD-7013). They are the only files that may define a
+ * query with `preparedGlobal`
  * (the source guard, `workspace-scope-guard.test.ts`, POD-7014). A file a task has not created
  * yet carries that task in `plannedBy`; the guard fails once the file exists and the field is
  * still set.
@@ -490,4 +486,110 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
         "the store database's own statements (POD-7010): each workspace's provisioning insert",
     },
   ],
+  [
+    'apps/server/src/store/settings.ts',
+    {
+      reason:
+        "a workspace's settings repository; the identity links receipt it records is an install key of meta, read by the migrator (POD-7013)",
+    },
+  ],
+  [
+    'apps/server/src/store/server-secrets.ts',
+    {
+      reason:
+        "a workspace's secrets repository; the installation key and the identity signing secret it serves are the install's, in server_secrets and meta (POD-7013)",
+    },
+  ],
 ])
+
+// ---------------------------------------------------------------------------
+// The keys of meta and server_secrets (POD-6959 design 2.1, POD-7013)
+// ---------------------------------------------------------------------------
+
+/**
+ * One key of a key/value table: by its exact name, or every key that starts with a prefix
+ * (a key family such as `model_catalog:<machine>`).
+ */
+export type KeyPattern = { readonly key: string } | { readonly prefix: string }
+
+/** Whether `key` is one of `patterns`. */
+export function keyIn(patterns: readonly KeyPattern[], key: string): boolean {
+  return patterns.some((p) => ('key' in p ? p.key === key : key.startsWith(p.prefix)))
+}
+
+/**
+ * THE INSTALL KEYS OF `meta`: what the installation is, its schema and upgrade marks, the
+ * fleet-wide update state. One per database; read and written through global definitions or by
+ * the migrator and the boot imports. `store/workspace-manifest.test.ts` holds a migrated and
+ * booted database's `meta` to this list.
+ */
+export const INSTALL_META_KEYS: readonly KeyPattern[] = [
+  // The legacy runner's version row, on a database the pre-drizzle runner created.
+  { key: 'schema_version' },
+  // The installation identity's public half (installation-identity.ts).
+  { key: 'installation_identity' },
+  // Fleet update execution and the fleet channel (recovery-store.ts, machine-record-context.ts).
+  { key: 'updates.execution.v1' },
+  { key: 'machines.fleet-channel.v1' },
+  // Read by the migrator before any repository exists (migrations/index.ts).
+  { key: 'identity.legacyLinksImported' },
+  // The one-time boot imports and upgrade marks.
+  { key: 'repo-identity-upgrade' },
+  { key: 'installation_identity_import_v1' },
+  { key: 'settings_config_import_v1' },
+  { key: 'secret_fingerprint_import_v1' },
+  { key: 'update_signing_key_imported_v1' },
+  { key: 'enrollment_ledger_imported' },
+  { key: 'legacy_worktree_machine_ids_v1' },
+]
+
+/**
+ * THE WORKSPACE KEYS OF `meta`, now in `workspace_meta`. The migration
+ * `20261117060140_workspace-meta-split` moved exactly these to the workspace `local`; its SQL
+ * spells the same list, and `migrations/workspace-meta-split.test.ts` ties the two together.
+ */
+export const WORKSPACE_META_KEYS: readonly KeyPattern[] = [
+  // The instance-preferences blob (settings.ts).
+  { key: 'settings' },
+  // The live model catalog per machine, and the unkeyed shape before the split.
+  { key: 'model_catalog' },
+  { prefix: 'model_catalog:' },
+  // The hosted membership cursor (identity/server-identity.ts).
+  { key: 'identity.appliedMembershipVersion' },
+  // The end of the sign-in carry-over period (sign-in-carry-over.ts).
+  { key: 'signInCarryOver.endsAt' },
+  // The member the solo era's rows were given, and the receipt cutoff that goes with it.
+  { key: 'retired_solo_member_id' },
+  { key: 'legacy_mutation_receipt_cutoff' },
+  // Setup enrollment receipts, committed with the workspace's machine row.
+  { prefix: 'setup_enrollment:' },
+  // Receipts of data migrations over the workspace's own rows.
+  { prefix: 'data_migration:' },
+  // The retired hub replica blobs (POD-309): inert, but the workspace's data.
+  { key: 'upstream_sync_cursor' },
+  { key: 'upstream_sessions' },
+  { key: 'upstream_conversations' },
+  { key: 'upstream_issues' },
+]
+
+/** THE INSTALL SECRETS of `server_secrets`; held to a migrated and booted database as `meta`. */
+export const INSTALL_SECRET_KEYS: readonly KeyPattern[] = [
+  { key: 'installation.privateKey' },
+  { key: 'updates.signingKey' },
+  { key: 'updates.signingKeyAnchor' },
+  { key: 'identity.signingSecret' },
+]
+
+/** THE WORKSPACE SECRETS, now in `workspace_secrets`; moved as {@link WORKSPACE_META_KEYS}. */
+export const WORKSPACE_SECRET_KEYS: readonly KeyPattern[] = [
+  // The settings secrets: the whole SERVER_SECRET_KEYS vocabulary.
+  { key: 'apiKeys.openrouter' },
+  { key: 'apiKeys.anthropic' },
+  { key: 'apiKeys.openai' },
+  { key: 'integrations.linearApiKey' },
+  { key: 'notifications.telegramBotToken' },
+  // The MAC key of secret fingerprints (fingerprint-key-import.ts).
+  { key: 'settings.fingerprintKey' },
+  // A member's native login snapshot while it moves to a machine.
+  { prefix: 'native-login-transfer:' },
+]

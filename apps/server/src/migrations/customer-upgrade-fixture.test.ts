@@ -76,6 +76,13 @@ const machines = (db: SqlDatabase, legacy = false): MachineRow[] =>
 const meta = (db: SqlDatabase, key: string): string | undefined =>
   (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)
     ?.value
+/** After the upgrade the retired member is the workspace's key (`workspace_meta`, POD-7013). */
+const retiredMember = (db: SqlDatabase): string | undefined =>
+  (
+    db
+      .prepare("SELECT value FROM workspace_meta WHERE workspace_id = 'local' AND key = ?")
+      .get(RETIRED_MEMBER_MAPPING) as { value: string } | undefined
+  )?.value
 const feedEpoch = (db: SqlDatabase): string | undefined =>
   (
     db.prepare("SELECT epoch FROM sync_feed WHERE workspace_id = 'local'").get() as
@@ -219,7 +226,7 @@ describe('customer upgrade fixture: server', () => {
     const root = customerState()
     await upgrade(root)
     withDb(root, (db) => {
-      const member = meta(db, RETIRED_MEMBER_MAPPING)
+      const member = retiredMember(db)
       expect(member).toBeDefined()
       expect(member).not.toBe(RETIRED)
       const after = machines(db)
@@ -273,7 +280,7 @@ describe('customer upgrade fixture: server', () => {
     const root = customerState({ ledger: null })
     await upgrade(root)
     const { member, before } = withDb(root, (db) => ({
-      member: meta(db, RETIRED_MEMBER_MAPPING)!,
+      member: retiredMember(db)!,
       before: machines(db),
     }))
     withDb(root, (db) => {
@@ -288,7 +295,7 @@ describe('customer upgrade fixture: server', () => {
     await upgrade(root)
     withDb(root, (db) => {
       expect(machines(db)).toEqual(before)
-      expect(meta(db, RETIRED_MEMBER_MAPPING)).toBe(member)
+      expect(retiredMember(db)).toBe(member)
     })
     expect(existsSync(join(root, 'enrollment.ledger'))).toBe(true)
   })
@@ -365,7 +372,7 @@ describe('customer upgrade fixture: server', () => {
     })
     await upgrade(root)
     withDb(root, (db) => {
-      const member = meta(db, RETIRED_MEMBER_MAPPING)
+      const member = retiredMember(db)
       const after = machines(db)
       expect(after.find((m) => m.id === 'machine-host')?.owner_user_id).toBe(member)
       expect(after.find((m) => m.id === 'machine-host')?.token_hash).toBe('hash-host')
@@ -411,7 +418,7 @@ describe('customer upgrade fixture: server', () => {
     const root = customerState({ ledger: `${enrollmentLedger}{"v":1,"kind":"enroll","id":"torn"` })
     await upgrade(root)
     withDb(root, (db) => {
-      const member = meta(db, RETIRED_MEMBER_MAPPING)
+      const member = retiredMember(db)
       for (const id of ledgerMachines())
         expect(machines(db).find((m) => m.id === id)?.owner_user_id).toBe(member)
       expect(meta(db, LEDGER_IMPORT_MARKER)).toBeDefined()

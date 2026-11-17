@@ -6,7 +6,9 @@ import { asAccountId, asMachineId, asUserId, Inventory } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { AccountsRepository, SHARED_WITH_EVERYONE } from './store/accounts'
+import { workspaceQueries } from './store/executor/sync-drizzle'
 import { ServerSecretsRepository } from './store/server-secrets'
 import type { MachineRecord } from './store/types'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
@@ -28,7 +30,7 @@ const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 function emptyAccounts(): AccountsRepository {
   const db = openMigratedTestDatabase()
   const queries = stageASeam(db)
-  secrets = new ServerSecretsRepository(queries)
+  secrets = new ServerSecretsRepository(workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
   return new AccountsRepository(queries)
 }
 

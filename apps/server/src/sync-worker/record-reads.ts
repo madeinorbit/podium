@@ -17,6 +17,7 @@ import { ConversationsRepository } from '../store/conversations'
 import { EffectsRepository } from '../store/effects'
 import { EventsRepository } from '../store/events'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
+import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { GrantsRepository } from '../store/grants'
 import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
@@ -64,7 +65,9 @@ export function recordReadsOf(
       agentProfiles: new AgentProfilesRepository(q),
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
-      settings: new SettingsRepository(q),
+      // The settings rows are a workspace's (POD-7013): the self-hosted install's,
+      // as for `sync` below.
+      settings: new SettingsRepository(legacyWorkspaceQueries(q, SELF_HOSTED_WORKSPACE_ID)),
       // The session record's satellites and joins (POD-6764): reads only.
       observationCheckpoints: new ObservationCheckpointsRepository(q),
       // Nothing writes on this connection, so nothing announces a write.

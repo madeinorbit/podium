@@ -127,6 +127,7 @@ import type {
   ShipTrainSubsetId,
   ThreadId,
   UserId,
+  WorkspaceId,
 } from '@podium/model'
 import { desc, sql } from 'drizzle-orm'
 import {
@@ -490,10 +491,35 @@ export const sessionTerminalCandidates = sqliteTable('session_terminal_candidate
   ...workspaceColumn(),
 })
 
+/**
+ * THE INSTALL'S KEY/VALUE ROWS. One per database: what the installation is, its
+ * schema and upgrade marks, the update execution and the fleet channel. A
+ * workspace's own keys are in {@link workspaceMeta} (POD-6959 design 2.1,
+ * POD-7013); `store/workspace-manifest.ts` lists the keys that belong here.
+ */
 export const meta = sqliteTable('meta', {
   key: text().primaryKey(),
   value: text().notNull(),
 })
+
+/**
+ * ONE WORKSPACE'S KEY/VALUE ROWS (POD-6959 design 2.1, POD-7013): its settings
+ * blob, model catalogs, membership cursor, sign-in carry-over end, the retired
+ * solo member and its own upgrade receipts. Keyed `(workspace_id, key)`, so two
+ * workspaces hold the same key apart.
+ *
+ * Created in its final shape: the workspace column has no default, because no
+ * statement writes this table without naming its workspace.
+ */
+export const workspaceMeta = sqliteTable(
+  'workspace_meta',
+  {
+    workspaceId: text('workspace_id').notNull().$type<WorkspaceId>(),
+    key: text().notNull(),
+    value: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.key], name: 'workspace_meta_pk' })],
+)
 
 /**
  * SERVER-OWNED SECRETS, KEYED — ADR 1 D6's `server-secrets` row at rest
@@ -525,6 +551,28 @@ export const serverSecrets = sqliteTable('server_secrets', {
   value: text().notNull(),
   updatedAt: text('updated_at').notNull(),
 })
+
+/**
+ * ONE WORKSPACE'S OWN SECRETS (POD-6959 design 2.1, POD-7013): the settings
+ * secrets of `SERVER_SECRET_KEYS` (the Telegram bot token among them), the
+ * settings fingerprint key and its members' native login transfers.
+ * `server_secrets` keeps the install's: the installation key, the update
+ * signing keys and the identity signing secret. The columns and the
+ * absence-is-the-row-being-absent rule are `server_secrets`', keyed
+ * `(workspace_id, key)`; created in its final shape, as {@link workspaceMeta}.
+ */
+export const workspaceSecrets = sqliteTable(
+  'workspace_secrets',
+  {
+    workspaceId: text('workspace_id').notNull().$type<WorkspaceId>(),
+    key: text().notNull(),
+    value: text().notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.key], name: 'workspace_secrets_pk' }),
+  ],
+)
 
 /**
  * THE SETTINGS AUDIT TRAIL (POD-421, 3.7d) — append-only, server-only, and the

@@ -113,7 +113,7 @@ describe('the period (test 12)', () => {
           .run(hashOf(spare), ALICE),
     })
     const [period] = i.rows<{ value: string }>(
-      'SELECT value FROM meta WHERE key = ?',
+      'SELECT value FROM workspace_meta WHERE key = ?',
       CARRY_OVER_ENDS_AT_KEY,
     )
     const endsAt = Date.parse(period?.value ?? '')
@@ -151,8 +151,10 @@ describe('the period (test 12)', () => {
   it('a start after the end empties both tables; a restart inside the period does not move its end', async () => {
     const first = await start('two-members')
     const read = (i: UpgradedInstance) =>
-      i.rows<{ value: string }>('SELECT value FROM meta WHERE key = ?', CARRY_OVER_ENDS_AT_KEY)[0]
-        ?.value
+      i.rows<{ value: string }>(
+        'SELECT value FROM workspace_meta WHERE key = ?',
+        CARRY_OVER_ENDS_AT_KEY,
+      )[0]?.value
     const endsAt = read(first)
     const stateDir = first.stateDir
     const before = first.oldSignIns()

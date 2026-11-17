@@ -28,7 +28,9 @@ import { normalizeSettings } from '@podium/runtime'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { SettingsRepository } from './settings'
 
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
@@ -46,7 +48,7 @@ beforeEach(() => {
   db = openMigratedTestDatabase()
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
-  settings = new SettingsRepository(stage)
+  settings = new SettingsRepository(legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
 })
 
 describe('a preference row belongs to one person', () => {
@@ -192,8 +194,8 @@ describe('absence is the row being absent', () => {
   })
 
   it('a legacy blob harness null does not discard the rest of the stored settings', async () => {
-    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
-      'settings',
+    db.prepare("INSERT INTO workspace_meta (workspace_id, key, value) VALUES (?, 'settings', ?)").run(
+      SELF_HOSTED_WORKSPACE_ID,
       JSON.stringify({
         roles: { superagent: { harness: null, model: 'saved-model' } },
         gitWorkflow: { defaultParentBranch: 'release' },

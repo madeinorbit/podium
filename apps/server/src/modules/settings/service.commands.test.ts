@@ -30,7 +30,9 @@ import {
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { legacyWorkspaceQueries } from '../../store/executor/sync-drizzle'
 import { SettingsRepository } from '../../store/settings'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { EventBus } from '../bus'
@@ -52,8 +54,11 @@ function makeStore(
 ): SettingsRepository {
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
-  return new SettingsRepository(stage)
+  return new SettingsRepository(legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
 }
+
+/** The settings blob's row: the self-hosted workspace's key (POD-7013). */
+const SETTINGS_ROW = "SELECT value FROM workspace_meta WHERE workspace_id = 'local' AND key = ?"
 
 /** The person every write below is made by. Named once so a test asserting
  *  "what this caller sees" cannot silently read someone else's view. */
@@ -168,7 +173,7 @@ describe('optional role harness saves stay loadable', () => {
     const saved = await service.updatePreferences(USER, { [`hibernation.${key}`]: null })
     expect(saved.hibernation[key]).toBeNull()
     expect((await service.getSettingsFor(USER)).hibernation[key]).toBeNull()
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as {
+    const row = db.prepare(SETTINGS_ROW).get('settings') as {
       value: string
     }
     expect(JSON.parse(row.value).hibernation[key]).toBeNull()
@@ -192,7 +197,7 @@ describe('optional role harness saves stay loadable', () => {
     expect(saved).not.toHaveProperty(path)
     expect(await service.getSettingsFor(USER)).not.toHaveProperty(path)
     expect(saved.hibernation.maxIdleSessions).toBeNull()
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as {
+    const row = db.prepare(SETTINGS_ROW).get('settings') as {
       value: string
     }
     const persisted = JSON.parse(row.value)

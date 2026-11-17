@@ -29,10 +29,14 @@ import { runDrizzleMigrations } from './index'
 
 const M1 = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_workspace-column'))
 
-/** The workspace tables the migration chain creates (planned and runtime ones excluded). */
+/** Workspace tables a later migration creates, already keyed by workspace (POD-7013). */
+const CREATED_AFTER_M1 = new Set(['workspace_meta', 'workspace_secrets'])
+
+/** The workspace tables the migration chain creates before M1 (planned and runtime ones excluded). */
 const WORKSPACE_TABLES = Object.entries(TABLE_MANIFEST)
   .filter(([, entry]) => entry.class === 'workspace' && entry.origin === 'schema')
   .map(([name]) => name)
+  .filter((name) => !CREATED_AFTER_M1.has(name))
   .sort()
 
 /** The sync tables whose `tenant_id` M1 renames; every other workspace table gains the column. */
@@ -143,7 +147,7 @@ describe('workspace column migration (M1)', () => {
     // Read after all seeding: a trigger of one table may write another.
     for (const table of WORKSPACE_TABLES) before.set(table, rowsOf(db, table))
     pagesBefore = rootpages(db)
-    applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, M1 + 1))
   })
   afterAll(() => db.close())
 

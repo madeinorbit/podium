@@ -1,19 +1,37 @@
 import * as identitySchema from '@podium/identity/schema/sqlite'
+import { SERVER_SECRET_KEYS } from '@podium/model'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+} from '@podium/runtime/installation-identity'
 import { is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as syncSchema from '../../../../packages/sync/src/adapters/sqlite/schema'
+import { LEDGER_IMPORT_MARKER, RETIRED_MEMBER_MAPPING } from '../enrollment-ledger-import'
+import { FINGERPRINT_IMPORT_MARKER, FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
+import { INSTALLATION_IMPORT_MARKER } from '../installation-identity-import'
 import * as legacyImportSchema from '../migrations/identity-import-schema'
 import * as serverSchema from '../migrations/schema'
+import { SETTINGS_CONFIG_IMPORT } from '../settings-config-import'
 import type { SessionStore } from '../store'
 import { forceFeature } from '../test-support/features'
 import { openTestStore } from '../test-support/open-test-store'
+import { LEGACY_WORKTREE_MIGRATION } from './issues'
+import { IDENTITY_SIGNING_SECRET_KEY } from './server-secrets'
+import { CARRY_OVER_ENDS_AT_KEY } from './sign-in-carry-over'
 import {
   classifyTable,
+  INSTALL_META_KEYS,
+  INSTALL_SECRET_KEYS,
   INSTALL_TABLE_EXPORTS,
   INSTALL_TABLES,
+  type KeyPattern,
+  keyIn,
   type ManifestEntry,
   TABLE_MANIFEST,
+  WORKSPACE_META_KEYS,
+  WORKSPACE_SECRET_KEYS,
   WORKSPACE_TABLES,
 } from './workspace-manifest'
 
@@ -299,5 +317,72 @@ describe('workspace table manifest', () => {
       if (!declaredOk || !nonNullLive(liveWorkspaceColumn(name))) missing.push(name)
     }
     expect(missing).toEqual([])
+  })
+
+  // ---- the install halves of meta and server_secrets (POD-7013) ----
+
+  const keysIn = (table: 'meta' | 'server_secrets'): string[] =>
+    (db.prepare(`SELECT key FROM ${table} ORDER BY key`).all() as { key: string }[]).map(
+      (row) => row.key,
+    )
+
+  /** The keys of `table` that its install list does not name. */
+  const strayKeys = (table: 'meta' | 'server_secrets', install: readonly KeyPattern[]) =>
+    keysIn(table).filter((key) => !keyIn(install, key))
+
+  it('holds only install keys in meta and server_secrets of a migrated, booted database', () => {
+    // Non-vacuous: the boot wrote install keys, and the workspace's went to the new tables.
+    expect(keysIn('meta')).toContain(INSTALLATION_META_KEY)
+    expect(keysIn('server_secrets')).toContain(INSTALLATION_PRIVATE_KEY)
+    const workspaceKeys = (
+      db.prepare('SELECT key FROM workspace_meta').all() as { key: string }[]
+    ).map((row) => row.key)
+    expect(workspaceKeys).toContain('settings')
+    expect(strayKeys('meta', INSTALL_META_KEYS)).toEqual([])
+    expect(strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([])
+  })
+
+  it('fails on a planted workspace key in meta or server_secrets', () => {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('model_catalog:planted', '{}')").run()
+    db.prepare(
+      "INSERT INTO server_secrets (key, value, updated_at) VALUES ('notifications.telegramBotToken', 'planted', 'now')",
+    ).run()
+    try {
+      expect(strayKeys('meta', INSTALL_META_KEYS)).toEqual(['model_catalog:planted'])
+      expect(strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([
+        'notifications.telegramBotToken',
+      ])
+    } finally {
+      db.prepare("DELETE FROM meta WHERE key = 'model_catalog:planted'").run()
+      db.prepare("DELETE FROM server_secrets WHERE key = 'notifications.telegramBotToken'").run()
+    }
+  })
+
+  it("lists the code's keys in the right list, and no key in both", () => {
+    const installMeta = [
+      INSTALLATION_META_KEY,
+      INSTALLATION_IMPORT_MARKER,
+      SETTINGS_CONFIG_IMPORT,
+      FINGERPRINT_IMPORT_MARKER,
+      LEDGER_IMPORT_MARKER,
+      LEGACY_WORKTREE_MIGRATION,
+    ]
+    for (const key of installMeta) expect(keyIn(INSTALL_META_KEYS, key), key).toBe(true)
+    for (const key of [RETIRED_MEMBER_MAPPING, CARRY_OVER_ENDS_AT_KEY, 'settings'])
+      expect(keyIn(WORKSPACE_META_KEYS, key), key).toBe(true)
+    for (const key of [INSTALLATION_PRIVATE_KEY, IDENTITY_SIGNING_SECRET_KEY])
+      expect(keyIn(INSTALL_SECRET_KEYS, key), key).toBe(true)
+    for (const key of [...SERVER_SECRET_KEYS, FINGERPRINT_SECRET_KEY])
+      expect(keyIn(WORKSPACE_SECRET_KEYS, key), key).toBe(true)
+    const named = (patterns: readonly KeyPattern[]) =>
+      patterns.map((p) => ('key' in p ? p.key : `${p.prefix}x`))
+    for (const key of named(INSTALL_META_KEYS))
+      expect(keyIn(WORKSPACE_META_KEYS, key), key).toBe(false)
+    for (const key of named(WORKSPACE_META_KEYS))
+      expect(keyIn(INSTALL_META_KEYS, key), key).toBe(false)
+    for (const key of named(INSTALL_SECRET_KEYS))
+      expect(keyIn(WORKSPACE_SECRET_KEYS, key), key).toBe(false)
+    for (const key of named(WORKSPACE_SECRET_KEYS))
+      expect(keyIn(INSTALL_SECRET_KEYS, key), key).toBe(false)
   })
 })

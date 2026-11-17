@@ -191,13 +191,6 @@ export class StoreDatabase {
    * workspace's store it belongs to. See `store/table-writes.ts`.
    */
   readonly tableWrites = new TableWrites()
-  /**
-   * Server-owned secrets (ADR 1 D6), over the install tables `server_secrets`
-   * and `meta`: a GLOBAL repository. POD-7013 moves the keys that belong to a
-   * workspace (the settings fingerprint key, the Telegram bot token) into
-   * `workspace_secrets` and gives them a workspace repository.
-   */
-  readonly secrets: ServerSecretsRepository
   /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
   readonly hostMachineId: MachineId
   /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
@@ -282,8 +275,18 @@ export class StoreDatabase {
         const result = migrateStoreConnection(database, path)
         bootStage('migrations', migrationStarted)
         const importsStarted = performance.now()
-        importConfigSettings(database, path === ':memory:' ? undefined : dirname(path))
-        importFingerprintKey(database, path === ':memory:' ? undefined : dirname(path))
+        // The settings blob and the fingerprint key are the boot workspace's
+        // (POD-7013); the import receipts stay the install's.
+        importConfigSettings(
+          database,
+          options.bootWorkspace,
+          path === ':memory:' ? undefined : dirname(path),
+        )
+        importFingerprintKey(
+          database,
+          options.bootWorkspace,
+          path === ':memory:' ? undefined : dirname(path),
+        )
         importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
         if (path !== ':memory:') {
           importEnrollmentLedger(database, dirname(path), options.bootWorkspace)
@@ -352,7 +355,6 @@ export class StoreDatabase {
     this.hostMachineId = asMachineId(hostMachineId)
     this.snapshotVerifier = new SnapshotVerifier(path, options)
     this.queries = executor.queries
-    this.secrets = new ServerSecretsRepository(this.queries)
   }
 
   /**
@@ -674,7 +676,11 @@ export class SessionStore {
   /** Event-stream read positions keyed `(user_id, stream_id)` (POD-1380) — how far
    *  a person has read the issue-event log, on every device they use. */
   readonly readPositions: UserReadPositionRepository
-  /** The database's global secrets repository ({@link StoreDatabase.secrets}). */
+  /**
+   * Server-owned secrets (ADR 1 D6): this workspace's own (`workspace_secrets`),
+   * and the install's (`server_secrets`, `meta`) through global definitions
+   * (POD-7013).
+   */
   readonly secrets: ServerSecretsRepository
   /** The settings family's append-only audit trail (POD-421, ADR 9 D5 A3) — who
    *  changed which setting, and who was refused. Server-only and projected into
@@ -767,7 +773,7 @@ export class SessionStore {
     // per handle, so the handle is made once here, never per call.
     this.queries = legacyWorkspaceQueries(database.queries, workspaceId)
     this.context = workspaceContext(workspaceId)
-    this.secrets = database.secrets
+    this.secrets = new ServerSecretsRepository(this.queries)
 
     // Compose the per-aggregate repositories. The three cross-aggregate edges are
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions

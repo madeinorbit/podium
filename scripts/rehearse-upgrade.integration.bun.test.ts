@@ -463,7 +463,11 @@ describe('upgrade rehearsal', () => {
         expect(periodMs).toBeGreaterThanOrEqual(THIRTY_DAYS_MS)
         expect(periodMs).toBeLessThan(THIRTY_DAYS_MS + 10 * 60_000)
         expect(
-          upgraded.prepare("SELECT value FROM meta WHERE key = 'signInCarryOver.endsAt'").get(),
+          upgraded
+            .prepare(
+              "SELECT value FROM workspace_meta WHERE workspace_id = 'local' AND key = 'signInCarryOver.endsAt'",
+            )
+            .get(),
         ).toEqual({ value: carryOver?.endsAt })
         expect(upgraded.prepare('SELECT count(*) AS n FROM carried_sign_ins').get()).toEqual({
           n: 0,

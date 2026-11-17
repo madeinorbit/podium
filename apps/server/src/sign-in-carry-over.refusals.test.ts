@@ -380,7 +380,9 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     expect(sourcesBefore.invitations).toEqual([])
     const sourceOrSession = /user_credentials|member_invites|client_sessions|carried_sign_ins/
     expect(rowsBefore.length).toBeGreaterThan(0)
-    expect(i.rows('SELECT 1 FROM meta WHERE key = ?', 'signInCarryOver.endsAt')).toEqual([])
+    expect(i.rows('SELECT 1 FROM workspace_meta WHERE key = ?', 'signInCarryOver.endsAt')).toEqual(
+      [],
+    )
 
     const none = await i.status(undefined, https)
     for (const headers of [https, {}]) {

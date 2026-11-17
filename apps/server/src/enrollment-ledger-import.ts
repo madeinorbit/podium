@@ -119,7 +119,8 @@ export function importEnrollmentLedger(
     return false
   }
   const snapshot = readValidatedEnrollmentLedger(path)
-  const mapping = (db.prepare('SELECT value FROM meta WHERE key = ?').get(RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
+  // The retired member is the workspace's (`workspace_meta`, POD-7013); the marker stays the install's.
+  const mapping = (db.prepare('SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = ?').get(workspaceId, RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
   const users = new Set((db.prepare('SELECT id FROM users').all() as { id: string }[]).map((row) => row.id))
   const states = latestState(snapshot)
   for (const state of states.values()) {

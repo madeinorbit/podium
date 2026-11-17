@@ -13,18 +13,24 @@
 import type { UserId } from '@podium/model'
 import { and, eq, gt, inArray, lte, sql } from 'drizzle-orm'
 import {
+  inWorkspace,
   param,
   prepared,
   type StoreDrizzle,
   type StoreQueries,
   type TransactionRunner,
+  WORKSPACE,
+  type WorkspaceDb,
 } from './executor/sync-drizzle'
 
 /** The labels of old sign-ins a person held. Nothing else is ever honoured (R8). */
 export const HONOURED_LABELS = ['login', 'mobile', 'break-glass'] as const
 export type HonouredLabel = (typeof HONOURED_LABELS)[number]
 
-/** `meta` key: the instant after which nothing is carried on this server. Written once. */
+/**
+ * Workspace key (`workspace_meta`, POD-7013): the instant after which nothing is
+ * carried in this workspace. Written once.
+ */
 export const CARRY_OVER_ENDS_AT_KEY = 'signInCarryOver.endsAt'
 
 /**
@@ -172,18 +178,22 @@ const countHonouredOldSignIns = prepared((db, t) =>
 
 const periodEnd = prepared((db, t) =>
   db
-    .select({ value: t.meta.value })
-    .from(t.meta)
-    .where(eq(t.meta.key, CARRY_OVER_ENDS_AT_KEY))
+    .select({ value: t.workspaceMeta.value })
+    .from(t.workspaceMeta)
+    .where(inWorkspace(t.workspaceMeta, eq(t.workspaceMeta.key, CARRY_OVER_ENDS_AT_KEY)))
     .prepare(),
 )
 
 /** Written once: a later start never moves the end of the period. */
 const insertPeriodEnd = prepared((db, t) =>
   db
-    .insert(t.meta)
-    .values({ key: CARRY_OVER_ENDS_AT_KEY, value: sql.placeholder('value') })
-    .onConflictDoNothing()
+    .insert(t.workspaceMeta)
+    .values({
+      workspaceId: WORKSPACE,
+      key: CARRY_OVER_ENDS_AT_KEY,
+      value: sql.placeholder('value'),
+    })
+    .onConflictDoNothing({ target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key] })
     .prepare(),
 )
 
@@ -208,11 +218,31 @@ export interface CarryRecord {
 
 export class SignInCarryOverRepository {
   private readonly db: StoreDrizzle
+  /** The workspace's handle, when the repository was built for one (see the constructor). */
+  private readonly scope: WorkspaceDb | undefined
   private readonly createOrJoinTransaction: TransactionRunner
 
+  /**
+   * The end of the period is the workspace's (POD-7013), so it is read and
+   * written through the workspace's handle. The old sign-ins and carry records
+   * still run unbound on `rootDb` until their scoping task, which also narrows
+   * this constructor to workspace queries; until then a repository built over
+   * global queries (a read-only composition that never reads the period) has
+   * no handle, and {@link periodEnd} refuses.
+   */
   constructor(queries: StoreQueries) {
     this.db = queries.rootDb
+    this.scope = queries.db.context.kind === 'workspace' ? (queries.db as WorkspaceDb) : undefined
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
+
+  private get workspaceDb(): WorkspaceDb {
+    if (this.scope === undefined) {
+      throw new Error(
+        'the sign-in carry-over period is a workspace key: build this repository for a workspace',
+      )
+    }
+    return this.scope
   }
 
   /** One write transaction of the store; the identity package's operations inside join it. */
@@ -300,10 +330,10 @@ export class SignInCarryOverRepository {
   }
 
   async periodEnd(): Promise<string | undefined> {
-    return (await periodEnd(this.db).get())?.value
+    return (await periodEnd(this.workspaceDb).get())?.value
   }
 
   async writePeriodEndIfAbsent(value: string): Promise<void> {
-    await insertPeriodEnd(this.db).run({ value })
+    await insertPeriodEnd(this.workspaceDb).run({ value })
   }
 }

@@ -201,7 +201,11 @@ describe('session birth naming (#474)', () => {
     })
     // The backfill runs once per database, behind its receipt; a database from
     // before #474 has none.
-    rawSql(store, 'DELETE FROM meta WHERE key = ?', 'data_migration:session-birth-refs-v1')
+    rawSql(
+      store,
+      'DELETE FROM workspace_meta WHERE key = ?',
+      'data_migration:session-birth-refs-v1',
+    )
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg2.modules.sessions.loadFromStore()
     const row = (await store.sessions.loadSessions()).find((r) => r.id === a)

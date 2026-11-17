@@ -1778,7 +1778,7 @@ exec "$CANARY_REAL_CLI" "$@"
     // S8 imports the channel into deployment settings on the first server boot.
     const namedDatabase = openDatabase(join(namedSpec.stateDir, 'podium.db'), { readOnly: true })
     try {
-      const settings = namedDatabase.prepare("SELECT value FROM meta WHERE key = 'settings'").get() as { value: string }
+      const settings = namedDatabase.prepare("SELECT value FROM workspace_meta WHERE workspace_id = 'local' AND key = 'settings'").get() as { value: string }
       expect(JSON.parse(settings.value).deployment.updateChannel).toBe('edge')
     } finally { namedDatabase.close() }
     const stopped = await runCli(named, ['stop'])
