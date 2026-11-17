@@ -166,6 +166,9 @@ record named (bootstrap, writes and fan-out) run through those same workspace re
 Membership authorization, resource grants and the visibility policy still apply inside a
 workspace, as before.
 
+ADR 1 D5.3 and ADR 9 §1.2 carry notes that point here: the tenant dimension is `workspace_id`,
+never `instance_id`, and owner and visibility still partition people inside one workspace.
+
 **Unchanged.** One feed and one change numbering per workspace; the reservation, retention and
 bootstrap contract above; no request parameter selects a workspace (hosted routing names it
 from trusted workspace routing, POD-6960); no row-level security (composite foreign keys keep
