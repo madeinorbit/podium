@@ -5,6 +5,7 @@
  * representation checks intentionally remain on the package root only.
  */
 
+export * from './credentials/refusals'
 export * from './entities/agent'
 export * from './entities/agent-profile'
 export * from './entities/automation'
@@ -13,6 +14,7 @@ export * from './entities/draft-doc'
 export * from './entities/effect'
 export * from './entities/issue'
 export * from './entities/issue-git-state'
+export * from './entities/issue-panel-records'
 export * from './entities/issue-status'
 export * from './entities/label-color'
 export * from './entities/machine'
@@ -51,5 +53,3 @@ export * from './settings/path-tiers'
 export * from './settings/secrets'
 export * from './user-state/issue-state'
 export * from './user-state/layout-state'
-
-export * from './entities/issue-panel-records'

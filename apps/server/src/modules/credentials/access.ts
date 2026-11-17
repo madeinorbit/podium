@@ -12,6 +12,8 @@
 
 import { harnessAccepts } from '@podium/harness/metadata'
 import {
+  ACCESS_REFUSAL_MESSAGES,
+  type AccessRefusal,
   type AgentKind,
   CREDENTIAL_TYPES,
   type CredentialId,
@@ -27,38 +29,9 @@ import type { CredentialRecord } from '../../store/credentials'
 import { recordCredentialEvent } from './events'
 import { type MayUseDeps, mayUse } from './may-use'
 
-export type AccessRefusal =
-  | 'not-found'
-  | 'not-yours'
-  | 'wrong-type'
-  | 'not-on-this-machine'
-  | 'machine-not-allowed'
-  | 'own-credential-required'
-  | 'needs-attention'
-  | 'revoked'
-  | 'daemon-too-old'
-  | 'connection-not-encrypted'
-  | 'machine-offline'
-
-/** The one sentence a person reads for each refusal. */
-export const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
-  'not-found': 'This credential no longer exists.',
-  'not-yours': 'You do not have use of this credential. Ask its owner to share it.',
-  'wrong-type': 'This kind of credential cannot be used here.',
-  'not-on-this-machine':
-    'This login is not signed in on this machine. Sign in there, or pick another machine.',
-  'machine-not-allowed': "This credential's owner has not sent it to this machine.",
-  'own-credential-required':
-    'The logins on this machine belong to the person who looks after it. Pick one of your own credentials.',
-  'needs-attention':
-    'This credential needs attention before it can be used. Renew it or pick another.',
-  revoked: 'This credential was removed.',
-  'daemon-too-old': 'Podium on this machine is too old to receive credentials. Update it.',
-  'connection-not-encrypted':
-    "This machine's connection to the server is not encrypted, so credentials are not sent to it. Connect it over wss or declare its network trusted.",
-  'machine-offline':
-    'This machine is not connected, so its credential cannot be sent. Try again when it is online.',
-}
+// The closed list and its sentences live in @podium/model, so a client reads a
+// refusal by its code (credential management §9).
+export { ACCESS_REFUSAL_MESSAGES, type AccessRefusal } from '@podium/model'
 
 export type AccessRefused = { ok: false; refusal: AccessRefusal; message: string }
 

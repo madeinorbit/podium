@@ -10,6 +10,7 @@ import { memberFacts } from '../../store/fixtures/test-support'
  */
 
 import {
+  ACCESS_REFUSAL_MESSAGES,
   asUserId,
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
@@ -232,6 +233,36 @@ describe('a session.launch effect', () => {
       ),
     )
     expect(reply.outcome).toBe('rejected')
+  })
+
+  it('refused for its credential, the record names the refusal by its code, with its sentence', async () => {
+    const o = await makeOracle()
+    const effectId = mintDeviceId('eff_')
+    const sessionId = newSessionId()
+    appliedReply(
+      await submit(
+        o,
+        launchEnvelope(
+          effectId,
+          sessionId,
+          {
+            agentKind: 'claude-code',
+            cwd: '/p',
+            credentialId: 'cred_00000000-0000-4000-8000-00000000dead',
+          },
+          'l-1',
+        ),
+      ),
+    )
+    const row = await settled(o, effectId)
+    expect(row?.status).toBe('failed')
+    // The client reads the code (credential management §9), never the sentence.
+    expect(row?.error).toEqual({
+      code: 'credential:not-found',
+      message: ACCESS_REFUSAL_MESSAGES['not-found'],
+    })
+    expect(spawns(o, sessionId)).toHaveLength(0)
+    expect(await o.reg.modules.sessions.sessionRowExists(sessionId)).toBe(false)
   })
 })
 

@@ -39,11 +39,14 @@ import {
   sessionCommandPlaneInputs,
 } from '@podium/commands'
 import {
+  type AccessRefusal,
   type AgentKind,
   asMutationId,
   asUserId,
   CredentialIdField,
+  credentialRefusalCode,
   type EffectTarget,
+  isAccessRefusal,
   type MachineId,
   machineRejectionMessage,
   mintDeviceId,
@@ -67,6 +70,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { CredentialRefError } from '../credentials/credential-ref'
 import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
@@ -78,6 +82,7 @@ import {
   type ResumeInput,
   resumeSessionNow,
 } from './command-plane'
+import { CredentialRefusal } from './launch-config'
 import type { SessionWriter } from './lifecycle'
 import { NO_LONGER_ALLOWED } from './lifecycle-controller'
 import type { SessionSpawnResult } from './session-start'
@@ -264,7 +269,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         }
       } catch (error) {
         remember(record.id, error)
-        return refused(error instanceof Error ? error.message : String(error))
+        return launchFailed(error)
       }
     }
     const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
@@ -306,7 +311,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       return { status: 'succeeded', result }
     } catch (error) {
       remember(record.id, error)
-      return refused(error instanceof Error ? error.message : String(error))
+      return launchFailed(error)
     }
   }
 
@@ -438,6 +443,29 @@ const refused = (message: string): EffectOutcome => ({
   status: 'failed',
   error: { code: 'refused', message },
 })
+
+/**
+ * A launch that failed: refused for its credential, the record's error code
+ * names the refusal (`credential:<refusal>`), so a client says why and offers
+ * the way out by the code, never by the sentence (credential management §9).
+ */
+function launchFailed(error: unknown): EffectOutcome {
+  const message = error instanceof Error ? error.message : String(error)
+  const refusal = credentialRefusalIn(error)
+  return refusal
+    ? { status: 'failed', error: { code: credentialRefusalCode(refusal), message } }
+    : refused(message)
+}
+
+function credentialRefusalIn(error: unknown): AccessRefusal | undefined {
+  for (let at = error, depth = 0; at instanceof Error && depth < 4; depth++) {
+    if (at instanceof CredentialRefusal || at instanceof CredentialRefError) {
+      return isAccessRefusal(at.refusal) ? at.refusal : undefined
+    }
+    at = at.cause
+  }
+  return undefined
+}
 
 /**
  * A launch with no daemon to start on NOW is refused at once, as the route

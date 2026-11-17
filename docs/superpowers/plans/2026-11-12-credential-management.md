@@ -246,6 +246,11 @@ CREDENTIAL_RESOURCE_KIND = 'credential'      // grants.resource_kind of a creden
 //   ALL_MEMBERS_SUBJECT, granteeColumnOf(subject), ALL_MEMBERS_GRANTEE = 'group:all-members' (grants.grantee)
 //   only `use` may go to all members; removeAllForGrantee stays user-only
 
+// packages/model/src/credentials/refusals.ts (Task 18 moved them here; access.ts re-exports both)
+//   ACCESS_REFUSALS, isAccessRefusal; a launch refused for its credential fails its session.launch
+//   record with error.code credentialRefusalCode(refusal) = 'credential:<refusal>', read back with
+//   credentialRefusalOfCode(code); clients switch on the code, never the sentence
+//   (SessionModel.launch, SessionModel.launchRefusal in packages/client-graph)
 // apps/server/src/modules/credentials/access.ts
 type AccessRefusal = 'not-found' | 'not-yours' | 'wrong-type' | 'not-on-this-machine'
   | 'machine-not-allowed' | 'own-credential-required' | 'needs-attention' | 'revoked'
@@ -430,6 +435,9 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   `credentialId: CredentialId | null`. Both resolve on the server, for the person the session runs
 //   for, before anything is created: resolveCredentialRef / credentialIdForRef
 //   (apps/server/src/modules/credentials/credential-ref.ts), SessionLifecycle.launchCredential.
+//   The web pickers send it through the session.launch effect input (client-core
+//   SpawnDraftAgentArgs.credentialId / LaunchSessionArgs.credentialId; absent = the default).
+// personal setting credentialDefaults is also a field of the pool's userPreferences model.
 
 // apps/server/src/modules/credentials/placements.ts — `Placements`, built by the composition root
 placements.removePlacement(placement: { credentialId; machineId; kind: 'home' | 'propagated-file' }):
