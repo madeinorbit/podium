@@ -1,7 +1,7 @@
-import { FileText, X } from './icons'
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { FileText, X } from './icons'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachment } from './useComposerAttachments'
 
@@ -67,7 +67,7 @@ export function AttachmentStrip({
               accessibilityRole="button"
               accessibilityLabel={`Remove ${attachment.name}`}
               onPress={() => onRemove(attachment.id)}
-              hitSlop={8}
+              hitSlop={13}
               style={styles.remove}
             >
               <Icon as={X} size={11} color={color.bg} />
@@ -155,6 +155,10 @@ const styles = StyleSheet.create({
     right: -5,
     width: 18,
     height: 18,
+    // PressableScale's default 44pt minimum belongs to the touch area here.
+    // Keep the badge small; hitSlop expands the 18pt control to 44pt.
+    minWidth: 18,
+    minHeight: 18,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
