@@ -32,23 +32,45 @@ export function selfHostedArtifacts(store: ArtifactStreamReader): WorkspaceArtif
   return (workspaceId) => (workspaceId === SELF_HOSTED_WORKSPACE_ID ? store : undefined)
 }
 
+/** How a request is tied to a workspace: the two seams POD-6960 replaces. */
+export interface RequestWorkspaceBinding {
+  /** The workspace whose store serves the request. Never derived from the path. */
+  readonly bound: (c: Context) => WorkspaceId
+  /** Whether the request may name `segment` in `/files/artifact/workspace/<segment>/`. */
+  readonly mayName: (c: Context, segment: string) => boolean
+}
+
 /**
  * THE WORKSPACE BOUND TO THIS REQUEST [POD-6963 design 2.7].
  *
- * The one seam for POD-6960's request binding: hosted routing replaces this body
- * with the workspace it bound the request to. A self-hosted install has one
- * workspace, so every request is bound to it. The route never takes the
- * workspace from the path: a `/workspace/<ws>/` segment is only checked against
- * this, and the store is always this workspace's. If the binding identifies
- * workspaces by the slug the clients put in that segment rather than by id,
- * POD-6960 changes the comparison in `pathNamesBoundWorkspace` with it.
+ * The isolation rule, complete today: the route reads only this workspace's
+ * store, whatever the path says. A server holds one workspace (self-hosted, and
+ * each hosted server behind today's router), so every request is bound to it.
+ * POD-6960 replaces this body with the workspace it bound the request to.
  */
 export function workspaceBoundToRequest(_c: Context): WorkspaceId {
   return SELF_HOSTED_WORKSPACE_ID
 }
 
-function pathNamesBoundWorkspace(segment: string, bound: WorkspaceId): boolean {
-  return segment === bound
+/**
+ * WHETHER THE REQUEST MAY NAME THIS WORKSPACE SEGMENT [POD-6963 design 2.7].
+ *
+ * Accepts every segment today. On a server with one workspace the segment is
+ * routing information the outer router has already consumed: hosted clients put
+ * their page's slug there and each hosted server's own workspace is `local`, so
+ * comparing the two would refuse every prefixed artifact URL. Isolation does not
+ * rest on this check, because the store is always the bound workspace's.
+ * POD-6960 replaces this body with the real comparison of `segment` against the
+ * workspace bound to `c` (by slug or by id, its decision), so a request bound to
+ * one workspace that names another is not found.
+ */
+export function requestMayNameWorkspace(_c: Context, _segment: string): boolean {
+  return true
+}
+
+export const REQUEST_WORKSPACE_BINDING: RequestWorkspaceBinding = {
+  bound: workspaceBoundToRequest,
+  mayName: requestMayNameWorkspace,
 }
 
 function decodeSegment(segment: string): string | undefined {
@@ -80,19 +102,18 @@ function discard(body: ReadableStream<Uint8Array>): void {
 export function registerArtifactRoute(
   app: Hono,
   artifactsOf: WorkspaceArtifacts,
-  boundWorkspace: (c: Context) => WorkspaceId = workspaceBoundToRequest,
+  binding: RequestWorkspaceBinding = REQUEST_WORKSPACE_BINDING,
 ): void {
   const serve = async (c: Context, relStart: number): Promise<Response> => {
     const issueId = c.req.param('issueId')
     const artifactId = c.req.param('artifactId')
     if (!issueId || !artifactId) return c.text('bad request', 400)
-    const bound = boundWorkspace(c)
-    // Hono decodes route params; an undecodable one stays raw and matches nothing.
+    // Hono decodes route params; an undecodable one reaches the seam raw.
     const pathWorkspace = c.req.param('workspace')
-    if (pathWorkspace !== undefined && !pathNamesBoundWorkspace(pathWorkspace, bound)) {
+    if (pathWorkspace !== undefined && !binding.mayName(c, pathWorkspace)) {
       return c.text('not found', 404)
     }
-    const store = artifactsOf(bound)
+    const store = artifactsOf(binding.bound(c))
     if (!store) return c.text('not found', 404)
     // The workspace path segment is routing metadata, not part of the bundle.
     // Keeping it before the issue/artifact ids means relative browser requests
@@ -166,8 +187,8 @@ export function registerArtifactRoute(
   // This path form is deliberately a prefix rather than a query parameter:
   // relative URLs inside an opened artifact HTML document retain the workspace
   // identity automatically. The hosted router consumes the same segment before
-  // this local route or authentication can run; this route then serves it only
-  // when it names the workspace the request is bound to.
+  // this local route or authentication can run; `requestMayNameWorkspace`
+  // decides whether this server answers for it.
   app.get('/files/artifact/workspace/:workspace/:issueId/:artifactId/*', (c) => serve(c, 6))
   app.get('/files/artifact/:issueId/:artifactId/*', (c) => serve(c, 4))
 }

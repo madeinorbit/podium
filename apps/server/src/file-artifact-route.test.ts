@@ -15,8 +15,10 @@ import { describe, expect, it } from 'vitest'
 import {
   type ArtifactStreamReader,
   registerArtifactRoute,
+  requestMayNameWorkspace,
   selfHostedArtifacts,
   type WorkspaceArtifacts,
+  workspaceBoundToRequest,
 } from './file-artifact-route'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
@@ -227,71 +229,87 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
 })
 
 describe('the workspace bound to the request (POD-6963 design 2.7)', () => {
-  const OTHER = asWorkspaceId('ws_other')
+  const A = asWorkspaceId('ws_a')
+  const B = asWorkspaceId('ws_b')
 
   /** Two workspaces over one bucket, holding different bytes under the same ids. */
-  async function twoWorkspaces(): Promise<Record<string, IssueArtifactStore>> {
+  async function twoWorkspaces(): Promise<WorkspaceArtifacts> {
     const storage = new MemoryBlobStorage()
-    const local = storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
-    const other = storage.forWorkspace(OTHER)
-    await put(local, 'site/index.html', 'LOCAL')
-    await put(other, 'site/index.html', 'OTHER')
-    return { [SELF_HOSTED_WORKSPACE_ID]: storeOver(local), [OTHER]: storeOver(other) }
+    const stores: Record<string, IssueArtifactStore> = {}
+    for (const ws of [A, B]) {
+      const files = storage.forWorkspace(ws)
+      await put(files, 'site/index.html', `BYTES OF ${ws}`)
+      stores[ws] = storeOver(files)
+    }
+    return (ws) => stores[ws]
   }
 
-  const appBoundTo = (bound: WorkspaceId, stores: Record<string, IssueArtifactStore>): Hono => {
+  /** A fake POD-6960 binding: bound to `bound`, naming only what `mayName` accepts. */
+  const appBoundTo = (
+    artifactsOf: WorkspaceArtifacts,
+    bound: WorkspaceId,
+    mayName: (segment: string) => boolean,
+  ): Hono => {
     const app = new Hono()
-    const artifactsOf: WorkspaceArtifacts = (ws) => stores[ws]
-    registerArtifactRoute(app, artifactsOf, () => bound)
+    registerArtifactRoute(app, artifactsOf, {
+      bound: () => bound,
+      mayName: (_c, segment) => mayName(segment),
+    })
     return app
   }
 
   const prefixed = (ws: string) => `/files/artifact/workspace/${ws}/iss_1/abc123/site/index.html`
 
-  it('serves the prefixed path when it names the bound workspace, keeping it out of the bundle path', async () => {
+  it('serves any workspace segment on a one-workspace server, from its own store', async () => {
     const app = await selfHostedApp({ 'site/index.html': 'HTML' })
-    const res = await app.request(prefixed(SELF_HOSTED_WORKSPACE_ID))
-    expect(res.status).toBe(200)
-    expect(await res.text()).toBe('HTML')
-    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+    for (const segment of ['second', SELF_HOSTED_WORKSPACE_ID, 'a%20slug']) {
+      const res = await app.request(prefixed(segment))
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe('HTML')
+      expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+    }
   })
 
-  it('does not find a path naming another workspace on a self-hosted install', async () => {
-    const app = await selfHostedApp({ 'site/index.html': 'HTML' })
-    expect((await app.request(prefixed('second'))).status).toBe(404)
-    expect((await app.request(prefixed('%E0%A4%A'))).status).toBe(404)
-    // The segment is compared decoded once, as Hono hands it over.
-    expect((await app.request(prefixed('%6Cocal'))).status).toBe(200)
+  it('binds every request to the self-hosted workspace and accepts every segment today', () => {
+    const c = {} as never
+    expect(workspaceBoundToRequest(c)).toBe(SELF_HOSTED_WORKSPACE_ID)
+    expect(requestMayNameWorkspace(c, 'second')).toBe(true)
   })
 
-  it('reads the bound workspace store for both path forms', async () => {
-    const stores = await twoWorkspaces()
-    const app = appBoundTo(OTHER, stores)
-    expect(await (await app.request(prefixed(OTHER))).text()).toBe('OTHER')
-    expect(await (await app.request(url('site/index.html'))).text()).toBe('OTHER')
+  it('does not find a request bound to A that names B, and reads A when it names A', async () => {
+    const app = appBoundTo(await twoWorkspaces(), A, (segment) => segment === A)
+    const named = await app.request(prefixed(B))
+    expect(named.status).toBe(404)
+    expect(await named.text()).not.toContain(B)
+    const own = await app.request(prefixed(A))
+    expect(own.status).toBe(200)
+    expect(await own.text()).toBe(`BYTES OF ${A}`)
   })
 
-  it('refuses a path workspace that differs from the bound one, even when it exists', async () => {
-    const stores = await twoWorkspaces()
-    const boundToLocal = appBoundTo(SELF_HOSTED_WORKSPACE_ID, stores)
-    const res = await boundToLocal.request(prefixed(OTHER))
-    expect(res.status).toBe(404)
-    expect(await res.text()).not.toContain('OTHER')
-    const boundToOther = appBoundTo(OTHER, stores)
-    expect((await boundToOther.request(prefixed(SELF_HOSTED_WORKSPACE_ID))).status).toBe(404)
+  it('never reads B for a request bound to A, whatever the path says', async () => {
+    const app = appBoundTo(await twoWorkspaces(), A, () => true)
+    for (const path of [prefixed(B), prefixed(A), url('site/index.html')]) {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe(`BYTES OF ${A}`)
+    }
+    for (const range of ['bytes=0-4', 'bytes=-3']) {
+      const res = await app.request(prefixed(B), ranged(range))
+      expect(res.status).toBe(206)
+      expect(`BYTES OF ${A}`).toContain(await res.text())
+    }
   })
 
   it('does not find anything for a bound workspace this process holds no store for', async () => {
-    const stores = await twoWorkspaces()
-    const app = appBoundTo(asWorkspaceId('ws_unknown'), stores)
+    const app = appBoundTo(await twoWorkspaces(), asWorkspaceId('ws_unknown'), () => true)
     expect((await app.request(url('site/index.html'))).status).toBe(404)
-    expect((await app.request(prefixed('ws_unknown'))).status).toBe(404)
+    expect((await app.request(prefixed(A))).status).toBe(404)
   })
 
   it('gives the self-hosted resolver no store for any other workspace', () => {
     const store = storeOver(new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID))
     const artifactsOf = selfHostedArtifacts(store)
     expect(artifactsOf(SELF_HOSTED_WORKSPACE_ID)).toBe(store)
-    expect(artifactsOf(OTHER)).toBeUndefined()
+    expect(artifactsOf(B)).toBeUndefined()
   })
 })
