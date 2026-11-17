@@ -1,14 +1,14 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
 import type { CredentialView } from '@podium/model'
-import { asAccountId } from '@podium/model/browser'
+import { asAccountId, asCredentialId, asMachineId, asUserId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { agentOptions, backendForAgent } from './agent-options'
 
 const accounts: CredentialView[] = [
   {
-    id: 'cred_found-codex',
-    ownerUserId: 'user:me',
+    id: asCredentialId('cred_found-codex'),
+    ownerUserId: asUserId('user:me'),
     label: 'Codex',
     type: 'openai.chatgpt-login',
     identity: { email: 'person@example.com' },
@@ -23,12 +23,12 @@ const accounts: CredentialView[] = [
       keptOn: [],
       useOnMyMachines: false,
       machines: [
-        { id: 'workstation', name: 'Workstation', state: 'in' },
-        { id: 'laptop', name: 'Laptop', state: 'in' },
+        { id: asMachineId('workstation'), name: 'Workstation', state: 'in' },
+        { id: asMachineId('laptop'), name: 'Laptop', state: 'in' },
       ],
     },
   },
-] as CredentialView[]
+]
 
 describe('Agent choices', () => {
   it('offers every agent program the fleet serves, once, by harness', () => {
