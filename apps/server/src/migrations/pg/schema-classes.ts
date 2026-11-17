@@ -258,6 +258,9 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
     json: 'payload_json answer_json',
     text: 'id session_id kind source answerable fingerprint status policy_verdict answered_by delivered_via workspace_id',
   },
+  pending_uploads: {
+    text: 'id owner_user_id filename entry media_type claimed_issue_id claimed_artifact_id workspace_id',
+  },
   pins: {
     timestamp: 'pinned_at',
     text: 'user_id kind id workspace_id',

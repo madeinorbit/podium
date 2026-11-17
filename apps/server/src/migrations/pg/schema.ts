@@ -1762,6 +1762,38 @@ export const pendingInteractions = pgTable(
   ],
 )
 
+export const pendingUploads = pgTable(
+  'pending_uploads',
+  {
+    id: textC('id').notNull().$type<SqliteRow<'pendingUploads'>['id']>(),
+    ownerUserId: textC('owner_user_id')
+      .notNull()
+      .$type<SqliteRow<'pendingUploads'>['ownerUserId']>(),
+    filename: textC('filename').notNull().$type<SqliteRow<'pendingUploads'>['filename']>(),
+    entry: textC('entry').notNull().$type<SqliteRow<'pendingUploads'>['entry']>(),
+    mediaType: textC('media_type').notNull().$type<SqliteRow<'pendingUploads'>['mediaType']>(),
+    size: int8('size').notNull().$type<SqliteRow<'pendingUploads'>['size']>(),
+    createdAt: int8('created_at').notNull().$type<SqliteRow<'pendingUploads'>['createdAt']>(),
+    claimedIssueId:
+      textC('claimed_issue_id').$type<SqliteRow<'pendingUploads'>['claimedIssueId']>(),
+    claimedArtifactId:
+      textC('claimed_artifact_id').$type<SqliteRow<'pendingUploads'>['claimedArtifactId']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .default(sql`'local'`)
+      .$type<SqliteRow<'pendingUploads'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'pending_uploads_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_pending_uploads_created').on(table.workspaceId, table.createdAt),
+    index('idx_pending_uploads_claimed').on(table.workspaceId, table.claimedIssueId),
+    check(
+      'pending_uploads_claim_pair',
+      sql`(claimed_issue_id IS NULL) = (claimed_artifact_id IS NULL)`,
+    ),
+  ],
+)
+
 export const pins = pgTable(
   'pins',
   {
