@@ -24,6 +24,7 @@ import { SectionHeader } from '../components/instruments'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useBuildStamp } from '../lib/build-stamp'
@@ -72,6 +73,7 @@ export const PulseScreen = observer(function PulseScreen() {
   const feed = usePulseFeed(pulse)
   const [range, setRange] = useState<PulseRange>('week')
   const bottomInset = useContentBottomInset()
+  const layoutMargin = useLayoutMargin()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const reload = feed.reload
   const buildStamp = useBuildStamp()
@@ -147,7 +149,9 @@ export const PulseScreen = observer(function PulseScreen() {
           // content. Without this the first rows sat under the status bar and
           // took its taps (POD-2347 "Pulse segments hidden under the status bar").
           contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + space.lg }]}
+          contentContainerStyle={[
+            { paddingHorizontal: layoutMargin, paddingBottom: bottomInset + space.lg },
+          ]}
           {...refreshAccessibilityProps}
           {...minimizeOnScroll}
         >
@@ -303,9 +307,6 @@ function RangeButton({
 
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: color.groupedBg },
-  content: {
-    paddingHorizontal: space.lg,
-  },
   rangeButton: {
     minHeight: 44,
     minWidth: 44,

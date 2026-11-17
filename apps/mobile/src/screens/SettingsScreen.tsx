@@ -7,7 +7,7 @@ import {
 import type { MobileClientSession } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { Children, Fragment, isValidElement, type ReactNode, useMemo, useState } from 'react'
+import { Fragment, type ReactNode, useMemo, useState } from 'react'
 import {
   Alert,
   Platform,
@@ -27,11 +27,13 @@ import { useConnected, useHttpOrigin } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
+import { InsetGroup } from '../components/InsetGroup'
 import { type AppIcon, Check, ChevronRight, Info, Monitor, Plus, Trash2 } from '../components/icons'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
 import { useBuildStamp } from '../lib/build-stamp'
 import { useAgeNow } from '../lib/clock-hooks'
 import { appVersion } from '../lib/logging'
@@ -208,6 +210,8 @@ function useDemoFleet() {
 function DetailScreen({ title, children }: { title: string; children: ReactNode }) {
   const router = useRouter()
   const bottomInset = useContentBottomInset()
+  const layoutMargin = useLayoutMargin()
+  const { fontScale } = useWindowDimensions()
   return (
     <Screen
       title={title}
@@ -217,9 +221,12 @@ function DetailScreen({ title, children }: { title: string; children: ReactNode 
       <ScrollView
         style={styles.scroll}
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingHorizontal: layoutMargin, paddingBottom: bottomInset + grid(6) },
+        ]}
       >
-        {children}
+        <Fragment key={fontScale}>{children}</Fragment>
       </ScrollView>
     </Screen>
   )
@@ -247,7 +254,9 @@ const SettingsHome = observer(function SettingsHome() {
   const host = hostOf(httpOrigin)
   const machines = demoFleet?.visibleCount ?? machineCount
   // Accessibility sizes wrap the server card's status lines instead of cutting them.
-  const serverLines = useWindowDimensions().fontScale >= STACKED_ROW_SCALE ? 0 : 1
+  const { fontScale } = useWindowDimensions()
+  const layoutMargin = useLayoutMargin()
+  const serverLines = fontScale >= STACKED_ROW_SCALE ? 0 : 1
   const native = Platform.OS !== 'web'
   return (
     <Screen
@@ -260,97 +269,104 @@ const SettingsHome = observer(function SettingsHome() {
       <ScrollView
         style={styles.scroll}
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingHorizontal: layoutMargin, paddingBottom: bottomInset + grid(6) },
+        ]}
       >
-        {!native ? (
-          <PressableScale
-            style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-            onPress={openDesktop}
-            accessibilityRole="button"
-            accessibilityLabel="Open desktop"
-          >
-            <Icon as={Monitor} size={18} color={color.accentText} />
-            <Text style={styles.actionText}>Open desktop</Text>
-          </PressableScale>
-        ) : null}
-
-        <OutboxRecoveryPanel />
-
-        <Card>
-          <View style={styles.server}>
-            {/* A host name never wraps mid-name; it shrinks to fit instead. */}
-            <Text
-              style={styles.serverName}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
+        {/* Rebuild text measurement after both text-size increases and decreases.
+            Keep the ScrollView mounted so its offset and native bar survive. */}
+        <Fragment key={fontScale}>
+          {!native ? (
+            <PressableScale
+              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+              onPress={openDesktop}
+              accessibilityRole="button"
+              accessibilityLabel="Open desktop"
             >
-              {host}
-            </Text>
-            <Text style={styles.serverLine} numberOfLines={serverLines}>
-              <Text style={connected ? styles.liveDot : styles.offlineDot}>● </Text>
-              {connected ? 'Connected' : 'Offline, showing saved data'}
-              {` · ${machines} ${machines === 1 ? 'machine' : 'machines'}`}
-            </Text>
-            <Text
-              style={styles.serverLine}
-              numberOfLines={serverLines}
-              accessibilityLabel="Data on this phone"
-            >
-              {`${formatCount(sessionCount)} sessions · ${formatCount(issueCount)} tasks`}
-            </Text>
-          </View>
-        </Card>
-
-        <GroupHeader label="Server" />
-        <Card>
-          <NavRow
-            icon={Monitor}
-            label="Connected devices"
-            value={deviceCountLabel(deviceFeed)}
-            onPress={() => router.push('/settings/devices')}
-          />
-          {native ? (
-            <NavRow
-              icon={Plus}
-              label={isEphemeralOverride ? 'Servers' : 'Add server'}
-              onPress={() => router.push('/settings/servers')}
-            />
+              <Icon as={Monitor} size={18} color={color.accentText} />
+              <Text style={styles.actionText}>Open desktop</Text>
+            </PressableScale>
           ) : null}
-        </Card>
 
-        <GroupHeader label="About" />
-        <Card>
-          <NavRow
-            icon={Info}
-            label="Version"
-            value={appVersion()}
-            onPress={() => router.push('/settings/version')}
-          />
-        </Card>
+          <OutboxRecoveryPanel />
 
-        {native && !isEphemeralOverride ? (
-          <>
-            <Card style={styles.lastCard}>
-              <PressableScale
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                onPress={account.removeCurrent}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${profile.name}`}
+          <Card>
+            <View style={styles.server}>
+              {/* A host name never wraps mid-name; it shrinks to fit instead. */}
+              <Text
+                style={styles.serverName}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}
               >
-                <Icon as={Trash2} size={ROW_ICON} color={color.dangerText} />
-                <Text style={styles.destructiveLabel}>Remove this server</Text>
-              </PressableScale>
-            </Card>
-            <Text style={styles.footer}>
-              Signs this phone out of {host}. Nothing on the server is deleted.
-            </Text>
-          </>
-        ) : !native ? (
-          <Card style={styles.lastCard}>
-            <LogoutRow account={account} />
+                {host}
+              </Text>
+              <Text style={styles.serverLine} numberOfLines={serverLines}>
+                <Text style={connected ? styles.liveDot : styles.offlineDot}>● </Text>
+                {connected ? 'Connected' : 'Offline, showing saved data'}
+                {` · ${machines} ${machines === 1 ? 'machine' : 'machines'}`}
+              </Text>
+              <Text
+                style={styles.serverLine}
+                numberOfLines={serverLines}
+                accessibilityLabel="Data on this phone"
+              >
+                {`${formatCount(sessionCount)} sessions · ${formatCount(issueCount)} tasks`}
+              </Text>
+            </View>
           </Card>
-        ) : null}
+
+          <GroupHeader label="Server" />
+          <Card>
+            <NavRow
+              icon={Monitor}
+              label="Connected devices"
+              value={deviceCountLabel(deviceFeed)}
+              onPress={() => router.push('/settings/devices')}
+            />
+            {native ? (
+              <NavRow
+                icon={Plus}
+                label={isEphemeralOverride ? 'Servers' : 'Add server'}
+                onPress={() => router.push('/settings/servers')}
+              />
+            ) : null}
+          </Card>
+
+          <GroupHeader label="About" />
+          <Card>
+            <NavRow
+              icon={Info}
+              label="Version"
+              value={appVersion()}
+              onPress={() => router.push('/settings/version')}
+            />
+          </Card>
+
+          {native && !isEphemeralOverride ? (
+            <>
+              <Card style={styles.lastCard}>
+                <PressableScale
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={account.removeCurrent}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${profile.name}`}
+                >
+                  <Icon as={Trash2} size={ROW_ICON} color={color.dangerText} />
+                  <Text style={styles.destructiveLabel}>Remove this server</Text>
+                </PressableScale>
+              </Card>
+              <Text style={styles.footer}>
+                Signs this phone out of {host}. Nothing on the server is deleted.
+              </Text>
+            </>
+          ) : !native ? (
+            <Card style={styles.lastCard}>
+              <LogoutRow account={account} />
+            </Card>
+          ) : null}
+        </Fragment>
       </ScrollView>
     </Screen>
   )
@@ -604,17 +620,7 @@ function hostOf(origin: string): string {
 
 /** A grouped-list card: hairline separators between rows, inset to the text. */
 function Card({ style, children }: { style?: StyleProp<ViewStyle>; children: ReactNode }) {
-  const rows = Children.toArray(children)
-  return (
-    <View style={[styles.card, style]}>
-      {rows.map((row, index) => (
-        <Fragment key={isValidElement(row) && row.key != null ? row.key : index}>
-          {index > 0 ? <View style={styles.separator} /> : null}
-          {row}
-        </Fragment>
-      ))}
-    </View>
-  )
+  return <InsetGroup style={style}>{children}</InsetGroup>
 }
 
 function GroupHeader({ label }: { label: string }) {
@@ -702,13 +708,12 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * Grouped list on the 4pt grid (Settings board): 16 screen margin, cards with
- * radius 8 and a 12 inset, 44pt rows with hairline separators inset to the
- * text, 13pt section headers sitting on the card's own axis.
+ * Native layout margins and inset-grouped cards, with 12pt row insets and
+ * hairline separators. Section headers sit on the card's text axis.
  */
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: color.groupedBg },
-  content: { paddingHorizontal: grid(4), paddingTop: grid(2) },
+  content: { paddingTop: grid(2) },
   action: {
     minHeight: 44,
     marginBottom: grid(4),
@@ -721,16 +726,6 @@ const styles = StyleSheet.create({
   },
   actionPressed: { opacity: 0.85 },
   actionText: { color: color.accentText, ...sans(600), fontSize: font.small },
-  card: {
-    borderRadius: radius.card,
-    backgroundColor: color.groupedCard,
-    overflow: 'hidden',
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: grid(3),
-    backgroundColor: color.border,
-  },
   navTrail: {
     marginLeft: 'auto',
     flexShrink: 1,

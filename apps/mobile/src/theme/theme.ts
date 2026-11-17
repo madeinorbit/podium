@@ -160,14 +160,14 @@ export const space = {
 } as const
 
 /**
- * Corner radii. New iOS chrome uses the three named tiers only: `card` 8 for
- * grouped lists and tiles, `control` 6 for buttons, chips and segments, `inner`
- * 4 for thumbnails inside a card. System glass, the tab bar and sheets keep the
- * shapes UIKit draws. The numbered steps are the older scale still read by
- * screens that have not moved yet.
+ * Inset groups follow the iOS 26 native List shape. Decision tiles keep `card`
+ * 8, buttons and chips use `control` 6, and nested thumbnails use `inner` 4.
+ * System glass, the tab bar and sheets keep the shapes UIKit draws.
  */
 export const radius = {
   card: 8,
+  /** Inset-grouped list cards follow the iOS 26 native List shape. */
+  insetGroup: Platform.OS === 'ios' ? 26 : 8,
   control: 6,
   inner: 4,
   xs: 5,

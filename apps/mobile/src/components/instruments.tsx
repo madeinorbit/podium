@@ -1,14 +1,13 @@
 import type { ReactNode } from 'react'
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import { color, font, sans, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronDown, ChevronRight } from './icons'
 
 /**
  * Pulse's instrument pieces, drawn to the iOS redesign boards [POD-2379].
  *
- * One 4pt grid: screen margin 16, card inset 12, card radius 8, inner radius
- * 1–4. Data marks are the label colour (ink), not a hue: colour is spent only
+ * Cards use the native inset-grouped radius and a 12pt content inset. Data marks are the label colour (ink), not a hue: colour is spent only
  * on what wants attention — the signal for a window that is out, red for a
  * machine that is full.
  */
@@ -20,8 +19,8 @@ import { ChevronDown, ChevronRight } from './icons'
  */
 export const SEPARATOR = Platform.OS === 'ios' ? color.hairline : 'rgba(255, 255, 255, 0.1)'
 
-/** The board's card corner. Our own surface, so the redesign's 8, not a system shape. */
-export const CARD_RADIUS = 8
+/** Match the native inset-grouped List cards on Work and Tasks. */
+export const CARD_RADIUS = radius.insetGroup
 /** Card content inset. */
 export const CARD_INSET = space.md
 
@@ -279,6 +278,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: color.groupedCard,
     borderRadius: CARD_RADIUS,
+    borderCurve: 'continuous',
     overflow: 'hidden',
   },
   section: {

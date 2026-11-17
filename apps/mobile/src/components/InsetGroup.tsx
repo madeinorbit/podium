@@ -88,7 +88,8 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   card: {
-    borderRadius: radius.card,
+    borderRadius: radius.insetGroup,
+    borderCurve: 'continuous',
     backgroundColor: color.groupedCard,
     overflow: 'hidden',
   },
