@@ -37,7 +37,10 @@
  *    what the feed carries from the same reads (POD-6766), so the two agree.
  *
  * The change-log commit, the start-up load and the sharing rules read these
- * builders; `record-sources.ts` declares what each reads (POD-6920).
+ * builders; `record-sources.ts` declares what each reads (POD-6920). The kinds
+ * are the record declarations' (`@podium/model` `records/`, POD-7084): the
+ * registry refuses a declared kind without a builder and a builder without a
+ * declaration.
  */
 
 import {
@@ -69,6 +72,7 @@ import {
   parseUserPreferencesRowId,
   parseWorkflowBindingRowId,
   pinRowId,
+  RECORD_KINDS,
   readPositionRowId,
   type SessionId,
   type SessionUserStateWire,
@@ -237,8 +241,10 @@ async function storedAccessRows(
   const specs = await machineRecordSpecs({
     facts: async () => facts,
     grants: async () => edges,
-    members: async () => (await store.users.recordMembers())
-      .filter((member) => memberIds === undefined || memberIds.has(member.id)),
+    members: async () =>
+      (await store.users.recordMembers()).filter(
+        (member) => memberIds === undefined || memberIds.has(member.id),
+      ),
   })
   return specs.flatMap((spec) =>
     spec.entity === 'machineAccess' && spec.op === 'upsert'
@@ -366,7 +372,8 @@ async function issueRecordPages(
   rows: readonly IssueRow[],
   asked?: ReadonlyMap<MetadataEntityKind, ReadonlySet<string>>,
 ): Promise<readonly RecordPage[]> {
-  const wants = (kind: MetadataEntityKind, id: string) => !asked || asked.get(kind)?.has(id) === true
+  const wants = (kind: MetadataEntityKind, id: string) =>
+    !asked || asked.get(kind)?.has(id) === true
   const projectionRows = rows.filter(({ id }) => wants('issueProjection', id))
   const labels = await store.issues.labelsOfIssues(projectionRows.map(({ id }) => id))
   const projections: BuiltRecord[] = []
@@ -1114,6 +1121,8 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   session,
 ]
 
+/** The server's builders, registered against the record declarations (POD-7084):
+ *  one builder per declared kind, no more. */
 export function serverRecordBuilders(): RecordBuilderRegistry<RecordReads> {
-  return new RecordBuilderRegistry(DATABASE_ONLY_BUILDERS, [issueRecordGroup])
+  return new RecordBuilderRegistry(DATABASE_ONLY_BUILDERS, [issueRecordGroup], RECORD_KINDS)
 }

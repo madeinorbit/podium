@@ -6,7 +6,7 @@ How client code (web, desktop, phone) holds, derives and shows data. The data la
 
 | What | Home |
 |---|---|
-| Facts about a server record | its **shared model**, `pool.model(entity, id)` (`models.ts`). Stored fields: one line in `shared/schema.ts` citing the zod type in `@podium/model`. Derived fields: `@lazy` getters. |
+| Facts about a server record | its **shared model**, `pool.model(entity, id)` (`models.ts`). Stored fields: one line in `shared/schema.ts` citing the zod type in `@podium/model`; the record type itself (its parts, links and collections) is declared once in `@podium/model` `records/declarations.ts`, and the schema reads its collections and link keys from there. Derived fields: `@lazy` getters. |
 | A rule of one view about a record | that view's **companion** (`WorklistIssue` wraps an `IssueModel`), made by `companion()` on the view model |
 | A view's UI state (tab, folds, selection, form input) | the **view model**, or the one component that uses it |
 | App-wide screen state saved on this device (open view, panes, tabs, focus) | the **UiStore** |

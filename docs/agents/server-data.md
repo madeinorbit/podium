@@ -21,7 +21,7 @@ Memory may hold only:
 
 **Boot** loads live runtime state only. It never loads whole tables.
 
-Synced records are built from the model tables. A data migration that rewrites
+Synced records are built from the model tables. Every synced record kind is declared once in `@podium/model` (`records/declarations.ts`: fields and parts, links, collections); the server's record builders register against those declarations, and a collection rule compiles to SQL with `@podium/sync/collections`. A data migration that rewrites
 them must bump every affected kind's `sync_kind.generation` in the same migration
 (`INSERT ... ON CONFLICT(tenant_id, kind) DO UPDATE SET generation = sync_kind.generation + 1`).
 Boot does not repair the sync log. Historical upgrades that require service logic

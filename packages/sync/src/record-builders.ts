@@ -74,6 +74,37 @@ export class DuplicateRecordBuilder extends Error {
   }
 }
 
+/**
+ * The builders and the record declarations disagree (POD-7084): a declared
+ * kind no builder builds, or a builder for a kind nobody declared.
+ */
+export class UndeclaredRecordBuilders extends Error {
+  constructor(
+    readonly unbuilt: readonly string[],
+    readonly undeclared: readonly string[],
+  ) {
+    super(
+      `record builders and declarations disagree: ${[
+        ...unbuilt.map((kind) => `${kind} is declared but has no builder`),
+        ...undeclared.map((kind) => `${kind} has a builder but no declaration`),
+      ].join('; ')}`,
+    )
+  }
+}
+
+/** The kinds declared but not built, and built but not declared. */
+export function declarationMismatch(
+  built: readonly string[],
+  declared: readonly string[],
+): { readonly unbuilt: string[]; readonly undeclared: string[] } {
+  const builtSet = new Set(built)
+  const declaredSet = new Set(declared)
+  return {
+    unbuilt: declared.filter((kind) => !builtSet.has(kind)),
+    undeclared: built.filter((kind) => !declaredSet.has(kind)),
+  }
+}
+
 export class UnknownRecordBuilder extends Error {
   constructor(readonly kind: string) {
     super(`no record builder is registered for kind ${kind}`)
@@ -96,9 +127,15 @@ export class RecordBuilderRegistry<R> {
   private readonly byKind = new Map<MetadataEntityKind, RecordBuilder<R>>()
   private readonly groupsByKind = new Map<MetadataEntityKind, RecordBuilderGroup<R>>()
 
+  /**
+   * `declared`: the record kinds the builders register against (the record
+   * declarations' kinds); a declared kind without a builder, or a builder for
+   * an undeclared kind, is refused.
+   */
   constructor(
     builders: readonly RecordBuilder<R>[] = [],
     groups: readonly RecordBuilderGroup<R>[] = [],
+    declared?: readonly string[],
   ) {
     for (const builder of builders) this.register(builder)
     for (const group of groups) {
@@ -107,6 +144,11 @@ export class RecordBuilderRegistry<R> {
         if (this.groupsByKind.has(kind)) throw new DuplicateRecordBuilder(kind)
         this.groupsByKind.set(kind, group)
       }
+    }
+    if (declared !== undefined) {
+      const { unbuilt, undeclared } = declarationMismatch(this.kinds(), declared)
+      if (unbuilt.length > 0 || undeclared.length > 0)
+        throw new UndeclaredRecordBuilders(unbuilt, undeclared)
     }
   }
 

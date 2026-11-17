@@ -15,6 +15,7 @@ import {
   type MembersKeptBySpec,
   SESSION_ACTIVE_WORK,
 } from '@podium/model/browser'
+import { linkKeys, type RecordKind, type RecordLinkField, type RecordReplicaKind, recordOf } from '@podium/model'
 import { FULL_DECK_SESSION_FIELDS, MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
 
 /**
@@ -123,47 +124,14 @@ export type ModelSchemaName =
 /**
  * Where a row physically arrives from.
  *
- * `replica:<kind>` is a collection of `ReplicaRows`
- * (`replica/contract.ts:92-145`); `schema-sources.ts` proves at typecheck time
- * that each `<kind>` is a real `ReplicaKind`. Repository rows and worktree
- * lanes are derived from the `checkout` records (`replica:checkouts`,
- * POD-6644; `shared/checkout-repositories.ts`).
+ * `replica:<kind>` is the client collection of a declared record type
+ * (`@podium/model` `records/declarations.ts`, POD-7084), so only a declared
+ * collection can be named. Repository rows and worktree lanes are derived from
+ * the `checkout` records (`replica:checkouts`, POD-6644;
+ * `shared/checkout-repositories.ts`).
  */
 export type RowArrival =
-  | 'replica:issueUserStates'
-  | 'replica:issueGitStates'
-  | 'replica:issueBriefs'
-  | 'replica:issueDescriptions'
-  | 'replica:issuePanelTodos'
-  | 'replica:issuePanelArtifacts'
-  | 'replica:issuePanelDeferreds'
-  | 'replica:issuePanelStates'
-  | 'replica:issueProjections'
-  | 'replica:sessions'
-  | 'replica:sessionUserStates'
-  | 'replica:repos'
-  | 'replica:issueDeps'
-  | 'replica:machines'
-  | 'replica:machineAccess'
-  | 'replica:checkouts'
-  | 'replica:automations'
-  | 'replica:automationRuns'
-  | 'replica:messageRecords'
-  | 'replica:pendingInteractions'
-  | 'replica:effects'
-  | 'replica:userLayouts'
-  | 'replica:pins'
-  | 'replica:tabOrders'
-  | 'replica:userPreferences'
-  | 'replica:userReadPositions'
-  | 'replica:superagentThreads'
-  | 'replica:agentProfiles'
-  | 'replica:workflows'
-  | 'replica:workflowRevisions'
-  | 'replica:workflowBindings'
-  | 'replica:workflowRuns'
-  | 'replica:subscriptions'
-  | 'replica:instancePreferences'
+  | `replica:${RecordReplicaKind}`
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
@@ -469,23 +437,29 @@ const edge = <const S extends Opts<EdgeSpec>>(spec: S) => ({ kind: 'edge' as con
 // Reusable source shorthands
 // ---------------------------------------------------------------------------
 
-const derived = (property?: string): FieldSource => ({
-  schema: 'IssueDerived',
-  arrivesOn: 'replica:issueProjections',
-  ...(property === undefined ? {} : { property }),
-})
-const projection = (property?: string): FieldSource => ({
-  schema: 'IssueProjection',
-  arrivesOn: 'replica:issueProjections',
-  ...(property === undefined ? {} : { property }),
-})
-const sessionValue = (property: string): FieldSource => ({ schema: 'SessionUserStateWire', arrivesOn: 'replica:sessionUserStates', property })
+/**
+ * A field of a declared record type (POD-7084): it arrives on that type's
+ * client collection, as the record declaration names it.
+ */
+function recordSource(kind: RecordKind, schema: ModelSchemaName, property?: string): FieldSource {
+  return {
+    schema,
+    arrivesOn: `replica:${recordOf(kind).replicaKind}`,
+    ...(property === undefined ? {} : { property }),
+  }
+}
 
-const meta = (property?: string): FieldSource => ({
-  schema: 'SessionMeta',
-  arrivesOn: 'replica:sessions',
-  ...(property === undefined ? {} : { property }),
-})
+/** A relation's join keys, read from the record declaration's link (POD-7084). */
+function link<K extends RecordKind>(kind: K, field: RecordLinkField<K>) {
+  const { foreignKey, targetKey } = linkKeys(kind, field)
+  return { foreignKey, targetKey }
+}
+
+const derived = (property?: string): FieldSource => recordSource('issueProjection', 'IssueDerived', property)
+const projection = (property?: string): FieldSource => recordSource('issueProjection', 'IssueProjection', property)
+const sessionValue = (property: string): FieldSource => recordSource('sessionUserState', 'SessionUserStateWire', property)
+
+const meta = (property?: string): FieldSource => recordSource('session', 'SessionMeta', property)
 /** The generic tables can receive these synced rows before a screen loads their
  * model definitions. Only identity/residency is needed for ingestion; the
  * deferred synced-models module installs the complete, cited declarations. */
@@ -527,11 +501,7 @@ function perUser(
     cold: { kind: 'never' as const, why: 'A person has few of these: always resident.' },
   }
 }
-const effectWire = (property?: string): FieldSource => ({
-  schema: 'EffectRecordWire',
-  arrivesOn: 'replica:effects',
-  ...(property === undefined ? {} : { property }),
-})
+const effectWire = (property?: string): FieldSource => recordSource('effect', 'EffectRecordWire', property)
 const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string): FieldSource => ({
   schema,
   arrivesOn: 'replica:checkouts',
@@ -657,8 +627,7 @@ const DECLARED = defineSchema({
       panelStateRecords: hasMany({ to: 'issuePanelState', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
       parent: belongsTo({
         to: 'issue',
-        foreignKey: 'parentId',
-        targetKey: 'id',
+        ...link('issueProjection', 'parentId'),
         inverse: 'children',
         lazy: true,
         slice: 'R1',
@@ -678,8 +647,7 @@ const DECLARED = defineSchema({
       }),
       treeParent: belongsTo({
         to: 'issue',
-        foreignKey: 'parentId',
-        targetKey: 'id',
+        ...link('issueProjection', 'parentId'),
         inverse: 'treeChildren',
         lazy: true,
         why: "The raw parent edge, archived and deleted issues included: the worklist's nest walk follows `parentId` through ANY issue (nestStartedByIssues, rows.ts:271-283, walks allById), where `parent` drops an archived or deleted child's edge.",
@@ -692,16 +660,14 @@ const DECLARED = defineSchema({
       }),
       startedBy: belongsTo({
         to: 'session',
-        foreignKey: 'startedBySession',
-        targetKey: 'sessionId',
+        ...link('issueProjection', 'startedBySession'),
         inverse: 'startedIssues',
         lazy: true,
         why: "The session that started this issue: provenance for missions and the Flight Deck (poolMissionContains). The sidebar nests by parentId only, never by this.",
       }),
       missionStartedBy: belongsTo({
         to: 'session',
-        foreignKey: 'startedBySession',
-        targetKey: 'sessionId',
+        ...link('issueProjection', 'startedBySession'),
         inverse: 'missionStartedIssues',
         lazy: true,
         why: 'Mission provenance, including archived/deleted candidates, while they have not left the originating mission.',
@@ -799,12 +765,12 @@ const DECLARED = defineSchema({
         },
       }),
       supersedingIssue: belongsTo({
-        to: 'issue', foreignKey: 'supersededBy', targetKey: 'id', inverse: 'supersededIssues', lazy: true,
+        to: 'issue', ...link('issueProjection', 'supersededBy'), inverse: 'supersededIssues', lazy: true,
         why: 'The issue page resolves the successor of a superseded task.',
       }),
       supersededIssues: hasMany({ to: 'issue', inverse: 'supersedingIssue', lazy: true, why: 'Inverse successor references.' }),
       canonicalIssue: belongsTo({
-        to: 'issue', foreignKey: 'duplicateOf', targetKey: 'id', inverse: 'duplicateIssues', lazy: true,
+        to: 'issue', ...link('issueProjection', 'duplicateOf'), inverse: 'duplicateIssues', lazy: true,
         why: 'The issue page resolves the canonical task of a duplicate.',
       }),
       duplicateIssues: hasMany({ to: 'issue', inverse: 'canonicalIssue', lazy: true, why: 'Inverse duplicate references.' }),
@@ -824,8 +790,7 @@ const DECLARED = defineSchema({
       }),
       repo: belongsTo({
         to: 'repo',
-        foreignKey: 'repoId',
-        targetKey: 'id',
+        ...link('issueProjection', 'repoId'),
         inverse: 'issues',
         lazy: false,
         why: 'Replaces the denormalized `issue.prefix`: `displayRef` reads `issue.repo.prefix` (replica/contract.ts:106-110).',
@@ -912,12 +877,12 @@ const DECLARED = defineSchema({
     },
     relations: {
       bornIssue: belongsTo({
-        to: 'issue', foreignKey: 'refIssueId', targetKey: 'id',
+        to: 'issue', ...link('session', 'refIssueId'),
         inverse: 'bornSessions', lazy: true,
         why: 'The permanent creation issue, independent of the current attachment.',
       }),
       pageIssue: belongsTo({
-        to: 'issue', foreignKey: 'issueId', targetKey: 'id',
+        to: 'issue', ...link('session', 'issueId'),
         inverse: 'pageSessions', lazy: true, uncollapsed: true,
         where: { fields: ['agentKind'], test: row => row['agentKind'] !== 'shell',
           why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.' },
@@ -943,14 +908,13 @@ const DECLARED = defineSchema({
       }),
       missionIssue: belongsTo({
         to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
+        ...link('session', 'issueId'),
         inverse: 'missionSessions',
         lazy: true,
         why: 'missionSessionIndex uses explicit issueId ownership, including headless and archived sessions.',
       }),
       handoffIssue: belongsTo({
-        to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'handoffSessions', lazy: true,
+        to: 'issue', ...link('session', 'issueId'), inverse: 'handoffSessions', lazy: true,
         where: {
           fields: ['agentKind', 'harnessHandoff'],
           test: row => row['agentKind'] !== 'shell' && row['harnessHandoff'] === true,
@@ -960,8 +924,7 @@ const DECLARED = defineSchema({
       }),
       issue: belongsTo({
         to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
+        ...link('session', 'issueId'),
         inverse: 'sessions',
         lazy: true,
         slice: 'R2',
@@ -1061,8 +1024,7 @@ const DECLARED = defineSchema({
       }),
       repo: belongsTo({
         to: 'repo',
-        foreignKey: 'repoId',
-        targetKey: 'id',
+        ...link('checkout', 'repoId'),
         inverse: 'worktrees',
         lazy: false,
         why: 'The lane’s repo, for the group key, label and prefix.',
@@ -1276,7 +1238,7 @@ const DECLARED = defineSchema({
       position: { type: 'number', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
       text: { type: 'string', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
       done: { type: 'boolean', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelTodoRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelTodo', 'issueId'), inverse: 'panelTodoRecords', lazy: true, why: 'The parent issue.' }) } },
   issuePanelArtifact: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
@@ -1294,7 +1256,7 @@ const DECLARED = defineSchema({
       chatUploadOwner: { type: 'id', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
       tracking: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
       untrackedPaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelArtifactRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelArtifact', 'issueId'), inverse: 'panelArtifactRecords', lazy: true, why: 'The parent issue.' }) } },
   issuePanelDeferred: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
@@ -1302,23 +1264,23 @@ const DECLARED = defineSchema({
       position: { type: 'number', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
       text: { type: 'string', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
       addedAt: { type: 'isoDate', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelDeferredRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelDeferred', 'issueId'), inverse: 'panelDeferredRecords', lazy: true, why: 'The parent issue.' }) } },
   issuePanelState: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
       text: { type: 'string', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
       updatedAt: { type: 'isoDate', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelState', 'id'), inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
   issueBrief: { key: 'id', why: 'An issue brief, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
     fields: {
       id: { type: 'id', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
       text: { type: 'string', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'briefRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issueBrief', 'id'), inverse: 'briefRecords', lazy: true, why: 'The parent issue.' }) } },
   issueDescription: { key: 'id', why: 'An issue description, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
     fields: {
       id: { type: 'id', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
       text: { type: 'string', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
-    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'descriptionRecords', lazy: true, why: 'The parent issue.' }) } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issueDescription', 'id'), inverse: 'descriptionRecords', lazy: true, why: 'The parent issue.' }) } },
   subscription: syncedIdentity('SubscriptionWire', 'replica:subscriptions'),
 })
 

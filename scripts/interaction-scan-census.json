@@ -52,14 +52,14 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "f220e04253498f2e643023139c6ec243f3555dc35933cf30d54db4e81b47f492",
+      "tokens": "d50d592402db07a52874b3599e59c1e3064d230e9808e7a7863716ba41c46040",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
       "origin": [
         "01ed545e82ce89ee20c4cf35e0f3ccb95db01ad9e0e7117571472ac7ed4938aa"
       ],
-      "fingerprint": "197ed6293063a4a021cc018b608fcfef80525d70ab373991791d49c00c25b7a8",
+      "fingerprint": "78905ccb539584cab9ed45f2464fa05297b98bae10d566b58ea58667789f0b55",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

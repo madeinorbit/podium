@@ -93,9 +93,18 @@ JavaScript:
 { of: 'issue', part: 'main', where: { stage: { in: OPEN_STAGES }, archived: false } }
 ```
 
-The allowed tests are: equals, one of, is empty, newer than N days, and descendants of a record
-(through the parent link). Nothing else. A screen that needs a different question gets a new
-collection definition, never a special case in the loader.
+The allowed tests are: equals, one of, is empty (each of these three may be negated), newer than
+N days, and descendants of a record (through the parent link; the record itself counts, so "the
+tree under X" includes X). Nothing else. A rule tests one or more fields and matches when every
+test holds. A rule may also be a list of such rules and match when any one of them does: that is
+how two tests are combined, not a new test ("asking" is an open offer, or an agent that waits for
+the user). A screen that needs a different question gets a new collection definition, never a
+special case in the loader.
+
+A rule reads the value the record carries, as its builder computes it, not only a column of the
+same name: on the server, a session's offer is its offer row unless a later input made it stale,
+and its agent state is the runtime turn state, else the observation checkpoint, else the row's own
+value (`apps/server/src/sync/collection-sql.ts`).
 
 From the declaration the build generates the wire record lists and the client's type lists,
 which are written by hand today (`kernel/kinds.ts`, the protocol's change list). The server's
@@ -563,11 +572,13 @@ its question list when it moves a reader.
 
 - Whether an issue and its brief from the same save reach a device together, and whether any
   screen depends on that. They are separate log entries today.
-- Which saved fields of a session say "waits for the user" (offer, agent state), for the
-  "asking" collection; a rule may not read a live value.
+- Settled (POD-7084): "asking" reads the session's saved offer and agent state: an offer, or a
+  phase that needs the user or errored, or idle on a question or an approval, and not archived.
 - What the sidebar shows on an empty device while its collection arrives: rows from the top down
   as a sorted range, or a loading state until complete.
-- The collection of each record type, per the table above.
+- Settled (POD-7084): the collection of each record type, per the table above, is declared in
+  `packages/model/src/records/declarations.ts`. The issue panel records (todo, artifact,
+  deferred, state) are the issue's body part, with the brief and the description.
 
 ## Build tasks
 

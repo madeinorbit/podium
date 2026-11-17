@@ -317,6 +317,9 @@ export default defineConfig(({ command, mode }) => {
         '@podium/model/shipping-projection': fileURLToPath(
           new URL('../../packages/model/src/shipping-projection.ts', import.meta.url),
         ),
+        '@podium/model/pending-interaction': fileURLToPath(
+          new URL('../../packages/model/src/entities/pending-interaction.ts', import.meta.url),
+        ),
         '@podium/model/cost-pricing': fileURLToPath(
           new URL('../../packages/model/src/cost-pricing.ts', import.meta.url),
         ),
