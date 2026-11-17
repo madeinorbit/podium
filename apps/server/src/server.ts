@@ -35,6 +35,7 @@ import {
   resolveConnectBaseUrl,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
+  resolveFileStorage,
   resolveInstanceId,
   resolveMode,
   resolveProfileOnStall,
@@ -96,6 +97,7 @@ import { userCommandPrincipal } from './command-principal'
 import { controlSocketHandler } from './control-socket'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { createServerFileStorage } from './file-storage'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
 import {
   createDaemonAcceptor,
@@ -698,12 +700,25 @@ export async function startServer(
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
+  // WHERE USER FILES LIVE (POD-6963 design 2.8): the state directory or one
+  // bucket, resolved once from PODIUM_FILE_STORAGE_* → config.fileStorage. A
+  // misconfigured bucket fails the boot here, before anything listens. Each
+  // workspace's service graph takes its own handle (`forWorkspace`) below.
+  const fileStorage = createServerFileStorage(resolveFileStorage(config, process.env), {
+    stateDir: stateDir(),
+    fence: portableStateFence,
+  })
+  if (!recoveryOnly) {
+    const removed = await fileStorage.removeLeftoverTempFiles()
+    if (removed > 0) log.info('removed temp files left by interrupted file writes', { removed })
+  }
   // One database, and this install's one workspace over it (POD-7010).
   const database = await StoreDatabase.open(defaultDbPath(), asMachineId(hostMachineId), {
     queryOnly: recoveryOnly,
     bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
   })
   const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
+  const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
@@ -824,6 +839,7 @@ export async function startServer(
     // never constructed. Spread rather than `undefined` so its absence keeps
     // meaning exactly what it means for every test that omits it today.
     ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
+    files: workspaceFiles,
     portableStateFence,
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.

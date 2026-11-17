@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { BlobStore } from '@podium/blob-store'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { OneTimeCodeOperations } from '@podium/identity'
@@ -364,6 +365,13 @@ interface SessionRegistryOptions {
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
+  /**
+   * This workspace's user files (POD-6963 design 2.1): the handle the
+   * composition root built with `forWorkspace`, on the state directory or on a
+   * bucket. The artifact, upload and lake owners move onto it in POD-7052,
+   * POD-7054 and POD-7055; absent in tests that never touch user files.
+   */
+  files?: BlobStore
   portableStateFence?: PortableStateFence
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */

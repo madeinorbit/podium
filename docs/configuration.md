@@ -171,6 +171,28 @@ either layer, the toggle renders locked **at the value the deployment chose**,
 naming the layer: a disabled control that is also wrong would be worse than no
 control at all.
 
+### `PODIUM_FILE_STORAGE_*`
+
+Where user files live: issue artifacts, uploads and the transcript lake. Not a
+layered key (it has no Settings control); `resolveFileStorage()` applies the same
+order, **env → `config.fileStorage` → `local`**, once at server boot.
+
+| Variable | Config key | What it sets |
+|---|---|---|
+| `PODIUM_FILE_STORAGE_BACKEND` | `fileStorage.backend` | `local` (default): under the state directory. `s3`: one S3-compatible bucket, a prefix per workspace |
+| `PODIUM_FILE_STORAGE_ENDPOINT` | `fileStorage.endpoint` | the provider's bare https origin (http only on loopback) |
+| `PODIUM_FILE_STORAGE_BUCKET` | `fileStorage.bucket` | the bucket name |
+| `PODIUM_FILE_STORAGE_REGION` | `fileStorage.region` | the region; `auto` on Cloudflare R2 |
+| `PODIUM_FILE_STORAGE_ACCESS_KEY_ID` | — (env only) | the bucket's access key id |
+| `PODIUM_FILE_STORAGE_SECRET_ACCESS_KEY` | — (env only) | the bucket's secret key |
+
+The key pair has no file layer, so a secret is never written to `config.json`.
+Every problem fails the server's start with a message naming the variable or key
+to fix: an `s3` backend without its endpoint, bucket, region or key pair, and also
+any bucket field or key set while the backend resolves to `local`, which is a
+deployment that meant `s3` and would otherwise keep files on a disk it does not
+keep. A self-hosted operator may choose `s3` too; it is supported, not advertised.
+
 ### `PODIUM_CONNECT`, `PODIUM_CONNECT_URL`, `PODIUM_CONNECT_PROBE_KEYS`
 
 Podium Connect is the small service at `connect.podium.do` that lets a client

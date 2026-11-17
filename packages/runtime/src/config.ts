@@ -34,6 +34,9 @@
  * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
  * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
  * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
+ * | PODIUM_FILE_STORAGE_BACKEND   | config.fileStorage      | `resolveFileStorage()` — 'local' (default) or 's3'     |
+ * | PODIUM_FILE_STORAGE_ENDPOINT/_BUCKET/_REGION | config.fileStorage.* | `resolveFileStorage()` — the bucket, for 's3' |
+ * | PODIUM_FILE_STORAGE_ACCESS_KEY_ID/_SECRET_ACCESS_KEY | — (env-only secret) | `resolveFileStorage()` — the bucket's key pair |
  * | PODIUM_CONNECT                | config.connect.enabled  | `resolveConnectEnabled()` — 'off' = never publish      |
  * | PODIUM_CONNECT_URL            | config.connect.baseUrl  | `resolveConnectBaseUrl()`                              |
  * | PODIUM_CONNECT_PROBE_KEYS     | config.connect.trustedProbeKeys | `resolveConnectProbeKeys()` — extra verifiers  |
@@ -137,6 +140,7 @@
  * | allowedOrigins         | BOOT  | a trust decision; must not move under an open   |
  * |                        |       | socket (apps/server/src/server.ts says so)      |
  * | loopProfile            | BOOT  | the sampler is armed once, at startup           |
+ * | fileStorage            | BOOT  | the server builds its blob storage once         |
  * | updateChannel          | LIVE  | every machine listing; `podium channel` writes  |
  * |                        |       | it from another process entirely                |
  * | publicUrl / appUrl     | LIVE  | thunks, per request (`serverIdentity`, the      |
@@ -357,6 +361,27 @@ export const PodiumConfig = z.object({
    * cursors rather than re-fetching history.
    */
   transcriptLake: z.enum(['on', 'off']).optional(),
+  /**
+   * WHERE USER FILES LIVE (POD-6963 design 2.8): issue artifacts, uploads and
+   * the transcript lake. `local` (the default) keeps them under the state
+   * directory; `s3` keeps them in one S3-compatible bucket, under a prefix per
+   * workspace. Hosted sets it through `PODIUM_FILE_STORAGE_*`; a self-hosted
+   * operator may choose `s3` as well (supported, not advertised).
+   *
+   * The key pair is deliberately NOT a field: it comes from
+   * `PODIUM_FILE_STORAGE_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` only, so a secret
+   * is never written to this file (zod strips an unknown key on load). The shape
+   * is lenient here and checked by {@link resolveFileStorage} at server boot,
+   * so a mistyped bucket fails the server's start, not every CLI command.
+   */
+  fileStorage: z
+    .object({
+      backend: z.enum(['local', 's3']),
+      endpoint: z.string().optional(),
+      bucket: z.string().optional(),
+      region: z.string().optional(),
+    })
+    .optional(),
   /** How the reachable URL is exposed. Saved so Settings can restore the operator's choice. */
   networkOption: z
     .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
@@ -2156,6 +2181,158 @@ export function resolveTranscriptLakeSetting(
   return resolveSetting('transcriptLake', config, env, {
     transcriptLake: settings === undefined ? undefined : settings ? 'on' : 'off',
   })
+}
+
+/** Where user files live: the state directory, or one S3-compatible bucket. See `config.fileStorage`. */
+export type FileStorageConfig =
+  | { backend: 'local' }
+  | {
+      backend: 's3'
+      /** A bare https origin (http only on loopback), e.g. `https://<account>.r2.cloudflarestorage.com`. */
+      endpoint: string
+      bucket: string
+      /** `auto` on R2. */
+      region: string
+      accessKeyId: string
+      secretAccessKey: string
+    }
+
+/** The file storage variables, by the field each one sets. */
+export const FILE_STORAGE_ENV = {
+  backend: 'PODIUM_FILE_STORAGE_BACKEND',
+  endpoint: 'PODIUM_FILE_STORAGE_ENDPOINT',
+  bucket: 'PODIUM_FILE_STORAGE_BUCKET',
+  region: 'PODIUM_FILE_STORAGE_REGION',
+  accessKeyId: 'PODIUM_FILE_STORAGE_ACCESS_KEY_ID',
+  secretAccessKey: 'PODIUM_FILE_STORAGE_SECRET_ACCESS_KEY',
+} as const
+
+/** S3 bucket names: 3 to 63 lower-case letters, digits, dots and hyphens. */
+const S3_BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/
+const S3_REGION = /^[a-z0-9-]+$/
+
+function fileStorageError(detail: string): never {
+  throw new Error(`file storage is misconfigured: ${detail}`)
+}
+
+function parseFileStorageEndpoint(raw: string, from: string): string {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return fileStorageError(`${from} is not a valid URL: ${JSON.stringify(raw)}`)
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    fileStorageError(`${from} must start with https:// (got ${trimmed})`)
+  }
+  if (url.protocol === 'http:' && !isLoopbackHostname(url.hostname)) {
+    fileStorageError(`${from} must use https:// unless the host is loopback (got ${trimmed})`)
+  }
+  if (url.username !== '' || url.password !== '') {
+    fileStorageError(`${from} must not carry credentials; use ${FILE_STORAGE_ENV.accessKeyId}`)
+  }
+  // The bucket is appended as a path (path-style requests), so the endpoint is a bare origin.
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    fileStorageError(
+      `${from} must be a bare origin with no path, query or fragment (got ${trimmed})`,
+    )
+  }
+  return url.origin
+}
+
+/**
+ * Where user files live: `PODIUM_FILE_STORAGE_*` → `config.fileStorage` → `local`.
+ *
+ * Each location field (backend, endpoint, bucket, region) takes the variable
+ * when it is set and the file otherwise. The key pair is environment-only.
+ * Resolved once, at server boot, and every problem fails that boot with a
+ * message naming what to set or unset; no secret value is ever quoted.
+ *
+ * A bucket field or key pair that is set while the backend resolves to `local`
+ * is refused rather than ignored: it is a deployment that meant `s3` and would
+ * otherwise keep its users' files on a disk it does not keep.
+ */
+export function resolveFileStorage(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): FileStorageConfig {
+  const file = config.fileStorage
+  const fromEnv = (field: keyof typeof FILE_STORAGE_ENV): string | undefined => {
+    const value = env[FILE_STORAGE_ENV[field]]
+    return value === undefined || value.trim() === '' ? undefined : value.trim()
+  }
+  const rawBackend = fromEnv('backend')
+  const backend =
+    rawBackend !== undefined
+      ? parseEnum(rawBackend, ['local', 's3'] as const, FILE_STORAGE_ENV.backend)
+      : (file?.backend ?? 'local')
+  const location = (field: 'endpoint' | 'bucket' | 'region') => {
+    const value = fromEnv(field)
+    if (value !== undefined) return { value, from: FILE_STORAGE_ENV[field] }
+    const fileValue = file?.[field]?.trim()
+    return fileValue === undefined || fileValue === ''
+      ? undefined
+      : { value: fileValue, from: `config.fileStorage.${field}` }
+  }
+  const endpoint = location('endpoint')
+  const bucket = location('bucket')
+  const region = location('region')
+  const accessKeyId = fromEnv('accessKeyId')
+  const secretAccessKey = fromEnv('secretAccessKey')
+  if (backend === 'local') {
+    const stray = [
+      endpoint?.from,
+      bucket?.from,
+      region?.from,
+      accessKeyId === undefined ? undefined : FILE_STORAGE_ENV.accessKeyId,
+      secretAccessKey === undefined ? undefined : FILE_STORAGE_ENV.secretAccessKey,
+    ].filter((name) => name !== undefined)
+    if (stray.length > 0) {
+      fileStorageError(
+        `${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} set but the backend is local; set ${FILE_STORAGE_ENV.backend}=s3 (or config.fileStorage.backend) or unset ${stray.length === 1 ? 'it' : 'them'}`,
+      )
+    }
+    return { backend: 'local' }
+  }
+  const required = (
+    value: { value: string; from: string } | undefined,
+    field: 'endpoint' | 'bucket' | 'region',
+  ) =>
+    value ??
+    fileStorageError(
+      `the s3 backend needs ${field}: set ${FILE_STORAGE_ENV[field]} or config.fileStorage.${field}`,
+    )
+  const endpointValue = required(endpoint, 'endpoint')
+  const bucketValue = required(bucket, 'bucket')
+  const regionValue = required(region, 'region')
+  if (!S3_BUCKET.test(bucketValue.value)) {
+    fileStorageError(
+      `${bucketValue.from} is not an S3 bucket name (3-63 lower-case letters, digits, dots and hyphens): ${JSON.stringify(bucketValue.value)}`,
+    )
+  }
+  if (!S3_REGION.test(regionValue.value)) {
+    fileStorageError(
+      `${regionValue.from} is not a region (lower-case letters, digits and hyphens, e.g. auto or us-east-1): ${JSON.stringify(regionValue.value)}`,
+    )
+  }
+  const missingKeys = [
+    accessKeyId === undefined ? FILE_STORAGE_ENV.accessKeyId : undefined,
+    secretAccessKey === undefined ? FILE_STORAGE_ENV.secretAccessKey : undefined,
+  ].filter((name) => name !== undefined)
+  if (missingKeys.length > 0) {
+    fileStorageError(
+      `the s3 backend needs its key pair from the environment: set ${missingKeys.join(' and ')}`,
+    )
+  }
+  return {
+    backend: 's3',
+    endpoint: parseFileStorageEndpoint(endpointValue.value, endpointValue.from),
+    bucket: bucketValue.value,
+    region: regionValue.value,
+    accessKeyId: accessKeyId as string,
+    secretAccessKey: secretAccessKey as string,
+  }
 }
 
 /**
