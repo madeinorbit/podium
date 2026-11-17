@@ -209,6 +209,36 @@ export function currentStoreContext(): StoreContext | undefined {
   return scope?.kind === 'transaction' ? scope.frame.context : undefined
 }
 
+/**
+ * THE WORKSPACE OF A ROOT STATEMENT [POD-6979, POD-6958 design 2.4].
+ *
+ * A workspace handle's statement run outside any transaction has no frame, so
+ * {@link currentStoreContext} is undefined and a driver could not tell it from a
+ * global write. On Postgres the handle's bound view therefore runs such a statement
+ * inside {@link runRootStatementIn} (`sync-drizzle.ts` supplies the hook to Postgres
+ * stores only), and the driver reads {@link rootStatementContext} to take that
+ * workspace's lock in the root write's own pipeline.
+ *
+ * Separate from {@link currentStoreContext} on purpose: the workspace checks of the
+ * bound views and the join rules read only transaction frames and are unchanged.
+ * Work an execution starts and leaves running (a timer) inherits the value, which
+ * can cost a lock it did not need, never a missing one.
+ */
+const rootStatement = new AsyncLocalStorage<Extract<StoreContext, { kind: 'workspace' }>>()
+
+/** Run a root statement of `context`'s workspace, so the driver can lock that workspace. */
+export function runRootStatementIn<T>(
+  context: Extract<StoreContext, { kind: 'workspace' }>,
+  run: () => T,
+): T {
+  return rootStatement.run(context, run)
+}
+
+/** The workspace of the root statement being run, if it came through a workspace handle. */
+export function rootStatementContext(): Extract<StoreContext, { kind: 'workspace' }> | undefined {
+  return rootStatement.getStore()
+}
+
 /** A workspace transaction was asked to join a transaction of another workspace. */
 export class CrossWorkspaceTransactionError extends StoreExecutorError {}
 

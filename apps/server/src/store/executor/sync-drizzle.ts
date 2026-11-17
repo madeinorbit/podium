@@ -26,8 +26,8 @@ import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
 import { type AsyncRemoteCallback, SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
 import { type PreparedQueryConfig, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session'
 import type { InstallTableExport } from '../workspace-manifest'
-import { bindingFor, type StoreTables } from './binding'
-import { currentStoreContext } from './context'
+import { bindingFor, type StoreDialect, type StoreTables } from './binding'
+import { currentStoreContext, runRootStatementIn } from './context'
 import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
 import { GLOBAL_CONTEXT, type StoreContext, workspaceContext } from './executor'
 
@@ -276,13 +276,31 @@ function remoteCallback(
   }
 }
 
-function buildStoreDrizzle(client: QueryClient) {
+function buildStoreDrizzle(client: QueryClient): StoreDrizzle {
   const dialect = new SQLiteDialect()
   return bindTables(
     new SqliteRemoteDatabase('async', dialect, new StoreRemoteSession(client, dialect), {}),
     bindingFor('sqlite'),
-  )
+  ) as unknown as StoreDrizzle
 }
+
+/**
+ * THE ENGINE'S QUERY LAYER [POD-6979]: which drizzle dialect, over which tables, a
+ * store's one drizzle instance is built on. Chosen with the driver: the executor
+ * refuses a layer whose dialect is not its driver's. The Postgres layer is
+ * `pgQueryLayer` (`pg-drizzle.ts`), passed in by the Postgres opener, so a SQLite
+ * store never loads drizzle's Postgres modules.
+ */
+export interface QueryLayer {
+  readonly dialect: StoreDialect
+  build(client: QueryClient): StoreDrizzle
+}
+
+/** The SQLite query layer: sqlite-proxy over the SQLite schema. */
+export const SQLITE_QUERY_LAYER: QueryLayer = Object.freeze({
+  dialect: 'sqlite' as const,
+  build: buildStoreDrizzle,
+})
 
 export type StoreDrizzle = Omit<
   import('drizzle-orm/sqlite-core').SQLiteAsyncDatabase<
@@ -385,6 +403,9 @@ export type ExecutorTransaction = <T>(fn: () => Promise<T>, context?: StoreConte
 /** The executor transaction behind each store's queries, for {@link workspaceQueries}. */
 const transactionsOf = new WeakMap<GlobalQueries, ExecutorTransaction>()
 
+/** The dialect of each store's queries, for {@link workspaceQueries}. */
+const dialectsOf = new WeakMap<GlobalQueries, StoreDialect>()
+
 /**
  * One workspace's queries over the store's drizzle instance: the same prepared
  * statements as every other workspace, bound to this one. Called once per
@@ -397,8 +418,12 @@ export function workspaceQueries(base: GlobalQueries, workspaceId: WorkspaceId):
     throw new Error('workspace queries are made from the queries a store executor built')
   }
   const context = workspaceContext(workspaceId)
+  // On Postgres a root statement of this workspace tells the driver its workspace,
+  // so a root write takes the workspace's lock (POD-6958 design 2.4). SQLite's
+  // single connection serialises every write, so its handles run statements as is.
+  const runAtRoot = dialectsOf.get(base) === 'pg' ? runRootStatementIn : undefined
   return Object.freeze({
-    db: queryHandle(base.rootDb, context, currentStoreContext),
+    db: queryHandle(base.rootDb, context, currentStoreContext, runAtRoot),
     createOrJoinTransaction: async <T>(fn: () => Promise<T>) => await transact(fn, context),
   })
 }
@@ -433,8 +458,9 @@ export function fleetDb(base: GlobalQueries): FleetDb {
 export function storeQueriesOver(
   client: QueryClient,
   transact: ExecutorTransaction,
+  layer: QueryLayer = SQLITE_QUERY_LAYER,
 ): GlobalQueries {
-  const rootDb = buildStoreDrizzle(client) as unknown as StoreDrizzle
+  const rootDb = layer.build(client)
   const queries: GlobalQueries = {
     db: queryHandle(rootDb, GLOBAL_CONTEXT, currentStoreContext),
     rootDb,
@@ -450,6 +476,7 @@ export function storeQueriesOver(
     createOrJoinTransaction: async (fn) => await transact(fn, GLOBAL_CONTEXT),
   }
   transactionsOf.set(queries, transact)
+  dialectsOf.set(queries, layer.dialect)
   return queries
 }
 

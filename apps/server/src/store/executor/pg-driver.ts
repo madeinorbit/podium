@@ -25,11 +25,12 @@
  * - `exclusive`: an in-process barrier only. Its users (migrator, checkpoint, backup,
  *   transfer fence) do not run on Postgres (design 2.7, 2.9).
  *
- * ROOT WRITES. A write statement outside any transaction autocommits. A root batch is
- * wrapped `BEGIN; statements; COMMIT` and pipelined: one round trip, atomic. A root
- * write that does carry a workspace context takes the workspace lock inside the same
- * pipeline. (Today a root statement has no context; POD-7010 makes workspace writes
- * open the workspace's transaction.)
+ * ROOT WRITES. A write outside any transaction through a WORKSPACE handle carries its
+ * workspace (`rootStatementContext()`, set by the handle's bound view on Postgres), so
+ * it runs `BEGIN; SET LOCAL lock_timeout; lock; statements; COMMIT` as one pipeline:
+ * one round trip, atomic, and under the workspace's lock. A root write through the
+ * global handle carries none: a single statement autocommits, a batch is wrapped
+ * `BEGIN; statements; COMMIT`.
  *
  * BATCHES INSIDE A TRANSACTION take a savepoint of their own, pipelined with the
  * statements, so a failed batch leaves the transaction as it found it
@@ -51,7 +52,8 @@
  */
 
 import postgres from 'postgres'
-import { currentStoreContext } from './context'
+import type { PgTableSet } from './binding'
+import { currentStoreContext, rootStatementContext } from './context'
 import type {
   BatchRouter,
   BusyRetryPolicy,
@@ -74,6 +76,7 @@ import {
   type StoreContext,
   type StoreExecutorOptions,
 } from './executor'
+import { pgQueryLayer } from './pg-drizzle'
 import {
   PG_CONNECTION_PARAMETERS,
   pgTypeHandlers,
@@ -359,7 +362,9 @@ function createSession(
    */
   const runAtRoot = async (statements: readonly Statement[]): Promise<StatementResult[]> => {
     const writes = statements.some((statement) => statement.intent === 'write')
-    const context = writes ? currentStoreContext() : undefined
+    // A workspace handle's root statement names its workspace (context.ts,
+    // `runRootStatementIn`); a global one names none and takes no lock.
+    const context = writes ? (currentStoreContext() ?? rootStatementContext()) : undefined
     const locked = context?.kind === 'workspace'
     if (statements.length === 1 && !locked) {
       const [statement] = statements as [Statement]
@@ -598,8 +603,14 @@ export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
 }
 
 export interface PgStoreExecutorOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver'>,
-    PgDriverOptions {}
+  extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'queryLayer'>,
+    PgDriverOptions {
+  /**
+   * The Postgres tables the store's queries build on. Until POD-6978's Postgres schema
+   * exists, the opener supplies the twins it has (a test's own); default none.
+   */
+  readonly pgTables?: PgTableSet
+}
 
 /** The Postgres composition root: one driver and its executor. */
 export function createPgStoreExecutor(
@@ -616,6 +627,7 @@ export function createPgStoreExecutor(
     busyRetry,
     strictTimestamps,
     onClose,
+    pgTables,
     ...executor
   } = options
   const driverOptions: PgDriverOptions = {
@@ -632,6 +644,7 @@ export function createPgStoreExecutor(
   }
   return createStoreExecutor<QueryClient>({
     driver: createPgStoreDriver(driverOptions),
+    queryLayer: pgQueryLayer(pgTables ?? {}),
     ...executor,
   })
 }

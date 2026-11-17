@@ -52,6 +52,23 @@ export class PostgresLocationError extends Error {
 }
 
 /**
+ * A Postgres store was asked to boot. The engine is chosen and the driver exists, but
+ * a Postgres store has no schema chain to migrate (POD-6981) and no store-lifecycle
+ * port for its boot steps (POD-6994) yet, so the open refuses before it touches
+ * anything: no pool, no directory named after the URL.
+ */
+export class PostgresStoreBootError extends Error {
+  constructor() {
+    super(
+      'this store location is a Postgres URL, and a Postgres store cannot boot yet: it needs ' +
+        'the Postgres migration chain (POD-6981) and the store-lifecycle port (POD-6994). ' +
+        'Open the driver alone with openPgStoreDriver.',
+    )
+    this.name = 'PostgresStoreBootError'
+  }
+}
+
+/**
  * Open the driver of a Postgres store at `url`. The pool opens connections lazily, so
  * this does not touch the network; the first lease does. The driver module (and
  * postgres.js with it) loads here, so a SQLite store never loads it.

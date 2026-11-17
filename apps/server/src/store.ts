@@ -133,7 +133,7 @@ import { UserDockShellRepository, UserLayoutRepository } from './store/user-layo
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
-import { openStoreDatabase } from './store-database'
+import { openStoreDatabase, PostgresStoreBootError, storeEngineFor } from './store-database'
 import { dropChangeCapture, installChangeCapture } from './sync/capture-triggers'
 
 const log = createLogger('server:store')
@@ -229,6 +229,10 @@ export class StoreDatabase {
       onReportFailure: (error) => log.error('transaction watchdog sink failed', { err: error }),
     },
   ): Promise<StoreDatabase> {
+    // THE ENGINE IS CHOSEN HERE, ONCE, FROM THE LOCATION [POD-6979]: a postgres://
+    // URL is a Postgres store, anything else a SQLite file. Before the directory is
+    // made, which for a URL would be a directory named after it.
+    if (storeEngineFor(path) === 'pg') throw new PostgresStoreBootError()
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     /**
      * The executor's report sinks, defined ONCE for both constructions below: a

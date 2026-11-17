@@ -40,6 +40,7 @@ import {
   testStoreEngine,
 } from '../../test-support/pg-test-database'
 import { createPgStoreDriver } from './pg-driver'
+import { pgQueryLayer } from './pg-drizzle'
 import { instrumentDriver, StatementProbeHub } from './statement-probe'
 
 export interface Barrier {
@@ -135,6 +136,7 @@ function recordingDriver(
   const openReader = inner.openReader
   return {
     kind: inner.kind,
+    ...(inner.dialect ? { dialect: inner.dialect } : {}),
     lanes: inner.lanes,
     limits: inner.limits,
     ...(inner.classify ? { classify: (error: unknown) => inner.classify?.(error) ?? 'fatal' } : {}),
@@ -460,6 +462,7 @@ export async function openEngineHarness(options: HarnessOptions = {}): Promise<H
   )
   const executor = createStoreExecutor<QueryClient>({
     driver,
+    queryLayer: pgQueryLayer({}),
     ...(options.watchdog ? { watchdog: options.watchdog } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.effectSink ? { effectSink: options.effectSink } : {}),

@@ -206,7 +206,16 @@ export interface QueryHandle<D> {
   readonly drizzle: D
   readonly context: HandleContext
   readonly openContext: () => HandleContext | undefined
+  /**
+   * How a workspace statement runs when no transaction is open, if the engine needs
+   * to know its workspace there [POD-6979]: Postgres takes the workspace's lock in
+   * the root write's own pipeline. Absent (SQLite), the statement just runs.
+   */
+  readonly runAtRoot?: RootRunner
 }
+
+/** Runs one root statement of a workspace with that workspace known to the engine. */
+export type RootRunner = <T>(context: WorkspaceContext, run: () => T) => T
 
 /** A handle for one workspace: the only thing a workspace definition runs on. */
 export interface WorkspaceHandle<D> extends QueryHandle<D> {
@@ -227,18 +236,27 @@ export function queryHandle<D>(
   drizzle: D,
   context: WorkspaceContext,
   openContext: () => HandleContext | undefined,
+  runAtRoot?: RootRunner,
 ): WorkspaceHandle<D>
 export function queryHandle<D>(
   drizzle: D,
   context: HandleContext,
   openContext: () => HandleContext | undefined,
+  runAtRoot?: RootRunner,
 ): QueryHandle<D>
 export function queryHandle<D>(
   drizzle: D,
   context: HandleContext,
   openContext: () => HandleContext | undefined,
+  runAtRoot?: RootRunner,
 ): QueryHandle<D> {
-  return Object.freeze({ [QUERY_HANDLE]: 'store' as const, drizzle, context, openContext })
+  return Object.freeze({
+    [QUERY_HANDLE]: 'store' as const,
+    drizzle,
+    context,
+    openContext,
+    ...(runAtRoot === undefined ? {} : { runAtRoot }),
+  })
 }
 
 /** The fleet handle over `drizzle`. */
@@ -327,7 +345,10 @@ export type Bound<P> = P extends { execute(...args: never[]): unknown }
  * handle's workspace. One own-key check, one context read and one spread per
  * call (POD-6959 design 2.10 bounds the fill at under a microsecond).
  */
-function fillFor(handle: WorkspaceHandle<unknown>, values: Values | undefined): Values {
+function fillFor(
+  handle: WorkspaceHandle<unknown>,
+  values: Values | undefined,
+): { readonly values: Values; readonly atRoot: boolean } {
   if (values !== undefined && 'workspaceId' in values) throw new CallerWorkspaceValueError()
   const workspaceId = handle.context.workspaceId
   const open = handle.openContext()
@@ -337,7 +358,10 @@ function fillFor(handle: WorkspaceHandle<unknown>, values: Values | undefined): 
       throw new CrossWorkspaceStatementError(workspaceId, open.workspaceId)
     }
   }
-  return values === undefined ? { workspaceId } : { ...values, workspaceId }
+  return {
+    values: values === undefined ? { workspaceId } : { ...values, workspaceId },
+    atRoot: open === undefined,
+  }
 }
 
 /** The bound view of `statement` for `handle`; made once per handle (the accessors cache it). */
@@ -354,7 +378,16 @@ function bindView<P>(statement: P, handle: WorkspaceHandle<unknown>): Bound<P> {
     const run = target[method]
     if (typeof run !== 'function') continue
     const own = run.bind(statement)
-    view[method] = (values) => own(fillFor(handle, values))
+    const runAtRoot = handle.runAtRoot
+    view[method] =
+      runAtRoot === undefined
+        ? (values) => own(fillFor(handle, values).values)
+        : (values) => {
+            const fill = fillFor(handle, values)
+            return fill.atRoot
+              ? runAtRoot(handle.context, () => own(fill.values))
+              : own(fill.values)
+          }
   }
   return Object.freeze(view) as Bound<P>
 }

@@ -67,7 +67,7 @@ import {
   type PostCommitStep,
 } from './post-commit'
 import { createScheduler, type Lease, type Scheduler, type WatchdogOptions } from './scheduler'
-import { type StoreQueries, storeQueriesOver } from './sync-drizzle'
+import { type QueryLayer, type StoreQueries, storeQueriesOver } from './sync-drizzle'
 
 /**
  * Register an external effect (mechanism 3) that must not run inside an open
@@ -328,6 +328,11 @@ export interface StoreRefusal {
 
 export interface StoreExecutorOptions<TClient> {
   driver: StoreDriver<TClient>
+  /**
+   * The drizzle dialect and tables the store's queries build on [POD-6979]. Defaults
+   * to SQLite's; it must match the driver's `dialect` (absent means `sqlite`).
+   */
+  queryLayer?: QueryLayer
   startOpen?: boolean
   /** One second preserves a fast restart while giving ordinary effects time to finish. */
   effectDrainGraceMs?: number
@@ -387,6 +392,15 @@ export function createStoreExecutor<TClient>(
   options: StoreExecutorOptions<TClient>,
 ): RootStoreExecutor<TClient> {
   const { driver } = options
+  const driverDialect = driver.dialect ?? 'sqlite'
+  if (options.queryLayer !== undefined && options.queryLayer.dialect !== driverDialect) {
+    throw new Error(
+      `a ${options.queryLayer.dialect} query layer cannot run on a ${driverDialect} driver`,
+    )
+  }
+  // A driver of another engine with no layer still runs raw statements; only the
+  // repository query capability needs the layer, so that refuses when asked for.
+  const layerMissing = options.queryLayer === undefined && driverDialect !== 'sqlite'
   const effectSink =
     options.effectSink ??
     (() => {
@@ -1134,15 +1148,23 @@ export function createStoreExecutor<TClient>(
   }
 
   const rootClient = driver.client(ambientRouter, ambientBatchRouter)
-  const rootQueries = isQueryClient(rootClient)
-    ? storeQueriesOver(
-        rootClient,
-        async (fn, context) => await transact(async () => await fn(), context),
-      )
-    : undefined
+  const rootQueries =
+    isQueryClient(rootClient) && !layerMissing
+      ? storeQueriesOver(
+          rootClient,
+          async (fn, context) => await transact(async () => await fn(), context),
+          options.queryLayer,
+        )
+      : undefined
   const root: RootStoreExecutor<TClient> = {
     drizzle: rootClient,
     get queries() {
+      if (layerMissing) {
+        throw new Error(
+          `the repository query capability of a ${driverDialect} driver needs its query layer ` +
+            '(StoreExecutorOptions.queryLayer)',
+        )
+      }
       if (!rootQueries) {
         throw new Error('the repository query capability requires the executor QueryClient')
       }

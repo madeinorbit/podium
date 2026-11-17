@@ -45,7 +45,7 @@ import { PgRemoteDatabase } from 'drizzle-orm/pg-proxy'
 import { PgRemoteSession } from 'drizzle-orm/pg-proxy/session'
 import { bindingFor, type PgTableSet } from './binding'
 import type { QueryClient, SqlParam, SqlRunResult, StatementIntent } from './driver'
-import type { StoreDrizzle } from './sync-drizzle'
+import type { QueryLayer, StoreDrizzle } from './sync-drizzle'
 
 type PrepareMode = 'arrays' | 'objects' | 'raw'
 type QueryMetadata = { type: 'select' | 'update' | 'delete' | 'insert'; tables: string[] }
@@ -259,4 +259,15 @@ export function buildPgStoreDrizzle(client: QueryClient, tables: PgTableSet): St
   const dialect = new PgDialect()
   const db = new StorePgDatabase(dialect, new StorePgSession(client, dialect))
   return bindTables(db, bindingFor('pg', tables)) as unknown as StoreDrizzle
+}
+
+/**
+ * The Postgres query layer over `tables`, for `StoreExecutorOptions.queryLayer`: the
+ * store's one drizzle instance is {@link buildPgStoreDrizzle} over its client.
+ */
+export function pgQueryLayer(tables: PgTableSet): QueryLayer {
+  return Object.freeze({
+    dialect: 'pg' as const,
+    build: (client: QueryClient) => buildPgStoreDrizzle(client, tables),
+  })
 }

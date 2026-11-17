@@ -313,6 +313,7 @@ export function instrumentDriver<TClient>(
   const reader = driver.openReader?.bind(driver)
   return {
     kind: driver.kind,
+    ...(driver.dialect ? { dialect: driver.dialect } : {}),
     lanes: driver.lanes,
     limits: driver.limits,
     ...(driver.classify ? { classify: driver.classify.bind(driver) } : {}),

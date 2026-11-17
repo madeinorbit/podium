@@ -10,9 +10,11 @@
  */
 
 import { createServer, type Server, type Socket, connect as tcpConnect } from 'node:net'
-import { asWorkspaceId } from '@podium/model'
+import { asMachineId, asWorkspaceId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
+import { pgTable, text as pgText } from 'drizzle-orm/pg-core'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   openPgStoreDriver,
@@ -32,12 +34,32 @@ import { createStoreExecutor, type RootStoreExecutor, workspaceContext } from '.
 import { barrier, settle } from './harness'
 import {
   createPgStoreDriver,
+  createPgStoreExecutor,
   type PgDriverOptions,
   PgPoolTimeoutError,
   PgTransactionAbortedError,
   WorkspaceFeedRowMissingError,
 } from './pg-driver'
-import { buildPgStoreDrizzle } from './pg-drizzle'
+import { buildPgStoreDrizzle, type StorePgPreparedQuery } from './pg-drizzle'
+import { prepared, preparedGlobal, workspaceQueries } from './sync-drizzle'
+
+const liteNotes = sqliteTable('notes', { id: text('id').primaryKey(), body: text('body') })
+const pgNotes = pgTable('notes', { id: pgText('id').primaryKey(), body: pgText('body') })
+type NoteTables = { readonly notes: typeof liteNotes }
+
+/** A workspace definition and a global one over the test's notes table. */
+const insertWorkspaceNote = prepared((db, t) =>
+  db
+    .insert((t as unknown as NoteTables).notes)
+    .values({ id: sql.placeholder('id'), body: sql.placeholder('body') })
+    .prepare(),
+)
+const insertGlobalNote = preparedGlobal((db, t) =>
+  db
+    .insert((t as unknown as NoteTables).notes)
+    .values({ id: sql.placeholder('id'), body: sql.placeholder('body') })
+    .prepare(),
+)
 
 const WS_A = workspaceContext(asWorkspaceId('ws_a'))
 const WS_B = workspaceContext(asWorkspaceId('ws_b'))
@@ -158,6 +180,18 @@ describe('Postgres store driver, without a database', () => {
     const driver = await openPgStoreDriver(nowhere)
     expect(driver.dialect).toBe('pg')
     await driver.close()
+  })
+
+  it('refuses to boot a StoreDatabase on a Postgres URL before it touches the disk', async () => {
+    const { StoreDatabase } = await import('../../store')
+    const { PostgresStoreBootError } = await import('../../store-database')
+    const { existsSync } = await import('node:fs')
+    await expect(
+      StoreDatabase.open('postgres://podium@127.0.0.1:9/nowhere', asMachineId('m_test'), {
+        bootWorkspace: asWorkspaceId('local'),
+      }),
+    ).rejects.toBeInstanceOf(PostgresStoreBootError)
+    expect(existsSync('postgres:')).toBe(false)
   })
 })
 
@@ -305,6 +339,64 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
         select,
       )) as { statement: string }[]
       expect(prepared).toHaveLength(1)
+    })
+  })
+
+  describe('root writes through query handles', () => {
+    function openQueries() {
+      const store = createPgStoreExecutor({ url, startOpen: true, pgTables: { notes: pgNotes } })
+      opened.push(store)
+      return { store, queries: store.queries }
+    }
+
+    it('builds the store queries on Postgres', () => {
+      const { queries } = openQueries()
+      const statement = insertGlobalNote(queries.db) as unknown as StorePgPreparedQuery
+      expect(statement.getQuery().sql).toBe('insert into "notes" ("id", "body") values ($1, $2)')
+    })
+
+    it("takes the workspace's lock for a root write through its handle, and none through the global handle", async () => {
+      const { queries } = openQueries()
+      const holder = openStore()
+      const held = barrier()
+      const entered = barrier()
+      const holding = holder.transact(async () => {
+        entered.release()
+        await held.wait()
+      }, WS_A)
+      await entered.wait()
+
+      // Global handle: no workspace, no lock, so it does not wait for ws_a's holder.
+      await insertGlobalNote(queries.db).run({ id: 'global', body: 'g' })
+      // Another workspace's handle waits only for its own lock.
+      await insertWorkspaceNote(workspaceQueries(queries, asWorkspaceId('ws_b')).db).run({
+        id: 'ws_b',
+        body: 'b',
+      })
+      expect(await bodies()).toEqual(['global', 'ws_b'])
+
+      // ws_a's handle waits for the holder: its root write took ws_a's lock.
+      let landed = false
+      const waiting = insertWorkspaceNote(workspaceQueries(queries, asWorkspaceId('ws_a')).db)
+        .run({ id: 'ws_a', body: 'a' })
+        .then(() => {
+          landed = true
+        })
+      expect(await eventually(() => landed, 300)).toBe(false)
+      held.release()
+      await Promise.all([holding, waiting])
+      expect(await bodies()).toEqual(['global', 'ws_a', 'ws_b'])
+    })
+
+    it('refuses a root write through a workspace handle that has no feed row', async () => {
+      const { queries } = openQueries()
+      await expect(
+        insertWorkspaceNote(workspaceQueries(queries, asWorkspaceId('ws_missing')).db).run({
+          id: 'missing',
+          body: 'm',
+        }),
+      ).rejects.toBeInstanceOf(WorkspaceFeedRowMissingError)
+      expect(await bodies()).toEqual([])
     })
   })
 
