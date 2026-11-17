@@ -1747,7 +1747,6 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
       reshape: [`UPDATE ship_orders SET state = 'shipped' WHERE right(id, 2) <> '00'`],
       analyze: ['ship_orders'],
       values: [WS_LITERAL, "'queued'", "'dependency'"],
-      reason: 'the SQLite test',
     })
     expect(indexesInPlan(plan)).toContain('idx_ship_orders_one_active_issue')
   })
