@@ -94,8 +94,8 @@ vi.mock('@expo/ui/swift-ui', () => {
         {children}
       </div>
     ),
-    // A native deck row: the List's row Button (listRowPress) opens it and
-    // its long press opens the task menu.
+    // The List's row Button opens the task. A long-press callback is only
+    // present when the row has no native context menu.
     HStack: ({ children, modifiers }: Props) => {
       const find = (name: string) => modifiers?.find((m) => m.name === name)?.value
       const press = find('podiumListRowPress') as (() => void) | undefined
@@ -195,10 +195,13 @@ vi.mock('@expo/ui/swift-ui', () => {
         {label ?? children}
       </button>
     ),
-    ContextMenu: Object.assign(Box, {
-      Trigger: Box,
-      Items: ({ children }: Props) => <div data-testid="long-press-menu">{children}</div>,
-    }),
+    ContextMenu: Object.assign(
+      ({ children }: Props) => <div data-native-context-menu>{children}</div>,
+      {
+        Trigger: Box,
+        Items: ({ children }: Props) => <div data-testid="long-press-menu">{children}</div>,
+      },
+    ),
     SwipeActions: Object.assign(Box, {
       Actions: ({
         edge,
@@ -476,7 +479,20 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
   fireEvent.click(row)
   expect(open).toHaveBeenCalledOnce()
   fireEvent.contextMenu(row)
+  expect(menu).not.toHaveBeenCalled()
+  // UIKit owns the long press. Drive the native menu item to request its
+  // specific sheet, still bound to this task after catch-up and filtering.
+  const nativeMenu = row.closest('[data-native-context-menu]')
+  if (!(nativeMenu instanceof HTMLElement)) throw new Error('Missing native task context menu')
+  fireEvent.click(
+    within(within(nativeMenu).getByTestId('long-press-menu')).getByRole('button', {
+      name: 'Rename',
+    }),
+  )
   expect(menu).toHaveBeenCalledOnce()
+  expect(menu).toHaveBeenCalledWith(expect.objectContaining({ id: completed.id }), {
+    kind: 'rename',
+  })
 })
 
 it.each([
