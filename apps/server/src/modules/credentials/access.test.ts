@@ -270,6 +270,82 @@ describe('resolveSessionAccess', () => {
     })
   })
 
+  it('delivers a second subscription to the Podium home that holds it (Task 9)', async () => {
+    const s = await open()
+    const id = await loginCredential(s, 'fp-claude-second')
+    const homeId = `${id}:claude-code`
+    await s.machines.setMachineInventory(
+      OWN_MACHINE,
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        agents: [
+          {
+            kind: 'claude-code',
+            installed: true,
+            login: { state: 'in', identity: { fingerprint: 'fp-claude' } },
+            logins: [
+              { homeId: 'default', state: 'in', identity: { fingerprint: 'fp-claude' } },
+              { homeId: 'cred_other:claude-code', state: 'out' },
+              { homeId, state: 'in', identity: { fingerprint: 'fp-claude-second' } },
+            ],
+          },
+        ],
+      }),
+    )
+    expect(
+      await resolveSessionAccess(s, {
+        harness: 'claude-code',
+        credentialId: id,
+        actingUserId: OWNER,
+        machineId: OWN_MACHINE,
+      }),
+    ).toEqual({ ok: true, credentialId: id, delivery: { kind: 'home', homeId } })
+    // The default home's own login still goes to the default home.
+    const first = await loginCredential(s, 'fp-claude')
+    expect(
+      await resolveSessionAccess(s, {
+        harness: 'claude-code',
+        credentialId: first,
+        actingUserId: OWNER,
+        machineId: OWN_MACHINE,
+      }),
+    ).toMatchObject({ ok: true, delivery: { kind: 'home', homeId: 'default' } })
+  })
+
+  it('refuses a Podium home that reports the account signed out', async () => {
+    const s = await open()
+    const id = await loginCredential(s, 'fp-claude-out')
+    await s.machines.setMachineInventory(
+      OWN_MACHINE,
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        agents: [
+          {
+            kind: 'claude-code',
+            installed: true,
+            login: { state: 'out' },
+            logins: [
+              { homeId: 'default', state: 'out' },
+              { homeId: `${id}:claude-code`, state: 'out', identity: { fingerprint: 'fp-claude-out' } },
+            ],
+          },
+        ],
+      }),
+    )
+    expect(
+      await resolveSessionAccess(s, {
+        harness: 'claude-code',
+        credentialId: id,
+        actingUserId: OWNER,
+        machineId: OWN_MACHINE,
+      }),
+    ).toMatchObject({ ok: false, refusal: 'not-on-this-machine' })
+  })
+
   const envRows: { harness: AgentKind; type: string; variable: string; driverId?: string }[] = [
     { harness: 'claude-code', type: 'anthropic.api-key', variable: 'ANTHROPIC_API_KEY' },
     { harness: 'claude-code', type: 'anthropic.claude-token', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },

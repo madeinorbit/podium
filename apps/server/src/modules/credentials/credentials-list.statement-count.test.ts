@@ -4,7 +4,7 @@
  *
  * The viewer owns `size` credentials and was given `size` more, by `size`
  * different owners, half to them and half to all members, each allowed on a
- * machine. One read each: the viewer's own, the grants to the viewer or all
+ * machine. One read each: the viewer's own, their placements, the machines, the grants to the viewer or all
  * members, those credentials, all their grants, the granters' standing, and the
  * allowed machines.
  */
@@ -97,12 +97,12 @@ const pin: StatementPin<Fixture> = {
 }
 
 describe('credentials.list statement count', () => {
-  it('is seven statements at 5 and at 200 credentials', async () => {
-    await expectConstantStatements(pin, 7)
+  it('is eight statements at 5 and at 200 credentials', async () => {
+    await expectConstantStatements(pin, 8)
   })
 
   it('is armed: a read per credential on its path fails the pin', async () => {
-    await expectArmed(pin, 7, (f) => {
+    await expectArmed(pin, 8, (f) => {
       const credentials = f.store.credentials
       const original = credentials.allowedMachinesOf.bind(credentials)
       credentials.allowedMachinesOf = async (ids) => {

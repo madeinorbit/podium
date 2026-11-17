@@ -138,6 +138,31 @@ describe('login propagation coordinator', () => {
     expect(await s.credentials.listPlacements(unrelated.id)).toEqual([])
   })
 
+  it('records one propagated-file placement per copy: one per machine, none again for a repeat (Task 9 item 7)', async () => {
+    const s = await fleet()
+    await machine('third', owner, 'out')
+    await tick(s)
+    const credential = await s.credentials.insert({
+      ownerUserId: owner,
+      label: 'ChatGPT login',
+      type: 'openai.chatgpt-login',
+      identity: { fingerprint: 'same-account' },
+    })
+    const { svc } = service(s)
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'propagated' })
+    await expect(
+      svc.propagate({ targetMachineId: asMachineId('third'), agentKind: 'codex' }),
+    ).resolves.toMatchObject({ status: 'propagated' })
+    // The same copy made again is the same placement.
+    await s.machines.setMachineInventory('target', JSON.stringify(inventory('out')))
+    await svc.propagate({ ...toTarget, force: true })
+    const placements = await s.credentials.listPlacements(credential.id)
+    expect(placements.map((p) => [p.machineId, p.kind, p.state]).sort()).toEqual([
+      ['target', 'propagated-file', 'present'],
+      ['third', 'propagated-file', 'present'],
+    ])
+  })
+
   it('a propagated login no credential names records no placement', async () => {
     const s = await fleet()
     await tick(s)

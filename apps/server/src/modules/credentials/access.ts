@@ -132,19 +132,32 @@ function acceptedLine(harness: AgentKind, driverId: string | undefined, type: st
   )
 }
 
-/** The machine's inventory reports this login for the harness (in its default home). */
-async function loginOnMachine(
+/**
+ * The home on the machine whose login is this credential's account, as the
+ * machine's inventory reports it (§10): the harness's own directory first,
+ * then a home Podium made. Undefined when no home there is signed in to it.
+ */
+async function homeOnMachine(
   deps: Pick<SessionStore, 'machines'>,
   machineId: MachineId,
   harness: AgentKind,
   credential: CredentialRecord,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const fingerprint = credential.identity.fingerprint
-  if (!fingerprint) return false
+  if (!fingerprint) return undefined
   const agent = (await deps.machines.getMachine(machineId))?.inventory?.agents.find(
     (a) => a.kind === harness,
   )
-  return agent?.login.state === 'in' && agent.login.identity?.fingerprint === fingerprint
+  if (!agent) return undefined
+  if (agent.login.state === 'in' && agent.login.identity?.fingerprint === fingerprint) {
+    return DEFAULT_HOME_ID
+  }
+  return agent.logins?.find(
+    (login) =>
+      login.homeId !== DEFAULT_HOME_ID &&
+      login.state === 'in' &&
+      login.identity?.fingerprint === fingerprint,
+  )?.homeId
 }
 
 /** Exists, not removed, and the acting person may use it. */
@@ -191,10 +204,11 @@ export async function resolveSessionAccess(
   const { credential } = usable
   const line = acceptedLine(i.harness, i.driverId, credential.type)
   if (!line) return await refuse(deps, 'wrong-type', context)
-  if (
-    storedIn(credential.type) === 'home' &&
-    !(await loginOnMachine(deps, i.machineId, i.harness, credential))
-  ) {
+  const homeId =
+    storedIn(credential.type) === 'home'
+      ? await homeOnMachine(deps, i.machineId, i.harness, credential)
+      : undefined
+  if (storedIn(credential.type) === 'home' && !homeId) {
     return await refuse(deps, 'not-on-this-machine', context)
   }
   if (
@@ -210,7 +224,7 @@ export async function resolveSessionAccess(
     delivery:
       line.deliver.kind === 'env'
         ? { kind: 'env', variable: line.deliver.variable }
-        : { kind: 'home', homeId: DEFAULT_HOME_ID },
+        : { kind: 'home', homeId: homeId ?? DEFAULT_HOME_ID },
   }
 }
 

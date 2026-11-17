@@ -132,6 +132,7 @@ import {
   classifyCredentialFailure,
 } from './modules/credentials/health'
 import { placementRemovers } from './modules/credentials/home-removers'
+import { recordFoundLogins } from './modules/credentials/found-logins'
 import { HomeSignInService } from './modules/credentials/sign-in'
 import { Placements } from './modules/credentials/placements'
 import { DaemonRequestBroker } from './modules/daemon-request'
@@ -2256,6 +2257,17 @@ export class SessionRegistry {
       if (!inventory) return
       const machine = await this.store.machines.getMachine(machineId)
       await homeSignIn.onInventory(machineId, machine?.inventory)
+      // Logins the person made on the machine become credentials (§6 way 3).
+      await recordFoundLogins(
+        {
+          store: this.store,
+          serial: homeSignIn.serial,
+          now: () => this.now(),
+          isWaitingFor: (homeId) => homeSignIn.isWaitingFor(homeId),
+        },
+        machineId,
+        machine?.inventory,
+      )
     })
     this.bus.on('superagent.turnEnded', async (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return

@@ -538,23 +538,26 @@ const placementsOf = prepared((db: StoreDrizzle) =>
 )
 
 /**
- * The owner's placements still waiting for a machine to confirm their removal,
- * with their credential (removed ones too: that is when removal is pending).
- * Led by the owner index; each credential's placements by their primary key.
+ * The owner's placements that are still on a machine (present, or waiting for
+ * the machine to confirm their removal), with their credential (removed ones
+ * too: that is when removal is pending). Led by the owner index; each
+ * credential's placements by their primary key.
  */
-const pendingPlacementsOfOwner = prepared((db: StoreDrizzle) =>
+const livePlacementsOfOwner = prepared((db: StoreDrizzle) =>
   db
     .select({
       credential: credentials,
       machineId: credentialPlacements.machineId,
       kind: credentialPlacements.kind,
+      homeId: credentialPlacements.homeId,
+      state: credentialPlacements.state,
     })
     .from(credentials)
     .innerJoin(credentialPlacements, eq(credentialPlacements.credentialId, credentials.id))
     .where(
       and(
         eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
-        sql`${credentialPlacements.state} = 'removal-pending'`,
+        sql`${credentialPlacements.state} IN ('present', 'removal-pending')`,
       ),
     )
     // The owner index gives this order; each credential's placements follow
@@ -969,16 +972,24 @@ export class CredentialsRepository {
   }
 
   /**
-   * The owner's placements waiting for a machine to confirm their removal, each
-   * with its credential, removed or not. One read.
+   * The owner's placements still on a machine (present or removal pending),
+   * each with its credential, removed or not. One read.
    */
-  async listPendingPlacementsOfOwner(
-    ownerUserId: UserId,
-  ): Promise<{ credential: CredentialRecord; machineId: MachineId; kind: PlacementKind }[]> {
-    return (await pendingPlacementsOfOwner(this.db).all({ ownerUserId })).map((r) => ({
+  async listLivePlacementsOfOwner(ownerUserId: UserId): Promise<
+    {
+      credential: CredentialRecord
+      machineId: MachineId
+      kind: PlacementKind
+      homeId?: string
+      state: Exclude<PlacementState, 'removed'>
+    }[]
+  > {
+    return (await livePlacementsOfOwner(this.db).all({ ownerUserId })).map((r) => ({
       credential: toRecord(r.credential),
       machineId: r.machineId,
       kind: toPlacementKind(r.kind),
+      ...(r.homeId ? { homeId: r.homeId } : {}),
+      state: r.state === 'present' ? 'present' : 'removal-pending',
     }))
   }
 
