@@ -48,6 +48,8 @@ const log = createLogger('server:credentials')
 export const SIGN_IN_TTL_MS = 30 * 60_000
 /** After the sign-in command ended, how long to wait for the machine to report the login. */
 export const SIGN_IN_REPORT_WAIT_MS = 30_000
+/** How long a finished sign-in can still be asked about before it is forgotten. */
+export const SIGN_IN_KEEP_MS = 15 * 60_000
 
 export type SignInOutcome =
   /** A new credential for the account that signed in. */
@@ -470,6 +472,7 @@ export class HomeSignInService {
     )
     const { replacedHomeId, ...status } = result
     attempt.status = status
+    this.forgetLater(attempt)
     if (replacedHomeId) await this.removeHome(replacedHomeId, attempt.machineId)
     if (!attempt.ended) {
       this.bySession.delete(attempt.terminalSessionId)
@@ -481,6 +484,7 @@ export class HomeSignInService {
     if (attempt.status.state !== 'waiting') return
     if (attempt.timer) clearTimeout(attempt.timer)
     attempt.status = { state: 'failed', reason }
+    this.forgetLater(attempt)
     this.bySession.delete(attempt.terminalSessionId)
     if (!attempt.ended) await this.closeTerminal(attempt)
     // A home that held a login before this attempt is never touched.
@@ -502,6 +506,13 @@ export class HomeSignInService {
     } catch (error) {
       log.warn('an unused sign-in home was not removed', { err: error, homeId, machineId })
     }
+  }
+
+  /** A finished attempt answers its status for a while, then is dropped. */
+  private forgetLater(attempt: Attempt): void {
+    attempt.timer = this.after(SIGN_IN_KEEP_MS, async () => {
+      if (this.attempts.get(attempt.attemptId) === attempt) this.attempts.delete(attempt.attemptId)
+    })
   }
 
   private after(ms: number, fn: () => Promise<void>): ReturnType<typeof setTimeout> {
