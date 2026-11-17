@@ -4052,6 +4052,7 @@
         "src/test-support/prepared-census.ts",
         "src/test-support/query-plan-audit.ts",
         "src/test-support/record-writer.ts",
+        "src/test-support/round-trip-count.ts",
         "src/test-support/seed-issue-mail.ts",
         "src/test-support/seed-message.ts",
         "src/test-support/seed-rows.ts",
