@@ -92,7 +92,8 @@ describe('found-login row actions', () => {
     )
     expect(fixture.navigate).not.toHaveBeenCalled()
     fixture.present = true
-    page.rerender(f.row())
+    // The mock reader has no subscription; publish a new view to deliver the arrival.
+    page.rerender(f.row({ ...f.view }))
     await waitFor(() => expect(fixture.navigate).toHaveBeenCalledWith('login-session'))
     expect(f.onOpen).not.toHaveBeenCalled()
   })

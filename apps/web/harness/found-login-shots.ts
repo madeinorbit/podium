@@ -11,17 +11,18 @@ const shell = readdirSync(cache)
   .sort()
   .at(-1)
 const server = Bun.spawn(
-  ['bun', 'x', 'vite', '--config', 'vite.settings-frame-harness.config.ts', '--host', '127.0.0.1'],
+  ['bun', 'x', 'vite', '--config', 'vite.settings-frame-harness.config.ts', '--host', '127.0.0.1', '--port', '55765'],
   {
     cwd: resolve(import.meta.dir, '..'),
     stdout: 'ignore',
     stderr: 'inherit',
   },
 )
-const url = 'http://127.0.0.1:55652/harness/settings-frame.html?page=credentials&populated=1'
+const url = 'http://127.0.0.1:55765/harness/settings-frame.html?page=credentials&populated=1'
 try {
   let ready = false
   for (let i = 0; i < 100; i++) {
+    if (server.exitCode !== null) throw new Error('Settings harness exited before becoming ready')
     if (
       await fetch(url)
         .then((response) => response.ok)
@@ -44,6 +45,7 @@ try {
         viewport: { width, height: width === 390 ? 1000 : 920 },
         deviceScaleFactor: 1,
       })
+      page.setDefaultTimeout(90_000)
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(String(error)))
       await page.goto(url)
