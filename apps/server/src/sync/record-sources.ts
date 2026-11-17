@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * WHERE EACH SYNCED RECORD COMES FROM (POD-6253 design §3, POD-6920).
  *
@@ -24,6 +25,18 @@
  * builder may read only the tables declared here, and changing or deleting
  * any row of those tables may change only records the capture of that change
  * names. A missing declaration fails there, not in production.
+ *
+ * ONE WORKSPACE'S ROWS (POD-7021, POD-6959 design 2.7, contract C9). Every
+ * source on a workspace table captures its rows with `workspace_id` as the
+ * first key column, so each captured row says whose it is: the helpers below
+ * put it there ({@link own}, {@link via}), and hand each source's mapping the
+ * key without it, so the mappings read the same columns at the same places as
+ * before. The drain (`record-source.ts`) refuses a captured row of a workspace
+ * other than its transaction's ({@link capturedWorkspace}). A row filter or a
+ * derived value that reads another workspace table joins it on the row's
+ * workspace. The one install table a kind reads (`meta`, the fleet's update
+ * context) captures no workspace: its change reaches the records of the
+ * workspace whose transaction wrote it.
  */
 
 import {
@@ -132,7 +145,10 @@ export interface SourceChange {
 /** One model table a kind reads. */
 export interface RecordSource {
   readonly table: Table
-  /** The columns the capture keeps, old and new. A change of one always fires. */
+  /**
+   * The columns the capture keeps, old and new. A change of one always fires.
+   * On a workspace table the first is its `workspace_id` (see the helpers).
+   */
   readonly keys: readonly Column[]
   /**
    * What the kind reads of a row: an update that changes none of these is not
@@ -155,7 +171,7 @@ export interface RecordSource {
    * issue's deletion) watches updates alone.
    */
   readonly ops?: readonly ('i' | 'u' | 'd')[]
-  /** The record ids these changes can have changed. */
+  /** The record ids these changes can have changed, from keys in {@link keys}' order. */
   ids(
     changes: readonly SourceChange[],
     reads: RecordReads,
@@ -186,6 +202,52 @@ function firstKeys(changes: readonly SourceChange[]): string[] {
   return unique(keysOf(changes).flatMap((key) => (key[0] == null ? [] : [str(key[0])])))
 }
 
+/** The column every workspace table carries (POD-7012). */
+const WORKSPACE_COLUMN = 'workspace_id'
+
+/** The `workspace_id` column of a workspace table; undefined for an install table. */
+function workspaceColumnOf(table: Table): Column | undefined {
+  const column = (getTableColumns(table) as Record<string, Column | undefined>).workspaceId
+  return column?.name === WORKSPACE_COLUMN ? column : undefined
+}
+
+/**
+ * The declared keys of a source on `table`: its `workspace_id` first on a
+ * workspace table, so the capture carries the row's workspace (contract C9).
+ */
+function capturedKeys(table: Table, keys: readonly Column[]): readonly Column[] {
+  const workspace = workspaceColumnOf(table)
+  return workspace === undefined ? keys : [workspace, ...keys]
+}
+
+/** These changes with the workspace taken off each key: what a mapping reads. */
+function withoutWorkspace(changes: readonly SourceChange[]): SourceChange[] {
+  return changes.map((change) => ({
+    op: change.op,
+    old: change.old === null ? null : change.old.slice(1),
+    new: change.new === null ? null : change.new.slice(1),
+  }))
+}
+
+/**
+ * A source's declaration with its keys led by the workspace, and its mapping
+ * handed the keys it names (`keys`, in order) without it.
+ */
+function source(
+  table: Table,
+  keys: readonly Column[],
+  ids: RecordSource['ids'],
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'ops'>>,
+): RecordSource {
+  const scoped = workspaceColumnOf(table) !== undefined
+  return {
+    table,
+    keys: capturedKeys(table, keys),
+    ...more,
+    ids: scoped ? (changes, reads) => ids(withoutWorkspace(changes), reads) : ids,
+  }
+}
+
 /** A table whose row IS the record: the record id is a function of the key. */
 function own(
   table: Table,
@@ -193,18 +255,18 @@ function own(
   idOf: (key: readonly unknown[]) => string | null,
   more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived'>> = {},
 ): RecordSource {
-  return {
+  return source(
     table,
     keys,
-    ...more,
-    ids: (changes) =>
+    (changes) =>
       unique(
         keysOf(changes).flatMap((key) => {
           const id = idOf(key)
           return id === null ? [] : [id]
         }),
       ),
-  }
+    more,
+  )
 }
 
 /** A table keyed by the record's own id in its first key column. */
@@ -222,7 +284,7 @@ function via(
   ids: RecordSource['ids'],
   more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops'>> = {},
 ): RecordSource {
-  return { table, keys, reads, ids, ...more }
+  return source(table, keys, ids, { reads, ...more })
 }
 
 /** The person a chat message was sent for, from its attribution columns. */
@@ -590,10 +652,10 @@ const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${
  * A row of a session's satellite table can change only the record of a
  * session that is on the feed: one whose row exists and is not tombstoned.
  * (A satellite of a missing session would otherwise append a remove for a
- * record that never was.)
+ * record that never was.) The session is the row's own workspace's.
  */
 const ofLiveSession = (sessionId: Column): string =>
-  `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
+  `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.workspaceId.name} = {row}.${WORKSPACE_COLUMN} AND ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
 
 /**
  * What a machine record reads of those rows: the channel's whole value, and
@@ -1136,6 +1198,27 @@ export async function touchedRecords(
     if (list !== undefined && list.length > 0) ordered.set(kind, list)
   }
   return ordered
+}
+
+/**
+ * The workspace a captured row belongs to: the first key of a source on a
+ * workspace table, read from whichever of the old and new key the row has (a
+ * row's workspace never changes, and a change of it is captured with both).
+ * Undefined for a source on an install table, which captures no workspace.
+ */
+export function capturedWorkspace(
+  row: CapturedRow,
+  sources: RecordSources = RECORD_SOURCES,
+): { readonly old?: string; readonly new?: string } | undefined {
+  const declared = sources[row.kind as MetadataEntityKind]?.[row.source]
+  if (declared === undefined) {
+    throw new Error(`sync capture: no source ${row.source} declared for kind ${row.kind}`)
+  }
+  if (declared.keys[0]?.name !== WORKSPACE_COLUMN) return undefined
+  return {
+    ...(row.oldKey === null ? {} : { old: str(row.oldKey[0]) }),
+    ...(row.newKey === null ? {} : { new: str(row.newKey[0]) }),
+  }
 }
 
 /** The SQL name of every column a source watches, keys first. */

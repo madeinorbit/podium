@@ -71,7 +71,7 @@ import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { syncQueriesOver } from '../store/executor/sync-drizzle'
+import { syncQueriesOver, workspaceQueries } from '../store/executor/sync-drizzle'
 import { freeDiskBytes } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -265,7 +265,11 @@ async function remintRestoredEpoch(
   // port, POD-3416 for what the port carries). The store's own construction
   // passes `this.queries`.
   // A restore re-mints a self-hosted database's feed: its one workspace's.
-  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables, SELF_HOSTED_WORKSPACE_ID)
+  const repo = new SyncRepository(
+    workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
+    syncServerTables,
+    SELF_HOSTED_WORKSPACE_ID,
+  )
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: async () => await repo.readFeedIdentity(),

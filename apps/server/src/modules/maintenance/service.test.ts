@@ -300,24 +300,21 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
   })
 
-  it('prunes each observed tenant independently and keeps replay keys separate', async () => {
-    const tenants = [store.sync, store.sync.forWorkspace('other/tenant')]
-    for (const repo of tenants) {
-      await repo.appendChanges(
-        Array.from({ length: 5 }, (_, i) => ({
-          entity: 'issueProjection' as const,
-          entityId: `i${i}`,
-          op: 'upsert' as const,
-          payload: '{}',
-        })),
-        nowMs - CHANGE_MAX_AGE_MS - 1_000,
-      )
-    }
+  it("prunes its own workspace's feed and refuses another workspace's (POD-7021)", async () => {
+    await store.sync.appendChanges(
+      Array.from({ length: 5 }, (_, i) => ({
+        entity: 'issueProjection' as const,
+        entityId: `i${i}`,
+        op: 'upsert' as const,
+        payload: '{}',
+      })),
+      nowMs - CHANGE_MAX_AGE_MS - 1_000,
+    )
     const lease = await handshake('gen_tenants')
     if (lease.status !== 'ready') throw new Error('expected lease')
-    const commands = tenants.map((repo) => {
+    const commands = [store.sync.workspaceId, 'other/tenant'].map((tenantId) => {
       const observed = {
-        tenantId: repo.workspaceId,
+        tenantId,
         keepRows: CHANGE_KEEP_ROWS,
         maxAgeMs: CHANGE_MAX_AGE_MS,
         thresholdSeq: 5,
@@ -334,17 +331,15 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       }
     })
     expect(commands[0]!.runKey).not.toBe(commands[1]!.runKey)
-    expect(await service.apply(commands[1]!)).toMatchObject({ status: 'applied', deleted: 5 })
-    expect(await tenants[1]!.changesSince(0)).toEqual([])
+    expect(await service.apply(commands[1]!)).toMatchObject({
+      status: 'stale',
+      reason: 'precondition',
+    })
     expect(await store.sync.changesSince(0)).toHaveLength(5)
     expect(await service.apply(commands[0]!)).toMatchObject({ status: 'applied', deleted: 5 })
     expect(await store.sync.changesSince(0)).toEqual([])
-    for (const command of commands) {
-      expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    }
-    for (const repo of tenants) {
-      expect(await repo.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
-    }
+    expect(await service.apply(commands[0]!)).toMatchObject({ status: 'already-applied' })
+    expect(await store.sync.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {

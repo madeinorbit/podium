@@ -19,7 +19,7 @@ import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from 
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { syncQueriesOver } from '../store/executor/sync-drizzle'
+import { syncQueriesOver, workspaceQueries } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { appliedDrizzleNames, applyBaselineSchema, runDrizzleMigrations } from './index'
@@ -69,7 +69,7 @@ const fixtureRecords = new WeakMap<Ledger, ModelRecords>()
 type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
 async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
-  const queries = syncQueriesOver(db)
+  const queries = workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID)
   const repo = new SyncRepository(queries, syncServerTables, SELF_HOSTED_WORKSPACE_ID)
   const records = new ModelRecords()
   const ledger = new Ledger({
@@ -134,7 +134,7 @@ describe('the migration creates the feed-identity table', () => {
     expect(identity.epoch).toBeTruthy()
     expect(
       await new SyncRepository(
-        syncQueriesOver(db),
+        workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
         syncServerTables,
         SELF_HOSTED_WORKSPACE_ID,
       ).readFeedIdentity(),
@@ -181,7 +181,11 @@ describe('the migration creates the feed-identity table', () => {
 
   it('one database is one feed — a bump REPLACES the identity rather than appending', async () => {
     const { db } = authority()
-    const repo = new SyncRepository(syncQueriesOver(db), syncServerTables, SELF_HOSTED_WORKSPACE_ID)
+    const repo = new SyncRepository(
+      workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
+      syncServerTables,
+      SELF_HOSTED_WORKSPACE_ID,
+    )
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
 
@@ -291,7 +295,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     const db2 = openDatabase(dbPath)
     expect(
       await new SyncRepository(
-        syncQueriesOver(db2),
+        workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
         syncServerTables,
         SELF_HOSTED_WORKSPACE_ID,
       ).readFeedIdentity(),
@@ -318,7 +322,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     expect(
       (
         await new SyncRepository(
-          syncQueriesOver(backupDb),
+          workspaceQueries(syncQueriesOver(backupDb), SELF_HOSTED_WORKSPACE_ID),
           syncServerTables,
           SELF_HOSTED_WORKSPACE_ID,
         ).readFeedIdentity()
@@ -365,7 +369,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     expect(
       (
         await new SyncRepository(
-          syncQueriesOver(db2),
+          workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
           syncServerTables,
           SELF_HOSTED_WORKSPACE_ID,
         ).readFeedIdentity()
@@ -449,7 +453,7 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     const db2 = openDatabase(dbPath)
     const after = (
       await new SyncRepository(
-        syncQueriesOver(db2),
+        workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
         syncServerTables,
         SELF_HOSTED_WORKSPACE_ID,
       ).readFeedIdentity()
@@ -605,7 +609,7 @@ describe('restoring a backup from before feed identity existed', () => {
     ).toThrow(/UNIQUE constraint failed/)
     expect(
       await new SyncRepository(
-        syncQueriesOver(booted),
+        workspaceQueries(syncQueriesOver(booted), SELF_HOSTED_WORKSPACE_ID),
         syncServerTables,
         SELF_HOSTED_WORKSPACE_ID,
       ).readFeedIdentity(),
@@ -639,7 +643,7 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(fresh.epoch).toBeTruthy()
     expect(
       await new SyncRepository(
-        syncQueriesOver(booted),
+        workspaceQueries(syncQueriesOver(booted), SELF_HOSTED_WORKSPACE_ID),
         syncServerTables,
         SELF_HOSTED_WORKSPACE_ID,
       ).readFeedIdentity(),

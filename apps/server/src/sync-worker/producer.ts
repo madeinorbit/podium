@@ -19,6 +19,7 @@ import {
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
@@ -98,7 +99,11 @@ async function* produceRecords(
     transaction = true
     const capture = performance.now()
     // This FIRST read fixes the SQLite snapshot; every visibility read shares it.
-    bundle = bootstrapVisibility(db, options)
+    // Every read is the job's workspace's (POD-7021).
+    bundle = bootstrapVisibility(db, {
+      ...options,
+      workspaceId: job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID,
+    })
     const context = await bundle.context
     const { headSeq: seq, floorSeq: minAvailableSeq } = await context.sync.readFeedState()
     phase('capture', capture)

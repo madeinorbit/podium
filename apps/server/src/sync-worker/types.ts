@@ -1,8 +1,10 @@
+// workspace-scoped (POD-6959)
+import type { WorkspaceId } from '@podium/model'
 import type {
   MetadataEntityKind,
   Principal,
-  SyncMeta,
   SyncBootstrapRequiredReason,
+  SyncMeta,
 } from '@podium/protocol'
 
 export const SYNC_WORKER_MAX_JOBS = 2
@@ -20,6 +22,13 @@ export interface BootstrapJob {
   kinds?: [MetadataEntityKind, ...MetadataEntityKind[]]
   /** Absolute epoch milliseconds; omitted means ten minutes from admission. */
   deadlineMs?: number
+  /**
+   * The workspace whose feed and records the job reads (POD-6959 design 2.7):
+   * every read the worker runs for it is that workspace's. Omitted means the
+   * self-hosted install's one workspace, until hosted routing (POD-6960) names
+   * the workspace of each request.
+   */
+  workspaceId?: WorkspaceId
 }
 export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
   mode: 'delta'
@@ -30,9 +39,21 @@ export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
 }
 export type SyncJob = BootstrapJob | DeltaJob
 export type SyncMetaSummary = SyncMeta
-export type SyncFailureReason = SyncBootstrapRequiredReason | 'queue-full' | 'cancelled' | 'deadline' | 'worker-crashed' | 'shutdown' | 'row-too-large' | 'producer-failed' | 'unavailable'
+export type SyncFailureReason =
+  | SyncBootstrapRequiredReason
+  | 'queue-full'
+  | 'cancelled'
+  | 'deadline'
+  | 'worker-crashed'
+  | 'shutdown'
+  | 'row-too-large'
+  | 'producer-failed'
+  | 'unavailable'
 export class SyncWorkerError extends Error {
-  constructor(readonly reason: SyncFailureReason) { super(`Sync bootstrap failed: ${reason}`); this.name = 'SyncWorkerError' }
+  constructor(readonly reason: SyncFailureReason) {
+    super(`Sync bootstrap failed: ${reason}`)
+    this.name = 'SyncWorkerError'
+  }
 }
 export type ToWorker =
   | { type: 'start'; job: SyncJob }

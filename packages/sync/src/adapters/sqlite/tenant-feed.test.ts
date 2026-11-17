@@ -1,7 +1,23 @@
+/**
+ * ONE FEED PER WORKSPACE (ADR 13, POD-6959 design 2.7, POD-7021).
+ *
+ * Two workspaces over one database, with the same entity ids, mutation ids and
+ * session ids: what one writes never reaches the other's feed, head, floor,
+ * kind generations, mutation receipts or inbox, and a repository of one
+ * workspace cannot run inside the other's transaction.
+ */
+
+import type { MutationId, SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ChangeLogWriteRow } from '../../authority/change-lifecycle'
+import { CrossWorkspaceStatementError } from './prepared'
 import { SyncRepository } from './sync-repository'
-import { createTestSyncDatabase, createTestSyncQueries, testSyncServerTables } from './test-support'
+import {
+  createTestSyncDatabase,
+  createTestSyncQueries,
+  testSyncServerTables,
+  testWorkspaceQueries,
+} from './test-support'
 
 const databases: ReturnType<typeof createTestSyncDatabase>[] = []
 afterEach(() => {
@@ -10,11 +26,13 @@ afterEach(() => {
 const fixture = () => {
   const db = createTestSyncDatabase()
   databases.push(db)
-  const queries = createTestSyncQueries(db)
+  const base = createTestSyncQueries(db)
+  /** One workspace's queries over the shared connection. */
+  const queriesOf = (id: string) => testWorkspaceQueries(base, id)
   return {
     db,
-    queries,
-    tenant: (id: string) => new SyncRepository(queries, testSyncServerTables, id),
+    queriesOf,
+    tenant: (id: string) => new SyncRepository(queriesOf(id), testSyncServerTables, id),
   }
 }
 const rows = (n: number): ChangeLogWriteRow[] =>
@@ -66,11 +84,11 @@ describe('tenant feed isolation', () => {
   })
 
   it('rolls reservations, source writes and all chunks back with the enclosing write', async () => {
-    const { db, queries, tenant } = fixture()
+    const { db, queriesOf, tenant } = fixture()
     const a = tenant('a')
     db.exec('CREATE TABLE source (id TEXT PRIMARY KEY)')
     await expect(
-      queries.createOrJoinTransaction(async () => {
+      queriesOf('a').createOrJoinTransaction(async () => {
         db.exec("INSERT INTO source VALUES ('changed')")
         await a.appendChanges(rows(250), 1)
         expect(await a.maxChangeSeq()).toBe(250)
@@ -122,5 +140,112 @@ describe('tenant feed isolation', () => {
     await a.writeFeedIdentity({ feedId: 'feed-a', epoch: 'epoch-next' }, 2)
     expect(await a.readFeedState()).toEqual({ headSeq: 2, floorSeq: 1 })
     expect(await a.appendChanges(rows(1), 3)).toEqual([3])
+  })
+
+  it("never shows a write of one workspace in another's feed, head or floor", async () => {
+    const { tenant } = fixture()
+    const a = tenant('ws_a'),
+      b = tenant('ws_b')
+    // The same entity ids in both workspaces.
+    await b.appendChanges(rows(2), 1)
+    const bBefore = await b.readFeedState()
+    const bChanges = await b.changesSince(0)
+    expect(await a.appendChanges(rows(3), 2)).toEqual([1, 2, 3])
+    expect(await a.appendChanges(rows(2), 3)).toEqual([4, 5])
+    expect(await b.readFeedState()).toEqual(bBefore)
+    expect(await b.changesSince(0)).toEqual(bChanges)
+    expect(await b.changesInRange(0, 10, 10)).toEqual(bChanges)
+    expect(await b.maxChangeSeq()).toBe(2)
+    // A's seqs 3 to 5 do not exist in B's log; 1 and 2 are B's own rows.
+    expect([...(await b.changesWithPrior([1, 2, 3, 4, 5])).keys()].sort()).toEqual([1, 2])
+    // A prune in A leaves B's floor and rows alone.
+    const plan = await a.planChangePrune({ keepRows: 0, maxAgeMs: 0, now: 100 })
+    expect(await a.pruneChangeBatch(plan, 10)).toBe(5)
+    expect(await a.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
+    expect(await b.readFeedState()).toEqual(bBefore)
+    expect(await b.changesSince(0)).toEqual(bChanges)
+  })
+
+  it('moves kind generations per workspace', async () => {
+    const { db, tenant } = fixture()
+    const a = tenant('ws_a'),
+      b = tenant('ws_b')
+    await a.writeFeedIdentity({ feedId: 'fa', epoch: 'ea' }, 1)
+    await b.writeFeedIdentity({ feedId: 'fb', epoch: 'eb' }, 1)
+    db.exec(
+      "INSERT INTO sync_kind VALUES ('ws_a', 'session', 4), ('ws_b', 'session', 4), ('ws_b', 'message', 2)",
+    )
+    // A bump of one workspace's kind moves only that workspace's generation.
+    db.exec(
+      "UPDATE sync_kind SET generation = generation + 1 WHERE workspace_id = 'ws_a' AND kind = 'session'",
+    )
+    expect(await a.readKindGenerations()).toEqual([{ kind: 'session', generation: 5 }])
+    expect((await b.readKindGenerations()).sort((x, y) => x.kind.localeCompare(y.kind))).toEqual([
+      { kind: 'message', generation: 2 },
+      { kind: 'session', generation: 4 },
+    ])
+    // A data migration's bump (design 2.7) moves the kind once in every workspace with a feed.
+    db.exec(
+      "INSERT INTO sync_kind (workspace_id, kind, generation) SELECT workspace_id, 'message', 1 FROM sync_feed WHERE true " +
+        'ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1',
+    )
+    const generation = async (repo: SyncRepository, kind: string) =>
+      (await repo.readKindGenerations()).find((row) => row.kind === kind)?.generation
+    expect([await generation(a, 'message'), await generation(b, 'message')]).toEqual([1, 3])
+    expect([await generation(a, 'session'), await generation(b, 'session')]).toEqual([5, 4])
+  })
+
+  it('keeps mutation receipts and the session inbox per workspace', async () => {
+    const { tenant } = fixture()
+    const a = tenant('ws_a'),
+      b = tenant('ws_b')
+    const mutation = 'mut-1' as MutationId
+    await a.recordAppliedMutation(mutation, 'issue.create', '{"ok":"a"}', 10)
+    expect(await a.getAppliedMutation(mutation)).toBe('{"ok":"a"}')
+    expect(await b.getAppliedMutation(mutation)).toBeUndefined()
+    expect(
+      await b.getAppliedMutation(mutation, { mutationId: mutation, before: 100 }),
+    ).toBeUndefined()
+    await b.pruneAppliedMutations({ maxAgeMs: 0, now: 1_000 })
+    expect(await a.getAppliedMutation(mutation)).toBe('{"ok":"a"}')
+
+    const session = 'sess-1' as SessionId
+    expect(await a.enqueueMessage({ id: 'q-a', sessionId: session, text: 'a', queuedAt: 1 })).toBe(
+      true,
+    )
+    expect(await b.listQueuedMessages(session)).toEqual([])
+    expect(await b.queuedMessageCounts()).toEqual(new Map())
+    expect(await b.queuedMessageCounts([session])).toEqual(new Map())
+    // B's writes by A's ids reach nothing of A's.
+    await b.reserveQueuedDelivery('q-a')
+    await b.deleteQueuedMessage('q-a')
+    await b.deleteQueuedMessagesForSession(session)
+    expect(await b.deleteUnreservedQueuedMessage('q-a')).toBe(false)
+    const [row] = await a.listQueuedMessages(session)
+    expect(row).toMatchObject({ id: 'q-a', deliveryOwner: null, attempts: 0 })
+    expect(await a.queuedMessageCounts(session)).toEqual(new Map([[session, 1]]))
+    expect(await b.listParkedUpstreamMutations()).toEqual([])
+  })
+
+  it("refuses a statement of one workspace inside another's transaction", async () => {
+    const { queriesOf, tenant } = fixture()
+    const a = tenant('ws_a'),
+      b = tenant('ws_b')
+    await expect(
+      queriesOf('ws_a').createOrJoinTransaction(async () => {
+        await a.appendChanges(rows(1), 1)
+        await b.appendChanges(rows(1), 1)
+      }),
+    ).rejects.toBeInstanceOf(CrossWorkspaceStatementError)
+    // The whole transaction rolled back: A's append did not commit either.
+    expect(await a.readFeedState()).toEqual({ headSeq: 0, floorSeq: 1 })
+    expect(await b.readFeedState()).toEqual({ headSeq: 0, floorSeq: 1 })
+  })
+
+  it("refuses to build a repository over another workspace's queries", () => {
+    const { queriesOf } = fixture()
+    expect(() => new SyncRepository(queriesOf('ws_a'), testSyncServerTables, 'ws_b')).toThrow(
+      'built over the queries of workspace ws_a',
+    )
   })
 })

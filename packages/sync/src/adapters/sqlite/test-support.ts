@@ -1,14 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { MutationId, SessionId } from '@podium/model'
+import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
 import { sqliteSyncTables } from './binding'
-import { bindTables } from './prepared'
+import { bindTables, type HandleContext, queryHandle } from './prepared'
 import { workspaceColumn } from './schema'
 import type { SyncServerTables } from './server-tables'
-import type { StoreDrizzle, StoreQueries } from './store-queries'
+import type { StoreDrizzle, StoreQueries, SyncQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -120,7 +120,13 @@ export function createTestSyncRepository(): SyncRepository {
 type FullTestDrizzle = ReturnType<typeof proxyDrizzle>
 type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle['transaction']>[0]>[0]
 
-const testTransactionScope = new AsyncLocalStorage<FullTestDrizzle | TestTransactionDrizzle>()
+/** The open test transaction and the workspace it was opened for. */
+interface TestFrame {
+  readonly tx: FullTestDrizzle | TestTransactionDrizzle
+  readonly context: HandleContext
+}
+
+const testTransactionScope = new AsyncLocalStorage<TestFrame>()
 
 /** The fixture's instance, bound to the sync tables as a store's is (POD-6977). */
 function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
@@ -137,28 +143,60 @@ function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
   )
 }
 
-export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {
-  const rootDb = buildTestDrizzle(db)
+/** A test store's queries: one workspace's handle and runner, and the bare drizzle instance. */
+export type TestSyncQueries = StoreQueries & SyncQueries
+
+/**
+ * One workspace's queries over a fixture connection (`workspaceId`, the test
+ * workspace when omitted). For a second workspace over the same connection use
+ * {@link testWorkspaceQueries}, which shares the drizzle instance and so the
+ * transaction scope.
+ */
+export function createTestSyncQueries(
+  db: SqlDatabase = createTestSyncDatabase(),
+  workspaceId: string = TEST_WORKSPACE_ID,
+): TestSyncQueries {
+  return testQueriesOn(buildTestDrizzle(db), workspaceId)
+}
+
+/** Another workspace's queries over the same fixture connection and drizzle instance. */
+export function testWorkspaceQueries(base: TestSyncQueries, workspaceId: string): TestSyncQueries {
+  return testQueriesOn(base.rootDb as unknown as FullTestDrizzle, workspaceId)
+}
+
+function testQueriesOn(rootDb: FullTestDrizzle, workspaceId: string): TestSyncQueries {
+  const context = Object.freeze({
+    kind: 'workspace' as const,
+    workspaceId: workspaceId as WorkspaceId,
+  })
   return {
     // ONE INSTANCE, inside transactions and out, as the server's seam hands out
     // since POD-6147: the fixture is one synchronous connection, so a statement
     // issued through the root instance inside `createOrJoinTransaction` runs
     // inside that BEGIN, and a query prepared once stays valid in every
-    // transaction. The scope below only decides BEGIN versus SAVEPOINT.
+    // transaction. The scope below only decides BEGIN versus SAVEPOINT, and
+    // records the workspace the transaction was opened for, which the handle's
+    // fill checks each statement against (as the server's executor frame does).
     rootDb: rootDb as unknown as StoreDrizzle,
+    db: queryHandle(
+      rootDb as unknown as StoreDrizzle,
+      context,
+      () => testTransactionScope.getStore()?.context,
+    ),
     createOrJoinTransaction: async (fn) => {
       const current = testTransactionScope.getStore()
       if (current) {
-        return current.transaction((inner) => testTransactionScope.run(inner, fn))
+        return current.tx.transaction((inner) =>
+          testTransactionScope.run({ tx: inner, context: current.context }, fn),
+        )
       }
-      return rootDb.transaction((tx) => testTransactionScope.run(tx, fn), { behavior: 'immediate' })
+      return rootDb.transaction((tx) => testTransactionScope.run({ tx, context }, fn), {
+        behavior: 'immediate',
+      })
     },
   }
 }
 
-/** The bare in-memory DB behind {@link createTestSyncRepository}, for tests
- *  that need the handle itself (e.g. the Ledger's transact-atomicity suite,
- *  which wraps entity writes and the change append in one transaction). */
 export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(

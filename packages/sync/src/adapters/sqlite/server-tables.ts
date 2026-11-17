@@ -32,6 +32,7 @@ import type { AnySQLiteColumn, SQLiteColumn, SQLiteTable } from 'drizzle-orm/sql
 
 /** `queued_messages` — the session inbox (spec docs/spec/outbox-write-path.md). */
 export type QueuedMessagesTable = SQLiteTable & {
+  readonly workspaceId: SQLiteColumn
   readonly id: SQLiteColumn
   readonly sessionId: AnySQLiteColumn<{ data: SessionId; notNull: true }>
   readonly text: SQLiteColumn
@@ -54,6 +55,7 @@ export type QueuedMessagesTable = SQLiteTable & {
 /** `upstream_outbox` — ARCHIVED at POD-309; this adapter has the one surviving
  *  reader (`SyncRepository.listParkedUpstreamMutations`). */
 export type UpstreamOutboxTable = SQLiteTable & {
+  readonly workspaceId: SQLiteColumn
   readonly mutationId: AnySQLiteColumn<{ data: MutationId; notNull: true }>
   readonly proc: SQLiteColumn
   readonly queuedAt: SQLiteColumn

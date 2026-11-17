@@ -337,7 +337,14 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const repo = this.store.sync.forWorkspace(observed.tenantId)
+    // The store is one workspace's (POD-7021): a prune of another workspace's
+    // feed is not this store's to apply. The janitor observes every workspace
+    // with a feed; until a command names the workspace it is applied in
+    // (POD-6962), only this store's own feed is pruned here.
+    if (observed.tenantId !== this.store.sync.workspaceId) {
+      return this.stale(command, 'precondition')
+    }
+    const repo = this.store.sync
     const plan = await repo.planChangePrune({
       keepRows: observed.keepRows,
       maxAgeMs: observed.maxAgeMs,

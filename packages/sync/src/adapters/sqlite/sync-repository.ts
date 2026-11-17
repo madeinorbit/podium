@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Sync aggregate — owns the durable read/write sync machinery:
  * the tenant feed (`sync_feed`, ADR 2 D1), the metadata oplog (`changes`,
@@ -23,9 +24,21 @@
  * now; this file names no connection and imports no raw handle. Two of them keep
  * a `sql` fragment for a construct the builder has no form for, and each says so
  * at its site.
+ *
+ * ONE WORKSPACE'S FEED (POD-7021, POD-6959 design 2.7). The repository is built
+ * over one workspace's query handle and takes its workspace from it: every
+ * statement below names the `workspaceId` placeholder, which the handle fills,
+ * and constrains each workspace table it touches to it (`inWorkspace`, and
+ * `sameWorkspace` for a self-join), so the feed row, the change log, the kind
+ * generations, the mutation receipts and the two injected server tables are all
+ * this workspace's. A caller cannot name another workspace, and a statement run
+ * inside another workspace's transaction is refused by the fill. The change
+ * capture table is per transaction, not per workspace: the drain
+ * (`apps/server/src/sync/record-source.ts`) refuses a captured row of another
+ * workspace.
  */
 
-import type { MutationId, SessionId } from '@podium/model'
+import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
@@ -37,22 +50,29 @@ import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
+  type PreparedAccessor,
+  type PreparedFamilyAccessor,
   param,
   preparedFamily as preparedFamilyOn,
   prepared as preparedOn,
+  sameWorkspace,
+  WORKSPACE,
+  type WorkspaceHandle,
 } from './prepared'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
+import type { StoreDrizzle, SyncQueries, TransactionRunner } from './store-queries'
 
 export { type SyncTables, sqliteSyncTables } from './binding'
 
 // The shared helpers, typed for this adapter's instance and tables. The same
 // functions, so each definition's registered site is still its own line.
-const prepared: <P>(build: (db: StoreDrizzle, t: SyncTables) => P) => (db: StoreDrizzle) => P =
-  preparedOn
+const prepared: <P>(
+  build: (db: StoreDrizzle, t: SyncTables) => P,
+) => PreparedAccessor<StoreDrizzle, P> = preparedOn
 const preparedFamily: <K extends string | number, P>(
   build: (db: StoreDrizzle, t: SyncTables, key: K) => P,
-) => (db: StoreDrizzle, key: K) => P = preparedFamilyOn
+) => PreparedFamilyAccessor<StoreDrizzle, K, P> = preparedFamilyOn
 
 /** Take the current transaction's captured rows above a mark (POD-6920).
  *  The table holds only what this transaction wrote since its last drain. */
@@ -95,7 +115,7 @@ const kindGenerations = prepared((db, t) =>
   db
     .select({ kind: t.syncKind.kind, generation: t.syncKind.generation })
     .from(t.syncKind)
-    .where(eq(t.syncKind.workspaceId, param(t.syncKind.workspaceId, 'tenantId')))
+    .where(inWorkspace(t.syncKind))
     .prepare(),
 )
 
@@ -106,7 +126,7 @@ const reserveChangeSeqs = prepared((db, t) =>
   db
     .update(t.syncFeed)
     .set({ headSeq: sql`${t.syncFeed.headSeq} + ${sql.placeholder('count')}` })
-    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
+    .where(inWorkspace(t.syncFeed))
     .returning({ headSeq: t.syncFeed.headSeq })
     .prepare(),
 )
@@ -115,7 +135,7 @@ const currentFeedState = prepared((db, t) =>
   db
     .select({ headSeq: t.syncFeed.headSeq, floorSeq: t.syncFeed.floorSeq })
     .from(t.syncFeed)
-    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
+    .where(inWorkspace(t.syncFeed))
     .prepare(),
 )
 
@@ -130,12 +150,7 @@ const raiseEmptyHead = prepared((db, t) =>
   db
     .update(t.syncFeed)
     .set({ headSeq: 1 })
-    .where(
-      and(
-        eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')),
-        eq(t.syncFeed.headSeq, 0),
-      ),
-    )
+    .where(inWorkspace(t.syncFeed, eq(t.syncFeed.headSeq, 0)))
     .prepare(),
 )
 
@@ -143,9 +158,9 @@ const advanceFloor = prepared((db, t) =>
   db
     .update(t.syncFeed)
     .set({
-      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.workspaceId} = ${sql.placeholder('tenantId')}), ${t.syncFeed.headSeq} + 1)`,
+      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.workspaceId} = ${WORKSPACE}), ${t.syncFeed.headSeq} + 1)`,
     })
-    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
+    .where(inWorkspace(t.syncFeed))
     .prepare(),
 )
 
@@ -161,7 +176,7 @@ const insertChangeRows = preparedFamily((db, t, rows: number) =>
     .insert(t.changes)
     .values(
       Array.from({ length: rows }, (_, i) => ({
-        workspaceId: sql.placeholder('tenantId'),
+        workspaceId: WORKSPACE,
         seq: sql.placeholder(`seq${i}`),
         entity: sql.placeholder(`entity${i}`),
         entityId: sql.placeholder(`entityId${i}`),
@@ -193,12 +208,7 @@ const changesAfter = prepared((db, t) =>
       mutationId: t.changes.mutationId,
     })
     .from(t.changes)
-    .where(
-      and(
-        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
-        gt(t.changes.seq, param(t.changes.seq, 'cursor')),
-      ),
-    )
+    .where(inWorkspace(t.changes, gt(t.changes.seq, param(t.changes.seq, 'cursor'))))
     .orderBy(asc(t.changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -218,8 +228,8 @@ const changesBetween = prepared((db, t) =>
     })
     .from(t.changes)
     .where(
-      and(
-        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
+      inWorkspace(
+        t.changes,
         gt(t.changes.seq, param(t.changes.seq, 'from')),
         lte(t.changes.seq, param(t.changes.seq, 'through')),
       ),
@@ -235,12 +245,7 @@ const newestAgedSeq = prepared((db, t) =>
   db
     .select({ seq: max(t.changes.seq) })
     .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
-    .where(
-      and(
-        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
-        lt(t.changes.eventTime, param(t.changes.eventTime, 'before')),
-      ),
-    )
+    .where(inWorkspace(t.changes, lt(t.changes.eventTime, param(t.changes.eventTime, 'before'))))
     .prepare(),
 )
 
@@ -248,19 +253,14 @@ const deleteChangeHead = prepared((db, t) =>
   db
     .delete(t.changes)
     .where(
-      and(
-        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
+      inWorkspace(
+        t.changes,
         inArray(
           t.changes.seq,
           db
             .select({ seq: t.changes.seq })
             .from(t.changes)
-            .where(
-              and(
-                eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
-                lte(t.changes.seq, param(t.changes.seq, 'thresholdSeq')),
-              ),
-            )
+            .where(inWorkspace(t.changes, lte(t.changes.seq, param(t.changes.seq, 'thresholdSeq'))))
             .orderBy(asc(t.changes.seq))
             .limit(sql.placeholder('batchSize')),
         ),
@@ -294,7 +294,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
     .leftJoin(
       priorChange(t),
       and(
-        eq(priorChange(t).workspaceId, t.changes.workspaceId),
+        sameWorkspace(priorChange(t), t.changes),
         eq(
           priorChange(t).seq,
           db
@@ -302,7 +302,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
             .from(earlierChange(t))
             .where(
               and(
-                eq(earlierChange(t).workspaceId, t.changes.workspaceId),
+                sameWorkspace(earlierChange(t), t.changes),
                 eq(earlierChange(t).entity, t.changes.entity),
                 eq(earlierChange(t).entityId, t.changes.entityId),
                 lt(earlierChange(t).seq, t.changes.seq),
@@ -311,12 +311,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
         ),
       ),
     )
-    .where(
-      and(
-        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
-        inListOf(t.changes.seq, size),
-      ),
-    )
+    .where(inWorkspace(t.changes, inListOf(t.changes.seq, size)))
     .prepare(),
 )
 
@@ -326,7 +321,12 @@ const appliedMutationResult = prepared((db, t) =>
   db
     .select({ result: t.appliedMutations.result })
     .from(t.appliedMutations)
-    .where(eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')))
+    .where(
+      inWorkspace(
+        t.appliedMutations,
+        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -340,9 +340,12 @@ const appliedMutationWithFallback = prepared((db, t) =>
     })
     .from(t.appliedMutations)
     .where(
-      or(
-        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
-        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'fallbackId')),
+      inWorkspace(
+        t.appliedMutations,
+        or(
+          eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
+          eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'fallbackId')),
+        ),
       ),
     )
     .prepare(),
@@ -352,6 +355,7 @@ const insertAppliedMutation = prepared((db, t) =>
   db
     .insert(t.appliedMutations)
     .values({
+      workspaceId: WORKSPACE,
       mutationId: sql.placeholder('mutationId'),
       proc: sql.placeholder('proc'),
       result: sql.placeholder('result'),
@@ -364,7 +368,12 @@ const insertAppliedMutation = prepared((db, t) =>
 const deleteAppliedMutationsBefore = prepared((db, t) =>
   db
     .delete(t.appliedMutations)
-    .where(lt(t.appliedMutations.appliedAt, param(t.appliedMutations.appliedAt, 'before')))
+    .where(
+      inWorkspace(
+        t.appliedMutations,
+        lt(t.appliedMutations.appliedAt, param(t.appliedMutations.appliedAt, 'before')),
+      ),
+    )
     .prepare(),
 )
 
@@ -372,12 +381,12 @@ const currentFeedIdentity = prepared((db, t) =>
   db
     .select({ feedId: t.syncFeed.feedId, epoch: t.syncFeed.epoch })
     .from(t.syncFeed)
-    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
+    .where(inWorkspace(t.syncFeed))
     .prepare(),
 )
 
 const initialFeedValues = {
-  workspaceId: sql.placeholder('tenantId'),
+  workspaceId: WORKSPACE,
   feedId: sql.placeholder('feedId'),
   epoch: sql.placeholder('epoch'),
   mintedAt: sql.placeholder('mintedAt'),
@@ -420,6 +429,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .insert(queued)
         .values({
+          workspaceId: WORKSPACE,
           id: sql.placeholder('id'),
           sessionId: sql.placeholder('sessionId'),
           text: sql.placeholder('text'),
@@ -464,7 +474,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           retractRequestedAt: queued.retractRequestedAt,
         })
         .from(queued)
-        .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
+        .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
         .orderBy(asc(queued.queuedAt), asc(sql`rowid`))
         .prepare(),
     ),
@@ -476,11 +486,14 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .select({ sessionId: queued.sessionId, n: count() })
         .from(queued)
         .where(
-          scope === 'all'
-            ? undefined
-            : scope === 'one'
-              ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
-              : inListOf(queued.sessionId, scope, 'ids'),
+          inWorkspace(
+            queued,
+            scope === 'all'
+              ? undefined
+              : scope === 'one'
+                ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
+                : inListOf(queued.sessionId, scope, 'ids'),
+          ),
         )
         .groupBy(queued.sessionId)
         .prepare(),
@@ -490,20 +503,22 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .select({ sessionId: queued.sessionId })
         .from(queued)
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
     deleteQueued: prepared((db) =>
       db
         .delete(queued)
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
     deleteUnreservedQueued: prepared((db) =>
       db
         .delete(queued)
-        .where(and(eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)))
+        .where(
+          inWorkspace(queued, eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)),
+        )
         .prepare(),
     ),
 
@@ -513,7 +528,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .set({
           retractRequestedAt: sql`coalesce(${queued.retractRequestedAt}, ${sql.placeholder('at')})`,
         })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
@@ -521,7 +536,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .update(queued)
         .set({ retractRequestedAt: null })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
@@ -529,7 +544,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .update(queued)
         .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
@@ -537,7 +552,13 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .update(queued)
         .set({ deliveryOwner: null, attempts: sql.placeholder('attempts') })
-        .where(and(eq(queued.id, param(queued.id, 'id')), eq(queued.deliveryOwner, 'daemon')))
+        .where(
+          inWorkspace(
+            queued,
+            eq(queued.id, param(queued.id, 'id')),
+            eq(queued.deliveryOwner, 'daemon'),
+          ),
+        )
         .prepare(),
     ),
 
@@ -545,7 +566,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .update(queued)
         .set({ attempts: sql`${queued.attempts} + 1` })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
@@ -553,14 +574,14 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .update(queued)
         .set({ attempts: 0 })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
     deleteQueuedOfSession: prepared((db) =>
       db
         .delete(queued)
-        .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
+        .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
         .prepare(),
     ),
 
@@ -575,6 +596,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           queuedAt: upstream.queuedAt,
         })
         .from(upstream)
+        .where(inWorkspace(upstream))
         .orderBy(asc(upstream.queuedAt), asc(sql`rowid`))
         .prepare(),
     ),
@@ -642,38 +664,40 @@ export class SyncRepository {
    * this adapter OWNS get rule 3's names and types through `./schema.ts`.
    */
   private readonly serverTables: ReturnType<typeof serverTableQueries>
-  /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
-  private readonly rootDb: StoreDrizzle
+  /**
+   * The workspace's query handle over the store's one drizzle instance: the
+   * executor routes each statement to the current transaction, and the handle
+   * fills each statement's `workspaceId`.
+   */
+  private readonly db: WorkspaceHandle<StoreDrizzle>
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  private get db() {
-    return this.rootDb
-  }
-
   /**
-   * `workspaceId` is the workspace this repository is bound to, named by whoever
-   * builds it (a workspace's store, POD-7010); there is no default workspace.
-   * Its statements still bind it under the placeholder name `tenantId` until
-   * they are scoped (POD-7021).
+   * Built over one workspace's queries (a workspace's store, POD-7010): every
+   * statement takes its workspace from the handle, so there is no default and no
+   * statement a caller can point at another workspace. The transaction runner
+   * opens that workspace's transaction. `workspaceId` is the workspace the
+   * builder means; it must be the handle's, so a repository built over another
+   * workspace's queries is refused here rather than at its first statement.
    */
-  constructor(
-    queries: StoreQueries,
-    private readonly tables: SyncServerTables,
-    readonly workspaceId: string,
-  ) {
-    if (!workspaceId) throw new Error('a sync repository requires a workspace')
-    this.rootDb = queries.rootDb
+  constructor(queries: SyncQueries, tables: SyncServerTables, workspaceId: string) {
+    const context = queries.db.context
+    if (context.kind !== 'workspace' || !context.workspaceId) {
+      throw new Error('a sync repository requires a workspace handle')
+    }
+    if (context.workspaceId !== workspaceId) {
+      throw new Error(
+        `a sync repository for workspace ${workspaceId} was built over the queries of workspace ${context.workspaceId}`,
+      )
+    }
+    this.db = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
   }
 
-  /** A workspace-bound view over the same executor and transaction runner. */
-  forWorkspace(workspaceId: string): SyncRepository {
-    return new SyncRepository(
-      { rootDb: this.rootDb, createOrJoinTransaction: this.createOrJoinTransaction },
-      this.tables,
-      workspaceId,
-    )
+  /** The workspace whose feed this is. */
+  get workspaceId(): WorkspaceId {
+    return this.db.context.workspaceId
   }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
@@ -694,24 +718,22 @@ export class SyncRepository {
     const seqs: number[] = []
     const chunkSize = 100
     await this.createOrJoinTransaction(async () => {
-      const tenantId = this.workspaceId
-      let reserved = await reserveChangeSeqs(this.db).get({ tenantId, count: rows.length })
+      let reserved = await reserveChangeSeqs(this.db).get({ count: rows.length })
       if (!reserved) {
         // A first writer can precede client admission. A competing first writer
         // must keep the winner's identity, so initialization never updates it.
         await ensureFeedIdentity(this.db).run({
-          tenantId,
           feedId: crypto.randomUUID(),
           epoch: crypto.randomUUID(),
           mintedAt: eventTime,
         })
-        reserved = await reserveChangeSeqs(this.db).get({ tenantId, count: rows.length })
+        reserved = await reserveChangeSeqs(this.db).get({ count: rows.length })
       }
       if (!reserved) throw new Error('tenant feed reservation failed')
       const first = reserved.headSeq - rows.length + 1
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
-        const values: Record<string, unknown> = { eventTime, tenantId }
+        const values: Record<string, unknown> = { eventTime }
         chunk.forEach((row, i) => {
           values[`seq${i}`] = first + start + i
           values[`entity${i}`] = row.entity
@@ -761,13 +783,13 @@ export class SyncRepository {
   /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so
    *  every start-up load is stamped at a positive seq (ADR 2 D12). No-op otherwise. */
   async raiseEmptyHead(): Promise<void> {
-    await raiseEmptyHead(this.db).run({ tenantId: this.workspaceId })
+    await raiseEmptyHead(this.db).run()
   }
 
   /** One snapshot read of this tenant's durable cursor bounds. */
   async readFeedState(): Promise<{ headSeq: number; floorSeq: number }> {
     return (
-      (await currentFeedState(this.db).get({ tenantId: this.workspaceId })) ?? {
+      (await currentFeedState(this.db).get()) ?? {
         headSeq: 0,
         floorSeq: 1,
       }
@@ -791,14 +813,13 @@ export class SyncRepository {
    * this is a plain range read.
    */
   async changesSince(cursor: number, limit = 10_000): Promise<ChangeLogReadRow[]> {
-    const rows = await changesAfter(this.db).all({ tenantId: this.workspaceId, cursor, limit })
+    const rows = await changesAfter(this.db).all({ cursor, limit })
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
   /** Read exactly (from, through], with a bounded page size. */
   async changesInRange(from: number, through: number, limit: number): Promise<ChangeLogReadRow[]> {
     const rows = await changesBetween(this.db).all({
-      tenantId: this.workspaceId,
       from,
       through,
       limit,
@@ -827,7 +848,6 @@ export class SyncRepository {
     // seq must be explicit because the composite primary key is not the rowid.
     // `INDEXED BY` has no builder form, hence newestAgedSeq's SQL FROM fragment.
     const aged = await newestAgedSeq(this.db).get({
-      tenantId: this.workspaceId,
       before: opts.now - opts.maxAgeMs,
     })
     return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
@@ -845,14 +865,12 @@ export class SyncRepository {
     if (plan.thresholdSeq <= 0) return 0
     return await this.createOrJoinTransaction(async () => {
       // Take the same tenant lock as appends before changing the floor.
-      await reserveChangeSeqs(this.db).get({ tenantId: this.workspaceId, count: 0 })
+      await reserveChangeSeqs(this.db).get({ count: 0 })
       const result = await deleteChangeHead(this.db).run({
-        tenantId: this.workspaceId,
         thresholdSeq: plan.thresholdSeq,
         batchSize,
       })
-      if (Number(result.changes) > 0)
-        await advanceFloor(this.db).run({ tenantId: this.workspaceId })
+      if (Number(result.changes) > 0) await advanceFloor(this.db).run()
       return Number(result.changes)
     })
   }
@@ -886,7 +904,7 @@ export class SyncRepository {
     for (let start = 0; start < distinct.length; start += SEQ_CHUNK) {
       const chunk = distinct.slice(start, start + SEQ_CHUNK)
       const size = inListSize(chunk.length)
-      const values = inListValues(chunk, size, 'in', { tenantId: this.workspaceId })
+      const values = inListValues(chunk, size, 'in')
       for (const row of await changesWithPrior(this.db, size).all(values)) {
         out.set(row.seq, {
           op: row.op,
@@ -1145,7 +1163,7 @@ export class SyncRepository {
   }
 
   async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {
-    return await kindGenerations(this.db).all({ tenantId: this.workspaceId })
+    return await kindGenerations(this.db).all()
   }
 
   // ---- feed identity (ADR 2 D1) ----
@@ -1161,7 +1179,7 @@ export class SyncRepository {
    * and the one that runs would depend on which door the write came through.
    */
   async readFeedIdentity(): Promise<{ feedId: string; epoch: string } | null> {
-    const row = await currentFeedIdentity(this.db).get({ tenantId: this.workspaceId })
+    const row = await currentFeedIdentity(this.db).get()
     return row === undefined ? null : { feedId: row.feedId, epoch: row.epoch }
   }
 
@@ -1179,7 +1197,6 @@ export class SyncRepository {
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
     await upsertFeedIdentity(this.db).run({
-      tenantId: this.workspaceId,
       feedId: identity.feedId,
       epoch: identity.epoch,
       mintedAt,

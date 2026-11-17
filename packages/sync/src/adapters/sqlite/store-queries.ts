@@ -49,6 +49,7 @@
 
 import type { EmptyRelations } from 'drizzle-orm'
 import type { SQLiteAsyncDatabase } from 'drizzle-orm/sqlite-core'
+import type { WorkspaceHandle } from './prepared'
 
 /**
  * What a write reports back.
@@ -107,5 +108,17 @@ export interface StoreQueries {
   /** The ambient drizzle instance a repository queries through. */
   readonly rootDb: StoreDrizzle
   /** Creates a root transaction or joins the enclosing transaction when nested. */
+  readonly createOrJoinTransaction: TransactionRunner
+}
+
+/**
+ * WHAT THE SYNC REPOSITORY IS HANDED (POD-7021, POD-6959 design 2.4): one
+ * workspace's query handle, which fills the `workspaceId` of every statement,
+ * and that workspace's transaction runner. `apps/server`'s `WorkspaceQueries`
+ * satisfies it structurally.
+ */
+export interface SyncQueries {
+  readonly db: WorkspaceHandle<StoreDrizzle>
+  /** Opens this workspace's transaction, or joins the enclosing one of the same workspace. */
   readonly createOrJoinTransaction: TransactionRunner
 }

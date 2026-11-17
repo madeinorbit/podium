@@ -82,8 +82,10 @@ const codeInputs: Partial<Record<MetadataEntityKind, unknown>> = {
 // Change the salt when a kind's published meaning changes in a way neither
 // its schema nor the code inputs above describe (for example a projection
 // algorithm). A data migration that rewrites a kind instead increments its
-// generation in the same migration:
-// INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('local', 'example', 1)
+// generation in the same migration, in every provisioned workspace (POD-6959
+// design 2.7; `kindGenerationBump` writes it for a list of kinds):
+// INSERT INTO sync_kind (workspace_id, kind, generation)
+// SELECT workspace_id, 'example', 1 FROM sync_feed WHERE true
 // ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1;
 const salts: Partial<Record<MetadataEntityKind, string>> = {}
 
@@ -139,5 +141,25 @@ export async function readKindTokens(
       kind,
       `${kind === 'effect' ? effectDigest : digests[index]}:${generations.get(kind) ?? 0}`,
     ]),
+  )
+}
+
+/**
+ * THE KIND GENERATION BUMP, PER WORKSPACE (POD-6959 design 2.7): the statement a
+ * data migration or boot repair runs when it rewrote the model rows of `kinds`.
+ * Each kind's generation moves by one in every workspace that has a feed
+ * (`sync_feed`), and starts at 1 where the workspace had none, so every client of
+ * every workspace reloads those kinds. One statement, the same text on SQLite and
+ * Postgres (`WHERE true` settles SQLite's parse of an upsert over a SELECT).
+ */
+export function kindGenerationBump(kinds: readonly MetadataEntityKind[]): string {
+  if (kinds.length === 0) throw new Error('a kind generation bump names at least one kind')
+  const list = [...new Set(kinds)]
+    .map((kind, index) => `SELECT '${kind.replaceAll("'", "''")}'${index === 0 ? ' AS kind' : ''}`)
+    .join(' UNION ALL ')
+  return (
+    'INSERT INTO sync_kind (workspace_id, kind, generation) ' +
+    `SELECT feed.workspace_id, bumped.kind, 1 FROM sync_feed AS feed, (${list}) AS bumped WHERE true ` +
+    'ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1'
   )
 }

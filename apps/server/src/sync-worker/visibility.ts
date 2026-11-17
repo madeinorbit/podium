@@ -1,3 +1,5 @@
+// workspace-scoped (POD-6959)
+import type { WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
@@ -12,6 +14,11 @@ export interface BootstrapVisibilityOptions {
   readonly effectKinds?: readonly string[]
   /** Test fixtures can preserve their record clock without changing deadlines. */
   readonly now?: () => number
+  /**
+   * The workspace whose records and feed are read (POD-7021); the self-hosted
+   * install's when omitted (see `BootstrapJob.workspaceId`).
+   */
+  readonly workspaceId?: WorkspaceId
 }
 
 /**
@@ -29,6 +36,7 @@ export function bootstrapVisibility(
     const reads = recordReadsOf(executor.queries, {
       effectExecutors: effectPublication(options.effectKinds ?? []),
       ...(options.now && { now: options.now }),
+      ...(options.workspaceId && { workspaceId: options.workspaceId }),
     })
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current

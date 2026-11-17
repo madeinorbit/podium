@@ -297,6 +297,21 @@ describe('POD-7014 — every query names its workspace', () => {
     const defined = new Map(keyed.map(({ key, definition }) => [key, definition]))
     for (const listed of CROSS_WORKSPACE_ALLOWLIST) {
       const key = `${listed.file}:${listed.name}`
+      if (listed.use === 'raw-read') {
+        // A raw read outside the registry (POD-7021): its text is in its file, and it is a read.
+        expect(listed.sql?.length ?? 0).toBeGreaterThan(10)
+        expect({ key, inFile: SOURCE.read(listed.file).includes(listed.sql ?? '\u0000') }).toEqual({
+          key,
+          inFile: true,
+        })
+        expect(
+          checkWorkspaceScope({ sql: listed.sql ?? '', placeholders: [] }, 'across', {
+            tableKind,
+            conflictTargets: false,
+          }),
+        ).toEqual([])
+        continue
+      }
       const definition = defined.get(key)
       if (listed.plannedBy !== undefined) {
         // Once the definition lands, its task removes `plannedBy`.

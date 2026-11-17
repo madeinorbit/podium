@@ -1274,6 +1274,7 @@
         "src/sync-worker/worker-client.ts",
         "src/sync/bootstrap-routes.test.ts",
         "src/sync/capture-triggers.ts",
+        "src/sync/capture-workspace.test.ts",
         "src/sync/content-coding.ts",
         "src/sync/kind-tokens.test.ts",
         "src/sync/kind-tokens.ts",

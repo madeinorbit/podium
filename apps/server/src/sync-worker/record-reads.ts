@@ -1,10 +1,17 @@
+// workspace-scoped (POD-6959)
 /**
  * The record builders' reads over a read-only database handle (POD-6763): the
  * same repositories the server holds, built over the connection the sync
  * worker opens, with no SessionStore, migrations, authority or writers. Every
  * read shares the caller's snapshot when the caller has opened a transaction.
+ *
+ * ONE WORKSPACE'S READS (POD-7021). Every repository is built over the queries
+ * of the request's workspace, as a workspace's store builds them: the sync
+ * repository's statements are that workspace's, and each other repository's
+ * bind to it as its own scoping task moves it onto the workspace handle.
  */
 
+import type { WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { syncServerTables } from '../migrations/sync-server-tables'
@@ -40,27 +47,33 @@ const unsupported = (): never => {
   throw new Error('record builders cannot use writer state')
 }
 
-/** The reads over an executor's queries the caller already holds. */
+/** What the reads are for: the workspace (self-hosted when omitted), effects and the clock. */
+export interface RecordReadsOptions {
+  readonly effectExecutors: Pick<EffectExecutorRegistry, 'get'>
+  readonly now?: () => number
+  readonly workspaceId?: WorkspaceId
+}
+
+/** The reads of one workspace over an executor's queries the caller already holds. */
 export function recordReadsOf(
-  q: ReturnType<typeof createBunStoreExecutor>['queries'],
-  options: { effectExecutors: Pick<EffectExecutorRegistry, 'get'>; now?: () => number },
+  base: ReturnType<typeof createBunStoreExecutor>['queries'],
+  options: RecordReadsOptions,
 ): RecordReads {
-  // The workspace repositories read the self-hosted install's one workspace
-  // until each read request carries its workspace (POD-7021). One handle for
-  // them all: a definition's bound view is cached per handle.
-  const local = legacyWorkspaceQueries(q, SELF_HOSTED_WORKSPACE_ID)
+  // One handle for every repository: a definition's bound view is cached per handle.
+  const workspaceId = options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID
+  const q = legacyWorkspaceQueries(base, workspaceId)
   return {
     store: {
-      issues: new IssuesRepository(local, unsupported),
+      issues: new IssuesRepository(q, unsupported),
       machines: new MachinesRepository(q),
       grants: new GrantsRepository(q),
       conversations: new ConversationsRepository(q),
-      sessions: new SessionsRepository(local),
+      sessions: new SessionsRepository(q),
       users: new UsersRepository(q),
       shipping: new ShippingRepository(q),
       automations: new AutomationsRepository(q),
-      layout: new UserLayoutRepository(local),
-      readPositions: new UserReadPositionRepository(local),
+      layout: new UserLayoutRepository(q),
+      readPositions: new UserReadPositionRepository(q),
       events: new EventsRepository(q),
       interactions: new InteractionsRepository(q),
       messages: new MessagesRepository(q),
@@ -69,15 +82,12 @@ export function recordReadsOf(
       agentProfiles: new AgentProfilesRepository(q),
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
-      // The settings rows are a workspace's (POD-7013): the self-hosted install's.
-      settings: new SettingsRepository(local),
+      settings: new SettingsRepository(q),
       // The session record's satellites and joins (POD-6764): reads only.
       observationCheckpoints: new ObservationCheckpointsRepository(q),
       // Nothing writes on this connection, so nothing announces a write.
       repos: new ReposRepository(q, unsupported, new TableWrites()),
-      // The self-hosted install's one workspace until each read request carries
-      // its workspace (POD-7021).
-      sync: new SyncRepository(q, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
+      sync: new SyncRepository(q, syncServerTables, workspaceId),
     },
     effectExecutors: options.effectExecutors,
     now: options.now ?? Date.now,
@@ -87,7 +97,7 @@ export function recordReadsOf(
 /** Build the reads; the caller closes the returned executor. */
 export function recordReadsOver(
   database: SqlDatabase,
-  options: { effectExecutors: Pick<EffectExecutorRegistry, 'get'>; now?: () => number },
+  options: RecordReadsOptions,
 ): { reads: RecordReads; close: () => Promise<void> } {
   const executor = createBunStoreExecutor({ database })
   return {

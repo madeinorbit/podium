@@ -12,6 +12,7 @@ import { syncServerTables } from '../../migrations/sync-server-tables'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { installChangeCapture } from '../../sync/capture-triggers'
 import { RECORD_SOURCES, type RecordSources } from '../../sync/record-sources'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -44,9 +45,11 @@ beforeEach(async () => {
         agentProfile: RECORD_SOURCES.agentProfile,
       } as unknown as RecordSources),
   )
+  // The feed is a workspace's: its writes run in the workspace's transaction.
+  const workspace = workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID)
   capture = {
-    sync: new SyncRepository(queries, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
-    transact: async (fn) => await queries.createOrJoinTransaction(fn),
+    sync: new SyncRepository(workspace, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
+    transact: async (fn) => await workspace.createOrJoinTransaction(fn),
   }
   runnable = new Set(['claude-code', 'codex'])
   probes = []

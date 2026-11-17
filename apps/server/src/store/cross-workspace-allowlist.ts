@@ -12,7 +12,11 @@
  *   - the one global write to a workspace table, the provisioning insert of a workspace's
  *     `sync_feed` row (contract C3, C4). It runs in the global context because the row it
  *     inserts is the row a workspace's write transaction locks, so no workspace lock can cover
- *     it yet.
+ *     it yet;
+ *   - a raw SELECT of a process that reads the database without the store (the janitor), listed
+ *     with its SQL text: the audit finds the text in the file and holds it to the cross-workspace
+ *     rule (a read). Such a read only lists the workspaces with work; the work then reads each
+ *     workspace's own rows.
  *
  * The workspace-scope audit (`workspace-scope-audit.test.ts`) holds every cross-workspace and
  * global definition to this list, and the source guard (`workspace-scope-guard.test.ts`) refuses
@@ -25,9 +29,12 @@ import type { CrossWorkspaceEntry } from '@podium/sync/adapters/sqlite/prepared'
 export interface CrossWorkspaceAllowlistEntry extends CrossWorkspaceEntry {
   /**
    * `read`: a `preparedAcross` fleet read (a SELECT). `provisioning`: the global write that
-   * creates a workspace's `sync_feed` row.
+   * creates a workspace's `sync_feed` row. `raw-read`: a raw SELECT outside the definition
+   * registry, named by its {@link sql}.
    */
-  readonly use: 'read' | 'provisioning'
+  readonly use: 'read' | 'provisioning' | 'raw-read'
+  /** A `raw-read`'s statement, exactly as its file spells it. */
+  readonly sql?: string
   /**
    * The task that adds the definition, while it does not exist yet. The audit fails once the
    * definition exists and this is still set, so the task that lands it removes the field.
@@ -51,9 +58,28 @@ export const PROVISION_WORKSPACE_FEED: CrossWorkspaceAllowlistEntry = Object.fre
   issue: 'POD-7010',
 })
 
+/**
+ * The janitor's one fleet read: the workspaces with a feed, which is every provisioned workspace.
+ * The janitor reads the database directly, so this is raw SQL; each of its readers is then built
+ * for one listed workspace and reads only that workspace's rows (POD-7021).
+ */
+export const LIST_WORKSPACES_WITH_FEED: CrossWorkspaceAllowlistEntry = Object.freeze({
+  use: 'raw-read',
+  file: 'packages/janitor/src/janitor.ts',
+  name: 'listWorkspacesWithFeed',
+  sql: 'SELECT workspace_id FROM sync_feed ORDER BY workspace_id',
+  reason:
+    'The janitor finds the workspaces whose maintenance it observes: one row per provisioned ' +
+    'workspace, ids only. Every observation it then makes reads one workspace, and nothing is ' +
+    'written through this read.',
+  index: 'sync_feed primary key (workspace_id)',
+  issue: 'POD-7021',
+})
+
 /** Every entry, in the order they were added. */
 export const CROSS_WORKSPACE_ALLOWLIST: readonly CrossWorkspaceAllowlistEntry[] = Object.freeze([
   PROVISION_WORKSPACE_FEED,
+  LIST_WORKSPACES_WITH_FEED,
 ])
 
 /** The entry for a definition keyed `file:name`, if it has one. */
