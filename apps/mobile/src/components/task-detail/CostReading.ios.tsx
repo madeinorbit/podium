@@ -1,5 +1,6 @@
-import { Button, HStack, Text, VStack } from '@expo/ui/swift-ui'
+import { Button, HStack, Rectangle, Text, VStack } from '@expo/ui/swift-ui'
 import {
+  accessibilityHidden,
   accessibilityIdentifier,
   accessibilityLabel,
   buttonStyle,
@@ -9,6 +10,7 @@ import {
   frame,
   listRowInsets,
   monospacedDigit,
+  opacity,
   padding,
 } from '@expo/ui/swift-ui/modifiers'
 import { approxUsd, COST_HEDGE, floorLabel } from '@podium/client-core/values'
@@ -56,17 +58,31 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
           >
             {view?.provisional ? 'Estimated cost so far' : 'Estimated cost'}
           </Text>
-          <Text
-            modifiers={[
-              font({ textStyle: 'body' }),
-              foregroundStyle(color.textDim),
-              monospacedDigit(),
-              fixedSize({ horizontal: false, vertical: true }),
-              accessibilityIdentifier('issue-cost-value'),
-            ]}
-          >
-            {value}
-          </Text>
+          {view?.state === 'pending' ? (
+            // Desktop holds an unfilled reading here; pending may never resolve.
+            <Rectangle
+              modifiers={[
+                frame({ width: 80, height: 1 }),
+                foregroundStyle(color.textDim),
+                opacity(0.32),
+                padding({ top: 12 }),
+                accessibilityIdentifier('issue-cost-unfilled'),
+                accessibilityHidden(),
+              ]}
+            />
+          ) : (
+            <Text
+              modifiers={[
+                font({ textStyle: 'body' }),
+                foregroundStyle(color.textDim),
+                monospacedDigit(),
+                fixedSize({ horizontal: false, vertical: true }),
+                accessibilityIdentifier('issue-cost-value'),
+              ]}
+            >
+              {value}
+            </Text>
+          )}
         </Stack>
         {view?.state === 'costed' ? (
           <>

@@ -18,15 +18,20 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
         <Text style={styles.label}>
           {view?.provisional ? 'Estimated cost so far' : 'Estimated cost'}
         </Text>
-        <Text testID="issue-cost-value" selectable style={styles.value}>
-          {view?.state === 'costed'
-            ? approxUsd(view.rollup.estCostUsd)
-            : view?.state === 'not-recorded'
-              ? 'Not recorded'
-              : model.failed
-                ? 'Unavailable'
-                : 'Loading…'}
-        </Text>
+        {view?.state === 'pending' ? (
+          // Desktop holds an unfilled reading here; pending may never resolve.
+          <View testID="issue-cost-unfilled" aria-hidden style={styles.unfilled} />
+        ) : (
+          <Text testID="issue-cost-value" selectable style={styles.value}>
+            {view?.state === 'costed'
+              ? approxUsd(view.rollup.estCostUsd)
+              : view?.state === 'not-recorded'
+                ? 'Not recorded'
+                : model.failed
+                  ? 'Unavailable'
+                  : 'Loading…'}
+          </Text>
+        )}
       </View>
       {view?.state === 'costed' ? (
         <>
@@ -65,6 +70,14 @@ const styles = StyleSheet.create({
   row: { padding: 16, minHeight: 44, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   label: { ...sans(400), fontSize: font.body, color: color.text, flexGrow: 1, flexShrink: 1 },
   value: { ...sans(400), fontSize: font.body, color: color.textDim, fontVariant: ['tabular-nums'] },
+  unfilled: {
+    width: 80,
+    height: 12,
+    alignSelf: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: color.textDim,
+    opacity: 0.32,
+  },
   detailsButton: { minHeight: 44, justifyContent: 'center' },
   detail: {
     ...sans(400),
