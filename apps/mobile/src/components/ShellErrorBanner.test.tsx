@@ -95,6 +95,9 @@ describe('phone error notices', () => {
     expect(banner.textContent).toBe(
       'Message not sent — the session no longer exists: “Write the numbers from 1 to 400”',
     )
+    // The root banner must start below the compact navigation button row so
+    // a failed launch can be left with Back before dismissing its error.
+    expect(banner.parentElement?.style.paddingTop).toBe('95px')
     // The route is still there under it: the notice is drawn OVER the screen
     // the operator is on, not instead of it.
     expect(screen.getByText('Session deleted. It was removed on the server.')).toBeTruthy()

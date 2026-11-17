@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { PendingInteractionWire } from '@podium/protocol'
 import { claudeRecordToItems } from '../../../../packages/harness/src/adapters/claude-code/transcript'
 /**
@@ -79,6 +80,9 @@ vi.mock('./TranscriptList', () => ({
       {(pendingTurns ?? []).map((turn) => (
         <div key={turn.id} data-testid="pending">
           {turn.failed ? `failed:${turn.text}` : turn.text}
+          {turn.files?.map((file) => (
+            <span key={file.path}>{file.path}</span>
+          ))}
         </div>
       ))}
       {emptyComponent}
@@ -508,6 +512,54 @@ describe('empty transcript mood', () => {
 })
 
 describe('spawn prompt optimism', () => {
+  it.each([
+    'before',
+    'after',
+  ] as const)('adopts the first prompt record with its image when it arrives %s mounting without sending again', async (arrives) => {
+    const plainSession = { ...session, offer: undefined }
+    const record: MessageRecordWire = {
+      id: 'initial-message',
+      sessionId: asSessionId(plainSession.sessionId),
+      senderUserId: 'user:test',
+      body: 'Review the image',
+      createdAt: '2026-11-17T20:00:00Z',
+      status: 'stored',
+      initialPrompt: true,
+      attachments: [
+        { id: 'held-shot', filename: 'shot.png', mediaType: 'image/png', kind: 'image' },
+      ],
+    }
+    const sendText = vi.fn(async () => ({ ok: true }))
+    const resumeAndSend = vi.fn(async () => ({ ok: true }))
+    const app = await renderWithMobileStore(
+      <SessionConversation
+        session={plainSession}
+        issue={undefined}
+        initialPendingText="Review the image"
+      />,
+      {
+        sessions: [plainSession],
+        messageRecords: arrives === 'before' ? [record] : [],
+        api: {
+          sessions: {
+            transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+            sendText: { mutate: sendText },
+            resumeAndSend: { mutate: resumeAndSend },
+          },
+        },
+      },
+    )
+    if (arrives === 'after') {
+      expect(screen.getAllByTestId('pending')).toHaveLength(1)
+      act(() => app.replica.applySnapshot('messageRecords', [record]))
+    }
+    await waitFor(() => expect(screen.getByText('shot.png')).toBeTruthy())
+    expect(screen.getAllByTestId('pending')).toHaveLength(1)
+    expect(screen.getByTestId('pending').textContent).toContain('Review the image')
+    expect(sendText).not.toHaveBeenCalled()
+    expect(resumeAndSend).not.toHaveBeenCalled()
+  })
+
   it('keeps the first prompt through confirmation and retires it on transcript echo', async () => {
     let resolveRead: ((page: { items: unknown[]; hasMore: boolean }) => void) | undefined
     const transcriptRead = vi.fn(

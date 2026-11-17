@@ -316,7 +316,9 @@ export function useSessionConversation(props: {
                       at: Date.now(),
                       state: 'sent' as const,
                       kind: 'message' as const,
-                      reconcile: 'next-user-item' as const,
+                      reconcile: props.session.headless
+                        ? ('next-user-item' as const)
+                        : ('initial-prompt' as const),
                     },
                   ]
                 : []),
