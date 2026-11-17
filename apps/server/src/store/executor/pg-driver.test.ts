@@ -23,8 +23,8 @@ import {
   storeEngineFor,
 } from '../../store-database'
 import {
-  clonePgTestDatabase,
   connectPgTest,
+  emptyPgTestDatabase,
   type PgTestClient,
   testStoreEngine,
 } from '../../test-support/pg-test-database'
@@ -213,7 +213,7 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
   const opened: { close(): Promise<void> }[] = []
 
   beforeAll(async () => {
-    url = (await clonePgTestDatabase('file')).url
+    url = (await emptyPgTestDatabase('file')).url
     admin = connectPgTest(url, 1)
     for (const statement of SCHEMA) await admin.unsafe(statement)
   })

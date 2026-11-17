@@ -11,8 +11,8 @@ At the end of an ordinary runtime-affecting task, run:
     bun run test
 
 This is the lean confidence gate. The root `test` script in `package.json` runs cached,
-lock-free typecheck and static checks, including the span-effect lint, then six exact hermetic
-files with one worker: four boot/configuration probes and the Postgres twin's two
+lock-free typecheck and static checks, including the span-effect lint, then seven exact hermetic
+files with one worker: four boot/configuration probes and the Postgres store's three
 database-free checks:
 
 | Test file | What it cheaply protects |
@@ -23,6 +23,7 @@ database-free checks:
 | `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
 | `apps/server/src/migrations/pg/schema-parity.test.ts` | The Postgres schema twin matches the SQLite schema table for table, in the native types of each column's class (POD-6978) |
 | `apps/server/src/store/dialect-census.test.ts` | Every store query definition builds on the Postgres tables; the ones that still need a Postgres form are listed with their task (POD-6978) |
+| `apps/server/src/migrations/pg/chain-parity.test.ts` | The Postgres baseline migration is what the schema twin renders, and the SQLite and Postgres chains name the same changes (POD-6981) |
 
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
@@ -212,8 +213,7 @@ no database). Name files to run a few; with no files it runs the whole Postgres 
 gives the reason) and `pending` (meant for both engines, not yet passing on Postgres). Making
 a file pass on Postgres means deleting it from `pending`; the list is empty when the Postgres
 store is complete (POD-6994). A new store test file runs on both engines by default, so
-until a Postgres store can boot (the migration chain, POD-6981, and the lifecycle port,
-POD-6994), add it to `pending`: on the Postgres leg a store open fails with
+until a Postgres store can boot (the lifecycle port, POD-6994), add it to `pending`: on the Postgres leg a store open fails with
 `PostgresStoreBootError`. A file that tests the executor or driver directly can run on both
 now: `openEngineHarness()` (`store/executor/harness.ts`) and `createPgStoreExecutor` give it
 the leg's engine.
@@ -232,9 +232,11 @@ a SQLite-only entry without a reason, and a file in both lists.
   port; a container with other settings is refused, not replaced.
 - *CI, or your own server:* `PODIUM_TEST_PG_URL=postgres://…/postgres` skips Docker and the
   lock.
-- *Template:* one database per schema digest, `podium_tpl_<digest>`, built once and never
-  connected to. Until the Postgres migration chain exists (POD-6981) it holds a minimal
-  fixture, so store files cannot pass yet; the chain will replace it.
+- *Template:* one database per migration-chain digest, `podium_tpl_<digest>`, built once by
+  the real Postgres runner (`migrations/pg/index.ts`, POD-6981) and never connected to, so
+  every clone starts at the head of the chain with its ledger. A test that needs a database
+  without the store schema (it creates its own tables, or migrates the database itself)
+  takes `emptyPgTestDatabase()` instead of a clone.
 - *Per test:* every database is a `CREATE DATABASE … TEMPLATE … STRATEGY FILE_COPY` clone,
   named `t_<run>_<pool>_<pid>_<n>`. Each worker has one (`pgWorkerDatabase()`), and
   `openTestStore()` clones one per store, so two stores never share rows, as two

@@ -12,8 +12,8 @@
  *
  * {@link openSliceStore} is the slice's store: the repositories' queries on the test
  * run's engine. On SQLite it is a migrated in-memory database through the store
- * executor, as before; on the `server-store-pg` lane a fresh Postgres clone holding the
- * two tables, through the Postgres driver (strict timestamps on, the leg's default) and
+ * executor, as before; on the `server-store-pg` lane a fresh clone of the run's template,
+ * which the Postgres baseline migration built (POD-6981), through the Postgres driver (strict timestamps on, the leg's default) and
  * the Postgres query layer over the generated tables.
  */
 
@@ -27,58 +27,11 @@ import { pgQueryLayer } from '../store/executor/pg-drizzle'
 import { instrumentDriver, statementProbeHubFor } from '../store/executor/statement-probe'
 import type { StoreQueries } from '../store/executor/sync-drizzle'
 import { openMigratedTestDatabase } from './migrated-database'
-import {
-  clonePgTestDatabase,
-  connectPgTest,
-  type TestStoreEngine,
-  testStoreEngine,
-} from './pg-test-database'
+import { clonePgTestDatabase, type TestStoreEngine, testStoreEngine } from './pg-test-database'
 import { stageASeam } from './stage-a-seam'
 
 /** The store's Postgres table set: the server schema's twins and the sync tables' twins. */
 export const PG_SLICE_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
-
-/**
- * The two tables' DDL, written out until the Postgres baseline migration (POD-6981)
- * creates them: it must match the generated twins, `COLLATE "C"` included.
- */
-export const PG_SLICE_DDL: readonly string[] = [
-  `CREATE TABLE recap_watermarks (
-    reader text COLLATE "C" NOT NULL,
-    session_id text COLLATE "C" NOT NULL,
-    watermark text COLLATE "C" NOT NULL,
-    updated_at timestamptz(3) NOT NULL,
-    workspace_id text COLLATE "C" NOT NULL DEFAULT 'local',
-    CONSTRAINT recap_watermarks_pk PRIMARY KEY (reader, session_id)
-  )`,
-  `CREATE TABLE quota_windows (
-    account_key text COLLATE "C" NOT NULL,
-    agent text COLLATE "C" NOT NULL,
-    window_key text COLLATE "C" NOT NULL,
-    resets_at_bucket bigint NOT NULL,
-    label text COLLATE "C" NOT NULL,
-    scope_model text COLLATE "C",
-    plan text COLLATE "C",
-    resets_at_ms bigint NOT NULL,
-    started_at_ms bigint,
-    window_minutes bigint NOT NULL,
-    first_seen_ms bigint NOT NULL,
-    last_seen_ms bigint NOT NULL,
-    first_percent double precision NOT NULL,
-    peak_percent double precision NOT NULL,
-    last_percent double precision NOT NULL,
-    sample_count bigint NOT NULL,
-    partial boolean NOT NULL,
-    source text COLLATE "C" NOT NULL,
-    trail_json json NOT NULL,
-    owner_user_id text COLLATE "C",
-    workspace_id text COLLATE "C" NOT NULL DEFAULT 'local',
-    CONSTRAINT quota_windows_pk PRIMARY KEY (account_key, window_key, resets_at_bucket)
-  )`,
-  'CREATE INDEX idx_quota_windows_series ON quota_windows (account_key, window_key, resets_at_ms)',
-  'CREATE INDEX idx_quota_windows_owner ON quota_windows (owner_user_id, account_key, window_key, resets_at_ms)',
-  'CREATE INDEX idx_quota_windows_resets ON quota_windows (resets_at_ms)',
-]
 
 /** The slice's repositories' store on the run's engine. */
 export interface SliceStore {
@@ -101,13 +54,9 @@ export async function openSliceStore(): Promise<SliceStore> {
       close: async () => database.close(),
     }
   }
+  // The clone holds the whole Postgres schema: the run's template is the migration
+  // chain's baseline (POD-6981).
   const { url } = await clonePgTestDatabase()
-  const admin = connectPgTest(url, 1)
-  try {
-    for (const statement of PG_SLICE_DDL) await admin.unsafe(statement)
-  } finally {
-    await admin.close({ timeout: 5 })
-  }
   // The statement probe's hub, keyed by an object of the store's own, as the bun
   // driver's is keyed by its database; the lane's intent audit grades it too.
   const connection = {}

@@ -9,7 +9,7 @@
  *    every worktree: Postgres 17 on Debian (glibc collation, as on PlanetScale), data
  *    on tmpfs, published on loopback only, with a fixed test password. The lane starts
  *    it when it is missing or stopped and leaves it running for the next lane.
- * 2. Builds the template for the current schema digest, if no lane has yet.
+ * 2. Builds the template for the current migration chain's digest, if no lane has yet.
  * 3. Sweeps databases left by lanes that died more than {@link STALE_RUN_MS} ago.
  * 4. Hands the forks the server URL, the template and a fresh run id.
  *
@@ -30,6 +30,9 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import postgres from 'postgres'
+import type { DrizzleMigration } from '../migrations/index'
+import { migratePg, PG_MIGRATIONS } from '../migrations/pg/index'
 import {
   connectPgTest,
   PG_TEST_RUN_ENV,
@@ -64,30 +67,35 @@ const READY_TIMEOUT_MS = 90 * 1000
 /**
  * What the template holds, and the digest that names it.
  *
- * Until the Postgres migration chain exists (POD-6981), the template is a minimal
- * fixture: one table recording the digest, enough for the harness to prove that a
- * worker's database is a clone of this template. POD-6981 replaces `statements` with
- * its chain and the digest with the chain's, the way the SQLite image is named by
+ * The Postgres migration chain (POD-6981): the template is a database migrated by the
+ * real runner, so every clone starts at the head of the chain with its ledger, as the
+ * SQLite image does. The digest is the chain's, every migration's name and SQL, so a
+ * changed chain builds a new template the way the SQLite image follows
  * `schemaFingerprint`.
  */
 export interface PgTemplateSource {
   readonly digest: string
-  build(client: PgTestClient): Promise<void>
+  /** Build the template in the empty database `client` is connected to, at `url`. */
+  build(client: PgTestClient, url: string): Promise<void>
 }
 
-const MINIMAL_TEMPLATE_STATEMENTS: readonly string[] = [
-  'CREATE TABLE podium_test_template (digest text PRIMARY KEY)',
-]
-
-export function minimalTemplateSource(): PgTemplateSource {
+export function chainTemplateSource(
+  migrations: readonly DrizzleMigration[] = PG_MIGRATIONS,
+): PgTemplateSource {
   const digest = createHash('sha256')
-    .update(JSON.stringify({ kind: 'minimal-fixture', statements: MINIMAL_TEMPLATE_STATEMENTS }))
+    .update(
+      JSON.stringify({ kind: 'pg-chain', migrations: migrations.map((m) => [m.name, m.sql]) }),
+    )
     .digest('hex')
   return {
     digest,
-    async build(client) {
-      for (const statement of MINIMAL_TEMPLATE_STATEMENTS) await client.unsafe(statement)
-      await client.unsafe('INSERT INTO podium_test_template (digest) VALUES ($1)', [digest])
+    async build(_client, url) {
+      const sql = postgres(url, { max: 1, onnotice: () => {} })
+      try {
+        await migratePg(sql, migrations)
+      } finally {
+        await sql.end({ timeout: 5 })
+      }
     },
   }
 }
@@ -312,9 +320,10 @@ export async function ensureTemplate(adminUrl: string, source: PgTemplateSource)
     if (existing.length > 0) return name
     const building = `podium_tpl_build_${randomBytes(4).toString('hex')}`
     await admin.unsafe(`CREATE DATABASE ${quotePgIdentifier(building)} TEMPLATE template0`)
-    const target = connectPgTest(pgUrlForDatabase(adminUrl, building))
+    const buildingUrl = pgUrlForDatabase(adminUrl, building)
+    const target = connectPgTest(buildingUrl)
     try {
-      await source.build(target)
+      await source.build(target, buildingUrl)
     } finally {
       await target.close({ timeout: 5 })
     }
@@ -389,7 +398,7 @@ async function sweepStale(adminUrl: string, now = Date.now()): Promise<number> {
 /** Find or start the server and build the template. Returns the server's admin URL. */
 export async function preparePgTestServer(
   env: Record<string, string | undefined> = process.env,
-  source: PgTemplateSource = minimalTemplateSource(),
+  source: PgTemplateSource = chainTemplateSource(),
 ): Promise<{ adminUrl: string; template: string }> {
   const configured = env[PG_TEST_URL_ENV]
   if (configured) {

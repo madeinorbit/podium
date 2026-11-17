@@ -15,8 +15,8 @@
 import { asWorkspaceId } from '@podium/model'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
-  clonePgTestDatabase,
   connectPgTest,
+  emptyPgTestDatabase,
   type PgTestClient,
   testStoreEngine,
 } from '../../test-support/pg-test-database'
@@ -398,7 +398,7 @@ describe.runIf(testStoreEngine() === 'pg')('per-workspace write slots on Postgre
   const opened: RootStoreExecutor<QueryClient>[] = []
 
   beforeAll(async () => {
-    url = (await clonePgTestDatabase('file')).url
+    url = (await emptyPgTestDatabase('file')).url
     admin = connectPgTest(url, 1)
     for (const statement of [
       'CREATE TABLE sync_feed (workspace_id text COLLATE "C" PRIMARY KEY, head_seq bigint NOT NULL DEFAULT 0)',

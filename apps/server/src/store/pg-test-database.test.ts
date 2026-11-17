@@ -4,6 +4,7 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { PG_MIGRATIONS } from '../migrations/pg/index'
 import { openStoreDatabase } from '../store-database'
 import {
   clonePgTestDatabase,
@@ -54,11 +55,12 @@ describe.skipIf(testStoreEngine() !== 'pg')('postgres test databases', () => {
   it('gives the worker one database, cloned from the run template', async () => {
     const worker = await pgWorkerDatabase()
     expect(await pgWorkerDatabase()).toEqual(worker)
-    const [row] = await query<{ name: string; templates: number }>(
+    // The template is the migrated Postgres chain (POD-6981): its ledger comes along.
+    const [row] = await query<{ name: string; migrations: number }>(
       worker,
-      'SELECT current_database() AS name, count(*)::int AS templates FROM podium_test_template',
+      'SELECT current_database() AS name, count(*)::int AS migrations FROM drizzle.__drizzle_migrations',
     )
-    expect(row).toEqual({ name: worker.name, templates: 1 })
+    expect(row).toEqual({ name: worker.name, migrations: PG_MIGRATIONS.length })
   })
 
   it('clones a fresh database that shares no rows with the worker database', async () => {

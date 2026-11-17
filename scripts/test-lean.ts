@@ -93,6 +93,9 @@ export const LEAN_GATE_FILES: readonly string[] = [
   // SQLite schema, and every store query built on it.
   'apps/server/src/migrations/pg/schema-parity.test.ts',
   'apps/server/src/store/dialect-census.test.ts',
+  // The Postgres migration chain's database-free check [POD-6981]: the baseline is what the
+  // twin renders, and the two chains name the same changes.
+  'apps/server/src/migrations/pg/chain-parity.test.ts',
 ]
 
 /** The lane the gate takes its files from, and whose size it reports against. */

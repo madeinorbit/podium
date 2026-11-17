@@ -179,10 +179,25 @@ function nextDatabaseName(run: string): string {
 export async function clonePgTestDatabase(
   scope: PgTestScope = currentScope(),
 ): Promise<PgTestDatabase> {
+  return createPgTestDatabase(pgTestEnvironment().template, scope)
+}
+
+/**
+ * A fresh EMPTY database, without the store schema the run's template holds [POD-6981]:
+ * for a test that builds a schema of its own (a driver test's `sync_feed`, say) or one
+ * that migrates the database itself. Dropped as {@link clonePgTestDatabase}'s are.
+ */
+export async function emptyPgTestDatabase(
+  scope: PgTestScope = currentScope(),
+): Promise<PgTestDatabase> {
+  return createPgTestDatabase('template0', scope)
+}
+
+async function createPgTestDatabase(template: string, scope: PgTestScope): Promise<PgTestDatabase> {
   const environment = pgTestEnvironment()
   const name = nextDatabaseName(environment.run)
   await adminClient(environment.url).unsafe(
-    `CREATE DATABASE ${quotePgIdentifier(name)} TEMPLATE ${quotePgIdentifier(environment.template)} STRATEGY FILE_COPY`,
+    `CREATE DATABASE ${quotePgIdentifier(name)} TEMPLATE ${quotePgIdentifier(template)} STRATEGY FILE_COPY`,
   )
   created.push({ name, scope })
   return { name, url: pgUrlForDatabase(environment.url, name) }

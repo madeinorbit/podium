@@ -30,6 +30,18 @@ writes it for a list of kinds).
 Boot does not repair the sync log. Historical upgrades that require service logic
 use the normal write funnel and a durable completion receipt.
 
+**Two migration chains** [POD-6981, design `docs/design/POD-6958-postgres-store-design.md`
+§2.7]. SQLite migrates at boot from `apps/server/src/migrations/drizzle/`; Postgres has its
+own chain in `apps/server/src/migrations/pg/drizzle/`, starting from one baseline generated
+from the Postgres schema twin (`bun run migration:pg-baseline`, never edited by hand). On
+hosted Postgres migrating is a deploy step, `podium server migrate --database <url>`; a
+server only checks the ledger at boot. `bun run migration:new <name>` writes both chains.
+Until the first hosted database exists the Postgres baseline is regenerated in place on
+every schema change. Once a hosted database has applied it, set `PG_BASELINE_FROZEN` in
+`apps/server/src/migrations/pg/chain.ts` in the same commit; from then on regenerating it
+is not allowed, and every change is a migration in both chains under the same folder name
+(`chain-parity.test.ts`). The generation bump rule above applies to both chains.
+
 ## Rules
 
 Each rule has the reason for it and an example from this repository.

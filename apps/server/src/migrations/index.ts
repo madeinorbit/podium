@@ -28,6 +28,13 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import {
+  folderMillis,
+  knownMigrationNames,
+  newerDatabaseMessage,
+  outOfOrderPending,
+  unknownAppliedMigrations,
+} from './ledger-guards'
 import { applySchemaRepairs, repairReason, schemaRepairsAfter } from './repair'
 
 const log = createLogger('server:migrations')
@@ -65,31 +72,6 @@ const LEDGER = '__drizzle_migrations'
  * how that decision and this one stop agreeing.
  */
 const MIGRATION_NAME_ALIASES = SHARED_MIGRATION_NAME_ALIASES
-
-/**
- * THE OUT-OF-ORDER GUARD [POD-1621]. Names every pending migration that sorts
- * BEFORE the highest already-applied name — the exact signature of a second
- * lineage arriving late.
- *
- * Out-of-order on its own is harmless: two branches generate timestamps
- * independently and merge, and most such migrations are additive. It becomes the
- * POD-1621 hazard when the late migration REBUILDS a table (SQLite's
- * create/copy/drop/rename pattern), because its column list was written without
- * knowledge of anything the other lineage added. The ledger cannot see the loss:
- * every migration ran exactly once.
- *
- * So the signature is worth surfacing on its own, before knowing whether damage
- * followed — it is cheap, it is exact, and a boot log naming it turns "auth has
- * been throwing for hours" into a five-minute diagnosis.
- */
-export function outOfOrderPending(
-  appliedNames: Iterable<string>,
-  pendingNames: readonly string[],
-): string[] {
-  const highestApplied = [...appliedNames].sort((a, b) => a.localeCompare(b)).at(-1)
-  if (highestApplied === undefined) return []
-  return pendingNames.filter((name) => name.localeCompare(highestApplied) < 0)
-}
 
 function hasTable(db: SqlDatabase, name: string): boolean {
   return (
@@ -131,24 +113,6 @@ export function latestAppliedMigration(db: SqlDatabase): string | undefined {
     | { name?: unknown }
     | undefined
   return typeof row?.name === 'string' && row.name.length > 0 ? row.name : undefined
-}
-
-/**
- * drizzle's `created_at`: the folder-name's 14-digit `YYYYMMDDHHMMSS` UTC prefix
- * as epoch millis, matching what the bun:sqlite migrator records for the same
- * migration.
- */
-function folderMillis(name: string): number {
-  const s = name.slice(0, 14)
-  const millis = Date.UTC(
-    Number(s.slice(0, 4)),
-    Number(s.slice(4, 6)) - 1,
-    Number(s.slice(6, 8)),
-    Number(s.slice(8, 10)),
-    Number(s.slice(10, 12)),
-    Number(s.slice(12, 14)),
-  )
-  return Number.isNaN(millis) ? 0 : millis
 }
 
 /** True when the DB holds any table other than the ledger / sqlite internals. */
@@ -202,19 +166,12 @@ export function runDrizzleMigrations(
 ): string[] {
   const applied = appliedDrizzleNames(db)
 
-  const known = new Set(migrations.map((m) => m.name))
-  for (const [alias, canonical] of MIGRATION_NAME_ALIASES) {
-    if (known.has(canonical)) known.add(alias)
-  }
-  for (const name of applied) {
-    if (!known.has(name)) {
-      throw new Error(
-        `database has applied migration '${name}', which this build does not define. ` +
-          `The database is newer than this build — upgrade the Podium server ` +
-          `(downgrades are not supported).`,
-      )
-    }
-  }
+  const known = knownMigrationNames(
+    migrations.map((m) => m.name),
+    MIGRATION_NAME_ALIASES,
+  )
+  const [unknown] = unknownAppliedMigrations(applied, known)
+  if (unknown !== undefined) throw new Error(newerDatabaseMessage(unknown))
 
   // Apply in folder-name order, and hand drizzle the SAME order: its array path
   // applies in array order (it filters by name but never sorts), so a sorted
@@ -400,6 +357,7 @@ export function applyBaselineSchema(db: SqlDatabase): string[] {
 }
 
 export { backupDatabase } from './backup'
+export { outOfOrderPending } from './ledger-guards'
 export { applySchemaRepairs } from './repair'
 /** The other half of the backup story (ADR 2 D1): restore copies the file back
  *  AND re-mints the feed epoch in one step, so a rolled-back authority can never
