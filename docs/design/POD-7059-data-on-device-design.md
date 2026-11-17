@@ -1,8 +1,7 @@
 # Data on the device (POD-7059)
 
-Status: design discussed with the operator on 2026-11-17. Design only; nothing is built.
-Two points are proposed and not yet confirmed; they are marked **proposed** and listed in
-[Open points](#open-points). The document was written after the discussion and then checked
+Status: agreed with the operator on 2026-11-17. Design only; nothing is built. The remaining
+unsettled details are listed in [Open points](#open-points). The document was written after the discussion and then checked
 against the full conversation; [What the check changed](#what-the-check-changed) lists the
 corrections.
 
@@ -75,6 +74,7 @@ except for what the user opens.
 | Collection instance | A collection with its arguments filled in: "the tree under issue X". Definitions are few; instances are many. |
 | Marker | The note "this collection instance is complete as of feed number N". |
 | Policy | Server data per client type: which collections load at start, in which order, and the numbers (days, tree size, cache cap). |
+| Pull | A held collection pulls a second collection for each of its members: "for each issue in the sidebar, its sessions that are not archived". Downward, and always declared. |
 | Bring-along | A kept record brings the records it points to: a session brings its issue, an issue brings its parents and its small companions (the user's read state, its dependencies). Upward only, never down to children. |
 
 ## The design
@@ -158,7 +158,8 @@ declaration, one map per declared live part, held only while watched. This desig
 hot session values directly and does not wait for POD-6811. Live readings that belong to no
 record (connection, quota, unsent writes) stay as they are.
 
-Only issues and sessions have more than one part. The other 31 record types are a single part.
+Only issues, sessions and machines have more than one part (a machine has live condition and
+load). The other record types are a single part.
 
 Not checked: whether changes to two parts of one record from the same save always reach a
 device together. Stub and main are one record, so they do. An issue and its brief are separate
@@ -177,6 +178,34 @@ log entries today.
 | Page: one page of a sorted list, for example a board column or the proposal deck | The view that shows it |
 | Sessions of one issue | The issue page |
 | One record by ID | A lookup that finds the record absent |
+
+**A collection can pull another.** Some records are needed because of a record in another
+collection, which their own fields cannot say: the sidebar needs the sessions of its issues.
+A collection definition can therefore name a second, keyed collection to hold for each of its
+members:
+
+```ts
+{ of: 'issue', part: 'main', where: SIDEBAR,
+  pulls: [{ collection: 'sessionsOfIssue', where: { archived: false } }] }
+```
+
+It adds no new kind of thing on the device: what is pulled is ordinary instances of a keyed
+collection ("sessions of issue X"), each with its marker. The server answers the whole pull with
+one join. The client requests an instance when a record enters the first collection and
+releases it when the record leaves. This is the usual "include the related records" of query
+systems; Zero's related queries and PowerSync's parameter queries are the same idea (from
+memory, not checked).
+
+The pulls in this design:
+
+| Collection | Pulls, for each member |
+|---|---|
+| Sidebar | Its sessions that are not archived; the whole tree of a top-level issue when the tree is within the policy's size |
+| Live sessions (desktop) | The whole tree of the session's top-level issue |
+| A tree opened by a flight deck | The sessions of its issues that the deck shows |
+
+Sessions with no issue that are not archived (shown as lanes in the sidebar) are an ordinary
+collection over the session's own fields.
 
 "Recent" reads a time saved on the record: an issue's last-change time, and for a session the
 coarse activity time its record carries. It does not read the live "last active" value.
@@ -277,7 +306,24 @@ records. The client decides per change:
 A deletion or a loss of visibility gives the lookup answer "gone". Because the feed is applied
 without gaps, a collection that was complete stays complete.
 
+Two rules make this safe:
+
+- **The newer one wins, per record.** A fetch answers as of feed number N, which can be ahead of
+  what the device has applied. Each stored record therefore keeps the feed number it is current
+  as of, and a change older than that is skipped for that record. Today the client has one
+  cursor for everything (`packages/sync/src/replica/replica.ts`), which is not enough once
+  collections arrive separately.
+- **One snapshot per answer.** The server reads a collection and the feed number it is complete
+  as of in one snapshot, also with several server processes on Postgres.
+
+Tree membership needs no walk: a tree that is complete holds all its members, so a new issue
+belongs to it exactly when its parent does.
+
 ### Lookup
+
+Without a connection, a load cannot start. The view then shows "not available offline" from the
+connection state it already knows, not an endless loading row. That is the view's reading of "on
+its way", not a new lookup answer.
 
 Looking up a record keeps its three answers: here, on its way, or gone. There is no fourth
 "may be outdated" state. A stub is "here" for a reader that asks only for stub fields and "on
@@ -296,6 +342,8 @@ Everything on the device is also in memory. The cache cap is therefore the memor
 - When the cache is above its cap, the records read longest ago that are in no held collection
   are trimmed: issues back to their stub, other records removed. This trim is the only sweep.
   It does not have to be prompt, because holding extra records never makes a list wrong.
+- A record that a held record brings along (a parent, a companion) counts as held and is never
+  trimmed.
 
 **One copy in memory.** The earlier memory work in this epic found that row copies were never
 the cost: a row is about 550 bytes, and the storage copy, the sync engine's lists and the data
@@ -307,7 +355,7 @@ with its indexes:
 
 | | Phone | Desktop |
 |---|---|---|
-| Policy collections | about 3,000 records, 5 to 10 MB | about 5,000 records, 10 to 20 MB |
+| Policy collections: issues and sessions, plus their small companions | about 3,000 issues and sessions, 5 to 10 MB | about 5,000, 10 to 20 MB |
 | Cache | a small cap, a few MB | 5,000 to 10,000 records, 10 to 40 MB |
 | Stubs | 1 to 2 MB | 1 to 2 MB |
 | Today, for comparison | 65 to 80 MB on the phone fixture | about 90 MiB |
@@ -380,7 +428,7 @@ methods in about 35 files); not every call site was read.
 
 | Feature | What it needs | Answer |
 |---|---|---|
-| Sidebar | Open issues that are not proposed | Sidebar collection |
+| Sidebar | Open issues that are not proposed, with their sessions; sessions with no issue | Sidebar collection and what it pulls; the issueless-sessions collection |
 | Flight deck, issue page | Members of one tree, links, sessions of the issue | Tree collection, sessions-of-issue collection |
 | Progress bars and child counts | Parent and state of every member | Stubs |
 | Links and chips in chat and terminal | Reference and state | Stubs; absent record loads in a batch |
@@ -397,11 +445,11 @@ methods in about 35 files); not every call site was read.
 | Position of a new task | The current top of the list | The sidebar collection |
 | Proposal screening on the phone | The next cards and a count | Page collection; count from stubs |
 | Phone inbox and sessions screens | — | No longer reachable; the code is deleted |
-| First-run setup screen | Whether setup is finished | **Proposed:** an explicit server answer, see below |
+| First-run setup screen | Whether setup is finished | An explicit server answer (POD-7093), see open points |
 | Default agent in setup | The agent of the latest session | The latest session on the device, else the default |
 | Workflow or automation run pointing at a session | That one session | An ordinary lookup |
 | "Sessions: N" in phone settings | A diagnostic | The number on the device |
-| Hiding duplicate sessions (resume twins) | — | **Proposed:** fixed on the server, see below |
+| Hiding duplicate sessions (resume twins) | The two records, when both are on the device | The existing rule, over sessions in memory; see open points |
 
 ## What is deleted
 
@@ -411,7 +459,6 @@ methods in about 35 files); not every call site was read.
   describe rows not in memory.
 - The active-work rule (`packages/model/src/predicates/active-work.ts`); the policy and the
   collections replace it.
-- The client rule that hides duplicate sessions, once the server fix is in.
 - The phone's inbox and sessions screens with their readers.
 - The hand-written kind lists and the hand-written live store.
 
@@ -457,19 +504,29 @@ query lifetime) and ElectricSQL's shape documentation.
 
 ## Open points
 
-1. **Proposed: unique resume key.** Two session records can point at the same agent
-   conversation, because the database has no unique key for it. The operator's data has 10 such
-   pairs among 5,376 resumable sessions, all created between June and August 2026. The fix is a
-   unique key on the server (headless sessions excluded, they share the key on purpose) and a
-   merge of the old pairs. It is a server task of its own.
-2. **Proposed: explicit "setup finished".** The setup screen starts when there are no
-   repositories and no sessions, and uses the session count to detect a stale local flag. The
-   server should answer "setup is finished" next to the answer it already gives for "this person
-   sets up the server". It is a server task of its own.
-3. **Default taken, not discussed:** the body part loads when an issue is opened. The policy can
-   preload bodies for issues with live work if opening them proves slow.
-4. **To check during the build:** whether an issue and its brief from the same save reach a
-   device together, and whether any screen depends on that.
+1. **Sessions of the sidebar's issues: agreed 2026-11-17.** A collection can pull another; see
+   [Collections](#collections) and [Review](#review).
+2. **Unique resume key: withdrawn 2026-11-17 (POD-7092 cancelled).** A unique key is not always
+   correct. The resume key is an observation ("this terminal is attached to conversation X"),
+   and two records can share it for real: a headless session and its terminal session, a
+   parked record and a live session that attached to the same conversation, a harness that
+   allows shared resume. The server already arbitrates the case that matters, two live sessions
+   (`apps/server/src/modules/sessions/session-binding.ts`). The client's rule that hides the
+   less useful of two records stays, over the sessions in memory. The record it keeps is the
+   live or more recently active one, which the policy holds whenever it holds the other. In
+   the rare case where only the other is on the device, that one is shown, which is harmless.
+3. **Explicit "setup finished" (POD-7093).** The setup screen starts when there are no
+   repositories and no sessions. The session count in the stale-flag check is not for old
+   clients: it is a repair added on 2026-11-09 after builds that read zero counts by mistake
+   opened setup and saved "setup in progress" on devices. The cause is that setup is inferred
+   from counts. With partial data a count on the device proves even less, so the server should
+   answer "setup is finished" next to "this person sets up the server". The repair then goes.
+4. **Agreed default:** the body part loads when an issue is opened.
+5. **To check during the build:** whether an issue and its brief from the same save reach a
+   device together, and whether any screen depends on that. Every field a collection rule reads
+   must be a saved field, never a live value; check the session's agent state.
+6. **Not specified:** what the sidebar shows on an empty device while its collection arrives.
+   Either rows from the top down as a sorted range, or a loading state until complete.
 
 ## Build tasks
 
@@ -488,10 +545,10 @@ tables are superseded and still open; the coordinator retires them.
 | 8 | POD-7091 Declarative one-row builders |
 | 9 | POD-7094 Remove all-history indexes |
 | 10 | POD-7095 Cache cap and phone memory |
-| Server | POD-7092 Unique session resume key |
+| — | POD-7092 Unique session resume key: withdrawn, see open point 2 |
 | Server | POD-7093 Explicit setup finished answer |
 
-Order: 1, then 2, 3, 4 in sequence; 5 after 4 and the two server tasks; 6 after 4; 7 and 8
+Order: 1, then 2, 3, 4 in sequence; 5 after 4 and POD-7093; 6 after 4; 7 and 8
 after 1; 9 after 5; 10 after 9.
 
 Under the start-up phase (POD-5910):
@@ -514,8 +571,8 @@ Under the memory phase (POD-5211):
 | 9 | Delete the all-history index, its relation index and the active-work rule; indexes over rows in memory only | POD-5212; POD-5244 is answered by this design |
 | 10 | Cache cap and trim to stub; phone memory measured before and after | New |
 
-Separate server tasks: the unique resume key and the explicit "setup finished" answer (open
-points 1 and 2).
+Separate server tasks: the explicit "setup finished" answer (POD-7093). The unique resume key
+(POD-7092) is recommended for withdrawal, see open point 2.
 
 Unchanged and out of this design: the per-record memory cost work (POD-5157, POD-5539,
 POD-5952, POD-5811) and chat (POD-6671).
@@ -537,4 +594,67 @@ corrected it in these places:
   copy in memory" means after the earlier memory work, and seven rejected approaches.
 - Stated what is lost without a session stub: old session references are not coloured until
   loaded.
+
+## Review
+
+A full review of the design on 2026-11-17, after the tasks were created. Checked in code and on
+the operator's data unless marked.
+
+### Finding 1: the sidebar needs the sessions of its issues
+
+The worklist decides whether a row shows, and draws its seats, from the issue's sessions
+(`packages/client-graph/src/worklist/visible.ts`). The collections so far hold live and recent
+sessions only.
+
+| Sessions the sidebar needs | Count |
+|---|---|
+| Not archived, on a sidebar issue | 720 (76 live, 468 parked, 176 exited) |
+| Of those, last active more than 30 days ago | 577 |
+| Not archived, with no issue (shown as lanes) | 164 |
+
+"Sessions of open issues" cannot be decided from a session's own fields, so no collection rule
+as defined can express it. Sessions with no issue can.
+
+**Agreed addition (2026-11-17):** a held collection can pull a second collection for each of its members.
+"For each issue in the sidebar: its sessions that are not archived." It is declared as data
+like any collection, the server answers it with one join, and the client applies it when a
+record enters or leaves the first collection. The same form covers three things the document
+described only in words: small trees for the sidebar's top-level issues, big trees for issues
+with live work on the desktop, and the sessions a flight deck shows for its tasks.
+
+Rejected alternatives: letting an issue bring all its sessions along always (done issues carry
+3,250 sessions that are not archived, so every opened tree would pull thousands), and copying
+the issue's state onto the session record (a second home for a field).
+
+### Finding 2: which record types are in which collection
+
+The document said "small kinds" without a list. Proposed assignment, to be confirmed per kind
+in the declaration task (sizes from the operator's data):
+
+| Group | Record types |
+|---|---|
+| Always (small, do not grow with history) | repository, machine, machine access, checkout, agent profile, automation, preferences, layout, tab order, pins, subscriptions, read position, workflow, workflow binding and revision, ship lane and order, superagent thread |
+| Follows its issue (brought along) | the user's issue state (8,707), git state (411), dependencies (6,505) |
+| Follows its session (brought along) | the user's session state (1,936), pending interactions (34) |
+| By rule, like issues and sessions | workflow runs (260, 1.4 MB), automation runs, native conversations (3,712, 2.6 MB): recent by policy, older by page |
+| Already windowed by the server | messages, issue events |
+
+### Smaller findings, applied above
+
+- Machines have a live part too.
+- Ordering of a fetch against the feed, and one snapshot per answer.
+- Tree membership by "its parent is a member", with no need for the stubs.
+- Offline: a view says "not available offline".
+- Trimming never removes what a held record brings along.
+- Counts by repository can come from the stubs (the repository is in the reference); counts by
+  priority cannot.
+- A command on a record the device does not hold makes no optimistic change; its result arrives
+  through the feed.
+- If the stubs are ever capped, counts over all history stop being exact. The cap is therefore
+  a last resort.
+
+### What the review confirmed
+
+The agreed decisions hold: one loader and route, server policy, stubs with the three-part rule,
+everything on the device in memory, no session stub.
 
