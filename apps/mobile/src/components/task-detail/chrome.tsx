@@ -177,23 +177,32 @@ export function Disclosure({
           pressed && styles.discHeadPressed,
         ]}
       >
-        <View style={styles.discLabel}>
-          <Text style={styles.discTitle}>{label}</Text>
-          {hint ? (
-            <Text lineBreakStrategyIOS="standard" style={styles.hint}>
-              {hint}
-            </Text>
-          ) : null}
+        <View style={styles.discRow}>
+          <View style={styles.discLabel}>
+            <Text style={styles.discTitle}>{label}</Text>
+          </View>
+          {count ? <Text style={styles.count}>{count}</Text> : null}
+          <Animated.View
+            style={[
+              styles.chevron,
+              {
+                width: accessorySize(14),
+                height: size(leading(font.body)),
+                transform: [{ rotate }],
+              },
+            ]}
+          >
+            <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
+          </Animated.View>
         </View>
-        {count ? <Text style={styles.count}>{count}</Text> : null}
-        <Animated.View
-          style={[
-            styles.chevron,
-            { width: accessorySize(14), height: size(leading(font.body)), transform: [{ rotate }] },
-          ]}
-        >
-          <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
-        </Animated.View>
+        {/* Under the row, not in its flex label: inside the natively hosted page a
+          flex-row text child kept its one-line width at AX5, clipping the
+          subtitle and pushing the chevron past the card edge. */}
+        {hint ? (
+          <Text lineBreakStrategyIOS="standard" style={styles.hint}>
+            {hint}
+          </Text>
+        ) : null}
       </PressableScale>
       {open ? (
         <View style={[styles.discBody, grouped && styles.groupedBody]}>{children}</View>
@@ -412,13 +421,13 @@ const styles = StyleSheet.create({
   chevron: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   discHead: {
     minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
+    justifyContent: 'center',
+    gap: space.xs,
     paddingHorizontal: 16,
     paddingVertical: space.md,
   },
-  discLabel: { flex: 1, minWidth: 0, gap: space.xs },
+  discRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  discLabel: { flex: 1, minWidth: 0 },
   discTitle: { ...sans(400), color: color.text, fontSize: font.body },
   discHeadPressed: {
     backgroundColor: alpha(color.surface, 0.7),
