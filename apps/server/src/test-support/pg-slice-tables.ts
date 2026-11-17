@@ -15,17 +15,25 @@
  * executor, as before; on the `server-store-pg` lane a fresh clone of the run's template,
  * which the Postgres baseline migration built (POD-6981), through the Postgres driver (strict timestamps on, the leg's default) and
  * the Postgres query layer over the generated tables.
+ *
+ * THE QUERIES ARE THE SELF-HOSTED WORKSPACE'S (POD-7023), as `store.ts` builds them:
+ * both repositories are scoped (POD-6959 design 2.4). On Postgres every workspace write
+ * locks the workspace's `sync_feed` row, which the baseline does not create, so the
+ * slice provisions it as `StoreDatabase.provisionWorkspace` does.
  */
 
+import { randomUUID } from 'node:crypto'
 import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
 import * as pgSchema from '../migrations/pg/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { provisionWorkspaceFeed } from '../store/database'
 import type { QueryClient } from '../store/executor/driver'
 import { createStoreExecutor, type RootStoreExecutor } from '../store/executor/executor'
 import { attachLaneIntentAudit } from '../store/executor/lane-intent-audit'
 import { createPgStoreDriver } from '../store/executor/pg-driver'
 import { pgQueryLayer } from '../store/executor/pg-drizzle'
 import { instrumentDriver, statementProbeHubFor } from '../store/executor/statement-probe'
-import type { StoreQueries } from '../store/executor/sync-drizzle'
+import { type LegacyWorkspaceQueries, legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { openMigratedTestDatabase } from './migrated-database'
 import { clonePgTestDatabase, type TestStoreEngine, testStoreEngine } from './pg-test-database'
 import { stageASeam } from './stage-a-seam'
@@ -37,7 +45,7 @@ export const PG_SLICE_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
 export interface SliceStore {
   readonly engine: TestStoreEngine
   /** What the repositories are constructed with, as `store.ts` constructs them. */
-  readonly queries: StoreQueries
+  readonly queries: LegacyWorkspaceQueries
   /** What `countStatements` attaches to: the store's driver, on either engine. */
   readonly probeTarget: { readonly db: object }
   close(): Promise<void>
@@ -49,7 +57,7 @@ export async function openSliceStore(): Promise<SliceStore> {
     const database = openMigratedTestDatabase()
     return {
       engine: 'sqlite',
-      queries: stageASeam(database),
+      queries: legacyWorkspaceQueries(stageASeam(database), SELF_HOSTED_WORKSPACE_ID),
       probeTarget: { db: database },
       close: async () => database.close(),
     }
@@ -67,9 +75,17 @@ export async function openSliceStore(): Promise<SliceStore> {
     queryLayer: pgQueryLayer(PG_SLICE_TABLES),
     startOpen: true,
   })
+  await executor.queries.createOrJoinTransaction(async () => {
+    await provisionWorkspaceFeed(executor.queries.db).run({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      feedId: randomUUID(),
+      epoch: randomUUID(),
+      mintedAt: Date.now(),
+    })
+  })
   return {
     engine: 'pg',
-    queries: executor.queries,
+    queries: legacyWorkspaceQueries(executor.queries, SELF_HOSTED_WORKSPACE_ID),
     probeTarget: { db: connection },
     close: async () => await executor.close(),
   }

@@ -11,6 +11,8 @@
 import { asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { QuotaHistoryRepository } from '../store/quota-history'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -42,6 +44,15 @@ const seedWindow = (db: SqlDatabase, accountKey: string, resetsAtMs: number) =>
       resetsAtMs - 3_600_000,
       resetsAtMs - 60_000,
     )
+
+/**
+ * The live repository over the upgraded fixture. It reads the current schema (its queries name
+ * the workspace column, POD-7023), so the rest of the chain runs first.
+ */
+const liveHistory = (db: SqlDatabase): QuotaHistoryRepository => {
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  return new QuotaHistoryRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+}
 
 const firstAdmin = (db: SqlDatabase) =>
   (
@@ -85,9 +96,12 @@ describe(`migration ${MIGRATION}`, () => {
         { key: 'claude-code::switched-away@example.com', owner: member },
         { key: 'codex::machine:removed-machine', owner: member },
       ])
-      const history = new QuotaHistoryRepository(stageASeam(db))
+      const history = liveHistory(db)
+      // A later migration re-keys the solo member, with the rows it owns.
       expect(
-        (await history.listFor(asUserId(member), 0, Date.now())).map((row) => row.accountKey),
+        (await history.listFor(asUserId(firstAdmin(db)), 0, Date.now())).map(
+          (row) => row.accountKey,
+        ),
       ).toEqual(['claude-code::switched-away@example.com', 'codex::machine:removed-machine'])
     } finally {
       db.close()
@@ -111,7 +125,7 @@ describe(`migration ${MIGRATION}`, () => {
       upgrade()
 
       expect(owners(db)).toEqual([{ key: 'claude-code::someone@example.com', owner: original }])
-      const history = new QuotaHistoryRepository(stageASeam(db))
+      const history = liveHistory(db)
       expect(await history.listFor(asUserId('mem_bob'), 0, Date.now())).toEqual([])
     } finally {
       db.close()

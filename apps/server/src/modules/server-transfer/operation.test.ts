@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { ADOPTION_DEFERRED, OperationKindRegistry } from '../operations/kinds'
 import { OperationEngine } from '../operations/engine'
 import { OperationStore } from '../operations/store'
-import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
@@ -109,7 +109,7 @@ describe('server-move operation', () => {
     async (timing) => {
       const db = openDatabase(':memory:')
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-      const store = new OperationStore(syncQueriesOver(db))
+      const store = new OperationStore(selfHostedQueriesOver(db))
       const registry = new OperationKindRegistry()
       let fenceEntered!: () => void
       const fenceRunning = new Promise<void>((resolve) => { fenceEntered = resolve })

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE QUOTA WINDOW LEDGER — one row per run of a plan window, folded on write.
  *
@@ -32,16 +33,16 @@ import {
   type QuotaWindowInstance,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import { asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import type { quotaWindows } from '../migrations/schema'
 import { dialectPrepared } from './executor/dialect-prepared'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -120,16 +121,20 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
   }
 }
 
-// Every query this repository runs, prepared once per store [POD-6147].
+// Every query this repository runs, prepared once per store [POD-6147], each
+// held to the repository's workspace (POD-6959 design 2.4): the ledger is one
+// workspace's, so its listings, its count and its prune never reach another's.
 
 const seriesIs = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.quotaWindows,
     eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
     eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
   )
 
 const bucketIs = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.quotaWindows,
     eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
     eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
     eq(t.quotaWindows.resetsAtBucket, param(t.quotaWindows.resetsAtBucket, 'bucket')),
@@ -179,6 +184,7 @@ const windowPlaceholders = {
 // column is nullable, so the two agree on every value (they differ only on NULL:
 // SQLite's `MAX` yields NULL, Postgres's `GREATEST` ignores it).
 const insertWindowPlaceholders = {
+  workspaceId: WORKSPACE,
   accountKey: sql.placeholder('accountKey'),
   agent: sql.placeholder('agent'),
   windowKey: sql.placeholder('windowKey'),
@@ -230,7 +236,12 @@ const windowsSince = prepared((db, t) =>
   db
     .select()
     .from(t.quotaWindows)
-    .where(gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')))
+    .where(
+      inWorkspace(
+        t.quotaWindows,
+        gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')),
+      ),
+    )
     .orderBy(
       asc(t.quotaWindows.accountKey),
       asc(t.quotaWindows.windowKey),
@@ -246,7 +257,8 @@ const ownerWindowsSince = prepared((db, t) =>
     .select()
     .from(t.quotaWindows)
     .where(
-      and(
+      inWorkspace(
+        t.quotaWindows,
         eq(t.quotaWindows.ownerUserId, param(t.quotaWindows.ownerUserId, 'owner')),
         gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')),
       ),
@@ -270,12 +282,21 @@ const trailOfBucket = prepared((db, t) =>
 const pruneWindows = prepared((db, t) =>
   db
     .delete(t.quotaWindows)
-    .where(lt(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'cutoffMs')))
+    .where(
+      inWorkspace(
+        t.quotaWindows,
+        lt(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'cutoffMs')),
+      ),
+    )
     .prepare(),
 )
 
 const windowCount = prepared((db, t) =>
-  db.select({ n: sql<number>`COUNT(*)` }).from(t.quotaWindows).prepare(),
+  db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(t.quotaWindows)
+    .where(inWorkspace(t.quotaWindows))
+    .prepare(),
 )
 
 /** The rewritable columns of one window instance, as placeholder values. */
@@ -327,18 +348,19 @@ function windowValues(instance: QuotaWindowInstance): WindowValues {
 }
 
 export class QuotaHistoryRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries (POD-6959 design 2.4): every statement binds its workspace. */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -422,8 +444,9 @@ export class QuotaHistoryRepository {
     })
   }
 
-  /** Every window that reset at or after `sinceMs`, oldest first, WHOEVER owns
-   *  it. For the ledger's own tests and maintenance; never served to a member. */
+  /** Every window of this workspace that reset at or after `sinceMs`, oldest
+   *  first, WHOEVER owns it. For the ledger's own tests and maintenance; never
+   *  served to a member. */
   async list(sinceMs: number, nowMs: number): Promise<QuotaWindowHistoryWire[]> {
     const rows = await windowsSince(this.db).all({ sinceMs })
     return rows.map((r) => toWire(r, nowMs))

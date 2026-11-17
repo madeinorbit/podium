@@ -521,6 +521,20 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
     },
   ],
   [
+    'apps/server/src/modules/updates/recovery-store.ts',
+    {
+      reason:
+        "a workspace's update recovery store; the fleet execution checkpoint it reads and writes is an install key of meta (updates.execution.v1)",
+    },
+  ],
+  [
+    'apps/server/src/store/maintenance.ts',
+    {
+      reason:
+        "a workspace's maintenance repository; the maintenance lease it reads and renews is the install's fence (maintenance_leases, an install table)",
+    },
+  ],
+  [
     'apps/server/src/store/server-secrets.ts',
     {
       reason:

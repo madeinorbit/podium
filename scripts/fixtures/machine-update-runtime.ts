@@ -28,7 +28,8 @@ import { runDrizzleMigrations } from '../../apps/server/src/migrations'
 import { DRIZZLE_MIGRATIONS } from '../../apps/server/src/migrations/drizzle-manifest.generated'
 import { OperationEngine, systemOperationClock } from '../../apps/server/src/modules/operations/engine'
 import { OperationKindRegistry } from '../../apps/server/src/modules/operations/kinds'
-import { syncQueriesOver } from '../../apps/server/src/store/executor/sync-drizzle'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../apps/server/src/self-hosted-workspace'
+import { syncQueriesOver, workspaceQueries } from '../../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../../apps/server/src/modules/operations/store'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../../apps/server/src/modules/operations/lifecycle'
 import {
@@ -200,7 +201,8 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     }
-    const queries = db ? syncQueriesOver(db) : undefined
+    // The self-hosted workspace's queries, as SessionStore builds them (POD-6959 design 2.4).
+    const queries = db ? workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID) : undefined
     const store = queries ? new OperationStore(queries) : undefined
     const recoveryStore = queries ? new UpdateRecoveryStore(queries) : undefined
     const savedRecovery = await recoveryStore?.read()
@@ -529,7 +531,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       // Read another connection: an in-memory flag cannot prove the operation's receipt.
       const db = openDatabase(join(state, 'operations.db'), { readOnly: true })
       try {
-        const queries = syncQueriesOver(db)
+        const queries = workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID)
         const operation = (await new OperationStore(queries).history(UPDATE_OPERATION_KIND))[0]
           ?.operation
         const details = operation?.details

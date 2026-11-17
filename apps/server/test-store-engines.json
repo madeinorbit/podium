@@ -336,6 +336,7 @@
     "apps/server/src/store/pending-uploads.test.ts",
     "apps/server/src/store/prepared-lookups.test.ts",
     "apps/server/src/store/prepared-loop-scaling.test.ts",
+    "apps/server/src/store/remaining.workspace.test.ts",
     "apps/server/src/store/repos-read-cost.test.ts",
     "apps/server/src/store/repos-registry-golden.test.ts",
     "apps/server/src/store/runtime-event-driver-ordering.test.ts",

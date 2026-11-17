@@ -74,16 +74,8 @@ const PENDING = new Map<string, string>([
     'LEGACY boot import of the pre-identity tables (identity-import-schema), removed with its LEGACY date; B5 (POD-7019) scopes the file',
   ],
   [
-    'apps/server/src/modules/updates/recovery-store.ts',
-    'B9 (POD-7023): update recovery moves onto the binding as a global repository',
-  ],
-  [
     'apps/server/src/sync/record-sources.ts',
     'B7 (POD-7021): the record sources name their tables for change capture; they take them from the binding when B7 adds workspace_id to their keys and POD-6958 adds their Postgres forms',
-  ],
-  [
-    'apps/server/src/modules/operations/store.ts',
-    'B9 (POD-7023): its fluent queries become prepared definitions on the binding',
   ],
 ])
 

@@ -9,7 +9,7 @@ import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { OperationStore } from './modules/operations/store'
 import { UPDATE_OPERATION_KIND, UPDATE_STEP_SERVER } from './modules/updates/operation'
 import { startServer, type ServerHandle } from './server'
-import { syncQueriesOver } from './store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from './test-support/self-hosted-queries'
 
 it('startServer adopts a durable update using resolved production fleet records', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-update-adoption-'))
@@ -27,7 +27,7 @@ it('startServer adopts a durable update using resolved production fleet records'
     const db = openDatabase(join(root, 'podium.db'))
     try {
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-      await new OperationStore(syncQueriesOver(db)).insert({
+      await new OperationStore(selfHostedQueriesOver(db)).insert({
         id: 'update-before-restart',
         kind: UPDATE_OPERATION_KIND,
         exclusionGroup: 'lifecycle',

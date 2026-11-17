@@ -106,6 +106,10 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['queued_messages', 'A transient queue: a row is removed when the message is delivered.'],
   ['upstream_outbox', 'A transient queue: a row is removed when the upstream accepts it.'],
   ['quota_windows', 'Rolling usage windows: a few rows per provider account per week.'],
+  [
+    'operations',
+    "Durable operations (modules/operations/store.ts): single-flight keeps at most one live row per exclusion group, and retention sweeps each kind's finished history to twenty.",
+  ],
   ['offers', 'At most one live offer per session, removed when cleared.'],
   ['tab_order', 'One row per person per worktree they arranged.'],
   // The end-of-period deletes of these two scan by workspace until the key migration (C1,

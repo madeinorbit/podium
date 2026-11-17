@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HTTP_IDLE_TIMEOUT_S } from '../../gateway/ws-server'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import {
   DEFAULT_WAITING_GRACE_MS,
   type OperationClock,
@@ -1375,7 +1375,7 @@ interface HarnessOptions {
 async function harness(options: HarnessOptions = {}) {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const queries = syncQueriesOver(db)
+  const queries = selfHostedQueriesOver(db)
   const store = new OperationStore(queries)
   const recoveryStore = new UpdateRecoveryStore(queries)
   const clock = fakeClock()
