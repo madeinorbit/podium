@@ -98,7 +98,8 @@ export async function workerSnapshot(
     const path = join(dir, 'snapshot.db')
     // Test-only access to the fixture's physical image. The exclusive lane
     // captures memory and file stores consistently without building any records.
-    const physical = registry.sessionStore as unknown as {
+    // Both live on the StoreDatabase, which every workspace's store shares.
+    const physical = registry.sessionStore.database as unknown as {
       db: SqlDatabase
       executor: { exclusive<T>(read: () => Promise<T>): Promise<T> }
     }

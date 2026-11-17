@@ -465,8 +465,9 @@ async function withSources<T>(
   sources: RecordSources,
   run: () => Promise<T>,
 ): Promise<T> {
+  // The executor lives on the StoreDatabase the workspace's store belongs to.
   const executor = (
-    store as unknown as {
+    store.database as unknown as {
       executor: { exclusive<R>(fn: (session: DriverSession) => Promise<R>): Promise<R> }
     }
   ).executor
