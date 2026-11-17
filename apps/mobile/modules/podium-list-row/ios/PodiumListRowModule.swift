@@ -4,12 +4,16 @@ import SwiftUI
 
 private let rowPressModifier = "podiumListRowPress"
 private let searchStartsHiddenModifier = "podiumSearchStartsHidden"
+private let workingWordModifier = "podiumWorkingWordGlint"
 
 public final class PodiumListRowModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PodiumListRow")
 
     OnCreate {
+      ViewModifierRegistry.register(workingWordModifier) { params, _, _ in
+        WorkingWordModifier(phase: params["phase"] as? Double ?? 0)
+      }
       ViewModifierRegistry.register(rowPressModifier) { _, _, dispatcher in
         ListRowPressModifier(dispatcher: dispatcher)
       }
@@ -19,6 +23,7 @@ public final class PodiumListRowModule: Module {
     }
 
     OnDestroy {
+      ViewModifierRegistry.unregister(workingWordModifier)
       ViewModifierRegistry.unregister(rowPressModifier)
       ViewModifierRegistry.unregister(searchStartsHiddenModifier)
     }

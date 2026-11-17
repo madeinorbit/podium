@@ -25,7 +25,7 @@ import {
   taskWordText,
 } from './mission-deck-rows.types'
 import { StageGlyph } from './StageGlyph'
-import { WorkingMark } from './WorkingMark'
+import { WorkingWord } from './WorkingWord'
 
 /** The deck's rows on web and Android, inside MissionDeckList's plain cards.
  * iOS draws the same rows natively in the SwiftUI list (MissionDeckRows.ios). */
@@ -130,10 +130,21 @@ export const DeckTaskRow = observer(function DeckTaskRow({
           <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={2}>
             {title}
           </Text>
-          <Text style={styles.meta} numberOfLines={1}>
+          <WorkingWord
+            active={word === 'working'}
+            seed={ref}
+            style={styles.meta}
+            numberOfLines={1}
+            glint={
+              <>
+                <Text style={{ color: color.clear }}>{`${ref} · `}</Text>
+                {label}
+              </>
+            }
+          >
             {`${ref} · `}
             <Text style={wordTone(word)}>{label}</Text>
-          </Text>
+          </WorkingWord>
         </View>
         {foldable ? (
           // A disclosure on the trailing edge (SwiftUI DisclosureGroup) keeps
@@ -189,10 +200,21 @@ export const DeckAgentRow = observer(function DeckAgentRow({
         <Text style={styles.agentName} numberOfLines={2}>
           {name}
         </Text>
-        <Text style={styles.meta} numberOfLines={2}>
+        <WorkingWord
+          active={session.word === 'working'}
+          seed={sessionId}
+          style={styles.meta}
+          numberOfLines={2}
+          glint={
+            <>
+              {SESSION_WORD_LABEL[session.word]}
+              <Text style={{ color: color.clear }}>{model ? ` · ${model}` : ''}</Text>
+            </>
+          }
+        >
           <Text style={wordTone(session.word)}>{SESSION_WORD_LABEL[session.word]}</Text>
           {model ? ` · ${model}` : ''}
-        </Text>
+        </WorkingWord>
       </View>
     </Pressable>
   )
@@ -230,10 +252,21 @@ export const DeckSeatRow = observer(function DeckSeatRow({
           <Text style={styles.seatName} numberOfLines={2}>
             {name}
           </Text>
-          <Text style={styles.meta} numberOfLines={2}>
+          <WorkingWord
+            active={session.word === 'working'}
+            seed={sessionId}
+            style={styles.meta}
+            numberOfLines={2}
+            glint={
+              <>
+                {word}
+                <Text style={{ color: color.clear }}>{model ? ` · ${model}` : ''}</Text>
+              </>
+            }
+          >
             <Text style={wordTone(session.word)}>{word}</Text>
             {model ? ` · ${model}` : ''}
-          </Text>
+          </WorkingWord>
         </View>
       </View>
     </Pressable>
@@ -245,7 +278,7 @@ function wordTone(word: TaskWord | SessionWord) {
 }
 
 function SessionGlyph({ word }: { word: SessionWord }): ReactNode {
-  if (word === 'working') return <WorkingMark size={10} />
+  if (word === 'working') return <View style={[styles.ring, { borderColor: deckColor.working }]} />
   if (word === 'needs-you') return <View style={styles.dot} />
   if (word === 'error') return <View style={[styles.dot, styles.errorDot]} />
   if (word === 'done') return <Icon as={Check} size={13} color={deckColor.done} />

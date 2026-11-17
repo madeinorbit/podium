@@ -44,15 +44,15 @@ import {
   taskWordText,
 } from './mission-deck-rows.types'
 import { StageGlyph } from './StageGlyph'
-import { WorkingMark } from './WorkingMark'
+import { workingWordGlint } from './working-word-glint.ios'
 
 /**
  * The deck's rows as native List rows [POD-2529]. SwiftUI sizes and recycles
  * them like any system list: titles wrap to the cell's width, heights follow
  * Dynamic Type and live updates, and nothing is measured across the RN/SwiftUI
  * boundary (hosted RN rows lost their width and, in recycled cells, their
- * content: the blank gaps). Only the fixed-size desktop stage glyph and the
- * animated working mark stay React views, each in a fixed frame, as on Work.
+ * content: the blank gaps). Only the fixed-size desktop stage glyph stays a
+ * React view. Working words animate on their native Text.
  * Taps, the highlight and label colours come from the List's own row Button.
  *
  * Every row shares one leading grid with the proposal rows: 16 inset, a 20pt
@@ -169,7 +169,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
         </Text>
         <HStack spacing={0} modifiers={[monospacedDigit()]}>
           <Text modifiers={metaText(color.textDim)}>{`${ref} · `}</Text>
-          <Text modifiers={metaText(deckWordColor(word))}>{label}</Text>
+          <StateWord word={word} seed={ref} label={label} />
         </HStack>
       </VStack>
     </HStack>
@@ -272,7 +272,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
         >
           {name}
         </Text>
-        <SessionMeta word={word} model={model} />
+        <SessionMeta word={word} model={model} seed={sessionId} />
       </VStack>
     </HStack>
   )
@@ -323,7 +323,7 @@ export const DeckSeatRow = observer(function DeckSeatRow({
         >
           {name}
         </Text>
-        <SessionMeta word={word} model={model} />
+        <SessionMeta word={word} model={model} seed={sessionId} />
       </VStack>
     </HStack>
   )
@@ -466,17 +466,8 @@ function StageMark({
   )
 }
 
-/** Dot needs you, ring idle, check done; working draws the shared animated mark. */
+/** Dot needs you, ring idle/working, check done; the Working word carries motion. */
 function SessionMark({ word, line }: { word: SessionWord; line: number }) {
-  if (word === 'working') {
-    return (
-      <HStack modifiers={[frame({ width: GLYPH, height: line }), accessibilityHidden()]}>
-        <RNHostView matchContents>
-          <WorkingMark size={10} />
-        </RNHostView>
-      </HStack>
-    )
-  }
   const glyph =
     word === 'needs-you'
       ? { symbol: 'circle.fill', size: 8, tint: color.needsYou }
@@ -484,7 +475,11 @@ function SessionMark({ word, line }: { word: SessionWord; line: number }) {
         ? { symbol: 'circle.fill', size: 8, tint: color.danger }
         : word === 'done'
           ? { symbol: 'checkmark', size: 12, tint: deckColor.done }
-          : { symbol: 'circle', size: 8, tint: color.textFaint }
+          : {
+              symbol: 'circle',
+              size: 8,
+              tint: word === 'working' ? deckColor.working : color.textFaint,
+            }
   return (
     <Image
       systemName={glyph.symbol}
@@ -495,11 +490,41 @@ function SessionMark({ word, line }: { word: SessionWord; line: number }) {
   )
 }
 
-function SessionMeta({ word, model }: { word: SessionWord; model: string | null }) {
+function SessionMeta({
+  word,
+  model,
+  seed,
+}: {
+  word: SessionWord
+  model: string | null
+  seed: string
+}) {
   return (
     <HStack spacing={0}>
-      <Text modifiers={metaText(deckWordColor(word))}>{SESSION_WORD_LABEL[word]}</Text>
+      <StateWord word={word} seed={seed} label={SESSION_WORD_LABEL[word]} />
       {model ? <Text modifiers={metaText(color.textDim)}>{` · ${model}`}</Text> : null}
     </HStack>
+  )
+}
+
+/** The same native Text supplies both the readable label and its animated mask. */
+function StateWord({
+  word,
+  seed,
+  label,
+}: {
+  word: Parameters<typeof deckWordColor>[0]
+  seed: string
+  label: string
+}) {
+  return (
+    <Text
+      modifiers={[
+        ...metaText(deckWordColor(word)),
+        ...(word === 'working' ? [workingWordGlint(seed)] : []),
+      ]}
+    >
+      {label}
+    </Text>
   )
 }

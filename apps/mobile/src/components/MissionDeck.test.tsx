@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asSessionId } from '@podium/model'
-import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useMissionOpening } from '../client/hooks'
@@ -465,4 +465,45 @@ it('keeps dozens of wrapped proposals readable after filtering a long mission', 
       `<!doctype html><html><head><meta charset="utf-8"><title>Flight deck layout, 60 tasks and 48 proposals</title><style>${fonts}\n${css}\nhtml,body{width:402px;height:874px;margin:0;background:#16171a}body{display:flex}body>div{display:flex;flex:1;min-width:0}</style></head><body>${document.body.innerHTML}</body></html>`,
     )
   }
+})
+
+it.each([
+  ['working', true],
+  ['idle', false],
+  ['errored', false],
+])('marks task and seat rows from the shared %s word', async (phase, working) => {
+  await mount(
+    [root, quiet],
+    [
+      agent('root-seat', root.id, 'Root seat', phase),
+      agent('task-seat', quiet.id, 'Task seat', phase),
+    ],
+  )
+  const task = screen.getByTestId('deck-task')
+  const seat = screen.getByTestId('deck-seat')
+  expect(Boolean(within(task).queryByTestId('working-word'))).toBe(working)
+  expect(Boolean(within(seat).queryByTestId('working-word'))).toBe(working)
+  const expand = screen.queryByLabelText('Expand Quiet subtask')
+  if (expand) await act(async () => fireEvent.click(expand))
+  expect(Boolean(within(screen.getByTestId('deck-agent')).queryByTestId('working-word'))).toBe(
+    working,
+  )
+})
+
+it('keeps attention on a task while its working seat still gets the indicator', async () => {
+  await mount(
+    [root, { ...quiet, needsHuman: true }],
+    [agent('worker', quiet.id, 'Worker', 'working')],
+  )
+  const task = screen.getByTestId('deck-task')
+  expect(task.getAttribute('aria-label')).toContain('Needs you')
+  expect(within(task).queryByTestId('working-word')).toBeNull()
+  const expand = screen.queryByLabelText('Expand Quiet subtask')
+  if (expand) await act(async () => fireEvent.click(expand))
+  expect(within(screen.getByTestId('deck-agent')).getByTestId('working-word')).toBeTruthy()
+})
+
+it('uses the task word for shipping, even without a computing seat', async () => {
+  await mount([root, { ...quiet, stage: 'shipping' }])
+  expect(within(screen.getByTestId('deck-task')).getByTestId('working-word')).toBeTruthy()
 })

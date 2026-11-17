@@ -152,6 +152,7 @@ vi.mock('@expo/ui/swift-ui', () => {
     ),
     Text: ({ children, modifiers }: Props) => (
       <div
+        data-working-word={modifiers?.some((m) => m.name === 'podiumWorkingWordGlint') || undefined}
         data-line-limit={modifiers?.find((m) => m.name === 'lineLimit')?.value as number}
         data-fills-width={
           (modifiers?.find((m) => m.name === 'frame')?.value as { maxWidth?: number })?.maxWidth ===
@@ -204,6 +205,9 @@ vi.mock('@expo/ui/swift-ui', () => {
 
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' } }))
 vi.mock('./WorkingMark', () => ({ WorkingMark: () => null }))
+vi.mock('./working-word-glint.ios', () => ({
+  workingWordGlint: (seed: string) => ({ name: 'podiumWorkingWordGlint', value: seed }),
+}))
 vi.mock('./MissionProposalRow', () => import('./MissionProposalRow.ios'))
 vi.mock('./MissionProposalSlot', () => import('./MissionProposalSlot.ios'))
 vi.mock('./MissionDeckList', () => import('./MissionDeckList.ios'))
@@ -655,4 +659,61 @@ it('draws each accepted task as its own native row and keeps the gauge outside r
   fireEvent.click(screen.getByTestId('deck-filter-active'))
   fireEvent.click(screen.getByTestId('deck-filter-all'))
   expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
+})
+
+it.each([
+  ['working', true],
+  ['idle', false],
+  ['errored', false],
+])('native task and seat words only glint in the shared working state, phase=%s', async (phase, working) => {
+  const root = {
+    id: asIssueId('root'),
+    seq: 1,
+    title: 'Mission',
+    stage: 'in_progress',
+    repoPath: '/fixture',
+    priority: 2,
+    labels: [],
+    deps: [],
+    dependents: [],
+    needsHuman: false,
+    childCount: 0,
+    childDoneCount: 0,
+    parentBranch: 'main',
+    archived: false,
+  } as unknown as IssueViewModel
+  const task = { ...root, id: asIssueId('task'), parentId: root.id, seq: 2, title: 'Task' }
+  const worker = (id: string, issueId: typeof root.id) =>
+    ({
+      sessionId: asSessionId(id),
+      issueId,
+      agentKind: 'codex',
+      title: id,
+      name: id,
+      cwd: '/fixture',
+      status: 'live',
+      archived: false,
+      origin: { kind: 'spawn' },
+      createdAt: '2026-11-11T00:00:00Z',
+      agentState: { phase },
+    }) as unknown as SessionView
+  await renderWithMobileStore(
+    <ReducedMotionContext value={true}>
+      <Opened onPress={() => {}} />
+    </ReducedMotionContext>,
+    { issues: [root, task], sessions: [worker('lead', root.id), worker('helper', task.id)] },
+  )
+  const taskRow = screen.getByTestId('deck-task')
+  const seatRow = screen.getByTestId('deck-seat')
+  expect(Boolean(taskRow.querySelector('[data-working-word]'))).toBe(working)
+  expect(Boolean(seatRow.querySelector('[data-working-word]'))).toBe(working)
+  // The native title and state word stay outside every RN host, including at AX sizes.
+  expect(screen.getByText('Task').closest('[data-native-rn-host]')).toBeNull()
+  const expand = screen.queryByRole('button', { name: 'Expand Task' })
+  if (expand) await act(async () => fireEvent.click(expand))
+  expect(Boolean(screen.getByTestId('deck-agent').querySelector('[data-working-word]'))).toBe(
+    working,
+  )
+  expect(taskRow.querySelector('[data-native-rn-host] [data-working-word]')).toBeNull()
+  expect(screen.queryByTestId('working-word-glint')).toBeNull()
 })

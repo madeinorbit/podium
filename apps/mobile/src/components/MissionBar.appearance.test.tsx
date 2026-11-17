@@ -70,6 +70,14 @@ afterEach(() => {
   appearance.listeners.clear()
 })
 
+function visibleText(text: string | RegExp): HTMLElement {
+  const node = screen
+    .getAllByText(text)
+    .find((candidate) => !candidate.closest('[aria-hidden=true]'))
+  if (!node) throw new Error(`Missing visible text: ${text}`)
+  return node
+}
+
 it.each([
   { part: 'fraction', text: '41/64', light: '#000000', contrast: '#000000' },
   { part: 'inspector', text: null, light: '#3c3c43', contrast: '#000000' },
@@ -87,8 +95,7 @@ it.each([
     return <MissionBar full={full} onOpen={() => {}} />
   })
   render(<ChatPage />)
-  const read = () =>
-    text === null ? screen.getByTestId('inspector-symbol') : screen.getByText(text)
+  const read = () => (text === null ? screen.getByTestId('inspector-symbol') : visibleText(text))
   const node = read()
   const dark = token(node)
   changeAppearance('light')
@@ -144,5 +151,5 @@ it('leaves nested native color variants with UIKit', () => {
 it('uses the light foreground when iOS reports an unspecified appearance', () => {
   appearance.scheme = 'unspecified'
   render(<MissionBar full={full} onOpen={() => {}} />)
-  expect(token(screen.getByText('41/64')).dynamic.light).toBe('#000000')
+  expect(token(visibleText('41/64')).dynamic.light).toBe('#000000')
 })

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, sans } from '../theme/theme'
 import { useLiveInk } from '../theme/use-live-ink'
 import { deckColor } from './deck-colors'
+import { WorkingWord } from './WorkingWord'
 
 export interface DeckVitals {
   done: number
@@ -45,10 +46,25 @@ export function DeckVitalsLine({
   const needsInk = useLiveInk(deckColor.needsYou)
   const workingInk = useLiveInk(deckColor.working)
   return (
-    <Text
+    <WorkingWord
+      active={vitals.working > 0}
+      seed="deck-vitals"
       style={lineInk === color.textDim ? styles.line : [styles.line, { color: lineInk }]}
       numberOfLines={numberOfLines}
       maxFontSizeMultiplier={maxFontSizeMultiplier}
+      glint={
+        <>
+          <Text style={[styles.fraction, styles.clear]}>{`${vitals.done}/${vitals.total}`}</Text>
+          {vitals.needsYou > 0 ? (
+            <Text style={styles.clear}>{`  ·  ${vitals.needsYou} needs you`}</Text>
+          ) : null}
+          <Text style={styles.clear}>{'  ·  '}</Text>
+          {`${vitals.working} working`}
+          {vitals.upNext > 0 ? (
+            <Text style={styles.clear}>{`  ·  ${vitals.upNext} up next`}</Text>
+          ) : null}
+        </>
+      }
     >
       <Text
         style={
@@ -72,7 +88,7 @@ export function DeckVitalsLine({
         >{`  ·  ${vitals.working} working`}</Text>
       ) : null}
       {vitals.upNext > 0 ? <Text>{`  ·  ${vitals.upNext} up next`}</Text> : null}
-    </Text>
+    </WorkingWord>
   )
 }
 
@@ -119,6 +135,7 @@ const styles = StyleSheet.create({
   fraction: { ...sans(600), color: color.text, fontVariant: ['tabular-nums'] },
   needs: { color: deckColor.needsYou },
   working: { color: deckColor.working },
+  clear: { color: color.clear },
   gauge: {
     flexDirection: 'row',
     gap: 2,
