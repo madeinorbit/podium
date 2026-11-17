@@ -76,7 +76,8 @@ export interface PulseBodyProps {
 
 export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
   const { range, hero, summary, cold } = props
-  const stackedStats = useWindowDimensions().fontScale >= STACKED_STATS_SCALE
+  const { fontScale } = useWindowDimensions()
+  const stackedStats = fontScale >= STACKED_STATS_SCALE
   const [closed, setClosed] = useState<ReadonlySet<SectionKey>>(new Set())
   const toggle = (key: SectionKey) =>
     setClosed((current) => {
@@ -90,7 +91,8 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
   const weekNote = range === 'fiveHour' ? 'Last 7 days' : undefined
 
   return (
-    <View style={styles.page}>
+    // Rebuild native text measurements without resetting the section folds above.
+    <View key={fontScale} style={styles.page}>
       <Card>
         {props.failed ? (
           <ReadingFailure label="usage" stale={!cold} onRetry={() => props.onRetry('usage')} />

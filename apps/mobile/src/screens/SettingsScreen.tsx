@@ -293,12 +293,13 @@ const SettingsHome = observer(function SettingsHome() {
 
           <Card>
             <View style={styles.server}>
-              {/* A host name never wraps mid-name; it shrinks to fit instead. */}
+              {/* Accessibility sizes keep the full server name in a growing row. */}
               <Text
                 style={styles.serverName}
-                numberOfLines={1}
-                adjustsFontSizeToFit
+                numberOfLines={serverLines}
+                adjustsFontSizeToFit={serverLines === 1}
                 minimumFontScale={0.5}
+                lineBreakStrategyIOS="standard"
               >
                 {host}
               </Text>
@@ -577,6 +578,8 @@ function NavRow({
   const { fontScale } = useWindowDimensions()
   const stacked = fontScale >= STACKED_ROW_SCALE
   const glyphScale = Math.min(fontScale, 2)
+  // Decorative glyphs must not force a label's longest word into a narrow column.
+  const hideRowIcon = fontScale >= 2.5
   return (
     <PressableScale
       style={({ pressed }) => [
@@ -589,10 +592,14 @@ function NavRow({
       accessibilityLabel={label}
       accessibilityValue={value ? { text: value } : undefined}
     >
-      {icon ? <Icon as={icon} size={ROW_ICON * glyphScale} color={color.text} /> : null}
+      {icon && !hideRowIcon ? (
+        <Icon as={icon} size={ROW_ICON * glyphScale} color={color.text} />
+      ) : null}
       {stacked ? (
         <View style={styles.stackedText}>
-          <Text style={styles.rowLabel}>{label}</Text>
+          <Text style={styles.rowLabel} lineBreakStrategyIOS="standard">
+            {label}
+          </Text>
           {value ? <Text style={styles.stackedValue}>{value}</Text> : null}
         </View>
       ) : (
@@ -768,7 +775,7 @@ const styles = StyleSheet.create({
   },
   rowPressed: { backgroundColor: color.surfacePressed },
   stackedRow: { paddingVertical: grid(2) },
-  stackedText: { flex: 1, gap: 2 },
+  stackedText: { flex: 1, minWidth: 0, gap: 2 },
   stackedValue: { ...sans(400), color: color.textDim, fontSize: font.small },
   tallRow: {
     minHeight: 56,
