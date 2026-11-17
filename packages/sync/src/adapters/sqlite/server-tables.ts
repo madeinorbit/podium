@@ -61,8 +61,21 @@ export type UpstreamOutboxTable = SQLiteTable & {
   readonly queuedAt: SQLiteColumn
 }
 
+/**
+ * The server's change-capture wrapper for a write on a source table
+ * (`apps/server/src/sync/capture-pg.ts`, POD-6982): it returns the drizzle insert,
+ * update or delete builder it is handed, unchanged on SQLite (the triggers capture)
+ * and rendering its capture form on Postgres. `queued_messages` is a source of the
+ * session record, so the adapter's inbox writes go through it (POD-6989).
+ *
+ * INJECTED FOR THE SAME REASON AS THE TABLES: the capture forms are generated from
+ * the server's record sources, which a package may not import.
+ */
+export type CaptureWrite = <B>(write: B) => B
+
 /** What the composition root hands {@link SyncRepository} alongside the connection. */
 export interface SyncServerTables {
   readonly queuedMessages: QueuedMessagesTable
   readonly upstreamOutbox: UpstreamOutboxTable
+  readonly captureWrite: CaptureWrite
 }

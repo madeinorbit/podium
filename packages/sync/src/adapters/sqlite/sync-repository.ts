@@ -40,11 +40,27 @@
 
 import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, or, sql } from 'drizzle-orm'
+import {
+  type AnyColumn,
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  max,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import type { AppliedMutationFallback } from '../../mutation-ledger'
+import { dialectForms, dialectOf } from '../pg/dialect'
 import type { SyncTables } from './binding'
 import {
   inListOf,
@@ -60,7 +76,12 @@ import {
   WORKSPACE,
   type WorkspaceHandle,
 } from './prepared'
-import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
+import type {
+  CaptureWrite,
+  QueuedMessagesTable,
+  SyncServerTables,
+  UpstreamOutboxTable,
+} from './server-tables'
 import type { StoreDrizzle, SyncQueries, TransactionRunner } from './store-queries'
 
 export { type SyncTables, sqliteSyncTables } from './binding'
@@ -239,14 +260,28 @@ const changesBetween = prepared((db, t) =>
     .prepare(),
 )
 
-// `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
-// see {@link SyncRepository.planChangePrune}.
-const newestAgedSeq = prepared((db, t) =>
-  db
-    .select({ seq: max(t.changes.seq) })
-    .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
-    .where(inWorkspace(t.changes, lt(t.changes.eventTime, param(t.changes.eventTime, 'before'))))
-    .prepare(),
+const agedBefore = (t: SyncTables) =>
+  inWorkspace(t.changes, lt(t.changes.eventTime, param(t.changes.eventTime, 'before')))
+
+// `INDEXED BY` HAS NO BUILDER FORM, so the SQLite FROM clause is an `sql`
+// fragment — see {@link SyncRepository.planChangePrune}. Postgres has no index
+// hints: its planner takes `changes_event_time (workspace_id, event_time, seq)`
+// for the range on its own, and the Postgres query-plan audit (POD-6992) proves it.
+const newestAgedSeq = prepared(
+  dialectForms({
+    sqlite: (db: StoreDrizzle, t: SyncTables) =>
+      db
+        .select({ seq: max(t.changes.seq) })
+        .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
+        .where(agedBefore(t))
+        .prepare(),
+    pg: (db: StoreDrizzle, t: SyncTables) =>
+      db
+        .select({ seq: max(t.changes.seq) })
+        .from(t.changes)
+        .where(agedBefore(t))
+        .prepare(),
+  }),
 )
 
 const deleteChangeHead = prepared((db, t) =>
@@ -418,17 +453,36 @@ const upsertFeedIdentity = prepared((db, t) =>
 )
 
 /**
+ * The tiebreak of a FIFO read after its clock column: insertion order. SQLite keeps
+ * the `rowid` the original statements named (two rows queued in one millisecond come
+ * back in the order they were written). Postgres has no rowid and neither table an
+ * insertion-order column, so its form breaks the tie by the primary key: a stable
+ * order, but for a same-millisecond tie not the insertion order (POD-6989).
+ */
+const insertionOrder = (db: StoreDrizzle, primaryKey: AnyColumn): SQL =>
+  dialectOf(db) === 'pg' ? asc(primaryKey) : asc(sql`rowid`)
+
+/**
  * The statements over the two INJECTED tables, prepared once per store like
  * the rest. They are built from the table objects the composition root hands
  * in, so they are defined per repository rather than at module level; each
  * definition still prepares once per drizzle instance.
  */
-function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutboxTable) {
+function serverTableQueries(
+  queued: QueuedMessagesTable,
+  upstream: UpstreamOutboxTable,
+  captureWrite: CaptureWrite,
+) {
+  const reserveDelivery = (db: StoreDrizzle, attempts: SQL) =>
+    db
+      .update(queued)
+      .set({ deliveryOwner: 'daemon', attempts })
+      .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+      .prepare()
   return {
     insertQueued: prepared((db) =>
-      db
-        .insert(queued)
-        .values({
+      captureWrite(
+        db.insert(queued).values({
           workspaceId: WORKSPACE,
           id: sql.placeholder('id'),
           sessionId: sql.placeholder('sessionId'),
@@ -444,7 +498,8 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           sourceMessageId: sql.placeholder('sourceMessageId'),
           delivery: sql.placeholder('delivery'),
           attachmentsJson: sql.placeholder('attachmentsJson'),
-        })
+        }),
+      )
         .onConflictDoNothing()
         .prepare(),
     ),
@@ -475,7 +530,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         })
         .from(queued)
         .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
-        .orderBy(asc(queued.queuedAt), asc(sql`rowid`))
+        .orderBy(asc(queued.queuedAt), insertionOrder(db, queued.id))
         .prepare(),
     ),
 
@@ -507,15 +562,13 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
     deleteQueued: prepared((db) =>
-      db
-        .delete(queued)
+      captureWrite(db.delete(queued))
         .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
     deleteUnreservedQueued: prepared((db) =>
-      db
-        .delete(queued)
+      captureWrite(db.delete(queued))
         .where(
           inWorkspace(queued, eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)),
         )
@@ -540,12 +593,12 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    reserveQueuedDelivery: prepared((db) =>
-      db
-        .update(queued)
-        .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
-        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
-        .prepare(),
+    // Two-argument `MAX` is SQLite's scalar maximum; Postgres spells it `GREATEST`.
+    reserveQueuedDelivery: prepared(
+      dialectForms({
+        sqlite: (db: StoreDrizzle) => reserveDelivery(db, sql`max(${queued.attempts}, 1)`),
+        pg: (db: StoreDrizzle) => reserveDelivery(db, sql`greatest(${queued.attempts}, 1)`),
+      }),
     ),
 
     releaseQueuedDelivery: prepared((db) =>
@@ -579,8 +632,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     ),
 
     deleteQueuedOfSession: prepared((db) =>
-      db
-        .delete(queued)
+      captureWrite(db.delete(queued))
         .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
         .prepare(),
     ),
@@ -597,7 +649,7 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         })
         .from(upstream)
         .where(inWorkspace(upstream))
-        .orderBy(asc(upstream.queuedAt), asc(sql`rowid`))
+        .orderBy(asc(upstream.queuedAt), insertionOrder(db, upstream.mutationId))
         .prepare(),
     ),
   }
@@ -692,7 +744,11 @@ export class SyncRepository {
     }
     this.db = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
-    this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
+    this.serverTables = serverTableQueries(
+      tables.queuedMessages,
+      tables.upstreamOutbox,
+      tables.captureWrite,
+    )
   }
 
   /** The workspace whose feed this is. */

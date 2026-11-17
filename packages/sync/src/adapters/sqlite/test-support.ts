@@ -5,11 +5,17 @@ import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
 import { sqliteSyncTables } from './binding'
-import { bindTables, type HandleContext, queryHandle } from './prepared'
+import {
+  bindTables,
+  CrossWorkspaceStatementError,
+  type HandleContext,
+  queryHandle,
+} from './prepared'
 import { workspaceColumn } from './schema'
 import type { SyncServerTables } from './server-tables'
 import type { StoreDrizzle, StoreQueries, SyncQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
+import { SUITE_WORKSPACE_ID, type SyncRepositoryFixture } from './sync-repository.suites'
 
 /**
  * THE FIXTURE'S STAND-IN FOR THE TWO SERVER-OWNED TABLES (POD-3249).
@@ -66,10 +72,12 @@ export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
   ...workspaceColumn(),
 })
 
-/** What the fixture hands `SyncRepository` where the server hands it the real ones. */
+/** What the fixture hands `SyncRepository` where the server hands it the real ones.
+ *  The fixture is SQLite, where a write needs no capture form. */
 export const testSyncServerTables: SyncServerTables = {
   queuedMessages: testQueuedMessages,
   upstreamOutbox: testUpstreamOutbox,
+  captureWrite: (write) => write,
 }
 
 /**
@@ -306,4 +314,41 @@ export function createTestSyncDatabase(): SqlDatabase {
  */
 export function createTestTransact(db: SqlDatabase): <T>(fn: () => Promise<T>) => Promise<T> {
   return createTestSyncQueries(db).createOrJoinTransaction
+}
+
+/**
+ * The bare fixture as a {@link SyncRepositoryFixture} (POD-6989): one fresh in-memory
+ * database, every workspace's queries over its one drizzle instance, and no
+ * provisioning, so a workspace's first append or identity write creates its feed row.
+ * The server's store shard runs the same suites on the store's own engines.
+ */
+export function openBareSyncFixture(): SyncRepositoryFixture {
+  const db = createTestSyncDatabase()
+  const recorded: string[] = []
+  const realPrepare = db.prepare.bind(db)
+  ;(db as unknown as { prepare: (s: string) => unknown }).prepare = (s: string) => {
+    recorded.push(s.replace(/\s+/g, ' ').trim())
+    return realPrepare(s)
+  }
+  const base = createTestSyncQueries(db)
+  const queries = (workspaceId: string = SUITE_WORKSPACE_ID) =>
+    testWorkspaceQueries(base, workspaceId)
+  return {
+    engine: 'sqlite',
+    provisioned: false,
+    serverTables: testSyncServerTables,
+    crossWorkspaceRefusal: CrossWorkspaceStatementError,
+    queries,
+    repository: async (workspaceId = SUITE_WORKSPACE_ID) =>
+      new SyncRepository(queries(workspaceId), testSyncServerTables, workspaceId),
+    stored: async (text) => realPrepare(text).all() as Record<string, unknown>[],
+    seed: async (text) => db.exec(text),
+    runInTransaction: async (text) => db.exec(text),
+    async record(fn) {
+      const from = recorded.length
+      await fn()
+      return recorded.slice(from)
+    },
+    close: async () => db.close(),
+  }
 }

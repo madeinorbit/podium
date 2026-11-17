@@ -117,7 +117,6 @@ const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly wri
     ['apps/server/src/store/observation-checkpoints.ts', { task: 'POD-6988', writes: 4 }],
     ['apps/server/src/store/superagent.ts', { task: 'POD-6988', writes: 7 }],
     ['apps/server/src/store/workflows.ts', { task: 'POD-6988', writes: 11 }],
-    ['packages/sync/src/adapters/sqlite/sync-repository.ts', { task: 'POD-6989', writes: 4 }],
     ['apps/server/src/store/conversations/index.ts', { task: 'POD-6990', writes: 4 }],
     ['apps/server/src/store/conversations/registry.ts', { task: 'POD-6990', writes: 3 }],
   ])

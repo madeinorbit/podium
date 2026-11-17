@@ -294,19 +294,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   ['apps/server/src/store/users.ts:userIdByEmail', 'computed text (lower()) without COLLATE "C"'],
   ['apps/server/src/store/workflows.ts:workflowsWhere', 'SQLite-only COLLATE NOCASE'],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:newestAgedSeq', 'SQLite-only INDEXED BY'],
-  [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.parkedUpstream',
-    'SQLite-only rowid',
-  ],
-  [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedOfSession',
-    'SQLite-only rowid',
-  ],
-  [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.reserveQueuedDelivery',
-    'SQLite-only two-argument MAX/MIN',
-  ],
 ])
 
 // ---------------------------------------------------------------------------
