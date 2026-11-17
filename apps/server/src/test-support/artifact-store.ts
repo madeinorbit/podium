@@ -7,7 +7,6 @@
  * the store: `advance` writes only where the row still holds `previous`.
  */
 
-import { LOCAL_WORKSPACE_ID } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import type { IssueId } from '@podium/model'
 import {
@@ -15,6 +14,7 @@ import {
   type ArtifactUploadState,
   IssueArtifactStore,
 } from '../modules/issues/artifact-store'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { ArtifactUploadRef, ArtifactUploadRow } from '../store/artifact-uploads'
 
 export function memoryArtifactUploads(): ArtifactUploadState {
@@ -58,7 +58,7 @@ export function artifactStoreOnDisk(
   uploads: ArtifactUploadState = memoryArtifactUploads(),
 ): IssueArtifactStore {
   return new IssueArtifactStore({
-    files: new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID),
+    files: new LocalBlobStorage({ stateDir }).forWorkspace(SELF_HOSTED_WORKSPACE_ID),
     uploads,
     rpc,
   })

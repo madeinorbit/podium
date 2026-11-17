@@ -6,12 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { blobKey } from './key'
 import { LocalBlobStorage } from './local'
 import { bodyText, bytes, listKeys } from './testing/contract'
-import {
-  BlobConditionFailed,
-  type BlobStore,
-  LOCAL_WORKSPACE_ID,
-  type PortableStateWriteFence,
-} from './types'
+import { BlobConditionFailed, type BlobStore, type PortableStateWriteFence } from './types'
+
+/** The workspace these tests store files for: a self-hosted install's. */
+const WORKSPACE = asWorkspaceId('local')
 
 let stateDir: string
 
@@ -25,7 +23,7 @@ afterEach(async () => {
 })
 
 const localStore = (fence?: PortableStateWriteFence): BlobStore =>
-  new LocalBlobStorage({ stateDir, ...(fence ? { fence } : {}) }).forWorkspace(LOCAL_WORKSPACE_ID)
+  new LocalBlobStorage({ stateDir, ...(fence ? { fence } : {}) }).forWorkspace(WORKSPACE)
 
 const TEMP = '.tmp-0c0a7e4e-1a2b-4c3d-8e9f-001122334455'
 const TEMP_2 = '.tmp-ffffffff-0000-4000-8000-123456789abc'
@@ -53,14 +51,18 @@ async function spyOnSync() {
 }
 
 describe('local workspace mapping', () => {
-  it('serves workspace local and refuses every other workspace id', () => {
+  it('serves the one workspace it is first asked for and refuses every other workspace id', () => {
     const storage = new LocalBlobStorage({ stateDir })
-    expect(storage.forWorkspace(LOCAL_WORKSPACE_ID)).toBe(
-      storage.forWorkspace(asWorkspaceId('local')),
-    )
+    expect(storage.forWorkspace(WORKSPACE)).toBe(storage.forWorkspace(asWorkspaceId('local')))
     for (const id of ['ws-1', 'Local', 'local2', '']) {
       expect(() => storage.forWorkspace(asWorkspaceId(id))).toThrow(/only workspace 'local'/)
     }
+    // No workspace is built in: a state directory first asked for another holds that one.
+    const other = new LocalBlobStorage({ stateDir })
+    expect(other.forWorkspace(asWorkspaceId('ws-1'))).toBe(
+      other.forWorkspace(asWorkspaceId('ws-1')),
+    )
+    expect(() => other.forWorkspace(WORKSPACE)).toThrow(/only workspace 'ws-1'/)
   })
 
   it('keeps a key at the same relative path under the state directory', async () => {
@@ -282,7 +284,7 @@ describe('local transfer fence', () => {
   it('runs every write inside the fence and no read', async () => {
     const fence = countingFence()
     const storage = new LocalBlobStorage({ stateDir, fence })
-    const store = storage.forWorkspace(LOCAL_WORKSPACE_ID)
+    const store = storage.forWorkspace(WORKSPACE)
     await store.put(blobKey('artifacts/f/x'), bytes('x'))
     await store.copy(blobKey('artifacts/f/x'), blobKey('artifacts/f/y'))
     await store.delete(blobKey('artifacts/f/y'))
@@ -297,7 +299,7 @@ describe('local transfer fence', () => {
   it('refuses writes while the fence is held and leaves the files untouched', async () => {
     const fence = countingFence()
     const storage = new LocalBlobStorage({ stateDir, fence })
-    const store = storage.forWorkspace(LOCAL_WORKSPACE_ID)
+    const store = storage.forWorkspace(WORKSPACE)
     await store.put(blobKey('artifacts/f/x'), bytes('before'))
     await mkdir(join(stateDir, 'transcripts'), { recursive: true })
     await writeFile(join(stateDir, 'transcripts', TEMP), 'x')

@@ -13,9 +13,6 @@
 import type { WorkspaceId } from '@podium/model'
 import type { BlobKey } from './key'
 
-/** The one workspace of a self-hosted install; the local adapter accepts no other. */
-export const LOCAL_WORKSPACE_ID = 'local' as WorkspaceId
-
 export type BlobBody = Uint8Array | ReadableStream<Uint8Array>
 
 export interface BlobPutOptions {

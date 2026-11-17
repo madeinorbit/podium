@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { blobKey } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import {
   asAccountId,
@@ -34,6 +34,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
@@ -7162,7 +7163,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       readAsset: async () => ({ ok: false, error: 'no worktree reads here' }),
       listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
     })
-    const files = new LocalBlobStorage({ stateDir: base }).forWorkspace(LOCAL_WORKSPACE_ID)
+    const files = new LocalBlobStorage({ stateDir: base }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
     const pending = new PendingUploadStore({ files, records: h.deps.store.pendingUploads })
     h.deps.artifacts = artifacts
     h.deps.pendingUploads = pending

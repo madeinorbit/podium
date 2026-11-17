@@ -16,7 +16,6 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { LOCAL_WORKSPACE_ID } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 // @podium/harness is EMPTY — POD-396 took the PTY half to @podium/process and
 // POD-397 the harness half to @podium/harness, and the barrel deliberately
@@ -56,6 +55,7 @@ import { runReclaimDiskEstimateJob } from '../../apps/daemon/src/reclaim-disk-es
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
 import { MODEL_CATALOG_VERSION } from '../../apps/server/src/model-catalog'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../apps/server/src/self-hosted-workspace'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import {
   E2E_IDENTITY_FINGERPRINT,
@@ -998,8 +998,8 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   // Both incarnations go through the parted lake the server reads (POD-6963
   // design 2.3): the predecessor under sequence 1, the replacement under 2.
   const lake = new PartedLake(
-    new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID),
-    LOCAL_WORKSPACE_ID,
+    new LocalBlobStorage({ stateDir }).forWorkspace(SELF_HOSTED_WORKSPACE_ID),
+    SELF_HOSTED_WORKSPACE_ID,
   )
   for (const [incarnation, bytes] of [
     [1, predecessor],

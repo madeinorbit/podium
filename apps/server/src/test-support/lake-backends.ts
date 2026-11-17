@@ -8,12 +8,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { MemoryBlobStorage } from '@podium/blob-store/memory'
 import { asWorkspaceId, type MachineId, type WorkspaceId } from '@podium/model'
 import { PartedLake } from '@podium/sync'
 import type { TranscriptLakeStorage } from '../modules/memory/lake'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 /** A cursor past every test segment (1 GiB): reads stop at the stored size. */
 const UNBOUNDED = 2 ** 30
@@ -58,8 +59,8 @@ export const LAKE_BACKENDS: readonly {
     name: 'local',
     create() {
       const stateDir = mkdtempSync(join(tmpdir(), 'podium-lake-'))
-      const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID)
-      return backend(blobs, LOCAL_WORKSPACE_ID, () =>
+      const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+      return backend(blobs, SELF_HOSTED_WORKSPACE_ID, () =>
         rmSync(stateDir, { recursive: true, force: true }),
       )
     },

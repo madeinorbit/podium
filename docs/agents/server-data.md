@@ -23,10 +23,7 @@ Memory may hold only:
 
 Synced records are built from the model tables. A data migration that rewrites
 them must bump every affected kind's `sync_kind.generation` in the same migration, in every
-workspace that has a feed (`INSERT INTO sync_kind (workspace_id, kind, generation) SELECT
-workspace_id, '<kind>', 1 FROM sync_feed WHERE true ON CONFLICT (workspace_id, kind) DO UPDATE SET
-generation = sync_kind.generation + 1`; `kindGenerationBump` in `apps/server/src/sync/kind-tokens.ts`
-writes it for a list of kinds).
+workspace that has a feed: "Kind generations" under [Workspaces](#workspaces) has the statement.
 Boot does not repair the sync log. Historical upgrades that require service logic
 use the normal write funnel and a durable completion receipt.
 
@@ -55,13 +52,70 @@ in the same commit; from then on regenerating it is not allowed, and every chang
 migration in both chains under the same folder name. The generation bump rule above applies
 to both chains.
 
+## Workspaces
+
+One server database holds one or more workspaces, and no statement reads or writes a workspace it was not built for [POD-6959]. A self-hosted install has one workspace, `local` (`SELF_HOSTED_WORKSPACE_ID` in `apps/server/src/self-hosted-workspace.ts`, the only place outside the migrations that spells it). Hosted Podium keeps many workspaces in one Postgres database, named by the `ws_` ids podium-cloud mints. A workspace id is the `WorkspaceId` brand (`packages/model/src/ids/brands.ts`). It is minted with `asWorkspaceId` in three places only: the self-hosted composition, hosted routing and test support. It never comes from a request. The isolation comes from the rules below. There is no row-level security.
+
+**Every table has one class.** `apps/server/src/store/workspace-manifest.ts` lists every table with its class and the reason: `workspace` (every row belongs to one workspace), `identity` (the identity package's tables, unchanged), `install` (one per database: what the installation is, its upgrade marks and own secrets, the janitor lease), `transient` (change capture inside one transaction, engine bookkeeping) or `derived` (search indexes scoped through their source table). A new table gets its line there in the same change, or `store/workspace-manifest.test.ts` fails. `meta` and `server_secrets` hold install keys only. A workspace's own keys (settings, model catalogs, its secrets) live in `workspace_meta` and `workspace_secrets` (`store/settings.ts` and `store/server-secrets.ts` are the pattern).
+
+**Every workspace table leads its keys with `workspace_id`.** The column is `text NOT NULL` with no default. The primary key, every unique constraint and every index start with it, and an `ON CONFLICT` target names it first. Foreign keys are composite, `(workspace_id, issue_id)` → `issues (workspace_id, id)`, declared with `workspaceRef` (`apps/server/src/migrations/branded-ref.ts`), which refuses a key that does not lead with the workspace. So no row can reference a parent in another workspace, on either engine. A workspace is its own key space: two workspaces may hold the same issue id, repository id or machine id, and natural keys are unique per workspace (issue numbers `(workspace_id, repo_id, seq)`, label names, repository prefixes, profile names). The seven AUTOINCREMENT ids stay global numbers with `UNIQUE (workspace_id, id)` beside them. A number that counts per workspace, such as an issue number, is allocated inside the workspace's write transaction, never from a database sequence. `migrations/workspace-keys.test.ts` checks the keys and indexes on both engines' schemas. The rearch audit forbids `tenant_id` anywhere and counts workspace tables without `workspace_id` (expected zero).
+
+**A repository is built for one workspace.** `StoreDatabase` (`apps/server/src/store.ts`) owns the one database: the executor, migrations, lifecycle, the global repositories, `provisionWorkspace(id)` and `workspace(id)`. `database.workspace(id)` returns that workspace's `SessionStore`, every repository of it built from the workspace's `WorkspaceQueries` (`store/executor/sync-drizzle.ts`). The handle carries the workspace, and its bound views fill the `workspaceId` placeholder of every statement, so call sites pass no workspace. A caller value named `workspaceId` is refused (`CallerWorkspaceValueError`). Every workspace shares one prepared statement per definition. Every transaction records a `StoreContext` (`store/executor/executor.ts`): a workspace's, or `GLOBAL_CONTEXT`. A workspace transaction joins only work of its own workspace (`CrossWorkspaceStatementError`), and a global transaction refuses a workspace statement (`WorkspaceStatementInGlobalTransactionError`). On Postgres a workspace's write transaction first locks its `sync_feed` row, so `provisionWorkspace` must create that row before the workspace's first write.
+
+**Three kinds of definition** (`packages/sync/src/adapters/sqlite/prepared.ts`, typed for the server in `store/executor/sync-drizzle.ts`):
+
+| Kind | What it may touch | Runs on | Who may use it |
+|---|---|---|---|
+| `prepared`, `preparedFamily` | workspace tables, each constrained to the workspace; install tables too | a `WorkspaceDb` | every repository of a workspace |
+| `preparedGlobal` | install tables only: its `t` is typed `GlobalTables`, so `t.issues` does not compile | any store handle | the files `GLOBAL_REPOSITORY_FILES` in `store/workspace-manifest.ts` lists, each with its reason (the provisioning insert in `store/database.ts`, the install keys of `meta` read by the settings, issues and machine-record repositories, the update recovery checkpoint) |
+| `preparedAcross` | a `SELECT` over many workspaces | the fleet handle (`fleetDb`) only | a fleet job that finds the workspaces with work, then does the work through each `database.workspace(id)`. It is made with an entry of the allowlist, and nothing writes across workspaces |
+
+A global context may write only `meta`, `server_secrets`, `maintenance_leases` and the provisioning insert of a workspace's `sync_feed` row.
+
+**The cross-workspace allowlist** (`store/cross-workspace-allowlist.ts`) lists every statement that may touch more than one workspace, or a workspace's rows from outside it, with its file, name, reason, the index that serves it and the owning issue. Today it has two entries: the provisioning insert (`provisionWorkspaceFeed`, `INSERT INTO sync_feed … ON CONFLICT (workspace_id) DO NOTHING`, global because the row it inserts is the row the workspace's lock takes) and the janitor's list of workspaces with a feed (`listWorkspacesWithFeed`). A raw `SELECT` outside the definition registry, such as a janitor read, is listed as `raw-read` with its exact SQL. Migrations are raw SQL outside the registry and stay off it. A fleet read that needs a range across workspaces declares its own index, `(due_at, workspace_id)` style, in its entry.
+
+**What checks it.** Each check catches what the others cannot:
+
+- the type rule (`store/workspace-scope.type-test.ts`): a global definition sees only install tables, a workspace definition needs a `WorkspaceDb`, and a caller cannot pass `workspaceId`;
+- the source guard (`store/workspace-scope-guard.test.ts`): no table imported from a schema module outside the bindings, the migrations and tests; `preparedGlobal` only in the listed files; `preparedAcross` only with an allowlist entry; `asWorkspaceId(` only where a workspace is minted; no `'local'` workspace literal outside `self-hosted-workspace.ts` and the migrations;
+- the scope audit (`store/workspace-scope-audit.test.ts`): it builds every registered definition and every censused raw statement and reads its SQL. Every workspace table a statement touches, in joins, subqueries and CTEs too, must be constrained by a top-level `AND` term `workspace_id = :workspaceId`, or joined to a table that is. A term under `OR` does not count. An insert must take `workspace_id` from the placeholder. A global definition touches no workspace table, and a cross-workspace one is a `SELECT` with an allowlist entry. A definition file carries the marker comment `// workspace-scoped (POD-6959)`, and a file without it fails;
+- the two-workspace tests: two workspaces over one database (`openWorkspaceStores`, `test-support/workspace-stores.ts`) seeded with the same ids and natural keys and different content (`test-support/workspace-seeds/`). The group files (`store/*.workspace.test.ts`, `store/conversations/conversations.workspace.test.ts`) check every repository method: a read sees only its own workspace, and a write in one leaves the other's rows exactly as they were. `store/workspace-isolation.test.ts` is driven by the repositories a `SessionStore` builds and by the manifest. It fails by name on a repository it does not exercise and on a workspace table no seed fills in both workspaces. For the feeds, `describeTenantFeed` in `packages/sync/src/adapters/sqlite/sync-repository.suites.ts` proves a write in one workspace never reaches the other's feed.
+
+**How to scope a repository**, and a new definition in one:
+
+1. Import `inWorkspace`, `sameWorkspace` and `WORKSPACE` from `./executor/sync-drizzle`. Scope the shared predicate helpers first, so one edit covers every definition built on them.
+2. `inWorkspace(t.x, …conditions)` is `x.workspace_id = :workspaceId AND …`, one flat `AND`. It takes an undefined condition, and `inWorkspace(t.x)` replaces a bare `.from()`. A join or a correlated subquery uses `sameWorkspace(a, b)`. An uncorrelated `IN` / `NOT IN` subquery gets its own `inWorkspace`. In a raw `sql` fragment write `alias.workspace_id = ${WORKSPACE}` in each scope.
+3. Inserts: `workspaceId: WORKSPACE` in `.values()`, in every row of a many-row insert, and never in an upsert's `set` (the audit refuses that). When values and set share one object, spread it: `{ workspaceId: WORKSPACE, ...shared }`.
+4. The constructor takes `WorkspaceQueries` and reads `queries.db`. A repository over install tables only takes `GlobalQueries`, uses `preparedGlobal`, and its file goes on `GLOBAL_REPOSITORY_FILES`. A package repository that cannot import the server's types declares a structural port with `db: WorkspaceHandle<…>`, as `SyncQueries` does.
+5. A test or helper that builds a repository by hand builds it from `workspaceQueries(base, id)` and opens its transactions through that same runner: a workspace statement inside a global transaction throws.
+6. Every full-row read (`select()`, `getTableColumns`, a bare `.returning()`) now carries `workspace_id`. Map it out before a row reaches a wire payload or a record value. Payloads do not change.
+7. Add the marker comment, run `store/workspace-scope-audit.test.ts` and read its lines, then cover the file in its group's two-workspace test. Aim one workspace's deletes and updates at ids both workspaces hold: that is the case an unscoped `WHERE` gets wrong. A new repository or workspace table also needs an exercise in `store/workspace-isolation.test.ts` and rows in its group's seed, or that test fails by name.
+
+A Postgres form (`dialectPrepared`) names its workspace the same way, with `t.<table>.workspaceId` from the binding.
+
+**Change capture.** Every source on a workspace table in `sync/record-sources.ts` declares `workspace_id` as its first key, so the captured row names its workspace. The drain refuses a captured row of another workspace with `ForeignCaptureError` (`sync/record-source.ts`) instead of appending a change to the wrong feed. The store's `SyncRepository` is built for the same workspace, so the change rows land in that workspace's feed in the same transaction.
+
+**Caches are per workspace.** A cache, write hint, snapshot or memo filled from a workspace table lives on an object built for one workspace (a repository or a service of one `SessionStore`), or has the workspace in its key. Repositories are built per workspace, so their state is per workspace by construction: `WrittenColumns` on `SessionsRepository`, the settings snapshot on `SettingsRepository`, the per-operation loaders. A module-level map or slot filled from workspace rows keys by `(workspaceId, key)`. Member ids, session ids and machine ids are unique only within a workspace, so a key made of one of them alone can collide across workspaces. `store/workspace-caches.test.ts` holds each cache to this with the same key in two workspaces; a new cache gets a case there. Two known gaps are recorded in that file: the table-write announcer (`store/table-writes.ts`) is the database's, so a write in one workspace makes every workspace's listeners drop and re-read (they hold no payload, so nothing crosses), and the perf principal digests (`modules/perf/principal.ts`) are still keyed by the principal alone.
+
+**Kind generations.** `sync_kind` is keyed `(workspace_id, kind)`. A data migration or boot repair that rewrites the model rows of some kinds bumps each kind in every workspace that has a feed, in the same migration. It starts at 1 where a workspace had none. `kindGenerationBump(kinds)` in `apps/server/src/sync/kind-tokens.ts` writes the statement, the same text on both engines:
+
+```sql
+INSERT INTO sync_kind (workspace_id, kind, generation)
+SELECT feed.workspace_id, bumped.kind, 1
+FROM sync_feed AS feed, (SELECT 'session' AS kind UNION ALL SELECT 'issueProjection') AS bumped
+WHERE true
+ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1
+```
+
+(`WHERE true` settles SQLite's parse of an upsert over a `SELECT`.) A bump that names one workspace, or no workspace, is wrong: on a hosted database it would leave the other workspaces' clients on stale records.
+
 ## Rules
 
 Each rule has the reason for it and an example from this repository.
 
 1. **Prepared once.** Every query is defined and prepared once, then reused. It is never rebuilt per call or per transaction.
    - Why: building a query in JavaScript costs far more than running it.
-   - Example: preparing sessions-by-id once cut each call from 256.6 µs to 28.8 µs, so about 89% of the call was query building (POD-3854). Every repository query is now a module-level definition such as `const sessionById = prepared((db: StoreDrizzle) => …prepare())` in `apps/server/src/store/sessions.ts`, called as `sessionById(this.db).all({ id })` (POD-6147).
+   - Example: preparing sessions-by-id once cut each call from 256.6 µs to 28.8 µs, so about 89% of the call was query building (POD-3854). Every repository query is now a module-level definition that takes its tables from the binding and names its workspace (see [Workspaces](#workspaces)), such as `const sessionById = prepared((db, t) => db.select().from(t.sessions).where(inWorkspace(t.sessions, eq(t.sessions.id, param(t.sessions.id, 'id')))).prepare())` in `apps/server/src/store/sessions.ts` (there through the `sessionsWhere` helper), called as `sessionById(this.db).all({ id })`: the workspace handle `this.db` fills `workspaceId`, so the caller passes only the id (POD-6147, POD-7015).
    - How: the helpers are in `packages/sync/src/adapters/sqlite/prepared.ts`. A comparison value is `param(column, 'name')`, so the column's encoder still applies; a `.values()`/`.set()` entry is `sql.placeholder('name')`. A query whose text varies by call (optional filters, a patch with varying keys, an `IN` list) is a `preparedFamily` keyed by a finite shape, never by a value; an `IN` list is keyed by `inListSize(n)` (0, 1, then powers of two) and padded with `inListValues`, so the number of SQL texts does not grow with list length.
    - Transactions: the store hands every repository ONE drizzle instance over the executor's ambient client, which routes each statement to the current transaction when it runs. A query prepared once is therefore valid inside and outside transactions; never build a per-transaction instance.
 2. **No query inside a loop.** Data for a set of rows is loaded with one query per table (`… WHERE id IN (…)`), then joined in the operation.

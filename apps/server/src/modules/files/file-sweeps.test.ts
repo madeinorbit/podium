@@ -13,10 +13,11 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { type BlobKey, type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import type { BlobKey, BlobStore } from '@podium/blob-store'
 import { MemoryBlobStorage, MemoryBucket } from '@podium/blob-store/memory'
 import { ArtifactUploadPacket, asArtifactId, asIssueId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type ArtifactRpc, IssueArtifactStore } from '../issues/artifact-store'
@@ -43,7 +44,7 @@ async function fixture() {
   const store = await openTestStore(':memory:')
   opened.push(store)
   const bucket = new MemoryBucket({ now: () => clock })
-  const inner = new MemoryBlobStorage(bucket).forWorkspace(LOCAL_WORKSPACE_ID)
+  const inner = new MemoryBlobStorage(bucket).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   // Every call passes through; `list` is watched, because a sweep must not walk the store.
   const list = vi.fn((prefix: BlobKey) => inner.list(prefix))
   const files: BlobStore = {
@@ -62,7 +63,8 @@ async function fixture() {
     rpc: noRpc,
     now: () => clock,
   })
-  const names = () => bucket.names().map((name) => name.slice(`${LOCAL_WORKSPACE_ID}/`.length))
+  const names = () =>
+    bucket.names().map((name) => name.slice(`${SELF_HOSTED_WORKSPACE_ID}/`.length))
   return {
     store,
     inner,

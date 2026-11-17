@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LOCAL_WORKSPACE_ID } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { openTestStore } from '../../test-support/open-test-store'
 import { DaemonRequestBroker } from '../daemon-request'
 import { TranscriptLake } from '../memory/lake'
@@ -41,7 +41,7 @@ describe('source transfer fence and the transcript mirror', () => {
     const store = await openTestStore(':memory:')
     const portable = new PortableStateFence()
     const blobs = new LocalBlobStorage({ stateDir, fence: portable }).forWorkspace(
-      LOCAL_WORKSPACE_ID,
+      SELF_HOSTED_WORKSPACE_ID,
     )
     const sent: ControlMessage[] = []
     const lake = new TranscriptLake(
@@ -55,7 +55,7 @@ describe('source transfer fence and the transcript mirror', () => {
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async () => undefined,
       },
-      { transcriptLake: { blobs, workspaceId: LOCAL_WORKSPACE_ID } },
+      { transcriptLake: { blobs, workspaceId: SELF_HOSTED_WORKSPACE_ID } },
     )
     cleanups.push(
       () => rmSync(stateDir, { recursive: true, force: true }),

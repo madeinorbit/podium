@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type BlobStore, blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { type BlobStore, blobKey } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { MemoryBlobStorage } from '@podium/blob-store/memory'
 import type { WorkspaceId } from '@podium/model'
@@ -38,10 +38,12 @@ export const LAKE_ADAPTERS: readonly LakeAdapter[] = [
     name: 'local',
     create() {
       const stateDir = mkdtempSync(join(tmpdir(), 'podium-lake-'))
-      const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID)
+      // A state directory holds the one workspace it is first asked for.
+      const workspaceId = 'w-test' as WorkspaceId
+      const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(workspaceId)
       return {
         blobs,
-        workspaceId: LOCAL_WORKSPACE_ID,
+        workspaceId,
         wipe: async (machine) => await wipeMachine(blobs, machine),
         dispose: () => rmSync(stateDir, { recursive: true, force: true }),
       }

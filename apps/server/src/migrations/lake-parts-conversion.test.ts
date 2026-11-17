@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type ChainEntry, fileByteSource, fileChainSource, fileIdFor } from '@podium/harness/store'
 import { asMachineId, type MachineId } from '@podium/model'
@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { transcriptRecordMapperFor } from '../harness-manifest'
 import { DaemonRequestBroker } from '../modules/daemon-request'
 import { TranscriptLake } from '../modules/memory/lake'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openTestStore } from '../test-support/open-test-store'
 import {
   convertLakeToParts,
@@ -61,8 +62,8 @@ afterEach(() => {
 async function fixture(partBytes = P): Promise<Fixture> {
   const stateDir = mkdtempSync(join(tmpdir(), 'podium-lake-conversion-'))
   const store = await openTestStore(':memory:')
-  const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID)
-  const lake = new PartedLake(blobs, LOCAL_WORKSPACE_ID, { partBytes })
+  const blobs = new LocalBlobStorage({ stateDir }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  const lake = new PartedLake(blobs, SELF_HOSTED_WORKSPACE_ID, { partBytes })
   cleanups.push(
     () => rmSync(stateDir, { recursive: true, force: true }),
     () => store.close(),
@@ -118,7 +119,7 @@ async function fixture(partBytes = P): Promise<Fixture> {
         stateDir,
         rows: mirror,
         blobs,
-        workspaceId: LOCAL_WORKSPACE_ID,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         log: silent,
         freeBytes: () => Number.MAX_SAFE_INTEGER,
         partBytes,
@@ -367,7 +368,7 @@ describe('the lake parts conversion', () => {
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async () => undefined,
       },
-      { transcriptLake: { blobs: f.blobs, workspaceId: LOCAL_WORKSPACE_ID } },
+      { transcriptLake: { blobs: f.blobs, workspaceId: SELF_HOSTED_WORKSPACE_ID } },
     )
     cleanups.push(() => lake.dispose())
     const read = async (nativeId: string) =>

@@ -37,6 +37,10 @@
   pairing-durability defect on the machine axis; **D20** ratifies **zero** protocol presence
   and contrasts it with the per-principal scoped feed; **D21** puts cross-instance
   federation, sharing and identity portability out of scope. **No D5 clause is overturned.**
+- **D5.3 triggered (2026-11-17):** [ADR 13](0013-tenant-sync-feeds.md) adopted the shared
+  multi-tenant store that D5.3 reserved columns for, and POD-6959 partitioned the model tables
+  by **workspace** ([ADR 13 Amendment 1](0013-tenant-sync-feeds.md#amendment-1--the-model-tables-are-partitioned-pod-6959)).
+  The column is `workspace_id`, never `instance_id`; see the note under D5.
 
 ---
 
@@ -208,6 +212,19 @@ re-opening default LWW.
    Explicit columns are reserved only if a future shared multi-tenant store is adopted
    (out of scope; POD-645 implements composition-root **threading**, not a second
    scoping scheme).
+
+   > **Note, 2026-11-17 (POD-6959).** That store was adopted: [ADR 13](0013-tenant-sync-feeds.md)
+   > chose a shared multi-tenant store for hosted Podium, and POD-6959 partitioned the model
+   > tables ([ADR 13 Amendment 1](0013-tenant-sync-feeds.md#amendment-1--the-model-tables-are-partitioned-pod-6959)).
+   > The reserved column is **`workspace_id`**, the identity workspace, and every workspace
+   > table leads its keys with it. It is not `instance_id`: an `InstanceId` is still a
+   > deployment partition and a configuration type, never a column (Amendment 2 D17, D18).
+   > Owner and visibility still partition people *inside* one workspace (Amendment 1 D14, and
+   > [ADR 9](0009-identity-ownership-sharing.md) §1.2, whose "the dimension this ADR adds is
+   > owner, not tenant" still holds for multi-user). The workspace is the separate dimension
+   > that hosting adds. A self-hosted install keeps one database per instance and one
+   > workspace, `local`. The rule code follows is in
+   > [server-data.md § Workspaces](../agents/server-data.md#workspaces).
 4. **Home for the instance marker:** the local process that first claims the state dir
    (`ensureInstanceStateIdentity` → `instance.json` mode `0600`). Wrong-instance use of
    a state dir is a hard fail (`assertInstanceStateIdentity`). Cross-instance

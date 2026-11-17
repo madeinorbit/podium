@@ -13,6 +13,11 @@
  *   3. `preparedAcross` only with an entry imported from `cross-workspace-allowlist.ts`.
  *   4. `asWorkspaceId(` only where a workspace id may be minted: the self-hosted composition,
  *      hosted routing (POD-6960, when it lands) and test support.
+ *   5. No `'local'` workspace literal outside `self-hosted-workspace.ts` and the migrations
+ *      (POD-7026, sub-epic acceptance 8). `SELF_HOSTED_WORKSPACE_ID` is the self-hosted
+ *      workspace; code that means it reads that constant, so a hosted workspace is never
+ *      mistaken for it and the literal cannot drift. The rule reads more of the source than
+ *      rules 1 to 4 (the packages a workspace id reaches: blob storage, the model, the runtime).
  *
  * The files that break rule 1 today are listed in PENDING with the task that removes the
  * violation; the list may only shrink, and an entry with no violation left fails it.
@@ -53,6 +58,17 @@ const SOURCE_DIRS = [
 
 const ALLOWLIST_MODULE = 'apps/server/src/store/cross-workspace-allowlist.ts'
 
+/** Rule 5 reads these as well: packages a workspace id reaches without a store. */
+const LITERAL_DIRS = [
+  ...SOURCE_DIRS,
+  'packages/blob-store/src',
+  'packages/model/src',
+  'packages/runtime/src',
+]
+
+/** The one production file that spells the self-hosted workspace (rule 5). */
+const SELF_HOSTED_WORKSPACE_FILE = 'apps/server/src/self-hosted-workspace.ts'
+
 /**
  * Where `asWorkspaceId(` may be called outside tests and test support, with the reason. Hosted
  * routing (POD-6960) adds its file when it lands.
@@ -89,15 +105,17 @@ function sourcesUnder(dir: string): string[] {
 
 const isTest = (path: string): boolean =>
   path.includes('.test.') ||
+  path.includes('.suites.') ||
   path.includes('.type-test.') ||
   path.includes('/test-support/') ||
   path.endsWith('/test-support.ts') ||
   path.endsWith('/testing.ts') ||
   path.includes('/testing/')
 
-/** Every production source file the guard reads. */
-function productionSources(): string[] {
-  return SOURCE_DIRS.flatMap(sourcesUnder)
+/** Every production source file under `dirs` (rules 1 to 4 read {@link SOURCE_DIRS}). */
+function productionSources(dirs: readonly string[] = SOURCE_DIRS): string[] {
+  return dirs
+    .flatMap(sourcesUnder)
     .filter((path) => path.endsWith('.ts') && !path.endsWith('.d.ts'))
     .filter(
       (path) => !isTest(path) && !path.includes('/spike/') && !path.includes('/node_modules/'),
@@ -244,6 +262,98 @@ function misplacedCalls(files: readonly { file: string; source: string }[]): str
     .map((call) => `${call.file}:${call.line} ${call.callee}`)
 }
 
+/** Names that say a value is a workspace id: `workspaceId`, `WORKSPACE`, `tenant_id`, … */
+const WORKSPACE_NAME = /workspace|tenant/i
+
+/** SQL that names the workspace column next to the literal: `workspace_id = 'local'`, … */
+const WORKSPACE_SQL = /\b(?:workspace|tenant)_id\b[^;'"`]{0,40}'local'/i
+
+/** The name a node declares or assigns, if it has one. */
+function declaredName(node: ts.Node): string | undefined {
+  if (
+    (ts.isVariableDeclaration(node) ||
+      ts.isParameter(node) ||
+      ts.isPropertyAssignment(node) ||
+      ts.isPropertyDeclaration(node) ||
+      ts.isBindingElement(node)) &&
+    node.name !== undefined
+  ) {
+    return node.name.getText()
+  }
+  return undefined
+}
+
+/**
+ * Rule 5 over `files`: every `'local'` that is a workspace id. A literal `'local'` counts when it
+ * is cast or typed as a `WorkspaceId`, minted with `asWorkspaceId`, bound to (or compared with)
+ * a name that says workspace or tenant, or sits in SQL beside `workspace_id`. Other `'local'`s
+ * (a storage backend, an accounts mode, a retired machine sentinel) name something else.
+ */
+function localWorkspaceLiterals(files: readonly { file: string; source: string }[]): string[] {
+  const found: string[] = []
+  for (const { file, source } of files) {
+    if (file === SELF_HOSTED_WORKSPACE_FILE || file.startsWith('apps/server/src/migrations/')) {
+      continue
+    }
+    if (!source.includes('local')) continue
+    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+    const report = (node: ts.Node) =>
+      found.push(`${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1}`)
+    const isWorkspaceLocal = (literal: ts.Node): boolean => {
+      let node: ts.Node = literal
+      let parent = node.parent
+      // `('local')`, `'local' as const`: look through to what the value is used as.
+      while (
+        ts.isParenthesizedExpression(parent) ||
+        (ts.isAsExpression(parent) && parent.type.getText() === 'const')
+      ) {
+        node = parent
+        parent = node.parent
+      }
+      if (
+        (ts.isAsExpression(parent) ||
+          ts.isTypeAssertionExpression(parent) ||
+          ts.isSatisfiesExpression(parent)) &&
+        /WorkspaceId/.test(parent.type.getText())
+      ) {
+        return true
+      }
+      if (ts.isCallExpression(parent) && parent.expression.getText().endsWith('asWorkspaceId')) {
+        return true
+      }
+      const name = declaredName(parent)
+      if (name !== undefined) {
+        const typed =
+          (ts.isVariableDeclaration(parent) ||
+            ts.isParameter(parent) ||
+            ts.isPropertyDeclaration(parent)) &&
+          parent.type !== undefined &&
+          /WorkspaceId/.test(parent.type.getText())
+        return typed || WORKSPACE_NAME.test(name)
+      }
+      if (ts.isBinaryExpression(parent)) {
+        const other = parent.left === node ? parent.right : parent.left
+        return WORKSPACE_NAME.test(other.getText())
+      }
+      if (ts.isCaseClause(parent)) {
+        return WORKSPACE_NAME.test(parent.parent.parent.expression.getText())
+      }
+      return false
+    }
+    const visit = (node: ts.Node): void => {
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        if (node.text === 'local' && isWorkspaceLocal(node)) report(node)
+        else if (WORKSPACE_SQL.test(node.text)) report(node)
+      } else if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
+        if (WORKSPACE_SQL.test(node.text)) report(node)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sourceFile)
+  }
+  return found
+}
+
 const describeReference = (found: DirectTableReference): string =>
   `${found.file}:${found.line} ${found.table} from ${found.module}`
 
@@ -274,6 +384,13 @@ describe('POD-7014 — the workspace rule in the source', () => {
 
   it('finds preparedGlobal only in global repositories, preparedAcross only with an allowlist entry, asWorkspaceId only where a workspace is minted', () => {
     expect(misplacedCalls(production())).toEqual([])
+  })
+
+  it("finds no 'local' workspace literal outside self-hosted-workspace.ts and the migrations", () => {
+    const files = productionSources(LITERAL_DIRS)
+    expect(files).toContain(SELF_HOSTED_WORKSPACE_FILE)
+    expect(files).toContain('packages/blob-store/src/local.ts')
+    expect(localWorkspaceLiterals(files.map((file) => ({ file, source: read(file) })))).toEqual([])
   })
 
   it('keeps no stale list entry: every listed file exists, or names the task that adds it', () => {
@@ -343,6 +460,40 @@ describe('POD-7014 — the workspace rule in the source', () => {
         'apps/server/src/routes/planted.ts:2 asWorkspaceId',
       ])
       expect(misplacedCalls(plant('apps/server/src/self-hosted-workspace.ts', source))).toEqual([])
+    })
+
+    it("fails a planted 'local' workspace literal, and passes a 'local' that names something else", () => {
+      const file = 'apps/server/src/modules/planted/service.ts'
+      const planted = [
+        `export const HOME = 'local' as WorkspaceId`,
+        `export const WORKSPACE = 'local'`,
+        `const id: WorkspaceId = 'local'`,
+        `open({ workspaceId: 'local' })`,
+        `function scope(tenantId = 'local') {}`,
+        `if (store.workspaceId === 'local') {}`,
+        `switch (ctx.workspaceId) { case 'local': break }`,
+        `const ws = asWorkspaceId('local')`,
+        `db.prepare("SELECT 1 FROM sync_feed WHERE workspace_id = 'local'")`,
+        `db.prepare(\`DELETE FROM changes WHERE tenant_id IN ('local') AND seq < \${n}\`)`,
+      ]
+      expect(localWorkspaceLiterals(plant(file, `${planted.join('\n')}\n`))).toEqual(
+        planted.map((_, index) => `${file}:${index + 1}`),
+      )
+      const elsewhere = [
+        `if (config.backend === 'local') {}`,
+        `const options = { accounts: 'local' }`,
+        `export const RETIRED_MACHINE_SENTINELS = ['local', '__local__'] as const`,
+        `read(now, localMachineId = 'local')`,
+        `// workspace_id = 'local' in a comment`,
+      ]
+      expect(localWorkspaceLiterals(plant(file, `${elsewhere.join('\n')}\n`))).toEqual([])
+      // The self-hosted workspace's own file and the migrations may spell it.
+      const own = `export const SELF_HOSTED_WORKSPACE_ID: WorkspaceId = asWorkspaceId('local')\n`
+      expect(localWorkspaceLiterals(plant(SELF_HOSTED_WORKSPACE_FILE, own))).toEqual([])
+      const migration = `db.run("UPDATE x SET workspace_id = 'local'")\n`
+      expect(
+        localWorkspaceLiterals(plant('apps/server/src/migrations/planted.ts', migration)),
+      ).toEqual([])
     })
   })
 })

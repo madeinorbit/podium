@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type BlobKey, type BlobStore, blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { type BlobKey, type BlobStore, blobKey } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { MemoryBlobStorage } from '@podium/blob-store/memory'
 import {
@@ -16,6 +16,7 @@ import {
   joinMachinePath,
 } from '@podium/model'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type ArtifactRpc, IssueArtifactStore } from './artifact-store'
@@ -127,8 +128,8 @@ describe.each([
     base = mkdtempSync(join(tmpdir(), 'podium-artifacts-'))
     files =
       backend === 'local'
-        ? new LocalBlobStorage({ stateDir: base }).forWorkspace(LOCAL_WORKSPACE_ID)
-        : new MemoryBlobStorage().forWorkspace(LOCAL_WORKSPACE_ID)
+        ? new LocalBlobStorage({ stateDir: base }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+        : new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   })
   afterEach(() => rmSync(base, { recursive: true, force: true }))
 

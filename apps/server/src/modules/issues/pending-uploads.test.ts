@@ -1,11 +1,12 @@
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { MemoryBlobStorage } from '@podium/blob-store/memory'
 import { asArtifactId, asIssueId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { PortableStateFence } from '../server-transfer/portable-fence'
@@ -59,8 +60,8 @@ describe.each([
     now = 1_000
     files =
       backend === 'local'
-        ? new LocalBlobStorage({ stateDir: root }).forWorkspace(LOCAL_WORKSPACE_ID)
-        : new MemoryBlobStorage().forWorkspace(LOCAL_WORKSPACE_ID)
+        ? new LocalBlobStorage({ stateDir: root }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+        : new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
     pending = new PendingUploadStore({ files, records: db.pendingUploads, now: () => now })
   })
 
@@ -161,7 +162,7 @@ describe('pending uploads under a server-transfer fence', () => {
     let now = 0
     const root = await stateDir()
     const pending = new PendingUploadStore({
-      files: new LocalBlobStorage({ stateDir: root, fence }).forWorkspace(LOCAL_WORKSPACE_ID),
+      files: new LocalBlobStorage({ stateDir: root, fence }).forWorkspace(SELF_HOSTED_WORKSPACE_ID),
       records: db.pendingUploads,
       now: () => now,
     })

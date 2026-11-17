@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
@@ -2480,7 +2480,7 @@ export class SessionRegistry {
     const workspaceFiles =
       options.files ??
       new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
-        LOCAL_WORKSPACE_ID,
+        store.workspaceId,
       )
     const issueArtifacts = new IssueArtifactStore({
       files: workspaceFiles,

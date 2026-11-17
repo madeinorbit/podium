@@ -37,6 +37,5 @@ export {
   type BlobRange,
   type BlobStorage,
   type BlobStore,
-  LOCAL_WORKSPACE_ID,
   type PortableStateWriteFence,
 } from './types'

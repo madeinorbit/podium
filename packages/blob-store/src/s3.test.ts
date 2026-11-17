@@ -4,7 +4,7 @@ import { blobKey } from './key'
 import { S3BlobStorage, type S3BlobStorageOptions } from './s3'
 import { S3Fake, type S3FakeOptions } from './s3-fake'
 import { bodyText, bytes, describeBlobStoreContract, listKeys, readText } from './testing/contract'
-import { BlobConditionFailed, LOCAL_WORKSPACE_ID } from './types'
+import { BlobConditionFailed } from './types'
 
 const MiB = 1024 * 1024
 
@@ -103,7 +103,7 @@ describe('s3 adapter', () => {
       expect(await a.head(key)).toBeUndefined()
       expect(await listKeys(b, blobKey('artifacts'))).toEqual([key])
       // `local` is accepted too: a self-hosted operator may point at a bucket.
-      await storage.forWorkspace(LOCAL_WORKSPACE_ID).put(key, bytes('self-hosted'))
+      await storage.forWorkspace(asWorkspaceId('local')).put(key, bytes('self-hosted'))
       expect(fake.names()).toContain('local/artifacts/i1/a1/index.html')
     }))
 

@@ -62,7 +62,6 @@ import {
   type BlobStorage,
   type BlobStore,
   clipRange,
-  LOCAL_WORKSPACE_ID,
   type PortableStateWriteFence,
 } from './types'
 
@@ -77,7 +76,7 @@ const TEMP_FILE = /^\.tmp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const READ_CHUNK = 64 * 1024
 
 export interface LocalBlobStorageOptions {
-  /** The server's state directory; workspace `local` keys resolve under it. */
+  /** The server's state directory; its one workspace's keys resolve under it. */
   stateDir: string
   /** Wraps every write; the server passes its `PortableStateFence`. */
   fence?: PortableStateWriteFence
@@ -443,17 +442,25 @@ async function writeAll(handle: FileHandle, chunk: Uint8Array): Promise<void> {
 export class LocalBlobStorage implements BlobStorage {
   private readonly store: LocalBlobStore
   private readonly roots: readonly string[]
+  /** The workspace whose files the state directory holds: the first one asked for. */
+  private workspaceId: WorkspaceId | undefined
 
   constructor(options: LocalBlobStorageOptions) {
     this.store = new LocalBlobStore(options.stateDir, options.fence)
     this.roots = options.roots ?? DEFAULT_LOCAL_BLOB_ROOTS
   }
 
-  /** The one store of workspace `local`; any other workspace id throws. */
+  /**
+   * The store of the one workspace whose files this state directory holds. A
+   * self-hosted install has one workspace (the server names it, as
+   * `SELF_HOSTED_WORKSPACE_ID`), so the first workspace asked for is that one, and
+   * any other workspace id throws: one directory never holds two workspaces' keys.
+   */
   forWorkspace(workspaceId: WorkspaceId): BlobStore {
-    if (workspaceId !== LOCAL_WORKSPACE_ID) {
+    this.workspaceId ??= workspaceId
+    if (workspaceId !== this.workspaceId) {
       throw new Error(
-        `the local blob store serves only workspace '${LOCAL_WORKSPACE_ID}', not ${JSON.stringify(workspaceId)}`,
+        `the local blob store serves only workspace '${this.workspaceId}', not ${JSON.stringify(workspaceId)}`,
       )
     }
     return this.store

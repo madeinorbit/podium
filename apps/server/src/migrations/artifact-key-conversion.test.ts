@@ -9,11 +9,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { keySegment, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { keySegment } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { asArtifactId, asIssueId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PendingUploadStore } from '../modules/issues/pending-uploads'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { artifactStoreOnDisk } from '../test-support/artifact-store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -234,7 +235,7 @@ describe('convertPendingUploadRecords', () => {
 
   const pendingStore = () =>
     new PendingUploadStore({
-      files: new LocalBlobStorage({ stateDir: state }).forWorkspace(LOCAL_WORKSPACE_ID),
+      files: new LocalBlobStorage({ stateDir: state }).forWorkspace(SELF_HOSTED_WORKSPACE_ID),
       records: db.pendingUploads,
     })
 

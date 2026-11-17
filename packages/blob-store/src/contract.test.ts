@@ -7,12 +7,11 @@ import { blobKey } from './key'
 import { LocalBlobStorage } from './local'
 import { MemoryBlobStorage, MemoryBucket } from './memory'
 import { bodyText, bytes, describeBlobStoreContract, listKeys } from './testing/contract'
-import { LOCAL_WORKSPACE_ID } from './types'
 
 describeBlobStoreContract('local', async () => {
   const stateDir = await mkdtemp(join(tmpdir(), 'blob-store-contract-'))
   return {
-    store: new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID),
+    store: new LocalBlobStorage({ stateDir }).forWorkspace(asWorkspaceId('local')),
     etagPerPut: true,
     dispose: () => rm(stateDir, { recursive: true, force: true }),
   }

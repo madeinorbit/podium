@@ -10,7 +10,7 @@
  * every key under `transcripts/` that is not a lake part.
  */
 
-import { type BlobKey, blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { type BlobKey, blobKey } from '@podium/blob-store'
 import { MemoryBlobStorage, MemoryBucket } from '@podium/blob-store/memory'
 import {
   type ArtifactId,
@@ -27,6 +27,7 @@ import {
 import { type LakeSegment, PartedLake } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { issueRowFixture } from '../../test-support/issue-row'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -104,8 +105,8 @@ async function fixture(): Promise<Fixture> {
   opened.push(store)
   const bucket = new MemoryBucket({ now: () => clock })
   const storage = new MemoryBlobStorage(bucket)
-  const files = storage.forWorkspace(LOCAL_WORKSPACE_ID)
-  const lake = new PartedLake(files, LOCAL_WORKSPACE_ID, { partBytes: P })
+  const files = storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  const lake = new PartedLake(files, SELF_HOSTED_WORKSPACE_ID, { partBytes: P })
   const pending = new PendingUploadStore({
     files,
     records: store.pendingUploads,
@@ -128,7 +129,7 @@ async function fixture(): Promise<Fixture> {
       return k
     },
     keys() {
-      const prefix = `${LOCAL_WORKSPACE_ID}/`
+      const prefix = `${SELF_HOSTED_WORKSPACE_ID}/`
       return bucket.names().map((name) => name.slice(prefix.length))
     },
     async issue(id, artifacts) {
@@ -193,7 +194,7 @@ async function fixture(): Promise<Fixture> {
     async audit(options = {}) {
       return await new OrphanAudit(
         files,
-        LOCAL_WORKSPACE_ID,
+        SELF_HOSTED_WORKSPACE_ID,
         options.records ?? auditRecords(store, options.lake ?? true),
         {
           now: () => clock,
@@ -405,11 +406,16 @@ describe('the orphan audit', () => {
     )
     f.at(DAY + HOUR)
 
-    const report = await auditWorkspaceFiles(f.storage, LOCAL_WORKSPACE_ID, auditRecords(f.store), {
-      now: () => DAY + HOUR,
-    })
+    const report = await auditWorkspaceFiles(
+      f.storage,
+      SELF_HOSTED_WORKSPACE_ID,
+      auditRecords(f.store),
+      {
+        now: () => DAY + HOUR,
+      },
+    )
 
-    expect(report.workspaceId).toBe(LOCAL_WORKSPACE_ID)
+    expect(report.workspaceId).toBe(SELF_HOSTED_WORKSPACE_ID)
     expect(report.roots.artifacts).toMatchObject({ listed: 1, deleted: 1 })
     expect(report.roots['pending-uploads'].listed).toBe(0)
     expect(f.bucket.names()).toEqual([
@@ -573,7 +579,7 @@ describe('the orphan audit statement count', () => {
         })
       }
       f.at(DAY + HOUR)
-      const audit = new OrphanAudit(f.files, LOCAL_WORKSPACE_ID, auditRecords(f.store), {
+      const audit = new OrphanAudit(f.files, SELF_HOSTED_WORKSPACE_ID, auditRecords(f.store), {
         now: () => DAY + HOUR,
         partBytes: P,
       })
