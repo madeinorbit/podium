@@ -39,9 +39,12 @@ import { RefChip } from './RefChip'
 
 /** Refresh cached attributed-text ink without remounting the reading surface. */
 function Text({ style, ...props }: TextProps) {
+  const { fontScale } = useWindowDimensions()
   const declared = StyleSheet.flatten(style)?.color
   const ink = useLiveInk((declared ?? color.body) as string)
-  return <NativeText {...props} style={[style, declared != null && { color: ink }]} />
+  return (
+    <NativeText key={fontScale} {...props} style={[style, declared != null && { color: ink }]} />
+  )
 }
 
 interface RichMarkdownProps {
@@ -519,7 +522,21 @@ function Blocks({
             {(token.items ?? []).map((item, itemIndex) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: parsed list items are immutable and positional
               <View key={`item:${itemIndex}`} style={styles.listItem}>
-                <Text style={[styles.listMarker, { width: 24 * Math.max(1, ctx.fontScale ?? 1) }]}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.listMarker,
+                    {
+                      width:
+                        (ordered
+                          ? Math.max(
+                              24,
+                              (String(start + (token.items?.length ?? 1) - 1).length + 1) * 10,
+                            )
+                          : 24) * Math.max(1, ctx.fontScale ?? 1),
+                    },
+                  ]}
+                >
                   {item.task ? (item.checked ? '☑' : '☐') : ordered ? `${start + itemIndex}.` : '•'}
                 </Text>
                 <View style={styles.listBody}>
@@ -551,6 +568,28 @@ export function RichMarkdownInline({ text, onRefPress }: RichMarkdownProps) {
   const tokens = useMemo(() => parseMarkdown(text), [text])
   const ctx = { onRefPress, selectable: false }
   return renderInline(tokens, ctx, 'subject')
+}
+
+/** A bounded reading preview. More opens the complete block rendering. */
+export function RichMarkdownPreview({ text, onRefPress }: RichMarkdownProps) {
+  const tokens = useMemo(() => parseMarkdown(text), [text])
+  const ctx = { onRefPress, selectable: false }
+  return (
+    <Text numberOfLines={3} style={styles.body}>
+      {tokens.flatMap((token, index) => {
+        if (token.type === 'space') return []
+        const content =
+          token.type === 'list'
+            ? (token.items ?? []).flatMap((item, itemIndex) => [
+                ...(itemIndex > 0 ? ['\n'] : []),
+                token.ordered ? `${Number(token.start || 1) + itemIndex}. ` : '• ',
+                ...renderInline(item.tokens ?? [], ctx, `preview:${index}:${itemIndex}`),
+              ])
+            : renderInline([token], ctx, `preview:${index}`)
+        return [...(index > 0 ? ['\n'] : []), ...content]
+      })}
+    </Text>
+  )
 }
 
 /** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
@@ -624,6 +663,7 @@ const styles = StyleSheet.create({
     ...mono(500),
     color: color.textDim,
     width: 24,
+    flexShrink: 0,
     fontSize: 16,
     ...Platform.select({ web: { lineHeight: 24 } }),
   },

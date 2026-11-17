@@ -2,7 +2,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
@@ -17,6 +17,7 @@ import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, RefreshCw } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { DetailText as Text } from './DetailText'
 import { useDetailSize } from './detail-type'
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses

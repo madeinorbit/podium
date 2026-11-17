@@ -1,11 +1,21 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import {
+  Children,
+  createContext,
+  Fragment,
+  isValidElement,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   Animated,
   StyleSheet,
-  Text,
   TextInput,
   type TextProps,
   useColorScheme,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
@@ -15,6 +25,7 @@ import { useLiveInk } from '../../theme/use-live-ink'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
+import { DetailText as Text } from './DetailText'
 import { useDetailLayout } from './detail-type'
 
 /**
@@ -33,6 +44,26 @@ import { useDetailLayout } from './detail-type'
 /** A secondary label within a grouped property row. */
 export function MachineLabel({ children }: { children: ReactNode }) {
   return <Text style={styles.machine}>{children}</Text>
+}
+
+const ReferenceRows = createContext(false)
+
+/** Reference disclosures share one Settings-style inset group. */
+export function ReferenceGroup({ children }: { children: ReactNode }) {
+  const scheme = useColorScheme()
+  return (
+    <ReferenceRows.Provider value={true}>
+      <View style={styles.referenceGroup} testID="issue-reference-group">
+        <View key={scheme} pointerEvents="none" style={styles.referenceGround} />
+        {Children.toArray(children).map((child, index) => (
+          <Fragment key={isValidElement(child) ? child.key : String(child)}>
+            {index > 0 ? <View style={styles.referenceSeparator} /> : null}
+            {child}
+          </Fragment>
+        ))}
+      </View>
+    </ReferenceRows.Provider>
+  )
 }
 
 /** Group headings align with the content inset of plain cards. */
@@ -114,6 +145,7 @@ export function Disclosure({
   testID?: string
 }) {
   const { size, accessorySize } = useDetailLayout()
+  const grouped = useContext(ReferenceRows)
   const reduceMotion = useReduceMotion()
   const spin = useRef(new Animated.Value(open ? 1 : 0)).current
   useEffect(() => {
@@ -129,7 +161,7 @@ export function Disclosure({
   }, [open, reduceMotion, spin])
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] })
   return (
-    <View style={styles.disclosure} testID={testID}>
+    <View style={[styles.disclosure, grouped && styles.groupedDisclosure]} testID={testID}>
       <PressableScale
         accessibilityRole="button"
         // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
@@ -190,6 +222,7 @@ export function InlineEditable({
   dynamicTypeRamp?: TextProps['dynamicTypeRamp']
 }) {
   const [editing, setEditing] = useState(false)
+  const { fontScale } = useWindowDimensions()
   const [draft, setDraft] = useState(value)
   const ink = useLiveInk(
     (StyleSheet.flatten([styles.editText, textStyle])?.color ?? color.body) as string,
@@ -229,6 +262,7 @@ export function InlineEditable({
   return (
     <View style={styles.editor}>
       <TextInput
+        key={fontScale}
         value={draft}
         onChangeText={setDraft}
         accessibilityLabel={ariaLabel}
@@ -284,6 +318,19 @@ export function ErrorNote({ message }: { message: string | null }) {
 }
 
 const styles = StyleSheet.create({
+  referenceGroup: {
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
+  },
+  referenceGround: { ...StyleSheet.absoluteFillObject, backgroundColor: color.groupedCard },
+  referenceSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
+    backgroundColor: color.hairline,
+  },
+  groupedDisclosure: { borderRadius: 0, backgroundColor: 'transparent' },
   machine: {
     ...sans(400),
     fontSize: font.tiny,
@@ -314,8 +361,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingLeft: space.md,
-    paddingRight: space.md,
+    paddingLeft: 16,
+    paddingRight: 16,
     marginBottom: space.sm,
   },
   contentGroup: {
@@ -347,7 +394,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.md,
+    paddingHorizontal: 16,
     paddingVertical: space.md,
   },
   discLabel: { flex: 1, minWidth: 0, gap: space.xs },
@@ -356,7 +403,7 @@ const styles = StyleSheet.create({
     backgroundColor: alpha(color.surface, 0.7),
   },
   discBody: {
-    marginHorizontal: space.md,
+    marginHorizontal: 16,
     paddingVertical: space.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,

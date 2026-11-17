@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, View } from 'react-native'
 import { color, font, sans } from '../../theme/theme'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { DetailText as Text } from './DetailText'
 
 export function DetailList({ children }: { children: ReactNode }) {
   return (

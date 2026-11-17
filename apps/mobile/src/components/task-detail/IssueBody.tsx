@@ -3,15 +3,17 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { isClosed } from '@podium/model/browser'
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space, tracking } from '../../theme/theme'
-import { RichMarkdown } from '../RichMarkdown'
+import { PressableScale } from '../PressableScale'
+import { RichMarkdown, RichMarkdownPreview } from '../RichMarkdown'
 import { Disclosure, InlineEditable } from './chrome'
+import { DetailText as Text } from './DetailText'
 
 /**
  * The task's own text [POD-724]: the inline-editable title, the status strip, the
@@ -145,6 +147,34 @@ export const IssueDescription = observer(function IssueDescription({
   )
 })
 
+export const IssueDescriptionPreview = observer(function IssueDescriptionPreview(
+  props: Parameters<typeof IssueDescription>[0],
+) {
+  const [open, setOpen] = useState(false)
+  return (
+    <View style={styles.descriptionPreview} testID="issue-description-section">
+      <Text style={styles.previewLabel}>Description</Text>
+      {open || !props.issue.description.trim() ? (
+        <IssueDescription {...props} />
+      ) : (
+        <RichMarkdownPreview text={props.issue.description} />
+      )}
+      {props.issue.description.trim() ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={open ? 'Less description' : 'More description'}
+          accessibilityState={{ expanded: open }}
+          aria-expanded={open}
+          onPress={() => setOpen((value) => !value)}
+          style={styles.previewMore}
+        >
+          <Text style={styles.previewMoreText}>{open ? 'Less' : 'More'}</Text>
+        </PressableScale>
+      ) : null}
+    </View>
+  )
+})
+
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
@@ -217,6 +247,10 @@ function LongFormDisclosure({ label, children }: { label: string; children: Reac
 }
 
 const styles = StyleSheet.create({
+  descriptionPreview: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  previewLabel: { ...sans(400), fontSize: font.tiny, color: color.textDim },
+  previewMore: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  previewMoreText: { ...sans(400), fontSize: font.body, color: color.accentTint },
   title: {
     ...sans(700),
     color: color.text,

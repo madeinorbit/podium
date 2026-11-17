@@ -51,3 +51,12 @@ it('remeasures paragraph and list blocks through AX5 and back without retaining 
   expect(view.container.firstElementChild?.childElementCount).toBe(2)
   expect(screen.getByText('No clipped text')).toBeTruthy()
 })
+
+it('keeps AX5 numbered-list markers on one line with a scaled, non-shrinking gutter', () => {
+  metrics.scale = 3.12
+  render(<RichMarkdown text={'1. A numbered item\n2. Another item'} />)
+  const marker = screen.getByText('1.')
+  expect(['pre', 'nowrap']).toContain(getComputedStyle(marker).whiteSpace)
+  expect((marker as HTMLElement).style.width).toBe('74.88px')
+  expect(getComputedStyle(marker).flexShrink).toBe('0')
+})

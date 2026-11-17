@@ -3,7 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact, SessionId, SessionOffer } from '@podium/model'
 import { type ReactNode, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Image, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { issueObserver as observer } from '../../client/issue-observer'
@@ -17,6 +17,7 @@ import { FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
 import { Disclosure } from './chrome'
+import { DetailText as Text } from './DetailText'
 import { useDetailSize } from './detail-type'
 import { PromptSheet } from './PromptSheet'
 
@@ -366,7 +367,9 @@ const Thumbnail = observer(function Thumbnail({
           <Icon as={kind === 'video' ? Play : FileText} size={size(16)} color={color.textDim} />
         </View>
       )}
-      <Text style={styles.thumbLabel}>{label}</Text>
+      <Text numberOfLines={2} ellipsizeMode="tail" style={styles.thumbLabel}>
+        {label}
+      </Text>
     </PressableScale>
   )
 })
@@ -381,8 +384,8 @@ const styles = StyleSheet.create({
   heading: {
     minHeight: 20,
     marginBottom: space.sm,
-    paddingLeft: space.md,
-    paddingRight: space.md,
+    paddingLeft: 16,
+    paddingRight: 16,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',

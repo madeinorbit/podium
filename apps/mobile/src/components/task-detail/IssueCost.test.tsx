@@ -85,6 +85,9 @@ it('prices the attributed desktop rollup and preserves its estimate and floor wo
     includeSessions: false,
   })
   expect(screen.getByText('Estimated cost so far')).toBeTruthy()
+  expect(screen.queryByText(/claude-opus-5/)).toBeNull()
+  expect(screen.queryByText(/at list price for the same tokens/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Show cost details' }))
   expect(screen.getByText('≥ floor · all Codex · 2 sessions unread')).toBeTruthy()
   expect(screen.getByText(/at list price for the same tokens/)).toBeTruthy()
 })
@@ -95,11 +98,9 @@ it.each([
 ] as const)('shows %s as a state without inventing a zero', async (state) => {
   host.read.mockResolvedValue(answer(state))
   const view = render(<IssueCost issueId="cost-task" />)
-  await waitFor(() =>
-    expect(screen.getByTestId('issue-cost-value').textContent).toBe(
-      state === 'no-sessions' ? 'No sessions' : 'Not recorded',
-    ),
-  )
+  await act(async () => {})
+  if (state === 'no-sessions') expect(screen.queryByTestId('issue-cost')).toBeNull()
+  else expect(screen.getByTestId('issue-cost-value').textContent).toBe('Not recorded')
   expect(view.container.textContent).not.toContain('$')
   expect(view.container.textContent).not.toContain('at list price')
 })

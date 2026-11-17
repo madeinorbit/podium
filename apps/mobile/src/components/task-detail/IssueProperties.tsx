@@ -17,7 +17,7 @@ import {
 import { isClosed } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Linking, StyleSheet, TextInput, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
@@ -27,6 +27,7 @@ import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
 import { Disclosure, MachineLabel } from './chrome'
+import { DetailText as Text } from './DetailText'
 import { useDetailLayout } from './detail-type'
 
 /**

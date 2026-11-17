@@ -50,14 +50,14 @@ import {
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
-import { ErrorNote } from '../components/task-detail/chrome'
+import { ErrorNote, ReferenceGroup } from '../components/task-detail/chrome'
 import { DetailContent, DetailList } from '../components/task-detail/DetailList'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
 import {
   IssueBrief,
-  IssueDescription,
+  IssueDescriptionPreview,
   IssueTitle,
   LongFormFields,
 } from '../components/task-detail/IssueBody'
@@ -413,49 +413,51 @@ const IssueContent = observer(function IssueContent({
               onOpenSession={openSession}
               onComment={(text) => commands.postComment(text, appendLocalComment)}
             />
-            <FoldedSection label="Description" testID="issue-description-section">
-              <IssueDescription issue={issue} busy={busy} commands={commands} />
-            </FoldedSection>
-            <LongFormFields issue={issue} busy={busy} commands={commands} />
-            <IssueBrief issue={issue} />
-            {issue.panel?.artifacts?.length ? (
-              <FoldedSection label="Artifacts" count={String(issue.panel.artifacts.length)}>
-                <ArtifactStrip issue={issue}>
-                  <IssueAgentPanel issue={issue} only="artifacts" />
-                </ArtifactStrip>
-              </FoldedSection>
-            ) : null}
-            {issue.panel?.deferred?.length ? (
-              <FoldedSection label="Deferred" count={String(issue.panel.deferred.length)}>
-                <IssueAgentPanel issue={issue} only="deferred" />
-              </FoldedSection>
-            ) : null}
-            {issue.worktreePath ? (
-              <FoldedSection label="Changes">
-                <GitReviewSection
-                  root={issue.worktreePath}
-                  headless
-                  {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
-                />
-              </FoldedSection>
-            ) : null}
-            <PhoneProperties
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              open={detailsOpen}
-              onToggle={detailsCollapsed}
-              onOpenSession={openSession}
-              onOpenIssue={openIssue}
-              onPickParent={() => setSheet({ kind: 'parent' })}
-              onAddRelation={() => setSheet({ kind: 'relation-type' })}
-              onPriority={() => setSheet({ kind: 'priority' })}
-              onType={() => setSheet({ kind: 'type' })}
-            />
             <PhoneMail issue={issue} />
-            <FoldedSection label="Activity" testID="issue-activity-fold">
-              <PhoneTimeline issue={issue} busy={busy} commands={commands} />
-            </FoldedSection>
+            <ReferenceGroup>
+              <IssueDescriptionPreview issue={issue} busy={busy} commands={commands} />
+              {issue.acceptance?.trim() ? (
+                <LongFormFields issue={issue} busy={busy} commands={commands} />
+              ) : null}
+              {issue.brief?.trim() ? <IssueBrief issue={issue} /> : null}
+              {issue.panel?.artifacts?.length ? (
+                <FoldedSection label="Artifacts" count={String(issue.panel.artifacts.length)}>
+                  <ArtifactStrip issue={issue}>
+                    <IssueAgentPanel issue={issue} only="artifacts" />
+                  </ArtifactStrip>
+                </FoldedSection>
+              ) : null}
+              {issue.panel?.deferred?.length ? (
+                <FoldedSection label="Deferred" count={String(issue.panel.deferred.length)}>
+                  <IssueAgentPanel issue={issue} only="deferred" />
+                </FoldedSection>
+              ) : null}
+              {issue.worktreePath ? (
+                <FoldedSection label="Changes">
+                  <GitReviewSection
+                    root={issue.worktreePath}
+                    headless
+                    {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+                  />
+                </FoldedSection>
+              ) : null}
+              <PhoneProperties
+                issue={issue}
+                busy={busy}
+                commands={commands}
+                open={detailsOpen}
+                onToggle={detailsCollapsed}
+                onOpenSession={openSession}
+                onOpenIssue={openIssue}
+                onPickParent={() => setSheet({ kind: 'parent' })}
+                onAddRelation={() => setSheet({ kind: 'relation-type' })}
+                onPriority={() => setSheet({ kind: 'priority' })}
+                onType={() => setSheet({ kind: 'type' })}
+              />
+              <FoldedSection label="Activity" testID="issue-activity-fold">
+                <PhoneTimeline issue={issue} busy={busy} commands={commands} />
+              </FoldedSection>
+            </ReferenceGroup>
           </DetailContent>
         </DetailList>
 

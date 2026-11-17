@@ -413,7 +413,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     state.measuring = true
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Description' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'More description' }))
       await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
       await act(async () => {})
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0)

@@ -188,7 +188,7 @@ it('keeps AX5 titles intrinsic and folds long sub-task lists without changing th
     }),
   )
   const open = vi.fn()
-  render(
+  const view = render(
     <DetailList>
       <IssueSubIssuesSection
         issue={record}
@@ -202,6 +202,24 @@ it('keeps AX5 titles intrinsic and folds long sub-task lists without changing th
   )
   expect(screen.getAllByTestId('issue-sub-task')).toHaveLength(4)
   fireEvent.click(screen.getByRole('button', { name: 'See all 7 sub-tasks' }))
+  expect(screen.getAllByTestId('issue-sub-task')).toHaveLength(7)
+  const previousGroup = screen.getByRole('heading', { name: 'Sub-tasks · 7' }).parentElement
+  host.scale = 1
+  view.rerender(
+    <DetailList>
+      <IssueSubIssuesSection
+        issue={record}
+        subIssues={children}
+        busy={false}
+        commands={{} as never}
+        onOpen={open}
+        onStatus={() => {}}
+      />
+    </DetailList>,
+  )
+  expect(screen.getByRole('heading', { name: 'Sub-tasks · 7' }).parentElement).not.toBe(
+    previousGroup,
+  )
   expect(screen.getAllByTestId('issue-sub-task')).toHaveLength(7)
   fireEvent.click(screen.getAllByTestId('issue-sub-task')[6])
   expect(open).toHaveBeenCalledExactlyOnceWith('child-6')

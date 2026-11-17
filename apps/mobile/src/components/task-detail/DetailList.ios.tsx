@@ -18,7 +18,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import type { ReactNode } from 'react'
-import { View } from 'react-native'
+import { useWindowDimensions, View } from 'react-native'
 import { color } from '../../theme/theme'
 
 /** SwiftUI owns row measurement, separators, scrolling and accessibility sizing. */
@@ -71,7 +71,12 @@ export function DetailGroup({
   children: ReactNode
   testID?: string
 }) {
-  return <Section title={count ? `${label} · ${count}` : label}>{children}</Section>
+  const { fontScale } = useWindowDimensions()
+  return (
+    <Section key={fontScale} title={count ? `${label} · ${count}` : label}>
+      {children}
+    </Section>
+  )
 }
 
 export function DetailActionRow({

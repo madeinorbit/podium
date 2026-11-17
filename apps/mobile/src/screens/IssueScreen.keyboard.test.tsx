@@ -203,7 +203,9 @@ describe('task page keyboard avoidance', () => {
     expect(
       description.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Description' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Task description' })).toBeTruthy()
+    expect(screen.getByTestId('issue-reference-group').contains(description)).toBe(true)
+    expect(screen.getByTestId('issue-reference-group').contains(activity)).toBe(true)
     expect(screen.queryByTestId('sub-issues-card')).toBeNull()
     expect(screen.queryByTestId('issue-activity')).toBeNull()
   })

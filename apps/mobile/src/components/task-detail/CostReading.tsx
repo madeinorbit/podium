@@ -1,12 +1,17 @@
 import { approxUsd, COST_HEDGE, floorLabel } from '@podium/client-core/values'
 import type { TaskCostModel } from '@podium/client-graph/task-cost-model'
-import { StyleSheet, Text, View } from 'react-native'
+import { useState } from 'react'
+import { StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { color, font, sans } from '../../theme/theme'
+import { PressableScale } from '../PressableScale'
 import { DetailActionRow, DetailGroup } from './DetailList'
+import { DetailText as Text } from './DetailText'
 
 export const CostReading = observer(function CostReading({ model }: { model: TaskCostModel }) {
   const view = model.view
+  const [details, setDetails] = useState(false)
+  if (view?.state === 'no-sessions') return null
   return (
     <DetailGroup label="Cost" testID="issue-cost">
       <View style={styles.row}>
@@ -16,24 +21,37 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
         <Text testID="issue-cost-value" selectable style={styles.value}>
           {view?.state === 'costed'
             ? approxUsd(view.rollup.estCostUsd)
-            : view?.state === 'no-sessions'
-              ? 'No sessions'
-              : view?.state === 'not-recorded'
-                ? 'Not recorded'
-                : model.failed
-                  ? 'Unavailable'
-                  : 'Loading…'}
+            : view?.state === 'not-recorded'
+              ? 'Not recorded'
+              : model.failed
+                ? 'Unavailable'
+                : 'Loading…'}
         </Text>
       </View>
       {view?.state === 'costed' ? (
         <>
-          <Text style={styles.detail}>{view.rollup.models.map((m) => m.model).join(' + ')}</Text>
-          {view.floor === 'partial' ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={details ? 'Hide cost details' : 'Show cost details'}
+            accessibilityState={{ expanded: details }}
+            aria-expanded={details}
+            onPress={() => setDetails((value) => !value)}
+            style={styles.detailsButton}
+          >
             <Text style={styles.detail}>
-              {floorLabel(view.harnesses, view.uncostedSessionCount)}
+              Estimate at list price{view.floor === 'partial' ? ' · partial' : ''}
             </Text>
+          </PressableScale>
+          {details ? (
+            <View>
+              {view.floor === 'partial' ? (
+                <Text style={styles.detail}>
+                  {floorLabel(view.harnesses, view.uncostedSessionCount)}
+                </Text>
+              ) : null}
+              <Text style={styles.hedge}>{COST_HEDGE}</Text>
+            </View>
           ) : null}
-          <Text style={styles.hedge}>{COST_HEDGE}</Text>
         </>
       ) : null}
       {model.failed ? (
@@ -47,6 +65,7 @@ const styles = StyleSheet.create({
   row: { padding: 16, minHeight: 44, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   label: { ...sans(400), fontSize: font.body, color: color.text, flexGrow: 1, flexShrink: 1 },
   value: { ...sans(400), fontSize: font.body, color: color.textDim, fontVariant: ['tabular-nums'] },
+  detailsButton: { minHeight: 44, justifyContent: 'center' },
   detail: {
     ...sans(400),
     fontSize: font.tiny,

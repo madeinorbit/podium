@@ -26,8 +26,8 @@ vi.mock('../RefChip', () => ({ RefChip: () => null }))
 vi.mock('../../lib/podium-link', () => ({ followPodiumLink: vi.fn() }))
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' } }))
 
-import { DetailSection } from './chrome'
-import { IssueDescription } from './IssueBody'
+import { DetailSection, ReferenceGroup } from './chrome'
+import { IssueDescription, IssueDescriptionPreview } from './IssueBody'
 
 afterEach(() => {
   cleanup()
@@ -74,4 +74,24 @@ it('keeps an open Description draft while appearance changes', () => {
   expect(screen.getByRole('textbox', { name: 'Task description' })).toBe(editor)
   expect((editor as HTMLTextAreaElement).value).toBe('Unsaved description draft')
   expect(processColor(getComputedStyle(editor).color)).toBe(processColor('#000000'))
+})
+
+it('refreshes the grouped reference background while keeping its expanded description mounted', () => {
+  render(
+    <ReferenceGroup>
+      <IssueDescriptionPreview
+        issue={{ description: 'Read **this description**.' } as IssueViewModel}
+        busy={false}
+        commands={{ commitDescription: vi.fn() } as never}
+      />
+    </ReferenceGroup>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'More description' }))
+  const group = screen.getByTestId('issue-reference-group')
+  const ground = group.firstElementChild
+  const text = screen.getByText('this description')
+  switchAppearance('light')
+  expect(group.firstElementChild).not.toBe(ground)
+  expect(screen.getByText('this description')).toBe(text)
+  expect(processColor(getComputedStyle(text).color)).toBe(processColor('#000000'))
 })

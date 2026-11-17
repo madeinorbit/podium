@@ -1,6 +1,8 @@
-import { HStack, Text, VStack } from '@expo/ui/swift-ui'
+import { Button, HStack, Text, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityIdentifier,
+  accessibilityLabel,
+  buttonStyle,
   fixedSize,
   font,
   foregroundStyle,
@@ -11,6 +13,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers'
 import { approxUsd, COST_HEDGE, floorLabel } from '@podium/client-core/values'
 import type { TaskCostModel } from '@podium/client-graph/task-cost-model'
+import { useState } from 'react'
 import { useWindowDimensions } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { color } from '../../theme/theme'
@@ -18,18 +21,18 @@ import { DetailActionRow, DetailGroup } from './DetailList'
 
 export const CostReading = observer(function CostReading({ model }: { model: TaskCostModel }) {
   const view = model.view
+  const [details, setDetails] = useState(false)
   const { fontScale } = useWindowDimensions()
   const Stack = fontScale > 1.35 ? VStack : HStack
+  if (view?.state === 'no-sessions') return null
   const value =
     view?.state === 'costed'
       ? approxUsd(view.rollup.estCostUsd)
-      : view?.state === 'no-sessions'
-        ? 'No sessions'
-        : view?.state === 'not-recorded'
-          ? 'Not recorded'
-          : model.failed
-            ? 'Unavailable'
-            : 'Loading…'
+      : view?.state === 'not-recorded'
+        ? 'Not recorded'
+        : model.failed
+          ? 'Unavailable'
+          : 'Loading…'
   return (
     <DetailGroup label="Cost" testID="issue-cost">
       <VStack
@@ -67,13 +70,28 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
         </Stack>
         {view?.state === 'costed' ? (
           <>
-            <Text modifiers={detail}>{view.rollup.models.map((m) => m.model).join(' + ')}</Text>
-            {view.floor === 'partial' ? (
+            <Button
+              onPress={() => setDetails((value) => !value)}
+              modifiers={[
+                buttonStyle('plain'),
+                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                accessibilityLabel(details ? 'Hide cost details' : 'Show cost details'),
+              ]}
+            >
               <Text modifiers={detail}>
-                {floorLabel(view.harnesses, view.uncostedSessionCount)}
+                Estimate at list price{view.floor === 'partial' ? ' · partial' : ''}
               </Text>
+            </Button>
+            {details ? (
+              <>
+                {view.floor === 'partial' ? (
+                  <Text modifiers={detail}>
+                    {floorLabel(view.harnesses, view.uncostedSessionCount)}
+                  </Text>
+                ) : null}
+                <Text modifiers={detail}>{COST_HEDGE}</Text>
+              </>
             ) : null}
-            <Text modifiers={detail}>{COST_HEDGE}</Text>
           </>
         ) : null}
       </VStack>
