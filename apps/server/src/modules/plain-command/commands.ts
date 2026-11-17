@@ -16,7 +16,6 @@
  * construction, composes it; every module is loaded by then.
  */
 
-import { ACCOUNT_PLAIN_FAMILY } from '../accounts/plain-family'
 import { CLOUD_PLAIN_FAMILY } from '../cloud/plain-family'
 import { CREDENTIALS_PLAIN_FAMILY } from '../credentials/plain-family'
 import { FLEET_PLAIN_REGISTRATIONS } from '../fleet/plain-family'
@@ -41,7 +40,6 @@ import { PlainCommandRegistry, type PlainRegistration } from './registry'
 
 /** Every plain registration, family by family. */
 const registrations = (): readonly PlainRegistration[] => [
-  ...plainFamilyRegistrations(ACCOUNT_PLAIN_FAMILY),
   ...plainFamilyRegistrations(AUTH_PLAIN_FAMILY),
   ...plainFamilyRegistrations(CLOUD_PLAIN_FAMILY),
   ...FLEET_PLAIN_REGISTRATIONS,

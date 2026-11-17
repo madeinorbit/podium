@@ -121,7 +121,7 @@ const fakeTrpc = {
     sendText: { mutate: vi.fn(async () => {}) },
     transcriptRead: { query: transcriptRead },
   },
-  accounts: {
+  credentials: {
     login: { mutate: accountsLogin },
   },
 }

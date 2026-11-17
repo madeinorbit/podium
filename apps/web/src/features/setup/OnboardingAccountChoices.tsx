@@ -1,13 +1,11 @@
-import type { HarnessAgent } from '@podium/model'
+import type { CredentialView } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback } from 'react'
-import { accountKey, useSettingsRecords } from '@/features/settings/record-readers'
-import { harnessAgentLabel } from '@/features/settings/sections/shared'
-import {
-  hasUseOnMyMachinesBox,
-  UseOnMyMachinesBox,
-} from '@/features/settings/sections/use-on-my-machines'
+import { useSettingsRecords } from '@/features/settings/record-readers'
+import { FoundLoginSwitch } from '@/features/credentials/found-login-controls'
+import { identityText } from '@/features/credentials/credential-facts'
+
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 
 /**
@@ -16,12 +14,14 @@ import { useSettingsTrpc } from '@/features/settings/stable-access'
  * box is in Settings → Credentials for logins found later. Nothing renders while
  * no account with a known identity was detected.
  */
+const credentialKey = (view: CredentialView) => view.id as string
+
 export const OnboardingAccountChoices = observer(
   function OnboardingAccountChoices(): JSX.Element | null {
     const trpc = useSettingsTrpc()
-    const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
-    const { request, reload } = useSettingsRecords('account', readAccounts, accountKey)
-    const detected = (request?.models ?? []).filter(hasUseOnMyMachinesBox)
+    const readAccounts = useCallback(() => trpc.credentials.list.query(), [trpc])
+    const { request, reload } = useSettingsRecords('credential', readAccounts, credentialKey)
+    const detected = ((request?.models ?? []) as unknown as CredentialView[]).filter((view) => view.access === 'owner' && view.nativeLogin?.useOnMyMachines !== undefined)
     if (detected.length === 0) return null
     return (
       <section
@@ -39,12 +39,12 @@ export const OnboardingAccountChoices = observer(
             }
           >
             <p className="pb-2 text-[13.5px] leading-none font-semibold text-[#e6e8ec]">
-              {harnessAgentLabel(account.harness as HarnessAgent)}
-              {account.identity ? (
-                <span className="ml-2 font-normal text-[#9ba1ab]">{account.identity}</span>
+              {account.label}
+              {identityText(account) ? (
+                <span className="ml-2 font-normal text-[#9ba1ab]">{identityText(account)}</span>
               ) : null}
             </p>
-            <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => void reload()} />
+            <FoundLoginSwitch view={account} commands={trpc.credentials} reload={() => void reload()} />
           </div>
         ))}
       </section>

@@ -2,7 +2,7 @@ import type { ModelCatalogState } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
 import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { CredentialView } from '@podium/model'
-import { type AccountView, asMachineId } from '@podium/model/browser'
+import { asMachineId } from '@podium/model/browser'
 import { normalizeSettings, resolveRole } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
@@ -18,6 +18,7 @@ const fixture = vi.hoisted(() => ({
   catalog: {} as ModelCatalogState['catalog'],
   byMachine: {} as Record<string, ModelCatalogState>,
 }))
+vi.mock('@/features/credentials/use-server-ai-status', () => ({ useServerAiStatus: () => undefined }))
 vi.mock('../readers', () => ({
   useSettingsAuthorizedMachines: () =>
     fixture.machines.filter((machine) => machine.use === 'granted'),
@@ -35,22 +36,7 @@ vi.mock('@/features/credentials/role-credential', async (importOriginal) => ({
   useCredentialViews: () => fixture.credentialViews,
 }))
 
-const accounts: AccountView[] = [
-  {
-    id: 'native:codex',
-    provider: 'openai',
-    source: 'native',
-    harness: 'codex',
-    status: 'connected',
-  },
-  {
-    id: 'native:claude-code',
-    provider: 'anthropic',
-    source: 'native',
-    harness: 'claude-code',
-    status: 'connected',
-  },
-]
+const accounts: CredentialView[] = []
 function machine(id: string, name: string, patch: Partial<MachineModel> = {}): MachineModel {
   return observable({
     id: asMachineId(id),
@@ -236,7 +222,7 @@ it('shows the background error with its machine', () => {
 it('accepts a typed subagent model when the CLI supports an override', async () => {
   const settings = normalizeSettings({ roles: { coding: { accountId: 'native:claude-code' } } })
   const patch = vi.fn()
-  render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+  render(<AgentsSection settings={settings} patch={patch} />)
   fireEvent.click(screen.getByRole('button', { name: 'Subagent model' }))
   fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
     target: { value: 'custom-helper' },
@@ -295,7 +281,7 @@ describe('the background Model row follows the picked credential (credential man
     fixture.credentialViews = [key]
     const settings = normalizeSettings({})
     const patch = vi.fn()
-    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    render(<AgentsSection settings={settings} patch={patch} />)
     fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
     pickOption(/Key B/)
     expect(backgroundOf(patch)).toMatchObject({
@@ -311,7 +297,7 @@ describe('the background Model row follows the picked credential (credential man
       roles: { background: { credentialId: key.id, model: 'claude-haiku-4-5' } },
     })
     const patch = vi.fn()
-    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    render(<AgentsSection settings={settings} patch={patch} />)
     const model = screen.getByRole('combobox', { name: 'Model' })
     expect(model.textContent).toContain('Claude Haiku 4.5')
     fireEvent.click(model)
@@ -320,7 +306,7 @@ describe('the background Model row follows the picked credential (credential man
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     cleanup()
 
-    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    render(<AgentsSection settings={settings} patch={patch} />)
     fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
     pickOption(/None picked/)
     const cleared = backgroundOf(patch)
@@ -335,7 +321,7 @@ describe('the background Model row follows the picked credential (credential man
       roles: { background: { accountId: 'managed:anthropic', model: 'claude-sonnet-4-5' } },
     })
     const patch = vi.fn()
-    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    render(<AgentsSection settings={settings} patch={patch} />)
     fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
     pickOption(/Key A/)
     expect(backgroundOf(patch)).toMatchObject({ credentialId: key.id, model: 'claude-sonnet-4-5' })

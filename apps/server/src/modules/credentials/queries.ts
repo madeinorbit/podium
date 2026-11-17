@@ -26,6 +26,7 @@ import type { CredentialRecord, PlacementKind } from '../../store/credentials'
 import type { GrantRow } from '../../store/grants'
 import type { MachineRecord } from '../../store/types'
 import type { CredentialsState, CredentialsStore } from './commands'
+import { withNativeLoginViews } from './native-login-views'
 import { homeHarnessFor } from './home-removers'
 import { accessFrom, CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel } from './may-use'
 
@@ -225,8 +226,13 @@ export async function listCredentials(
 }
 
 export const CREDENTIAL_QUERIES = {
-  list: query(z.object({}).passthrough().optional(), async (state) =>
-    listCredentials(state.store, state.callerUserId),
+  list: query(z.object({}).passthrough().optional(), async (state) => {
+    const views = await listCredentials(state.store, state.callerUserId)
+    return state.native ? withNativeLoginViews(views, state.native, state.callerUserId) : views
+  }),
+  /** The background role's native transport and last refusal, independently of credential identity. */
+  serverAiStatus: query(z.object({}).passthrough().optional(), async (state) =>
+    state.resolveServerAi ? state.resolveServerAi().catch(() => undefined) : undefined,
   ),
   /** Where the caller's sign-in on a machine stands (§6 way 2): waiting, signed in as an account, or failed. */
   signInStatus: query(z.object({ credentialId: z.string().min(1).max(100) }), (state, input) =>

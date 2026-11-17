@@ -19,17 +19,21 @@ const DECLARED: readonly CredentialContractName[] = [
   'chatgptSignInComplete',
   'chatgptSignInStart',
   'disallowMachine',
+  'login',
   'remove',
   'rename',
   'renew',
   'share',
+  'signInCancel',
+  'signInStart',
   'unshare',
+  'useOnMyMachines',
 ]
 
 const PLANT = 'FAKE-sk-ant-contract-plant-6891'
 
 describe('credential contracts', () => {
-  it('are exactly the ten writes, named credentials.<verb>', () => {
+  it('are exactly the credential writes, named credentials.<verb>', () => {
     expect(CREDENTIAL_CONTRACT_NAMES).toEqual(DECLARED)
     for (const name of DECLARED) {
       expect(CREDENTIAL_CONTRACTS[name].name).toBe(`credentials.${name}`)
@@ -49,9 +53,9 @@ describe('credential contracts', () => {
 
   it.each(DECLARED)('%s is never queued', (name) => {
     const contract = CREDENTIAL_CONTRACTS[name]
-    expect(contract.delivery.class).toBe('online-sensitive')
+    expect(contract.delivery.class).toBe(name === 'login' ? 'online-only' : 'online-sensitive')
     expect(contract.exposure).not.toContain('outbox')
-    expect(contract.visibility).toBe('secret')
+    expect(contract.visibility).toBe(name === 'login' ? 'owned-compute' : 'secret')
   })
 
   it.each(['add', 'renew'] as const)('%s redacts the secret from logs', (name) => {

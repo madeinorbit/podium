@@ -26,7 +26,7 @@ import { SuperagentService } from '../superagent'
 
 /** The census's non-synced commands (ADR 12 D8): no synced effect, online only. */
 const PLAIN_COMMANDS = [
-  'accounts.login',
+  'credentials.login',
   'auth.setDisplayName',
   'auth.setEmail',
   'auth.setLoginRequired',
@@ -187,21 +187,21 @@ describe('role floors on the plain path', () => {
   it("a member's harness sign-in reaches the login service, as that member", async () => {
     const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
     const start = vi.spyOn(registry.modules.nativeLogin, 'start').mockResolvedValue({} as never)
-    await caller.accounts.login({ harness: 'codex' })
+    await caller.credentials.login({ harness: 'codex' })
     expect(start).toHaveBeenCalledWith({ harness: 'codex', ownerUserId: MEMBER })
   })
 
   it('an agent may not start a sign-in for its human', async () => {
     const { caller, registry } = await harness({ capability: AGENT_CAPABILITY })
     const start = vi.spyOn(registry.modules.nativeLogin, 'start')
-    const refusal = await refusalOf(caller.accounts.login({ harness: 'codex' }))
+    const refusal = await refusalOf(caller.credentials.login({ harness: 'codex' }))
     expect(refusal.code).toBe('FORBIDDEN')
     expect(start).not.toHaveBeenCalled()
   })
 
   it('an admin with invalid input gets the validation error', async () => {
     const { caller } = await harness({ capability: OPERATOR })
-    const refusal = await refusalOf(caller.accounts.login({ harness: 'nope' } as never))
+    const refusal = await refusalOf(caller.credentials.login({ harness: 'nope' } as never))
     expect(refusal.code).toBe('BAD_REQUEST')
   })
 })
@@ -209,7 +209,7 @@ describe('role floors on the plain path', () => {
 describe('the plain path keeps its validation answer', () => {
   it('an admin with invalid input gets the validation error (useOnMyMachines)', async () => {
     const { caller } = await harness({ capability: OPERATOR })
-    const refusal = await refusalOf(caller.accounts.useOnMyMachines({ harness: 'codex' } as never))
+    const refusal = await refusalOf(caller.credentials.useOnMyMachines({ harness: 'codex' } as never))
     expect(refusal.code).toBe('BAD_REQUEST')
   })
 })

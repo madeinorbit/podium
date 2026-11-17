@@ -841,9 +841,6 @@ export function ConfirmInline({
   )
 }
 
-/** One row from `accounts.list` — a native CLI login or a managed API key. */
-export type { AccountView } from '@podium/model'
-
 export function providerLabel(p: ApiProvider): string {
   switch (p) {
     case 'openrouter':

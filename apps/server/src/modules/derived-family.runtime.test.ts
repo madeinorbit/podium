@@ -32,7 +32,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
-import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
 import { CREDENTIAL_COMMANDS_TRPC } from './credentials/commands'
 import { FILE_COMMANDS_TRPC } from './files/registry'
@@ -67,7 +66,6 @@ const FAMILIES = [
   { router: 'models', table: MODEL_COMMANDS_TRPC },
   { router: 'files', table: FILE_COMMANDS_TRPC },
   { router: 'hosts', table: HOST_COMMANDS_TRPC },
-  { router: 'accounts', table: ACCOUNT_COMMANDS_TRPC },
   { router: 'cloud', table: CLOUD_COMMANDS_TRPC },
   { router: 'setup', table: SETUP_COMMANDS_TRPC },
   { router: 'auth', table: AUTH_COMMANDS_TRPC },
@@ -95,7 +93,7 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
    * pre-existing drift, repaired separately in POD-3168.
    *
-   * 33 -> 34: `accounts.useOnMyMachines` (POD-6301). The 31 -> 33 before it was
+   * 33 -> 34: `credentials.useOnMyMachines` (POD-6301). The 31 -> 33 before it was
    * drift on the multi-user integration branch (`accounts.send`, POD-6300, among it).
    *
    * 31 -> 32: `auth.setEmail` (aafde95f11, "Member email sign-in and
@@ -127,8 +125,8 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * (The base served 47 against a pin of 43: the four sign-in writes of
    * POD-6896 and POD-6901 had not moved it.)
    */
-  it('governs thirteen families and forty-two derived writes', () => {
-    expect(FAMILIES).toHaveLength(13)
+  it('governs twelve families and forty-two derived writes', () => {
+    expect(FAMILIES).toHaveLength(12)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
     expect(total).toBe(42)
   })

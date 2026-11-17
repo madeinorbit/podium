@@ -13,13 +13,13 @@ export function useSettingsRecords<E extends RequestedEntity>(
   const pool = useWorklistPool()
   const create = useMemo(() => (pool: MobxPool) => new RecordRequest(pool, entity, key), [entity, key])
   const inherited = useSettingsOpening()
-  const own = useOpeningView(pool, create, entity !== 'account' || !inherited)
-  const request = (entity === 'account' ? inherited?.accounts ?? own : own) as RecordRequest<E> | null
+  const own = useOpeningView(pool, create, entity !== 'credential' || !inherited)
+  const request = (entity === 'credential' ? inherited?.credentials ?? own : own) as RecordRequest<E> | null
   const reload = useCallback(() => request?.read(read), [request, read])
   // Public directories have no push contract yet. Refresh only while this
   // opening/document is visible; all readers see the same ingested identities.
   useEffect(() => {
-    if (!request || (!follow && inherited && entity === 'account')) return
+    if (!request || (!follow && inherited && entity === 'credential')) return
     const stop = followVisibleRequest(() => { if (!request.loading) void reload() }, {
       visible: () => document.visibilityState !== 'hidden',
       subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
@@ -29,6 +29,5 @@ export function useSettingsRecords<E extends RequestedEntity>(
   return { request, reload }
 }
 
-export const accountKey = (row: PoolRows['account']) => row.id
 export const memberKey = (row: PoolRows['member']) => row.id
 export const deviceKey = (row: PoolRows['device']) => row.id

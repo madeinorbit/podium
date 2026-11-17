@@ -1,3 +1,6 @@
+import { credentialsLoginContract, credentialsUseOnMyMachinesContract } from './native-login-contracts'
+export { credentialsLoginContract, credentialsLoginInput, credentialsUseOnMyMachinesContract, credentialsUseOnMyMachinesInput } from './native-login-contracts'
+
 /**
  * THE CREDENTIAL CONTRACTS (credential management design §6, §8, §12; epic Task 4).
  *
@@ -469,6 +472,8 @@ export const credentialsSignInCancelContract = {
 } as const satisfies CommandContract<typeof credentialsSignInCancelInput>
 
 export const CREDENTIAL_CONTRACTS = {
+  login: credentialsLoginContract,
+  useOnMyMachines: credentialsUseOnMyMachinesContract,
   add: credentialsAddContract,
   chatgptSignInComplete: credentialsChatgptSignInCompleteContract,
   chatgptSignInStart: credentialsChatgptSignInStartContract,

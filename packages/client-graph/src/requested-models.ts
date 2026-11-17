@@ -154,8 +154,9 @@ registerModels(
         sessionCount: 'number',
         access: 'enum',
         sharedWith: 'object',
+        nativeLogin: 'object',
       },
-      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt', 'sharedWith'],
+      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt', 'sharedWith', 'nativeLogin'],
     ),
     member: record(
       'MemberView',

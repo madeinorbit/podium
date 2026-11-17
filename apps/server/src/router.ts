@@ -44,7 +44,6 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
-import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
@@ -385,13 +384,6 @@ export const appRouter = t.router({
   // read. The apps resolve them from `welcome` and the instance settings record.
   features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
-  /**
-   * THE ACCOUNT SURFACE IS DERIVED (POD-314) — the Accounts & Keys hub
-   * (SP-6454): native CLI logins on this machine (observed read-only) plus the
-   * managed credentials Podium holds. Read at call-time, never cached as truth,
-   * and never returning a credential — only its masked `identity`.
-   */
-  accounts: t.router(accountFamilyProcedures()),
   vault: t.router(vaultFamilyProcedures()),
   credentials: t.router(credentialFamilyProcedures()),
   // PER-USER STATE (POD-380): the caller's saved orders.

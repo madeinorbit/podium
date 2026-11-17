@@ -9,15 +9,15 @@ import { createSettingsMachineReaders } from './settings-machine-readers'
 
 export function createWebSettingsView(pool: MobxPool) {
   const settings = createSettingsViews(pool)
-  const accounts = new RecordRequest(pool, 'account', row => row.id)
+  const credentials = new RecordRequest(pool, 'credential', row => row.id)
   const machines = createSettingsMachineReaders(pool)
   return {
     settings,
-    accounts,
+    credentials,
     machines,
     dispose() {
       settings.dispose()
-      accounts.dispose()
+      credentials.dispose()
       machines.dispose()
     },
   }

@@ -6,7 +6,7 @@ import {
   modelOptions,
 } from '@podium/client-core/agent-models'
 import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
-import type { AccountView } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model/browser'
 import {
   type HarnessAgent,
   type PodiumSettings,
@@ -24,6 +24,7 @@ import {
   RoleCredentialSelect,
   useCredentialViews,
 } from '@/features/credentials/role-credential'
+import { useServerAiStatus } from '@/features/credentials/use-server-ai-status'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
@@ -40,8 +41,6 @@ import { Row, Section, SegmentedRow, SelectRow, SwitchRow } from './shared'
 
 interface AgentsProps {
   settings: PodiumSettings
-  /** The native logins on the person's machines (`accounts.list`), for hints. */
-  accounts: AccountView[]
   patch: (patch: Partial<PodiumSettings>) => void
 }
 
@@ -49,9 +48,9 @@ interface AgentsProps {
  * per-leaf synced-record writer and its permission/pending/refusal context. */
 export const AgentsSection = observer(function AgentsSection({
   settings,
-  accounts,
   patch,
 }: AgentsProps) {
+  const accounts = useCredentialViews()
   const coding = resolveRole(settings, 'coding')
   const { served } = useHarnessDescriptors(undefined)
   const descriptor = issueAgentDescriptors(served).find((d) => d.kind === coding.harness)
@@ -130,7 +129,7 @@ export const AgentsSection = observer(function AgentsSection({
         </Section>
       </SettingsPageSection>
       <SettingsPageSection id="workllm">
-        <BackgroundModelSection settings={settings} accounts={accounts} patch={patch} />
+        <BackgroundModelSection settings={settings} patch={patch} />
       </SettingsPageSection>
     </>
   )
@@ -146,7 +145,7 @@ export const AgentRoleFields = observer(function AgentRoleFields({
   roleName: 'coding' | 'superagent'
   backend: RoleBackend
   resolved: { accountId: RoleBackend['accountId']; harness: HarnessAgent }
-  accounts: readonly AccountView[]
+  accounts: readonly CredentialView[]
   onChange: (backend: RoleBackend) => void
 }) {
   const { served } = useHarnessDescriptors(undefined)
@@ -331,7 +330,6 @@ function HarnessModelRow({
 
 const BackgroundModelSection = observer(function BackgroundModelSection({
   settings,
-  accounts,
   patch,
 }: AgentsProps) {
   const resolved = resolveRole(settings, 'background')
@@ -360,12 +358,7 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
   const models = source.kind === 'api' ? (BACKGROUND_MODELS[source.provider] ?? []) : []
   const defaultModel = source.kind === 'api' ? backgroundDefaultModel(source.provider) : AUTO
   const modelValue = backend.model || defaultModel
-  const serverAi = native
-    ? accounts.find(
-        (account) =>
-          account.source === 'native' && account.harness === resolved.harness && account.serverAi,
-      )?.serverAi
-    : undefined
+  const serverAi = useServerAiStatus(native)
   const lastError = serverAi?.lastError
   return (
     <Section

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { HarnessAgent } from './agent'
 import { CredentialIdField, MachineIdField, UserIdField } from '../ids'
 
 /**
@@ -47,6 +48,26 @@ export const CredentialShare = z.object({
 })
 export type CredentialShare = z.infer<typeof CredentialShare>
 
+/** Owner-only observations and controls for a harness's own login directory. */
+export const CredentialNativeLogin = z.object({
+  harness: HarnessAgent,
+  machines: z.array(z.object({
+    id: MachineIdField,
+    name: z.string(),
+    state: z.enum(['in', 'out', 'unknown']),
+  })),
+  required: z.boolean(),
+  useOnMyMachines: z.boolean().optional(),
+  keptOn: z.array(z.object({ id: MachineIdField, name: z.string() })),
+  attempt: z.object({
+    sessionId: z.string(),
+    machineId: MachineIdField,
+    machineName: z.string(),
+    status: z.enum(['running', 'refreshing', 'succeeded', 'failed']),
+    error: z.string().optional(),
+  }).optional(),
+})
+
 export const CredentialView = z.object({
   id: CredentialIdField,
   ownerUserId: UserIdField,
@@ -68,5 +89,6 @@ export const CredentialView = z.object({
   access: CredentialAccess,
   /** Its grants, for the owner and a holder of `manage` only; absent for `use`. */
   sharedWith: z.array(CredentialShare).optional(),
+  nativeLogin: CredentialNativeLogin.optional(),
 })
 export type CredentialView = z.infer<typeof CredentialView>

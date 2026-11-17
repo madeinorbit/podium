@@ -80,7 +80,6 @@ export const GOVERNED: readonly { table: string; module: string }[] = [
   { table: 'MODEL_COMMANDS_TRPC', module: 'models' },
   { table: 'FILE_COMMANDS_TRPC', module: 'files' },
   { table: 'HOST_COMMANDS_TRPC', module: 'hosts' },
-  { table: 'ACCOUNT_COMMANDS_TRPC', module: 'accounts' },
   { table: 'CLOUD_COMMANDS_TRPC', module: 'cloud' },
   { table: 'SETUP_COMMANDS_TRPC', module: 'instance' },
   { table: 'AUTH_COMMANDS_TRPC', module: 'instance' },

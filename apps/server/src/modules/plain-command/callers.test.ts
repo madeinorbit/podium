@@ -39,7 +39,6 @@ import {
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
-import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { NativeLoginService } from '../credentials/native-login'
@@ -58,7 +57,7 @@ import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
   [
-    ...Object.values(ACCOUNT_COMMANDS_TRPC),
+    
     ...Object.values(AUTH_COMMANDS_TRPC),
     ...Object.values(SETUP_COMMANDS_TRPC),
     ...Object.values(TELEMETRY_COMMANDS_TRPC),
@@ -74,7 +73,7 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
 /** The commands whose table entry declares a target check (`entry.ts`, step 4). */
 const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
   [
-    ...Object.values(ACCOUNT_COMMANDS_TRPC),
+    
     ...Object.values(VAULT_COMMANDS_TRPC),
     ...Object.values(CREDENTIAL_COMMANDS_TRPC),
   ].flatMap((c) =>
@@ -148,19 +147,19 @@ const CALLERS: readonly {
   // the terminal is spawned as the member, on a machine the member may use. The
   // refusals for another user's machine or running attempt are pinned below.
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: 'Settings → AI accounts, own account',
     expect: 'ok',
   },
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: "agent panel's sign-in terminal",
     expect: 'ok',
   },
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: 'first task activation sign-in',
     expect: 'ok',
@@ -282,7 +281,7 @@ const CALLERS: readonly {
     'setup.connect',
     'setup.activate',
     'auth.setPassword',
-    'accounts.login',
+    'credentials.login',
   ].map((command) => ({
     command,
     who: 'bootstrap' as const,
@@ -309,7 +308,7 @@ const CALLERS: readonly {
   { command: 'credentials.signInStart', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'credentials.signInCancel', who: 'agent', caller: 'none today', expect: 'floor' },
   // An agent may not sign its human in: refused by the target check.
-  { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.login', who: 'agent', caller: 'none today', expect: 'floor' },
 ]
 
 describe('every current caller of the 40 non-sync commands', () => {

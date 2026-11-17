@@ -1,7 +1,7 @@
 /**
- * THE ACCOUNT CONTRACTS — `accounts.login · accounts.useOnMyMachines`.
+ * THE MACHINE LOGIN CONTRACTS — `credentials.login · credentials.useOnMyMachines`.
  *
- * What is left of the Accounts hub: a machine's own (native) logins. `login`
+ * What is left of the Credentials page: a machine's own (native) logins. `login`
  * opens the harness's login terminal on a machine in the caller's custody;
  * `useOnMyMachines` is the D11 tick that copies a login to every machine the
  * caller holds custody of. The stored provider keys this family once held are
@@ -23,18 +23,18 @@ import type {
   VisibilityClass,
 } from '../contract'
 
-/** `trpc` alone — the Accounts hub is the only surface that writes these. */
+/** `trpc` alone — the Credentials page is the only surface that writes these. */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
 /** ADR 1's `managedCredentials` row. */
-const ACCOUNT_VISIBILITY: VisibilityClass = 'secret'
+const NATIVE_LOGIN_VISIBILITY: VisibilityClass = 'secret'
 
 /**
  * ADR 3 D4 rule 1, forced by the lint AND correct on its own terms — the matrix
  * row says `never-enqueue` independently, which is the same claim from the other
  * direction. Two mechanisms, neither substituting for the other.
  */
-const ACCOUNT_DELIVERY: DeliveryPolicy = {
+const NATIVE_LOGIN_DELIVERY: DeliveryPolicy = {
   class: 'online-sensitive',
   outboxReconciliation:
     'NEVER queued. A queued login or tick would act on a machine long after the person asked, ' +
@@ -46,7 +46,7 @@ const ACCOUNT_DELIVERY: DeliveryPolicy = {
 
 /** ADR 9 D5 A3 / Amendment 1 D17. For credentials the pair outlives the
  *  credential: rotating a key does not answer "who put the old one here". */
-const ACCOUNT_ATTRIBUTION: AttributionPolicy = {
+const NATIVE_LOGIN_ATTRIBUTION: AttributionPolicy = {
   actor: 'from-capability',
   onBehalfOf: 'from-delegation',
   wirePlacement: 'separate-field',
@@ -57,16 +57,16 @@ const ACCOUNT_ATTRIBUTION: AttributionPolicy = {
     'having been ticked by its human.',
 }
 
-export const accountsLoginInput = z.object({
+export const credentialsLoginInput = z.object({
   harness: HarnessAgent,
   machineId: MachineIdField.optional(),
 })
 
-export const accountsLoginContract = {
-  name: 'accounts.login',
+export const credentialsLoginContract = {
+  name: 'credentials.login',
   version: 1,
   visibility: 'owned-compute',
-  input: accountsLoginInput,
+  input: credentialsLoginInput,
   policy: {
     action: 'write',
     roleFloor: 'member',
@@ -90,7 +90,7 @@ export const accountsLoginContract = {
     note: 'Only harness, machine and session identifiers cross this boundary; provider tokens stay inside the native CLI.',
   },
   ownership: { creates: [], note: 'Creates an ephemeral operator PTY, not a new owned entity.' },
-  attribution: ACCOUNT_ATTRIBUTION,
+  attribution: NATIVE_LOGIN_ATTRIBUTION,
   errorConsistency: {
     callerSuppliedTargetId: true,
     invisibleFailsAs: 'nonexistent',
@@ -99,26 +99,26 @@ export const accountsLoginContract = {
   },
   conflict: 'cmd',
   conflictRule: 'One active login attempt per (member, harness) is reused until it settles.',
-} as const satisfies CommandContract<typeof accountsLoginInput>
+} as const satisfies CommandContract<typeof credentialsLoginInput>
 
 /**
- * `accounts.useOnMyMachines` — THE D11 CHECKBOX (POD-6301; design §2.5, §4.6;
+ * `credentials.useOnMyMachines` — THE D11 CHECKBOX (POD-6301; design §2.5, §4.6;
  * September addendum §4-5). One native login, named by harness and identity
  * fingerprint, is ticked or unticked for "use this connection on all machines I
  * hold custody of, now and in future".
  */
-export const accountsUseOnMyMachinesInput = z.object({
+export const credentialsUseOnMyMachinesInput = z.object({
   harness: HarnessAgent,
-  /** The login's identity fingerprint, as the Accounts list reports it. */
+  /** The login's identity fingerprint, as the Credentials page reports it. */
   fingerprint: z.string().min(1).max(256),
   enabled: z.boolean(),
 })
 
-export const accountsUseOnMyMachinesContract = {
-  name: 'accounts.useOnMyMachines',
+export const credentialsUseOnMyMachinesContract = {
+  name: 'credentials.useOnMyMachines',
   version: 1,
-  visibility: ACCOUNT_VISIBILITY,
-  input: accountsUseOnMyMachinesInput,
+  visibility: NATIVE_LOGIN_VISIBILITY,
+  input: credentialsUseOnMyMachinesInput,
   policy: {
     action: 'write',
     roleFloor: 'member',
@@ -133,7 +133,7 @@ export const accountsUseOnMyMachinesContract = {
       'stops future copies (it recalls nothing, which the UI says once beside the box).',
   },
   exposure: SERVED_ON,
-  delivery: ACCOUNT_DELIVERY,
+  delivery: NATIVE_LOGIN_DELIVERY,
   redaction: {
     reviewed: true,
     inputPaths: [],
@@ -145,11 +145,11 @@ export const accountsUseOnMyMachinesContract = {
   ownership: {
     creates: ['native-login opt-in'],
     owner: 'on-behalf-of-human',
-    visibility: ACCOUNT_VISIBILITY,
+    visibility: NATIVE_LOGIN_VISIBILITY,
     inheritanceOnCreate: 'on-behalf-of-human',
     note: 'The choice belongs to the human it was made on behalf of; nobody else reads or changes it.',
   },
-  attribution: ACCOUNT_ATTRIBUTION,
+  attribution: NATIVE_LOGIN_ATTRIBUTION,
   errorConsistency: {
     callerSuppliedTargetId: true,
     invisibleFailsAs: 'nonexistent',
@@ -161,13 +161,5 @@ export const accountsUseOnMyMachinesContract = {
   conflict: 'cmd',
   conflictRule:
     'Last write wins per (member, harness, fingerprint); every change bumps the revision, so a copy exported under the old choice is refused as stale',
-} as const satisfies CommandContract<typeof accountsUseOnMyMachinesInput>
+} as const satisfies CommandContract<typeof credentialsUseOnMyMachinesInput>
 
-export const ACCOUNT_CONTRACTS = {
-  login: accountsLoginContract,
-  useOnMyMachines: accountsUseOnMyMachinesContract,
-} as const
-
-export type AccountContractName = keyof typeof ACCOUNT_CONTRACTS
-
-export const ACCOUNT_CONTRACT_NAMES = Object.keys(ACCOUNT_CONTRACTS).sort() as AccountContractName[]

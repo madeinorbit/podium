@@ -27,7 +27,6 @@ import './add-chatgpt/register'
 import { CredentialsView } from './CredentialsView'
 import { sendableMachines } from './credential-facts'
 import type { CredentialDeps } from './credentials-deps'
-import { MachineLogins } from './machine-logins'
 
 const credentialKey = (row: CredentialView) => row.id as string
 
@@ -83,8 +82,6 @@ export const CredentialsSection = observer(function CredentialsSection({
       descriptors={descriptors}
       settings={settings}
       patch={patch}
-    >
-      <MachineLogins />
-    </CredentialsView>
+    />
   )
 })

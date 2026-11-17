@@ -4,6 +4,7 @@ import { observer } from 'mobx-react-lite'
 import { EntityRow } from '@/features/settings/sections/shared'
 import { identityText, isSubscription, statusLines, typeTitle } from './credential-facts'
 import type { CredentialDeps } from './credentials-deps'
+import { FoundLoginActions, FoundLoginStatus } from './found-login-controls'
 
 const TONE_CLASS = { ok: undefined, warn: 'text-warning', muted: undefined } as const
 
@@ -51,6 +52,7 @@ export const CredentialRow = observer(function CredentialRow({
         </>
       }
       subtitle={
+        <div>
         <span className="flex flex-wrap gap-x-2">
           {lines.map((line) => (
             <span key={line.text} className={TONE_CLASS[line.tone]}>
@@ -58,7 +60,10 @@ export const CredentialRow = observer(function CredentialRow({
             </span>
           ))}
         </span>
+        <FoundLoginStatus view={view} />
+        </div>
       }
+      trailing={view.nativeLogin && view.access === 'owner' ? <FoundLoginActions view={view} deps={deps} /> : undefined}
       onClick={view.access === 'use' ? undefined : () => onOpen(view)}
     />
   )

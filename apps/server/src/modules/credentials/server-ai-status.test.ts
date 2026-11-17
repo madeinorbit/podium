@@ -2,7 +2,7 @@ import { asMachineId, Inventory } from '@podium/model'
 import { managedAccountId, nativeAccountId, normalizeSettings, resolveRole } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import type { CodexLoginMachineSource } from '../../codex-machine'
-import { assembleCodexServerAiMarker } from './trpc'
+import { assembleCodexServerAiMarker } from './server-ai-status'
 
 function loginListing(id = 'desk'): CodexLoginMachineSource {
   return {

@@ -22,15 +22,7 @@
  * import site was repointed instead.
  */
 
-export {
-  ACCOUNT_CONTRACT_NAMES,
-  ACCOUNT_CONTRACTS,
-  type AccountContractName,
-  accountsLoginContract,
-  accountsLoginInput,
-  accountsUseOnMyMachinesContract,
-  accountsUseOnMyMachinesInput,
-} from './accounts/contracts'
+export { credentialsLoginContract, credentialsLoginInput, credentialsUseOnMyMachinesContract, credentialsUseOnMyMachinesInput } from './credentials/native-login-contracts'
 export { AgentProfileRef } from './agent-profiles/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,

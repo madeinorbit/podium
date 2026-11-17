@@ -22,7 +22,6 @@ import { AdminViewerContext, useAdminSections } from './admin-viewer'
 import { composedSettings } from './composed-settings'
 import { SETTINGS_GROUPS } from './page-definitions'
 import { useSettingsTab } from './readers'
-import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
 import type { SecretSurfaceState } from './secret-presence'
@@ -39,7 +38,6 @@ import {
 } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import {
-  type AccountView,
   SettingsControlsContext,
   type SettingsControlsState,
   useSettingsPermitted,
@@ -105,7 +103,6 @@ const UpdatesSection = lazy(() =>
 /** The live settings, per-control writer, accounts and short-flow state. */
 interface SectionContext {
   settings: PodiumSettings
-  accounts: AccountView[]
   patch: (p: Partial<PodiumSettings>) => void
   trpc: Trpc
   telegramSetup: TelegramSetupState
@@ -128,8 +125,8 @@ interface SectionContext {
 /** The page-to-section lookup. Controls edit their own settings leaves; the
  * address flow owns its explicit setup form. */
 const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
-  agents: ({ settings, accounts, patch }) => (
-    <AgentsSection settings={settings} accounts={accounts} patch={patch} />
+  agents: ({ settings, patch }) => (
+    <AgentsSection settings={settings} patch={patch} />
   ),
   appearance: ({ settings, patch }) => (
     <SettingsPageSection id="appearance">
@@ -298,9 +295,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
   )
   const settings = record ?? null
   const [feedback, setFeedback] = useState<SettingsControlsState['feedback']>({})
-  const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
-  const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
-  const accounts = accountRequest?.models ?? []
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
    *
@@ -591,7 +585,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
             )}
             {SECTION_VIEWS[tab]({
               settings,
-              accounts,
               patch,
               trpc,
               telegramSetup,

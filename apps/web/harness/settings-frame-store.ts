@@ -111,7 +111,8 @@ const answers: Record<string, unknown> = {
   },
   'settings.secretPresence.query': [],
   'settings.telegramBotPresence.query': false,
-  'accounts.list.query': [],
+  'credentials.list.query': [],
+  'credentials.serverAiStatus.query': undefined,
   'auth.profile.query': { email: member ? 'member@example.com' : 'admin@example.com' },
   'auth.status.query': {
     configured: true,
@@ -301,30 +302,33 @@ const signIns = populated
 if (populated) {
   Object.assign(answers['auth.profile.query'] as object, members[member ? 1 : 0])
   Object.assign(answers['auth.status.query'] as object, { hasOwnCredential: true })
-  answers['accounts.list.query'] = [
+  answers['credentials.list.query'] = [
     {
-      id: 'native:claude-code',
-      provider: 'anthropic',
-      source: 'native',
-      harness: 'claude-code',
-      status: 'connected',
-      identity: 'alex@example.com',
-      identityFingerprint: 'demo-claude',
-      machines: ['Studio'],
-      useOnMyMachines: true,
-      loginMachines: [{ id: 'studio', name: 'Studio' }],
+      id: 'cred_demo-claude', ownerUserId: member ? 'member' : 'demo',
+      label: 'Claude on Studio', type: 'anthropic.claude-login',
+      identity: { email: 'alex@example.test', fingerprint: 'demo-claude' }, status: 'ok',
+      homes: [{ machineId: 'studio', homeId: 'default', state: 'in' }],
+      allowedMachines: [], sessionCount: 0, access: 'owner', sharedWith: [],
+      nativeLogin: {
+        harness: 'claude-code', required: false, useOnMyMachines: true,
+        machines: [{ id: 'studio', name: 'Studio', state: 'in' }],
+        keptOn: [{ id: 'builder', name: 'Build machine' }],
+      },
     },
     {
-      id: 'native:codex',
-      provider: 'openai',
-      source: 'native',
-      harness: 'codex',
-      status: 'not-configured',
-      loginRequired: true,
-      loginMachines: [
-        { id: 'studio', name: 'Studio' },
-        { id: 'builder', name: 'Build machine' },
-      ],
+      id: 'cred_demo-codex', ownerUserId: member ? 'member' : 'demo',
+      label: 'Codex on Build machine', type: 'openai.chatgpt-login',
+      identity: { email: 'sam@example.test', fingerprint: 'demo-codex' }, status: 'attention',
+      homes: [{ machineId: 'builder', homeId: 'default', state: 'out' }],
+      allowedMachines: [], sessionCount: 0, access: 'owner', sharedWith: [],
+      nativeLogin: {
+        harness: 'codex', required: true, useOnMyMachines: false,
+        machines: [
+          { id: 'builder', name: 'Build machine', state: 'out' },
+          { id: 'studio', name: 'Studio', state: 'in' },
+        ],
+        keptOn: [],
+      },
     },
   ]
   const machines = [

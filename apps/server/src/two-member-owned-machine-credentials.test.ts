@@ -180,21 +180,13 @@ const until = async (pred: () => boolean | Promise<boolean>, ms = 10_000): Promi
   }
 }
 
-type View = {
-  id: string
-  harness?: string
-  identityFingerprint?: string
-  useOnMyMachines?: boolean
-  keptOn?: Array<{ id: string; name: string }>
+const codexRow = async (who: MemberName, fingerprint: string) => {
+  const views = await (await trpc(who)).credentials.list.query()
+  return views.find((view: import('@podium/model').CredentialView) =>
+    view.nativeLogin?.harness === 'codex' && view.identity.fingerprint === fingerprint)?.nativeLogin
 }
-const list = async (who: MemberName): Promise<View[]> =>
-  (await (await trpc(who)).accounts.list.query()) as View[]
-const codexRow = async (who: MemberName, fingerprint: string) =>
-  (await list(who)).find(
-    (row) => row.harness === 'codex' && row.identityFingerprint === fingerprint,
-  )
 const choose = async (who: MemberName, fingerprint: string, enabled: boolean) =>
-  await (await trpc(who)).accounts.useOnMyMachines.mutate({
+  await (await trpc(who)).credentials.useOnMyMachines.mutate({
     harness: 'codex',
     fingerprint,
     enabled,

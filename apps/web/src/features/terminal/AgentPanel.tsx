@@ -172,7 +172,7 @@ export const AgentPanel = observer(function AgentPanel({
     setLoginTerminalBusy(true)
     setLoginTerminalError(null)
     try {
-      const result = await trpc.accounts.login.mutate({
+      const result = await trpc.credentials.login.mutate({
         harness,
         ...(session.machineId ? { machineId: session.machineId } : {}),
       })

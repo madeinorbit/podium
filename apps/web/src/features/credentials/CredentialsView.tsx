@@ -18,6 +18,7 @@ import { CredentialDetail } from './credential-detail'
 import { listed, pasteTypes, typeTitle } from './credential-facts'
 import { CredentialRow } from './credential-row'
 import type { CredentialDeps } from './credentials-deps'
+import { USE_ON_MY_MACHINES_NOTE } from './found-login-controls'
 import { HarnessDefaults } from './harness-defaults'
 import { PasteForm } from './paste-form'
 
@@ -88,7 +89,10 @@ export const CredentialsView = observer(function CredentialsView({
     <>
       <Section
         title="Your credentials"
-        hint="Yours, and the ones others shared with you. Each one you add starts private to you."
+        hint={[
+          'Yours, and the ones others shared with you. Each one you add starts private to you.',
+          rows.some((view) => view.nativeLogin?.useOnMyMachines !== undefined) ? USE_ON_MY_MACHINES_NOTE : '',
+        ].filter(Boolean).join(' ')}
         list
         action={
           <Button

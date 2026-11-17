@@ -139,7 +139,7 @@ export class NativeLoginService {
       )
     }
 
-    // THE LOGIN TERMINAL IS A SYSTEM WRITE (ADR 12 D8; POD-6736). `accounts.login`
+    // THE LOGIN TERMINAL IS A SYSTEM WRITE (ADR 12 D8; POD-6736). `credentials.login`
     // is a plain command, and its only synced write is this terminal's session
     // row. The server composes all of it (shell, folder, title, the machine it
     // checked above); the caller chose only the harness. Without the exit the

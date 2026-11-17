@@ -109,17 +109,17 @@ function newSessionsSection(page: Page) {
 }
 
 function accountsSection(page: Page) {
-  return section(page, 'Logins on your machines')
+  return section(page, 'Your credentials')
 }
 
 test('native account profile labels render when available', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  const accounts = await trpc.accounts.list.query()
+  const accounts = await trpc.credentials.list.query()
   // The harness always seeds the long-identity login (POD-4730) — match that
   // address itself, never host state. A missing seed is a harness failure, so
   // fail loudly instead of skipping.
   const rows = accounts.filter(
-    (account) => account.status === 'connected' && account.identity === E2E_LONG_IDENTITY_EMAIL,
+    (account) => account.identity.email === E2E_LONG_IDENTITY_EMAIL,
   )
   expect(rows.length).toBeGreaterThan(0)
 
@@ -130,7 +130,7 @@ test('native account profile labels render when available', async ({ page }) => 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'AI accounts', exact: true }).click()
+  await settings.getByRole('button', { name: 'Credentials', exact: true }).click()
 
   const section = accountsSection(page)
   const value = section.getByText(E2E_LONG_IDENTITY_EMAIL, { exact: true })

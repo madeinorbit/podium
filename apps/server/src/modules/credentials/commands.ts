@@ -42,6 +42,8 @@ import { SignInRefused } from './chatgpt-plan/authorize'
 import { type ChatgptPlanService, LoopbackUnavailable } from './chatgpt-plan/service'
 import { type CredentialEvent, recordCredentialEvent } from './events'
 import { pastedIdentity } from './fingerprint'
+import { type NativeLoginState, useOnMyMachines } from './native-login-actions'
+import type { CodexServerAiMarker } from './server-ai-status'
 import type { CredentialHealth } from './health'
 import { CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel, mayUse } from './may-use'
 import { SignInRefused as HomeSignInRefused, type HomeSignInService } from './sign-in'
@@ -63,6 +65,8 @@ export interface CredentialsState {
   readonly chatgpt?: ChatgptPlanService
   /** Signing in to a subscription on a machine (Task 9). Absent: not offered here. */
   readonly signIn?: HomeSignInService
+  readonly native?: NativeLoginState
+  readonly resolveServerAi?: () => Promise<CodexServerAiMarker | undefined>
 }
 
 export type CredentialHandler<In, Out> = (state: CredentialsState, input: In) => Out
@@ -187,6 +191,22 @@ const describeGrantee = (grantee: CredentialGrantee): string =>
 type In<N extends CredentialContractName> = z.infer<(typeof CREDENTIAL_CONTRACTS)[N]['input']>
 
 export const CREDENTIAL_COMMANDS_TRPC = {
+  login: {
+    contract: CREDENTIAL_CONTRACTS.login,
+    targetPermitted: personOnly,
+    handler: ((state, input) => {
+      if (!state.native) throw badRequest('Machine login is not available on this server.')
+      return state.native.nativeLogin.start({ ...input, ownerUserId: state.callerUserId })
+    }) satisfies CredentialHandler<In<'login'>, unknown>,
+  },
+  useOnMyMachines: {
+    contract: CREDENTIAL_CONTRACTS.useOnMyMachines,
+    targetPermitted: personOnly,
+    handler: ((state, input) => {
+      if (!state.native) throw badRequest('Machine login is not available on this server.')
+      return useOnMyMachines(state.native, state.callerUserId, input)
+    }) satisfies CredentialHandler<In<'useOnMyMachines'>, unknown>,
+  },
   add: {
     contract: CREDENTIAL_CONTRACTS.add,
     targetPermitted: personOnly,

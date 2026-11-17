@@ -27,6 +27,8 @@ export type CredentialCommands = Pick<
   | 'signInStart'
   | 'signInCancel'
   | 'signInStatus'
+  | 'login'
+  | 'useOnMyMachines'
 >
 
 export interface PersonChoice {
