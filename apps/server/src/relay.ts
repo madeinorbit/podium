@@ -212,6 +212,7 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import type { ServerTransferTargetState } from './modules/server-transfer/service'
 import { ServerTransferService } from './modules/server-transfer/service'
+import { sourceTransferFence } from './modules/server-transfer/source-fence'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
@@ -1671,6 +1672,21 @@ export class SessionRegistry {
         }
       }
     }
+    // The order the source's writers stop in for a transfer snapshot, and
+    // restart in after it: the mirror pauses before the portable fence goes up
+    // (modules/server-transfer/source-fence.ts).
+    const sourceFence = sourceTransferFence({
+      daemon: () => this.localDaemonPortableState,
+      mirror: {
+        pause: async () => await memory.pauseMirroringForTransfer(),
+        resume: async () => await memory.resumeMirroringAfterTransfer(),
+      },
+      portable: portableStateFence,
+      store: {
+        begin: async () => await this.store.beginTransferFence(),
+        end: async () => await this.store.endTransferFence(),
+      },
+    })
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
       sourceInstanceId: options.instanceId,
@@ -1767,29 +1783,9 @@ export class SessionRegistry {
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
-      fence: async () => {
-        const daemonPortableState = this.localDaemonPortableState
-        await daemonPortableState?.pauseAndDrain()
-        let portableFenceHeld = false
-        let mirroringPaused = false
-        try {
-          await portableStateFence.acquire()
-          portableFenceHeld = true
-          await memory.pauseMirroringForTransfer()
-          mirroringPaused = true
-          await this.store.beginTransferFence()
-        } catch (error) {
-          if (mirroringPaused) await memory.resumeMirroringAfterTransfer()
-          if (portableFenceHeld) portableStateFence.release()
-          daemonPortableState?.resume()
-          throw error
-        }
-      },
+      fence: async () => await sourceFence.fence(),
       releaseFence: async () => {
-        await this.store.endTransferFence()
-        await memory.resumeMirroringAfterTransfer()
-        portableStateFence.release()
-        this.localDaemonPortableState?.resume()
+        await sourceFence.releaseFence()
         await machines.resumeAfterTransferFence()
         await resumeHostPressureAfterTransferFence()
       },
