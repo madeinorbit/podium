@@ -85,6 +85,7 @@ import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { importConfigSettings } from './settings-config-import'
 import { AccountsRepository } from './store/accounts'
 import { AgentProfilesRepository } from './store/agent-profiles'
+import { ArtifactUploadsRepository } from './store/artifact-uploads'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
 import { ConversationsRepository } from './store/conversations'
@@ -721,6 +722,8 @@ export class SessionStore {
   readonly agentProfiles: AgentProfilesRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
+  /** CLI bundle uploads in progress (POD-6963 design 2.4): their state; the bytes are blobs. */
+  readonly artifactUploads: ArtifactUploadsRepository
   /**
    * Janitor generation fencing + deterministic command outcomes [spec:SP-c29e].
    * A workspace repository: its command ledger (`maintenance_commands`) is
@@ -830,6 +833,7 @@ export class SessionStore {
     this.workflows = new WorkflowsRepository(this.queries)
     this.agentProfiles = new AgentProfilesRepository(this.queries)
     this.locks = new LocksRepository(this.queries)
+    this.artifactUploads = new ArtifactUploadsRepository(this.queries)
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
     this.effects = new EffectsRepository(this.queries)

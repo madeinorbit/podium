@@ -4,11 +4,11 @@ import { join } from 'node:path'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { clientSessionViews } from './test-support/session-views'
@@ -174,13 +174,13 @@ describe('appRouter', () => {
     const { call, registry } = await caller()
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
     try {
-      mkdirSync(join(base, 'iss_1', 'abc123'), { recursive: true })
-      writeFileSync(join(base, 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
+      mkdirSync(join(base, 'artifacts', 'iss_1', 'abc123'), { recursive: true })
+      writeFileSync(join(base, 'artifacts', 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
       const stubRpc = {
         readAsset: async () => ({ ok: false, error: 'unused' }),
         listDir: async () => ({ ok: false, path: '', entries: [], error: 'unused' }),
       }
-      registry.modules.issueArtifacts = new IssueArtifactStore(base, stubRpc)
+      registry.modules.issueArtifacts = artifactStoreOnDisk(base, stubRpc)
       // No daemon round-trip, no root allowlist: the bytes come from the store.
       const r = await call.files.read({
         issueId: 'iss_1',

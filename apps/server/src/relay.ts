@@ -2,7 +2,8 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { BlobStore } from '@podium/blob-store'
+import { type BlobStore, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { OneTimeCodeOperations } from '@podium/identity'
@@ -372,7 +373,8 @@ interface SessionRegistryOptions {
    * This workspace's user files (POD-6963 design 2.1): the handle the
    * composition root built with `forWorkspace`, on the state directory or on a
    * bucket. The artifact, upload and lake owners move onto it in POD-7052,
-   * POD-7054 and POD-7055; absent in tests that never touch user files.
+   * POD-7054 and POD-7055. Absent in tests: the artifact store then keeps its
+   * files under the state directory, as a self-hosted server does.
    */
   files?: BlobStore
   portableStateFence?: PortableStateFence
@@ -2467,16 +2469,23 @@ export class SessionRegistry {
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(
-      join(stateDir(), 'artifacts'),
-      {
+    // On the workspace's blob store since POD-7054: keys under `artifacts/`,
+    // today's paths on a self-hosted disk; CLI upload state in `artifact_uploads`.
+    const issueArtifacts = new IssueArtifactStore({
+      files:
+        options.files ??
+        new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
+          LOCAL_WORKSPACE_ID,
+        ),
+      uploads: store.artifactUploads,
+      rpc: {
         readAsset: async (i) => await rpc.readAsset(i),
         listDir: async (i) => await rpc.listDir(i),
       },
-      portableStateFence,
-    )
+      pendingFence: portableStateFence,
+    })
     // Files picked in a composer, held until a send or create claims them into
-    // an issue (POD-2148). A sibling of the artifact store, so a claim is a rename.
+    // an issue (POD-2148). A claim copies the file into the artifact store.
     const pendingUploads = new PendingUploadStore(
       join(stateDir(), 'pending-uploads'),
       portableStateFence,

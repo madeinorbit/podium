@@ -91,6 +91,10 @@ export const TABLE_MANIFEST = {
     'named launch profiles; global today with UNIQUE(name), which becomes per workspace',
   ),
   approval_requests: workspace('random', 'an agent session asking a member; follows sessions'),
+  artifact_uploads: workspace(
+    'client',
+    "a CLI bundle upload in progress on an issue (POD-7054); the client picks the upload id, and the bytes are chunk objects under the workspace's blob store",
+  ),
   automation_runs: workspace('random', 'runs of a workspace automation'),
   automations: workspace('random', 'owned by a member (owner_user_id)'),
   carried_sign_ins: workspace(

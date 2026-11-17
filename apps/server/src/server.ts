@@ -130,6 +130,7 @@ import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { memberLinks } from './member-links'
 import { registerMemberRoutes } from './member-routes'
+import { convertArtifactKeys } from './migrations/artifact-key-conversion'
 import { convertLakeToParts } from './migrations/lake-parts-conversion'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
@@ -719,6 +720,11 @@ export async function startServer(
     bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
   })
   const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
+  // Artifacts stored before the blob store under names that are not key segments move to
+  // their encoded keys, once, before anything serves them (POD-7054).
+  if (!recoveryOnly && fileStorage.backend === 'local') {
+    await convertArtifactKeys({ stateDir: stateDir(), log, fence: portableStateFence })
+  }
   const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   // A lake mirrored before the parted lake kept one file per segment incarnation;
   // split those into parts, once, before the mirror (built with the registry

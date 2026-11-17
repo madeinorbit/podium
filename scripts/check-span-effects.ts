@@ -79,8 +79,28 @@ interface AcceptedFinding {
 
 const ACCEPTED: readonly AcceptedFinding[] = [
   {
-    key: 'node:fs/promises.rm@apps/server/src/application/issue-attach-orchestrator.ts:27',
-    why: "the attach orchestrator's span reaches IssueArtifactStore.removeIssue through draft cleanup, and an rm(recursive) is not something a rollback takes back. This is the same capability as the four fire-and-forget sites the ledger §F left unsettled; POD-3260 could not demonstrate it, and this is the demonstration.",
+    key: 'node:fs/promises.readdir@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: "the attach orchestrator's span reaches IssueArtifactStore.removeIssue through draft cleanup. Since POD-7054 that is a prefix delete on the workspace's blob store (list, then delete each key: readdir, stat and unlink on a self-hosted disk, S3 requests on a bucket), and a rollback does not take a deleted object back. It replaced the rm(recursive) this entry named before; the capability is the one the ledger §F left unsettled, and POD-3260 could not demonstrate it.",
+  },
+  {
+    key: 'node:fs.isFile@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
+  },
+  {
+    key: 'node:fs.isDirectory@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
+  },
+  {
+    key: 'node:fs/promises.stat@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
+  },
+  {
+    key: 'node:fs/promises.unlink@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
+  },
+  {
+    key: '@smithy/core.send@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
   },
   {
     key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated@apps/server/src/application/issue-attach-orchestrator.ts:27',

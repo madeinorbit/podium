@@ -584,6 +584,9 @@ const PACKAGE_KIND: Readonly<Record<string, CapabilityKind>> = {
   // and deferring it past a rollback would lose the very diagnostic a corrupt
   // row is being reported for. The store's quarantine warnings live here.
   '@podium/logger': 'exempt',
+  // The AWS SDK's request sender, behind the S3 blob store adapter: every call is a
+  // request to the bucket, which a rollback cannot take back (POD-7054).
+  '@smithy/core': 'observable',
 }
 
 /** A port member's classification, and the sentence that justifies it. */
@@ -606,6 +609,18 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'packages/blob-store/src/local.ts#LocalBlobStore.writer': {
+    kind: 'opaque',
+    why: "The write callback the local blob store hands its transfer fence. Its body is the adapter's own put, delete or copy, declared in the same file and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.task': {
+    kind: 'opaque',
+    why: "The work the local blob store's per-key mutex runs; the body is the adapter's own file operation, declared at the call site in local.ts and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.release': {
+    kind: 'contained',
+    why: 'Resolves an in-process promise that hands the key to the next waiter; nothing outside the process can see it.',
+  },
   'apps/server/src/store/events.ts#EventFeedCapture.EventFeedCapture': {
     kind: 'contained',
     why: 'The event append capture names window changes through Ledger.commit in the event insert transaction; rollback discards the row and log entries together, and subscriber delivery follows the outermost commit.',

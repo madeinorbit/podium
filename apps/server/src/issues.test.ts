@@ -27,13 +27,13 @@ import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { llmClient } from './llm'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
 import type { SessionStore } from './store'
+import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
@@ -7146,7 +7146,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
   async function claimHarness() {
     const base = mkdtempSync(join(tmpdir(), 'podium-chat-claim-'))
     const h = await harness([sess('/wt')])
-    const artifacts = new IssueArtifactStore(join(base, 'artifacts'), {
+    const artifacts = artifactStoreOnDisk(base, {
       readAsset: async () => ({ ok: false, error: 'no worktree reads here' }),
       listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
     })
@@ -7407,7 +7407,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   })
 
   /**
-   * THE ONE TEST WITH NO FAKE STORE: a real {@link IssueArtifactStore} over a
+   * THE ONE TEST WITH NO FAKE STORE: a real `IssueArtifactStore` over a
    * real directory, snapshotting real bytes pulled through a stub daemon RPC and
    * reading them back out. The fakes above pin the command's decisions; this
    * pins that the bytes a snapshot WRITES are the bytes a read RETURNS — the
@@ -7427,7 +7427,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
         listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
       }
       const h = await harness([sess('/wt')])
-      h.deps.artifacts = new IssueArtifactStore(base, rpc)
+      h.deps.artifacts = artifactStoreOnDisk(base, rpc)
       const svc = await IssueService.create(h.deps)
       const issue = await svc.crud.create(svc.reports.store.serverWriter, {
         repoPath: '/r',

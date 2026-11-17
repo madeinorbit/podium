@@ -1,6 +1,17 @@
-import { randomBytes } from 'node:crypto'
-import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import {
+  BlobConditionFailed,
+  type BlobKey,
+  type BlobStore,
+  decodeKeySegment,
+  joinKey,
+  keySegment,
+  type PortableStateWriteFence,
+  padNumber,
+  parsePadded,
+} from '@podium/blob-store'
 import {
   ARTIFACT_BUNDLE_CAP_BYTES,
   ARTIFACT_FILE_CAP_BYTES,
@@ -17,17 +28,33 @@ import {
   normalizeMachinePath,
   resolveMachinePath,
 } from '@podium/model'
-import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
+import type { ArtifactUploadsRepository } from '../../store/artifact-uploads'
 
 /**
- * Permanent artifact snapshot store ([spec:SP-0fc9] #441).
+ * Permanent artifact snapshot store ([spec:SP-0fc9] #441), on the workspace's
+ * blob store (POD-6963 design 2.4).
  *
  * At `artifact-add` time the server pulls the file bytes from the owning daemon
- * (existing readAsset RPC, chunked for large files) and snapshots them under
- * `<state-dir>/artifacts/<issueId>/<artifactId>/<relpath...>`, so artifacts
- * survive tmp cleanup / worktree deletion / the machine going offline. The
- * stored copy is immutable — re-adding the same source path mints a NEW
- * artifactId (new-id-then-swap keeps served URLs consistent with content).
+ * (existing readAsset RPC, chunked for large files) and stores each member at
+ * `artifacts/<issueId>/<artifactId>/<relpath...>`, so artifacts survive tmp
+ * cleanup / worktree deletion / the machine going offline. On local disk that
+ * key is the path under the state directory it always was. The stored copy is
+ * immutable — re-adding the same source path mints a NEW artifactId
+ * (new-id-then-swap keeps served URLs consistent with content).
+ *
+ * CLI BUNDLE UPLOADS arrive as bounded packets. Each packet is one chunk object
+ * at `artifacts/.uploads/<issue>/<upload>/<member>/<offset>` (the member's index
+ * in the begin packet, the offset padded to 12 digits), written only if absent;
+ * a retried packet finds its key and compares bytes. The upload's state is a row
+ * of `artifact_uploads`, and a packet is accepted by a conditional update of its
+ * received bytes, so two processes receiving one upload are ordered by the
+ * database. Publishing composes each member's chunks, in key order, into its
+ * final key, then deletes the staging and the row. A chunk that is missing at
+ * publish fails it with "upload incomplete" and keeps the staging for the
+ * day-old sweep: nothing is published half.
+ *
+ * Writes are fenced by the local adapter itself during a server transfer
+ * (design 2.8); this store does not call the fence for blob writes.
  */
 
 /** Per-round-trip pull size — must stay under the daemon's MAX_ASSET_BYTES slice clamp. */
@@ -141,8 +168,57 @@ export interface ArtifactRpc {
   }>
 }
 
+/** The upload state this store needs (`ArtifactUploadsRepository`, structurally). */
+export type ArtifactUploadState = Pick<
+  ArtifactUploadsRepository,
+  'begin' | 'get' | 'advance' | 'delete' | 'deleteIssue' | 'createdBefore'
+>
+
+export interface IssueArtifactStoreOptions {
+  /** This workspace's user files. */
+  files: BlobStore
+  /** This workspace's `artifact_uploads` rows. */
+  uploads: ArtifactUploadState
+  rpc: ArtifactRpc
+  /**
+   * Fences the composer-upload directory writes that stay on local disk until
+   * pending uploads move onto the blob store (POD-7055). Blob writes are fenced
+   * by the local adapter.
+   */
+  pendingFence?: PortableStateWriteFence
+  now?: () => number
+}
+
+/** A stored member, streamed. */
+export interface ArtifactStream {
+  body: ReadableStream<Uint8Array>
+  contentType: string
+  /** The whole member's size; with a range, `body` holds only the clipped range. */
+  size: number
+  etag: string
+}
+
+/** Thrown when a publish finds its chunks do not cover a member. */
+export class UploadIncomplete extends Error {
+  override readonly name = 'UploadIncomplete'
+  constructor(detail: string) {
+    super(`upload incomplete: ${detail}`)
+  }
+}
+
 // Dot-prefixed directories are private staging, never public artifact refs.
 const ID_RE = /^(?!\.)[A-Za-z0-9._-]+$/
+
+const ARTIFACTS = 'artifacts'
+const UPLOADS = '.uploads'
+/** Chunk offsets: 12 digits holds the 100 MB per-file cap with room to spare. */
+const OFFSET_WIDTH = 12
+/** Member indexes: 4 digits holds the 200-file cap. */
+const MEMBER_WIDTH = 4
+const SWEEP_AGE_MS = 24 * 60 * 60 * 1000
+const SWEEP_BATCH = 200
+/** Tries of one packet against concurrent acceptances of the same upload. */
+const ACCEPT_ATTEMPTS = 8
 
 /** The added HTML/MD file (or the first file) is the bundle's primary entry. */
 function pickEntry(relPaths: string[]): string {
@@ -150,17 +226,123 @@ function pickEntry(relPaths: string[]): string {
   return primary ?? relPaths[0] ?? ''
 }
 
-export class IssueArtifactStore {
-  private readonly uploadLocks = new Map<string, Promise<void>>()
-  constructor(
-    private readonly baseDir: string,
-    private readonly rpc: ArtifactRpc,
-    private readonly writeFence?: PortableStateWriteFence,
-  ) {}
+function assertIds(...ids: string[]): void {
+  for (const id of ids) if (!ID_RE.test(id)) throw new Error('bad artifact ref')
+}
 
-  private artifactDir(issueId: IssueId, artifactId: ArtifactId): string {
-    if (!ID_RE.test(issueId) || !ID_RE.test(artifactId)) throw new Error('bad artifact ref')
-    return join(this.baseDir, issueId, artifactId)
+function artifactPrefix(issueId: IssueId, artifactId: ArtifactId): BlobKey {
+  assertIds(issueId, artifactId)
+  return joinKey(ARTIFACTS, issueId, artifactId)
+}
+
+/**
+ * A member's key: each path segment as a key segment, so a plain name keeps its
+ * path on disk and any other name is encoded (design 2.1).
+ */
+function memberKey(issueId: IssueId, artifactId: ArtifactId, relPath: string): BlobKey {
+  return joinKey(artifactPrefix(issueId, artifactId), ...relPath.split('/').map(keySegment))
+}
+
+/** {@link memberKey} for a write: a name that cannot be stored is refused by name. */
+function storableMemberKey(issueId: IssueId, artifactId: ArtifactId, relPath: string): BlobKey {
+  const prefix = artifactPrefix(issueId, artifactId)
+  try {
+    return joinKey(prefix, ...relPath.split('/').map(keySegment))
+  } catch {
+    throw new Error(`artifact member ${relPath} has a name too long to store`)
+  }
+}
+
+/** The member path a key under an artifact's prefix stands for. */
+function memberPath(prefix: BlobKey, key: BlobKey): string {
+  return key
+    .slice(prefix.length + 1)
+    .split('/')
+    .map(decodeKeySegment)
+    .join('/')
+}
+
+function uploadsPrefix(issueId: IssueId): BlobKey {
+  assertIds(issueId)
+  return joinKey(ARTIFACTS, UPLOADS, issueId)
+}
+
+function uploadPrefix(issueId: IssueId, uploadId: string): BlobKey {
+  assertIds(uploadId)
+  return joinKey(uploadsPrefix(issueId), uploadId)
+}
+
+function memberStaging(issueId: IssueId, uploadId: string, member: number): BlobKey {
+  return joinKey(uploadPrefix(issueId, uploadId), padNumber(member, MEMBER_WIDTH))
+}
+
+function chunkKey(issueId: IssueId, uploadId: string, member: number, offset: number): BlobKey {
+  return joinKey(memberStaging(issueId, uploadId, member), padNumber(offset, OFFSET_WIDTH))
+}
+
+async function bytesOf(body: ReadableStream<Uint8Array>): Promise<Buffer> {
+  return Buffer.from(await new Response(body).arrayBuffer())
+}
+
+type BeginPacket = Extract<ArtifactUploadPacket, { action: 'begin' }>
+
+function assertMemberPaths(packet: BeginPacket): void {
+  const paths = new Set<string>()
+  for (const file of packet.files) {
+    if (
+      file.path.includes('\\') ||
+      file.path.includes('\0') ||
+      /^[A-Za-z]:/.test(file.path) ||
+      file.path
+        .split('/')
+        .some(
+          (part) =>
+            !part ||
+            part === '.' ||
+            part === '..' ||
+            /[<>:"|?*]/.test(part) ||
+            [...part].some((char) => char.charCodeAt(0) < 32) ||
+            /[. ]$/.test(part) ||
+            /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part),
+        )
+    ) {
+      throw new Error('artifact members must have relative paths without traversal')
+    }
+    if (paths.has(file.path)) throw new Error('duplicate artifact member')
+    paths.add(file.path)
+    for (const part of file.path.split('/')) {
+      try {
+        keySegment(part)
+      } catch {
+        throw new Error(`artifact member ${file.path} has a name too long to store`)
+      }
+    }
+  }
+  if (!paths.has(packet.entry)) throw new Error('artifact entry must name a bundle member')
+  if (packet.files.reduce((sum, file) => sum + file.size, 0) > ARTIFACT_BUNDLE_CAP_BYTES) {
+    throw new Error('artifact bundle exceeds 500MB')
+  }
+}
+
+function parseBegin(json: string): BeginPacket {
+  const meta = ArtifactUploadPacket.parse(JSON.parse(json))
+  if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
+  return meta
+}
+
+export class IssueArtifactStore {
+  private readonly files: BlobStore
+  private readonly uploads: ArtifactUploadState
+  private readonly rpc: ArtifactRpc
+  private readonly pendingFence: PortableStateWriteFence | undefined
+  private readonly now: () => number
+
+  constructor(options: IssueArtifactStoreOptions) {
+    this.files = options.files
+    this.uploads = options.uploads
+    this.rpc = options.rpc
+    this.pendingFence = options.pendingFence
+    this.now = options.now ?? Date.now
   }
 
   /** Bounded packets let CLI files cross the agent relay without lifting its
@@ -171,134 +353,115 @@ export class IssueArtifactStore {
   ): Promise<{ snapshot: ArtifactSnapshot; path: string; title?: string } | undefined> {
     const packet = ArtifactUploadPacket.parse(raw)
     if (!ID_RE.test(issueId)) throw new Error('bad issue ref')
-    const key = `${issueId}/${packet.uploadId}`
-    const previous = this.uploadLocks.get(key)
-    let release!: () => void
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    this.uploadLocks.set(key, held)
-    await previous
-    const dir = join(this.baseDir, '.uploads', issueId, packet.uploadId)
-    try {
-      const write = async () => await this.transferWritable(issueId, dir, packet)
-      return this.writeFence ? await this.writeFence.runWriter(write) : await write()
-    } finally {
-      release()
-      if (this.uploadLocks.get(key) === held) this.uploadLocks.delete(key)
+    switch (packet.action) {
+      case 'abort':
+        await this.discardUpload(issueId, packet.uploadId)
+        return
+      case 'begin':
+        await this.beginUpload(issueId, packet)
+        return
+      case 'chunk':
+        await this.acceptChunk(issueId, packet)
+        return
+      case 'commit': {
+        const row = await this.uploads.get(issueId, packet.uploadId)
+        if (!row) throw new Error('no artifact upload is staged under this id')
+        return await this.publishStaged(
+          issueId,
+          packet.uploadId,
+          parseBegin(row.beginJson),
+          row.received,
+          asArtifactId(randomBytes(6).toString('hex')),
+        )
+      }
     }
   }
 
-  private async transferWritable(issueId: IssueId, dir: string, packet: ArtifactUploadPacket) {
-    if (packet.action === 'abort') {
-      await rm(dir, { recursive: true, force: true })
-      return
+  private async beginUpload(issueId: IssueId, packet: BeginPacket): Promise<void> {
+    assertMemberPaths(packet)
+    uploadPrefix(issueId, packet.uploadId)
+    // A retry or competing sender never resets an upload whose chunks have arrived.
+    const created = await this.uploads.begin({
+      issueId,
+      uploadId: packet.uploadId,
+      beginJson: JSON.stringify(packet),
+      received: packet.files.map(() => 0),
+      createdAt: this.now(),
+    })
+    if (!created) throw new Error('this artifact upload has already begun')
+  }
+
+  /**
+   * Accept one packet: write its chunk object if absent, then advance the
+   * member's received bytes where the row still holds what was read. A packet
+   * below the received count is a replay and must match the chunk stored at its
+   * offset.
+   */
+  private async acceptChunk(
+    issueId: IssueId,
+    packet: Extract<ArtifactUploadPacket, { action: 'chunk' }>,
+  ): Promise<void> {
+    const bytes = Buffer.from(packet.dataBase64, 'base64')
+    if (
+      bytes.toString('base64') !== packet.dataBase64 ||
+      bytes.length > ARTIFACT_UPLOAD_CHUNK_BYTES
+    ) {
+      throw new Error('invalid artifact chunk')
     }
-    if (packet.action === 'begin') {
-      const paths = new Set<string>()
-      for (const file of packet.files) {
-        if (
-          file.path.includes('\\') ||
-          file.path.includes('\0') ||
-          /^[A-Za-z]:/.test(file.path) ||
-          file.path
-            .split('/')
-            .some(
-              (part) =>
-                !part ||
-                part === '.' ||
-                part === '..' ||
-                /[<>:"|?*]/.test(part) ||
-                [...part].some((char) => char.charCodeAt(0) < 32) ||
-                /[. ]$/.test(part) ||
-                /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part),
-            )
-        ) {
-          throw new Error('artifact members must have relative paths without traversal')
-        }
-        if (paths.has(file.path)) throw new Error('duplicate artifact member')
-        paths.add(file.path)
-      }
-      if (!paths.has(packet.entry)) throw new Error('artifact entry must name a bundle member')
-      if (packet.files.reduce((sum, file) => sum + file.size, 0) > ARTIFACT_BUNDLE_CAP_BYTES) {
-        throw new Error('artifact bundle exceeds 500MB')
-      }
-      await mkdir(join(dir, 'files'), { recursive: true })
-      // Exclusive creation prevents a retry or competing sender from resetting
-      // an upload whose chunks have already arrived.
-      await writeFile(join(dir, 'meta.json'), JSON.stringify(packet), { flag: 'wx' })
-      try {
-        for (const file of packet.files) {
-          const target = join(dir, 'files', file.path)
-          await mkdir(dirname(target), { recursive: true })
-          const fh = await open(target, 'wx')
-          await fh.close()
-        }
-      } catch (error) {
-        await rm(dir, { recursive: true, force: true })
-        throw error
-      }
-      return
-    }
-    const meta = ArtifactUploadPacket.parse(
-      JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8')),
-    )
-    if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
-    if (packet.action === 'chunk') {
-      const file = meta.files.find((file) => file.path === packet.file)
+    for (let attempt = 0; attempt < ACCEPT_ATTEMPTS; attempt += 1) {
+      const row = await this.uploads.get(issueId, packet.uploadId)
+      if (!row) throw new Error('no artifact upload is staged under this id')
+      const meta = parseBegin(row.beginJson)
+      const member = meta.files.findIndex((file) => file.path === packet.file)
+      const file = meta.files[member]
       if (!file) throw new Error('unknown artifact member')
-      const bytes = Buffer.from(packet.dataBase64, 'base64')
-      if (
-        bytes.toString('base64') !== packet.dataBase64 ||
-        bytes.length > ARTIFACT_UPLOAD_CHUNK_BYTES
-      ) {
-        throw new Error('invalid artifact chunk')
-      }
-      const target = join(dir, 'files', file.path)
-      const size = (await stat(target)).size
-      if (packet.offset + bytes.length > file.size || packet.offset > size) {
+      const received = row.received[member] ?? 0
+      if (packet.offset + bytes.length > file.size || packet.offset > received) {
         throw new Error('artifact chunk exceeds the declared size or skips bytes')
       }
-      const fh = await open(target, 'r+')
-      try {
-        if (packet.offset < size) {
-          const existing = Buffer.alloc(bytes.length)
-          const read = await fh.read(existing, 0, bytes.length, packet.offset)
-          if (read.bytesRead !== bytes.length || !existing.equals(bytes)) {
-            throw new Error('artifact chunk conflicts with previously uploaded bytes')
-          }
-        } else {
-          let written = 0
-          while (written < bytes.length) {
-            const result = await fh.write(
-              bytes,
-              written,
-              bytes.length - written,
-              packet.offset + written,
-            )
-            if (result.bytesWritten === 0) throw new Error('short write uploading artifact')
-            written += result.bytesWritten
-          }
-          await fh.sync()
-        }
-      } finally {
-        await fh.close()
+      const key = chunkKey(issueId, packet.uploadId, member, packet.offset)
+      if (packet.offset < received) {
+        await this.assertSameChunk(key, bytes)
+        return
       }
+      if (bytes.length === 0) return
+      await this.putChunk(key, bytes)
+      const next = [...row.received]
+      next[member] = packet.offset + bytes.length
+      if (await this.uploads.advance(issueId, packet.uploadId, row.received, next)) return
+      // Another packet of this upload was accepted since the read: read again.
+    }
+    throw new Error('artifact upload is busy; send the packet again')
+  }
+
+  private async putChunk(key: BlobKey, bytes: Buffer): Promise<void> {
+    if (!this.files.conditionalWrites) {
+      if (await this.files.head(key)) await this.assertSameChunk(key, bytes)
+      else await this.files.put(key, bytes)
       return
     }
-    return await this.publishStaged(
-      issueId,
-      dir,
-      meta,
-      asArtifactId(randomBytes(6).toString('hex')),
-    )
+    try {
+      await this.files.put(key, bytes, { ifAbsent: true })
+    } catch (error) {
+      if (!(error instanceof BlobConditionFailed)) throw error
+      // Written by a replay of this packet, or a crash before its row advanced.
+      await this.assertSameChunk(key, bytes)
+    }
+  }
+
+  private async assertSameChunk(key: BlobKey, bytes: Buffer): Promise<void> {
+    const stored = await this.files.get(key)
+    if (!stored || !(await bytesOf(stored.body)).equals(bytes)) {
+      throw new Error('artifact chunk conflicts with previously uploaded bytes')
+    }
   }
 
   /**
    * Publish a complete staged upload under `artifactId` (an effect record's,
-   * POD-6420): its files move into the artifact dir by rename. Undefined when
-   * nothing is staged under `uploadId` (never begun, aborted, swept, or already
-   * published). Incomplete members refuse and leave the staging as it is.
+   * POD-6420): each member's chunks are composed into its artifact key.
+   * Undefined when nothing is staged under `uploadId` (never begun, aborted,
+   * swept, or already published). A member its chunks do not cover refuses with
+   * "upload incomplete" and leaves the staging as it is.
    */
   async publishUpload(
     issueId: IssueId,
@@ -306,46 +469,43 @@ export class IssueArtifactStore {
     artifactId: ArtifactId,
   ): Promise<PublishedUpload | undefined> {
     if (!ID_RE.test(issueId) || !ID_RE.test(uploadId)) throw new Error('bad upload ref')
-    const key = `${issueId}/${uploadId}`
-    const previous = this.uploadLocks.get(key)
-    let release!: () => void
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    this.uploadLocks.set(key, held)
-    await previous
-    const dir = join(this.baseDir, '.uploads', issueId, uploadId)
-    try {
-      const write = async (): Promise<PublishedUpload | undefined> => {
-        const text = await readFile(join(dir, 'meta.json'), 'utf8').catch(() => undefined)
-        if (text === undefined) return undefined
-        const meta = ArtifactUploadPacket.parse(JSON.parse(text))
-        if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
-        return await this.publishStaged(issueId, dir, meta, artifactId)
-      }
-      return this.writeFence ? await this.writeFence.runWriter(write) : await write()
-    } finally {
-      release()
-      if (this.uploadLocks.get(key) === held) this.uploadLocks.delete(key)
-    }
+    const row = await this.uploads.get(issueId, uploadId)
+    if (!row) return undefined
+    return await this.publishStaged(
+      issueId,
+      uploadId,
+      parseBegin(row.beginJson),
+      row.received,
+      artifactId,
+    )
   }
 
   private async publishStaged(
     issueId: IssueId,
-    dir: string,
-    meta: Extract<ArtifactUploadPacket, { action: 'begin' }>,
+    uploadId: string,
+    meta: BeginPacket,
+    received: readonly number[],
     artifactId: ArtifactId,
   ): Promise<PublishedUpload> {
-    for (const file of meta.files) {
-      if ((await stat(join(dir, 'files', file.path))).size !== file.size) {
-        throw new Error(`artifact member ${file.path} is incomplete`)
+    meta.files.forEach((file, member) => {
+      const have = received[member] ?? 0
+      if (have !== file.size) {
+        throw new UploadIncomplete(`${file.path} has ${have} of ${file.size} bytes`)
       }
+    })
+    const prefix = artifactPrefix(issueId, artifactId)
+    // The id is the record's: clear what a crashed run of the same record left.
+    await this.deletePrefix(prefix)
+    try {
+      for (const [member, file] of meta.files.entries()) {
+        await this.composeMember(issueId, uploadId, member, file, artifactId)
+      }
+    } catch (error) {
+      await this.deletePrefix(prefix).catch(() => {})
+      throw error
     }
-    const target = this.artifactDir(issueId, artifactId)
-    await rm(target, { recursive: true, force: true })
-    await mkdir(dirname(target), { recursive: true })
-    await rename(join(dir, 'files'), target)
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
+    await this.deletePrefix(uploadPrefix(issueId, uploadId))
+    await this.uploads.delete(issueId, uploadId)
     return {
       path: meta.path,
       ...(meta.title !== undefined ? { title: meta.title } : {}),
@@ -353,139 +513,79 @@ export class IssueArtifactStore {
     }
   }
 
-  /** The existing pending-upload timer also expires interrupted CLI transfers. */
-  async sweepUploads(now = Date.now()): Promise<void> {
-    const sweep = async () => {
-      const base = join(this.baseDir, '.uploads')
-      for (const issue of await readdir(base).catch(() => [] as string[])) {
-        for (const upload of await readdir(join(base, issue)).catch(() => [] as string[])) {
-          const dir = join(base, issue, upload)
-          const modified = (await stat(dir).catch(() => undefined))?.mtimeMs
-          if (
-            modified !== undefined &&
-            now - modified > 24 * 60 * 60 * 1000 &&
-            !this.uploadLocks.has(`${issue}/${upload}`)
-          ) {
-            await rm(dir, { recursive: true, force: true })
-          }
-        }
-      }
+  /** Stream one member's chunks, in key order, into its artifact key. */
+  private async composeMember(
+    issueId: IssueId,
+    uploadId: string,
+    member: number,
+    file: { path: string; size: number },
+    artifactId: ArtifactId,
+  ): Promise<void> {
+    const staging = memberStaging(issueId, uploadId, member)
+    const chunks: BlobKey[] = []
+    let covered = 0
+    for await (const entry of this.files.list(staging)) {
+      const offset = parsePadded(entry.key.slice(staging.length + 1), OFFSET_WIDTH)
+      if (offset !== covered) break
+      chunks.push(entry.key)
+      covered += entry.size
     }
-    if (this.writeFence) await this.writeFence.runWriter(sweep)
-    else await sweep()
+    if (covered !== file.size) {
+      throw new UploadIncomplete(`${file.path}: its chunks hold ${covered} of ${file.size} bytes`)
+    }
+    const files = this.files
+    let next = 0
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const key = chunks[next]
+        if (key === undefined) {
+          controller.close()
+          return
+        }
+        next += 1
+        const chunk = await files.get(key)
+        if (!chunk) {
+          controller.error(new UploadIncomplete(`${file.path}: chunk ${key} is missing`))
+          return
+        }
+        controller.enqueue(await bytesOf(chunk.body))
+      },
+    })
+    const written = await this.files.put(storableMemberKey(issueId, artifactId, file.path), body, {
+      contentType: artifactContentType(file.path),
+    })
+    if (written.size !== file.size) {
+      throw new UploadIncomplete(`${file.path} composed to ${written.size} of ${file.size} bytes`)
+    }
+  }
+
+  /** The hourly pending-upload timer also expires interrupted CLI transfers. */
+  async sweepUploads(now = this.now()): Promise<void> {
+    while (true) {
+      const stale = await this.uploads.createdBefore(now - SWEEP_AGE_MS, SWEEP_BATCH)
+      for (const { issueId, uploadId } of stale) await this.discardUpload(issueId, uploadId)
+      if (stale.length < SWEEP_BATCH) return
+    }
+  }
+
+  /** Delete an upload's staging, then its row. */
+  private async discardUpload(issueId: IssueId, uploadId: string): Promise<void> {
+    await this.deletePrefix(uploadPrefix(issueId, uploadId))
+    await this.uploads.delete(issueId, uploadId)
   }
 
   /**
-   * Snapshot the source path(s) into a fresh artifactId dir. A directory source
+   * Snapshot the source path(s) into a fresh artifactId. A directory source
    * becomes a bundle (recursive walk via the daemon's sandboxed dir listing);
-   * plain files land at their basename. Any pull/write failure removes the
-   * partial dir and rethrows — nothing half-registered.
+   * plain files land at their basename. Any pull/write failure removes what
+   * was written and rethrows — nothing half-registered.
    */
   async snapshot(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
-    const write = async () => await this.snapshotWritable(o)
-    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
-  }
-
-  /** Store browser-provided bytes as an issue artifact without first writing a
-   *  source file into a checkout or daemon upload directory. */
-  async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
-    const write = async () => await this.uploadWritable(o)
-    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
-  }
-
-  /**
-   * Take a pending chat upload's file dir as this artifact's dir, by rename
-   * (POD-2148): no bytes are re-read. Idempotent per `artifactId` — a retried
-   * claim whose move already happened finds the artifact in place.
-   */
-  async adopt(o: {
-    issueId: IssueId
-    artifactId: ArtifactId
-    fromDir: string
-    entry: string
-  }): Promise<ArtifactSnapshot> {
-    const write = async (): Promise<ArtifactSnapshot> => {
-      const dir = this.artifactDir(o.issueId, o.artifactId)
-      const target = join(dir, o.entry)
-      this.assertInBase(target)
-      const placed = await stat(target).catch(() => undefined)
-      if (!placed) {
-        await mkdir(dirname(dir), { recursive: true })
-        await rename(o.fromDir, dir)
-      }
-      const size = placed?.size ?? (await stat(target)).size
-      return {
-        artifactId: o.artifactId,
-        entry: o.entry,
-        files: [{ path: o.entry, size }],
-        sourcePaths: [],
-      }
-    }
-    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
-  }
-
-  /** Move an artifact dir out to `toDir` (the reverse of {@link adopt}): a
-   *  chat upload whose task failed to launch returns to pending (POD-2148).
-   *  Nothing to move, or a target already in place, is left as it is. */
-  async relinquish(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void> {
-    const write = async (): Promise<void> => {
-      const dir = this.artifactDir(o.issueId, o.artifactId)
-      if (!(await stat(dir).catch(() => undefined))) return
-      if (await stat(o.toDir).catch(() => undefined)) return
-      await mkdir(dirname(o.toDir), { recursive: true })
-      await rename(dir, o.toDir)
-    }
-    await (this.writeFence ? this.writeFence.runWriter(write) : write())
-  }
-
-  private async uploadWritable(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
-    if (
-      !o.filename ||
-      o.filename === '.' ||
-      o.filename === '..' ||
-      o.filename.includes('/') ||
-      o.filename.includes('\\') ||
-      o.filename.includes('\0')
-    ) {
-      throw new Error('artifact filename must be a plain filename')
-    }
-    const bytes = Buffer.from(o.dataBase64, 'base64')
-    if (bytes.length > ARTIFACT_FILE_CAP_BYTES) {
-      throw new Error(
-        `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
-      )
-    }
-    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
-    const dir = this.artifactDir(o.issueId, artifactId)
-    const target = join(dir, o.filename)
-    this.assertInBase(target)
-    try {
-      await mkdir(dir, { recursive: true })
-      const fh = await open(target, 'w')
-      try {
-        await fh.writeFile(bytes)
-        await fh.sync()
-      } finally {
-        await fh.close()
-      }
-      return {
-        artifactId,
-        entry: o.filename,
-        files: [{ path: o.filename, size: bytes.length }],
-        sourcePaths: [],
-      }
-    } catch (error) {
-      await rm(dir, { recursive: true, force: true }).catch(() => {})
-      throw error
-    }
-  }
-
-  private async snapshotWritable(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
     // MINT SITE for an ArtifactId — generated here, so the brand is applied here.
     const artifactId = o.artifactId ?? asArtifactId(randomBytes(6).toString('hex'))
-    const dir = this.artifactDir(o.issueId, artifactId)
+    const prefix = artifactPrefix(o.issueId, artifactId)
     // A keyed id may hold what an earlier, crashed run of the same record left.
-    if (o.artifactId) await rm(dir, { recursive: true, force: true })
+    if (o.artifactId) await this.deletePrefix(prefix)
     const machine = o.machineId ? { machineId: o.machineId } : {}
     const abs = (p: string) => resolveMachinePath(o.root, p)
     try {
@@ -515,7 +615,12 @@ export class IssueArtifactStore {
       let bundleBytes = 0
       const files: ArtifactManifestFile[] = []
       for (const { src, rel } of plan) {
-        const size = await this.pullFile({ ...machine, root: o.root }, src, join(dir, rel))
+        const size = await this.pullFile(
+          { ...machine, root: o.root },
+          src,
+          storableMemberKey(o.issueId, artifactId, rel),
+          rel,
+        )
         bundleBytes += size
         if (bundleBytes > ARTIFACT_BUNDLE_CAP_BYTES) {
           throw new Error(
@@ -531,9 +636,105 @@ export class IssueArtifactStore {
         sourcePaths: plan.map((file) => file.sourcePath),
       }
     } catch (err) {
-      await rm(dir, { recursive: true, force: true }).catch(() => {})
+      await this.deletePrefix(prefix).catch(() => {})
       throw err
     }
+  }
+
+  /** Store browser-provided bytes as an issue artifact without first writing a
+   *  source file into a checkout or daemon upload directory. */
+  async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
+    if (
+      !o.filename ||
+      o.filename === '.' ||
+      o.filename === '..' ||
+      o.filename.includes('/') ||
+      o.filename.includes('\\') ||
+      o.filename.includes('\0')
+    ) {
+      throw new Error('artifact filename must be a plain filename')
+    }
+    const bytes = Buffer.from(o.dataBase64, 'base64')
+    if (bytes.length > ARTIFACT_FILE_CAP_BYTES) {
+      throw new Error(
+        `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
+      )
+    }
+    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
+    await this.files.put(storableMemberKey(o.issueId, artifactId, o.filename), bytes, {
+      contentType: artifactContentType(o.filename),
+    })
+    return {
+      artifactId,
+      entry: o.filename,
+      files: [{ path: o.filename, size: bytes.length }],
+      sourcePaths: [],
+    }
+  }
+
+  /**
+   * Take a pending chat upload's file as this artifact's member (POD-2148): its
+   * bytes are copied to the artifact key, then the pending dir is removed
+   * (design 2.5, copy then delete). Idempotent per `artifactId` — a retried
+   * claim whose copy already happened finds the artifact in place.
+   */
+  async adopt(o: {
+    issueId: IssueId
+    artifactId: ArtifactId
+    fromDir: string
+    entry: string
+  }): Promise<ArtifactSnapshot> {
+    const key = storableMemberKey(o.issueId, o.artifactId, o.entry)
+    let size = (await this.files.head(key))?.size
+    if (size === undefined) {
+      const bytes = await readFile(join(o.fromDir, o.entry)).catch(async (error: unknown) => {
+        // A concurrent claim of the same upload copied it and removed the source.
+        if ((await this.files.head(key)) === undefined) throw error
+        return undefined
+      })
+      size =
+        bytes === undefined
+          ? ((await this.files.head(key))?.size ?? 0)
+          : (await this.files.put(key, bytes, { contentType: artifactContentType(o.entry) })).size
+    }
+    await this.fenced(async () => await rm(o.fromDir, { recursive: true, force: true }))
+    return {
+      artifactId: o.artifactId,
+      entry: o.entry,
+      files: [{ path: o.entry, size }],
+      sourcePaths: [],
+    }
+  }
+
+  /** Copy an artifact out to `toDir` and delete it (the reverse of
+   *  {@link adopt}): a chat upload whose task failed to launch returns to
+   *  pending (POD-2148). Nothing to move, or a target already in place, is left
+   *  as it is. */
+  async relinquish(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void> {
+    const prefix = artifactPrefix(o.issueId, o.artifactId)
+    const keys = await this.keysUnder(prefix)
+    if (keys.length === 0) return
+    if (await stat(o.toDir).catch(() => undefined)) return
+    await this.fenced(async () => {
+      // Written beside the target and renamed into place, so a crash never
+      // leaves a partial pending dir that a later relinquish would take as done.
+      const staging = `${o.toDir}.relinquish-${randomUUID()}`
+      try {
+        for (const key of keys) {
+          const stored = await this.files.get(key)
+          if (!stored) throw new Error(`artifact member ${key} vanished while moving it`)
+          const target = join(staging, ...memberPath(prefix, key).split('/'))
+          await mkdir(dirname(target), { recursive: true })
+          await writeFile(target, await bytesOf(stored.body))
+        }
+        await mkdir(dirname(o.toDir), { recursive: true })
+        await rename(staging, o.toDir)
+      } catch (error) {
+        await rm(staging, { recursive: true, force: true }).catch(() => {})
+        throw error
+      }
+    })
+    await this.deletePrefix(prefix)
   }
 
   /** Recursive sandboxed walk rooted at `dirAbs`; relpaths are relative to it. */
@@ -562,112 +763,121 @@ export class IssueArtifactStore {
     return out
   }
 
-  /** Chunked daemon pull of one file → durable local write. Returns byte size. */
+  /**
+   * Chunked daemon pull of one file, streamed into its member key. Returns the
+   * byte size. A failed or short pull errors the stream, so the put stores
+   * nothing.
+   */
   private async pullFile(
     target: { machineId?: MachineId; root: string },
     srcAbs: string,
-    destAbs: string,
+    key: BlobKey,
+    rel: string,
   ): Promise<number> {
-    this.assertInBase(destAbs)
-    const chunks: Buffer[] = []
+    const rpc = this.rpc
     let offset = 0
     let total: number | undefined
-    do {
-      const r = await this.rpc.readAsset({
-        ...target,
-        path: srcAbs,
-        offset,
-        length: PULL_CHUNK_BYTES,
-      })
-      if (!r.ok || r.dataBase64 == null) {
-        throw new Error(`cannot read ${srcAbs}: ${r.error ?? 'read failed'}`)
-      }
-      total = r.size ?? Buffer.from(r.dataBase64, 'base64').length
-      if (total > ARTIFACT_FILE_CAP_BYTES) {
-        throw new Error(
-          `${srcAbs} is ${total} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
-        )
-      }
-      const buf = Buffer.from(r.dataBase64, 'base64')
-      chunks.push(buf)
-      offset += buf.length
-      if (buf.length === 0 && offset < total) throw new Error(`short read pulling ${srcAbs}`)
-    } while (offset < (total ?? 0))
-    const bytes = Buffer.concat(chunks)
-    await mkdir(dirname(destAbs), { recursive: true })
-    const fh = await open(destAbs, 'w')
-    try {
-      await fh.writeFile(bytes)
-      await fh.sync()
-    } finally {
-      await fh.close()
-    }
-    return bytes.length
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (total !== undefined && offset >= total) {
+          controller.close()
+          return
+        }
+        const r = await rpc.readAsset({ ...target, path: srcAbs, offset, length: PULL_CHUNK_BYTES })
+        if (!r.ok || r.dataBase64 == null) {
+          controller.error(new Error(`cannot read ${srcAbs}: ${r.error ?? 'read failed'}`))
+          return
+        }
+        const buf = Buffer.from(r.dataBase64, 'base64')
+        total = r.size ?? buf.length
+        if (total > ARTIFACT_FILE_CAP_BYTES) {
+          controller.error(
+            new Error(
+              `${srcAbs} is ${total} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
+            ),
+          )
+          return
+        }
+        if (buf.length === 0 && offset < total) {
+          controller.error(new Error(`short read pulling ${srcAbs}`))
+          return
+        }
+        offset += buf.length
+        if (buf.length > 0) controller.enqueue(buf)
+        if (offset >= total) controller.close()
+      },
+    })
+    const written = await this.files.put(key, body, { contentType: artifactContentType(rel) })
+    return written.size
   }
 
-  /** Serve one stored file, traversal-guarded to the artifact dir. Null = 404. */
+  /**
+   * Stream one stored member, with an optional byte range clipped to it. Null
+   * when the ref, the path or the member does not exist.
+   */
+  async readStream(
+    issueId: IssueId,
+    artifactId: ArtifactId,
+    relPath: string,
+    range?: { offset: number; length: number },
+  ): Promise<ArtifactStream | null> {
+    let key: BlobKey
+    try {
+      key = memberKey(issueId, artifactId, relPath)
+    } catch {
+      return null
+    }
+    const stored = await this.files.get(key, range)
+    if (!stored) return null
+    return {
+      body: stored.body,
+      contentType: artifactContentType(relPath),
+      size: stored.size,
+      etag: stored.etag,
+    }
+  }
+
+  /** Read one stored member whole (or one range of it). Null = 404. */
   async read(
     issueId: IssueId,
     artifactId: ArtifactId,
     relPath: string,
     range?: { offset: number; length: number },
   ): Promise<{ bytes: Buffer; contentType: string; size: number } | null> {
-    let dir: string
-    try {
-      dir = this.artifactDir(issueId, artifactId)
-    } catch {
-      return null
-    }
-    const target = resolve(dir, relPath)
-    if (target !== dir && !target.startsWith(dir + sep)) return null
-    try {
-      const st = await stat(target)
-      if (!st.isFile()) return null
-      if (!range) {
-        return {
-          bytes: await readFile(target),
-          contentType: artifactContentType(target),
-          size: st.size,
-        }
-      }
-      const length = Math.min(range.length, Math.max(0, st.size - range.offset))
-      const buffer = Buffer.alloc(length)
-      const fh = await open(target, 'r')
-      let bytesRead = 0
-      try {
-        ;({ bytesRead } = await fh.read(buffer, 0, length, range.offset))
-      } finally {
-        await fh.close()
-      }
-      return {
-        bytes: buffer.subarray(0, bytesRead),
-        contentType: artifactContentType(target),
-        size: st.size,
-      }
-    } catch {
-      return null
+    const stored = await this.readStream(issueId, artifactId, relPath, range)
+    if (!stored) return null
+    return {
+      bytes: await bytesOf(stored.body),
+      contentType: stored.contentType,
+      size: stored.size,
     }
   }
 
-  /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
+  /** Delete one snapshot (artifact-remove / post-replace cleanup): a prefix delete. */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
-    const write = async () =>
-      await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
-    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
+    await this.deletePrefix(artifactPrefix(issueId, artifactId))
   }
 
-  /** Delete every snapshot of an issue (hard issue deletion). */
+  /** Delete every snapshot and staged upload of an issue (hard issue deletion). */
   async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
-    const write = async () => {
-      await rm(join(this.baseDir, issueId), { recursive: true, force: true })
-      await rm(join(this.baseDir, '.uploads', issueId), { recursive: true, force: true })
-    }
-    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
+    await this.deletePrefix(joinKey(ARTIFACTS, issueId))
+    await this.deletePrefix(uploadsPrefix(issueId))
+    await this.uploads.deleteIssue(issueId)
   }
 
-  private assertInBase(p: string): void {
-    const resolved = resolve(p)
-    if (!resolved.startsWith(resolve(this.baseDir) + sep)) throw new Error('path escapes store')
+  private async keysUnder(prefix: BlobKey): Promise<BlobKey[]> {
+    const keys: BlobKey[] = []
+    for await (const entry of this.files.list(prefix)) keys.push(entry.key)
+    return keys
+  }
+
+  /** List, then delete: a listing is never walked while it is being deleted. */
+  private async deletePrefix(prefix: BlobKey): Promise<void> {
+    for (const key of await this.keysUnder(prefix)) await this.files.delete(key)
+  }
+
+  private async fenced<T>(writer: () => Promise<T>): Promise<T> {
+    return this.pendingFence ? await this.pendingFence.runWriter(writer) : await writer()
   }
 }

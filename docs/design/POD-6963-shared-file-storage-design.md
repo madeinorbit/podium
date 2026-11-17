@@ -31,7 +31,9 @@ repository) and `docs/design/POD-6958-postgres-store-design.md` (branches
   stale writer in a fleet cannot replace newer bytes.
 - **Self-hosted converts its lake once.** A blocking, resumable upgrade step splits each
   existing lake file into parts, one segment at a time, and removes a source file only after
-  its parts are verified. Artifacts and uploads keep their paths and need no conversion.
+  its parts are verified. Artifacts keep their paths only where every path segment is a plain
+  key segment; a second one-time boot step renames each other segment under
+  `<state>/artifacts` to its encoded form (2.2). Uploads need no conversion.
 - **Readers take a byte source, not a path.** The shared transcript slice and index readers in
   `packages/harness` open files by path today. They change to read through a small
   random-access source; the daemon keeps a file-backed one, the server gets the lake's.
@@ -189,10 +191,22 @@ The object adapter accepts `local` too, so a self-hosted operator may point at a
 
 | Owner | Key (relative to the workspace) | Local disk (`local`) | Object store |
 |---|---|---|---|
-| Artifact member | `artifacts/<issue>/<artifact>/<rel>` | `<state>/artifacts/…` (today's path) | `<ws>/artifacts/…` |
-| CLI upload chunk | `artifacts/.uploads/<issue>/<upload>/<member>/<offset>` | `<state>/artifacts/.uploads/…` | `<ws>/artifacts/.uploads/…` |
+| Artifact member | `artifacts/<issue>/<artifact>/<rel>` | `<state>/artifacts/…` (today's path for plain names; others converted, below) | `<ws>/artifacts/…` |
+| CLI upload chunk | `artifacts/.uploads/<issue>/<upload>/<member index>/<offset>` | `<state>/artifacts/.uploads/…` | `<ws>/artifacts/.uploads/…` |
 | Composer upload | `pending-uploads/<uuid>/file/<name>` | `<state>/pending-uploads/…` (today's path) | `<ws>/pending-uploads/…` |
 | Lake part | `transcripts/<machine>/<native>/<incarnation>/<part>` | `<state>/transcripts/…` (converted, 2.3.1) | `<ws>/transcripts/…` |
+
+**Artifact names on a self-hosted disk (POD-7054).** Each segment of an artifact member's
+relative path becomes a key segment: a plain name keeps today's path, any other name (spaces,
+non-ASCII, other punctuation) is stored under its `~` + base32 form. Members stored before the
+blob store under such names are renamed once by a blocking, idempotent boot step
+(`migrations/artifact-key-conversion.ts`), after the store migrations and only on the local
+backend: it walks `<state>/artifacts` deepest first (skipping `.uploads` and temp files),
+renames each non-plain segment, takes a present target with the same bytes as done, and writes a
+done marker in the state directory so later boots skip the walk. A name that cannot be encoded
+(not plain and over 158 UTF-8 bytes) is refused for new uploads and snapshots with an error
+naming the member; an existing one is left in place, logged once, and reads of it answer not
+found. The conversion never fails the boot.
 
 ### 2.3 Transcripts: one parted lake
 

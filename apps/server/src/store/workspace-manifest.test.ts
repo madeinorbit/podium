@@ -385,4 +385,29 @@ describe('workspace table manifest', () => {
     for (const key of named(WORKSPACE_SECRET_KEYS))
       expect(keyIn(INSTALL_SECRET_KEYS, key), key).toBe(false)
   })
+
+  /**
+   * Tables created after the column migration follow POD-6959's key rules from the start
+   * (design 2.2 and 2.3): the primary key and every index lead with workspace_id, so the keys
+   * migration (POD-7024) has nothing to rebuild in them.
+   */
+  const BORN_WORKSPACE_KEYED = ['artifact_uploads'] as const
+
+  it('leads every key of a table created after the column migration with workspace_id', () => {
+    const offending: string[] = []
+    for (const name of BORN_WORKSPACE_KEYED) {
+      expect(manifest[name]?.class).toBe('workspace')
+      const indexes = db.prepare('SELECT name FROM pragma_index_list(?)').all(name) as {
+        name: string
+      }[]
+      expect(indexes.length).toBeGreaterThan(1)
+      for (const { name: index } of indexes) {
+        const [first] = db
+          .prepare('SELECT name FROM pragma_index_info(?) WHERE seqno = 0')
+          .all(index) as { name: string }[]
+        if (first?.name !== 'workspace_id') offending.push(`${name}.${index}`)
+      }
+    }
+    expect(offending).toEqual([])
+  })
 })

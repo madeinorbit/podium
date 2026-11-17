@@ -3752,3 +3752,34 @@ export const issuePanelStates = sqliteTable('issue_panel_states', {
   updatedAt: text('updated_at').notNull(),
   ...workspaceColumn(),
 })
+/**
+ * A CLI bundle upload in progress (POD-6963 design 2.4, POD-7054). The bytes are
+ * chunk objects in the workspace's blob store under
+ * `artifacts/.uploads/<issue>/<upload>/…`; this row is the upload's state, which
+ * a `meta.json` beside the bytes held before. No foreign key to `issues`: a hard
+ * issue deletion removes the row and the staging together
+ * (`IssueArtifactStore.removeIssue`), and the day-old sweep removes the rest.
+ */
+export const artifactUploads = sqliteTable(
+  'artifact_uploads',
+  {
+    issueId: text('issue_id').$type<IssueId>().notNull(),
+    /** The client's upload UUID. */
+    uploadId: text('upload_id').notNull(),
+    /** The `begin` packet as JSON: the members, their declared sizes, the entry, path and title. */
+    beginJson: text('begin_json').notNull(),
+    /**
+     * Bytes received per member, a JSON array in the begin packet's member order.
+     * A packet is accepted by a conditional update on this value, so two server
+     * processes receiving packets of one upload are ordered by the database.
+     */
+    receivedJson: text('received_json').notNull(),
+    /** Epoch ms; the day-old sweep reads it. */
+    createdAt: integer('created_at').notNull(),
+    ...workspaceColumn(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.issueId, t.uploadId], name: 'artifact_uploads_pk' }),
+    index('idx_artifact_uploads_created').on(t.workspaceId, t.createdAt),
+  ],
+)
