@@ -465,7 +465,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     sessionId: SessionId,
     label: string,
   ): Promise<{ held: HeldEngine; address: string | undefined } | undefined> {
-    let hold
+    let hold: Awaited<ReturnType<EngineProcessOwner['reattachEngine']>>
     try {
       hold = await owner.reattachEngine({ label, fromSeq: 'tail', sessionId })
     } catch (err) {
@@ -489,7 +489,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     label: string,
     session: EngineAttachment,
   ): Promise<HeldEngine | undefined> {
-    let welcome
+    let welcome: Awaited<EngineAttachment['ready']>
     try {
       welcome = await session.ready
     } catch (err) {
