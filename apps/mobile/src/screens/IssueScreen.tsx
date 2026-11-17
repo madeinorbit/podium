@@ -258,7 +258,7 @@ const IssueContent = observer(function IssueContent({
   const agents = sessions.filter((session) => session.agentKind !== 'shell')
   const parentEdge = resolveEdgeFromPool(pool, issue.parentId)
   const parent = parentEdge.render === 'issue' ? parentEdge.resolution.value : undefined
-  const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
+  const openIssue = (id: string) => router.push(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
   const askingSession = sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]

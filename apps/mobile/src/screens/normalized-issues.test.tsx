@@ -8,7 +8,7 @@ import {
   type IssueUserStateWire,
   type RepoProjection,
 } from '@podium/model'
-import { act, cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,7 +21,19 @@ import {
   type ServerProfileContextValue,
 } from '../client/server-profile-context'
 
-afterEach(cleanup)
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  back: vi.fn(),
+  hasBack: false,
+}))
+afterEach(() => {
+  cleanup()
+  navigation.push.mockClear()
+  navigation.replace.mockClear()
+  navigation.back.mockClear()
+  navigation.hasBack = false
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -33,7 +45,7 @@ vi.mock('expo-haptics', () => ({
 vi.mock('expo-router', () => ({
   Stack: { Screen: () => null, SearchBar: () => null },
   useLocalSearchParams: () => ({ issueId: 'root', missionId: 'root' }),
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
+  useRouter: () => ({ ...navigation, canGoBack: () => navigation.hasBack }),
   usePathname: () => '/issue/root',
   useNavigation: () => ({ setOptions: vi.fn(), dispatch: vi.fn() }),
 }))
@@ -281,6 +293,33 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       expect(screen.getByText('The normalized description.')).toBeTruthy()
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
     }
+  })
+
+  it.each([
+    false,
+    true,
+  ])('pushes a sub-task immediately and retains the parent detail when history is %s', async (hasBack) => {
+    navigation.hasBack = hasBack
+    const children = Array.from({ length: 6 }, (_, index) => ({
+      ...projection,
+      id: asIssueId(`child ${index}`),
+      seq: 43 + index,
+      title: `Detail child ${index}`,
+      parentId: projection.id,
+      needsHuman: false,
+      asked: undefined,
+    }))
+    await renderWithMobileStore(<IssueScreen />, {
+      ...fixture,
+      issueProjections: [projection, ...children],
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'See all sub-tasks' }))
+    const expanded = screen.getByTestId('sub-issues-card')
+    fireEvent.click(screen.getByRole('button', { name: /Detail child 5/ }))
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith('/issue/child%205')
+    expect(navigation.replace).not.toHaveBeenCalled()
+    expect(screen.getByTestId('sub-issues-card')).toBe(expanded)
+    expect(screen.getByRole('button', { name: /Detail child 5/ })).toBeTruthy()
   })
 
   it('renders an outstanding question whose historical asker is unknown', async () => {
