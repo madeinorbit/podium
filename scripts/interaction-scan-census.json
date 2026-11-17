@@ -386,18 +386,18 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversationBody/SessionConversationBody/attachments",
       "rule": "reader-summary",
-      "tokens": "28fac69357ff1ea0590c99ed07488776d1a5412a98772214eb8f1152e6fa0645",
+      "tokens": "5681a4847e76ed82fefc0cc503f48b9d1278efdaed85a4ae1a8262d4cd8dfdea",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "8603cff01279f864f16f23a32ff95e337f591abc51b98d37657f09f7f3fec50c",
+      "fingerprint": "395faeaa66a3262d1fa9fa3a35a5a6b4e36bba4b95f0e0afcacb767ae843d998",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SessionConversationBody/SessionConversationBody/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: 13c3494bfee2c20c01eed0a9aeb67d34429c50582037517e3e599ae0c246047f.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: 13c3494bfee2c20c01eed0a9aeb67d34429c50582037517e3e599ae0c246047f. Predecessor: 8603cff01279f864f16f23a32ff95e337f591abc51b98d37657f09f7f3fec50c. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1225,18 +1225,18 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen/attachments",
       "rule": "reader-summary",
-      "tokens": "33c9c2f4ed83c53a20a550348d5ebd0f4f6cbbec3f7b06cceb97c31d0bdeae1a",
+      "tokens": "8a9341517b5846986ada488e022646918e8b594e90fad8c29ea8cb7eb1a23647",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "26ab3e6b2650b5c9a163022a3517964fb69a05c5334fe19606e806c26f994f37",
+      "fingerprint": "b89a57b9d441044cfc6696cf9500fd84e9b53b21e8b7fee6b23d2612438093dd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SuperagentScreen/SuperagentScreen/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: a30fe2cc4820779b03e2eebd4e85b5ab7b3e7fe715abe0ab416ea27f178a6647.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: a30fe2cc4820779b03e2eebd4e85b5ab7b3e7fe715abe0ab416ea27f178a6647. Predecessor: 26ab3e6b2650b5c9a163022a3517964fb69a05c5334fe19606e806c26f994f37. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3203,7 +3203,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -3225,7 +3225,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -3791,16 +3791,15 @@
       "tokens": "fff4ccbd884e5acd76b608d8d527e5be95587c29cdf89be5029d2a7527ea7605",
       "gate": [],
       "origin": [
-        "1d0c2bf6eb5238d59ecee8e760a15543fc72d0c75f7fb2212df3a652e029ec17",
-        "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
+        "1d0c2bf6eb5238d59ecee8e760a15543fc72d0c75f7fb2212df3a652e029ec17"
       ],
-      "fingerprint": "57e69a6af069d79e10675d2acbf030e449d96187d2bfe024d60fb69802bdf76b",
+      "fingerprint": "8bdd40a73dbc5e540f725601af8700b0c744d5542fca9164fe41d7cb85c7dc70",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-2450 review correction: async reply validation and deduplication moved into the existing shared ConversationService; the same pending queue and send lifecycle are used. Reader multiplicity, classification and inherited collection debt are unchanged. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-2450 review correction: async reply validation and deduplication moved into the existing shared ConversationService; the same pending queue and send lifecycle are used. Reader multiplicity, classification and inherited collection debt are unchanged. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained. Predecessor: 57e69a6af069d79e10675d2acbf030e449d96187d2bfe024d60fb69802bdf76b. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3939,16 +3938,249 @@
         "then:1531158643b45d381870f55743d4f3d5cf1efeeee1dd221b161aaca7afa2a4fe"
       ],
       "origin": [
-        "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
       ],
-      "fingerprint": "3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893",
+      "fingerprint": "3314c8d8c10a6d2c4c5b48e779da67113239bcd5b173cb372cbbf48af92912e1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useAttachments/upload/useCallback:callback/setAttachments:callback/map:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0164c72d8af676401717dcc0a921a84a21aeab509c84a5fb38f10e429ee38e26.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 0164c72d8af676401717dcc0a921a84a21aeab509c84a5fb38f10e429ee38e26. Predecessor: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/attachments",
+      "rule": "consume:map",
+      "tokens": "ec9ac37905c64b05e27895045bb0ad8ba560131b7a1dab819d2c25e091da1db2",
+      "gate": [
+        "then:8d1ec15dca5c06afb5d309c13a138a7c2fa9a76f8cd4c27c36493b56fc3484ff"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "463a8b924172860c332a13992b6d251a089d6bef819685192ed4f770e8a1cd36",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/attachments while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/processFiles/useCallback:callback/map:callback",
+      "rule": "helper-consumer",
+      "tokens": "b166e508e6349574cdf239bd19a9a998a5abbf3134c5f9ae2c17cd752919064c",
+      "gate": [
+        "exit:then:ed0a6b784903a3453daee49f8b8efbc7f6711891eeb4db7e7c6e8d0b37a2b199"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "b681324b0fd6baddd9b057bd207fc9b9c5d38d8f9f8834942169d8404a3990e0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/processFiles/useCallback:callback/map:callback while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/ready/useCallback:callback/legacyPaths",
+      "rule": "consume:flatMap",
+      "tokens": "4dd9f60bf7bed6a8b8e2c4ab03c8dafcfc0310cc2e837e999869025a6eb950fd",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "56d76cd88bd577fa44eb8fe3f707f172589ff5f37bd883d2e1d8750485ae5141",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/ready/useCallback:callback/legacyPaths while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/ready/useCallback:callback/paths",
+      "rule": "consume:flatMap",
+      "tokens": "12b1dbbb4cd4184e282952ca6986a8bbf2a1c16e5b844aec7764a88d9e892c8b",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "46c6c6e6bb498fc94b2d5e618212ad16d5673f9bbde1028d54562ff0d95067ed",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/ready/useCallback:callback/paths while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/ready/useCallback:callback/readyOnes",
+      "rule": "consume:filter",
+      "tokens": "93c1a31ef6e5fab2250023e5ec0652b35c2ba45acea3efffa655b81abf2ea6b8",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "2e724fce2e86680087eb82ce93892b2fe1170cce16eb4ebe86757e9f0dd58e13",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/ready/useCallback:callback/readyOnes while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/ready/useCallback:callback/refs",
+      "rule": "consume:flatMap",
+      "tokens": "d84200c23e811068380dcb6e093fac356c4d4aa41d314da7a1faf4e3eac96b33",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "cbf65df92720d2163f79a6dd779c3a3b363bcd53a7c44c46a669dab557ca47de",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/ready/useCallback:callback/refs while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/ready/useCallback:callback/tags",
+      "rule": "consume:map",
+      "tokens": "b6be40d038e2a15c74b997fc6833e5d2eb23c43a519080afc03298eb14c5b4bc",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "9cf769477c697e19e00a77a123900d034a2afb626040fff1005bf0d6eca28d80",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/ready/useCallback:callback/tags while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/setAttachments/useCallback:callback",
+      "rule": "helper-consumer",
+      "tokens": "68f887a7cd253a9d41b6eac00884fbf345734aef28bb2b36107e2ab44d09899a",
+      "gate": [
+        "exit:then:7cbb3dda517cef0e15b2d03a79992e0e0d57e616f846209524ab02e1f842c176"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "1eb3b696a7fc05374c90e683dc91ade89632e5d739729fcaaf5dd989f2190d27",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/setAttachments/useCallback:callback while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/uploading",
+      "rule": "consume:some",
+      "tokens": "0094f21c266e7e09c01bbb2845ed53cbf08ee815b6aa026855a79c7031a60664",
+      "gate": [],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "186e98f07bf8c2a5a0cf0d5719c838d87e6faa25aa352c2c780fd3cc98ce519d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/uploading while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/useEffect:callback",
+      "rule": "loop:for-of",
+      "tokens": "2869e41d44a288990d127795b9d7d0d3bb213425cf4279ed1d819d74aad417d7",
+      "gate": [
+        "exit:then:156f1b0ca1f912e3277a2632652b8eed7189e8d21058533a01f9d4fbb829223c",
+        "exit:then:f088813c51b2f921f398c6eaef7ca2512fc728374c7b86387b8b4f9bb5cb2841",
+        "exit:then:b84612cbefd4258fe768c31463698e3ee58e39507e0d66dda4d286826650f931"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "9e510878cce44eb4b90f064b1fd3a3a60ea4405451d3e4333f6105138fc6e8ca",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/useEffect:callback while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/useEffect:callback",
+      "rule": "helper-consumer",
+      "tokens": "9c37cd37f9c2eaac62951b00d92026b666268c12caf7b4163a4356ea2e0aa18f",
+      "gate": [
+        "exit:then:156f1b0ca1f912e3277a2632652b8eed7189e8d21058533a01f9d4fbb829223c",
+        "exit:then:f088813c51b2f921f398c6eaef7ca2512fc728374c7b86387b8b4f9bb5cb2841",
+        "exit:then:b84612cbefd4258fe768c31463698e3ee58e39507e0d66dda4d286826650f931"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "f7c720bd13737bb208f8e9dee4f3f627b43bc90e880e8d592870979d4cb1f75b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/useEffect:callback while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-attachments.ts",
+      "holder": "useAttachments/useEffect:callback/again",
+      "rule": "consume:filter",
+      "tokens": "591bb1bb4385a6dc1cf8f43a4e13d168f487c0b2d47cf7fa88e30c77448aa0ea",
+      "gate": [
+        "exit:then:f088813c51b2f921f398c6eaef7ca2512fc728374c7b86387b8b4f9bb5cb2841",
+        "exit:then:b84612cbefd4258fe768c31463698e3ee58e39507e0d66dda4d286826650f931"
+      ],
+      "origin": [
+        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
+      ],
+      "fingerprint": "6f0c596d78829ebb9f92d062d675255915aa3ef609536cc400ee8aaae55392f9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2607",
+      "trigger": "Invocation of useAttachments/useEffect:callback/again while reading or editing the current composer attachment list.",
+      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
     },
     {
       "file": "apps/web/src/features/chat/use-chat-context.ts",
@@ -3968,24 +4200,6 @@
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/attachments",
-      "rule": "reader-summary",
-      "tokens": "b6e8998bc3c3c0e88c7bee93beef748b9b69af966afac4527d6abe384c484b6e",
-      "gate": [],
-      "origin": [
-        "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
-      ],
-      "fingerprint": "77b22670efd210f0e978426a15500f3d58a5945286179438f43d34cb9c8deb23",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatSurface/attachments",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 18f7f7969b97f75e9488ee6fcc9f6a5967852fcd4ec1620d84c03f9868d4734d.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
@@ -4085,7 +4299,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -4105,7 +4319,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -13824,7 +14038,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -20203,7 +20417,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -29457,7 +29671,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -32336,7 +32550,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -34819,7 +35033,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch\u2026\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35491,7 +35705,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35510,7 +35724,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35528,7 +35742,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35547,7 +35761,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35566,7 +35780,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -36209,7 +36423,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
@@ -36365,7 +36579,7 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/view",
       "rule": "reader-summary",
-      "tokens": "ee13fecccf5f0dfe0181b5bb681a6a3774cda25629532df8495d389f69f96ea5",
+      "tokens": "8f90ec5b589fc2b0d1d0d9fc1b1b6ef4b0a5ddf5168d77ae631ee50c385d1ac5",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36378,20 +36592,20 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "309eec84f89b7f4657d01c52b58eb9f195135a1324f68f5885a64bcb512f370c",
+      "fingerprint": "894987c250bd991018f47d6ab6d55bb29149b208a9167af6753f15d960417a91",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",
       "trigger": "Opening the addressed session chat or its task offer summary.",
       "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
-      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained. Predecessor: 309eec84f89b7f4657d01c52b58eb9f195135a1324f68f5885a64bcb512f370c. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
     },
     {
       "file": "apps/mobile/src/components/task-detail/TaskOfferSummary.tsx",
       "holder": "SessionSummary/SessionSummary/conversation",
       "rule": "reader-summary",
-      "tokens": "c5a8a37be8e5e4419466a22261acb7ff6bdb8334d1bcd00b2c540858cc625555",
+      "tokens": "cab3a4731c9f863d38b95f3fd936800877c4694e66e3c59468ac5361dc23b082",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36404,13 +36618,13 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "fa2cdf4fa2156d5b322f2bc90fca15c8490517506d9bf42d0171b003900f1a3c",
+      "fingerprint": "ac65b776bf3570c6f7caa4e706840f451e4920e846309b168271934026d9c132",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",
       "trigger": "Opening the addressed session chat or its task offer summary.",
       "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
-      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained. POD-2450 lifecycle correction: native paired results retire pending slots again; the former live-selection callback and history-supersession helper are removed. Existing classifications, owners, multiplicities and collection-work debt are retained. Predecessor: fa2cdf4fa2156d5b322f2bc90fca15c8490517506d9bf42d0171b003900f1a3c. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
     },
     {
@@ -36602,18 +36816,18 @@
       "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
       "holder": "NewIssueScreen/NewIssueScreen/attachments",
       "rule": "reader-summary",
-      "tokens": "60c464578662e737e173a62cf9cae134d98d7f3a22554fe83c26d563d60d32d7",
+      "tokens": "cee6817c4fab007729be098c5b2e76d9afc07906f567dc4b1be5940171a02381",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "c278116e74e6563293664fe4ce55bb45cee6d464dd76df13b264443b07afa8b9",
+      "fingerprint": "e81cce2220af36a7831c94b33fc7856f62a15ec9cb65c5247e4b0600783fd91f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The visible New Task compose sheet reads its existing shared catalog and local attachment intake.",
       "bound": "Current compose attachment chips and the existing upload procedure; no new global attachment enumeration is introduced.",
-      "reason": "The pending upload option reuses useComposerAttachments and its existing reader-summary taint. It adds no record store or new global read, and no repair of inherited collection debt is claimed. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: c6ea3e5b7bca90bf7c66917385c10edfe01b2c83e5cf22702b9ea85c7bf90767.",
+      "reason": "The pending upload option reuses useComposerAttachments and its existing reader-summary taint. It adds no record store or new global read, and no repair of inherited collection debt is claimed. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: c6ea3e5b7bca90bf7c66917385c10edfe01b2c83e5cf22702b9ea85c7bf90767. Predecessor: c278116e74e6563293664fe4ce55bb45cee6d464dd76df13b264443b07afa8b9. POD-2591 changes the attachment hook or initial-prompt reconciliation; classification and bound are unchanged.",
       "guard": "NewIssueScreen.selectors.test.tsx covers dismissal, submit paths and held attachment refs; useComposerAttachments.test.tsx compares issue and unchanged chat payloads."
     },
     {
