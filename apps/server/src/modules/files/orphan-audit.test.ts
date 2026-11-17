@@ -127,7 +127,14 @@ async function fixture(): Promise<Fixture> {
       const issueId = asIssueId(id)
       await store.issues.upsertIssue(
         scope,
-        issueRowFixture({ id, seq: Number(id.replace(/\D/g, '')) || 1, createdAt: AT }),
+        issueRowFixture({
+          id,
+          seq: Number(id.replace(/\D/g, '')) || 1,
+          parentId: null,
+          machineId: null,
+          worktreePath: null,
+          createdAt: AT,
+        }),
       )
       for (const [position, artifactId] of artifacts.entries()) {
         await store.issues.panel.save(scope, 'issuePanelArtifact', {
@@ -152,7 +159,8 @@ async function fixture(): Promise<Fixture> {
         sizeBytes: cursor,
       })
       await mirror.startIncarnation(machine, nativeId, { device: '1', inode: '1' }, AT)
-      expect(await mirror.setMirrorCursor(machine, nativeId, 0, cursor, AT)).toBe(true)
+      if (cursor > 0)
+        expect(await mirror.setMirrorCursor(machine, nativeId, 0, cursor, AT)).toBe(true)
     },
     async rotate(nativeId, archived, cursor) {
       const active = await mirror.activeIncarnation(M1, nativeId)
@@ -379,7 +387,8 @@ describe('the orphan audit', () => {
       'transcripts/m1/s1.jsonl',
       'transcripts/m1/s1/2/00000003',
       'transcripts/m1/s1/00000002/00000003/x',
-      'transcripts/m1/~MFRGG/00000002/00000003',
+      // A valid key segment that is not the canonical encoding of any id.
+      'transcripts/m1/~mfrgga/00000002/00000003',
       'artifacts/m1/s1/00000002/00000003',
     ]) {
       expect(lakePart(blobKey(key)), key).toBeUndefined()

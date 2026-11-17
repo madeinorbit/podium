@@ -770,7 +770,9 @@ describe.each([
       expect((await db.artifactUploads.get(issueId, uploadId))?.received).toEqual([2, 2])
       const published = await two.publishUpload(issueId, uploadId, asArtifactId('fleet'))
       expect(published?.snapshot.files).toHaveLength(2)
-      expect((await one.read(issueId, asArtifactId('fleet'), 'b.md'))?.bytes.toString()).toBe('bb')
+      expect((await readWhole(one, issueId, asArtifactId('fleet'), 'b.md'))?.bytes.toString()).toBe(
+        'bb',
+      )
     })
   })
 })

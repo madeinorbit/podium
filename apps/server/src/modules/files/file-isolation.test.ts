@@ -167,7 +167,16 @@ async function twoWorkspaces() {
       lake: store.conversations.mirror,
     }
 
-    await store.issues.upsertIssue(scope, issueRowFixture({ id: ISSUE, createdAt: AT }))
+    await store.issues.upsertIssue(
+      scope,
+      issueRowFixture({
+        id: ISSUE,
+        parentId: null,
+        machineId: null,
+        worktreePath: null,
+        createdAt: AT,
+      }),
+    )
     await upload(artifacts, PUBLISHED_UPLOAD, `report of ${tag}`)
     expect(await artifacts.publishUpload(ISSUE, PUBLISHED_UPLOAD, ARTIFACT)).toBeDefined()
     await store.issues.panel.save(scope, 'issuePanelArtifact', {
