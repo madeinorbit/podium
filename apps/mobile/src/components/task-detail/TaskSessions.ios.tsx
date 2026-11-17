@@ -62,7 +62,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   if (!session) return null
   const view = here(session.row) as unknown as SessionView | undefined
   if (!view) return null
-  const name = sessionTitle(session)
+  const name = sessionTitle(view)
   const role = session.sessionId === issue.coordinatorSessionId ? 'Coordinator' : 'Agent'
   const agent = `${issueAgentLabel(session.agentKind)} · ${role}`
   const model = modelName(session.agentKind, readoutModel(view))

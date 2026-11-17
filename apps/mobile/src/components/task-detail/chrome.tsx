@@ -324,7 +324,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: color.groupedCard,
   },
-  referenceGround: { ...StyleSheet.absoluteFillObject, backgroundColor: color.groupedCard },
+  referenceGround: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: color.groupedCard,
+  },
   referenceSeparator: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 16,

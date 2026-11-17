@@ -119,7 +119,7 @@ function issue(id = 'task', extra = {}) {
     createdAt: stamp,
     updatedAt: stamp,
     ...extra,
-  } as IssueViewModel
+  } as unknown as IssueViewModel
 }
 function attach(record: IssueViewModel, sessions: SessionView[] = []) {
   host.pool = new MobxPool({ selectedIssueId: record.id, coarseNow: Date.parse(stamp) })
