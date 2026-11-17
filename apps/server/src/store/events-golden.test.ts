@@ -23,15 +23,20 @@
 import { asSessionId } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { openTestStore } from '../test-support/open-test-store'
+import { openEventStoreSlice } from '../test-support/event-store-slice'
 import { RUNTIME_EVENT_LOG_KIND } from './events'
 import type { Subscription } from './types'
+
+// Instants for the timestamp columns (`timestamptz` on Postgres); `ts` is the agent's
+// own clock, a plain text column.
+const T1 = '2026-09-01T01:00:00.000Z'
+const T2 = '2026-09-01T02:00:00.000Z'
 
 const CURSOR: ProviderCursor = { segmentId: 'seg-1', components: { seq: 7 } }
 
 describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this today)', () => {
   it('returns the last row before the window followed by the window, for one subject only', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // Two subjects with interleaved timestamps, so a read that forgets the
     // subject predicate returns rows in the same ORDER and is caught only by
     // which subjects come back.
@@ -59,7 +64,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
   })
 
   it('breaks a prior-row timestamp tie by the highest id', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // Same ts, so only the id tie-breaker decides which row is "the value
     // carried into the window". Both rows are the same subject and kind.
     const first = await store.events.appendEvent({
@@ -88,7 +93,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
   })
 
   it('returns only the window when the subject has no row before it', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // The prior lookup is a separate statement whose miss must not remove the
     // window rows, and must not fall back to another subject's prior row.
     await store.events.appendEvent({ ts: '2026-01-01T00:00:00Z', kind: 'phase', subject: 'other' })
@@ -105,7 +110,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
   })
 
   it('narrows by kind as well as subject', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.appendEvent({ ts: '2026-01-03T00:00:00Z', kind: 'other', subject: 'a' })
     await store.events.appendEvent({ ts: '2026-01-04T00:00:00Z', kind: 'phase', subject: 'a' })
 
@@ -122,41 +127,41 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
 
 describe('EventsRepository: saveRuntimeEventProjectionCursor (executed, never named)', () => {
   it('advances the cursor forward', async () => {
-    const store = await openTestStore(':memory:')
-    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 10, 't1')
+    const store = await openEventStoreSlice()
+    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 10, T1)
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(10)
-    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, 't2')
+    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, T2)
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
     await store.close()
   })
 
   it('REFUSES to move the cursor backwards — the guard is in the upsert, not the caller', async () => {
-    const store = await openTestStore(':memory:')
-    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, 't1')
+    const store = await openEventStoreSlice()
+    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, T1)
     // A projector that replays, or two projectors racing, must not rewind the
     // cursor: `pruneEventBatch` refuses to delete runtime events above it, so a
     // rewind would make already-projected rows undeletable rather than merely
     // re-projected. The condition lives in the ON CONFLICT clause, so a
     // conversion that keeps the upsert and drops its WHERE is silent here.
-    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 5, 't2')
+    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 5, T2)
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
     await store.close()
   })
 
   it('keeps projectors independent', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // The equal case is deliberately NOT asserted here: writing 25 over 25
     // leaves 25 whether or not the guard fires, and the only column that would
     // tell them apart (`updated_at`) has no reader. A test of it would pass
     // against a dropped guard, which is worse than not having one.
-    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, 't1')
+    await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, T1)
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
     expect(await store.events.runtimeEventProjectionCursor('other.projector')).toBe(0)
     await store.close()
   })
 
   it('reads an unknown projector as 0 rather than refusing', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     expect(await store.events.runtimeEventProjectionCursor('never-written')).toBe(0)
     await store.close()
   })
@@ -164,7 +169,7 @@ describe('EventsRepository: saveRuntimeEventProjectionCursor (executed, never na
 
 describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)', () => {
   it('inserts, then overwrites every column of the same session on conflict', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const sessionId = asSessionId('ses_1')
     await store.events.saveRuntimeEventCheckpoint({
       sessionId,
@@ -172,7 +177,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       cursor: CURSOR,
       turnEpoch: 4,
       closedTurnEpoch: null,
-      updatedAt: 't1',
+      updatedAt: T1,
     })
     await store.events.saveRuntimeEventCheckpoint({
       sessionId,
@@ -180,7 +185,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       cursor: { segmentId: 'seg-2', components: { seq: 9 } },
       turnEpoch: 5,
       closedTurnEpoch: 4,
-      updatedAt: 't2',
+      updatedAt: T2,
       turnState: { phase: 'needs_user', since: 't2', nativeSubagentCount: 0 },
     })
 
@@ -190,14 +195,14 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       cursor: { segmentId: 'seg-2', components: { seq: 9 } },
       turnEpoch: 5,
       closedTurnEpoch: 4,
-      updatedAt: 't2',
+      updatedAt: T2,
       turnState: { phase: 'needs_user', since: 't2', nativeSubagentCount: 0 },
     })
     await store.close()
   })
 
   it('keeps a null closedTurnEpoch null rather than reading it as 0', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const sessionId = asSessionId('ses_2')
     await store.events.saveRuntimeEventCheckpoint({
       sessionId,
@@ -205,7 +210,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       cursor: CURSOR,
       turnEpoch: 1,
       closedTurnEpoch: null,
-      updatedAt: 't1',
+      updatedAt: T1,
     })
     // `Number(null)` is 0, so the mapper's explicit null check is the only thing
     // standing between "no turn has closed" and "turn 0 closed".
@@ -214,14 +219,14 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
   })
 
   it('keeps one checkpoint per session', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.saveRuntimeEventCheckpoint({
       sessionId: asSessionId('ses_a'),
       observerGeneration: 1,
       cursor: CURSOR,
       turnEpoch: 1,
       closedTurnEpoch: null,
-      updatedAt: 't1',
+      updatedAt: T1,
     })
     await store.events.saveRuntimeEventCheckpoint({
       sessionId: asSessionId('ses_b'),
@@ -229,7 +234,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       cursor: CURSOR,
       turnEpoch: 2,
       closedTurnEpoch: null,
-      updatedAt: 't2',
+      updatedAt: T2,
     })
     expect(
       (await store.events.runtimeEventCheckpoint(asSessionId('ses_a')))?.observerGeneration,
@@ -244,7 +249,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
 
 describe('EventsRepository: listRuntimeEventsAfter (executed, never named)', () => {
   it('returns runtime rows strictly above the id, ascending, bounded by the limit', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const sessionId = asSessionId('ses_1')
     const ids: number[] = []
     for (let seq = 0; seq < 4; seq += 1) {
@@ -266,7 +271,7 @@ describe('EventsRepository: listRuntimeEventsAfter (executed, never named)', () 
   })
 
   it('ignores rows of any other kind, whatever their id', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // The projection reads the log by id across all sessions, so the kind
     // predicate is the only thing keeping non-runtime rows out of a parse that
     // would throw on them.
@@ -288,7 +293,7 @@ describe('EventsRepository: listRuntimeEventsAfter (executed, never named)', () 
 
 describe('EventsRepository: announceEvent and the two append paths (POD-3331)', () => {
   it('announces a silently-appended row when its caller asks, and not before', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const seen: number[] = []
     await store.events.onAppend((id) => {
       seen.push(id)
@@ -308,7 +313,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
   })
 
   it('announces an ordinary append by itself', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const seen: number[] = []
     await store.events.onAppend((id) => {
       seen.push(id)
@@ -323,7 +328,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
   })
 
   it('hands the listener the stored row, not the caller argument', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     const announced: { ts: string; kind: string; subject: string; repoPath: string | null }[] = []
     await store.events.onAppend((_id, event) => {
       announced.push({
@@ -352,7 +357,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     // returned before the publish had run. Asserted on the OUTCOME rather than
     // on a spy: a spy observes its own promise and would pass either way, and a
     // SYNC double completes correctly even through an unawaited call.
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     let released!: () => void
     const parked = new Promise<void>((resolve) => {
       released = resolve
@@ -388,7 +393,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
   it('surfaces an async listener failure instead of swallowing it', async () => {
     // A dropped promise here loses the rejection entirely: the caller sees a
     // clean announcement and the feed never got the event.
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.onAppend(async () => {
       await Promise.resolve()
       throw new Error('publish failed')
@@ -402,7 +407,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
   })
 
   it('refuses an unknown id — but only once a listener is installed', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     // The listener check comes FIRST, so with nothing wired the unknown id is
     // never looked up and nothing throws. That ordering is what keeps the
     // storage-only unit tests (and the window between construction and wiring)
@@ -434,13 +439,13 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
       deliverNotify: false,
       origin: 'custom',
       enabled: false,
-      createdAt: 't',
+      createdAt: T1,
       ...over,
     }
   }
 
   it('round-trips all three flags set', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.addSubscription(
       subscription({ deliverNudge: true, deliverNotify: true, enabled: true }),
     )
@@ -453,7 +458,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('round-trips all three flags clear', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.addSubscription(subscription({}))
     expect(await store.events.getSubscription('sub_1')).toMatchObject({
       deliverNudge: false,
@@ -464,7 +469,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('filters on enabled in SQL, not on a mapped value', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.addSubscription(subscription({ id: 'sub_on', enabled: true }))
     await store.events.addSubscription(subscription({ id: 'sub_off', enabled: false }))
     // `listMatchingSubscriptions` compares the column in the WHERE clause, so
@@ -482,7 +487,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('setSubscriptionEnabled flips the stored flag both ways', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.addSubscription(subscription({ enabled: false }))
     expect(await store.events.setSubscriptionEnabled('sub_1', true)).toBe(true)
     expect((await store.events.getSubscription('sub_1'))?.enabled).toBe(true)
@@ -494,7 +499,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('listSubscriptions carries the flags too', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.addSubscription(
       subscription({ deliverNudge: true, deliverNotify: false, enabled: true }),
     )
@@ -507,7 +512,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
 
 describe('EventsRepository: activateJanitorSteward (executed, never named)', () => {
   it('claims once, seeding both the cursor and its ownership watermark at the log head', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_1' })
     const head = await store.events.maxEventId()
 
@@ -520,7 +525,7 @@ describe('EventsRepository: activateJanitorSteward (executed, never named)', () 
   })
 
   it('a second activation returns undefined and does not rewind the cursor', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     await store.events.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_1' })
     await store.events.activateJanitorSteward()
     // The steward has since advanced its own cursor. A second activation must
@@ -535,7 +540,7 @@ describe('EventsRepository: activateJanitorSteward (executed, never named)', () 
   })
 
   it('seeds at 0 on an empty log', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openEventStoreSlice()
     expect(await store.events.activateJanitorSteward()).toBe(0)
     expect(await store.events.getStewardState('cursor')).toBe('0')
     await store.close()

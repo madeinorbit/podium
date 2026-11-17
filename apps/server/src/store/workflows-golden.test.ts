@@ -23,32 +23,31 @@
  */
 
 import { type AgentProfileWire, asSessionId, asUserId, type UserId } from '@podium/model'
-import type { openDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
-import { type WorkflowActor, WorkflowsRepository } from './workflows'
-
-/** The Stage A seam the store asserts once; a test builds it the same way. */
-const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
-}
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type EventStoreSlice, openEventStoreSlice } from '../test-support/event-store-slice'
+import type { WorkflowActor, WorkflowsRepository } from './workflows'
 
 const OWNER: UserId = asUserId('user:alice')
 const OPERATOR: WorkflowActor = { kind: 'operator', id: null }
 const AGENT: WorkflowActor = { kind: 'session', id: asSessionId('sess-1') }
 
-let db: ReturnType<typeof openDatabase>
+// Ordered instants for the tests' clock: the Postgres columns are `timestamptz`.
+const T0 = '2026-09-01T00:00:00.000Z'
+const T1 = '2026-09-01T01:00:00.000Z'
+const T2 = '2026-09-01T02:00:00.000Z'
+const T9 = '2026-09-01T09:00:00.000Z'
+
+let store: EventStoreSlice
 let workflows: WorkflowsRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  const stage = stageQueries(db)
-  workflows = new WorkflowsRepository(legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
+beforeEach(async () => {
+  store = await openEventStoreSlice()
+  workflows = store.workflows
+})
+
+afterEach(async () => {
+  await store.close()
 })
 
 const makeWorkflow = async (
@@ -63,7 +62,7 @@ const makeWorkflow = async (
     scopeRef: over.scopeRef ?? null,
     actor: OPERATOR,
     ownerUserId: OWNER,
-    now: 't0',
+    now: T0,
   })
 }
 
@@ -74,7 +73,7 @@ const makeRevision = async (id: string, workflowId: string) =>
     instructions: 'do it',
     steps: [{ id: 'step-a', title: 'A', instructions: 'i', completionGuidance: 'g' } as never],
     actor: OPERATOR,
-    now: 't0',
+    now: T0,
   })
 
 /** An agent profile as a run pins it (POD-6114); no table row is needed. */
@@ -85,8 +84,8 @@ const agentProfile = (id: string, model = 'opus'): AgentProfileWire => ({
   candidates: [{ harness: 'claude-code', model, effort: 'high' }],
   machineId: 'machine-1',
   instructions: '',
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: T0,
+  updatedAt: T0,
 })
 
 // ---------------------------------------------------------------------------
@@ -103,7 +102,7 @@ describe('ownerOf', () => {
       revisionId: 'rev-1',
       actor: OPERATOR,
       ownerUserId: OWNER,
-      now: 't0',
+      now: T0,
     })
     await workflows.insertRun({
       run: {
@@ -114,7 +113,7 @@ describe('ownerOf', () => {
         revisionId: 'rev-1',
         status: 'active',
         supersedesRunId: null,
-        startedAt: 't0',
+        startedAt: T0,
         completedAt: null,
         ownerUserId: OWNER,
       },
@@ -148,7 +147,7 @@ describe('ownerOf', () => {
       revisionId: 'rev-1',
       actor: OPERATOR,
       ownerUserId: OWNER,
-      now: 't0',
+      now: T0,
     })
     expect(await workflows.ownerOf('workflow-binding', 'issue:iss:a:b')).toBe(OWNER)
   })
@@ -176,7 +175,7 @@ describe('listWorkflows and getWorkflow', () => {
   it('hides archived workflows unless asked, and the flag is the only difference', async () => {
     await makeWorkflow('wf-live')
     await makeWorkflow('wf-gone')
-    db.prepare('UPDATE workflows SET archived_at = ? WHERE id = ?').run('t9', 'wf-gone')
+    await store.run(sql`UPDATE workflows SET archived_at = ${T9} WHERE id = ${'wf-gone'}`)
 
     expect((await workflows.listWorkflows()).map((w) => w.id)).toEqual(['wf-live'])
     expect(
@@ -284,12 +283,12 @@ describe('publishRevision', () => {
     await makeWorkflow('wf-1')
     await makeRevision('rev-1', 'wf-1')
 
-    await workflows.publishRevision('rev-1', 't1')
-    expect((await workflows.getRevision('rev-1'))?.publishedAt).toBe('t1')
+    await workflows.publishRevision('rev-1', T1)
+    expect((await workflows.getRevision('rev-1'))?.publishedAt).toBe(T1)
     // Publishing again must not re-date it — a published revision has one
     // publication moment.
-    await workflows.publishRevision('rev-1', 't2')
-    expect((await workflows.getRevision('rev-1'))?.publishedAt).toBe('t1')
+    await workflows.publishRevision('rev-1', T2)
+    expect((await workflows.getRevision('rev-1'))?.publishedAt).toBe(T1)
   })
 })
 
@@ -313,10 +312,10 @@ describe('setBinding', () => {
         now,
       })
 
-    expect((await bind('rev-1', 't1')).revisionId).toBe('rev-1')
-    const rebound = await bind('rev-2', 't2')
+    expect((await bind('rev-1', T1)).revisionId).toBe('rev-1')
+    const rebound = await bind('rev-2', T2)
     expect(rebound.revisionId).toBe('rev-2')
-    expect(rebound.updatedAt).toBe('t2')
+    expect(rebound.updatedAt).toBe(T2)
     // One row, not two: the conflict target is (target_kind, target_id).
     expect(await workflows.listBindings()).toHaveLength(1)
   })
@@ -334,7 +333,7 @@ describe('setBinding', () => {
       revisionId: 'rev-1',
       actor: OPERATOR,
       ownerUserId: OWNER,
-      now: 't1',
+      now: T1,
     })
     await workflows.setBinding({
       targetKind: 'issue' as never,
@@ -342,7 +341,7 @@ describe('setBinding', () => {
       revisionId: 'rev-1',
       actor: AGENT,
       ownerUserId: asUserId('user:mallory'),
-      now: 't2',
+      now: T2,
     })
     expect(await workflows.ownerOf('workflow-binding', 'issue:iss_a')).toBe(OWNER)
   })
@@ -365,7 +364,7 @@ describe('insertRun — the run and its steps in one span', () => {
     revisionId: 'rev-1',
     status: 'active' as const,
     supersedesRunId: null,
-    startedAt: 't0',
+    startedAt: T0,
     completedAt: null,
     ownerUserId: OWNER,
     ...over,
@@ -482,7 +481,7 @@ describe('run queries', () => {
         revisionId: 'rev-1',
         status: (over.status ?? 'active') as never,
         supersedesRunId: null,
-        startedAt: over.startedAt ?? 't0',
+        startedAt: over.startedAt ?? T0,
         completedAt: null,
         ownerUserId: OWNER,
       },
@@ -556,7 +555,7 @@ describe('run queries', () => {
   it('findLiveRun ignores a terminal run for the same subject', async () => {
     await seedRun('done-1', { status: 'complete' })
     expect(await workflows.findLiveRun('issue', 'iss_a')).toBeNull()
-    await seedRun('live-1', { startedAt: 't1' })
+    await seedRun('live-1', { startedAt: T1 })
     expect((await workflows.findLiveRun('issue', 'iss_a'))?.id).toBe('live-1')
   })
 
@@ -576,10 +575,10 @@ describe('run queries', () => {
 
   it('updateRunStatus moves the run and records completion', async () => {
     await seedRun('run-1')
-    await workflows.updateRunStatus('run-1', 'complete' as never, 't9')
+    await workflows.updateRunStatus('run-1', 'complete' as never, T9)
     const back = await workflows.getRun('run-1')
     expect(back?.status).toBe('complete')
-    expect(back?.completedAt).toBe('t9')
+    expect(back?.completedAt).toBe(T9)
   })
 })
 
@@ -596,7 +595,7 @@ describe('step mutation', () => {
         revisionId: 'rev-1',
         status: 'active',
         supersedesRunId: null,
-        startedAt: 't0',
+        startedAt: T0,
         completedAt: null,
         ownerUserId: OWNER,
       },
@@ -633,8 +632,8 @@ describe('step mutation', () => {
       evidence: { notes: 'n' } as never,
       observation: null,
       warnings: ['w1'],
-      startedAt: 't1',
-      completedAt: 't2',
+      startedAt: T1,
+      completedAt: T2,
     })
 
     const a = await stepA()
@@ -642,8 +641,8 @@ describe('step mutation', () => {
     expect(a?.assignedSessionId).toBe('sess-w')
     expect(a?.summary).toBe('did it')
     expect(a?.warnings).toEqual(['w1'])
-    expect(a?.startedAt).toBe('t1')
-    expect(a?.completedAt).toBe('t2')
+    expect(a?.startedAt).toBe(T1)
+    expect(a?.completedAt).toBe(T2)
     // The WHERE names both run_id and step_id; its neighbour is untouched.
     const b = (await workflows.getRunSteps('run-1')).find((s) => s.stepId === 'b')
     expect(b?.status).toBe('pending')
@@ -659,8 +658,8 @@ describe('step mutation', () => {
       evidence: { notes: 'n' } as never,
       observation: null,
       warnings: ['w1'],
-      startedAt: 't1',
-      completedAt: 't2',
+      startedAt: T1,
+      completedAt: T2,
     })
 
     await workflows.resetStep('run-1', 'a')
@@ -700,7 +699,7 @@ describe('appendEvent and listRunEvents', () => {
       actor: AGENT,
       onBehalfOf: String(OWNER),
       payload: { secret: 'do not project me' },
-      now: 't1',
+      now: T1,
     })
 
     const events = await workflows.listRunEvents('run-1')
@@ -710,7 +709,7 @@ describe('appendEvent and listRunEvents', () => {
       actorKind: 'session',
       actorId: 'sess-1',
       onBehalfOf: String(OWNER),
-      createdAt: 't1',
+      createdAt: T1,
     })
     // `payload_json` HAS NO STORE READER BY DESIGN (spec §6 rule 4 names this
     // column). Adding one would be a redaction decision, so the projection must
@@ -721,7 +720,7 @@ describe('appendEvent and listRunEvents', () => {
   it('never substitutes a missing actor id or delegating human', async () => {
     // The operator arm carries a null id by construction (POD-362's discriminated
     // union). Inventing one would be a lie in an audit trail.
-    await workflows.appendEvent({ runId: 'run-1', kind: 'op', actor: OPERATOR, now: 't1' })
+    await workflows.appendEvent({ runId: 'run-1', kind: 'op', actor: OPERATOR, now: T1 })
     const [event] = await workflows.listRunEvents('run-1')
     expect(event?.actorKind).toBe('operator')
     expect(event?.actorId).toBeNull()
@@ -729,9 +728,9 @@ describe('appendEvent and listRunEvents', () => {
   })
 
   it('returns events oldest first, and only for the run asked about', async () => {
-    await workflows.appendEvent({ runId: 'run-1', kind: 'one', actor: OPERATOR, now: 't1' })
-    await workflows.appendEvent({ runId: 'run-2', kind: 'other', actor: OPERATOR, now: 't1' })
-    await workflows.appendEvent({ runId: 'run-1', kind: 'two', actor: OPERATOR, now: 't1' })
+    await workflows.appendEvent({ runId: 'run-1', kind: 'one', actor: OPERATOR, now: T1 })
+    await workflows.appendEvent({ runId: 'run-2', kind: 'other', actor: OPERATOR, now: T1 })
+    await workflows.appendEvent({ runId: 'run-1', kind: 'two', actor: OPERATOR, now: T1 })
 
     // Ordered by `id`, the insertion order — not by created_at, which is equal
     // here on purpose so an ORDER BY that drifted to the timestamp would be

@@ -193,11 +193,13 @@ const upsertLockRow = prepared((db, t) =>
     .prepare(),
 )
 
-// `IS`, NOT `eq`, and it is load-bearing: the operator's lease has a NULL
-// holder, `= NULL` matches no row, and an operator lock would then be
-// unrenewable and expire under its holder. A `sql` FRAGMENT rather than a
-// conditional `isNull`/`eq` so this stays ONE statement text — the branch
-// would put two entries in the statement cache for one call site.
+// `IS NOT DISTINCT FROM`, NOT `eq`, and it is load-bearing: the operator's
+// lease has a NULL holder, `= NULL` matches no row, and an operator lock would
+// then be unrenewable and expire under its holder. A `sql` FRAGMENT rather than
+// a conditional `isNull`/`eq` so this stays ONE statement text — the branch
+// would put two entries in the statement cache for one call site. Spelled out
+// rather than SQLite's bare `IS ?`, which Postgres accepts only before NULL,
+// TRUE or FALSE; SQLite reads the long form as `IS`.
 const renewLockOf = prepared((db, t) =>
   db
     .update(t.locks)
@@ -207,7 +209,7 @@ const renewLockOf = prepared((db, t) =>
         t.locks,
         eq(t.locks.repoId, param(t.locks.repoId, 'repoId')),
         eq(t.locks.name, param(t.locks.name, 'name')),
-        sql`${t.locks.holderSessionId} IS ${sql.placeholder('holderSessionId')}`,
+        sql`${t.locks.holderSessionId} IS NOT DISTINCT FROM ${sql.placeholder('holderSessionId')}`,
       ),
     )
     .prepare(),
@@ -353,7 +355,7 @@ export class LocksRepository {
     holderSessionId: LockSessionKey | null,
     expiresAt: string,
   ): Promise<boolean> {
-    // `IS`, NOT `eq`, and it is load-bearing (see `renewLockOf`).
+    // `IS NOT DISTINCT FROM`, NOT `eq`, and it is load-bearing (see `renewLockOf`).
     const r = await renewLockOf(this.db).run({ repoId, name, holderSessionId, expiresAt })
     return r.changes === 1
   }
