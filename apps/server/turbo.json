@@ -1345,6 +1345,7 @@
         "src/test-support/migrated-database.ts",
         "src/test-support/model-ledger.ts",
         "src/test-support/open-test-store.ts",
+        "src/test-support/people-store-slice.ts",
         "src/test-support/pg-slice-tables.ts",
         "src/test-support/pg-test-database.ts",
         "src/test-support/pg-worker-isolation.ts",

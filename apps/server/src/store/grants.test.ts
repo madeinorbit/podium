@@ -1,27 +1,33 @@
 /**
  * THE OWNER COLUMN AND THE GRANT EDGES, AT THE STORE (POD-1079).
  *
- * These run against a REAL migrated SQLite database, not a fake: the thing under
- * test is what the columns do, and a fake repository would agree with whatever
- * this file asserted. That includes the migration — `await SessionStore.open(':memory:')`
- * applies the bundled manifest, so a `machines` table without `owner_user_id`
- * fails here rather than at boot on somebody's laptop.
+ * These run against a REAL migrated database, not a fake, on both engines (the
+ * group's two-engine slice): the thing under test is what the columns do, and a
+ * fake repository would agree with whatever this file asserted. That includes the
+ * migration — the slice's store applies the bundled manifest (on Postgres, the
+ * baseline), so a `machines` table without its custody edges fails here rather
+ * than at boot on somebody's laptop.
  *
  * Every denial below is paired with an admission in the SAME fixture, so no
  * assertion can be satisfied by a store that simply returns nothing.
  */
 
-import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { asMachineId, asUserId } from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 
 const COLLEAGUE = 'colleague'
+/** A member who holds machines here; any member id serves. */
+const ADMIN = asUserId('mem_1FFFFFFFFFFFFFFFFFFFFFFFFFF')
 
-let store: SessionStore
+let store: PeopleStoreSlice
 
 beforeEach(async () => {
-  store = await openTestStore(':memory:')
+  store = await openPeopleStoreSlice()
+})
+
+afterEach(async () => {
+  await store.close()
 })
 
 const pair = async (id: string, ownerUserId: string | null): Promise<void> =>
@@ -35,26 +41,26 @@ const pair = async (id: string, ownerUserId: string | null): Promise<void> =>
 
 describe('machine custody edges', () => {
   it('round-trips an owner, and null means unowned rather than absent', async () => {
-    await pair('laptop', firstAdminMemberId())
+    await pair('laptop', ADMIN)
     await pair('orphan', null)
 
     const rows = await store.machines.listMachines()
-    expect(await store.machines.custodian('laptop')).toBe(firstAdminMemberId())
+    expect(await store.machines.custodian('laptop')).toBe(ADMIN)
     // Present-and-null, NOT undefined: `MachineRecord.ownerUserId` is required so
     // "unowned" and "nobody threaded the value" cannot look alike.
     expect(rows.find((m) => m.id === 'orphan')).not.toHaveProperty('ownerUserId')
-    expect((await store.machines.custodian('orphan'))).toBeNull()
+    expect(await store.machines.custodian('orphan')).toBeNull()
   })
 
   it('a re-pair does NOT transfer ownership — the existing owner survives', async () => {
-    await pair('laptop', firstAdminMemberId())
+    await pair('laptop', ADMIN)
 
     // The same daemon re-pairs (or a boot-time provision runs) with a different
     // owner in the frame. Latest-writer-wins here would make re-pairing a silent
     // take-over of somebody else's machine.
     await pair('laptop', COLLEAGUE)
 
-    expect((await store.machines.custodian('laptop'))).toBe(firstAdminMemberId())
+    expect(await store.machines.custodian('laptop')).toBe(ADMIN)
   })
 
   it('a row that has NO owner acquires one — the COALESCE fills NULL, it does not only preserve', async () => {
@@ -64,7 +70,7 @@ describe('machine custody edges', () => {
     await pair('legacy', null)
     await pair('legacy', COLLEAGUE)
 
-    expect((await store.machines.custodian('legacy'))).toBe(COLLEAGUE)
+    expect(await store.machines.custodian('legacy')).toBe(COLLEAGUE)
   })
 })
 
@@ -74,12 +80,12 @@ describe('the grant edge table', () => {
     resourceId,
     grantee,
     verb,
-    owner: firstAdminMemberId(),
+    owner: ADMIN,
     visibility: 'owned-compute',
     createdAt: '2026-07-30T00:00:00.000Z',
     actorKind: 'user',
-    actorId: firstAdminMemberId(),
-    onBehalfOf: firstAdminMemberId(),
+    actorId: ADMIN,
+    onBehalfOf: ADMIN,
   })
 
   it('stores, reads back and revokes one verb without touching the others', async () => {
@@ -152,36 +158,66 @@ describe('the grant edge table', () => {
   })
 })
 
-
 it('rolls historical audiences back with the enclosing grant transaction', async () => {
-  await expect(store.transact(async () => {
-    await store.grants.upsert({ resourceKind: 'issue', resourceId: 'rollback', grantee: 'reader',
-      verb: 'read', owner: 'owner', visibility: 'personal', createdAt: 't0', actorKind: 'user', actorId: 'owner', onBehalfOf: 'owner' })
-    expect(await store.grants.visibilityAudiencesFor('issue', ['rollback'])).toEqual(new Map([['rollback', ['reader']]]))
-    throw new Error('rollback')
-  })).rejects.toThrow('rollback')
-  expect(await store.grants.visibilityAudiencesFor('issue', ['rollback'])).toEqual(new Map([['rollback', []]]))
+  await expect(
+    store.drained(async () => {
+      await store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: 'rollback',
+        grantee: 'reader',
+        verb: 'read',
+        owner: 'owner',
+        visibility: 'personal',
+        createdAt: '2026-07-30T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: 'owner',
+        onBehalfOf: 'owner',
+      })
+      expect(await store.grants.visibilityAudiencesFor('issue', ['rollback'])).toEqual(
+        new Map([['rollback', ['reader']]]),
+      )
+      throw new Error('rollback')
+    }),
+  ).rejects.toThrow('rollback')
+  expect(await store.grants.visibilityAudiencesFor('issue', ['rollback'])).toEqual(
+    new Map([['rollback', []]]),
+  )
 })
 
-
 it('enrollment commits both personal edges and enforces one custodian', async () => {
-  const owner = firstAdminMemberId()
-  const input = { id: asMachineId('enrolled'), name: 'Enrolled', hostname: 'box', tokenHash: 'hash',
-    ownerUserId: owner, podiumManaged: true, assignment: { server: false, agentExecution: true },
-    assignmentEvidence: { version: 1 as const, source: 'pairing', requestId: 'pair-one' } }
+  const owner = ADMIN
+  const input = {
+    id: asMachineId('enrolled'),
+    name: 'Enrolled',
+    hostname: 'box',
+    tokenHash: 'hash',
+    ownerUserId: owner,
+    podiumManaged: true,
+    assignment: { server: false, agentExecution: true },
+    assignmentEvidence: { version: 1 as const, source: 'pairing', requestId: 'pair-one' },
+  }
   expect(await store.machines.enrollMachine(input)).toBe(true)
   const edges = await store.grants.listForResource('machine', input.id)
-  expect(edges.map(edge => [edge.grantee, edge.verb, edge.custody === true])).toEqual([[owner, 'manage', true], [owner, 'use', false]])
-  expect(await store.machines.enrollMachine({ ...input, ownerUserId: asUserId(COLLEAGUE) })).toBe(false)
-  const custodian = edges.find(edge => edge.custody)!
+  expect(edges.map((edge) => [edge.grantee, edge.verb, edge.custody === true])).toEqual([
+    [owner, 'manage', true],
+    [owner, 'use', false],
+  ])
+  expect(await store.machines.enrollMachine({ ...input, ownerUserId: asUserId(COLLEAGUE) })).toBe(
+    false,
+  )
+  const custodian = edges.find((edge) => edge.custody)!
   await expect(store.grants.upsert({ ...custodian, grantee: COLLEAGUE })).rejects.toThrow()
-  await expect(store.grants.upsert({ ...custodian, verb: 'use' })).rejects.toThrow('Custody requires a machine manage edge')
+  await expect(store.grants.upsert({ ...custodian, verb: 'use' })).rejects.toThrow(
+    'Custody requires a machine manage edge',
+  )
   expect(await store.machines.custodian(input.id)).toBe(owner)
   expect(await store.grants.listForResource('machine', input.id)).toEqual(edges)
-  await expect(store.transact(async () => {
-    await store.machines.enrollMachine({ ...input, id: asMachineId('abort') })
-    throw new Error('abort enrollment')
-  })).rejects.toThrow('abort enrollment')
+  await expect(
+    store.drained(async () => {
+      await store.machines.enrollMachine({ ...input, id: asMachineId('abort') })
+      throw new Error('abort enrollment')
+    }),
+  ).rejects.toThrow('abort enrollment')
   expect(await store.machines.getMachine('abort')).toBeUndefined()
   expect(await store.grants.listForResource('machine', 'abort')).toEqual([])
 })

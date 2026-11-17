@@ -20,26 +20,24 @@
  * so a test of the delegate proves nothing about a conversion that reimplements
  * the roots list.
  *
- * These assert against a real migrated database and, where the claim is about
+ * These assert against a real migrated database, on both engines, and, where the claim is about
  * how many times a statement runs, against the executor's statement probe —
  * a counted read is the mechanism, and the returned rows are the same either way
  * (spec section 6 rule 14).
  */
 
 import { asMachineId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 import { probeStatements } from './executor'
-import { syncQueriesOver, workspaceQueries } from './executor/sync-drizzle'
-import { ReposRepository } from './repos'
-import { TableWrites } from './table-writes'
+import type { ReposRepository } from './repos'
 
 const HOST = asMachineId('machine-host')
 
-let rawDb: SqlDatabase
+let slice: PeopleStoreSlice
 let repos: ReposRepository
 let counts: Map<string, number>
 
@@ -56,17 +54,17 @@ const registryReads = (): number =>
     0,
   )
 
-beforeEach(() => {
-  rawDb = openMigratedTestDatabase()
+beforeEach(async () => {
+  slice = await openPeopleStoreSlice()
   counts = new Map()
-  probeStatements({ db: rawDb }, (observation) => {
+  probeStatements(slice.probeTarget, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
-  repos = new ReposRepository(
-    workspaceQueries(syncQueriesOver(rawDb), SELF_HOSTED_WORKSPACE_ID),
-    () => {},
-    new TableWrites(),
-  )
+  repos = slice.repos
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('ReposRepository.invalidateRegistry', () => {
@@ -94,11 +92,10 @@ describe('ReposRepository.invalidateRegistry', () => {
     // the query layer runs through the executor has, from this class's point of
     // view. The read is STALE until something drops it, and saying so is the
     // point — the seam is cooperative, not a guarantee (POD-3362).
-    rawDb
-      .prepare(
-        'INSERT INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run('machine-host', '/home/u/beta', null, 'beta', 'repo_beta', '2026-01-01T00:00:00.000Z')
+    // Inserted after alpha, so it is dated after alpha, as any insert is.
+    await slice.run(
+      sql`INSERT INTO repos (workspace_id, machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${'machine-host'}, ${'/home/u/beta'}, ${null}, ${'beta'}, ${'repo_beta'}, ${new Date(Date.now() + 1).toISOString()})`,
+    )
 
     expect((await repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/alpha'])
 
@@ -112,9 +109,9 @@ describe('ReposRepository.invalidateRegistry', () => {
     const repoId = (await repos.listRepos())[0]?.repoId
     expect(repoId).not.toBeNull()
 
-    rawDb
-      .prepare('UPDATE repo_prefixes SET prefix = ? WHERE repo_id = ?')
-      .run('ZZ', repoId as string)
+    await slice.run(
+      sql`UPDATE repo_prefixes SET prefix = ${'ZZ'} WHERE repo_id = ${repoId as string}`,
+    )
 
     expect((await repos.listRepos())[0]?.prefix).toBe('AL')
 

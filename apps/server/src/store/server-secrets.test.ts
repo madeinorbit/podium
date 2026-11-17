@@ -1,11 +1,19 @@
 import { asUserId } from '@podium/model'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  mintInstallationIdentity,
+} from '@podium/runtime/installation-identity'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import {
+  openPeopleStoreSlice,
+  openPeopleStoreSlices,
+  type PeopleStoreSlice,
+} from '../test-support/people-store-slice'
 
 describe('native login transfer secrets', () => {
-  let store: SessionStore | undefined
+  let store: PeopleStoreSlice | undefined
 
   afterEach(async () => {
     await store?.close()
@@ -13,7 +21,7 @@ describe('native login transfer secrets', () => {
   })
 
   it('is retrievable only by its principal and is absent from presence projections', async () => {
-    store = await openTestStore(':memory:')
+    store = await openPeopleStoreSlice()
     const bundle = {
       kind: 'codex' as const,
       contentBase64: Buffer.from('credential-bytes').toString('base64'),
@@ -41,15 +49,15 @@ describe('native login transfer secrets', () => {
  * share the install's.
  */
 describe('secrets of two workspaces', () => {
-  let opened: SessionStore | undefined
+  let opened: PeopleStoreSlice | undefined
 
   afterEach(async () => {
     await opened?.close()
     opened = undefined
   })
 
-  async function twoWorkspaces(): Promise<readonly [SessionStore, SessionStore]> {
-    const stores = await openWorkspaceStores(['ws_a', 'ws_b'])
+  async function twoWorkspaces(): Promise<readonly [PeopleStoreSlice, PeopleStoreSlice]> {
+    const stores = await openPeopleStoreSlices(['ws_a', 'ws_b'])
     opened = stores[0]
     return stores
   }
@@ -58,7 +66,7 @@ describe('secrets of two workspaces', () => {
     const [a, b] = await twoWorkspaces()
     const at = '2026-11-17T00:00:00.000Z'
     await a.secrets.set('notifications.telegramBotToken', 'token-a', at)
-    const present = async (store: SessionStore) =>
+    const present = async (store: PeopleStoreSlice) =>
       (await store.secrets.presence()).find((p) => p.key === 'notifications.telegramBotToken')
         ?.present
     expect(await b.secrets.get('notifications.telegramBotToken')).toBeUndefined()
@@ -97,6 +105,15 @@ describe('secrets of two workspaces', () => {
 
   it('shares the install secrets: one installation identity and one identity signing secret', async () => {
     const [a, b] = await twoWorkspaces()
+    // A whole store imports the installation identity at boot; the slice has no boot,
+    // so the two install rows are written as that import writes them.
+    const { privateKey, ...metadata } = mintInstallationIdentity()
+    await a.run(
+      sql`INSERT INTO meta (key, value) VALUES (${INSTALLATION_META_KEY}, ${JSON.stringify(metadata)})`,
+    )
+    await a.run(
+      sql`INSERT INTO server_secrets (key, value, updated_at) VALUES (${INSTALLATION_PRIVATE_KEY}, ${privateKey}, ${metadata.createdAt})`,
+    )
     expect(await b.secrets.installationIdentity()).toEqual(await a.secrets.installationIdentity())
     expect(await b.secrets.identitySigningSecret()).toBe(await a.secrets.identitySigningSecret())
   })

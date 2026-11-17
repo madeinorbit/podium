@@ -1,13 +1,12 @@
 import { asAccountId, asMachineId, asUserId } from '@podium/model'
-import { beforeEach, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { stageASeam } from '../test-support/stage-a-seam'
-import { AccountsRepository, type ManagedAccountWrite, SHARED_WITH_EVERYONE } from './accounts'
-import { workspaceQueries } from './executor/sync-drizzle'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
+import { type AccountsRepository, type ManagedAccountWrite, SHARED_WITH_EVERYONE } from './accounts'
 
 let repo: AccountsRepository
-let db: ReturnType<typeof openMigratedTestDatabase>
+let slice: PeopleStoreSlice
 
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
@@ -25,9 +24,13 @@ const key = (ownerUserId: typeof ALICE, credential: string): ManagedAccountWrite
   createdAt: 1,
 })
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  repo = new AccountsRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+beforeEach(async () => {
+  slice = await openPeopleStoreSlice()
+  repo = slice.accounts
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 it('round-trips a managed account, owned and private', async () => {
@@ -172,26 +175,26 @@ it('share answers false when the owner has no such key', async () => {
 
 it('an unreadable sharing list shares with nobody (fails closed)', async () => {
   await repo.connect(key(ALICE, 'alice'))
-  db.prepare("UPDATE accounts SET shared_with = 'not json'").run()
+  await slice.run(sql`UPDATE accounts SET shared_with = 'not json'`)
   expect(await repo.sharedWith(BOB, ANTHROPIC)).toEqual([])
-  db.prepare(`UPDATE accounts SET shared_with = '{"users":["*"]}'`).run()
+  await slice.run(sql`UPDATE accounts SET shared_with = '{"users":["*"]}'`)
   expect(await repo.sharedWith(BOB, ANTHROPIC)).toEqual([])
 })
 
 it('a row with no owner is nobody’s: never listed, never shared', async () => {
-  db.prepare(
-    `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at, shared_with)
-     VALUES ('managed:anthropic', 'anthropic', 'api-key', 'orphan', '', 'role', 1, '["*"]')`,
-  ).run()
+  await slice.run(
+    sql`INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at, shared_with)
+     VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'managed:anthropic', 'anthropic', 'api-key', 'orphan', '', 'role', 1, '["*"]')`,
+  )
   expect(await repo.list()).toEqual([])
   expect(await repo.sharedWith(BOB, ANTHROPIC)).toEqual([])
 })
 
 it('a pre-POD-6360 row keeps its storage id when its owner reconnects', async () => {
-  db.prepare(
-    `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at, owner_user_id, account_key, shared_with)
-     VALUES ('managed:anthropic', 'anthropic', 'api-key', 'old', '', 'role', 1, ?, 'managed:anthropic', '["*"]')`,
-  ).run(ALICE)
+  await slice.run(
+    sql`INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at, owner_user_id, account_key, shared_with)
+     VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'managed:anthropic', 'anthropic', 'api-key', 'old', '', 'role', 1, ${ALICE}, 'managed:anthropic', '["*"]')`,
+  )
   await repo.connect(key(ALICE, 'new'))
   const rows = await repo.list()
   expect(rows).toHaveLength(1)
