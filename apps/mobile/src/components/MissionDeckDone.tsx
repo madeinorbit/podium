@@ -1,4 +1,6 @@
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
+import { settled } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { Pressable, StyleSheet, Text } from 'react-native'
 import { color, font, leading, sans, space } from '../theme/theme'
@@ -13,7 +15,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
     <Pressable
       accessibilityRole="switch"
       aria-checked={full.showDone}
-      accessibilityLabel={`Show done, ${full.counts.done}`}
+      accessibilityLabel={`Done tasks, ${full.counts.done}`}
       testID="deck-filter-done"
       onPress={() => full.toggleShowDone()}
       style={({ pressed }) => [styles.toggle, pressed && styles.dimmed]}
@@ -25,8 +27,8 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
 })
 
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
-  const done = full.doneLine
-  if (!done) return null
+  const done = settled(() => (full.ready ? full.doneLine : null))
+  if (!done || done === LOADING) return null
   const label = done.tasks
     ? `${done.tasks} done hidden`
     : `${done.phases} ${done.phases === 1 ? 'phase' : 'phases'} hidden`

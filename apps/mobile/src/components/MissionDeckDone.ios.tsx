@@ -14,6 +14,8 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
+import { settled } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { color } from '../theme/theme'
 import { deckColor } from './deck-colors'
@@ -34,7 +36,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
           frame({ minHeight: 44 }),
           fixedSize({ horizontal: false, vertical: true }),
           accessibilityIdentifier('deck-filter-done'),
-          accessibilityLabel(`Show done, ${full.counts.done}`),
+          accessibilityLabel(`Done tasks, ${full.counts.done}`),
           accessibilityValue(full.showDone ? 'Shown' : 'Hidden'),
           accessibilityAddTraits(full.showDone ? ['isToggle', 'isSelected'] : ['isToggle']),
         ]}
@@ -45,8 +47,8 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
 
 /** The desktop done line supplies the count, including work in folded phases. */
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
-  const done = full.doneLine
-  if (!done) return null
+  const done = settled(() => (full.ready ? full.doneLine : null))
+  if (!done || done === LOADING) return null
   const label = done.tasks
     ? `${done.tasks} done hidden`
     : `${done.phases} ${done.phases === 1 ? 'phase' : 'phases'} hidden`

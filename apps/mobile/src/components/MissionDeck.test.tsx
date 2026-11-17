@@ -159,10 +159,12 @@ describe('MissionDeck', () => {
     expect(selected().map((tab) => tab.dataset.testid)).toEqual(['deck-filter-all'])
     const done = screen.getByTestId('deck-filter-done')
     expect(done.getAttribute('role')).toBe('switch')
+    expect(done.getAttribute('aria-label')).toBe('Done tasks, 0')
     // Shown by default (desktop): the label names what a tap does.
     expect(done.getAttribute('aria-checked')).toBe('true')
     expect(done.textContent).toBe('Hide Done')
     await act(async () => fireEvent.click(done))
+    expect(done.getAttribute('aria-label')).toBe('Done tasks, 0')
     expect(done.getAttribute('aria-checked')).toBe('false')
     expect(done.textContent).toBe('Show Done')
     // The selected segment's thumb is drawn inside its 44pt hit area.

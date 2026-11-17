@@ -135,10 +135,12 @@ async function mount(reduceMotion = false, phaseOnly = false) {
 it('shows the native toggle state and reveals hidden work through the footer', async () => {
   await mount()
   const toggle = screen.getByTestId('deck-filter-done')
+  expect(toggle.getAttribute('aria-label')).toBe('Done tasks, 1')
   expect(toggle.dataset.symbol).toBe('checkmark.circle.fill')
   expect(toggle.dataset.value).toBe('Shown')
   expect(screen.queryByTestId('deck-done-hidden')).toBeNull()
   await act(async () => fireEvent.click(toggle))
+  expect(toggle.getAttribute('aria-label')).toBe('Done tasks, 1')
   expect(toggle.dataset.symbol).toBe('checkmark.circle')
   expect(toggle.dataset.value).toBe('Hidden')
   expect(screen.queryByTestId('task-done')).toBeNull()
