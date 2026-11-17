@@ -225,6 +225,22 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       agentKind: 'shell',
       lastActiveAt: ago(3),
     },
+    // No issue, not archived, finished long ago: history, not a sidebar lane.
+    {
+      sessionId: 's12',
+      status: 'exited',
+      archived: false,
+      agentKind: 'claude',
+      lastActiveAt: ago(40),
+    },
+    // No issue, finished, but active within the week.
+    {
+      sessionId: 's13',
+      status: 'exited',
+      archived: false,
+      agentKind: 'claude',
+      lastActiveAt: ago(2),
+    },
   ],
   issueDep: [
     { id: 'd1', fromId: 'i1', toId: 'i2', type: 'blocks' },
@@ -290,13 +306,18 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
   // Sessions
   { rule: 'session.live', expect: ['s1', 's2', 's6', 's7', 's10', 's11'] },
   { rule: 'session.asking', expect: ['s4', 's5', 's6'] },
-  { rule: 'session.recent', args: recent, expect: ['s1', 's2', 's6', 's8', 's10', 's11'] },
+  {
+    rule: 'session.recent',
+    args: recent,
+    expect: ['s1', 's2', 's6', 's8', 's10', 's11', 's13'],
+  },
   {
     rule: 'session.recent',
     args: { recentDays: 30 },
-    expect: ['s1', 's2', 's5', 's6', 's7', 's8', 's10', 's11'],
+    expect: ['s1', 's2', 's5', 's6', 's7', 's8', 's10', 's11', 's13'],
   },
-  { rule: 'session.noIssue', expect: ['s2', 's5'] },
+  { rule: 'session.noIssue', args: recent, expect: ['s2', 's5', 's13'] },
+  { rule: 'session.noIssue', args: { recentDays: 1 }, expect: ['s2', 's5'] },
   { rule: 'session.ofIssue', args: { issueId: 'i1' }, expect: ['s1', 's3', 's8', 's10', 's11'] },
   { rule: 'session.ofIssue', args: { issueId: 'nope' }, expect: [] },
   { rule: 'session.one', args: { id: 's5' }, expect: ['s5'] },

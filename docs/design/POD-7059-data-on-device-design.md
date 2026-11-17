@@ -174,12 +174,17 @@ Sessions have **no stub**. The questions that seemed to need one do not
 | Asking | Sessions that wait for the user (an open offer, a question, an error), whatever their age | Policy |
 | Recent | Issues and sessions changed in the last N days | Policy |
 | Sidebar | Open issues that are not proposed | Policy |
-| Sessions with no issue | Not archived, no issue (the sidebar's lanes) | Policy |
+| Sessions with no issue | Not archived, no issue, and live, asking or active in the last N days (the sidebar's lanes) | Views; the policy holds them through Live, Asking and Recent |
 | Issue stubs | Every issue, stub part | Policy |
 | Tree | All issues under one top-level issue | The view that opens it |
 | Page | One page of a sorted list: a board column, the proposal deck | The view that shows it |
 | Sessions of one issue | Sessions with that issue | What it comes with; the issue page |
 | One record | That ID | A lookup that finds the record absent |
+
+"Sessions with no issue" is bounded by the work, not by history (POD-7085, 2026-11-17): the
+sidebar hides a finished session within days (`active-work.ts`), so an old idle one is never
+shown, and the policy's N days cover that window. The bounded rule is a subset of Live, Asking
+and Recent, so the policy holds no separate collection for it.
 
 "Asking" exists because the sidebar keeps a closed issue visible for as long as a session on it
 waits for the user, with no time limit (`packages/model/src/predicates/active-work.ts`). Such a
@@ -462,7 +467,7 @@ methods in about 35 files); not every call site was read.
 
 | Feature | What it needs | Answer |
 |---|---|---|
-| Sidebar | Open issues that are not proposed, with their sessions; sessions with no issue | Sidebar collection and what it comes with; the sessions-with-no-issue collection |
+| Sidebar | Open issues that are not proposed, with their sessions; sessions with no issue | Sidebar collection and what it comes with; the sessions with no issue arrive with Live, Asking and Recent |
 | Flight deck, issue page | Members of one tree, links, sessions of its issues | Tree collection and what it comes with |
 | Progress bars and child counts | Parent and state of every member | Stubs |
 | Links and chips in chat and terminal | Reference and state | Stubs; an absent record loads in a batch |

@@ -36,10 +36,9 @@ const STEPS: readonly PolicyStep[] = [
   },
   { step: 'view', collections: [] },
   { step: 'recent', collections: [...DESIGN_COLLECTIONS.recent] },
-  {
-    step: 'sidebar',
-    collections: [...DESIGN_COLLECTIONS.sidebar, ...DESIGN_COLLECTIONS.sessionsWithNoIssue],
-  },
+  // The sessions with no issue are not a step of their own: their rule is a
+  // subset of live, asking and recent, which the steps above already hold.
+  { step: 'sidebar', collections: [...DESIGN_COLLECTIONS.sidebar] },
   { step: 'stubs', collections: [...DESIGN_COLLECTIONS.issueStubs] },
 ]
 

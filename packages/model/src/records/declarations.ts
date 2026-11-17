@@ -241,8 +241,19 @@ const session = defineRecord({
     },
     noIssue: {
       part: 'main',
-      where: { archived: false, issueId: { empty: true } },
-      why: "Sessions with no issue that are not archived: the sidebar's lanes.",
+      // Bounded by the work, not by history: the sidebar hides a finished
+      // session within days (`predicates/active-work.ts`), so an old idle one
+      // is never shown and loads only when a view asks for it.
+      where: [
+        { archived: false, issueId: { empty: true }, status: { in: ['starting', 'live'] } },
+        ...ASKING_WHERE.map((clause) => ({ ...clause, issueId: { empty: true } }) as const),
+        {
+          archived: false,
+          issueId: { empty: true },
+          lastActiveAt: { newerThan: { days: RECENT_DAYS } },
+        },
+      ],
+      why: "Sessions with no issue that are not archived and are live, asking or active in the last N days: the sidebar's lanes.",
     },
     ofIssue: ofIssue(
       'issueId',

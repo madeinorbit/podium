@@ -45,7 +45,6 @@ except "asking":
 | `conversation.recent` | `idx_conversations_created_at (<expr>>?)` |
 | `issueProjection.sidebar` | `idx_issues_stage_updated (stage=?)` per open stage |
 | sidebar comes with `session.ofIssue` | `idx_sessions_issue_archived (issue_id=? AND archived=?)` |
-| `session.noIssue` | multi-index OR on `idx_sessions_issue_archived` |
 | a session comes with its issue | issues primary key |
 | a session comes with its state | `idx_session_user_state_session`, `idx_snoozes_session` (UNION ALL) |
 | an issue comes with its parent, state, git state, dependencies | primary keys, `idx_issue_user_state_issue` |
@@ -72,7 +71,7 @@ query-plan audit.
   expression over three tables. Proposed fix: keep the derived "asks the user"
   state as one column on the session row, written where the agent state and
   the offer are written, and index it.
-- **Sessions with no issue grow with history.** The rule is the design's. It
-  holds bounded work only if old issueless sessions are archived, or if the
-  rule gains an age bound (for example: not archived, no issue, and live,
-  asking or active in the policy's days).
+- **Sessions with no issue grew with history** (resolved 2026-11-17, coordinator
+  decision A): the rule now holds only those live, asking or active in the policy's
+  days, a subset of Live, Asking and Recent, so the policy holds no separate
+  collection for it.
