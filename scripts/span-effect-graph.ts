@@ -960,6 +960,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "executeRaw's call of a prepared raw statement (or its bound view, which adds the workspace): one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
   },
+  // POD-7013: the first repositories that run workspace statements through a handle.
+  'packages/sync/src/adapters/sqlite/prepared.ts#Bound.<anonymous>': {
+    kind: 'contained',
+    why: "a bound view's get, all, run, values or execute: the definition's prepared statement with workspaceId filled from the handle, after checking the open transaction is the same workspace's; one statement on the store's drizzle instance, routed to the open transaction's connection, so no effect outside the database",
+  },
   // POD-6977 (tables from the binding): the store's and the sync adapter's
   // typed names for the same two helpers of prepared.ts.
   'apps/server/src/store/executor/sync-drizzle.ts#<module>.prepared': {
