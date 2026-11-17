@@ -44,6 +44,7 @@ export const IssueTitle = observer(function IssueTitle({
       busy={busy}
       onCommit={commands.commitTitle}
       textStyle={styles.title}
+      dynamicTypeRamp="title2"
     />
   )
 })
@@ -160,9 +161,7 @@ export const IssueBrief = observer(function IssueBrief({ issue }: { issue: Issue
         onToggle={() => setOpen((v) => !v)}
         testID="issue-brief"
       >
-        <Text style={styles.brief} selectable>
-          {issue.brief}
-        </Text>
+        <RichMarkdown text={issue.brief} />
       </Disclosure>
     </View>
   )
@@ -237,11 +236,5 @@ const styles = StyleSheet.create({
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
-  },
-  brief: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
   },
 })

@@ -23,7 +23,7 @@ import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
 import { WorkingWord } from '../WorkingWord'
 import { Disclosure } from './chrome'
-import { useDetailSize } from './detail-type'
+import { useDetailLayout, useDetailSize } from './detail-type'
 import { PromptSheet } from './PromptSheet'
 
 /** Reference content stays in native grouped disclosures. The visible sections
@@ -377,7 +377,7 @@ export const TaskSessions = observer(function TaskSessions({
   sessions: readonly SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
-  const size = useDetailSize()
+  const { accessorySize } = useDetailLayout()
   const [all, setAll] = useState(false)
   if (sessions.length === 0) return null
   const shown = all ? sessions : sessions.slice(0, SHOWN_SESSIONS)
@@ -405,8 +405,8 @@ export const TaskSessions = observer(function TaskSessions({
             onPress={() => setAll(true)}
             style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
           >
-            <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />
-            <View style={[styles.gutter, { width: size(14) }]} />
+            <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
+            <View style={[styles.gutter, { width: accessorySize(14) }]} />
             <Text style={styles.headingActionText}>Show {rest} more</Text>
           </PressableScale>
         ) : null}
@@ -427,7 +427,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   first: boolean
   onOpenSession: (id: SessionId) => void
 }) {
-  const size = useDetailSize()
+  const { size, accessorySize, accessibility } = useDetailLayout()
   const pool = useMobilePool()
   const session = here(pool?.model('session', sessionId))
   if (!session) return null
@@ -446,15 +446,15 @@ const TaskSessionRow = observer(function TaskSessionRow({
       style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
     >
       {!first ? (
-        <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />
+        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
       ) : null}
-      <View style={[styles.gutter, { width: size(14), height: size(leading(font.body)) }]}>
+      <View style={[styles.gutter, { width: accessorySize(14), height: size(leading(font.body)) }]}>
         {phase === 'working' ? (
           <View
             style={{
-              width: size(8),
-              height: size(8),
-              borderRadius: size(4),
+              width: accessorySize(8),
+              height: accessorySize(8),
+              borderRadius: accessorySize(4),
               borderWidth: 1.5,
               borderColor: deckWordColor('working'),
             }}
@@ -463,16 +463,20 @@ const TaskSessionRow = observer(function TaskSessionRow({
           <View
             style={[
               styles.phaseDot,
-              { width: size(8), height: size(8), borderRadius: size(4) },
+              { width: accessorySize(8), height: accessorySize(8), borderRadius: accessorySize(4) },
               phase === 'waiting' && { backgroundColor: color.needsYouText },
             ]}
           />
         )}
       </View>
       <View style={styles.sessionBody}>
-        <Text style={styles.sessionName}>{name}</Text>
+        <Text lineBreakStrategyIOS="standard" style={styles.sessionName}>
+          {name}
+        </Text>
         <View style={styles.sessionMetaLine}>
-          <Text style={styles.sessionMeta}>{modelName(view.agentKind, readoutModel(view))} ·</Text>
+          <Text lineBreakStrategyIOS="standard" style={styles.sessionMeta}>
+            {modelName(view.agentKind, readoutModel(view))} ·
+          </Text>
           <WorkingWord
             active={session.word === 'working'}
             seed={sessionId}
@@ -485,9 +489,11 @@ const TaskSessionRow = observer(function TaskSessionRow({
           </WorkingWord>
         </View>
       </View>
-      <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
-        <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
-      </View>
+      {!accessibility ? (
+        <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
+          <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
+        </View>
+      ) : null}
     </PressableScale>
   )
 })

@@ -20,14 +20,14 @@ import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { NativePicker, type NativePickerOption } from '../action-sheet-native'
 import { Icon } from '../Icon'
 import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
 import { Disclosure, MachineLabel } from './chrome'
-import { useDetailSize } from './detail-type'
+import { useDetailLayout } from './detail-type'
 
 /**
  * The properties block [POD-724] — the phone's answer to the desktop's rail.
@@ -80,7 +80,7 @@ export const IssueProperties = observer(function IssueProperties({
   onPickParent: () => void
   onAddRelation: () => void
 }) {
-  const size = useDetailSize()
+  const { size: textSize, accessorySize: size, accessibility } = useDetailLayout()
   const [label, setLabel] = useState('')
   const relations =
     'relationGroups' in issue
@@ -119,7 +119,11 @@ export const IssueProperties = observer(function IssueProperties({
                 commands.addLabel(label)
                 setLabel('')
               }}
-              style={styles.labelField}
+              style={[
+                styles.labelField,
+                { minHeight: Math.max(44, textSize(leading(font.body)) + space.lg) },
+                accessibility && styles.labelFieldAccessible,
+              ]}
             />
           </View>
         </Row>
@@ -283,7 +287,7 @@ export const PropertyBar = observer(function PropertyBar({
   /** Quiet text after the pills — the task's age. */
   trailing?: ReactNode
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size } = useDetailLayout()
   return (
     <View style={styles.bar}>
       <Chip
@@ -426,7 +430,7 @@ const PropertyParentReference = observer(function PropertyParentReference({
   resolveEdge: (id: string | undefined | null) => IssueEdge
   onOpenIssue: (id: string) => void
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size, accessibility } = useDetailLayout()
   const edge = resolveEdge(id)
   return edge.render === 'issue' && parent ? (
     <PressableScale
@@ -438,12 +442,12 @@ const PropertyParentReference = observer(function PropertyParentReference({
       <StageGlyph stage={parent.stage} size={size(13)} />
       <View style={styles.referenceBody}>
         <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
-        <Text style={styles.linkTitle}>
+        <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
           {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
         </Text>
       </View>
       {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-      <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
+      {!accessibility ? <Icon as={ChevronRight} size={size(13)} color={color.textFaint} /> : null}
     </PressableScale>
   ) : edge.render === 'opaque' ? (
     <Text style={styles.opaque}>an issue you do not have access to</Text>
@@ -466,7 +470,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
   commands: IssueCommands
   onOpenIssue: (id: string) => void
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size } = useDetailLayout()
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
@@ -482,7 +486,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
           <StageGlyph stage={target.stage} size={size(13)} />
           <View style={styles.referenceBody}>
             <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
-            <Text style={styles.linkTitle}>
+            <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
               {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
             </Text>
           </View>
@@ -514,7 +518,7 @@ const PropertySessionRow = observer(function PropertySessionRow({
   session: SessionView
   onOpenSession: (id: SessionId) => void
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size, accessibility } = useDetailLayout()
   return (
     <PressableScale
       accessibilityRole="button"
@@ -523,10 +527,12 @@ const PropertySessionRow = observer(function PropertySessionRow({
       style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
     >
       <View style={styles.referenceBody}>
-        <Text style={styles.linkTitle}>{sessionTitle(session)}</Text>
+        <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
+          {sessionTitle(session)}
+        </Text>
         <Text style={styles.meta}>{session.status}</Text>
       </View>
-      <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
+      {!accessibility ? <Icon as={ChevronRight} size={size(13)} color={color.textFaint} /> : null}
     </PressableScale>
   )
 })
@@ -561,7 +567,7 @@ const Ghost = observer(function Ghost({
   icon?: boolean
   primary?: boolean
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size } = useDetailLayout()
   return (
     <PressableScale
       accessibilityRole="button"
@@ -584,7 +590,7 @@ const Ghost = observer(function Ghost({
 })
 
 const External = observer(function External({ label, url }: { label: string; url: string }) {
-  const size = useDetailSize()
+  const { accessorySize: size } = useDetailLayout()
   return (
     <PressableScale
       accessibilityRole="link"
@@ -686,6 +692,7 @@ const styles = StyleSheet.create({
   },
   labelField: {
     ...sans(400),
+    lineHeight: leading(font.body),
     minHeight: 44,
     paddingVertical: space.sm,
     minWidth: 120,
@@ -698,6 +705,7 @@ const styles = StyleSheet.create({
     borderColor: color.border,
     backgroundColor: color.bgSunken,
   },
+  labelFieldAccessible: { flexBasis: '100%', width: '100%' },
   linkRow: {
     minHeight: 44,
     paddingVertical: space.sm,

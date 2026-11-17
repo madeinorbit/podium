@@ -19,7 +19,7 @@ import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, Mail } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
-import { useDetailSize } from './detail-type'
+import { useDetailLayout } from './detail-type'
 import { IssueAge } from './IssueAge'
 import { GroupHeading } from './TaskOverview'
 
@@ -137,7 +137,7 @@ const EarlierActivity = observer(function EarlierActivity({
   history: IssueHistoryView
   first: boolean
 }) {
-  const size = useDetailSize()
+  const { accessorySize } = useDetailLayout()
   if (!history.hasEarlier && !history.error) return null
   return (
     <PressableScale
@@ -150,8 +150,10 @@ const EarlierActivity = observer(function EarlierActivity({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID="activity-earlier"
     >
-      {first ? null : <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />}
-      <View style={[styles.gutter, { width: size(14) }]} />
+      {first ? null : (
+        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
+      )}
+      <View style={[styles.gutter, { width: accessorySize(14) }]} />
       <Text style={styles.earlier}>
         {history.loading
           ? 'Loading earlier activity…'
@@ -175,13 +177,13 @@ function eventMark(line: IssueEventLine): RowMark {
 }
 
 function Mark({ mark }: { mark: RowMark }) {
-  const size = useDetailSize()
+  const { accessorySize } = useDetailLayout()
   if (mark === 'needs' || mark === 'done')
     return (
       <View
         style={[
           styles.dot,
-          { width: size(8), height: size(8), borderRadius: size(4) },
+          { width: accessorySize(8), height: accessorySize(8), borderRadius: accessorySize(4) },
           { backgroundColor: mark === 'done' ? color.successText : color.needsYouText },
         ]}
       />
@@ -190,7 +192,12 @@ function Mark({ mark }: { mark: RowMark }) {
     <View
       style={[
         styles.ring,
-        { width: size(8), height: size(8), borderRadius: size(4), borderWidth: size(1.5) },
+        {
+          width: accessorySize(8),
+          height: accessorySize(8),
+          borderRadius: accessorySize(4),
+          borderWidth: accessorySize(1.5),
+        },
         { borderColor: mark === 'working' ? color.workingText : color.textFaint },
       ]}
     />
@@ -279,15 +286,19 @@ function Row({
   onPress?: () => void
   selectable?: boolean
 }) {
-  const size = useDetailSize()
+  const { size, accessorySize } = useDetailLayout()
   const body = (
     <>
-      {first ? null : <View style={[styles.separator, { left: space.md + size(14) + space.sm }]} />}
-      <View style={[styles.gutter, { width: size(14), height: size(leading(font.small)) }]}>
+      {first ? null : (
+        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
+      )}
+      <View
+        style={[styles.gutter, { width: accessorySize(14), height: size(leading(font.small)) }]}
+      >
         <Mark mark={mark} />
       </View>
       <View style={styles.main}>
-        <Text style={styles.title} selectable={selectable}>
+        <Text lineBreakStrategyIOS="standard" style={styles.title} selectable={selectable}>
           {title}
         </Text>
         <Text style={styles.meta}>
@@ -299,7 +310,7 @@ function Row({
         <View style={{ height: size(leading(font.small)), justifyContent: 'center' }}>
           <Icon
             as={expanded ? ChevronDown : ChevronRight}
-            size={size(14)}
+            size={accessorySize(14)}
             color={color.textFaint}
           />
         </View>

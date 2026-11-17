@@ -17,7 +17,7 @@ import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
-import { useDetailSize } from './detail-type'
+import { useDetailLayout, useDetailSize } from './detail-type'
 
 /** FullDeck.buckets reads this same shared execution progress. */
 function useSubTaskCount(issue?: IssueViewModel) {
@@ -180,8 +180,8 @@ const SubTaskRow = observer(function SubTaskRow({
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
-  const size = useDetailSize()
-  const statusWidth = Math.max(44, size(18) + space.xl)
+  const { size, accessorySize, accessibility } = useDetailLayout()
+  const statusWidth = Math.max(44, accessorySize(18) + space.lg)
   const count =
     'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = taskStateWord(child, count)
@@ -208,7 +208,7 @@ const SubTaskRow = observer(function SubTaskRow({
           pressed && styles.rowPressed,
         ]}
       >
-        <StageGlyph stage={child.stage} size={size(18)} ground={color.groupedCard} />
+        <StageGlyph stage={child.stage} size={accessorySize(18)} ground={color.groupedCard} />
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
@@ -218,7 +218,7 @@ const SubTaskRow = observer(function SubTaskRow({
         style={({ pressed }) => [styles.rowBody, pressed && styles.rowPressed]}
       >
         <View style={styles.main}>
-          <Text style={styles.title}>
+          <Text lineBreakStrategyIOS="standard" style={styles.title}>
             {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
           </Text>
           <View style={styles.meta}>
@@ -227,9 +227,11 @@ const SubTaskRow = observer(function SubTaskRow({
             {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
           </View>
         </View>
-        <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
-          <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
-        </View>
+        {!accessibility ? (
+          <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
+            <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
+          </View>
+        ) : null}
       </PressableScale>
     </View>
   )

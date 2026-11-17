@@ -1,12 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Animated, StyleSheet, Text, TextInput, type TextProps, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
-import { useDetailSize } from './detail-type'
+import { useDetailLayout } from './detail-type'
 
 /**
  * The task page's shared furniture [POD-724] — the four things every section on
@@ -90,7 +90,7 @@ export function Disclosure({
   children: ReactNode
   testID?: string
 }) {
-  const size = useDetailSize()
+  const { size, accessorySize } = useDetailLayout()
   const reduceMotion = useReduceMotion()
   const spin = useRef(new Animated.Value(open ? 1 : 0)).current
   useEffect(() => {
@@ -126,10 +126,10 @@ export function Disclosure({
         <Animated.View
           style={[
             styles.chevron,
-            { width: size(14), height: size(leading(font.body)), transform: [{ rotate }] },
+            { width: accessorySize(14), height: size(leading(font.body)), transform: [{ rotate }] },
           ]}
         >
-          <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
+          <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
         </Animated.View>
       </PressableScale>
       {open ? <View style={styles.discBody}>{children}</View> : null}
@@ -154,6 +154,7 @@ export function InlineEditable({
   onCommit,
   render,
   textStyle,
+  dynamicTypeRamp,
 }: {
   value: string
   placeholder: string
@@ -163,6 +164,7 @@ export function InlineEditable({
   onCommit: (value: string) => void
   render?: (text: string) => ReactNode
   textStyle?: object
+  dynamicTypeRamp?: TextProps['dynamicTypeRamp']
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -185,7 +187,11 @@ export function InlineEditable({
         {filled && render ? (
           render(value)
         ) : (
-          <Text style={[styles.editText, textStyle, !filled && styles.editPlaceholder]}>
+          <Text
+            dynamicTypeRamp={dynamicTypeRamp}
+            lineBreakStrategyIOS="standard"
+            style={[styles.editText, textStyle, !filled && styles.editPlaceholder]}
+          >
             {filled ? value : placeholder}
           </Text>
         )}
@@ -203,6 +209,7 @@ export function InlineEditable({
         placeholder={placeholder}
         placeholderTextColor={color.textMicro}
         multiline={multiline}
+        lineBreakStrategyIOS="standard"
         autoFocus
         editable={!busy}
         style={[styles.field, textStyle, multiline && styles.fieldMultiline]}
