@@ -163,6 +163,9 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/conversations/registry.ts:parentsOf', SIZES],
   ['apps/server/src/store/conversations/registry.ts:nativeIdsOf', SIZES],
   ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
+  // The lake conversion's keyset pages (POD-7053): the first page and each later one.
+  ['apps/server/src/store/conversations/mirror.ts:lakeConversionSegments', ['start', 'after']],
+  ['apps/server/src/store/conversations/mirror.ts:lakeConversionArchived', ['start', 'after']],
   ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
