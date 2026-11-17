@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import { createHash } from 'node:crypto'
 import {
   type ActorKind,
@@ -70,18 +71,21 @@ import type {
   shipSteps,
 } from '../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** RETAINED INPUT/MINT BRAND CASTS: shipping compatibility methods accept raw
@@ -106,9 +110,12 @@ const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
  * Proven fragile rather than assumed: give that table an `id` and the bare form
  * counts 0 where the qualified form counts 2 — no error, no log, a plausible
  * number, and every train then reads as unclaimed.
+ *
+ * The claims are this workspace's only: `c` is held to the outer manifest's
+ * workspace, qualified by hand for the same reason (POD-6959).
  */
 const activeClaimCount = (t: StoreTables) =>
-  sql<number>`(SELECT COUNT(*) FROM ${t.shipTrainActiveClaims} c WHERE c.train_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('id')})`
+  sql<number>`(SELECT COUNT(*) FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('workspace_id')} AND c.train_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('id')})`
 
 /**
  * THE SIX ROW SHAPES THE MAPPERS BELOW READ [POD-3396, spec rule 3].
@@ -514,7 +521,7 @@ const highestHoldGenerationOf = prepared((db, t) =>
   db
     .select({ generation: sql<number>`COALESCE(MAX(${t.shipHolds.generation}), 0)` })
     .from(t.shipHolds)
-    .where(eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')))
+    .where(inWorkspace(t.shipHolds, eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId'))))
     .prepare(),
 )
 
@@ -522,6 +529,7 @@ const insertDeliveryReceiptRow = prepared((db, t) =>
   db
     .insert(t.deliveryReceipts)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
       approvedBaseSha: sql.placeholder('approvedBaseSha'),
@@ -554,6 +562,7 @@ const bumpLaneRevisionUpsert = prepared((db, t) =>
   db
     .insert(t.shipLaneRevisions)
     .values({
+      workspaceId: WORKSPACE,
       laneKey: sql.placeholder('laneKey'),
       revision: 1,
       updatedAt: sql.placeholder('updatedAt'),
@@ -572,7 +581,7 @@ const evidenceByRef = prepared((db, t) =>
   db
     .select()
     .from(t.shipEvidence)
-    .where(eq(t.shipEvidence.ref, param(t.shipEvidence.ref, 'ref')))
+    .where(inWorkspace(t.shipEvidence, eq(t.shipEvidence.ref, param(t.shipEvidence.ref, 'ref'))))
     .prepare(),
 )
 
@@ -581,7 +590,8 @@ const evidenceBySource = prepared((db, t) =>
     .select()
     .from(t.shipEvidence)
     .where(
-      and(
+      inWorkspace(
+        t.shipEvidence,
         eq(t.shipEvidence.custodyDigest, param(t.shipEvidence.custodyDigest, 'custodyDigest')),
         eq(t.shipEvidence.sourceRef, param(t.shipEvidence.sourceRef, 'sourceRef')),
       ),
@@ -594,6 +604,7 @@ const insertEvidence = prepared((db, t) =>
   db
     .insert(t.shipEvidence)
     .values({
+      workspaceId: WORKSPACE,
       ref: sql.placeholder('ref'),
       custodyDigest: sql.placeholder('custodyDigest'),
       contentDigest: sql.placeholder('contentDigest'),
@@ -609,7 +620,10 @@ const repairCandidatesOfAttempt = prepared((db, t) =>
     .select()
     .from(t.shipRepairCandidates)
     .where(
-      eq(t.shipRepairCandidates.attemptId, param(t.shipRepairCandidates.attemptId, 'attemptId')),
+      inWorkspace(
+        t.shipRepairCandidates,
+        eq(t.shipRepairCandidates.attemptId, param(t.shipRepairCandidates.attemptId, 'attemptId')),
+      ),
     )
     .orderBy(asc(t.shipRepairCandidates.sequence))
     .prepare(),
@@ -620,7 +634,8 @@ const repairCandidateOfSequence = prepared((db, t) =>
     .select()
     .from(t.shipRepairCandidates)
     .where(
-      and(
+      inWorkspace(
+        t.shipRepairCandidates,
         eq(t.shipRepairCandidates.attemptId, param(t.shipRepairCandidates.attemptId, 'attemptId')),
         eq(t.shipRepairCandidates.sequence, param(t.shipRepairCandidates.sequence, 'sequence')),
       ),
@@ -632,6 +647,7 @@ const insertRepairCandidate = prepared((db, t) =>
   db
     .insert(t.shipRepairCandidates)
     .values({
+      workspaceId: WORKSPACE,
       orderId: sql.placeholder('orderId'),
       attemptId: sql.placeholder('attemptId'),
       generation: sql.placeholder('generation'),
@@ -651,7 +667,8 @@ const integrationReceiptByRootHead = prepared((db, t) =>
     .select()
     .from(t.rootIntegrationReceipts)
     .where(
-      and(
+      inWorkspace(
+        t.rootIntegrationReceipts,
         eq(
           t.rootIntegrationReceipts.rootIssueId,
           param(t.rootIntegrationReceipts.rootIssueId, 'rootIssueId'),
@@ -669,6 +686,7 @@ const insertIntegrationReceipt = prepared((db, t) =>
   db
     .insert(t.rootIntegrationReceipts)
     .values({
+      workspaceId: WORKSPACE,
       rootIssueId: sql.placeholder('rootIssueId'),
       approvedHeadSha: sql.placeholder('approvedHeadSha'),
       descendants: sql.placeholder('descendants'),
@@ -680,7 +698,7 @@ const orderById = prepared((db, t) =>
   db
     .select(orderColumns(t))
     .from(t.shipOrders)
-    .where(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')))
+    .where(inWorkspace(t.shipOrders, eq(t.shipOrders.id, param(t.shipOrders.id, 'id'))))
     .prepare(),
 )
 
@@ -689,7 +707,8 @@ const activeOrderOfIssue = prepared((db, t) =>
     .select(orderColumns(t))
     .from(t.shipOrders)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.issueId, param(t.shipOrders.issueId, 'issueId')),
         notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
       ),
@@ -701,6 +720,7 @@ const allOrders = prepared((db, t) =>
   db
     .select(orderColumns(t))
     .from(t.shipOrders)
+    .where(inWorkspace(t.shipOrders))
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
     .prepare(),
 )
@@ -711,7 +731,8 @@ const queuedOrdersOfLane = preparedFamily((db, t, size: number) =>
     .select(orderColumns(t))
     .from(t.shipOrders)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.repoId, param(t.shipOrders.repoId, 'repoId')),
         inListOf(t.shipOrders.destination, size, 'destination'),
         eq(t.shipOrders.state, 'queued'),
@@ -730,7 +751,8 @@ const queuedOrdersOfLanes = preparedFamily((db, t, shape: string) => {
     .select(orderColumns(t))
     .from(t.shipOrders)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         inListOf(t.shipOrders.repoId, repoSize, 'repo'),
         inListOf(t.shipOrders.destination, destinationSize, 'destination'),
         eq(t.shipOrders.state, 'queued'),
@@ -744,7 +766,7 @@ const ordersOfIds = preparedFamily((db, t, size: number) =>
   db
     .select(orderColumns(t))
     .from(t.shipOrders)
-    .where(inListOf(t.shipOrders.id, size, 'ids'))
+    .where(inWorkspace(t.shipOrders, inListOf(t.shipOrders.id, size, 'ids')))
     .prepare(),
 )
 
@@ -771,7 +793,7 @@ const activeOrdersFifo = prepared((db, t) =>
   db
     .select(indexedOrderColumns(t))
     .from(sql`${t.shipOrders} INDEXED BY idx_ship_orders_one_active_issue`)
-    .where(sql.raw(ACTIVE_SHIP_ORDER_TERM)) // CONSTANT-IDENTIFIER STATEMENT POD-5612
+    .where(inWorkspace(t.shipOrders, sql.raw(ACTIVE_SHIP_ORDER_TERM))) // CONSTANT-IDENTIFIER STATEMENT POD-5612
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
     .prepare(),
 )
@@ -781,7 +803,10 @@ const resumableOrdersFifo = prepared((db, t) =>
     .select(indexedOrderColumns(t))
     .from(sql`${t.shipOrders} INDEXED BY idx_ship_orders_recovery`)
     .where(
-      sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`,
+      inWorkspace(
+        t.shipOrders,
+        sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`,
+      ),
     )
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
     .prepare(),
@@ -792,7 +817,8 @@ const recoveryWorkPage = prepared((db, t) =>
     .select()
     .from(t.shipRecoveryWork)
     .where(
-      and(
+      inWorkspace(
+        t.shipRecoveryWork,
         eq(t.shipRecoveryWork.kind, param(t.shipRecoveryWork.kind, 'kind')),
         gt(t.shipRecoveryWork.key, param(t.shipRecoveryWork.key, 'after')),
       ),
@@ -806,7 +832,7 @@ const recoveryRevision = prepared((db, t) =>
   db
     .select({ revision: t.shipRecoveryRevision.revision })
     .from(t.shipRecoveryRevision)
-    .where(eq(t.shipRecoveryRevision.id, 1))
+    .where(inWorkspace(t.shipRecoveryRevision, eq(t.shipRecoveryRevision.id, 1)))
     .prepare(),
 )
 
@@ -814,7 +840,7 @@ const advanceRecoveryRevision = prepared((db, t) =>
   db
     .update(t.shipRecoveryRevision)
     .set({ revision: sql`${t.shipRecoveryRevision.revision} + 1` })
-    .where(eq(t.shipRecoveryRevision.id, 1))
+    .where(inWorkspace(t.shipRecoveryRevision, eq(t.shipRecoveryRevision.id, 1)))
     .prepare(),
 )
 
@@ -822,6 +848,7 @@ const insertRecoveryWork = prepared((db, t) =>
   db
     .insert(t.shipRecoveryWork)
     .values({
+      workspaceId: WORKSPACE,
       key: sql.placeholder('key'),
       kind: sql.placeholder('kind'),
       orderId: sql.placeholder('orderId'),
@@ -834,7 +861,12 @@ const insertRecoveryWork = prepared((db, t) =>
 const deleteRecoveryWork = prepared((db, t) =>
   db
     .delete(t.shipRecoveryWork)
-    .where(eq(t.shipRecoveryWork.key, param(t.shipRecoveryWork.key, 'key')))
+    .where(
+      inWorkspace(
+        t.shipRecoveryWork,
+        eq(t.shipRecoveryWork.key, param(t.shipRecoveryWork.key, 'key')),
+      ),
+    )
     .prepare(),
 )
 
@@ -845,9 +877,16 @@ const shippedPredecessorsPage = preparedFamily((db, t, size: number) =>
   db
     .select({ ...orderColumns(t), destinationSha: t.deliveryReceipts.destinationSha })
     .from(t.shipOrders)
-    .innerJoin(t.deliveryReceipts, eq(t.deliveryReceipts.orderId, t.shipOrders.id))
-    .where(
+    .innerJoin(
+      t.deliveryReceipts,
       and(
+        sameWorkspace(t.deliveryReceipts, t.shipOrders),
+        eq(t.deliveryReceipts.orderId, t.shipOrders.id),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.repoId, param(t.shipOrders.repoId, 'repoId')),
         eq(t.shipOrders.state, 'shipped'),
         lte(t.shipOrders.stateChangedAt, param(t.shipOrders.stateChangedAt, 'beforeAt')),
@@ -888,7 +927,8 @@ const activeOrdersOfLane = preparedFamily((db, t, size: number) =>
     .select(orderColumns(t))
     .from(t.shipOrders)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.repoId, param(t.shipOrders.repoId, 'repoId')),
         inListOf(t.shipOrders.destination, size, 'destination'),
         sql.raw(ACTIVE_SHIP_ORDER_TERM), // CONSTANT-IDENTIFIER STATEMENT POD-5612
@@ -904,7 +944,8 @@ const queuedDependentsOfIds = preparedFamily((db, t, size: number) =>
     .select(orderColumns(t))
     .from(t.shipOrders)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         // CONSTANT-IDENTIFIER STATEMENT POD-5612 — the term is the
         // `ACTIVE_SHIP_ORDER_TERM` source constant, never user input, and
         // `shipping-lane-reads.test.ts` derives it from the schema (index
@@ -928,7 +969,9 @@ const stackEdgesFromUppers = preparedFamily((db, t, size: number) =>
       lowerOrderId: t.shipOrderStackEdges.lowerOrderId,
     })
     .from(t.shipOrderStackEdges)
-    .where(inListOf(t.shipOrderStackEdges.upperOrderId, size, 'ids'))
+    .where(
+      inWorkspace(t.shipOrderStackEdges, inListOf(t.shipOrderStackEdges.upperOrderId, size, 'ids')),
+    )
     .prepare(),
 )
 
@@ -939,6 +982,7 @@ const allStackEdgesOrdered = prepared((db, t) =>
       lowerOrderId: t.shipOrderStackEdges.lowerOrderId,
     })
     .from(t.shipOrderStackEdges)
+    .where(inWorkspace(t.shipOrderStackEdges))
     .orderBy(asc(t.shipOrderStackEdges.upperOrderId), asc(t.shipOrderStackEdges.lowerOrderId))
     .prepare(),
 )
@@ -947,7 +991,13 @@ const openHoldsOfOrders = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.shipHolds)
-    .where(and(inListOf(t.shipHolds.orderId, size, 'ids'), isNull(t.shipHolds.resolvedAt)))
+    .where(
+      inWorkspace(
+        t.shipHolds,
+        inListOf(t.shipHolds.orderId, size, 'ids'),
+        isNull(t.shipHolds.resolvedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -955,7 +1005,7 @@ const receiptsOfOrders = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.deliveryReceipts)
-    .where(inListOf(t.deliveryReceipts.orderId, size, 'ids'))
+    .where(inWorkspace(t.deliveryReceipts, inListOf(t.deliveryReceipts.orderId, size, 'ids')))
     .prepare(),
 )
 
@@ -963,7 +1013,7 @@ const issueIdOfOrder = prepared((db, t) =>
   db
     .select({ issueId: t.shipOrders.issueId })
     .from(t.shipOrders)
-    .where(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')))
+    .where(inWorkspace(t.shipOrders, eq(t.shipOrders.id, param(t.shipOrders.id, 'id'))))
     .prepare(),
 )
 
@@ -971,7 +1021,7 @@ const issueIdsOfOrders = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.shipOrders.id, issueId: t.shipOrders.issueId })
     .from(t.shipOrders)
-    .where(inListOf(t.shipOrders.id, size, 'ids'))
+    .where(inWorkspace(t.shipOrders, inListOf(t.shipOrders.id, size, 'ids')))
     .prepare(),
 )
 
@@ -980,7 +1030,7 @@ const orderIdsOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.shipOrders.id, issueId: t.shipOrders.issueId })
     .from(t.shipOrders)
-    .where(inListOf(t.shipOrders.issueId, size, 'issueIds'))
+    .where(inWorkspace(t.shipOrders, inListOf(t.shipOrders.issueId, size, 'issueIds')))
     .prepare(),
 )
 
@@ -989,7 +1039,7 @@ const issueLaneCustody = prepared((db, t) =>
   db
     .select({ repoPath: t.issues.repoPath, machineId: t.issues.machineId })
     .from(t.issues)
-    .where(eq(t.issues.id, param(t.issues.id, 'id')))
+    .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
     .prepare(),
 )
 
@@ -1002,7 +1052,7 @@ const issueBranchCustody = prepared((db, t) =>
       repoPath: t.issues.repoPath,
     })
     .from(t.issues)
-    .where(eq(t.issues.id, param(t.issues.id, 'id')))
+    .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
     .prepare(),
 )
 
@@ -1010,6 +1060,7 @@ const insertOrder = prepared((db, t) =>
   db
     .insert(t.shipOrders)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       repoId: sql.placeholder('repoId'),
@@ -1049,7 +1100,8 @@ const transitionOrderFenced = prepared((db, t) =>
       holdCode: null,
     })
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
         eq(t.shipOrders.state, param(t.shipOrders.state, 'expectedState')),
         // Redundant against the equality above and kept verbatim: narrowing a
@@ -1064,7 +1116,7 @@ const attemptById = prepared((db, t) =>
   db
     .select()
     .from(t.shipAttempts)
-    .where(eq(t.shipAttempts.id, param(t.shipAttempts.id, 'id')))
+    .where(inWorkspace(t.shipAttempts, eq(t.shipAttempts.id, param(t.shipAttempts.id, 'id'))))
     .prepare(),
 )
 
@@ -1072,6 +1124,7 @@ const insertAttempt = prepared((db, t) =>
   db
     .insert(t.shipAttempts)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
       expectedSourceBaseSha: sql.placeholder('expectedSourceBaseSha'),
@@ -1089,7 +1142,12 @@ const latestAttemptOfOrder = prepared((db, t) =>
   db
     .select()
     .from(t.shipAttempts)
-    .where(eq(t.shipAttempts.orderId, param(t.shipAttempts.orderId, 'orderId')))
+    .where(
+      inWorkspace(
+        t.shipAttempts,
+        eq(t.shipAttempts.orderId, param(t.shipAttempts.orderId, 'orderId')),
+      ),
+    )
     .orderBy(desc(t.shipAttempts.leaseGeneration))
     .limit(1)
     .prepare(),
@@ -1100,7 +1158,12 @@ const attemptsOfOrder = prepared((db, t) =>
   db
     .select()
     .from(t.shipAttempts)
-    .where(eq(t.shipAttempts.orderId, param(t.shipAttempts.orderId, 'orderId')))
+    .where(
+      inWorkspace(
+        t.shipAttempts,
+        eq(t.shipAttempts.orderId, param(t.shipAttempts.orderId, 'orderId')),
+      ),
+    )
     .orderBy(asc(t.shipAttempts.startedAt), asc(t.shipAttempts.id))
     .prepare(),
 )
@@ -1109,7 +1172,12 @@ const laneRevisionOf = prepared((db, t) =>
   db
     .select({ revision: t.shipLaneRevisions.revision })
     .from(t.shipLaneRevisions)
-    .where(eq(t.shipLaneRevisions.laneKey, param(t.shipLaneRevisions.laneKey, 'laneKey')))
+    .where(
+      inWorkspace(
+        t.shipLaneRevisions,
+        eq(t.shipLaneRevisions.laneKey, param(t.shipLaneRevisions.laneKey, 'laneKey')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1117,6 +1185,7 @@ const insertTrainManifest = prepared((db, t) =>
   db
     .insert(t.shipTrainManifests)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       version: sql.placeholder('version'),
       subsetId: sql.placeholder('subsetId'),
@@ -1148,6 +1217,7 @@ const insertTrainMember = prepared((db, t) =>
   db
     .insert(t.shipTrainMembers)
     .values({
+      workspaceId: WORKSPACE,
       trainId: sql.placeholder('trainId'),
       ordinal: sql.placeholder('ordinal'),
       issueId: sql.placeholder('issueId'),
@@ -1167,6 +1237,7 @@ const insertActiveClaim = prepared((db, t) =>
   db
     .insert(t.shipTrainActiveClaims)
     .values({
+      workspaceId: WORKSPACE,
       trainId: sql.placeholder('trainId'),
       orderId: sql.placeholder('orderId'),
       attemptId: sql.placeholder('attemptId'),
@@ -1181,8 +1252,19 @@ const manifestOfAttempt = prepared((db, t) =>
   db
     .select(trainManifestColumns(t))
     .from(t.shipTrainManifests)
-    .innerJoin(t.shipTrainMembers, eq(t.shipTrainMembers.trainId, t.shipTrainManifests.id))
-    .where(eq(t.shipTrainMembers.attemptId, param(t.shipTrainMembers.attemptId, 'attemptId')))
+    .innerJoin(
+      t.shipTrainMembers,
+      and(
+        sameWorkspace(t.shipTrainMembers, t.shipTrainManifests),
+        eq(t.shipTrainMembers.trainId, t.shipTrainManifests.id),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainMembers.attemptId, param(t.shipTrainMembers.attemptId, 'attemptId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1190,7 +1272,12 @@ const membersOfTrain = prepared((db, t) =>
   db
     .select(trainMemberColumns(t))
     .from(t.shipTrainMembers)
-    .where(eq(t.shipTrainMembers.trainId, param(t.shipTrainMembers.trainId, 'trainId')))
+    .where(
+      inWorkspace(
+        t.shipTrainMembers,
+        eq(t.shipTrainMembers.trainId, param(t.shipTrainMembers.trainId, 'trainId')),
+      ),
+    )
     .orderBy(asc(t.shipTrainMembers.ordinal))
     .prepare(),
 )
@@ -1199,9 +1286,16 @@ const claimedAttemptOfOrder = prepared((db, t) =>
   db
     .select({ attemptId: t.shipTrainActiveClaims.attemptId })
     .from(t.shipTrainActiveClaims)
-    .innerJoin(t.shipTrainManifests, eq(t.shipTrainManifests.id, t.shipTrainActiveClaims.trainId))
-    .where(
+    .innerJoin(
+      t.shipTrainManifests,
       and(
+        sameWorkspace(t.shipTrainManifests, t.shipTrainActiveClaims),
+        eq(t.shipTrainManifests.id, t.shipTrainActiveClaims.trainId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipTrainActiveClaims,
         eq(t.shipTrainActiveClaims.orderId, param(t.shipTrainActiveClaims.orderId, 'orderId')),
         isNull(t.shipTrainManifests.releasedAt),
       ),
@@ -1221,8 +1315,19 @@ const trainLaneAuthority = prepared((db, t) =>
       claimCount: activeClaimCount(t),
     })
     .from(t.shipTrainManifests)
-    .innerJoin(t.shipLaneRevisions, eq(t.shipLaneRevisions.laneKey, t.shipTrainManifests.laneKey))
-    .where(eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')))
+    .innerJoin(
+      t.shipLaneRevisions,
+      and(
+        sameWorkspace(t.shipLaneRevisions, t.shipTrainManifests),
+        eq(t.shipLaneRevisions.laneKey, t.shipTrainManifests.laneKey),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1230,9 +1335,16 @@ const activeClaimOrdersOfLane = prepared((db, t) =>
   db
     .select({ orderId: t.shipTrainActiveClaims.orderId })
     .from(t.shipTrainActiveClaims)
-    .innerJoin(t.shipTrainManifests, eq(t.shipTrainManifests.id, t.shipTrainActiveClaims.trainId))
-    .where(
+    .innerJoin(
+      t.shipTrainManifests,
       and(
+        sameWorkspace(t.shipTrainManifests, t.shipTrainActiveClaims),
+        eq(t.shipTrainManifests.id, t.shipTrainActiveClaims.trainId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipTrainActiveClaims,
         eq(t.shipTrainManifests.laneKey, param(t.shipTrainManifests.laneKey, 'laneKey')),
         isNull(t.shipTrainManifests.releasedAt),
       ),
@@ -1252,7 +1364,12 @@ const trainReleaseState = prepared((db, t) =>
       releaseReason: t.shipTrainManifests.releaseReason,
     })
     .from(t.shipTrainManifests)
-    .where(eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')))
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1264,7 +1381,8 @@ const releaseTrainFenced = prepared((db, t) =>
       releaseReason: sql.placeholder('releaseReason'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.shipTrainManifests,
         eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
         isNull(t.shipTrainManifests.releasedAt),
       ),
@@ -1275,7 +1393,12 @@ const releaseTrainFenced = prepared((db, t) =>
 const deleteActiveClaimsOfTrain = prepared((db, t) =>
   db
     .delete(t.shipTrainActiveClaims)
-    .where(eq(t.shipTrainActiveClaims.trainId, param(t.shipTrainActiveClaims.trainId, 'trainId')))
+    .where(
+      inWorkspace(
+        t.shipTrainActiveClaims,
+        eq(t.shipTrainActiveClaims.trainId, param(t.shipTrainActiveClaims.trainId, 'trainId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1283,7 +1406,12 @@ const trainMemberCountOf = prepared((db, t) =>
   db
     .select({ memberCount: t.shipTrainManifests.memberCount })
     .from(t.shipTrainManifests)
-    .where(eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')))
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1293,7 +1421,8 @@ const requeueLiveOrder = prepared((db, t) =>
     .update(t.shipOrders)
     .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
         notInArray(t.shipOrders.state, ['shipped', 'cancelled', 'held']),
       ),
@@ -1306,7 +1435,8 @@ const openTrainsOfLane = prepared((db, t) =>
     .select({ id: t.shipTrainManifests.id })
     .from(t.shipTrainManifests)
     .where(
-      and(
+      inWorkspace(
+        t.shipTrainManifests,
         eq(t.shipTrainManifests.laneKey, param(t.shipTrainManifests.laneKey, 'laneKey')),
         isNull(t.shipTrainManifests.releasedAt),
       ),
@@ -1325,8 +1455,20 @@ const shippedLeadersOfOpenTrains = prepared((db, t) =>
     // not the table object.
     .select({ leaderOrderId: sql<ShipOrderValue['id']>`${t.shipTrainManifests.leaderOrderId}` })
     .from(sql`${t.shipTrainManifests} INDEXED BY idx_ship_train_manifests_open_lane`)
-    .innerJoin(t.shipOrders, eq(t.shipOrders.id, t.shipTrainManifests.leaderOrderId))
-    .where(and(isNull(t.shipTrainManifests.releasedAt), eq(t.shipOrders.state, 'shipped')))
+    .innerJoin(
+      t.shipOrders,
+      and(
+        sameWorkspace(t.shipOrders, t.shipTrainManifests),
+        eq(t.shipOrders.id, t.shipTrainManifests.leaderOrderId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        isNull(t.shipTrainManifests.releasedAt),
+        eq(t.shipOrders.state, 'shipped'),
+      ),
+    )
     .prepare(),
 )
 
@@ -1341,11 +1483,17 @@ const activeMembersOfTrain = prepared((db, t) =>
     .innerJoin(
       t.shipTrainActiveClaims,
       and(
+        sameWorkspace(t.shipTrainActiveClaims, t.shipTrainMembers),
         eq(t.shipTrainActiveClaims.trainId, t.shipTrainMembers.trainId),
         eq(t.shipTrainActiveClaims.orderId, t.shipTrainMembers.orderId),
       ),
     )
-    .where(eq(t.shipTrainMembers.trainId, param(t.shipTrainMembers.trainId, 'trainId')))
+    .where(
+      inWorkspace(
+        t.shipTrainMembers,
+        eq(t.shipTrainMembers.trainId, param(t.shipTrainMembers.trainId, 'trainId')),
+      ),
+    )
     .orderBy(asc(t.shipTrainMembers.ordinal))
     .prepare(),
 )
@@ -1356,7 +1504,11 @@ const requeuePreflightOrder = prepared((db, t) =>
     .update(t.shipOrders)
     .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
     .where(
-      and(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')), eq(t.shipOrders.state, 'preflight')),
+      inWorkspace(
+        t.shipOrders,
+        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+        eq(t.shipOrders.state, 'preflight'),
+      ),
     )
     .prepare(),
 )
@@ -1366,7 +1518,8 @@ const stackEdgeByPair = prepared((db, t) =>
     .select()
     .from(t.shipOrderStackEdges)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrderStackEdges,
         eq(
           t.shipOrderStackEdges.upperOrderId,
           param(t.shipOrderStackEdges.upperOrderId, 'upperOrderId'),
@@ -1384,6 +1537,7 @@ const insertStackEdge = prepared((db, t) =>
   db
     .insert(t.shipOrderStackEdges)
     .values({
+      workspaceId: WORKSPACE,
       upperOrderId: sql.placeholder('upperOrderId'),
       lowerOrderId: sql.placeholder('lowerOrderId'),
       upperApprovedHeadSha: sql.placeholder('upperApprovedHeadSha'),
@@ -1398,7 +1552,8 @@ const stackEdgePresent = prepared((db, t) =>
     .select({ present: sql<number>`1` })
     .from(t.shipOrderStackEdges)
     .where(
-      and(
+      inWorkspace(
+        t.shipOrderStackEdges,
         eq(
           t.shipOrderStackEdges.upperOrderId,
           param(t.shipOrderStackEdges.upperOrderId, 'upperOrderId'),
@@ -1428,7 +1583,8 @@ const finishAttemptFenced = prepared((db, t) =>
       validationResult: sql.placeholder('validationResult'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.shipAttempts,
         eq(t.shipAttempts.id, param(t.shipAttempts.id, 'id')),
         eq(
           t.shipAttempts.leaseGeneration,
@@ -1445,7 +1601,8 @@ const stepByIdempotency = prepared((db, t) =>
     .select(stepColumns(t))
     .from(t.shipSteps)
     .where(
-      and(
+      inWorkspace(
+        t.shipSteps,
         eq(t.shipSteps.attemptId, param(t.shipSteps.attemptId, 'attemptId')),
         eq(t.shipSteps.idempotencyKey, param(t.shipSteps.idempotencyKey, 'idempotencyKey')),
       ),
@@ -1457,6 +1614,7 @@ const insertStep = prepared((db, t) =>
   db
     .insert(t.shipSteps)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
       attemptId: sql.placeholder('attemptId'),
@@ -1480,7 +1638,7 @@ const stepOfId = prepared((db, t) =>
   db
     .select(stepColumns(t))
     .from(t.shipSteps)
-    .where(eq(t.shipSteps.id, param(t.shipSteps.id, 'id')))
+    .where(inWorkspace(t.shipSteps, eq(t.shipSteps.id, param(t.shipSteps.id, 'id'))))
     .prepare(),
 )
 
@@ -1488,7 +1646,12 @@ const stepsOfAttempt = prepared((db, t) =>
   db
     .select(stepColumns(t))
     .from(t.shipSteps)
-    .where(eq(t.shipSteps.attemptId, param(t.shipSteps.attemptId, 'attemptId')))
+    .where(
+      inWorkspace(
+        t.shipSteps,
+        eq(t.shipSteps.attemptId, param(t.shipSteps.attemptId, 'attemptId')),
+      ),
+    )
     .orderBy(asc(t.shipSteps.recordedAt), asc(t.shipSteps.id))
     .prepare(),
 )
@@ -1500,7 +1663,8 @@ const latestStepOfEffect = prepared((db, t) =>
     .select(stepColumns(t))
     .from(t.shipSteps)
     .where(
-      and(
+      inWorkspace(
+        t.shipSteps,
         eq(t.shipSteps.attemptId, param(t.shipSteps.attemptId, 'attemptId')),
         eq(t.shipSteps.effectKey, param(t.shipSteps.effectKey, 'effectKey')),
       ),
@@ -1526,7 +1690,8 @@ const openHoldOfOrder = prepared((db, t) =>
     .select()
     .from(t.shipHolds)
     .where(
-      and(
+      inWorkspace(
+        t.shipHolds,
         eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')),
         isNull(t.shipHolds.resolvedAt),
       ),
@@ -1538,6 +1703,7 @@ const allHolds = prepared((db, t) =>
   db
     .select()
     .from(t.shipHolds)
+    .where(inWorkspace(t.shipHolds))
     .orderBy(asc(t.shipHolds.orderId), asc(t.shipHolds.generation))
     .prepare(),
 )
@@ -1546,6 +1712,7 @@ const insertHold = prepared((db, t) =>
   db
     .insert(t.shipHolds)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
       generation: sql.placeholder('generation'),
@@ -1568,7 +1735,8 @@ const holdOrderFenced = prepared((db, t) =>
       stateChangedAt: sql.placeholder('stateChangedAt'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.shipOrders,
         eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
         notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
       ),
@@ -1581,7 +1749,8 @@ const resolveHoldFenced = prepared((db, t) =>
     .update(t.shipHolds)
     .set({ resolvedAt: sql.placeholder('resolvedAt'), resolution: sql.placeholder('resolution') })
     .where(
-      and(
+      inWorkspace(
+        t.shipHolds,
         eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')),
         eq(t.shipHolds.generation, param(t.shipHolds.generation, 'generation')),
         isNull(t.shipHolds.resolvedAt),
@@ -1598,7 +1767,13 @@ const releaseHeldOrder = prepared((db, t) =>
       holdCode: null,
       stateChangedAt: sql.placeholder('stateChangedAt'),
     })
-    .where(and(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')), eq(t.shipOrders.state, 'held')))
+    .where(
+      inWorkspace(
+        t.shipOrders,
+        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+        eq(t.shipOrders.state, 'held'),
+      ),
+    )
     .prepare(),
 )
 
@@ -1607,7 +1782,8 @@ const holdOfOrderGeneration = prepared((db, t) =>
     .select()
     .from(t.shipHolds)
     .where(
-      and(
+      inWorkspace(
+        t.shipHolds,
         eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')),
         eq(t.shipHolds.generation, param(t.shipHolds.generation, 'generation')),
       ),
@@ -1619,7 +1795,12 @@ const receiptOfOrder = prepared((db, t) =>
   db
     .select()
     .from(t.deliveryReceipts)
-    .where(eq(t.deliveryReceipts.orderId, param(t.deliveryReceipts.orderId, 'orderId')))
+    .where(
+      inWorkspace(
+        t.deliveryReceipts,
+        eq(t.deliveryReceipts.orderId, param(t.deliveryReceipts.orderId, 'orderId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1627,6 +1808,7 @@ const allReceipts = prepared((db, t) =>
   db
     .select()
     .from(t.deliveryReceipts)
+    .where(inWorkspace(t.deliveryReceipts))
     .orderBy(asc(t.deliveryReceipts.completedAt), asc(t.deliveryReceipts.id))
     .prepare(),
 )
@@ -1639,7 +1821,12 @@ const envelopeRecordOf = prepared((db, t) =>
       recordedAt: t.shipEffectEnvelopes.recordedAt,
     })
     .from(t.shipEffectEnvelopes)
-    .where(eq(t.shipEffectEnvelopes.effectKey, param(t.shipEffectEnvelopes.effectKey, 'effectKey')))
+    .where(
+      inWorkspace(
+        t.shipEffectEnvelopes,
+        eq(t.shipEffectEnvelopes.effectKey, param(t.shipEffectEnvelopes.effectKey, 'effectKey')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1647,6 +1834,7 @@ const insertEnvelope = prepared((db, t) =>
   db
     .insert(t.shipEffectEnvelopes)
     .values({
+      workspaceId: WORKSPACE,
       effectKey: sql.placeholder('effectKey'),
       trainId: sql.placeholder('trainId'),
       attemptId: sql.placeholder('attemptId'),
@@ -1665,7 +1853,12 @@ const envelopeProofOf = prepared((db, t) =>
       resultJson: t.shipEffectEnvelopes.resultJson,
     })
     .from(t.shipEffectEnvelopes)
-    .where(eq(t.shipEffectEnvelopes.effectKey, param(t.shipEffectEnvelopes.effectKey, 'effectKey')))
+    .where(
+      inWorkspace(
+        t.shipEffectEnvelopes,
+        eq(t.shipEffectEnvelopes.effectKey, param(t.shipEffectEnvelopes.effectKey, 'effectKey')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1676,7 +1869,12 @@ const manifestClaimAuthority = prepared((db, t) =>
       claimCount: activeClaimCount(t),
     })
     .from(t.shipTrainManifests)
-    .where(eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')))
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1685,7 +1883,11 @@ const shipPreflightOrder = prepared((db, t) =>
     .update(t.shipOrders)
     .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
     .where(
-      and(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')), eq(t.shipOrders.state, 'preflight')),
+      inWorkspace(
+        t.shipOrders,
+        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+        eq(t.shipOrders.state, 'preflight'),
+      ),
     )
     .prepare(),
 )
@@ -1697,7 +1899,12 @@ const envelopeProofsOfAttempt = prepared((db, t) =>
       resultJson: t.shipEffectEnvelopes.resultJson,
     })
     .from(t.shipEffectEnvelopes)
-    .where(eq(t.shipEffectEnvelopes.attemptId, param(t.shipEffectEnvelopes.attemptId, 'attemptId')))
+    .where(
+      inWorkspace(
+        t.shipEffectEnvelopes,
+        eq(t.shipEffectEnvelopes.attemptId, param(t.shipEffectEnvelopes.attemptId, 'attemptId')),
+      ),
+    )
     .orderBy(desc(t.shipEffectEnvelopes.recordedAt))
     .prepare(),
 )
@@ -1707,7 +1914,8 @@ const successfulProofAttempt = prepared((db, t) =>
     .select({ id: t.shipAttempts.id })
     .from(t.shipAttempts)
     .where(
-      and(
+      inWorkspace(
+        t.shipAttempts,
         eq(t.shipAttempts.orderId, param(t.shipAttempts.orderId, 'orderId')),
         sql`${t.shipAttempts.finishedAt} IS NOT NULL`,
         eq(t.shipAttempts.outcome, 'succeeded'),
@@ -1737,7 +1945,11 @@ const shipVerifyingOrder = prepared((db, t) =>
     .update(t.shipOrders)
     .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
     .where(
-      and(eq(t.shipOrders.id, param(t.shipOrders.id, 'id')), eq(t.shipOrders.state, 'verifying')),
+      inWorkspace(
+        t.shipOrders,
+        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+        eq(t.shipOrders.state, 'verifying'),
+      ),
     )
     .prepare(),
 )
@@ -1759,11 +1971,11 @@ export interface RootIntegrationReceiptStore {
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -1775,8 +1987,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * instance, and ambient routing needs the enclosing transaction resolved per
    * access. B1 changes the body of this getter and nothing else in the file.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

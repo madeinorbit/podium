@@ -178,7 +178,10 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
 
     // The term is the partial index's own WHERE, and SQLite takes that index for
     // it: the scan is over active orders, never over shipped or cancelled history.
-    const db = (s.shipping as unknown as { db: { all: (query: unknown) => Promise<unknown[]> } }).db
+    // The repository's handle is the workspace's (POD-6959); the probe reads its Drizzle.
+    const db = (
+      s.shipping as unknown as { db: { drizzle: { all: (query: unknown) => Promise<unknown[]> } } }
+    ).db.drizzle
     const index = (await db.all(
       sql.raw(`SELECT sql FROM sqlite_master WHERE name = 'idx_ship_orders_one_active_issue'`),
     )) as { sql: string }[]

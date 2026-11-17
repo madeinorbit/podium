@@ -1243,6 +1243,7 @@
         "src/store/shipping-lane-reads.test.ts",
         "src/store/shipping-uncovered.test.ts",
         "src/store/shipping.ts",
+        "src/store/shipping.workspace.test.ts",
         "src/store/sign-in-carry-over.ts",
         "src/store/spike/turso-append/client.ts",
         "src/store/spike/turso-append/libsql-driver.test.ts",
