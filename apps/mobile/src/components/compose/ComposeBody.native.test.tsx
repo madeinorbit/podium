@@ -107,6 +107,24 @@ it('keeps the UITextView out of the first sheet layout, then mounts and focuses 
   expect(screen.getByRole('textbox', { name: 'Task prompt' })).toBe(input)
 })
 
+it('reports only the editable prompt after native layout, never its placeholder copy', () => {
+  const onPromptLayout = vi.fn()
+  const { rerender } = render(
+    <ComposeBody {...props} promptReady={false} onPromptLayout={onPromptLayout} />,
+  )
+  expect(onPromptLayout).not.toHaveBeenCalled()
+  rerender(<ComposeBody {...props} onPromptLayout={onPromptLayout} />)
+  const input = screen.getByRole('textbox', { name: 'Task prompt' })
+  layout('compose-placeholder-measure', 72)
+  expect(onPromptLayout).not.toHaveBeenCalled()
+  act(() =>
+    native.input?.onLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 72 } },
+    } as never),
+  )
+  expect(onPromptLayout).toHaveBeenCalledExactlyOnceWith(input)
+})
+
 it('keeps keyboard focus when native fields or toolbar actions are tapped and puts Send in the bottom toolbar', () => {
   render(
     <ComposeBody

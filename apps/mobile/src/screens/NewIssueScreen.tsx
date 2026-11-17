@@ -127,6 +127,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const starting = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const promptRef = useRef<TextInput>(null)
+  const [pasteInput, setPasteInput] = useState<TextInput | null>(null)
   const previousContext = useRef<LaunchPickContext | undefined>(undefined)
   const presetApplied = useRef(false)
   const presetPath = !presetApplied.current ? params.repoPath : undefined
@@ -204,10 +205,12 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     uiState,
   ])
 
-  useEffect(
-    () => onMediaPaste(promptRef.current, attachments.accept, attachments.fromSource),
-    [attachments.accept, attachments.fromSource],
-  )
+  // The prompt mounts after the sheet transition. Its own layout event means
+  // Fabric has mounted the input; a parent mount effect can only see null.
+  useEffect(() => {
+    if (!pasteInput) return
+    return onMediaPaste(pasteInput, attachments.accept, attachments.fromSource)
+  }, [pasteInput, attachments.accept, attachments.fromSource])
 
   const write = (patch: Partial<FirstTaskDraft>) => {
     setError(null)
@@ -523,6 +526,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         fields={fields}
         prompt={draft.title}
         promptRef={promptRef}
+        onPromptLayout={setPasteInput}
         onPrompt={(title) => write({ title })}
         onStart={start}
         onCancel={() => router.back()}

@@ -113,6 +113,7 @@ export function ComposeBody({
   onPrompt,
   promptRef,
   promptReady = true,
+  onPromptLayout,
   onStart,
   onCancel,
   onCoordinator,
@@ -134,6 +135,7 @@ export function ComposeBody({
   onPrompt: (prompt: string) => void
   promptRef?: RefObject<TextInput | null>
   promptReady?: boolean
+  onPromptLayout?: (input: TextInput) => void
   onStart: () => void
   onCancel: () => void
   onCoordinator: () => void
@@ -269,7 +271,10 @@ export function ComposeBody({
               value={prompt}
               onChangeText={onPrompt}
               onKeyPress={onKeyPress}
-              onLayout={(event) => setPromptWidth(event.nativeEvent.layout.width)}
+              onLayout={(event) => {
+                setPromptWidth(event.nativeEvent.layout.width)
+                if (inputRef.current) onPromptLayout?.(inputRef.current)
+              }}
               onContentSizeChange={
                 Platform.OS === 'web'
                   ? undefined

@@ -9,7 +9,8 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { type ReactElement, useState } from 'react'
+import { type ComponentProps, type ReactElement, useState } from 'react'
+import type { TextInput } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
@@ -25,7 +26,35 @@ const seams = vi.hoisted(() => ({
   agentItems: [] as readonly ComposeMenuItem[],
   presented: true,
   finishPresentation: undefined as (() => void) | undefined,
+  promptLayout: undefined as ComponentProps<typeof TextInput>['onLayout'],
+  bindPaste: vi.fn(),
+  stopPaste: vi.fn(),
 }))
+vi.mock('react-native', async (original) => {
+  const rn = await original<typeof import('react-native')>()
+  const { forwardRef } = await import('react')
+  return {
+    ...rn,
+    TextInput: forwardRef<TextInput, ComponentProps<typeof TextInput>>((props, ref) => {
+      if (props.accessibilityLabel === 'Task prompt') seams.promptLayout = props.onLayout
+      return <rn.TextInput {...props} ref={ref} onLayout={undefined} />
+    }),
+  }
+})
+vi.mock('../lib/composer-media', async (original) => {
+  const real = await original<typeof import('../lib/composer-media')>()
+  return {
+    ...real,
+    onMediaPaste: (...args: Parameters<typeof real.onMediaPaste>) => {
+      seams.bindPaste(...args)
+      const stop = real.onMediaPaste(...args)
+      return () => {
+        seams.stopPaste()
+        stop()
+      }
+    },
+  }
+})
 vi.mock('expo-router', () => ({
   useRouter: () => ({
     replace: seams.replace,
@@ -147,6 +176,7 @@ beforeEach(() => {
   seams.close = undefined
   seams.presented = true
   seams.finishPresentation = undefined
+  seams.promptLayout = undefined
 })
 const repository = (path = '/repo/podium', machineId = 'host'): GitRepositoryWire =>
   ({
@@ -213,6 +243,41 @@ async function mount(
 }
 
 describe('native New Task sheet logic', () => {
+  it('binds paste to the real prompt after its delayed native layout and keeps it through edits', async () => {
+    seams.presented = false
+    const upload = vi.fn(async () => ({ path: '/uploads/pasted.png' }))
+    const app = await mount({ api: { sessions: { uploadImage: { mutate: upload } } } })
+    expect(seams.bindPaste).not.toHaveBeenCalled()
+    act(() => seams.finishPresentation?.())
+    const input = prompt()
+    expect(seams.bindPaste).not.toHaveBeenCalled()
+    const layout = () =>
+      act(() =>
+        seams.promptLayout?.({
+          nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 72 } },
+        } as never),
+      )
+    layout()
+    expect(seams.bindPaste).toHaveBeenCalledTimes(1)
+    expect(seams.bindPaste.mock.calls[0]?.[0]).toBe(input)
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [
+          { kind: 'file', getAsFile: () => new File(['png'], 'pasted.png', { type: 'image/png' }) },
+        ],
+      },
+    })
+    await waitFor(() => expect(seams.attachments?.ready()).toHaveLength(1))
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Remove pasted.png' })).toBeTruthy()
+    fireEvent.change(input, { target: { value: 'Keep this image' } })
+    layout()
+    expect(seams.bindPaste).toHaveBeenCalledTimes(1)
+    expect(seams.stopPaste).not.toHaveBeenCalled()
+    app.unmount()
+    expect(seams.stopPaste).toHaveBeenCalledTimes(1)
+  })
+
   it('ignores opening double taps until presentation ends and keeps empty Send enabled afterwards', async () => {
     seams.presented = false
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
