@@ -31,6 +31,7 @@ import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { CHATGPT_PLAN_TOKEN_VARIABLE, codexPlanProviderArgs } from './plan-provider.js'
 import { codexMcpServerKey, codexPosture } from './posture.js'
 import { codexRoots } from './roots.js'
 import {
@@ -95,8 +96,9 @@ const CODEX_ACCEPTS: readonly AcceptedCredential[] = [
   // terminal driver has no such start, so the line is limited to it.
   {
     type: 'openai.chatgpt-plan',
-    deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+    deliver: { kind: 'env', variable: CHATGPT_PLAN_TOKEN_VARIABLE },
     drivers: ['codex-app-server'],
+    startArgs: codexPlanProviderArgs(),
   },
 ]
 

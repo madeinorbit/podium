@@ -17,7 +17,7 @@
  * login instead.
  */
 
-import { harnessHideFromCommands } from '@podium/harness'
+import { harnessAccepts, harnessHideFromCommands } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import { type AccessField, HomeHarness, homeIdFor } from '@podium/protocol'
 
@@ -186,7 +186,11 @@ export class SessionAccessStore {
 export interface DeliveryOverlay {
   /** The delivered variable and the harness's hide-from-commands switches. */
   env: Record<string, string>
-  /** The harness's hide-from-commands arguments, placed right after the executable. */
+  /**
+   * The harness's hide-from-commands arguments, then the delivering line's
+   * `startArgs` (how the harness reads the variable, such as Codex's ChatGPT
+   * plan provider), placed right after the executable. Never the secret.
+   */
   args: string[]
   /** Variables the inherited-credential strip must leave alone: the delivered one. */
   keep: string[]
@@ -205,10 +209,18 @@ export function deliveryOverlay(
 ): DeliveryOverlay {
   if (access?.delivery.kind !== 'env') return { env: {}, args: [], keep: [] }
   const hide = agentKind ? harnessHideFromCommands(agentKind) : undefined
+  const variable = access.delivery.variable
+  // The line that delivers in this variable: a harness never delivers two
+  // lines in one variable (pinned in the harness's credential-accepts test).
+  const line = agentKind
+    ? harnessAccepts(agentKind).find(
+        (l) => l.deliver.kind === 'env' && l.deliver.variable === variable,
+      )
+    : undefined
   return {
-    env: { [access.delivery.variable]: access.delivery.secret, ...hide?.env },
-    args: [...(hide?.args ?? [])],
-    keep: [access.delivery.variable],
+    env: { [variable]: access.delivery.secret, ...hide?.env },
+    args: [...(hide?.args ?? []), ...(line?.startArgs ?? [])],
+    keep: [variable],
   }
 }
 

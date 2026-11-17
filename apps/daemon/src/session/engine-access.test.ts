@@ -110,4 +110,38 @@ describe('SessionEngineScope.startEngine with a session credential', () => {
     await starting
     expect(spawned[0]?.env.ANTHROPIC_API_KEY).toBe(PLANTED)
   })
+
+  it('a codex engine on a ChatGPT plan starts with the provider flags, the token in env only (Task 15, acceptance 1)', async () => {
+    const token = 'tok-FAKE-planted-plan-engine-0015'
+    const store = new SessionAccessStore({ markers: memoryMarkers() })
+    store.remember(
+      SESSION,
+      {
+        credentialId: 'cred_00000000-0000-4000-8000-0000000000f5',
+        delivery: { kind: 'env', variable: 'ACCESS_TOKEN', secret: token },
+      },
+      'codex',
+    )
+    const { scope, spawned } = scopeWith(store)
+    await scope.startEngine({
+      sessionId: SESSION,
+      label: `podium-cx-${SESSION}`,
+      command: testBoundCommand('codex', ['app-server', '--listen', 'stdio://']),
+      cwd: '/tmp',
+      env: {},
+      stripEnv: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN', 'OPENAI_BASE_URL'],
+    })
+    const args = spawned[0]?.args ?? []
+    // The provider comes before the subcommand: `codex -c … app-server`.
+    const subcommand = args.indexOf('app-server')
+    const provider = args.indexOf('model_provider="podium_chatgpt_plan"')
+    expect(provider).toBeGreaterThan(0)
+    expect(provider).toBeLessThan(subcommand)
+    expect(args).toContain('model_providers.podium_chatgpt_plan.env_key="ACCESS_TOKEN"')
+    expect(spawned[0]?.env.ACCESS_TOKEN).toBe(token)
+    expect(spawned[0]?.stripEnv).not.toContain('ACCESS_TOKEN')
+    // Canary first, then the search that must come back empty.
+    expect(JSON.stringify(spawned[0]?.env)).toContain(token)
+    expect(JSON.stringify(args)).not.toContain(token)
+  })
 })

@@ -24,6 +24,13 @@ export interface AcceptedCredential {
   deliver: Delivery
   /** The drivers this line holds for. Absent: every driver of the harness. */
   drivers?: readonly string[]
+  /**
+   * Arguments a process start adds, right after the executable, when this
+   * line delivers (an `env` line: the start that carries its variable). They
+   * say how the harness reads the delivered secret, such as the model
+   * provider Codex runs a ChatGPT plan through. They never hold the secret.
+   */
+  startArgs?: readonly string[]
 }
 
 /** How a direct model call is served for a credential of one type. */

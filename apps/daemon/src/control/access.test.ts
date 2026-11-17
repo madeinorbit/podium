@@ -171,6 +171,40 @@ describe('deliveryOverlay', () => {
     })
   })
 
+  it('a ChatGPT plan starts codex with the provider flags and the token in the env only (Task 15, acceptance 1)', () => {
+    const token = 'tok-FAKE-planted-plan-access-0015'
+    const overlay = deliveryOverlay('codex', {
+      credentialId: envAccess.credentialId,
+      delivery: { kind: 'env', variable: 'ACCESS_TOKEN', secret: token },
+    })
+    expect(overlay.env).toEqual({ ACCESS_TOKEN: token })
+    expect(overlay.keep).toEqual(['ACCESS_TOKEN'])
+    expect(overlay.args.slice(0, 2)).toEqual([
+      '-c',
+      expect.stringContaining('shell_environment_policy.exclude='),
+    ])
+    expect(overlay.args).toEqual(
+      expect.arrayContaining([
+        'model_provider="podium_chatgpt_plan"',
+        'model_providers.podium_chatgpt_plan.env_key="ACCESS_TOKEN"',
+        'model_providers.podium_chatgpt_plan.base_url="https://api.openai.com/v1"',
+        'model_providers.podium_chatgpt_plan.requires_openai_auth=false',
+      ]),
+    )
+    // Canary first: the search finds the planted token where it belongs.
+    expect(JSON.stringify(overlay.env)).toContain(token)
+    expect(JSON.stringify(overlay.args)).not.toContain(token)
+    expect(overlay.args.every((arg) => !arg.includes('tok-FAKE'))).toBe(true)
+  })
+
+  it('an API key on codex adds no provider flags', () => {
+    const overlay = deliveryOverlay('codex', {
+      credentialId: envAccess.credentialId,
+      delivery: { kind: 'env', variable: 'OPENAI_API_KEY', secret: PLANTED },
+    })
+    expect(overlay.args.join(' ')).not.toContain('model_provider')
+  })
+
   it('no access, or a home delivery, adds nothing', () => {
     const none = { env: {}, args: [], keep: [] }
     expect(deliveryOverlay('claude-code', undefined)).toEqual(none)

@@ -37,9 +37,10 @@ export const CHATGPT_PLAN_SCOPE = 'chatgpt.tokens.use.direct'
 export const DYNAMIC_CLIENT_ID = 'dynamic_agent_client'
 /**
  * The app name sent at registration (`agent_name_hint`). Codex's
- * `initialize.clientInfo.name` must equal it (epic Task 15).
+ * `initialize.clientInfo.name` must equal it (epic Task 15), so it lives in
+ * `@podium/model`, where the harness reads it too.
  */
-export const CHATGPT_APP_NAME = 'Podium'
+export { CHATGPT_APP_NAME } from '@podium/model'
 export const CHATGPT_CALLBACK_PATH = '/auth/callback'
 /** The port OpenAI's documentation and the measurement used. */
 export const CHATGPT_DEFAULT_PORT = 1455

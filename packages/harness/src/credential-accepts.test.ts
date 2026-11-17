@@ -17,6 +17,7 @@ import {
 import { credentialEnv } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
+import { codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
 import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
 import { declaredValue } from './manifest.js'
 import { harnessAccepts, harnessHideFromCommands } from './metadata.js'
@@ -135,8 +136,23 @@ describe('harnessAccepts', () => {
         type: 'openai.chatgpt-plan',
         deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
         drivers: ['codex-app-server'],
+        startArgs: codexPlanProviderArgs(),
       },
     ])
+  })
+
+  it('no harness delivers two lines in one variable: the start reads its line off the variable', () => {
+    for (const manifest of Object.values(AGENT_MANIFESTS)) {
+      const variables = manifest.inventory.accepts.flatMap((line) =>
+        line.deliver.kind === 'env' ? [line.deliver.variable] : [],
+      )
+      expect(new Set(variables).size, manifest.kind).toBe(variables.length)
+    }
+  })
+
+  it('start arguments stay off the wire descriptor', () => {
+    const codex = buildBundledDescriptors().find((descriptor) => descriptor.kind === 'codex')
+    expect(JSON.stringify(codex?.accepts)).not.toContain('startArgs')
   })
 
   it('names only drivers the adapter declares', () => {

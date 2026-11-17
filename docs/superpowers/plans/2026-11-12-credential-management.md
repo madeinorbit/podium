@@ -161,7 +161,8 @@ const CREDENTIAL_TYPES: Readonly<Record<CredentialTypeId, CredentialTypeSpec>>
 
 // packages/model/src/credentials/accepts.ts
 type Delivery = { kind: 'env'; variable: string } | { kind: 'home' }
-interface AcceptedCredential { type: CredentialTypeId; deliver: Delivery; drivers?: readonly string[] }
+interface AcceptedCredential { type: CredentialTypeId; deliver: Delivery; drivers?: readonly string[]
+  startArgs?: readonly string[] }   // added by Task 15: argv a start adds with this line (never the secret); not on the wire
 type InferenceRoute =
   | { kind: 'http'; api: 'anthropic-messages' | 'openai-chat' | 'openai-responses'; base?: 'openrouter' }
   | { kind: 'on-machine'; api: 'openai-responses' }
@@ -379,7 +380,8 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 // apps/server/src/modules/credentials/chatgpt-plan (Task 14) — registry.modules.chatgptPlan
 //   (ChatgptPlanService: signIn, keeper); ChatgptPlanKeeper.accessToken(credentialId) → a token
 //   with ≥ 5 min left; .revoke(credentialId); CompleteDeps.chatgptPlan: { accessToken }
-//   CHATGPT_APP_NAME = 'Podium' (openai.ts): agent_name_hint, and Codex's clientInfo.name (Task 15)
+//   CHATGPT_APP_NAME = 'Podium' (@podium/model, re-exported by openai.ts): agent_name_hint, and Codex's
+//   clientInfo.name (Task 15)
 //   the sealed secret is the token set as JSON (ChatgptTokenSet: seq = its vault version,
 //   clientId, accessToken, refreshToken, idToken, expiresAt, scopes, savedAt)
 // packages/protocol oauth-loopback.ts — CAP_OAUTH_LOOPBACK = 'oauth.loopback.v1';
