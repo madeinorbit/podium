@@ -41,6 +41,7 @@ import {
   codexScopeLabel,
   createCodexEngineHost,
   createCodexRuntime,
+  type SessionSpec,
 } from '@podium/harness/driver/host'
 import { createMemoryDriverSlots } from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
@@ -341,18 +342,14 @@ function rig(): Rig {
     },
     createMemoryDriverSlots(),
   )
-  const spec = {
-    harness: 'codex' as const,
+  const spec: SessionSpec = {
+    harness: 'codex',
     harnessContext: context,
-    selection: {
-      auth: 'subscription' as const,
-      platform: 'linux' as const,
-      available: ['codex-app-server'],
-    },
+    selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
     workdir: join(root, 'work'),
     model: {},
-    instructions: { supported: false as const, reason: 'test' },
-    mcpServers: { supported: false as const, reason: 'test' },
+    instructions: { supported: false, reason: 'test' },
+    mcpServers: { supported: false, reason: 'test' },
   }
   const live = (handle: AgentSessionHandle): Live => {
     const ends: ('completed' | 'failed')[] = []
