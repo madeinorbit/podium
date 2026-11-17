@@ -166,8 +166,10 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
         `[end podium message ${id}]`,
     )
     // The stored row keeps the ORIGINAL bytes — sanitizing happens at delivery
-    // only, so the ledger stays a faithful record of what was sent.
-    expect((await h.svc.message(id))!.body).toBe(body)
+    // only, so the ledger stays a faithful record of what was sent — except
+    // U+0000, which no engine's text keeps: it is stored as U+FFFD
+    // (POD-6958 design 2.3 rule 9).
+    expect((await h.svc.message(id))!.body).toBe(body.replace('\u0000', '\uFFFD'))
   })
 
   it('delivers an operator body unwrapped AND unsanitized — exact bytes, no frame', async () => {

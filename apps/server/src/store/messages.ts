@@ -1,5 +1,6 @@
 // workspace-scoped (POD-6959)
 import type { WriteScope } from '@podium/sync'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
 /**
@@ -59,6 +60,7 @@ import {
 } from 'drizzle-orm'
 import { alias, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
 import type { messages as messagesTable } from '../migrations/schema'
+import { dialectOf } from './executor/dialect-prepared'
 import type {
   StoreDrizzle,
   StoreTables,
@@ -87,11 +89,11 @@ import type { MessageRow, MessageToKind } from './types'
  *  (issue-addressed only — they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
 
-/** Longer than {@link INLINE_BODY_MAX} counted as SQLite's `length()` counts
- *  text: in characters (code points), where `.length` counts UTF-16 units and so
- *  counts an emoji twice. Units are never fewer than characters and never more
- *  than twice as many, so only a body between the two bounds is walked. SQLite
- *  also stops counting at a NUL; a body holding one is the one it can misjudge. */
+/** Longer than {@link INLINE_BODY_MAX} counted as the database's `length()`
+ *  counts text: in characters (code points), where `.length` counts UTF-16 units
+ *  and so counts an emoji twice. Units are never fewer than characters and never
+ *  more than twice as many, so only a body between the two bounds is walked. A
+ *  stored body holds no NUL ({@link withoutNul}), where SQLite would stop counting. */
 const longerThanInline = (body: string): boolean => {
   if (body.length <= INLINE_BODY_MAX) return false
   if (body.length > 2 * INLINE_BODY_MAX) return true
@@ -101,6 +103,19 @@ const longerThanInline = (body: string): boolean => {
   }
   return false
 }
+
+/**
+ * TEXT FROM OUTSIDE, WITH EVERY U+0000 AS U+FFFD (POD-6958 design 2.3 rule 9).
+ * Postgres `text` cannot hold the NUL character, and SQLite stores it, so a body
+ * or sender name an agent or person typed is stored without it on both engines.
+ * U+FFFD is Unicode's mark for a character that could not be kept.
+ */
+export const withoutNul = (text: string): string =>
+  text.includes('\u0000') ? text.replaceAll('\u0000', '\uFFFD') : text
+
+/** {@link withoutNul} over a nullable field. */
+const withoutNulOrNull = <T extends string | null | undefined>(text: T): T =>
+  (typeof text === 'string' ? withoutNul(text) : text) as T
 
 /**
  * THE POINTER RULE — one definition, in code and in SQL, here below the
@@ -153,11 +168,19 @@ const pending = (t: StoreTables): SQL => inArray(t.messages.deliveryStatus, [...
  * 11 ms for the busiest recipient. `messages-golden.test.ts` pins the plan.
  * The session is the `sessionId` placeholder.
  */
-const confirmedInto = (t: StoreTables): SQL =>
+const confirmedInto = (db: StoreDrizzle, t: StoreTables): SQL =>
   and(
-    sql`+${t.messages.deliveryStatus} = ${'confirmed'}`,
+    sql`${statusOutOfIndexChoice(db, t)} = ${'confirmed'}`,
     eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
   ) as SQL
+
+/**
+ * `delivery_status` kept out of SQLite's index choice by a unary `+` (see
+ * {@link confirmedInto}). Postgres has no unary `+` on text, and its planner
+ * reads the column's statistics, so there it is the bare column.
+ */
+const statusOutOfIndexChoice = (db: StoreDrizzle, t: StoreTables): SQL =>
+  dialectOf(db) === 'pg' ? sql`${t.messages.deliveryStatus}` : sql`+${t.messages.deliveryStatus}`
 
 /** The columns a move may set besides the status the move owns. */
 type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'id'>
@@ -345,15 +368,16 @@ export type MessageQueueFact = Pick<
 
 /** The row a new message stores; its set keys are its shape (see {@link MessagesRepository.addMessage}). */
 const insertMessage = preparedFamily((db, t, shape: string) =>
-  db
-    .insert(t.messages)
-    .values({
-      ...placeholdersFor(shape),
-      workspaceId: WORKSPACE,
-    } as unknown as typeof messagesTable.$inferInsert)
-    .onConflictDoNothing({ target: t.messages.id })
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.messages)
+      .values({
+        ...placeholdersFor(shape),
+        workspaceId: WORKSPACE,
+      } as unknown as typeof messagesTable.$inferInsert)
+      .onConflictDoNothing({ target: t.messages.id })
+      .returning(),
+  ).prepare(),
 )
 
 const messageById = prepared((db, t) =>
@@ -421,7 +445,7 @@ const pendingForSessionProof = prepared((db, t) =>
             ),
           ),
           and(
-            confirmedInto(t),
+            confirmedInto(db, t),
             isNull(t.messages.ackedBy),
             eq(t.messages.expectsResponse, true),
             or(
@@ -453,6 +477,10 @@ type LedgerShape = 'issue' | 'session' | 'both'
  * `idx_messages_delivered_to_time`, all ending in `created_at, id`), SQLite
  * merges the arms in that order and stops at the limit. `UNION`, not `UNION
  * ALL`: a row an issue both sent and received appears once, as it did.
+ *
+ * Postgres cannot take that `UNION`: it compares whole rows, and `json` has no
+ * equality. There the arms are one `WHERE a OR b OR ...`, which its planner
+ * reads as a bitmap OR of the same indexes, and a row matches once by nature.
  */
 const ledger = preparedFamily((db, t, shape: LedgerShape) => {
   const arms: SQL[] = []
@@ -474,6 +502,15 @@ const ledger = preparedFamily((db, t, shape: LedgerShape) => {
       ) as SQL,
       eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
     )
+  }
+  if (dialectOf(db) === 'pg') {
+    return db
+      .select()
+      .from(t.messages)
+      .where(inWorkspace(t.messages, or(...arms)))
+      .orderBy(desc(t.messages.createdAt), desc(t.messages.id))
+      .limit(sql.placeholder('limit'))
+      .prepare()
   }
   const [first, ...rest] = arms.map((where) =>
     // Each arm of the UNION holds its own scope to the workspace.
@@ -642,7 +679,12 @@ const latestPendingOperator = prepared((db, t) =>
         pending(t),
       ),
     )
-    .orderBy(desc(t.messages.createdAt), desc(sql`rowid`))
+    // SQLite breaks a same-tick tie by insertion order (rowid). Postgres keeps no
+    // insertion order, so there the tie falls to the primary key.
+    .orderBy(
+      desc(t.messages.createdAt),
+      dialectOf(db) === 'pg' ? desc(t.messages.id) : desc(sql`rowid`),
+    )
     .limit(1)
     .prepare(),
 )
@@ -752,6 +794,17 @@ const isSessionSlice = (slice: PendingSlice): slice is 'session' | 'session-blan
 const sessionSlice = (sessionId: SessionId): 'session' | 'session-blank' =>
   sessionId ? 'session' : 'session-blank'
 
+/**
+ * Senders in order, with NULL first as SQLite sorts it ascending; written out
+ * because Postgres puts NULL last.
+ */
+const SENDER_ORDER = (t: StoreTables) =>
+  [
+    asc(t.messages.fromKind),
+    sql`${t.messages.fromIssue} ASC NULLS FIRST`,
+    sql`${t.messages.fromSession} ASC NULLS FIRST`,
+  ] as const
+
 /** Count and group one queued slice in one statement for the inbox nag. */
 const pendingSummaryOf = preparedFamily((db, t, slice: PendingSlice) =>
   db
@@ -771,7 +824,7 @@ const pendingSummaryOf = preparedFamily((db, t, slice: PendingSlice) =>
       ),
     )
     .groupBy(t.messages.fromKind, t.messages.fromIssue, t.messages.fromSession)
-    .orderBy(asc(t.messages.fromKind), asc(t.messages.fromIssue), asc(t.messages.fromSession))
+    .orderBy(...SENDER_ORDER(t))
     .prepare(),
 )
 
@@ -792,7 +845,7 @@ const pendingSendersOf = preparedFamily((db, t, slice: PendingSlice) =>
           : and(...addressedTo(t, slice), pending(t)),
       ),
     )
-    .orderBy(asc(t.messages.fromKind), asc(t.messages.fromIssue), asc(t.messages.fromSession))
+    .orderBy(...SENDER_ORDER(t))
     .prepare(),
 )
 
@@ -1035,26 +1088,27 @@ const statusOf = prepared((db, t) =>
 )
 
 const nameTranscriptItemOnce = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({
-      transcriptItemId: sql.placeholder('transcriptItemId'),
-      transcriptItemCursor: sql.placeholder('transcriptItemCursor'),
-    })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        isNull(t.messages.transcriptItemId),
-        or(
-          isNull(t.messages.deliveredTo),
-          eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({
+        transcriptItemId: sql.placeholder('transcriptItemId'),
+        transcriptItemCursor: sql.placeholder('transcriptItemCursor'),
+      })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.transcriptItemId),
+          or(
+            isNull(t.messages.deliveredTo),
+            eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+          ),
+          notInArray(t.messages.deliveryStatus, ['failed', 'cancelled', 'expired']),
         ),
-        notInArray(t.messages.deliveryStatus, ['failed', 'cancelled', 'expired']),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const harnessRefOf = prepared((db, t) =>
@@ -1065,53 +1119,57 @@ const harnessRefOf = prepared((db, t) =>
     .prepare(),
 )
 
-/** Compare-and-set on the stored text; keyed by whether there is any (`null`). */
+/** Compare-and-set on the stored text; keyed by whether there is any (`null`).
+ *  The JSON column is compared as text, which Postgres's `json` needs. */
 const swapHarnessRef = preparedFamily((db, t, stored: 'null' | 'text') =>
-  db
-    .update(t.messages)
-    .set({ harnessRefJson: sql.placeholder('harnessRefJson') })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        stored === 'null'
-          ? isNull(t.messages.harnessRefJson)
-          : eq(t.messages.harnessRefJson, param(t.messages.harnessRefJson, 'stored')),
-        or(
-          isNull(t.messages.deliveredTo),
-          eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ harnessRefJson: sql.placeholder('harnessRefJson') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          stored === 'null'
+            ? isNull(t.messages.harnessRefJson)
+            : sql`CAST(${t.messages.harnessRefJson} AS TEXT) = ${sql.placeholder('stored')}`,
+          or(
+            isNull(t.messages.deliveredTo),
+            eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+          ),
+          notInArray(t.messages.deliveryStatus, ['cancelled', 'expired']),
         ),
-        notInArray(t.messages.deliveryStatus, ['cancelled', 'expired']),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const stampRetractRequest = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({
-      retractRequestedAt: sql`COALESCE(${t.messages.retractRequestedAt}, ${sql.placeholder('at')})`,
-    })
-    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id')), pending(t)))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({
+        retractRequestedAt: sql`COALESCE(${t.messages.retractRequestedAt}, ${sql.placeholder('at')})`,
+      })
+      .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id')), pending(t)))
+      .returning(),
+  ).prepare(),
 )
 
 const stampFirstRead = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({ readAt: sql.placeholder('readAt') })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        isNull(t.messages.readAt),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ readAt: sql.placeholder('readAt') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.readAt),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /**
@@ -1150,19 +1208,20 @@ const openBoundTo = preparedFamily((db, t, key: `${number}${'' | '|issue'}`) => 
 })
 
 const dismissNoticeOnce = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({ noticeDismissedAt: sql.placeholder('at') })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        isNull(t.messages.noticeDismissedAt),
-        inArray(t.messages.deliveryStatus, ['failed', 'expired', 'unknown']),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ noticeDismissedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.noticeDismissedAt),
+          inArray(t.messages.deliveryStatus, ['failed', 'expired', 'unknown']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /**
@@ -1192,21 +1251,25 @@ const MESSAGE_COLUMNS = (t: StoreTables) =>
  * index is, by `created_at` then rowid, so the walk needs no sort; the feed
  * keys the rows by id, so the order of rows tied on `created_at` does not
  * matter there. The query-plan audit asserts this plan.
+ *
+ * Postgres has no INDEXED BY and no rowid: it reads the same partial index from
+ * the same literal terms, and the tie falls to the primary key.
  */
-const openChat = prepared((db, t) =>
-  db
+const openChat = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
+  return db
     .select(MESSAGE_COLUMNS(t))
-    .from(sql`${t.messages} INDEXED BY idx_messages_open_chat`)
+    .from(pg ? t.messages : sql`${t.messages} INDEXED BY idx_messages_open_chat`)
     .where(
       inWorkspace(
         t.messages,
         sql`${t.messages.fromKind} = 'operator' AND ${t.messages.toKind} = 'session' AND ${t.messages.noticeDismissedAt} IS NULL AND ${t.messages.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
       ),
     )
-    .orderBy(asc(t.messages.createdAt), asc(sql`rowid`))
+    .orderBy(asc(t.messages.createdAt), pg ? asc(t.messages.id) : asc(sql`rowid`))
     .limit(sql.placeholder('limit'))
-    .prepare(),
-)
+    .prepare()
+})
 
 /**
  * THE CONFIRMED HALF OF THE CHAT FEED'S WINDOW, AS A QUERY (POD-6763, design
@@ -1218,6 +1281,9 @@ const openChat = prepared((db, t) =>
  * The start-up truth of the window; a write reads only the sessions it
  * touched ({@link confirmedChatTail}).
  */
+/** `archived`'s false: the integer 0 on SQLite, the boolean on Postgres. */
+const notArchived = (db: StoreDrizzle): SQL => (dialectOf(db) === 'pg' ? sql`false` : sql`0`)
+
 const confirmedChatWindow = prepared((db, t) =>
   db
     .select(MESSAGE_COLUMNS(t))
@@ -1226,7 +1292,7 @@ const confirmedChatWindow = prepared((db, t) =>
         FROM ${t.messages} m
         WHERE m.workspace_id = ${WORKSPACE} AND m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
           AND m.to_id IN (SELECT s.id FROM ${t.sessions} s
-            WHERE s.workspace_id = ${WORKSPACE} AND s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)) ranked`,
+            WHERE s.workspace_id = ${WORKSPACE} AND s.status <> 'exited' AND s.archived = ${notArchived(db)} AND s.deleted_at IS NULL)) ranked`,
     )
     .where(sql`window_rank <= ${sql.placeholder('perSession')}`)
     .orderBy(asc(sql`created_at`), asc(sql`id`))
@@ -1346,12 +1412,12 @@ const wakeCooldownsOf = preparedFamily((db, t, size: number) =>
  * order, read through `idx_messages_delivered_to_time` [POD-6174]. The unary
  * `+` keeps the status IN list out of index selection, as in
  * {@link confirmedInto}: the session's own rows are the walk, never the whole
- * pending queue.
+ * pending queue ({@link statusOutOfIndexChoice}).
  */
 const pendingDeliveredToPage = preparedFamily((db, t, from: 'start' | 'after') => {
   const where: SQL[] = [
     eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
-    sql`+${t.messages.deliveryStatus} in ${[...MESSAGE_PENDING]}`,
+    sql`${statusOutOfIndexChoice(db, t)} in ${[...MESSAGE_PENDING]}`,
   ]
   if (from === 'after') where.push(afterCursor(t))
   return db
@@ -1364,25 +1430,26 @@ const pendingDeliveredToPage = preparedFamily((db, t, from: 'start' | 'after') =
 })
 
 const stampAckOnce = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({ ackedBy: sql.placeholder('ackedBy') })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        isNull(t.messages.ackedBy),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ ackedBy: sql.placeholder('ackedBy') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.ackedBy),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** The shared "still owes a reply" predicate of the two ack readers, over the
  *  `sessionId` and `now` placeholders. */
-const unackedRequest = (t: StoreTables): SQL =>
+const unackedRequest = (db: StoreDrizzle, t: StoreTables): SQL =>
   and(
-    confirmedInto(t),
+    confirmedInto(db, t),
     isNull(t.messages.ackedBy),
     eq(t.messages.expectsResponse, true),
     or(isNull(t.messages.expiresAt), gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now'))),
@@ -1393,7 +1460,7 @@ const deliveredUnacked = prepared((db, t) =>
     .select()
     .from(t.messages)
     // The agent has it either way — pushed or pulled; both confirm.
-    .where(inWorkspace(t.messages, unackedRequest(t)))
+    .where(inWorkspace(t.messages, unackedRequest(db, t)))
     .orderBy(...DELIVERY_ORDER(t))
     .prepare(),
 )
@@ -1406,7 +1473,7 @@ const settleNotifiable = prepared((db, t) => {
     .where(
       inWorkspace(
         t.messages,
-        unackedRequest(t),
+        unackedRequest(db, t),
         notExists(
           db
             .select({ one: sql`1` })
@@ -1426,18 +1493,19 @@ const settleNotifiable = prepared((db, t) => {
 })
 
 const stampRemindedOnce = prepared((db, t) =>
-  db
-    .update(t.messages)
-    .set({ remindedAt: sql.placeholder('at') })
-    .where(
-      inWorkspace(
-        t.messages,
-        eq(t.messages.id, param(t.messages.id, 'id')),
-        isNull(t.messages.remindedAt),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ remindedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.remindedAt),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 export class MessagesRepository {
@@ -1523,7 +1591,7 @@ export class MessagesRepository {
       inReplyTo: m.inReplyTo,
       fromKind: m.fromKind,
       fromSession: m.fromSession,
-      fromName: m.fromName ?? null,
+      fromName: withoutNulOrNull(m.fromName ?? null),
       fromIssue: m.fromIssue,
       actorKind: m.attribution?.actor.kind ?? null,
       actorId:
@@ -1541,7 +1609,7 @@ export class MessagesRepository {
       kind: m.kind,
       urgency: m.urgency,
       lifecycle: m.lifecycle,
-      body: m.body,
+      body: withoutNul(m.body),
       attachmentsJson: m.attachments?.length ? JSON.stringify(m.attachments) : null,
       expiresAt: m.expiresAt,
       createdAt: m.createdAt,
@@ -1924,19 +1992,20 @@ export class MessagesRepository {
         let statement = this.moveWrites.get(key)
         if (statement === undefined) {
           statement = prepared((db, t) =>
-            db
-              .update(t.messages)
-              .set({ ...spec.set?.(t), deliveryStatus: to })
-              .where(
-                inWorkspace(
-                  t.messages,
-                  eq(t.messages.id, param(t.messages.id, 'id')),
-                  guard,
-                  ...(spec.where?.(t) ?? []),
-                ),
-              )
-              .returning()
-              .prepare(),
+            captureWrite(
+              db
+                .update(t.messages)
+                .set({ ...spec.set?.(t), deliveryStatus: to })
+                .where(
+                  inWorkspace(
+                    t.messages,
+                    eq(t.messages.id, param(t.messages.id, 'id')),
+                    guard,
+                    ...(spec.where?.(t) ?? []),
+                  ),
+                )
+                .returning(),
+            ).prepare(),
           )
           this.moveWrites.set(key, statement)
         }

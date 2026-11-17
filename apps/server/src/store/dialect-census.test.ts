@@ -213,20 +213,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'apps/server/src/store/machines.ts:recordHarnessVersionOf',
     'SQLite-only json_extract(), SQLite-only json_set(), SQLite-only two-argument MAX/MIN',
   ],
-  ['apps/server/src/store/messages.ts:latestPendingOperator', 'SQLite-only rowid'],
-  ['apps/server/src/store/messages.ts:openChat', 'SQLite-only INDEXED BY, SQLite-only rowid'],
-  [
-    'apps/server/src/store/messages.ts:pendingSendersOf',
-    'ORDER BY nullable column from_issue without NULLS FIRST/LAST, ORDER BY nullable column from_session without NULLS FIRST/LAST',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingSummaryOf',
-    'ORDER BY nullable column from_issue without NULLS FIRST/LAST, ORDER BY nullable column from_session without NULLS FIRST/LAST',
-  ],
-  [
-    'apps/server/src/store/messages.ts:swapHarnessRef',
-    'json column harness_ref_json compared without CAST(… AS TEXT)',
-  ],
   ['apps/server/src/store/repos.ts:registryRows', 'SQLite-only rowid'],
   ['apps/server/src/store/shipping.ts:activeOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', 'SQLite-only json_each()'],
