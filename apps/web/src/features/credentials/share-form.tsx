@@ -9,8 +9,8 @@ import { CREDENTIAL_SHARE_DISCLOSURE, CREDENTIAL_SHARE_WARNING } from '@podium/c
 import { asUserId, type CredentialShare, type CredentialView } from '@podium/model'
 import { type FormEvent, useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Checkbox } from '@/components/ui/checkbox'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { typeSpecOf } from './credential-facts'
 import { type CredentialDeps, errorText } from './credentials-deps'
 

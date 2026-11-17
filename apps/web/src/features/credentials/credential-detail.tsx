@@ -10,7 +10,6 @@ import { observer } from 'mobx-react-lite'
 import { type FormEvent, useId, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
 import {
   ConfirmInline,
@@ -19,6 +18,7 @@ import {
   Section,
   ValueRow,
 } from '@/features/settings/sections/shared'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { CHATGPT_USAGE_URL } from './add-chatgpt/chatgpt-sign-in'
 import { ChatgptSignInSection } from './add-chatgpt/section'
 import {

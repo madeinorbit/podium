@@ -98,9 +98,10 @@ try {
               settingsHarness: { calls: { key: string; input?: { enabled?: boolean } }[] }
             }
           ).settingsHarness
-          return harness.calls
-            .filter((call) => call.key === 'credentials.useOnMyMachines.mutate')
-            .at(-1)?.input?.enabled === true
+          return (
+            harness.calls.filter((call) => call.key === 'credentials.useOnMyMachines.mutate').at(-1)
+              ?.input?.enabled === true
+          )
         })
       }
       if (errors.length) throw new Error(errors.join('\n'))

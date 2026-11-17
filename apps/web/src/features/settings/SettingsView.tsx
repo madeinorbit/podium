@@ -38,7 +38,6 @@ import {
 } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import {
-  SettingsControlsContext,
   type SettingsControlsState,
   useSettingsPermitted,
 } from './sections/shared'

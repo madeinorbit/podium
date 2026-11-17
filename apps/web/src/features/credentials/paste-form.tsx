@@ -8,8 +8,8 @@
 import type { CredentialTypeId, CredentialView } from '@podium/model'
 import { type FormEvent, useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { pasteHint, typeTitle } from './credential-facts'
 import { type CredentialDeps, errorText } from './credentials-deps'
 

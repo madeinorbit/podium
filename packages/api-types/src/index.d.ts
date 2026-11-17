@@ -1542,14 +1542,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    lastError: string | null;
     url: string | null;
+    lastError: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    lastError: string | null;
     url: string | null;
+    lastError: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;

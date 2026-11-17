@@ -10,8 +10,8 @@ import { asMachineId, type CredentialView } from '@podium/model'
 import { Laptop } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { ConfirmInline, EntityRow } from '@/features/settings/sections/shared'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { type CredentialDeps, errorText, type MachineChoice } from './credentials-deps'
 
 export function MachineSend({ view, deps }: { view: CredentialView; deps: CredentialDeps }) {

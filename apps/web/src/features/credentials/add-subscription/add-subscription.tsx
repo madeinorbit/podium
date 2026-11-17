@@ -12,8 +12,8 @@
 
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { type CredentialDeps, errorText } from '../credentials-deps'
 
 const POLL_MS = 2_000
