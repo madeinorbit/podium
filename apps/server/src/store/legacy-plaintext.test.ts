@@ -39,6 +39,8 @@ const BUNDLE = JSON.stringify({ kind: 'codex', contentBase64: LOGIN_FILE_BASE64 
 const MEMBER = asUserId('user:destroy-member')
 const MEMBER_KEY = 'FAKE-sk-openai-destroy-member-0009'
 const READER = asUserId('user:destroy-reader')
+/** A login file an old version deleted without secure_delete: its bytes sit in free pages. */
+const FREED = 'FAKE-refresh-freed-page-0013'
 
 /** Every planted value, as the bytes a search looks for. */
 const PLANTED = [
@@ -48,6 +50,7 @@ const PLANTED = [
   LINEAR,
   TELEGRAM,
   LOGIN_FILE_BASE64,
+  FREED,
 ]
 
 function place() {
@@ -184,6 +187,13 @@ describe('the old plaintext keys after the move into the vault', () => {
         secret.run(key, value, '2026-01-01T00:00:00.000Z')
       secret.run('integrations.linearApiKey', LINEAR, '2026-01-01T00:00:00.000Z')
       secret.run('notifications.telegramBotToken', TELEGRAM, '2026-01-01T00:00:00.000Z')
+      db.exec('PRAGMA secure_delete = OFF')
+      secret.run(
+        'native-login-transfer:freed',
+        `${FREED}${'x'.repeat(9_000)}`,
+        '2026-01-01T00:00:00.000Z',
+      )
+      db.prepare("DELETE FROM server_secrets WHERE key = 'native-login-transfer:freed'").run()
       // The transfer sweep's own truncate waits out a reader; the busy tests leave it out.
       if (transferRow) {
         secret.run(`native-login-transfer:${randomUUID()}`, BUNDLE, '2026-01-01T00:00:00.000Z')
