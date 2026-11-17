@@ -92,7 +92,6 @@ const TaskSessionRow = observer(function TaskSessionRow({
       </View>
       <View style={styles.body}>
         <Text style={styles.name}>{name}</Text>
-        <Text style={styles.meta}>{agent}</Text>
         <View style={styles.metaLine}>
           <WorkingWord
             active={word === 'working'}
@@ -101,7 +100,9 @@ const TaskSessionRow = observer(function TaskSessionRow({
           >
             {SESSION_WORD_LABEL[word]}
           </WorkingWord>
-          <Text style={styles.meta}>· {model}</Text>
+          <Text style={[styles.meta, styles.metadata]}>
+            {` · ${model === 'Auto' ? '' : `${model} · `}${role}`}
+          </Text>
         </View>
       </View>
       {!accessibility ? (
@@ -114,10 +115,10 @@ const TaskSessionRow = observer(function TaskSessionRow({
 const styles = StyleSheet.create({
   row: {
     minHeight: 44,
-    padding: 12,
+    paddingVertical: 8,
     paddingHorizontal: 16,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
   },
   separator: {
@@ -134,6 +135,7 @@ const styles = StyleSheet.create({
   body: { flex: 1, minWidth: 0, gap: 4 },
   name: { ...sans(400), fontSize: font.body, color: color.text },
   meta: { ...sans(400), fontSize: font.tiny, color: color.textDim },
-  metaLine: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  metaLine: { flexDirection: 'row', alignItems: 'baseline' },
+  metadata: { flexShrink: 1 },
   pressed: { backgroundColor: color.surfacePressed },
 })

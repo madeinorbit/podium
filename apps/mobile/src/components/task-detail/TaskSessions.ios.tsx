@@ -7,6 +7,8 @@ import {
   font,
   foregroundStyle,
   frame,
+  layoutPriority,
+  lineLimit,
   listRowInsets,
   padding,
 } from '@expo/ui/swift-ui/modifiers'
@@ -69,7 +71,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   const word = session.word
   return (
     <HStack
-      alignment="top"
+      alignment="center"
       spacing={12}
       modifiers={[
         listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
@@ -102,17 +104,21 @@ const TaskSessionRow = observer(function TaskSessionRow({
         <Text modifiers={[font({ textStyle: 'body' }), foregroundStyle(color.text), ...intrinsic]}>
           {name}
         </Text>
-        <Text modifiers={meta}>{agent}</Text>
-        <Text
-          modifiers={[
-            ...meta,
-            foregroundStyle(deckWordColor(word)),
-            ...(word === 'working' ? [workingWordGlint(sessionId)] : []),
-          ]}
-        >
-          {SESSION_WORD_LABEL[word]}
-        </Text>
-        <Text modifiers={meta}>{model}</Text>
+        <HStack spacing={0} modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+          <Text
+            modifiers={[
+              ...meta(deckWordColor(word)),
+              ...(word === 'working' ? [workingWordGlint(sessionId)] : []),
+              fixedSize({ horizontal: true, vertical: false }),
+              layoutPriority(1),
+            ]}
+          >
+            {SESSION_WORD_LABEL[word]}
+          </Text>
+          <Text modifiers={[...meta(color.textDim), ...intrinsic, layoutPriority(-1)]}>
+            {` · ${model === 'Auto' ? '' : `${model} · `}${role}`}
+          </Text>
+        </HStack>
       </VStack>
       {fontScale <= 1.35 ? (
         <Image systemName="chevron.right" size={12} color={color.textFaint} />
@@ -125,4 +131,5 @@ const intrinsic = [
   fixedSize({ horizontal: false, vertical: true }),
   frame({ maxWidth: Infinity, alignment: 'leading' }),
 ]
-const meta = [font({ textStyle: 'footnote' }), foregroundStyle(color.textDim), ...intrinsic]
+// SwiftUI keeps the first foreground style, so each text gets exactly one ink.
+const meta = (ink: string) => [font({ textStyle: 'footnote' }), foregroundStyle(ink), lineLimit(1)]
