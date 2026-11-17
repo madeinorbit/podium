@@ -9,12 +9,14 @@
  *
  * THE LANES.
  *
- * - `read`: `readConcurrency` is the pool size minus one, so reads run in parallel
- *   beside the one writer. A read body runs in `BEGIN ISOLATION LEVEL REPEATABLE READ
+ * - `read`: `readConcurrency` is the pool size minus the write slots, so reads run in
+ *   parallel beside the writers. A read body runs in `BEGIN ISOLATION LEVEL REPEATABLE READ
  *   READ ONLY`: one snapshot for the whole body. The BEGIN is not sent on its own; it
  *   goes out in the same pipeline as the body's first statement, so it costs no round
  *   trip, and a body that issues nothing sends nothing.
- * - `write`: one slot (the scheduler's). `begin('write')` in a workspace sends `BEGIN`,
+ * - `write`: one scheduler slot per workspace, at most `writeSlots` of them at once
+ *   (declared as `lanes.workspaceWrites`, POD-6996), so workspaces write in parallel and
+ *   the lock below only ever waits for another process. `begin('write')` in a workspace sends `BEGIN`,
  *   `SET LOCAL lock_timeout` and `SELECT 1 FROM sync_feed WHERE workspace_id = $1 FOR
  *   UPDATE` as one pipelined round trip. That lock is the single-writer rule per
  *   workspace (contract C4): every statement after it sees every earlier commit of
@@ -87,12 +89,17 @@ import {
 export interface PgDriverOptions {
   /** `postgres://` URL of the store's database. */
   readonly url: string
-  /** Connections in the pool. Reads may use all but one at once. Default 10. */
+  /** Connections in the pool, shared by the write slots and the reads. Default 10. */
   readonly poolSize?: number
   /**
-   * Read bodies run at once, at most the pool size minus one (the default). `0` makes
-   * reads take the write slot, as on bun:sqlite; the committed-view reader still gets
-   * a connection of its own.
+   * Workspaces whose write bodies may run at once (POD-6996): the scheduler's write
+   * slots, one per workspace. Default half the pool, at least one.
+   */
+  readonly writeSlots?: number
+  /**
+   * Read bodies run at once. Default the pool size minus the write slots. `0` makes
+   * reads take a write slot, as on bun:sqlite; the committed-view reader still gets a
+   * connection of its own. Write slots and reads together may not exceed the pool.
    */
   readonly readConcurrency?: number
   /** How long a write waits for its workspace's lock before it is busy. Default 5 s. */
@@ -514,9 +521,36 @@ function createSession(
   }
 }
 
+/**
+ * The pool's split between write slots and reads [POD-6996, POD-6958 design 2.4].
+ *
+ * Every write slot and every read body holds a pooled connection for its whole lease,
+ * so the two together may not ask for more than the pool: a lease past it would wait
+ * in postgres.js's queue and then fail as busy after the acquisition timeout, under
+ * load rather than at startup. A split that adds up to more is refused here instead.
+ * The default gives half the pool to writes (workspaces writing in parallel is what
+ * the per-workspace lock is for) and the rest to reads.
+ */
+function pgLanes(poolSize: number, options: PgDriverOptions): LanePolicy {
+  const writeSlots = Math.floor(options.writeSlots ?? Math.max(1, Math.floor(poolSize / 2)))
+  if (!Number.isInteger(writeSlots) || writeSlots < 1) {
+    throw new Error(`pg driver: writeSlots must be a positive integer, got ${options.writeSlots}`)
+  }
+  const readConcurrency = Math.max(0, Math.floor(options.readConcurrency ?? poolSize - writeSlots))
+  if (!Number.isInteger(readConcurrency) || writeSlots + readConcurrency > poolSize) {
+    throw new Error(
+      `pg driver: ${writeSlots} write slots and ${readConcurrency} concurrent reads need ` +
+        `${writeSlots + readConcurrency} connections, more than the pool of ${poolSize}`,
+    )
+  }
+  return { readConcurrency, workspaceWrites: writeSlots }
+}
+
 /** Open a Postgres store driver over a new pool on `options.url`. */
 export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
   const poolSize = Math.max(1, Math.floor(options.poolSize ?? DEFAULT_POOL_SIZE))
+  // Before the pool exists, so a refused split leaves nothing to end.
+  const lanes = pgLanes(poolSize, options)
   const acquireTimeoutMs = options.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS
   const config: SessionConfig = {
     lockTimeoutMs: Math.max(1, Math.floor(options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)),
@@ -531,12 +565,6 @@ export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
     }) as unknown as Record<string, postgres.PostgresType>,
     onnotice: () => undefined,
   })
-  const lanes: LanePolicy = {
-    readConcurrency: Math.max(
-      0,
-      Math.min(poolSize - 1, Math.floor(options.readConcurrency ?? poolSize - 1)),
-    ),
-  }
   const limits: DriverLimits = {
     writeBudgetMs: options.writeBudgetMs ?? DEFAULT_WRITE_BUDGET_MS,
     busyRetry: options.busyRetry ?? PG_BUSY_RETRY,
@@ -619,6 +647,7 @@ export function createPgStoreExecutor(
   const {
     url,
     poolSize,
+    writeSlots,
     readConcurrency,
     lockTimeoutMs,
     acquireTimeoutMs,
@@ -633,6 +662,7 @@ export function createPgStoreExecutor(
   const driverOptions: PgDriverOptions = {
     url,
     ...(poolSize !== undefined ? { poolSize } : {}),
+    ...(writeSlots !== undefined ? { writeSlots } : {}),
     ...(readConcurrency !== undefined ? { readConcurrency } : {}),
     ...(lockTimeoutMs !== undefined ? { lockTimeoutMs } : {}),
     ...(acquireTimeoutMs !== undefined ? { acquireTimeoutMs } : {}),

@@ -13,20 +13,33 @@
  */
 
 import { asWorkspaceId } from '@podium/model'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import {
+  clonePgTestDatabase,
+  connectPgTest,
+  type PgTestClient,
+  testStoreEngine,
+} from '../../test-support/pg-test-database'
 import { runRootStatementIn } from './context'
-import type { DriverSession, QueryClient, StoreDriver } from './driver'
+import type { DriverSession, LanePolicy, QueryClient, StoreDriver } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
-import { GLOBAL_CONTEXT, type StoreContext, workspaceContext } from './executor'
+import {
+  createStoreExecutor,
+  GLOBAL_CONTEXT,
+  type RootStoreExecutor,
+  type StoreContext,
+  workspaceContext,
+} from './executor'
 import { barrier, openHarness, settle } from './harness'
-import { createScheduler, type Scheduler, type WorkspaceWriteLanes } from './scheduler'
+import { createPgStoreDriver } from './pg-driver'
+import { createScheduler, type Scheduler } from './scheduler'
 
 const A = workspaceContext(asWorkspaceId('ws_a'))
 const B = workspaceContext(asWorkspaceId('ws_b'))
 const C = workspaceContext(asWorkspaceId('ws_c'))
 
 /** A driver whose sessions do nothing: only the scheduler's admission is under test. */
-function laneDriver(lanes: WorkspaceWriteLanes): StoreDriver<QueryClient> {
+function laneDriver(lanes: LanePolicy): StoreDriver<QueryClient> {
   const session: DriverSession = {
     execute: async () => ({ rows: [] }),
     executeBatch: async (statements) => statements.map(() => ({ rows: [] })),
@@ -49,7 +62,7 @@ function laneDriver(lanes: WorkspaceWriteLanes): StoreDriver<QueryClient> {
 }
 
 const open: Scheduler[] = []
-function scheduler(lanes: WorkspaceWriteLanes): Scheduler {
+function scheduler(lanes: LanePolicy): Scheduler {
   const made = createScheduler({ driver: laneDriver(lanes) })
   open.push(made)
   return made
@@ -372,5 +385,101 @@ describe('one write slot on a driver that declares no per-workspace writes', () 
     } finally {
       await h.close()
     }
+  })
+})
+
+/**
+ * The same properties on the real Postgres driver, in ONE process: one store, so
+ * the scheduler, not a second pool, is what lets the workspaces overlap.
+ */
+describe.runIf(testStoreEngine() === 'pg')('per-workspace write slots on Postgres', () => {
+  let url: string
+  let admin: PgTestClient
+  const opened: RootStoreExecutor<QueryClient>[] = []
+
+  beforeAll(async () => {
+    url = (await clonePgTestDatabase('file')).url
+    admin = connectPgTest(url, 1)
+    for (const statement of [
+      'CREATE TABLE sync_feed (workspace_id text COLLATE "C" PRIMARY KEY, head_seq bigint NOT NULL DEFAULT 0)',
+      "INSERT INTO sync_feed (workspace_id) VALUES ('ws_a'), ('ws_b')",
+      'CREATE TABLE notes (id text COLLATE "C" PRIMARY KEY, body text)',
+    ]) {
+      await admin.unsafe(statement)
+    }
+  })
+
+  afterEach(async () => {
+    for (const store of opened.splice(0).reverse()) await store.close()
+    await admin.unsafe('DELETE FROM notes')
+  })
+
+  afterAll(async () => {
+    await admin?.close({ timeout: 5 })
+  })
+
+  function openStore(): RootStoreExecutor<QueryClient> {
+    const store = createStoreExecutor<QueryClient>({
+      driver: createPgStoreDriver({ url, poolSize: 4, strictTimestamps: true }),
+      startOpen: true,
+    })
+    opened.push(store)
+    return store
+  }
+
+  const insert = 'INSERT INTO notes (id, body) VALUES ($1, $2)'
+
+  it("runs two workspaces' write bodies at the same time in one store", async () => {
+    // Catches: the Postgres driver not declaring its write slots, or the executor
+    // not passing the transaction's context, either of which puts every workspace
+    // back on one slot.
+    const store = openStore()
+    const held = barrier()
+    const entered = barrier()
+    const writing = store.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'a', 'a')
+      entered.release()
+      await held.wait()
+    }, A)
+    await entered.wait()
+    await store.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'b', 'b')
+    }, B)
+    const committed = await admin.unsafe<{ id: string }>('SELECT id FROM notes ORDER BY id')
+    expect(committed.map((row) => row.id)).toEqual(['b'])
+    held.release()
+    await writing
+  })
+
+  it('queues a second write of one workspace in the scheduler, not on the lock', async () => {
+    // Catches: two writers of one workspace both admitted, the second waiting on the
+    // row lock (and failing busy after lock_timeout) instead of in the FIFO.
+    const store = openStore()
+    const held = barrier()
+    const entered = barrier()
+    const order: string[] = []
+    const first = store.transact(async (tx) => {
+      order.push('a1:start')
+      await tx.drizzle.run(insert, 'a1', 'a')
+      entered.release()
+      await held.wait()
+      order.push('a1:end')
+    }, A)
+    await entered.wait()
+    let saw: unknown
+    const second = store.transact(async (tx) => {
+      order.push('a2:start')
+      saw = await tx.drizzle.all('SELECT id FROM notes ORDER BY id')
+    }, A)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const waiting = await admin.unsafe<{ waiting: number }>(
+      "SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+    )
+    expect(order).toEqual(['a1:start'])
+    expect(waiting[0]?.waiting, 'no writer of this store waits on the row lock').toBe(0)
+    held.release()
+    await Promise.all([first, second])
+    expect(order).toEqual(['a1:start', 'a1:end', 'a2:start'])
+    expect(saw).toEqual([{ id: 'a1' }])
   })
 })

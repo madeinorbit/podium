@@ -193,6 +193,16 @@ export const NO_BUSY_RETRY: BusyRetryPolicy = {
  */
 export interface LanePolicy {
   readonly readConcurrency: number
+  /**
+   * How many write bodies of DIFFERENT workspaces may run at once [POD-6996,
+   * POD-6958 design 2.4]. Declaring it is a claim about the engine: a second
+   * writer of the same workspace would queue on the driver's own lock (Postgres:
+   * the workspace's `sync_feed` row, contract C4), so the scheduler can give each
+   * workspace a write slot of its own without changing what any writer sees.
+   * Absent, the process has ONE write slot, which is what a single connection
+   * (bun:sqlite) or a database-wide writer (libsql) needs.
+   */
+  readonly workspaceWrites?: number
 }
 
 /**

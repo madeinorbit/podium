@@ -26,7 +26,7 @@
  * ONE WRITE SLOT PER WORKSPACE [POD-6996, POD-6958 design 2.4]. A driver that
  * serialises each workspace's writers itself — Postgres, whose write takes the
  * workspace's `sync_feed` row lock first (contract C4) — declares
- * {@link WorkspaceWriteLanes.workspaceWrites}. The scheduler then keys a write's
+ * `LanePolicy.workspaceWrites` (driver.ts). The scheduler then keys a write's
  * slot by the workspace of its {@link StoreContext}: one slot per workspace, so a
  * workspace's writes stay FIFO and never overlap, while writes of different
  * workspaces run at once, up to `workspaceWrites` of them (a bound the driver sets
@@ -44,25 +44,9 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { rootStatementContext } from './context'
-import type { BusyRetryPolicy, DriverSession, Lane, LanePolicy, StoreDriver } from './driver'
+import type { BusyRetryPolicy, DriverSession, Lane, StoreDriver } from './driver'
 import { SchedulerClosedError, StaleTransactionError } from './errors'
 import type { StoreContext } from './executor'
-
-/**
- * The lane policy of a driver that serialises each workspace's writers itself
- * [POD-6996, POD-6958 design 2.4].
- *
- * `workspaceWrites` is how many write bodies of DIFFERENT workspaces may run at
- * once. Declaring it is a claim about the engine: a second writer of the same
- * workspace would queue on the driver's own lock (Postgres: the workspace's
- * `sync_feed` row, contract C4), so the scheduler can let writers of different
- * workspaces overlap without changing what any one of them sees. Absent, the
- * process has one write slot, which is what a single connection (bun:sqlite) or a
- * database-wide writer (libsql) needs.
- */
-export interface WorkspaceWriteLanes extends LanePolicy {
-  readonly workspaceWrites?: number
-}
 
 /** The one write slot of a driver without per-workspace writes. */
 const PROCESS_SLOT = 'process'
@@ -191,7 +175,7 @@ export interface Scheduler {
    * Run `body` on a lease of `lane`.
    *
    * `context` is the work's store context, which picks a write's slot on a driver
-   * with per-workspace writes ({@link WorkspaceWriteLanes}). Absent, it is the
+   * with per-workspace writes (`LanePolicy.workspaceWrites`). Absent, it is the
    * workspace of the root statement being run (`rootStatementContext()`), and
    * failing that the global context. Every other driver ignores it.
    */
@@ -406,7 +390,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const readConcurrency = driver.lanes.readConcurrency
   /** Reads with no lane of their own take a write slot (bun:sqlite). */
   const readsUseWriteSlot = readConcurrency === 0
-  const declaredWorkspaceWrites = (driver.lanes as WorkspaceWriteLanes).workspaceWrites
+  const declaredWorkspaceWrites = driver.lanes.workspaceWrites
   if (
     declaredWorkspaceWrites !== undefined &&
     (!Number.isInteger(declaredWorkspaceWrites) || declaredWorkspaceWrites < 1)

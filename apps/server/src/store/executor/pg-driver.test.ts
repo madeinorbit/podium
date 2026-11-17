@@ -146,16 +146,40 @@ describe('Postgres store driver, without a database', () => {
   // Nothing connects: a postgres.js pool opens connections on first use.
   const nowhere = 'postgres://podium@127.0.0.1:9/nowhere'
 
-  it('reads beside one writer: readConcurrency is the pool size minus one unless lowered', async () => {
+  it('splits the pool: half to workspace write slots, the rest to reads, unless set', async () => {
     const drivers = [
       createPgStoreDriver({ url: nowhere, poolSize: 4 }),
       createPgStoreDriver({ url: nowhere, poolSize: 4, readConcurrency: 0 }),
-      createPgStoreDriver({ url: nowhere, poolSize: 4, readConcurrency: 9 }),
+      createPgStoreDriver({ url: nowhere, poolSize: 10, writeSlots: 1 }),
+      createPgStoreDriver({ url: nowhere, poolSize: 10, writeSlots: 3, readConcurrency: 5 }),
       createPgStoreDriver({ url: nowhere, poolSize: 1 }),
     ]
-    expect(drivers.map((driver) => driver.lanes.readConcurrency)).toEqual([3, 0, 3, 0])
+    expect(drivers.map(({ lanes }) => [lanes.workspaceWrites, lanes.readConcurrency])).toEqual([
+      [2, 2],
+      [2, 0],
+      [1, 9],
+      [3, 5],
+      [1, 0],
+    ])
     expect(drivers.every((driver) => driver.dialect === 'pg' && driver.openReader)).toBe(true)
     for (const driver of drivers) await driver.close()
+  })
+
+  it('refuses write slots and reads that need more connections than the pool', () => {
+    // A lease past the pool would wait in postgres.js's queue and then fail as busy,
+    // under load; the split is refused when the driver is made instead.
+    expect(() => createPgStoreDriver({ url: nowhere, poolSize: 4, readConcurrency: 9 })).toThrow(
+      /2 write slots and 9 concurrent reads need 11 connections, more than the pool of 4/,
+    )
+    expect(() => createPgStoreDriver({ url: nowhere, poolSize: 4, writeSlots: 5 })).toThrow(
+      /more than the pool of 4/,
+    )
+    expect(() =>
+      createPgStoreDriver({ url: nowhere, poolSize: 4, writeSlots: 2, readConcurrency: 3 }),
+    ).toThrow(/more than the pool of 4/)
+    expect(() => createPgStoreDriver({ url: nowhere, writeSlots: 0 })).toThrow(
+      /writeSlots must be a positive integer/,
+    )
   })
 
   it('classifies as busy only what it marked busy while acquiring', async () => {

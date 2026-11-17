@@ -1114,11 +1114,17 @@ export function createStoreExecutor<TClient>(
     }
     let runner: PostCommitRunner | undefined
     try {
-      return await scheduler.run('write', async (lease) => {
-        assertHealthy()
-        runner = newRunner(lease.active)
-        return await runTopLevel(lease, 'write', openedAt, opens, fn, runner)
-      })
+      // The context picks the write slot: one per workspace on a driver that
+      // declares per-workspace writes (POD-6996), the single slot otherwise.
+      return await scheduler.run(
+        'write',
+        async (lease) => {
+          assertHealthy()
+          runner = newRunner(lease.active)
+          return await runTopLevel(lease, 'write', openedAt, opens, fn, runner)
+        },
+        opens,
+      )
     } finally {
       // NOT awaited: effects need the released lane for their root operations.
       // Retire outside the body as well: a revoked, parked body may never return.

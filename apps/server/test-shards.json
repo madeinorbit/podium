@@ -665,6 +665,7 @@
         "apps/server/src/store/executor/post-commit-helpers.test.ts",
         "apps/server/src/store/executor/read-scope.test.ts",
         "apps/server/src/store/executor/refusal-diagnostics.test.ts",
+        "apps/server/src/store/executor/scheduler-workspaces.test.ts",
         "apps/server/src/store/executor/service-span.test.ts",
         "apps/server/src/store/executor/span-side-effects.test.ts",
         "apps/server/src/store/executor/state-models.test.ts",
@@ -746,6 +747,7 @@
       ],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -1591,6 +1593,7 @@
         "src/store/executor/read-scope.test.ts",
         "src/store/executor/read-scope.ts",
         "src/store/executor/refusal-diagnostics.test.ts",
+        "src/store/executor/scheduler-workspaces.test.ts",
         "src/store/executor/scheduler.ts",
         "src/store/executor/service-span.test.ts",
         "src/store/executor/span-side-effects.test.ts",
@@ -1961,6 +1964,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -2991,6 +2995,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -3078,6 +3083,7 @@
         "src/file-artifact-route.ts",
         "src/file-asset-route.ts",
         "src/file-relay-policy.ts",
+        "src/file-storage.ts",
         "src/fingerprint-key-import.ts",
         "src/first-admin-password.ts",
         "src/gateway/browser-open.ts",
@@ -3960,6 +3966,7 @@
         "apps/server/src/issues.normalized-wire.test.ts"
       ],
       "inputs": [
+        "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/identity/src/**",
