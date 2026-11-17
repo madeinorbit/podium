@@ -6,7 +6,14 @@
  * obviously fake.
  */
 
-import { asMachineId, asUserId, type Inventory, type MachineId, type UserId } from '@podium/model'
+import {
+  asMachineId,
+  asUserId,
+  type CredentialId,
+  type Inventory,
+  type MachineId,
+  type UserId,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
@@ -38,8 +45,13 @@ async function setup(): Promise<{ store: SessionStore; deps: FoundLoginsDeps }> 
     )
   }
   const machine = async (id: MachineId, owner?: UserId) => {
-    const row = { id, name: id, hostname: `${id}.invalid`, tokenHash: `hash-${id}` }
-    await store.machines.upsertMachine(owner ? { ...row, ownerUserId: owner } : row)
+    await store.machines.upsertMachine({
+      id,
+      name: id,
+      hostname: `${id}.invalid`,
+      tokenHash: `hash-${id}`,
+      ownerUserId: owner ?? null,
+    })
   }
   await machine(ONE, OWNER)
   await machine(TWO, OWNER)
@@ -87,7 +99,7 @@ describe('a login in a default home (acceptance 4)', () => {
       status: 'ok',
       identity: { fingerprint: FP, email: EMAIL },
     })
-    expect(await store.credentials.listPlacements(record!.id)).toEqual([])
+    expect(await store.credentials.listPlacements(created[0] as CredentialId)).toEqual([])
     expect(await store.credentials.listVisibleTo(OTHER)).toEqual([])
   })
 
@@ -163,7 +175,9 @@ describe('a Podium home signed in with no sign-in waiting (server restart)', () 
     const { store, deps } = await setup()
     const created = await recordFoundLogins(deps, ONE, report({ state: 'out' }, [HOME]))
     expect(created).toEqual(['cred_00000000-0000-4000-8000-0000000000f1'])
-    expect(await store.credentials.listPlacements(created[0]!)).toEqual([
+    const [id] = created
+    if (!id) throw new Error('nothing was created')
+    expect(await store.credentials.listPlacements(id)).toEqual([
       expect.objectContaining({ homeId: HOME_ID, state: 'present' }),
     ])
     expect(await recordFoundLogins(deps, ONE, report({ state: 'out' }, [HOME]))).toEqual([])

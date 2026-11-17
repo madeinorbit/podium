@@ -472,7 +472,10 @@ describe('cancelled or abandoned (acceptance 5)', () => {
       daemon: { isOnline: () => true, supports: () => true },
       rpc: {
         homeEnsure: async (c, h) => ({ ok: true, homeId: `${c}:${h}`, created: true }),
-        homeRemove: async (homeId) => (calls.push(`remove ${homeId}`), { ok: true }),
+        homeRemove: async (homeId) => {
+          calls.push(`remove ${homeId}`)
+          return { ok: true }
+        },
       },
       terminals: {
         open: async () => asSessionId('abandoned-terminal'),

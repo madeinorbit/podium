@@ -64,7 +64,9 @@ const commands: SubscriptionSignInCommands = {
   },
 }
 
-createRoot(document.getElementById('root')!).render(
+const root = document.getElementById('root')
+if (!root) throw new Error('the harness page has no #root')
+createRoot(root).render(
   <ThemeProvider>
     <DensityProvider>
       <div className="min-h-screen bg-background p-8 text-foreground">

@@ -448,7 +448,7 @@ export class HomeSignInService {
     if (!attemptId) return
     this.bySession.delete(sessionId)
     const attempt = this.attempts.get(attemptId)
-    if (!attempt || attempt.status.state !== 'waiting') return
+    if (attempt?.status.state !== 'waiting') return
     attempt.ended = true
     if (code !== 0) {
       await this.fail(attempt, `The sign-in ended without signing in (exit ${code}).`)

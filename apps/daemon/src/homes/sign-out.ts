@@ -50,8 +50,8 @@ export async function signOutOfHome(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const declared = manifestFor(home.harness)?.inventory.signOutCommand
   if (!declared) return { ok: false, error: `${home.harness} declares no sign-out command` }
-  const snapshotFor =
-    io.snapshot ?? (ctx.harnessRuntime ? () => ctx.harnessRuntime!.current() : undefined)
+  const runtime = ctx.harnessRuntime
+  const snapshotFor = io.snapshot ?? (runtime ? () => runtime.current() : undefined)
   if (!snapshotFor) return { ok: false, error: 'no harness installation to sign out with' }
   try {
     const snapshot = await snapshotFor()
