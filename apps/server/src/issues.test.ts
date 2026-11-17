@@ -4763,7 +4763,7 @@ describe('IssueService doctor/preflight (P2b)', () => {
     const raw = (store as unknown as { db: { exec(q: string): void } }).db
     raw.exec('PRAGMA foreign_keys = OFF')
     raw.exec(
-      `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocked-by')`,
+      `INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('${store.workspaceId}', '${a.id}', 'iss_ghost', 'blocked-by')`,
     )
     raw.exec('PRAGMA foreign_keys = ON')
     const d = await svc.reports.doctor('/r')
