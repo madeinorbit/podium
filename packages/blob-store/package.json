@@ -2,7 +2,7 @@
   "name": "@podium/blob-store",
   "version": "0.0.0",
   "private": true,
-  "description": "One small byte interface for user files (POD-6963 design 2.1): whole-object put with conditional writes, ranged get, head, delete, sorted list and copy, built for one workspace. A local-disk adapter that keeps today's paths under the state directory and an in-memory adapter with object-store semantics for tests. Depends only on @podium/model, never apps/*.",
+  "description": "One small byte interface for user files (POD-6963 design 2.1): whole-object put with conditional writes, ranged get, head, delete, sorted list and copy, built for one workspace. A local-disk adapter that keeps today's paths under the state directory, an S3-compatible adapter (one bucket, a prefix per workspace) and an in-memory adapter with object-store semantics for tests. Depends on @podium/model and, for the S3 adapter's conditional puts and copy, @aws-sdk/client-s3; never apps/*.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -15,6 +15,16 @@
       "@podium/source": "./src/local.ts",
       "types": "./src/local.ts",
       "import": "./src/local.ts"
+    },
+    "./s3": {
+      "@podium/source": "./src/s3.ts",
+      "types": "./src/s3.ts",
+      "import": "./src/s3.ts"
+    },
+    "./s3-fake": {
+      "@podium/source": "./src/s3-fake.ts",
+      "types": "./src/s3-fake.ts",
+      "import": "./src/s3-fake.ts"
     },
     "./memory": {
       "@podium/source": "./src/memory.ts",
@@ -29,9 +39,11 @@
   },
   "scripts": {
     "typecheck": "bun ../../scripts/typecheck-project.ts",
-    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/blob-store:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/blob-store:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "test:live:s3": "bun ../../scripts/validation-admission.ts focused --label @podium/blob-store:test:live:s3 -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.live.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1170.0",
     "@podium/model": "workspace:*"
   },
   "devDependencies": {

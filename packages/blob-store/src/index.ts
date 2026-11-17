@@ -2,8 +2,10 @@
  * @podium/blob-store: one small byte interface for user files [POD-6963 design 2.1].
  *
  * The root exports the interface, keys and errors. The adapters sit behind
- * their own subpaths: `./local` (node:fs, the self-hosted state directory) and
- * `./memory` (tests). `./testing` is the contract suite every adapter passes.
+ * their own subpaths: `./local` (node:fs, the self-hosted state directory),
+ * `./s3` (an S3-compatible bucket, a prefix per workspace) and `./memory`
+ * (tests). `./testing` is the contract suite every adapter passes, and
+ * `./s3-fake` an in-process S3 server for tests.
  */
 
 export {

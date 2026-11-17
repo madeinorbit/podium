@@ -1,6 +1,6 @@
-import { productWorkMeter } from './tests/worklist/harness/src/perf/vite'
-import { standardDecorators } from './scripts/vite-standard-decorators'
 import { defineConfig } from 'vitest/config'
+import { standardDecorators } from './scripts/vite-standard-decorators'
+import { productWorkMeter } from './tests/worklist/harness/src/perf/vite'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
 import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
 
@@ -35,6 +35,9 @@ export const unitTestExclude = [
   // known cost curve and must never become a merge gate merely because its
   // filename is also a valid Vitest test glob.
   '**/*.bench.test.{ts,tsx}',
+  // Live provider runs are opt-in and credentialed (`bun run test:live:s3`):
+  // they reach a real bucket and must never become part of a default gate.
+  '**/*.live.test.{ts,tsx}',
   'tests/e2e/**',
   '**/*e2e*.test.{ts,tsx}',
   '**/*.integration.*',

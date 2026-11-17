@@ -305,6 +305,7 @@ re-measures on `read-watermarks.test.ts` and `quota-history.test.ts` and updates
 | `bun run test:rearch` | Runs the `audit:rearch` baseline check, then exact file `scripts/rearch-audit.test.ts` via `scripts/vitest.rearch.config.ts` | No default/package parent | Only rewrite migration/audit implementation or baseline changes; never ordinary product work |
 | `bun run test:perf:frontend` | Frontend large-state benchmark in `apps/web/vitest.frontend-perf.config.ts` | CI unit job | Large-state rendering/projection work or scheduled performance monitoring |
 | `bun run test:perf:sync` | Sync scaling benchmark in `packages/sync/vitest.perf.config.ts` | No parent command | Explicit sync scaling investigation on a bounded/dedicated host; deliberately quadratic |
+| `bun run test:live:s3` | `packages/blob-store/src/s3.live.test.ts` via `packages/blob-store/vitest.live.config.ts`: the blob store contract against a real S3-compatible bucket | No parent; `*.live.test.ts` is excluded from every unit lane | Only with a scratch bucket's `PODIUM_FILE_STORAGE_*` credentials in the environment, after changing the S3 adapter; fails rather than skips without them |
 | `bun run perf:typing` | `tests/e2e/typing-latency-bench.ts` against a live environment | No parent command | Typing/terminal latency work only |
 | `bun run oracle` | Sequential full `test:full`, `test:integration`, `test:e2e`, `test:multi-instance` from `scripts/oracle.ts` | No parent command | Rewrite phase boundary, release candidate, or explicit request; never a normal merge gate |
 
