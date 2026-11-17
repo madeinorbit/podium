@@ -46,16 +46,43 @@ export function describeTrip(trip: RoundTripObservation): string {
   return `${trip.call}${carried} (${where})${trip.key === undefined ? '' : `: ${trip.key}`}`
 }
 
+/**
+ * A round-trip probe and statement probe pair that tallies into the given arrays: for a
+ * counter of its own, on a connection the fixture cannot hand over before the run (the
+ * sync worker's read session).
+ */
+export function roundTripRecorder(): {
+  readonly onTrip: (trip: RoundTripObservation) => void
+  readonly onStatement: () => void
+  tally(): RoundTripTally
+} {
+  const trips: string[] = []
+  let statements = 0
+  return {
+    onTrip: (trip) => {
+      trips.push(describeTrip(trip))
+    },
+    onStatement: () => {
+      statements += 1
+    },
+    tally: () => ({ roundTrips: trips.length, statements, byCall: tallyOf(trips).byQuery }),
+  }
+}
+
 /** Count the round trips and statements `fn` costs on `target`'s store. */
 export async function countRoundTrips<T>(
   target: ProbeTarget,
   fn: () => T | Promise<T>,
+  /** Round trips of background work the fixture cannot stop, matched by their line. */
+  ignore?: RegExp,
 ): Promise<{ result: T } & RoundTripTally> {
   const trips: string[] = []
   let statements = 0
   const holder = target as StatementProbeHolder
   const detachTrips = probeRoundTrips(holder, (trip) => {
-    trips.push(describeTrip(trip))
+    const line = describeTrip(trip)
+    if (ignore?.test(line)) return
+    trips.push(line)
   })
   const detachStatements = probeStatements(holder, () => {
     statements += 1
@@ -82,16 +109,28 @@ function asTally(tally: RoundTripTally): StatementTally {
 export async function expectConstantRoundTrips<Fixture>(
   pin: StatementPin<Fixture>,
   expected: number,
+  /** For a pin that counts on a connection of its own (`StatementPin.count`). */
+  countOn?: (
+    fixture: Fixture,
+    run: () => unknown,
+  ) => Promise<{ readonly result: unknown } & RoundTripTally>,
+  /**
+   * Background work a timer starts inside the window, which the fixture cannot stop, by
+   * its round trip's line ({@link describeTrip}). Named at the pin, in review.
+   */
+  ignore?: RegExp,
 ): Promise<{ readonly small: StatementTally; readonly large: StatementTally }> {
-  if (pin.count) {
+  if (pin.count && !countOn) {
     throw new Error(
-      `${pin.name}: a pin that counts on a connection of its own has no round trips here`,
+      `${pin.name}: a pin that counts on a connection of its own needs its round-trip counter`,
     )
   }
   const counts = await measureAtSizes({
     ...pin,
     count: async (fixture, run) => {
-      const counted = await countRoundTrips(pin.target(fixture), run)
+      const counted = countOn
+        ? await countOn(fixture, run)
+        : await countRoundTrips(pin.target(fixture), run, ignore)
       return { result: counted.result, ...asTally(counted) }
     },
   })

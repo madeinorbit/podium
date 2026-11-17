@@ -29,6 +29,7 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   expectArmed,
   expectConstantStatements,
@@ -210,6 +211,14 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await expectArmed(draft, 41, plantPerSession)
   })
 
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('in process, a draft session in a repo: round trips', async () => {
+    await expectConstantRoundTrips(draft, 49)
+  }, 60_000)
+
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
       pin(
@@ -239,4 +248,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   it('tRPC pin is armed', async () => {
     await expectArmed(trpc, 106, plantPerSession)
   })
+
+  it('over tRPC: round trips (POD-6992)', async () => {
+    // The session's activity publication runs on a timer the create starts; at 200 rows
+    // the create outlasts its delay, and its root read lands inside the window.
+    await expectConstantRoundTrips(trpc, 144, undefined, /idx_sessions_pending_activity/)
+  }, 60_000)
 })

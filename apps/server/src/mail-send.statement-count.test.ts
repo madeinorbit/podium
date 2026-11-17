@@ -25,6 +25,7 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   describeGrowth,
   expectArmed,
@@ -234,6 +235,14 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectArmed(trpcToSession, 92, plantPerSession)
   })
 
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('over tRPC, to a running session: round trips', async () => {
+    await expectConstantRoundTrips(trpcToSession, 134)
+  }, 60_000)
+
   // The pass attempts every held message, and each attempt read the issue's
   // members and its sender's machine ownership on its own: 100 statements
   // with 5 held issue messages, 1,272 with 200 (relay: 95 -> 1,266), measured
@@ -332,6 +341,10 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('relay pin is armed', async () => {
     await expectArmed(relayToSession, 84, plantPerSession)
   })
+
+  it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
+    await expectConstantRoundTrips(relayToSession, 120)
+  }, 60_000)
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(

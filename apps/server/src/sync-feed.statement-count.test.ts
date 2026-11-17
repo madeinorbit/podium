@@ -35,7 +35,7 @@ import type { ControlSend } from './gateway/daemon-ports'
 import type { FeedServing } from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
-import { probeStatements } from './store/executor/statement-probe'
+import { probeRoundTrips, probeStatements } from './store/executor/statement-probe'
 import { GrantsRepository } from './store/grants'
 import { SessionsRepository } from './store/sessions'
 import { produceBootstrap } from './sync-worker/producer'
@@ -43,6 +43,11 @@ import type { SyncJob } from './sync-worker/types'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import {
+  expectConstantRoundTrips,
+  type RoundTripTally,
+  roundTripRecorder,
+} from './test-support/round-trip-count'
 import {
   expectArmed,
   expectConstantStatements,
@@ -183,6 +188,59 @@ async function countWorker(run: () => unknown): Promise<{ result: unknown } & St
   return { result, ...tallyOf([...driven, ...raw].map(queryKey)) }
 }
 
+/**
+ * The round trips a worker job makes on the handle it opens (POD-6992): the driver calls
+ * that wait for the server, by the Postgres driver's pipelining, and one for each
+ * statement the producer prepared on the handle itself, which no driver call carries.
+ * SQLite's job opens its transaction with a raw BEGIN on the handle, so its statements read
+ * as root ones; the Postgres session (`sync-worker/pg-read-session.ts`) sends its BEGIN
+ * with the first statement and ends the transaction when it closes: one round trip more.
+ * (A job given an idle budget sets it first, which carries the BEGIN: one more again.)
+ */
+async function countWorkerTrips(run: () => unknown): Promise<{ result: unknown } & RoundTripTally> {
+  const recorder = roundTripRecorder()
+  const driven: string[] = []
+  const prepared: string[] = []
+  const detachers: (() => void)[] = []
+  worker.onOpen = (db) => {
+    detachers.push(probeRoundTrips({ db: db as object }, recorder.onTrip))
+    detachers.push(
+      probeStatements({ db: db as object }, (observation) => {
+        driven.push(observation.sql)
+        recorder.onStatement()
+      }),
+    )
+    const handle = db as SqlDatabase
+    const prepare = handle.prepare.bind(handle)
+    handle.prepare = (sql: string) => {
+      prepared.push(sql)
+      return prepare(sql)
+    }
+  }
+  let result: unknown
+  try {
+    result = await run()
+  } finally {
+    worker.onOpen = undefined
+    for (const detach of detachers) detach()
+  }
+  const viaDriver = new Set(driven)
+  const raw = prepared.filter((sql) => !viaDriver.has(sql))
+  const tally = recorder.tally()
+  const byCall = new Map(tally.byCall)
+  for (const sql of raw)
+    byCall.set(`raw: ${queryKey(sql)}`, (byCall.get(`raw: ${queryKey(sql)}`) ?? 0) + 1)
+  return {
+    result,
+    roundTrips: tally.roundTrips + raw.length + (tally.statements + raw.length > 0 ? 1 : 0),
+    statements: tally.statements + raw.length,
+    byCall:
+      tally.statements + raw.length > 0
+        ? new Map([...byCall, ['close-rollback (read)', 1]])
+        : byCall,
+  }
+}
+
 /** Drain a worker job and return its records. */
 async function records(w: World, job: SyncJob): Promise<{ type: string; changes?: unknown[] }[]> {
   let text = ''
@@ -316,6 +374,13 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   it('a bootstrap pin is armed', async () => {
     await expectArmed(bootstrap, 67, plantPerSessionRead)
   })
+
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
+  // session's driver calls that wait for the server, by the Postgres driver's pipelining.
+  // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('a bootstrap for the owner: round trips', async () => {
+    await expectConstantRoundTrips(bootstrap, 68, (_w, go) => countWorkerTrips(go))
+  }, 60_000)
 
   it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
     const filtered = pin(
