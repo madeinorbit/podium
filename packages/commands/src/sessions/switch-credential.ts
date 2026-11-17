@@ -46,6 +46,11 @@ export type SessionSwitchCredentialOutput = z.infer<typeof sessionSwitchCredenti
 export const switchCredential: CommandDef<typeof sessionSwitchCredentialInput> = {
   input: sessionSwitchCredentialInput,
   action: 'write',
+  // A session is the private class (POD-6284, the `ownerReaches` gate in
+  // `apps/server/src/modules/sessions/session-access.ts`): the session's own
+  // owner only, so a grant reaches no switch. The policy vocabulary has no
+  // `owner` scope, so the declaration keeps `owner-or-grant`; read it as narrowed
+  // by that private-class override, never as a grant.
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write', machineVerb: 'use' },
   visibility: 'personal',
   exposure: ['trpc'],

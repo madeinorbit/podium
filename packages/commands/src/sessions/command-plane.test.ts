@@ -70,6 +70,19 @@ describe('the command-plane table', () => {
     expect(def.policy?.machineVerb).toBe('use')
   })
 
+  it('switchCredential keeps owner-or-grant, narrowed by the private-class gate to the owner', () => {
+    // The policy vocabulary has no `owner` scope. Sessions are the private class
+    // (POD-6284): the session's own owner only, so a grant never reaches a switch.
+    // Pin the declaration where a future policy consumer reads it, and name the
+    // override that makes it narrower than its spelling.
+    expect(sessionCommandPlane.defs.switchCredential.policy).toEqual({
+      resource: 'session',
+      scope: 'owner-or-grant',
+      action: 'write',
+      machineVerb: 'use',
+    })
+  })
+
   it('queues exactly the chat sends offline, and nothing else in this class', () => {
     const eligible = defs
       .filter(([, def]) => def.offline === 'eligible')
