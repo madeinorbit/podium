@@ -275,6 +275,18 @@ const CALLERS: readonly {
     expect: 'ok',
   },
   {
+    command: 'credentials.signInStart',
+    who: 'member',
+    caller: 'credentials page → Add → Subscription (Task 9)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.signInCancel',
+    who: 'member',
+    caller: 'credentials page → Add → Subscription (Task 9)',
+    expect: 'ok',
+  },
+  {
     command: 'logs.setLevel',
     who: 'member',
     caller: 'Settings → Updates → Troubleshooting',
@@ -356,6 +368,8 @@ const CALLERS: readonly {
   { command: 'credentials.renew', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'credentials.share', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'credentials.unshare', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.signInStart', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.signInCancel', who: 'agent', caller: 'none today', expect: 'floor' },
   // An agent may not sign its human in, store, remove, share or take back a key as them:
   // refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
@@ -377,10 +391,12 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 41 non-sync commands', () => {
-  it('covers the 41 commands, and only them', () => {
-    // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891).
-    expect(CONTRACTS.size).toBe(41) // includes accounts.unsend; accounts.keys is a query
+describe('every current caller of the 45 non-sync commands', () => {
+  it('covers the 45 commands, and only them', () => {
+    // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891);
+    // + chatgptSignInStart and chatgptSignInComplete (POD-6901); + signInStart and
+    // signInCancel (POD-6896).
+    expect(CONTRACTS.size).toBe(45) // includes accounts.unsend; accounts.keys is a query
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -388,7 +404,7 @@ describe('every current caller of the 41 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(41)
+    expect(plain).toHaveLength(45)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 
