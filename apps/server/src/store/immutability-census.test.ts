@@ -228,6 +228,7 @@ describe('the immutability census (design 2.5)', () => {
     expect(at('deleteActiveClaimsOfTrain')).toEqual(['d ship_train_active_claims'])
     expect(at('insertTrainMember')).toEqual(['i ship_train_members'])
     expect(at('insertActiveClaim')).toEqual(['i ship_train_active_claims'])
+    expect(at('insertOrder')).toEqual(['i ship_orders'])
   })
 
   it('declares exactly the tables and texts the SQLite triggers guard', () => {
@@ -329,6 +330,21 @@ describe('the immutability census (design 2.5)', () => {
       ),
     ).toEqual([
       `delete from ship_train_active_claims without its fence: ${GUARD_TEXT.ship_train_active_claims_release_guard}`,
+    ])
+  })
+
+  it('fails on a planted order insert without its lane custody refusal', () => {
+    expect(
+      violationsOf(
+        planted('plainOrder', (db, t) =>
+          db
+            .insert(t.shipOrders)
+            .values({ id: sql.placeholder('id') } as never)
+            .prepare(),
+        ),
+      ),
+    ).toEqual([
+      `insert into ship_orders without its refusal: ${GUARD_TEXT.ship_orders_lane_custody_insert}`,
     ])
   })
 

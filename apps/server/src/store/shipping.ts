@@ -1089,38 +1089,118 @@ const issueBranchCustody = prepared((db, t) =>
     .prepare(),
 )
 
-const insertOrder = prepared((db, t) =>
-  captureWrite(
-    db.insert(t.shipOrders).values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      issueId: sql.placeholder('issueId'),
-      repoId: sql.placeholder('repoId'),
-      repoPath: sql.placeholder('repoPath'),
-      machineId: sql.placeholder('machineId'),
-      targetBranch: sql.placeholder('targetBranch'),
-      destination: sql.placeholder('destination'),
-      approvedBaseSha: sql.placeholder('approvedBaseSha'),
-      approvedHeadSha: sql.placeholder('approvedHeadSha'),
-      descendantManifest: sql.placeholder('descendantManifest'),
-      deliveryDependsOn: sql.placeholder('deliveryDependsOn'),
-      evidenceManifestRef: sql.placeholder('evidenceManifestRef'),
-      currentIntegrationReceipt: sql.placeholder('currentIntegrationReceipt'),
-      providerRef: sql.placeholder('providerRef'),
-      requestedByActorKind: sql.placeholder('requestedByActorKind'),
-      requestedByActorId: sql.placeholder('requestedByActorId'),
-      requestedByOnBehalfOf: sql.placeholder('requestedByOnBehalfOf'),
-      requestedAt: sql.placeholder('requestedAt'),
-      policyId: sql.placeholder('policyId'),
-      validationProfile: sql.placeholder('validationProfile'),
-      validationProfileDigest: sql.placeholder('validationProfileDigest'),
-      closeMode: sql.placeholder('closeMode'),
-      state: sql.placeholder('state'),
-      stateChangedAt: sql.placeholder('stateChangedAt'),
-      holdCode: sql.placeholder('holdCode'),
+/**
+ * The row of `INSERT INTO table (…) SELECT <row> FROM (VALUES (1)) … WHERE <refusal>`:
+ * each named column's placeholder, bound to the column's encoder and cast to its
+ * Postgres type. A parameter in a select list has no type of its own (Postgres reads it
+ * as text, which does not assign to an integer or a timestamp), so the cast gives it the
+ * column's. The twin's `text COLLATE "C"` is cast as `text`: a type name in a CAST
+ * carries no collation, and an inserted value needs none.
+ */
+function insertedRow(table: Table, keys: readonly string[]): Record<string, SQL.Aliased> {
+  const columns = getTableColumns(table) as Record<string, Column>
+  return Object.fromEntries(
+    keys.map((key) => {
+      const target = columns[key]
+      if (target === undefined) throw new Error(`insertedRow: no column ${key}`)
+      const type = target.getSQLType().replace(/\s+COLLATE\s+.*$/i, '')
+      return [key, sql`CAST(${param(target, key)} AS ${sql.raw(type)})`.as(target.name)]
     }),
-  ).prepare(),
-)
+  )
+}
+
+/**
+ * The one row an in-statement guarded insert selects from: the row it writes is its
+ * parameters, so the guard's lookups decide alone whether it is written or refused.
+ */
+const ONE_ROW = sql`(VALUES (1)) AS guarded(one)`
+
+/** The order row's columns, as `insertOrder` writes them. */
+const ORDER_KEYS = [
+  'workspaceId',
+  'id',
+  'issueId',
+  'repoId',
+  'repoPath',
+  'machineId',
+  'targetBranch',
+  'destination',
+  'approvedBaseSha',
+  'approvedHeadSha',
+  'descendantManifest',
+  'deliveryDependsOn',
+  'evidenceManifestRef',
+  'currentIntegrationReceipt',
+  'providerRef',
+  'requestedByActorKind',
+  'requestedByActorId',
+  'requestedByOnBehalfOf',
+  'requestedAt',
+  'policyId',
+  'validationProfile',
+  'validationProfileDigest',
+  'closeMode',
+  'state',
+  'stateChangedAt',
+  'holdCode',
+] as const
+
+/**
+ * An order's insert. SQLite's `ship_orders_lane_custody_insert` refuses a new order
+ * without its frozen lane custody (repo path and machine); on Postgres the insert carries
+ * that rule as its in-statement refusal (design 2.5, `refusalTerm`). It is not a NOT NULL
+ * on either engine: orders written before lane custody existed hold NULL there, and the
+ * hosted import copies them. Its condition reads only the inserted values, so Postgres may
+ * decide it when it plans the statement: an insert always writes its one row, so that
+ * refuses exactly the rows the trigger refuses.
+ */
+const insertOrder = prepared((db, t) => {
+  const o = t.shipOrders
+  if (dialectOf(db) !== 'pg') {
+    return captureWrite(
+      db.insert(t.shipOrders).values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        issueId: sql.placeholder('issueId'),
+        repoId: sql.placeholder('repoId'),
+        repoPath: sql.placeholder('repoPath'),
+        machineId: sql.placeholder('machineId'),
+        targetBranch: sql.placeholder('targetBranch'),
+        destination: sql.placeholder('destination'),
+        approvedBaseSha: sql.placeholder('approvedBaseSha'),
+        approvedHeadSha: sql.placeholder('approvedHeadSha'),
+        descendantManifest: sql.placeholder('descendantManifest'),
+        deliveryDependsOn: sql.placeholder('deliveryDependsOn'),
+        evidenceManifestRef: sql.placeholder('evidenceManifestRef'),
+        currentIntegrationReceipt: sql.placeholder('currentIntegrationReceipt'),
+        providerRef: sql.placeholder('providerRef'),
+        requestedByActorKind: sql.placeholder('requestedByActorKind'),
+        requestedByActorId: sql.placeholder('requestedByActorId'),
+        requestedByOnBehalfOf: sql.placeholder('requestedByOnBehalfOf'),
+        requestedAt: sql.placeholder('requestedAt'),
+        policyId: sql.placeholder('policyId'),
+        validationProfile: sql.placeholder('validationProfile'),
+        validationProfileDigest: sql.placeholder('validationProfileDigest'),
+        closeMode: sql.placeholder('closeMode'),
+        state: sql.placeholder('state'),
+        stateChangedAt: sql.placeholder('stateChangedAt'),
+        holdCode: sql.placeholder('holdCode'),
+      }),
+    ).prepare()
+  }
+  const row = db
+    .select(insertedRow(o, ORDER_KEYS))
+    .from(ONE_ROW)
+    .where(
+      refusalTerm([
+        {
+          when: sql`CAST(${param(o.repoPath, 'repoPath')} AS text) IS NULL OR CAST(${param(o.machineId, 'machineId')} AS text) IS NULL`,
+          text: GUARD_TEXT.ship_orders_lane_custody_insert,
+        },
+      ]),
+    )
+  return captureWrite(db.insert(o).select(row as never)).prepare()
+})
 
 /** `transitionOrder`'s compare-and-swap. */
 const transitionOrderFenced = prepared((db, t) =>
@@ -1245,32 +1325,6 @@ const insertTrainManifest = prepared((db, t) =>
     })
     .prepare(),
 )
-
-/**
- * The row of `INSERT INTO table (…) SELECT <row> FROM (VALUES (1)) … WHERE <refusal>`:
- * each named column's placeholder, bound to the column's encoder and cast to its
- * Postgres type. A parameter in a select list has no type of its own (Postgres reads it
- * as text, which does not assign to an integer or a timestamp), so the cast gives it the
- * column's. The twin's `text COLLATE "C"` is cast as `text`: a type name in a CAST
- * carries no collation, and an inserted value needs none.
- */
-function insertedRow(table: Table, keys: readonly string[]): Record<string, SQL.Aliased> {
-  const columns = getTableColumns(table) as Record<string, Column>
-  return Object.fromEntries(
-    keys.map((key) => {
-      const target = columns[key]
-      if (target === undefined) throw new Error(`insertedRow: no column ${key}`)
-      const type = target.getSQLType().replace(/\s+COLLATE\s+.*$/i, '')
-      return [key, sql`CAST(${param(target, key)} AS ${sql.raw(type)})`.as(target.name)]
-    }),
-  )
-}
-
-/**
- * The one row an in-statement guarded insert selects from: the row it writes is its
- * parameters, so the guard's lookups decide alone whether it is written or refused.
- */
-const ONE_ROW = sql`(VALUES (1)) AS guarded(one)`
 
 /** The member row's columns, as `insertTrainMember` writes them. */
 const TRAIN_MEMBER_KEYS = [
@@ -2768,43 +2822,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         repoPath: issue.repoPath,
         machineId: issue.machineId,
       })
-      const actor = actorColumns(order.requestedBy.actor)
-      await insertOrder(this.db).run({
-        id: order.id,
-        issueId: order.issueId,
-        repoId: order.repoId,
-        repoPath: order.repoPath,
-        machineId: order.machineId,
-        targetBranch: order.targetBranch,
-        destination: order.destination,
-        approvedBaseSha: order.approvedBaseSha,
-        approvedHeadSha: order.approvedHeadSha,
-        // Plain `text()` columns: the serialisation stays this file's, byte
-        // for byte, because the reads compare and quarantine that text.
-        descendantManifest: JSON.stringify(order.descendantManifest),
-        deliveryDependsOn: JSON.stringify(order.deliveryDependsOn),
-        evidenceManifestRef: order.evidenceManifestRef ?? null,
-        currentIntegrationReceipt: order.currentIntegrationReceipt
-          ? JSON.stringify(order.currentIntegrationReceipt)
-          : null,
-        providerRef: order.providerRef ? JSON.stringify(order.providerRef) : null,
-        requestedByActorKind: actor.kind,
-        requestedByActorId: actor.id,
-        requestedByOnBehalfOf: order.requestedBy.onBehalfOf,
-        requestedAt: order.requestedAt,
-        policyId: order.policyId,
-        // `validation_profile` IS `mode: 'json'`, so the OBJECT goes in and
-        // drizzle serialises it. Verified at the source rather than assumed:
-        // `SQLiteTextJson.mapToDriverValue` is `JSON.stringify`, so the bytes
-        // are identical to the `JSON.stringify(profile)` this replaces — which
-        // matters because the train custody check compares those bytes.
-        validationProfile: profile,
-        validationProfileDigest: order.validationProfileDigest,
-        closeMode: order.closeMode,
-        state: order.state,
-        stateChangedAt: order.stateChangedAt,
-        holdCode: order.holdCode ?? null,
-      })
+      await this.recordOrder(order, profile)
       await this.advanceRecoveryRevision()
       await this.bumpLaneRevision(laneKey, order.requestedAt)
       await this.invalidateActiveLane(_scope, laneKey, order.requestedAt, 'lane-enqueue')
@@ -3399,6 +3417,56 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   async shippedLeadersOfOpenTrains(): Promise<ShipOrderValue['id'][]> {
     const rows = await shippedLeadersOfOpenTrains(this.db).all()
     return [...new Set(rows.map((row) => row.leaderOrderId))]
+  }
+
+  /**
+   * The order's row, as {@link createOrder} has checked it. A guarded write (design 2.5):
+   * SQLite's `ship_orders_lane_custody_insert` refuses an order without its frozen lane
+   * custody, and on Postgres the insert's own refusal does, with the same text and error.
+   * `createOrder` checks the custody against the issue first, so it never writes such a
+   * row; `shipping-guards.test.ts` drives this with one on both engines.
+   */
+  protected async recordOrder(
+    order: ShipOrderValue,
+    profile: ShipTrainValidationProfile,
+  ): Promise<void> {
+    const actor = actorColumns(order.requestedBy.actor)
+    await insertOrder(this.db).run({
+      id: order.id,
+      issueId: order.issueId,
+      repoId: order.repoId,
+      repoPath: order.repoPath ?? null,
+      machineId: order.machineId ?? null,
+      targetBranch: order.targetBranch,
+      destination: order.destination,
+      approvedBaseSha: order.approvedBaseSha,
+      approvedHeadSha: order.approvedHeadSha,
+      // Plain `text()` columns: the serialisation stays this file's, byte
+      // for byte, because the reads compare and quarantine that text.
+      descendantManifest: JSON.stringify(order.descendantManifest),
+      deliveryDependsOn: JSON.stringify(order.deliveryDependsOn),
+      evidenceManifestRef: order.evidenceManifestRef ?? null,
+      currentIntegrationReceipt: order.currentIntegrationReceipt
+        ? JSON.stringify(order.currentIntegrationReceipt)
+        : null,
+      providerRef: order.providerRef ? JSON.stringify(order.providerRef) : null,
+      requestedByActorKind: actor.kind,
+      requestedByActorId: actor.id,
+      requestedByOnBehalfOf: order.requestedBy.onBehalfOf,
+      requestedAt: order.requestedAt,
+      policyId: order.policyId,
+      // `validation_profile` IS `mode: 'json'`, so the OBJECT goes in and
+      // drizzle serialises it. Verified at the source rather than assumed:
+      // `SQLiteTextJson.mapToDriverValue` is `JSON.stringify`, so the bytes
+      // are identical to the `JSON.stringify(profile)` this replaces — which
+      // matters because the train custody check compares those bytes.
+      validationProfile: profile,
+      validationProfileDigest: order.validationProfileDigest,
+      closeMode: order.closeMode,
+      state: order.state,
+      stateChangedAt: order.stateChangedAt,
+      holdCode: order.holdCode ?? null,
+    })
   }
 
   /**

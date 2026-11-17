@@ -34,9 +34,11 @@ import {
   type ShipOrder,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import {
   openShippingStoreSlice,
+  openShippingStoreSlices,
   type ShippingStoreSlice,
 } from '../test-support/shipping-store-slice'
 
@@ -387,5 +389,30 @@ describe('shipping: isolating a failed train', () => {
     }
     expect(await s.shipping.activeTrainForOrder(leader.id)).toBeNull()
     await s.close()
+  })
+})
+
+describe('shipping: the recovery revision of a freshly provisioned workspace', () => {
+  it('reads 0 until its first advance, which makes its row at 1, on either engine', async () => {
+    // One row per workspace (POD-7024): a provisioned workspace holds none, reads 0, and its
+    // first advance (an order enqueued) upserts its row. The boot workspace's is untouched.
+    const [boot, fresh] = await openShippingStoreSlices(['local', 'ws_fresh'])
+    try {
+      const bootRevision = await boot.shipping.recoveryRevision()
+      expect(await fresh.shipping.recoveryRevision()).toBe(0)
+      await fresh.shipping.assertRecoveryRevision(fixtureWriteScope(), 0)
+      await fresh.run(
+        sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
+             machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
+           VALUES ('ws_fresh', 'iss_1', ${firstAdminMemberId()}, ${firstAdminMemberId()}, '/r',
+             'repo-1', 'machine-1', 'issue/fresh', 1, 'fresh', 'review', 'codex',
+             '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')`,
+      )
+      await fresh.shipping.createOrder(fixtureWriteScope(), shipOrder())
+      expect(await fresh.shipping.recoveryRevision()).toBe(1)
+      expect(await boot.shipping.recoveryRevision()).toBe(bootRevision)
+    } finally {
+      await boot.close()
+    }
   })
 })

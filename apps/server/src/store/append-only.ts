@@ -14,6 +14,9 @@
  *    freezes: a terminal order, a finished attempt, a resolved hold, a released manifest).
  *  - {@link DELETE_RULES}: a delete allowed only on some rows (an active claim, once its
  *    manifest is released).
+ *  - {@link INSERT_RULES}: an insert's guards. `store/shipping.ts` writes the order, train
+ *    member and claim inserts as `INSERT … SELECT … FROM (VALUES (1)) WHERE <refusal>`, and
+ *    the census refuses an insert into one of those tables without its refusals.
  *
  * ONE DECLARATION, TWO REFUSALS. {@link writeGuard} turns a write's declarations into
  * its Postgres form: an UPDATE or DELETE of an append-only table (or an upsert that
@@ -26,8 +29,8 @@
  * `store/shipping.ts`, whose train inserts, claim release and manifest release carry the
  * same refusals in their own statements; the immutability census
  * (`immutability-census.test.ts`) renders every Postgres definition and refuses an
- * UPDATE or DELETE of an append-only table, a frozen column assigned, or a guarded write
- * with neither its fence nor its refusal.
+ * UPDATE or DELETE of an append-only table, a frozen column assigned, a guarded update or
+ * delete with neither its fence nor its refusal, or a guarded insert without its refusal.
  *
  * ONE ERROR ON BOTH ENGINES. An in-statement refusal fails with SQLSTATE 22P02 carrying
  * the trigger's text; the Postgres driver (`executor/pg-types.ts`, `translatePgError`)
@@ -35,11 +38,11 @@
  * and errno of the error SQLite's trigger raises. A refusal adds no statement.
  *
  * Every lookup a guard makes is held to the written row's workspace, as the SQLite
- * triggers match `workspace_id = NEW.workspace_id` (POD-7024). `ship_orders`' insert
- * guard (frozen lane custody) reads only the inserted values, which `createOrder` checks
- * against the issue's custody before it inserts, so no insert reaches it.
+ * triggers match `workspace_id = NEW.workspace_id` (POD-7024).
  *
- * SQLite keeps its triggers; nothing here changes a SQLite statement.
+ * SQLite keeps its triggers; nothing here changes a SQLite statement. Nor is any of it a
+ * NOT NULL or CHECK on Postgres: orders written before lane custody existed hold NULL
+ * custody, and the hosted import copies them, which is also why SQLite uses a trigger.
  */
 
 import { type SQL, sql } from 'drizzle-orm'
@@ -286,6 +289,28 @@ export const DELETE_RULES: ReadonlyMap<string, Fence> = new Map<string, Fence>([
   ],
 ])
 
+/**
+ * The rules of an INSERT, by table SQL name: the insert must carry the rule's
+ * in-statement refusal. `ship_orders_lane_custody_insert` reads only the inserted row's
+ * values (no order without its frozen lane custody); the train inserts' guards read other
+ * tables and are written by `store/shipping.ts` alone.
+ */
+export const INSERT_RULES: ReadonlyMap<string, readonly string[]> = new Map<
+  string,
+  readonly string[]
+>([
+  ['ship_orders', [GUARD_TEXT.ship_orders_lane_custody_insert]],
+  [
+    'ship_train_members',
+    [
+      GUARD_TEXT.ship_train_members_ordinal,
+      GUARD_TEXT.ship_train_members_sealed,
+      GUARD_TEXT.ship_train_members_final_leader,
+    ],
+  ],
+  ['ship_train_active_claims', [GUARD_TEXT.ship_train_active_claims_insert_guard]],
+])
+
 /** One write in rendered SQL, as the census reads it. */
 export interface GuardedWrite {
   readonly op: 'i' | 'u' | 'd'
@@ -347,9 +372,16 @@ export function immutabilityViolations(
       ) {
         out.push(`delete from ${write.table} without its fence: ${fence.text}`)
       }
-    } else if (write.upsert === true && appendOnly?.update !== undefined) {
-      // ON CONFLICT … DO UPDATE updates the row it meets.
-      out.push(`upsert into ${write.table}: ${appendOnly.update}`)
+    } else if (write.op === 'i') {
+      if (write.upsert === true && appendOnly?.update !== undefined) {
+        // ON CONFLICT … DO UPDATE updates the row it meets.
+        out.push(`upsert into ${write.table}: ${appendOnly.update}`)
+      }
+      for (const text of INSERT_RULES.get(write.table) ?? []) {
+        if (!refusesInStatement(statement, text)) {
+          out.push(`insert into ${write.table} without its refusal: ${text}`)
+        }
+      }
     }
   }
   return out
@@ -358,6 +390,7 @@ export function immutabilityViolations(
 /** Every table a rule of this module guards. */
 export const GUARDED_TABLES: ReadonlySet<string> = new Set([
   ...APPEND_ONLY.keys(),
+  ...INSERT_RULES.keys(),
   ...UPDATE_RULES.keys(),
   ...DELETE_RULES.keys(),
 ])

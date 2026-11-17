@@ -14,19 +14,11 @@
  * row nobody drained, so each repository here is a {@link drainedRepository} (and each
  * raw write a {@link drainedWrite}): on Postgres a call runs in one transaction that drops
  * what it captured, on SQLite it is the repository itself.
- *
- * THE RECOVERY REVISION ROW. SQLite's migration `20261111042959_shipping-recovery-revision`
- * inserts the boot workspace's singleton
- * `ship_recovery_revision` row; the Postgres chain seeds none yet (reported to POD-6951
- * by POD-6986). So on Postgres the slice inserts the row the SQLite migration inserts,
- * for the self-hosted workspace only, and the shipping tests read the same state on
- * either engine.
  */
 
 import { randomUUID } from 'node:crypto'
 import { asUserId, asWorkspaceId, primeFirstAdminMember } from '@podium/model'
-import { type SQL, sql } from 'drizzle-orm'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import type { SQL } from 'drizzle-orm'
 import { provisionWorkspaceFeed } from '../store/database'
 import type { QueryClient } from '../store/executor/driver'
 import { createStoreExecutor, type RootStoreExecutor } from '../store/executor/executor'
@@ -116,24 +108,10 @@ export function primeShippingFixtureAdmin(): void {
   primeFirstAdmin(testStoreEngine())
 }
 
-/** The boot workspace's recovery revision row, as SQLite's migration inserts it (Postgres). */
-async function seedRecoveryRevision(
-  engine: TestStoreEngine,
-  base: Pick<GlobalQueries, 'rootDb' | 'createOrJoinTransaction'>,
-): Promise<void> {
-  if (engine !== 'pg') return
-  await base.createOrJoinTransaction(async () => {
-    await base.rootDb.run(
-      sql`INSERT INTO ship_recovery_revision (workspace_id, id, revision) VALUES (${SELF_HOSTED_WORKSPACE_ID}, 1, 0) ON CONFLICT DO NOTHING`,
-    )
-  })
-}
-
 /** The shipping repositories on a fresh store of the test run's engine. */
 export async function openShippingStoreSlice(): Promise<ShippingStoreSlice> {
   const slice = await openSliceStore()
   primeFirstAdmin(slice.engine)
-  await seedRecoveryRevision(slice.engine, slice.queries)
   return sliceOver(slice)
 }
 
@@ -187,7 +165,6 @@ export async function openShippingStoreSlices<const Ids extends readonly [string
         })
       }
     })
-    await seedRecoveryRevision(engine, base)
     const slices = ids.map((id) => {
       const queries = legacyWorkspaceQueries(base, asWorkspaceId(id))
       const slice: SliceStore = { engine, queries, probeTarget, close }

@@ -5,7 +5,7 @@
  * SQLite guards a train's rows in triggers: a member past the manifest's member count, a
  * member added after a claim, a final member that is not the leader, a claim without
  * complete leader authority, a claim released while its manifest is open, a release that
- * sets no time. Postgres has no triggers, so the repository's guarded writes carry each
+ * sets no time, an order without its frozen lane custody. Postgres has no triggers, so the repository's guarded writes carry each
  * rule in their own statement and raise the trigger's text when it refuses (`store/
  * append-only.ts`). The claim path never writes such a row; these cases drive the guarded
  * writes with them, on the run's engine, and expect the trigger's own words.
@@ -59,6 +59,7 @@ interface GuardedWrites {
     member: Pick<Member, 'orderId' | 'attemptId' | 'generation'>,
   ): Promise<void>
   releaseActiveClaims(trainId: string): Promise<number>
+  recordOrder(order: ShipOrder, profile: typeof VALIDATION_PROFILE): Promise<void>
 }
 
 /** What a refusal looks like at the bottom of its error chain. */
@@ -240,6 +241,17 @@ describe('the train guards (design 2.5)', () => {
       sql`SELECT order_id AS "orderId" FROM ship_train_active_claims WHERE train_id = ${claimed.id}`,
     )
     expect(claims).toEqual([])
+  })
+
+  it('refuses a new order without its frozen lane custody', async () => {
+    const { machineId: _machine, ...uncustodied } = order('single', {
+      id: asShipOrderId('order-uncustodied'),
+      targetBranch: 'custody',
+    })
+    expect(await refusal(guarded.recordOrder(uncustodied as ShipOrder, VALIDATION_PROFILE))).toBe(
+      GUARD_TEXT.ship_orders_lane_custody_insert,
+    )
+    expect(await s.shipping.getOrder(asShipOrderId('order-uncustodied'))).toBeNull()
   })
 
   it('refuses a release that sets no release time', async () => {
