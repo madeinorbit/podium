@@ -181,19 +181,32 @@ export function compactDatabase(
   const wait = options.wait ?? sleep
   return withSecureDelete(db, () => {
     db.exec('VACUUM')
-    let delay = 50
-    for (let attempt = 1; ; attempt += 1) {
-      const result = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as
-        | { busy: number }
-        | undefined
-      if (!result || result.busy === 0) break
-      if (attempt >= attempts) return 'busy'
-      wait(delay)
-      delay = Math.min(delay * 2, 1_000)
+    // Each try answers at once; the waits between tries are ours, not the
+    // connection's busy timeout (seconds per try).
+    const timeout = (db.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout
+    db.exec('PRAGMA busy_timeout = 0')
+    try {
+      if (!truncateWal(db, attempts, wait)) return 'busy'
+    } finally {
+      db.exec(`PRAGMA busy_timeout = ${Number(timeout) || 0}`)
     }
     writeLegacyPlaintextState(db, 'compacted')
     // The state write is a WAL frame with no secret in it; fold it in too.
     db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
     return 'clean'
   })
+}
+
+/** `PRAGMA wal_checkpoint(TRUNCATE)` until no reader keeps it busy, or `attempts` run out. */
+function truncateWal(db: SqlDatabase, attempts: number, wait: (ms: number) => void): boolean {
+  let delay = 50
+  for (let attempt = 1; ; attempt += 1) {
+    const result = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as
+      | { busy: number }
+      | undefined
+    if (!result || result.busy === 0) return true
+    if (attempt >= attempts) return false
+    wait(delay)
+    delay = Math.min(delay * 2, 1_000)
+  }
 }

@@ -54,9 +54,12 @@ describe('importLegacyCredentials at server start', () => {
   async function openAt(dbPath: string, keyPath: string): Promise<SessionStore> {
     // A store-level fixture: rows are planted directly, so no change log is
     // attached (POD-6920); the import itself runs in the boot, before one is.
+    // These tests are about the move; destroying the old values after it is
+    // `store/legacy-plaintext.test.ts`.
     const store = await SessionStore.open(dbPath, undefined, {
       vaultKeyFile: keyPath,
       changeCapture: 'whenLogAttaches',
+      legacyPlaintext: { destroy: false },
     })
     primeFirstAdminMember(await firstAdminMemberId(store))
     open.push(store)

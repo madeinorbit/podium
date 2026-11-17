@@ -31,13 +31,11 @@ const API_KEYS = {
 } as const
 const LINEAR = 'FAKE-lin_api_destroy_0006'
 const TELEGRAM = 'FAKE-123456:telegram-destroy-0007'
-const LOGIN_FILE_TOKEN = 'FAKE-refresh-destroy-login-file-0008'
-const BUNDLE = JSON.stringify({
-  kind: 'codex',
-  contentBase64: Buffer.from(
-    JSON.stringify({ tokens: { refresh_token: LOGIN_FILE_TOKEN } }),
-  ).toString('base64'),
-})
+/** A login file as an old propagation parked it (`PortableCredentialBundle`). */
+const LOGIN_FILE_BASE64 = Buffer.from(
+  JSON.stringify({ tokens: { refresh_token: 'FAKE-refresh-destroy-login-file-0008' } }),
+).toString('base64')
+const BUNDLE = JSON.stringify({ kind: 'codex', contentBase64: LOGIN_FILE_BASE64 })
 const MEMBER = asUserId('user:destroy-member')
 const MEMBER_KEY = 'FAKE-sk-openai-destroy-member-0009'
 
@@ -48,8 +46,7 @@ const PLANTED = [
   ...Object.values(API_KEYS),
   LINEAR,
   TELEGRAM,
-  LOGIN_FILE_TOKEN,
-  BUNDLE.slice(0, 48),
+  LOGIN_FILE_BASE64,
 ]
 
 function place() {
@@ -125,7 +122,11 @@ describe('the old plaintext keys after the move into the vault', () => {
    * login transfer row. The schema is made by a first start; the rows are
    * written raw, and the step's state row is removed, as before this release.
    */
-  async function plantOldDatabase(dbPath: string, keyPath: string): Promise<UserId> {
+  async function plantOldDatabase(
+    dbPath: string,
+    keyPath: string,
+    { transferRow = true } = {},
+  ): Promise<UserId> {
     const store = await openAt(dbPath, keyPath)
     const admin = await firstAdminMemberId(store)
     await memberFacts(store).create(
@@ -182,7 +183,10 @@ describe('the old plaintext keys after the move into the vault', () => {
         secret.run(key, value, '2026-01-01T00:00:00.000Z')
       secret.run('integrations.linearApiKey', LINEAR, '2026-01-01T00:00:00.000Z')
       secret.run('notifications.telegramBotToken', TELEGRAM, '2026-01-01T00:00:00.000Z')
-      secret.run(`native-login-transfer:${randomUUID()}`, BUNDLE, '2026-01-01T00:00:00.000Z')
+      // The transfer sweep's own truncate waits out a reader; the busy tests leave it out.
+      if (transferRow) {
+        secret.run(`native-login-transfer:${randomUUID()}`, BUNDLE, '2026-01-01T00:00:00.000Z')
+      }
       db.prepare('DELETE FROM meta WHERE key = ?').run(LEGACY_PLAINTEXT_STATE_KEY)
     })
     return admin
@@ -240,29 +244,21 @@ describe('the old plaintext keys after the move into the vault', () => {
   it('destroys an old value only after its credential opens to the same value', async () => {
     const { dbPath, keyPath } = place()
     const admin = await plantOldDatabase(dbPath, keyPath)
-    // A credential already made from the admin's API-key row, holding another value:
-    // the import does not touch it, and the read-back does not match.
-    const before = await openAt(dbPath, keyPath)
-    const id = newCredentialId()
+    // The import makes a credential from the admin's API-key row; its secret is
+    // then replaced, at the same version, by another value, so the read-back
+    // does not match.
+    const before = await openAt(dbPath, keyPath, { destroy: false })
+    const credential = await before.credentials.findByLegacyId(`managed:anthropic@${admin}`)
+    if (!credential) throw new Error('the import made no credential')
+    sql(dbPath, (db) =>
+      db.prepare('DELETE FROM credential_secrets WHERE credential_id = ?').run(credential.id),
+    )
     const sealed = await before.vault.seal(
-      { credentialId: id, type: 'anthropic.api-key', version: 1 },
+      { credentialId: credential.id, type: credential.type, version: 1 },
       Buffer.from('FAKE-sk-ant-a-different-value', 'utf8'),
     )
-    await before.credentials.insertWithSecret(
-      {
-        id,
-        ownerUserId: admin,
-        label: 'Anthropic API key',
-        type: 'anthropic.api-key',
-        legacyId: `managed:anthropic@${admin}`,
-        legacyKey: 'managed:anthropic',
-      },
-      sealed,
-    )
+    expect(await before.credentials.putSecret(credential.id, sealed, 0)).toBe(1)
     await close(before)
-    sql(dbPath, (db) =>
-      db.prepare('DELETE FROM meta WHERE key = ?').run(LEGACY_PLAINTEXT_STATE_KEY),
-    )
 
     const sink = createRingBufferSink()
     const dispose = addSink(sink)
@@ -290,7 +286,8 @@ describe('the old plaintext keys after the move into the vault', () => {
   it('leaves every old value while the vault is locked', async () => {
     const { dir, dbPath, keyPath } = place()
     await plantOldDatabase(dbPath, keyPath)
-    // The first start sealed with `keyPath`; another key file cannot open the vault.
+    // A start with `keyPath` moves the keys; another key file cannot open the vault.
+    await close(await openAt(dbPath, keyPath, { destroy: false }))
     const store = await openAt(dbPath, join(dir, 'config', 'another.key'))
     expect(store.vault.state()).toBe('locked')
     expect(store.legacyPlaintextReport?.destroyed).toBe(0)
@@ -346,7 +343,7 @@ describe('the old plaintext keys after the move into the vault', () => {
 
   it('a busy first checkpoint is retried until the WAL is truncated', async () => {
     const { dbPath, keyPath } = place()
-    await plantOldDatabase(dbPath, keyPath)
+    await plantOldDatabase(dbPath, keyPath, { transferRow: false })
     // Another connection holds a read transaction, so the truncate is busy.
     const reader = openDatabase(dbPath)
     reader.exec('BEGIN')
@@ -368,7 +365,7 @@ describe('the old plaintext keys after the move into the vault', () => {
 
   it('a checkpoint busy at every try stays pending, and the next start finishes it', async () => {
     const { dbPath, keyPath } = place()
-    await plantOldDatabase(dbPath, keyPath)
+    await plantOldDatabase(dbPath, keyPath, { transferRow: false })
     const reader = openDatabase(dbPath)
     reader.exec('BEGIN')
     reader.prepare('SELECT count(*) FROM server_secrets').get()
