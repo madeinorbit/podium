@@ -118,7 +118,7 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
       attachmentPaths: Array.isArray(value.attachmentPaths)
         ? value.attachmentPaths.filter((path): path is string => typeof path === 'string')
         : [],
-      attachments: readAttachments(value.attachments),
+      attachments: boundedAttachmentPreviews(readAttachments(value.attachments)),
       launchError: typeof value.launchError === 'string' ? value.launchError : '',
     }
   } catch {
@@ -157,9 +157,20 @@ function readAttachments(value: unknown): ComposerAttachment[] {
   })
 }
 
+/** Inline image bytes share one small draft budget; refs and file URIs do not. */
+function boundedAttachmentPreviews(attachments: ComposerAttachment[]): ComposerAttachment[] {
+  let remaining = 200 * 1024
+  return attachments.map((attachment) => {
+    if (!attachment.previewUri.startsWith('data:')) return attachment
+    if (attachment.previewUri.length > remaining) return { ...attachment, previewUri: '' }
+    remaining -= attachment.previewUri.length
+    return attachment
+  })
+}
+
 /** Module-level so `usePersistedUiState` gets a stable `serialize` identity. */
 export function serializeFirstTaskDraft(draft: FirstTaskDraft): string {
-  return JSON.stringify(draft)
+  return JSON.stringify({ ...draft, attachments: boundedAttachmentPreviews(draft.attachments) })
 }
 
 export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: FirstTaskDraft): void {

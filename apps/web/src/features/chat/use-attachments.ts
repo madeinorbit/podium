@@ -100,7 +100,7 @@ export function useAttachments(opts: {
 }): UseAttachmentsResult {
   const { sessionId, trpc, machineId, destination = 'session' } = opts
   const [localAttachments, setLocalAttachments] = useState<Attachment[]>([])
-  const attachments = opts.draft
+  const attachments: Attachment[] = opts.draft
     ? opts.draft.attachments.map(({ previewUri, ...attachment }) => ({
         ...attachment,
         previewUrl: previewUri,

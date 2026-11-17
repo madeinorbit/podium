@@ -1,13 +1,16 @@
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   type ComposerAttachment,
   EMPTY_FIRST_TASK_DRAFT,
+  persistFirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
   updateFirstTaskDraftAttachments,
   withoutCreateReservation,
 } from './first-task-draft'
+import { createSideCache } from './replica/kernel/side-cache'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
 
 const image: ComposerAttachment = {
   id: 'chip-image',
@@ -54,6 +57,64 @@ describe('first-task attachment recovery', () => {
         }),
       ).attachments,
     ).toEqual([image])
+  })
+
+  it('keeps a large pasted image attached without writing its multi-megabyte preview', () => {
+    const draft = {
+      ...EMPTY_FIRST_TASK_DRAFT,
+      title: 'Review the large screenshot',
+      attachments: [
+        { ...image, previewUri: `data:image/png;base64,${'a'.repeat(3 * 1024 * 1024)}` },
+      ],
+    }
+    const raw = serializeFirstTaskDraft(draft)
+    expect(raw.length).toBeLessThan(1024)
+    const expected = {
+      title: draft.title,
+      attachments: [{ ...image, previewUri: '' }],
+    }
+    expect(readFirstTaskDraft(raw)).toMatchObject(expected)
+    // Installed drafts written before the cap get the same fallback on read.
+    expect(readFirstTaskDraft(JSON.stringify(draft))).toMatchObject(expected)
+  })
+
+  it('bounds the total inline previews while retaining every attached ref', () => {
+    const previewUri = `data:image/png;base64,${'a'.repeat(150 * 1024)}`
+    const attachments = ['one', 'two', 'three'].map((id) => ({ ...image, id, previewUri }))
+    const raw = serializeFirstTaskDraft({ ...EMPTY_FIRST_TASK_DRAFT, attachments })
+    expect(raw.length).toBeLessThan(201 * 1024)
+    expect(readFirstTaskDraft(raw).attachments).toEqual([
+      attachments[0],
+      { ...attachments[1], previewUri: '' },
+      { ...attachments[2], previewUri: '' },
+    ])
+  })
+
+  it('keeps the prompt and uploaded ref available when device storage refuses a write', () => {
+    const storage = {
+      getItem: () => null,
+      setItem: vi.fn(() => {
+        throw new DOMException('Storage is full', 'QuotaExceededError')
+      }),
+      removeItem: () => {},
+    }
+    const side = createSideCache({ storage, enumerateKeys: () => [] })
+    const ui = side.uiState()
+    const changed = vi.fn()
+    const stop = ui.subscribe(changed)
+    try {
+      persistFirstTaskDraft(ui, { ...EMPTY_FIRST_TASK_DRAFT, title: 'Keep my exact prompt' })
+      expect(() => updateFirstTaskDraftAttachments(ui, () => [image])).not.toThrow()
+      expect(storage.setItem).toHaveBeenCalled()
+      expect(changed).toHaveBeenCalledWith(new Set([FIRST_TASK_ACTIVATION_DRAFT_KEY]))
+      expect(readFirstTaskDraft(ui.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toMatchObject({
+        title: 'Keep my exact prompt',
+        attachments: [image],
+      })
+    } finally {
+      stop()
+      side.dispose()
+    }
   })
 
   it('applies an upload result to the current prompt and attachment edits release the old launch', () => {
