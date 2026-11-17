@@ -888,11 +888,16 @@ const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
     const { view } = deck,
       members = requireLoaded(deck.members)
     let pending = false
-    // Progress is also read without the pane's topology. Request every member's
-    // visibility together so cold siblings do not load one per scalar read.
+    // Progress is also read without the pane's topology. Visibility answers
+    // from the declared cold fields, so a hidden member loads nothing; the leaf
+    // walk reads a shown member's payload (`type`), so request every shown
+    // member's together and cold siblings do not load one per window.
     for (const id of members) {
-      const visible = settled(() => view.facts(id).visible)
-      if (visible === LOADING) pending = true
+      const shown = settled(() => {
+        const facts = view.facts(id)
+        return facts.visible && facts.type
+      })
+      if (shown === LOADING) pending = true
     }
     if (pending) return LOADING
     const leaves = leafTasks(deck.id, {

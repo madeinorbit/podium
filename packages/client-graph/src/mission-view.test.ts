@@ -123,7 +123,10 @@ it('counts a closed archive without observing activity history', () => {
     session('drawn', 'root'), session('headless', 'root', { headless: true }),
     session('shell', 'root', { agentKind: 'shell' }),
   ])
-  expect(tracked(() => settled(() => reader.facts('root').visible))).toBe(LOADING)
+  // Visibility answers from the declared cold fields; the root's payload
+  // still takes one batched load.
+  expect(tracked(() => settled(() => reader.facts('root').visible))).toBe(true)
+  expect(tracked(() => reader.issue('root'))).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
   const history = vi.spyOn(reader, 'readHistory')
   let count: number | typeof LOADING = LOADING
@@ -431,4 +434,34 @@ it('R2-1/R2-2: a coordinated deck row counts the coordinator by the shared seat 
   // Uncoordinated rows read exactly as before: no interaction input, offers mask work.
   expect(facts([session('coord', 'root', idleDone)], { coord: 1 }, false)).toMatchObject({ word: 'idle', actionable: 0, waiting: 0 })
   expect(facts([session('helper', 'root', { ...working, ...offered })], {}, false)).toMatchObject({ working: 0, matchesWorking: false })
+})
+
+it('opens a mission without reading its hidden archived members\' rows at 1x and 4x', () => {
+  for (const scale of [1, 4]) {
+    // An archived child drops its formal edge; archived provenance stays a
+    // member (missionStartedIssues), so topology asks whether it is visible.
+    const hidden = Array.from({ length: 32 * scale }, (_, index) => issue(`hidden-${index}`, {
+      ...coldRoot(), id: `hidden-${index}`, seq: index + 3, stage: 'backlog', archived: true, startedBySession: 'lead',
+    }))
+    const { pool, load, reader } = open([issue('root'), issue('shown', { parentId: 'root', seq: 2 }), ...hidden],
+      [session('lead', 'root', { archived: false, status: 'live' })])
+    expect(pool.tables.issue.has('hidden-0')).toBe(false)
+    expect(tracked(() => missionView(pool).deck('root').members)).toEqual(new Set(['root', 'shown', ...hidden.map(row => row.id)]))
+    const read = vi.spyOn(pool, 'row')
+    let values: ReturnType<typeof pane> = LOADING
+    const stop = autorun(() => { values = pane(pool, 'root'); void reader.deck('root').topology })
+    try {
+      for (let round = 0; values === LOADING && round < 8; round++) pool.hydrate()
+      expect(values).not.toBe(LOADING)
+      const topology = tracked(() => reader.deck('root').topology)
+      if (topology === LOADING) throw new Error('Unsettled topology')
+      expect(topology.children.get('root')).toEqual(['shown'])
+      // Hidden members are decided from the cold index: no load, no payload read.
+      const isHidden = (id: unknown) => String(id).startsWith('hidden-')
+      expect(load.mock.calls.filter(([entity, id]) => entity === 'issue' && isHidden(id)).length).toBe(0)
+      expect(read.mock.calls.filter(([entity, id, absent]) => entity === 'issue' && isHidden(id) &&
+        (absent === undefined || absent === 'load' || String(absent) === 'peek')).length).toBe(0)
+      expect([...pool.tables.issue.keys()].filter(isHidden)).toEqual([])
+    } finally { stop(); read.mockRestore() }
+  }
 })

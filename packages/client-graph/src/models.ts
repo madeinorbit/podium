@@ -598,8 +598,16 @@ export class IssueModel extends EntityModel {
   private readOwnFacts(): OwnFacts { return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id)) }
 
   // Presence: archive/deletion is independent of the sidebar's `placed` rule.
+  // Both fields are the issue cold rule's canShow fields, so every pool's
+  // declared summary holds them: a resident row or the cold summary decides,
+  // a hidden member never loads its payload, and only an undecided row loads.
   @lazy
   get visible(): boolean {
+    if (this.host.issueSummaryField('archived') && this.host.issueSummaryField('deletedAt')) {
+      const facts = this.host.row('issue', this.id, 'summary-fields')
+      if (facts !== LOADING && !isGone(facts))
+        return !(facts as SliceIssue).archived && !(facts as SliceIssue).deletedAt
+    }
     const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     return Boolean(row && !(row as SliceIssue).archived && !(row as SliceIssue).deletedAt)

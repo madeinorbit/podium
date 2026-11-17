@@ -94,9 +94,13 @@ it('member summary preserves raw membership, ID phase order and activity', () =>
 it('cold facts queue batched loads and never synchronously invoke the loader', () => {
   const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
     [sessionRow({ archived: true, status: 'exited' })], true)
-  expect(tracked(() => pool.issueObject('root').visible)).toBe(LOADING)
+  // Visibility is decided from the declared cold fields (POD-7047); a fact
+  // that needs the payload queues the batched load.
+  expect(tracked(() => pool.issueObject('root').visible)).toBe(true)
+  expect(tracked(() => pool.issueObject('root').hasLead)).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
+  expect(tracked(() => pool.issueObject('root').hasLead)).toBe(false)
   expect(tracked(() => pool.issueObject('root').visible)).toBe(true)
 })
 
