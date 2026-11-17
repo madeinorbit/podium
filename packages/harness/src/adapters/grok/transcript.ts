@@ -44,21 +44,37 @@ import { locateGrokTranscript } from './state-locate.js'
  * prompt: when Grok dispatched it, later than the send when it waited in
  * Grok's queue). The record's own `timestamp` is whole seconds and is not used.
  *
- * Ids are the record's position (the cursor the store stamps), except tool
- * items, which keep Grok's call id. They stay the same however the file is
- * read. Grok's own `promptId` is not on the chunk: it is on the
- * `hook_execution user_prompt_submit` record written just before it, which a
- * windowed read can cut off, so it is not folded into the id.
+ * IDS ARE GROK'S OWN, THE SAME ONES THE LIVE DRIVER NAMES (POD-7003). A prompt
+ * or reply record is named by its `_meta.eventId` ({@link grokPromptEntryId},
+ * {@link grokReplyItemId}); a tool item keeps Grok's call id. A chat-view
+ * session's latest page lays the grok-acp driver's items over this read and
+ * joins them by id, so a record named any other way here is shown twice. The
+ * driver can name a reply this way while it streams: Grok streams it as many
+ * chunks, each under its own eventId, and writes it here as ONE record under
+ * the last chunk's eventId and time (measured on 1.0.70; the 1.0.44
+ * `session/load` replay agrees). A record without an eventId (none seen) falls
+ * back to its position, the cursor the store stamps. The ids stay the same
+ * however the file is read. Grok's own `promptId` is not on the chunk: it is on
+ * the `hook_execution user_prompt_submit` record written just before it, which
+ * a windowed read can cut off, so it is not folded into the id.
  */
 export const grokRecordToItems: TranscriptRecordMapper = Object.assign(mapGrokRecord, {
   endsTurn: grokRecordEndsTurn,
 })
 
+/** The prompt entry recorded under Grok's `eventId` (POD-7003). */
+export const grokPromptEntryId = (eventId: string): string => `grok-user-${eventId}`
+
+/** The reply recorded under Grok's `eventId`: the last streamed chunk's (POD-7003). */
+export const grokReplyItemId = (eventId: string): string => `grok-assistant-${eventId}`
+
 function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptItem[] {
   const params = recordField(record, 'params')
   const update = recordField(params, 'update')
   if (!params || !update) return []
-  const ts = eventTime(recordField(params, '_meta'))
+  const meta = recordField(params, '_meta')
+  const ts = eventTime(meta)
+  const eventId = stringField(meta, 'eventId')
   switch (stringField(update, 'sessionUpdate')) {
     case 'user_message_chunk': {
       if (recordField(update, '_meta')?.hideFromScrollback === true) return []
@@ -84,7 +100,7 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
         promptIndexOf(preceding) === promptIndexOf(update)
       return [
         {
-          id: SYNTHESIZED_ITEM_ID_PREFIX,
+          id: eventId ? grokPromptEntryId(eventId) : SYNTHESIZED_ITEM_ID_PREFIX,
           role: 'user',
           ...(companion ? { promptEntry: false } : {}),
           ...(ts ? { ts } : {}),
@@ -97,7 +113,14 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
     case 'agent_message_chunk': {
       const { text } = contentBlock(update.content)
       if (!text) return []
-      return [{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'assistant', ...(ts ? { ts } : {}), text }]
+      return [
+        {
+          id: eventId ? grokReplyItemId(eventId) : SYNTHESIZED_ITEM_ID_PREFIX,
+          role: 'assistant',
+          ...(ts ? { ts } : {}),
+          text,
+        },
+      ]
     }
     case 'tool_call': {
       const call = toolCallItem(update, ts)

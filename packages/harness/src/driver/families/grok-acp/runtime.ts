@@ -12,6 +12,7 @@ import {
   classifyGrokProviderFailure,
   translateGrokUpdatePayload,
 } from '../../../adapters/grok/instrumentation.js'
+import { grokPromptEntryId, grokReplyItemId } from '../../../adapters/grok/transcript.js'
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
@@ -269,15 +270,17 @@ interface BufferedToolResult {
 }
 
 /**
- * THE USER ENTRY'S ID IS THE PROMPT'S ID (POD-4837).
+ * AN ITEM IS NAMED AS THE STORE NAMES ITS RECORD (POD-7003).
  *
- * Grok records a prompt as a `user_message_chunk` with no id of its own that
- * any live frame repeats, and stamps every later update of the turn with the
- * turn's promptId — ours, when the prompt carried one. So the entry is keyed by
- * that promptId, live and in a `session/load` replay alike, and a message's
- * entry carries the message's own id.
+ * A chat-view session's latest page is the Store's read of Grok's
+ * `updates.jsonl` with this driver's complete items laid over it, joined by
+ * item id. So every item here carries the id that read gives the same record
+ * (`adapters/grok/transcript.ts`): a prompt entry and a reply are named by
+ * Grok's `_meta.eventId`, a tool item by Grok's call id. Named any other way,
+ * each was shown twice. The entry's receipt names that same id, with the
+ * prompt's id as its harness ref (POD-4837), so the message links to the entry
+ * the chat shows.
  */
-const grokUserItemId = (promptId: string): string => `grok-user-${promptId}`
 
 /** The promptId the prompt runs under: ours, or the one minted for a send
  *  with no id. Grok keeps it as the turn's id (POD-4841). */
@@ -346,13 +349,16 @@ interface DriverSession {
   nativeArchiveSyncRunning: boolean
   nativeArchiveRead: Promise<void>
   receiptWatches: Map<string, PromptDelivery>
-  recordedPromptIds: Set<string>
+  /** Prompts whose entry was read, by promptId: the entry's item id. */
+  recordedPromptIds: Map<string, string>
   toolCallIds: Set<string>
   toolResults: Map<string, BufferedToolResult>
-  /** A user record being read: its id is decided by the update that ends it
-   *  (see {@link flushUser}); `fallbackId` serves a build that stamps none. */
-  userBuffer: { fallbackId: string; text: string; at: string; promptIndex?: number } | undefined
-  assistantBuffer: { id: string; text: string; at: string } | undefined
+  /** A user record being read: named by its first chunk's record, bound to a
+   *  prompt by the update that ends it (see {@link flushUser}). */
+  userBuffer: { id: string; text: string; at: string; promptIndex?: number } | undefined
+  /** A reply being streamed. `id` keys its live preview (its first chunk);
+   *  `lastEventId` is the chunk Grok files the whole reply under. */
+  assistantBuffer: { id: string; text: string; at: string; lastEventId?: string } | undefined
   /** The prompt out to Grok and not yet finished (POD-4837). The session is
    *  `busy` from the write, before the ack opens its turn. */
   prompt: PromptDelivery | undefined
@@ -540,9 +546,8 @@ export function createGrokAcpRuntime(
    * Grok writes the prompt's `user_message_chunk` at the turn's start, before
    * the turn's first update stamped with its promptId; a `session/load` replays
    * it in that order (measured on grok 1.0.44, `__fixtures__/live-frames.jsonl`).
-   * The buffer is therefore named by the update that ends it: the item is
-   * `grok-user-<promptId>`, the same id the receipt names. A build that stamps
-   * no promptId falls back to the record's own event id.
+   * The buffer is therefore bound to its prompt by the update that ends it. The
+   * item keeps its record's name (POD-7003), and the receipt names that item.
    */
   function flushUser(
     session: DriverSession,
@@ -555,11 +560,11 @@ export function createGrokAcpRuntime(
     const text = buffer.text.trim()
     if (!text) return
     if (native?.promptId && session.recordedPromptIds.has(native.promptId)) return
-    const id = native?.promptId ? grokUserItemId(native.promptId) : buffer.fallbackId
+    const id = buffer.id
     addItem(session, { id, role: 'user', text, ts: buffer.at }, buffer.at, provenance, native)
     if (native?.promptId) {
-      session.recordedPromptIds.add(native.promptId)
-      markRecorded(session, native.promptId)
+      session.recordedPromptIds.set(native.promptId, id)
+      markRecorded(session, native.promptId, id)
     }
   }
 
@@ -600,7 +605,7 @@ export function createGrokAcpRuntime(
       if (session.userBuffer) session.userBuffer.text += text
       else
         session.userBuffer = {
-          fallbackId: `grok-user-${meta?.eventId ?? session.seq + 1}`,
+          id: meta?.eventId ? grokPromptEntryId(meta.eventId) : `grok-user-${session.seq + 1}`,
           text,
           at: iso(meta?.agentTimestampMs),
           ...(promptIndex !== undefined ? { promptIndex } : {}),
@@ -643,9 +648,18 @@ export function createGrokAcpRuntime(
     session.assistantBuffer = undefined
     const text = buffer.text.trim()
     if (!text) return
+    // Grok files the reply under its last chunk's eventId (POD-7003); the live
+    // preview was keyed by the first, and `streamId` keeps that join.
+    const id = buffer.lastEventId ? grokReplyItemId(buffer.lastEventId) : buffer.id
     addItem(
       session,
-      { id: buffer.id, role: 'assistant', text, ts: buffer.at },
+      {
+        id,
+        ...(id !== buffer.id ? { streamId: buffer.id } : {}),
+        role: 'assistant',
+        text,
+        ts: buffer.at,
+      },
       buffer.at,
       provenance,
       native,
@@ -729,12 +743,17 @@ export function createGrokAcpRuntime(
         const text = updateText(update)
         if (!text) return
         const current = session.assistantBuffer
-        if (current) current.text += text
-        else {
+        if (current) {
+          current.text += text
+          if (native.eventId) current.lastEventId = native.eventId
+        } else {
           session.assistantBuffer = {
-            id: `grok-assistant-${native.eventId ?? session.seq + 1}`,
+            id: native.eventId
+              ? grokReplyItemId(native.eventId)
+              : `grok-assistant-${session.seq + 1}`,
             text,
             at,
+            ...(native.eventId ? { lastEventId: native.eventId } : {}),
           }
         }
         const buffer = session.assistantBuffer
@@ -826,7 +845,8 @@ export function createGrokAcpRuntime(
         if (resultText === undefined) return
         session.toolResults.set(toolUseId, {
           item: {
-            id: `${toolUseId}:result`,
+            // The Store's name for the same result (POD-7003).
+            id: `${toolUseId}:out`,
             role: 'tool',
             text: '',
             ts: at,
@@ -892,7 +912,7 @@ export function createGrokAcpRuntime(
    * The history reader has added Grok's actual user entry. Name it once for
    * the held receipt, even if its turn already ended before the file was read.
    */
-  function markRecorded(session: DriverSession, promptId: string): void {
+  function markRecorded(session: DriverSession, promptId: string, id: string): void {
     const delivery =
       session.receiptWatches.get(promptId) ?? (session.prompt?.written ? session.prompt : undefined)
     if (!delivery || delivery.promptId !== promptId || delivery.recorded || delivery.unrecorded)
@@ -900,7 +920,6 @@ export function createGrokAcpRuntime(
     if (!delivery.acked) ackPrompt(session, promptId)
     delivery.recorded = true
     session.receiptWatches.delete(promptId)
-    const id = grokUserItemId(promptId)
     delivery.onTranscriptItem?.({ id }, grokPromptRef(promptId))
   }
 
@@ -1269,7 +1288,7 @@ export function createGrokAcpRuntime(
       nativeArchiveSyncRunning: false,
       nativeArchiveRead: Promise.resolve(),
       receiptWatches: new Map(),
-      recordedPromptIds: new Set(),
+      recordedPromptIds: new Map(),
       toolCallIds: new Set(),
       toolResults: new Map(),
       userBuffer: undefined,
@@ -1746,12 +1765,13 @@ export function createGrokAcpRuntime(
     emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
     foldState(session, { kind: 'turn_completed' }, at, 'live')
     void drainQueue(session)
+    const entry = session.recordedPromptIds.get(promptId)
     return {
       outcome: 'accepted',
       turnEpoch: epoch,
       deliveredAs,
       provenBy: 'transcript-echo',
-      transcriptItem: { id: grokUserItemId(promptId) },
+      ...(entry !== undefined ? { transcriptItem: { id: entry } } : {}),
       harnessRef: grokPromptRef(promptId),
       at,
     }
