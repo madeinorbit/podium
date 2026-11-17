@@ -651,7 +651,8 @@ warning where it resolves its server address; the connection paragraphs of
   server holds: `encrypted` when the server's existing `isSecureRequest` check holds
   (`apps/server/src/auth-route.ts`, including the configured trusted proxy hops); else `local`
   when the client address is loopback and the request carries none of the proxy headers
-  (`apps/server/src/readiness-boundary.ts` lists them); else `trusted` when the client address
+  (`apps/server/src/readiness-boundary.ts` lists them) and, when a proxy hop is trusted, its
+  Host is `localhost` or a loopback address (POD-7041); else `trusted` when the client address
   (resolved with `clientAddressForRequest`) is inside one of `daemonLink.trustedNetworks`;
   else `plain`. Nothing the daemon sends takes part.
 - `registry.daemonLinks.daemonLinkKind(machineId)` for Tasks 5 and 22, and `linkKind` on the
