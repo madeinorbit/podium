@@ -1000,6 +1000,33 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "a two-form definition's run method (get, all, run, values, execute): the statement of the form the store's engine built, one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
   },
+  // POD-6985: change capture's Postgres form (sync/capture-pg.ts), reached from a span
+  // through the message status move, which the repository prepares on its first call.
+  // Each renders SQL with drizzle's Postgres dialect; none runs a statement.
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildUpdateSet': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an update's SET list as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildInsertQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an insert as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildDeleteQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a delete as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildSelection': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a RETURNING selection as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.sqlToQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect turns a SQL fragment into query text and parameters; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'the capture form names one column of the old or new row as an SQL expression string; a pure computation, no statement runs',
+  },
   'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
     kind: 'opaque',
     why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',
