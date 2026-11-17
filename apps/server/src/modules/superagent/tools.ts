@@ -10,6 +10,7 @@ import {
   asIssueId,
   asSessionId,
   asThreadId,
+  type IssueId,
   isAgentKind,
   type MachineId,
   type SessionId,
@@ -171,13 +172,20 @@ export async function buildSuperagentTools(
           owned.has(s.sessionId),
         )
         const snoozes = await store.sessions.listSnoozes(listPrincipal.userId)
+        // Reverse of issue_show's session list (issue #72): session cwd → bound
+        // issue, via the same worktree-containment rule as authz scope. ONE
+        // query for every cwd and one read per 500 issues (POD-7036): asked per
+        // session, outside any read scope, every session's issue was its own
+        // statement — the POD-7027 audit's `issuesByIds [1]` burst of ~7,200
+        // single-row reads, the whole table row by row.
+        const owners = await issues.reports.issuesForCwds(listed.map((s) => s.cwd))
+        const ownerIds = [...new Set([...owners.values()].filter((id): id is IssueId => id !== null))]
+        const ownerRows = await store.issues.getIssues(ownerIds)
         return JSON.stringify(
           await Promise.all(
             listed.map(async (s) => {
-              // Reverse of issue_show's session list (issue #72): session cwd →
-              // bound issue, via the same worktree-containment rule as authz scope.
-              const issueId = await issues.reports.issueForCwd(s.cwd)
-              const issue = issueId ? await issues.reports.getMeta(issueId) : null
+              const issueId = owners.get(s.cwd) ?? null
+              const issue = issueId ? (ownerRows.get(issueId) ?? null) : null
               return {
                 sessionId: s.sessionId,
                 name: s.name ?? s.title,

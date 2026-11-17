@@ -1,10 +1,14 @@
 import { createLogger } from '@podium/logger'
+import { LogRate } from '../../log-rate'
 import type { SessionId } from '@podium/model'
 import type { SessionRow, SessionStore } from '../../store'
 import type { Session } from './session'
 import { isRunningStatus } from './session-record'
 
 const log = createLogger('server:session-residency')
+
+/** One line per materialization, rate-limited (POD-7036). */
+const materializedLog = new LogRate()
 
 /**
  * WHICH SESSIONS ARE IN MEMORY (POD-6160 D2f).
@@ -41,6 +45,8 @@ export interface SessionResidencyPorts {
   readonly store: SessionStore
   /** Restore a parked session from its row and install it (the boot mapping). */
   materialize(row: SessionRow): Promise<Session | undefined>
+  /** {@link materialize} for a set of rows, each satellite read once (POD-7036). */
+  materializeMany?(rows: readonly SessionRow[]): Promise<ReadonlyMap<SessionId, Session | undefined>>
   /** Nothing about this resident session still waits to reach its row. */
   settled(sessionId: SessionId): boolean
   /** A client views it: an attached terminal or a transcript subscription. */
@@ -114,6 +120,51 @@ export class SessionResidency {
   }
 
   /**
+   * {@link acquire} for a set of sessions, the parked ones restored together:
+   * their rows in one read and their satellites in one read per table
+   * (POD-7036), where one {@link acquire} each was a row read and five
+   * single-id satellite reads per session. The sessions that exist are
+   * returned, each held; every one of them needs exactly one release.
+   */
+  async acquireMany(sessionIds: readonly SessionId[], reason: ResidencyReason): Promise<Map<SessionId, Session>> {
+    const ids = [...new Set(sessionIds)]
+    // Counted before any await, as in `acquire`.
+    for (const id of ids) this.leases.set(id, (this.leases.get(id) ?? 0) + 1)
+    const held = new Set(ids)
+    const out = new Map<SessionId, Session>()
+    try {
+      const missing = ids.filter((id) => !this.ports.sessions.has(id) && !this.loading.has(id))
+      if (missing.length > 1 && this.ports.materializeMany) {
+        const batch = this.loadMany(missing, reason)
+        // Each id is loading while the batch runs, so a concurrent `ensure`
+        // shares it rather than restoring the session a second time.
+        for (const id of missing) {
+          const one = batch.then((found) => found.get(id))
+          this.loading.set(id, one)
+          void one
+            .finally(() => {
+              if (this.loading.get(id) === one) this.loading.delete(id)
+            })
+            .catch(() => {})
+        }
+        await batch
+      }
+      for (const id of ids) {
+        const session = await this.ensure(id, reason)
+        if (session) out.set(id, session)
+        else {
+          held.delete(id)
+          this.drop(id)
+        }
+      }
+      return out
+    } catch (error) {
+      for (const id of held) this.drop(id)
+      throw error
+    }
+  }
+
+  /**
    * Hold a session that is resident NOW, without an await: for a caller that
    * must reach its session before yielding (a bind installs its pictures
    * first). False, and nothing held, when it is not resident.
@@ -162,8 +213,41 @@ export class SessionResidency {
       log.warn('materializing a session whose row says it runs', { sessionId, status: row.status, reason })
     }
     const session = await this.ports.materialize(row)
-    log.debug('session materialized', { sessionId, reason })
+    const fields = materializedLog.take()
+    if (fields) log.debug('session materialized', { sessionId, reason, ...fields })
     return session
+  }
+
+  /** `load` for a set: the rows in one read, then {@link SessionResidencyPorts.materializeMany}. */
+  private async loadMany(
+    sessionIds: readonly SessionId[],
+    reason: ResidencyReason,
+  ): Promise<Map<SessionId, Session | undefined>> {
+    const rows = await this.ports.store.sessions.getSessions(sessionIds)
+    const restore: SessionRow[] = []
+    for (const sessionId of sessionIds) {
+      // Resident wins: it became resident while the rows were read.
+      if (this.ports.sessions.has(sessionId)) continue
+      const row = rows.get(sessionId)
+      if (!row || row.deletedAt) continue
+      if (isRunningStatus(row.status as Session['status'])) {
+        log.warn('materializing a session whose row says it runs', { sessionId, status: row.status, reason })
+      }
+      restore.push(row)
+    }
+    const restored = restore.length > 0 && this.ports.materializeMany
+      ? await this.ports.materializeMany(restore)
+      : new Map<SessionId, Session | undefined>()
+    const out = new Map<SessionId, Session | undefined>()
+    for (const sessionId of sessionIds) {
+      const session = this.ports.sessions.get(sessionId) ?? restored.get(sessionId)
+      out.set(sessionId, session)
+      if (restored.has(sessionId)) {
+        const fields = materializedLog.take()
+        if (fields) log.debug('session materialized', { sessionId, reason, ...fields })
+      }
+    }
+    return out
   }
 
   /** Any of these resident and evictable now leaves the map. */

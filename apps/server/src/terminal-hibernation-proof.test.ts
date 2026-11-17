@@ -18,6 +18,20 @@ afterEach(async () => {
   for (const registry of registries.splice(0)) await registry.dispose()
 })
 
+/**
+ * The single-session proof answer, held to the batched one the host sample
+ * reads (POD-7036): for every scenario below the set read gives the same
+ * reason, and the same "missing", as the one-session reads.
+ */
+async function provenBoth(registry: SessionRegistry, sessionId: SessionId): Promise<boolean> {
+  const single = await registry.modules.sessions.hasValidTerminalProof(sessionId)
+  const status = await registry.modules.sessions.terminalProofStatus(sessionId)
+  const batched = (await registry.modules.sessions.terminalProofStatuses([sessionId])).get(sessionId)
+  expect(batched).toMatchObject(status)
+  expect(batched?.missing).toBe(await registry.modules.sessions.terminalProofMissing(sessionId))
+  return single
+}
+
 function runtime(
   phase: AgentRuntimeState['phase'],
   second: number,
@@ -203,7 +217,7 @@ describe('durable terminal hibernation proof', () => {
       state: runtime('idle', 1, { idle: { kind: 'done' } }),
     })
 
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     expect(await registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   })
 
@@ -234,14 +248,14 @@ describe('durable terminal hibernation proof', () => {
 
   it('qualifies one unchanged live terminal exactly once', async () => {
     const { registry, store, daemon, sessionId, confirm } = await harness()
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     await confirm(1)
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
+    expect(await provenBoth(registry, sessionId)).toBe(true)
 
     expect(
       await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }),
     ).toEqual({ ok: true })
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     expect(
       (await store.observationCheckpoints.getTerminalCandidate(sessionId))?.consumedAt,
     ).toBeTruthy()
@@ -260,7 +274,7 @@ describe('durable terminal hibernation proof', () => {
   ] as const)('cancels a confirmed proof after newer %s', async (kind) => {
     const { registry, sessionId, confirm } = await harness()
     await confirm(1)
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
+    expect(await provenBoth(registry, sessionId)).toBe(true)
     if (kind === 'input')
       await registry.modules.sessions.sendText({
         writer: registry.modules.sessions.serverWriter,
@@ -280,7 +294,7 @@ describe('durable terminal hibernation proof', () => {
         seq: 1,
         data: Buffer.from('late output').toString('base64'),
       })
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     expect(
       (await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }))
         .ok,
@@ -293,7 +307,7 @@ describe('durable terminal hibernation proof', () => {
   ] as const)('renews an exact terminal proof after %s reattachment and replay output', async (restartKind) => {
     const h = await harness()
     await h.confirm(1)
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(true)
 
     let registry = h.registry
     const controls: ControlMessage[] = []
@@ -327,7 +341,7 @@ describe('durable terminal hibernation proof', () => {
         Buffer.from('reattach restore repaint').toString('base64'),
       ],
     })
-    expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(registry, h.sessionId)).toBe(false)
 
     // A legacy frame remains effect-free and cannot renew the fenced proof.
     await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
@@ -335,7 +349,7 @@ describe('durable terminal hibernation proof', () => {
       sessionId: h.sessionId,
       state: runtime('working', 50),
     })
-    expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(registry, h.sessionId)).toBe(false)
 
     await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentObservation',
@@ -350,7 +364,7 @@ describe('durable terminal hibernation proof', () => {
     const renewed = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
     expect(renewed?.facts).toMatchObject({ observerGeneration: 2, outputCount: 2 })
     expect(renewed?.confirmedAt).toBeTruthy()
-    expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+    expect(await provenBoth(registry, h.sessionId)).toBe(true)
 
     // Renewal is one generation transition, not an output amnesty. Any later
     // terminal activity invalidates the translated proof again.
@@ -360,7 +374,7 @@ describe('durable terminal hibernation proof', () => {
       seq: 3,
       data: Buffer.from('real later output').toString('base64'),
     })
-    expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(registry, h.sessionId)).toBe(false)
   })
 
   it('cannot use a stale proof after a real new prompt', async () => {
@@ -382,7 +396,7 @@ describe('durable terminal hibernation proof', () => {
       transitionId: 'turn-2-open',
       state: runtime('working', 30),
     })
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     expect(
       (await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }))
         .ok,
@@ -414,11 +428,11 @@ describe('durable terminal hibernation proof', () => {
         confirmedAt: at(40 + generation),
       })
     await message(1)
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     await message(1)
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+    expect(await provenBoth(registry, sessionId)).toBe(false)
     await message(2)
-    expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
+    expect(await provenBoth(registry, sessionId)).toBe(true)
   })
 
   it('leaves lifecycle and kill side effects untouched when atomic consume loses a race', async () => {
@@ -772,11 +786,11 @@ describe('durable terminal hibernation proof', () => {
       )
     await confirm(1)
     expect(
-      await restarted.registry.modules.sessions.hasValidTerminalProof(restarted.sessionId),
+      await provenBoth(restarted.registry, restarted.sessionId),
     ).toBe(false)
     await confirm(2)
     expect(
-      await restarted.registry.modules.sessions.hasValidTerminalProof(restarted.sessionId),
+      await provenBoth(restarted.registry, restarted.sessionId),
     ).toBe(true)
   })
 
@@ -784,7 +798,7 @@ describe('durable terminal hibernation proof', () => {
     const nonresumable = await harness({ resumable: false })
     await nonresumable.confirm(1)
     expect(
-      await nonresumable.registry.modules.sessions.hasValidTerminalProof(nonresumable.sessionId),
+      await provenBoth(nonresumable.registry, nonresumable.sessionId),
     ).toBe(false)
     const ended = await harness({
       terminalTransitionKind: 'session_terminal',
@@ -842,7 +856,7 @@ describe('durable terminal hibernation proof', () => {
     }
     await h.confirm(1)
     await h.confirm(2)
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(false)
   })
 
   it('uses delivery semantics for pending response proof', async () => {
@@ -1004,9 +1018,9 @@ describe('durable terminal hibernation proof', () => {
         confirmedAt: at(40 + livePollSequence),
       })
     await confirmAt(1)
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(false)
     await confirmAt(2)
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(true)
   })
 
   it('re-arms pass one when the observer poll counter restarts', async () => {
@@ -1022,9 +1036,9 @@ describe('durable terminal hibernation proof', () => {
     const rearmed = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
     expect(rearmed).toMatchObject({ firstLivePollSequence: 1, lastLivePollSequence: 1 })
     expect(rearmed?.confirmedAt).toBeNull()
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(false)
     await h.confirm(2)
-    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+    expect(await provenBoth(h.registry, h.sessionId)).toBe(true)
   })
 
   it('refuses to rehabilitate a proof consumed under the current generation', async () => {
@@ -1069,7 +1083,7 @@ describe('durable terminal hibernation proof', () => {
       reason: 'proof_unconfirmed',
     })
     await green.confirm(1)
-    expect(await green.registry.modules.sessions.hasValidTerminalProof(green.sessionId)).toBe(true)
+    expect(await provenBoth(green.registry, green.sessionId)).toBe(true)
     expect(await blue.registry.modules.sessions.terminalProofStatus(blue.sessionId)).toEqual({
       reason: 'not_running',
     })

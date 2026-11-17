@@ -2344,10 +2344,13 @@ export class SessionRegistry {
             return target === sessionId && Date.parse(automation.nextRunAt) > now
           })
         },
-        hasValidTerminalProof: async (sessionId) =>
-          await sessionsSvc.hasValidTerminalProof(sessionId),
-        terminalProofMissing: async (sessionId) =>
-          await sessionsSvc.terminalProofMissing(sessionId),
+        terminalProofs: async (sessionIds) =>
+          new Map(
+            [...(await sessionsSvc.terminalProofStatuses(sessionIds))].map(([id, status]) => [
+              id,
+              { ok: status.reason === 'ok', missing: status.missing },
+            ]),
+          ),
         daemonRequest: requestBroker,
         toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       },
@@ -2512,6 +2515,7 @@ export class SessionRegistry {
       readSessionFactsById: async (sessionId) => await sessionsSvc.readSessionFactsById(sessionId),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
+      readSessionFactsByIssues: async (issues) => await sessionsSvc.readSessionFactsByIssues(issues),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not

@@ -96,6 +96,9 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
   readSessionFactsByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]>
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
   readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
+  readSessionFactsByIssues(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+  ): Promise<Map<IssueId, SessionFacts[]>>
   readSessionFactsByWorktree(worktreePath: string | null): Promise<SessionFacts[]>
   readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]>
   readSessionFactsWithStatuses(statuses: readonly SessionFacts['status'][]): Promise<SessionFacts[]>
@@ -120,6 +123,8 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
     },
     readSessionFactsById: async (sessionId) => facts().find((s) => s.sessionId === sessionId),
     readSessionFactsByIssue: async (worktreePath, issueId) => sessionsForIssue(worktreePath, facts(), issueId),
+    readSessionFactsByIssues: async (issues) =>
+      new Map(issues.map((issue) => [issue.issueId, sessionsForIssue(issue.worktreePath, facts(), issue.issueId)])),
     readSessionFactsByWorktree: async (worktreePath) =>
       worktreePath ? facts().filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
     readSessionFactsByMachine: async (machineId) => facts().filter((s) => s.machineId === machineId),

@@ -137,6 +137,8 @@ function harness(input: {
   const closedClientTerminals: string[] = []
   const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
   const toMachine: Array<{ machineId: string; type: string }> = []
+  /** Every terminal-proof read, by the sessions it asked about. */
+  const proofReads: string[][] = []
   const deps: HostsDeps = {
     getSettings: async () => settings,
     transferFenceActive: input.transferFenceActive ?? (() => false),
@@ -173,8 +175,15 @@ function harness(input: {
       shellParked.push(sessionId)
       return { ok: true }
     },
-    hasValidTerminalProof: async (sessionId) => input.proven?.has(sessionId) ?? true,
-    terminalProofMissing: async (sessionId) => !(input.proven?.has(sessionId) ?? true),
+    terminalProofs: async (sessionIds) => {
+      proofReads.push([...sessionIds])
+      return new Map(
+        sessionIds.map((sessionId) => {
+          const ok = input.proven?.has(sessionId) ?? true
+          return [sessionId, { ok, missing: !ok }]
+        }),
+      )
+    },
     // The auto-hibernate sweep makes no daemon round-trip, so an inert
     // correlator is enough here — a call to one would be the failure.
     daemonRequest:
@@ -197,6 +206,7 @@ function harness(input: {
     closedClientTerminals,
     hibernateRequireProof,
     toMachine,
+    proofReads,
   }
 }
 
@@ -209,6 +219,28 @@ describe('idle-session cap', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.useRealTimers()
+  })
+
+  it('proves the idle candidates of a pass in one read, not one per session (POD-7036)', async () => {
+    // Fifty idle agents, none proven: the cap pass asks for candidates, finds
+    // none and reports the cap unmet. Asked one at a time this was fifty
+    // terminal-proof reads per pass, every sample.
+    const sessions = Array.from({ length: 50 }, (_, i) =>
+      session(asSessionId(`idle-${i}`), { lastActiveAt: new Date(NOW - 2 * HOUR).toISOString() }),
+    )
+    const { service, parked, proofReads } = harness({
+      sessions,
+      maxIdleSessions: 1,
+      proven: new Set(),
+    })
+
+    await service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual([])
+    // Armed: the pass did consider every idle session.
+    expect(new Set(proofReads.flat())).toEqual(new Set(sessions.map((s) => s.sessionId)))
+    for (const read of proofReads) expect(read).toHaveLength(50)
+    expect(proofReads.length).toBeLessThanOrEqual(2)
   })
 
   it('converges below the cap without memory pressure, oldest effective idle first', async () => {
@@ -1383,8 +1415,8 @@ describe('daemon loop minutes', () => {
       hibernateSession: async () => ({ ok: false }),
       parkShellSession: async () => ({ ok: false }),
       hasScheduledWakeup: async () => false,
-      hasValidTerminalProof: async () => true,
-      terminalProofMissing: async () => false,
+      terminalProofs: async (sessionIds: readonly SessionId[]) =>
+        new Map(sessionIds.map((sessionId) => [sessionId, { ok: true, missing: false }])),
       daemonRequest: {
         request: vi.fn(),
         settle: vi.fn(),

@@ -3,6 +3,7 @@ import { type IssueId, type IssueProjection, isIssueClosed, type UserId } from '
 import type { LedgerWriter } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
+import { ClosedIssueRefusals } from './closed-issue-refusals'
 import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
@@ -31,6 +32,8 @@ type IssueLifecycleWriter = Pick<LedgerWriter, 'commit'>
 
 export class IssueSessionLifecycle {
   private readonly closedIssueStops = new Map<string, Promise<void>>()
+  /** Refused closed issues the sweep sits out, by refusal (POD-7036). */
+  private readonly closedIssueRefusals = new ClosedIssueRefusals()
   private closedIssueSweepTimer: ReturnType<typeof setInterval> | undefined
   /** True while a closed-issue sweep is running — see {@link sweepClosedIssues}. */
   private sweepingClosedIssues = false
@@ -144,7 +147,10 @@ export class IssueSessionLifecycle {
       // stops the assignee's.
       const meta = input.closedBy ? undefined : await this.deps.issues.reports.getMeta(issueId)
       const ownedBy = input.closedBy ?? meta?.closedByUserId ?? meta?.ownerUserId
-      log.info('closed issue stop requested', { issueId, reason: input.reason })
+      // The close itself is worth a line; a sweep's ask is routine (POD-7036).
+      if (input.reason === 'close')
+        log.info('closed issue stop requested', { issueId, reason: input.reason })
+      else log.debug('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,
         ownedBy,
@@ -172,11 +178,27 @@ export class IssueSessionLifecycle {
         reapParked: input.reason === 'close',
         principal: systemPrincipal(input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep'),
       })
-      if (!result.ok) {
+      // A worktree the final pass could not free is refused too: the issue
+      // stays a candidate, and asking again changes nothing until it does.
+      const refusal = !result.ok
+        ? (result.reason ?? 'unknown')
+        : !result.worktreeFreed && result.reason
+          ? result.reason
+          : undefined
+      if (refusal === undefined) {
+        this.closedIssueRefusals.succeeded(issueId)
+        return
+      }
+      // LOGGED ONCE PER CHANGE (POD-7036): the same refusal again is the
+      // same dirty worktree, and the sweep now sits it out (see
+      // `closed-issue-refusals.ts`) rather than repeating the line.
+      const changed = this.closedIssueRefusals.refusedWith(issueId, refusal)
+      if (!result.ok && changed) {
+        const cleanupReason = refusal
         log.warn('closed issue cleanup refused', {
           issueId,
           reason: input.reason,
-          cleanupReason: result.reason ?? 'unknown',
+          cleanupReason,
           stopped: result.stopped.length,
         })
       }
@@ -209,7 +231,9 @@ export class IssueSessionLifecycle {
         log.warn('closed issue sweep could not list issues', { err: error, reason })
         return
       }
-      for (const issueId of candidates) {
+      // A REFUSED ISSUE SITS OUT, AND A PASS IS CAPPED (POD-7036): see
+      // `closed-issue-refusals.ts` for what the back-off forgets and when.
+      for (const issueId of this.closedIssueRefusals.beginPass(candidates)) {
         await this.stopClosedIssueNow({ issueId, reason })
       }
     } finally {

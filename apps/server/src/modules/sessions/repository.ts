@@ -1111,29 +1111,57 @@ export class SessionRepository {
    * A session that became resident while this read wins and is returned.
    */
   async materializeStoredSession(r: SessionRow): Promise<Session | undefined> {
-    const ids = [r.id]
+    return (await this.materializeStoredSessions([r])).get(r.id)
+  }
+
+  /**
+   * {@link materializeStoredSession} for a set of rows, each satellite table
+   * read once for the whole set (POD-7036): a reattach probe restores every
+   * parked session of a machine, and one at a time that was a single-id read of
+   * `offers`, `session_drafts`, the checkpoints, the turn states and the
+   * transcripts per session (the POD-7027 audit's finding 6). Each session is
+   * restored and installed exactly as the one-row call does it.
+   */
+  async materializeStoredSessions(
+    rows: readonly SessionRow[],
+  ): Promise<Map<SessionId, Session | undefined>> {
+    const out = new Map<SessionId, Session | undefined>()
+    if (rows.length === 0) return out
+    const ids = rows.map((r) => r.id)
     const offers = await this.store.sessions.offersOf(ids)
-    const checkpoint = (await this.store.observationCheckpoints.checkpointsOf(ids)).get(r.id)
-    const turnState = (await this.store.events.runtimeTurnStatesOf(ids)).get(r.id)
+    const checkpoints = await this.store.observationCheckpoints.checkpointsOf(ids)
+    const turnStates = await this.store.events.runtimeTurnStatesOf(ids)
     await this.state.stageDraftTimes(ids)
-    const hasTranscript = (await this.store.events.runtimeTranscriptAvailableOf(ids)).has(r.id)
-    // The transcript items wait for their first reader (ensureTranscript); its
-    // availability is what the boot replay would have set.
-    const session = await this.sessionFromStoredRow(r, 'boot', false)
-    if (!session) return undefined
-    if (hasTranscript) {
-      session.transcriptAvailable = true
-      session.terminal.setTranscriptAvailable(true)
-      markConversationBound(session)
+    const transcripts = await this.store.events.runtimeTranscriptAvailableOf(ids)
+    for (const r of rows) {
+      const hasTranscript = transcripts.has(r.id)
+      // The transcript items wait for their first reader (ensureTranscript); its
+      // availability is what the boot replay would have set.
+      const session = await this.sessionFromStoredRow(r, 'boot', false)
+      if (!session) {
+        out.set(r.id, undefined)
+        continue
+      }
+      if (hasTranscript) {
+        session.transcriptAvailable = true
+        session.terminal.setTranscriptAvailable(true)
+        markConversationBound(session)
+      }
+      const install = await this.prepareStoredSessionInstall(session, offers)
+      const raced = this.sessions.get(r.id)
+      if (raced) {
+        out.set(r.id, raced)
+        continue
+      }
+      install.apply()
+      if (hasTranscript) this.unreplayedTranscripts.add(r.id)
+      const checkpoint = checkpoints.get(r.id)
+      if (checkpoint) session.applyObservationCheckpoint(checkpoint)
+      const turnState = turnStates.get(r.id)
+      if (turnState) applyRuntimeTurnStateTo(session, turnState)
+      out.set(r.id, session)
     }
-    const install = await this.prepareStoredSessionInstall(session, offers)
-    const raced = this.sessions.get(r.id)
-    if (raced) return raced
-    install.apply()
-    if (hasTranscript) this.unreplayedTranscripts.add(r.id)
-    if (checkpoint) session.applyObservationCheckpoint(checkpoint)
-    if (turnState) applyRuntimeTurnStateTo(session, turnState)
-    return session
+    return out
   }
 
   /** Drop a resident session from the process (POD-6160 D2f): memory only. */

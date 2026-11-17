@@ -848,10 +848,13 @@ export class SessionStateService {
       ...(Object.keys(stored) as SessionId[]),
       ...this.draftDocs.keys(),
     ])
-    const visibleIds: SessionId[] = []
-    for (const sessionId of candidates) {
-      if (await this.canReadSession(principal, sessionId)) visibleIds.push(sessionId)
-    }
+    // ONE OWNER READ FOR EVERY DRAFT (POD-7036). Asked one session at a time,
+    // each parked session was a registry miss and a read of its row, on every
+    // client connect: the same ~330 sessions about 5,500 times each in six days
+    // on the live server (the POD-7027 audit's finding 11). `visibleSessions`
+    // reads the parked ones' rows in one batch and answers as `canReadSession`.
+    const visible = await this.visibleSessions(principal, [...candidates])
+    const visibleIds = [...candidates].filter((sessionId) => visible.has(sessionId))
     // No await may separate reading a document from sending it. Live edits can
     // replace draftDocs during authorization; replaying a captured older rev
     // afterward would overwrite the client's newer text (POD-3539).

@@ -115,7 +115,30 @@ const checkpointedLeasesOfIds = preparedFamily((db: StoreDrizzle, size: number) 
     .select(LEASE_COLUMNS)
     .from(ck)
     .innerJoin(sessions, eq(sessions.id, ck.sessionId))
-    .where(and(inListOf(ck.sessionId, size), isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)))
+    .where(
+      and(inListOf(ck.sessionId, size), isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)),
+    )
+    .prepare(),
+)
+
+/** The leases of a known set of sessions, checkpoint or not (POD-7036): the
+ *  host sample's terminal-proof pass reads every candidate's at once. */
+const leasesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select(LEASE_COLUMNS).from(ck).where(inListOf(ck.sessionId, size)).prepare(),
+)
+
+/** The terminal candidates of a known set of sessions (POD-7036). */
+const terminalCandidatesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      sessionId: tc.sessionId,
+      proofJson: tc.proofJson,
+      confirmedAt: tc.confirmedAt,
+      consumedAt: tc.consumedAt,
+      updatedAt: tc.updatedAt,
+    })
+    .from(tc)
+    .where(inListOf(tc.sessionId, size))
     .prepare(),
 )
 
@@ -306,6 +329,34 @@ const deleteTerminalCandidate = prepared((db: StoreDrizzle) =>
 
 const deleteLease = prepared((db: StoreDrizzle) => db.delete(ck).where(ckSessionIs()).prepare())
 
+/** A stored terminal candidate, or null when its proof cannot be read.
+ *  QUARANTINE, as `mapRow`: an unreadable proof reads as no proof. */
+function candidateOfRow(
+  sessionId: SessionId,
+  row: {
+    proofJson: string
+    confirmedAt: string | null
+    consumedAt: string | null
+    updatedAt: string
+  },
+): TerminalCandidateRecord | null {
+  try {
+    const proof = JSON.parse(row.proofJson) as Omit<
+      TerminalCandidateRecord,
+      'confirmedAt' | 'consumedAt' | 'updatedAt'
+    >
+    if (proof.facts?.schemaVersion !== 1 || proof.facts.sessionId !== sessionId) return null
+    return {
+      ...proof,
+      confirmedAt: row.confirmedAt,
+      consumedAt: row.consumedAt,
+      updatedAt: row.updatedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
   private readonly rootDb: StoreDrizzle
@@ -417,6 +468,24 @@ export class ObservationCheckpointsRepository {
 
   async get(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {
     return await this.read(sessionId)
+  }
+
+  /** {@link get} for a known set of sessions, one statement per 500 ids
+   *  (POD-7036). A session with no lease is absent. */
+  async leasesOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, ObservationLeaseRecord>> {
+    const leases = new Map<SessionId, ObservationLeaseRecord>()
+    const unique = [...new Set(sessionIds)]
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await leasesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        const lease = await this.mapRow(row)
+        if (lease) leases.set(lease.sessionId, lease)
+      }
+    }
+    return leases
   }
 
   /**
@@ -562,23 +631,27 @@ export class ObservationCheckpointsRepository {
 
   async getTerminalCandidate(sessionId: SessionId): Promise<TerminalCandidateRecord | null> {
     const row = await terminalCandidateOf(this.db).get({ sessionId })
-    if (!row) return null
-    try {
-      // QUARANTINE, as `mapRow`: an unreadable proof reads as no proof.
-      const proof = JSON.parse(row.proofJson) as Omit<
-        TerminalCandidateRecord,
-        'confirmedAt' | 'consumedAt' | 'updatedAt'
-      >
-      if (proof.facts?.schemaVersion !== 1 || proof.facts.sessionId !== sessionId) return null
-      return {
-        ...proof,
-        confirmedAt: row.confirmedAt,
-        consumedAt: row.consumedAt,
-        updatedAt: row.updatedAt,
+    return row ? candidateOfRow(sessionId, row) : null
+  }
+
+  /** {@link getTerminalCandidate} for a known set of sessions, one statement
+   *  per 500 ids (POD-7036). A session with no readable candidate is absent. */
+  async terminalCandidatesOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, TerminalCandidateRecord>> {
+    const candidates = new Map<SessionId, TerminalCandidateRecord>()
+    const unique = [...new Set(sessionIds)]
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await terminalCandidatesOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
+        const candidate = candidateOfRow(row.sessionId, row)
+        if (candidate) candidates.set(row.sessionId, candidate)
       }
-    } catch {
-      return null
     }
+    return candidates
   }
 
   /** Pass one for a genuinely live terminal edge. Bootstrap/replay never call this. */

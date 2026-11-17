@@ -486,6 +486,13 @@ export class SessionLifecycle {
     return await this.facts.readByIssue(worktreePath, issueId)
   }
 
+  /** {@link readSessionFactsByIssue} for a set of issues, read together (POD-7036). */
+  async readSessionFactsByIssues(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+  ): Promise<Map<IssueId, SessionFacts[]>> {
+    return await this.facts.readByIssues(issues)
+  }
+
   /** Every session at or below a path, whatever issue it is on (POD-6160). */
   async readSessionFactsByWorktree(worktreePath: string | null): Promise<SessionFacts[]> {
     return await this.facts.readByWorktree(worktreePath)
@@ -877,6 +884,11 @@ export class SessionLifecycle {
   async terminalProofMissing(sessionId: SessionId): Promise<boolean> {
     return await this.terminalProof.proofMissing(sessionId)
   }
+  /** {@link terminalProofStatus} and {@link terminalProofMissing} for a set of
+   *  sessions, one read per table (POD-7036): the host sample's candidate pass. */
+  async terminalProofStatuses(sessionIds: readonly SessionId[]) {
+    return await this.terminalProof.proofStatuses(sessionIds)
+  }
   /** WHY this session is not currently reapable — one reason, for diagnostics. */
   async terminalProofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
     return await this.terminalProof.proofStatus(sessionId)
@@ -1057,6 +1069,21 @@ export class SessionLifecycle {
     const sessionId = DAEMON_FRAMES_FOR_PARKED.has(msg.type)
       ? (msg as { sessionId?: SessionId }).sessionId
       : undefined
+    // A REATTACH PROBE'S REFUSAL FOR A ROW STILL EXITED NEEDS NOTHING RESTORED
+    // (POD-7036). Every daemon attach probes each exited session on its machine,
+    // and the answer for one whose process is gone is `reattachFailed`. Its
+    // handler leaves an exited row as it is and only re-arms a queued wake, so
+    // when the row is exited and holds no queued input there is nothing to do;
+    // restoring it for that was the second of two materializations per exited
+    // session per attach (the POD-7027 audit's finding 11). A row in any other
+    // state, or with queued input, goes through the handler as before.
+    if (
+      msg.type === 'reattachFailed' &&
+      sessionId !== undefined &&
+      !this.sessions.has(sessionId) &&
+      (await this.exitedWithNothingQueued(sessionId))
+    )
+      return
     const held =
       sessionId !== undefined &&
       (this.residency.hold(sessionId) ||
@@ -1066,6 +1093,12 @@ export class SessionLifecycle {
     } finally {
       if (held && sessionId !== undefined) this.residency.release(sessionId)
     }
+  }
+  /** A parked row that is exited, not deleted, and has no queued input. */
+  private async exitedWithNothingQueued(sessionId: SessionId): Promise<boolean> {
+    const row = await this.store.sessions.loadSession(sessionId)
+    if (!row || row.deletedAt || row.status !== 'exited') return false
+    return ((await this.store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0) === 0
   }
   onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     this.daemonLifecycle.handleOutput(principal, batch)

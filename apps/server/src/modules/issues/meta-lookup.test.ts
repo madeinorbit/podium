@@ -23,6 +23,7 @@ async function harness() {
     readSessionFacts: async () => sessionFacts(),
     readSessionFactsById: async () => undefined,
     readSessionFactsByIssue: async () => [],
+    readSessionFactsByIssues: async () => new Map(),
     sessionById: async () => undefined,
     listSessionsForIssue: async () => [],
     sessionsById: async () => [],

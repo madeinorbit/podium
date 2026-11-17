@@ -706,6 +706,7 @@ export class IssueAttentionModule {
       order: 'path-seq',
     })
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
+    const due: { row: IssueRow; viewerReadAt: string }[] = []
     for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
@@ -717,11 +718,18 @@ export class IssueAttentionModule {
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
-      // Post-read activity re-marks the issue unread (the operator hasn't seen it):
-      // honour that here so a re-touched done issue isn't archived out from under them.
-      // Only a row that clears the cheap gates asks for its sessions (POD-6160).
-      const sessions = await this.store.deps.readSessionFactsByIssue(row.worktreePath, row.id)
-      if (this.store.computeUnread(row, sessions, viewerReadAt)) continue
+      due.push({ row, viewerReadAt })
+    }
+    // Post-read activity re-marks the issue unread (the operator hasn't seen it):
+    // honour that here so a re-touched done issue isn't archived out from under them.
+    // Only a row that clears the cheap gates asks for its sessions (POD-6160), and
+    // they ask together (POD-7036): one at a time, every such issue restored its
+    // own sessions with single-id reads of each satellite table, every hour.
+    const members = await this.store.deps.readSessionFactsByIssues(
+      due.map(({ row }) => ({ worktreePath: row.worktreePath, issueId: row.id })),
+    )
+    for (const { row, viewerReadAt } of due) {
+      if (this.store.computeUnread(row, members.get(row.id) ?? [], viewerReadAt)) continue
       out.push(await this.autoArchive(row, principal))
     }
     return out
