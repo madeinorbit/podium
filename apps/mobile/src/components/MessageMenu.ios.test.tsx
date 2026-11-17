@@ -28,6 +28,14 @@ vi.mock('@expo/ui', () => ({
     return <div>{props.children}</div>
   },
 }))
+vi.mock('@expo/ui/swift-ui/modifiers', () =>
+  Object.fromEntries(
+    ['background', 'frame', 'padding', 'tint'].map((name) => [
+      name,
+      (value: unknown) => ({ name, value }),
+    ]),
+  ),
+)
 vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: { children?: ReactNode }) => <div>{children}</div>
   const ContextMenu = Object.assign(Box, {
@@ -40,6 +48,7 @@ vi.mock('@expo/ui/swift-ui', () => {
   return {
     ContextMenu,
     RNHostView: Box,
+    VStack: Box,
     Section: ({ title, children }: { title?: string; children?: ReactNode }) => (
       <section aria-label={title}>{children}</section>
     ),
