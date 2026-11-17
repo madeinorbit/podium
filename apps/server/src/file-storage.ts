@@ -15,6 +15,8 @@ import type { FileStorageConfig } from '@podium/runtime/config'
 
 export interface ServerFileStorage {
   storage: BlobStorage
+  /** Which backend holds the files: the state directory or a bucket. */
+  backend: FileStorageConfig['backend']
   /**
    * Boot step: remove the temp files a crashed local put left behind, so they
    * never reach a transfer snapshot. Nothing to do on a bucket.
@@ -28,7 +30,11 @@ export function createServerFileStorage(
 ): ServerFileStorage {
   if (config.backend === 'local') {
     const storage = new LocalBlobStorage({ stateDir: local.stateDir, fence: local.fence })
-    return { storage, removeLeftoverTempFiles: () => storage.removeLeftoverTempFiles() }
+    return {
+      storage,
+      backend: 'local',
+      removeLeftoverTempFiles: () => storage.removeLeftoverTempFiles(),
+    }
   }
   const storage = new S3BlobStorage({
     endpoint: config.endpoint,
@@ -37,5 +43,5 @@ export function createServerFileStorage(
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
   })
-  return { storage, removeLeftoverTempFiles: async () => 0 }
+  return { storage, backend: config.backend, removeLeftoverTempFiles: async () => 0 }
 }

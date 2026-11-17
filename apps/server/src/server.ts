@@ -130,6 +130,7 @@ import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { memberLinks } from './member-links'
 import { registerMemberRoutes } from './member-routes'
+import { convertLakeToParts } from './migrations/lake-parts-conversion'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
@@ -719,6 +720,22 @@ export async function startServer(
   })
   const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
   const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  // A lake mirrored before the parted lake kept one file per segment incarnation;
+  // split those into parts, once, before the mirror (built with the registry
+  // below) writes any (POD-6963 design 2.3.1). Blocking: it takes as long as it
+  // takes, and a failed run leaves its marker unwritten so the next boot resumes.
+  if (!recoveryOnly) {
+    await convertLakeToParts({
+      stateDir: stateDir(),
+      rows: store.conversations.mirror,
+      blobs: workspaceFiles,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      log,
+      fence: portableStateFence,
+      // Parts on a bucket take no local disk, so there is nothing to preflight.
+      ...(fileStorage.backend === 'local' ? {} : { freeBytes: undefined }),
+    })
+  }
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)

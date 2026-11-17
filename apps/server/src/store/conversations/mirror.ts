@@ -1,5 +1,5 @@
 import type { MachineId } from '@podium/model'
-import { and, desc, eq, isNotNull, isNull, max, ne, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNotNull, isNull, max, ne, or, type SQL, sql } from 'drizzle-orm'
 import type {
   StoreDrizzle,
   StoreQueries,
@@ -206,6 +206,92 @@ const incarnationsOf = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * The lake conversion's segment pages [POD-6963 design 2.3.1]: every segment
+ * with mirrored bytes, in key order, with its active incarnation's sequence
+ * (NULL when it has no row yet), after the `afterMachine` / `afterNative` key.
+ */
+const lakeConversionSegments = preparedFamily((db, t, phase: 'start' | 'after') => {
+  const s = t.conversationSegments
+  const i = t.conversationSegmentIncarnations
+  const after =
+    phase === 'after'
+      ? or(
+          gt(s.machineId, param(s.machineId, 'afterMachine')),
+          and(
+            eq(s.machineId, param(s.machineId, 'afterMachine')),
+            gt(s.nativeId, param(s.nativeId, 'afterNative')),
+          ),
+        )
+      : undefined
+  return db
+    .select({
+      machineId: s.machineId,
+      nativeId: s.nativeId,
+      mirroredBytes: s.mirroredBytes,
+      activeSequence: max(i.sequence),
+    })
+    .from(s)
+    .leftJoin(i, and(eq(i.machineId, s.machineId), eq(i.nativeId, s.nativeId), isNull(i.retiredAt)))
+    .where(and(gt(s.mirroredBytes, 0), after))
+    .groupBy(s.machineId, s.nativeId, s.mirroredBytes)
+    .orderBy(asc(s.machineId), asc(s.nativeId))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
+/**
+ * The lake conversion's archived pages: every retired incarnation with a
+ * recorded byte count, in key order, after the given key.
+ */
+const lakeConversionArchived = preparedFamily((db, t, phase: 'start' | 'after') => {
+  const i = t.conversationSegmentIncarnations
+  const after =
+    phase === 'after'
+      ? or(
+          gt(i.machineId, param(i.machineId, 'afterMachine')),
+          and(
+            eq(i.machineId, param(i.machineId, 'afterMachine')),
+            gt(i.nativeId, param(i.nativeId, 'afterNative')),
+          ),
+          and(
+            eq(i.machineId, param(i.machineId, 'afterMachine')),
+            eq(i.nativeId, param(i.nativeId, 'afterNative')),
+            gt(i.sequence, param(i.sequence, 'afterSequence')),
+          ),
+        )
+      : undefined
+  return db
+    .select({
+      machineId: i.machineId,
+      nativeId: i.nativeId,
+      sequence: i.sequence,
+      mirroredBytes: i.mirroredBytes,
+    })
+    .from(i)
+    .where(and(gt(i.mirroredBytes, 0), isNotNull(i.retiredAt), after))
+    .orderBy(asc(i.machineId), asc(i.nativeId), asc(i.sequence))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
+/** One segment the lake conversion visits: its cursor and active incarnation. */
+export interface LakeConversionSegment {
+  machineId: MachineId
+  nativeId: string
+  mirroredBytes: number
+  /** The active incarnation row's sequence; undefined when the segment has no row. */
+  activeSequence: number | undefined
+}
+
+/** One retired incarnation the lake conversion visits. */
+export interface LakeConversionArchived {
+  machineId: MachineId
+  nativeId: string
+  sequence: number
+  mirroredBytes: number
+}
+
 export interface MirrorIncarnation {
   sequence: number
   device: string
@@ -378,5 +464,47 @@ export class TranscriptMirrorRepository {
       mirroredBytes: row.retiredAt === null ? currentBytes : row.mirroredBytes,
       active: row.retiredAt === null,
     }))
+  }
+
+  /**
+   * One page of the lake conversion's segment work list [POD-6963 design
+   * 2.3.1]: segments with `mirrored_bytes > 0` in key order, after `after`.
+   */
+  async lakeConversionSegments(
+    after: { machineId: MachineId; nativeId: string } | undefined,
+    limit: number,
+  ): Promise<LakeConversionSegment[]> {
+    const rows =
+      after === undefined
+        ? await lakeConversionSegments(this.db, 'start').all({ limit })
+        : await lakeConversionSegments(this.db, 'after').all({
+            afterMachine: after.machineId,
+            afterNative: after.nativeId,
+            limit,
+          })
+    return rows.map((row) => ({
+      machineId: row.machineId,
+      nativeId: row.nativeId,
+      mirroredBytes: row.mirroredBytes,
+      activeSequence: row.activeSequence ?? undefined,
+    }))
+  }
+
+  /**
+   * One page of the lake conversion's archived work list: retired incarnation
+   * rows with `mirrored_bytes > 0` in key order, after `after`.
+   */
+  async lakeConversionArchived(
+    after: { machineId: MachineId; nativeId: string; sequence: number } | undefined,
+    limit: number,
+  ): Promise<LakeConversionArchived[]> {
+    return after === undefined
+      ? await lakeConversionArchived(this.db, 'start').all({ limit })
+      : await lakeConversionArchived(this.db, 'after').all({
+          afterMachine: after.machineId,
+          afterNative: after.nativeId,
+          afterSequence: after.sequence,
+          limit,
+        })
   }
 }
