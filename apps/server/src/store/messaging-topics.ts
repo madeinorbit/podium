@@ -1,12 +1,18 @@
+// workspace-scoped (POD-6959)
 /**
  * Telegram forum-topic bindings [spec:SP-5d81] — persists issueId ↔ threadRef
  * ↔ superagent thread for the messaging bridge across restarts.
  */
 
 import type { IssueId, ThreadId } from '@podium/model'
-import { and, eq, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { eq, sql } from 'drizzle-orm'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 export interface MessagingIssueTopicRow {
   issueId: IssueId
@@ -18,20 +24,35 @@ export interface MessagingIssueTopicRow {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
+/** The row's own columns: a read hands back no `workspace_id` (POD-6959). */
+const topicColumns = (t: StoreTables) => ({
+  issueId: t.messagingIssueTopics.issueId,
+  chatId: t.messagingIssueTopics.chatId,
+  threadRef: t.messagingIssueTopics.threadRef,
+  superagentThreadId: t.messagingIssueTopics.superagentThreadId,
+  updatedAt: t.messagingIssueTopics.updatedAt,
+})
+
 const topicsOfChat = prepared((db, t) =>
   db
-    .select()
+    .select(topicColumns(t))
     .from(t.messagingIssueTopics)
-    .where(eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')))
+    .where(
+      inWorkspace(
+        t.messagingIssueTopics,
+        eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')),
+      ),
+    )
     .prepare(),
 )
 
 const topicOfIssue = prepared((db, t) =>
   db
-    .select()
+    .select(topicColumns(t))
     .from(t.messagingIssueTopics)
     .where(
-      and(
+      inWorkspace(
+        t.messagingIssueTopics,
         eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')),
         eq(t.messagingIssueTopics.issueId, param(t.messagingIssueTopics.issueId, 'issueId')),
       ),
@@ -41,10 +62,11 @@ const topicOfIssue = prepared((db, t) =>
 
 const topicOfThreadRef = prepared((db, t) =>
   db
-    .select()
+    .select(topicColumns(t))
     .from(t.messagingIssueTopics)
     .where(
-      and(
+      inWorkspace(
+        t.messagingIssueTopics,
         eq(t.messagingIssueTopics.chatId, param(t.messagingIssueTopics.chatId, 'chatId')),
         eq(t.messagingIssueTopics.threadRef, param(t.messagingIssueTopics.threadRef, 'threadRef')),
       ),
@@ -56,6 +78,7 @@ const upsertTopic = prepared((db, t) =>
   db
     .insert(t.messagingIssueTopics)
     .values({
+      workspaceId: WORKSPACE,
       issueId: sql.placeholder('issueId'),
       chatId: sql.placeholder('chatId'),
       threadRef: sql.placeholder('threadRef'),
@@ -74,11 +97,11 @@ const upsertTopic = prepared((db, t) =>
 )
 
 export class MessagingTopicsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -89,8 +112,8 @@ export class MessagingTopicsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async listForChat(chatId: string): Promise<MessagingIssueTopicRow[]> {

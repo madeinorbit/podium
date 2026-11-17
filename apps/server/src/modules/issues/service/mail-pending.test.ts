@@ -1,12 +1,14 @@
 import { asIssueId, asSessionId, asThreadId } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import type { MessageRow } from '../../../store'
 import { createBunStoreExecutor } from '../../../store/executor'
+import { legacyWorkspaceQueries } from '../../../store/executor/sync-drizzle'
 import { MessagesRepository } from '../../../store/messages'
 import { openTestStore } from '../../../test-support/open-test-store'
-import { countContextAwarePendingMail } from './mail-pending'
 import { seedMessage } from '../../../test-support/seed-message'
+import { countContextAwarePendingMail } from './mail-pending'
 
 /**
  * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
@@ -16,7 +18,8 @@ import { seedMessage } from '../../../test-support/seed-message'
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7017).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
@@ -96,19 +99,24 @@ describe('countContextAwarePendingMail', () => {
       const counts = new Map<string, number>()
       const messages = new MessagesRepository(stageQueries(counting(db, counts)))
 
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-peer-2', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-session', fromIssue: null, fromSession: 'peer-session-2' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-own', fromIssue: 'iss_reader', fromSession: 'reader-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({
           id: 'msg-seen',
           fromIssue: 'iss_peer',

@@ -31,15 +31,18 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7017).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 let db: SqlDatabase
@@ -316,7 +319,7 @@ describe('every status write goes through the guarded move (the grep proof)', ()
       ...sources(join(REPO, 'packages/janitor/src')),
       ...sources(join(REPO, 'apps/daemon/src')),
     ].filter((path) =>
-      /\.update\(messagesTable\)|\.update\(messages\)|UPDATE\s+`?messages`?\s+SET/i.test(
+      /\.update\((?:messagesTable|messages|t\.messages)\)|UPDATE\s+`?messages`?\s+SET/i.test(
         code(path),
       ),
     )
@@ -339,7 +342,8 @@ describe('every status write goes through the guarded move (the grep proof)', ()
     // reminder) move no status.
     expect([...source.matchAll(/moveStatus\(/g)]).toHaveLength(1)
     const updates = [
-      ...source.matchAll(/\.update\(messagesTable\)\s*\.set\(\{([\s\S]*?)\}\)/g),
+      // The table is the binding's (`t.messages`, POD-6977) or, in older code, the schema's.
+      ...source.matchAll(/\.update\((?:messagesTable|t\.messages)\)\s*\.set\(\{([\s\S]*?)\}\)/g),
     ].map((m) => m[1]!)
     expect(updates.length).toBeGreaterThanOrEqual(2)
     expect(updates.filter((set) => /deliveryStatus/.test(set))).toHaveLength(1)

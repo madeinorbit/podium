@@ -16,8 +16,9 @@
 
 import { asIssueId, asThreadId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { type MessagingIssueTopicRow, MessagingTopicsRepository } from './messaging-topics'
 
 let topics: MessagingTopicsRepository
@@ -32,7 +33,9 @@ const row = (over: Partial<MessagingIssueTopicRow> = {}): MessagingIssueTopicRow
 })
 
 beforeEach(() => {
-  topics = new MessagingTopicsRepository(syncQueriesOver(openMigratedTestDatabase()))
+  topics = new MessagingTopicsRepository(
+    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('MessagingTopicsRepository', () => {

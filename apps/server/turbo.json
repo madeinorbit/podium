@@ -1189,6 +1189,7 @@
         "src/store/message-transcript-item.test.ts",
         "src/store/messages-golden.test.ts",
         "src/store/messages.ts",
+        "src/store/messages.workspace.test.ts",
         "src/store/messaging-session-attachments.test.ts",
         "src/store/messaging-session-attachments.ts",
         "src/store/messaging-topics.test.ts",

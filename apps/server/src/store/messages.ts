@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import type { WriteScope } from '@podium/sync'
 import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
@@ -60,20 +61,24 @@ import { alias, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
 import type { messages as messagesTable } from '../migrations/schema'
 import type {
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
+  sameWorkspace,
   shapeOf,
   storeTables,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { moveStatus } from './guarded-move'
 import type { MessageRow, MessageToKind } from './types'
@@ -342,7 +347,10 @@ export type MessageQueueFact = Pick<
 const insertMessage = preparedFamily((db, t, shape: string) =>
   db
     .insert(t.messages)
-    .values(placeholdersFor(shape) as unknown as typeof messagesTable.$inferInsert)
+    .values({
+      ...placeholdersFor(shape),
+      workspaceId: WORKSPACE,
+    } as unknown as typeof messagesTable.$inferInsert)
     .onConflictDoNothing({ target: t.messages.id })
     .returning()
     .prepare(),
@@ -352,7 +360,7 @@ const messageById = prepared((db, t) =>
   db
     .select()
     .from(t.messages)
-    .where(eq(t.messages.id, param(t.messages.id, 'id')))
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
@@ -361,7 +369,7 @@ const messagesWithIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.messages)
-    .where(inListOf(t.messages.id, size, 'ids'))
+    .where(inWorkspace(t.messages, inListOf(t.messages.id, size, 'ids')))
     .prepare(),
 )
 
@@ -372,7 +380,8 @@ const attachmentMessagesOfItems = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.fromKind, 'operator'),
         eq(t.messages.toKind, 'session'),
         eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
@@ -387,7 +396,7 @@ const messagesAddressedTo = preparedFamily((db, t, shape: AddressShape) =>
   db
     .select()
     .from(t.messages)
-    .where(and(...addressedTo(t, shape)))
+    .where(inWorkspace(t.messages, ...addressedTo(t, shape)))
     .orderBy(...DELIVERY_ORDER(t))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -398,24 +407,27 @@ const pendingForSessionProof = prepared((db, t) =>
     .select()
     .from(t.messages)
     .where(
-      or(
-        and(
-          pending(t),
-          or(
-            and(
-              eq(t.messages.toKind, 'session'),
-              eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+      inWorkspace(
+        t.messages,
+        or(
+          and(
+            pending(t),
+            or(
+              and(
+                eq(t.messages.toKind, 'session'),
+                eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+              ),
+              eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
             ),
-            eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
           ),
-        ),
-        and(
-          confirmedInto(t),
-          isNull(t.messages.ackedBy),
-          eq(t.messages.expectsResponse, true),
-          or(
-            isNull(t.messages.expiresAt),
-            gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
+          and(
+            confirmedInto(t),
+            isNull(t.messages.ackedBy),
+            eq(t.messages.expectsResponse, true),
+            or(
+              isNull(t.messages.expiresAt),
+              gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
+            ),
           ),
         ),
       ),
@@ -463,7 +475,10 @@ const ledger = preparedFamily((db, t, shape: LedgerShape) => {
       eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
     )
   }
-  const [first, ...rest] = arms.map((where) => db.select().from(t.messages).where(where))
+  const [first, ...rest] = arms.map((where) =>
+    // Each arm of the UNION holds its own scope to the workspace.
+    db.select().from(t.messages).where(inWorkspace(t.messages, where)),
+  )
   let union = first!.$dynamic()
   for (const arm of rest) union = union.union(arm).$dynamic()
   return union
@@ -490,7 +505,13 @@ const queuedMessageKey = prepared((db, t) =>
   db
     .select({ createdAt: t.messages.createdAt, id: t.messages.id })
     .from(t.messages)
-    .where(and(eq(t.messages.id, param(t.messages.id, 'messageId')), waitingForSession(t)))
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.id, param(t.messages.id, 'messageId')),
+        waitingForSession(t),
+      ),
+    )
     .prepare(),
 )
 
@@ -499,7 +520,8 @@ const queuedAheadOf = prepared((db, t) =>
     .select({ n: count() })
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         waitingForSession(t),
         or(
           lt(t.messages.createdAt, param(t.messages.createdAt, 'createdAt')),
@@ -542,7 +564,8 @@ const pendingPages = preparedFamily((db, t, size: number) => {
         .select()
         .from(t.messages)
         .where(
-          and(
+          inWorkspace(
+            t.messages,
             eq(t.messages.toKind, param(t.messages.toKind, `toKind${i}`)),
             eq(t.messages.toId, param(t.messages.toId, `toId${i}`)),
             pending(t),
@@ -593,7 +616,14 @@ const pendingTargetsAmong = preparedFamily((db, t, size: number) => {
         db
           .select({ one: sql`1` })
           .from(t.messages)
-          .where(and(eq(t.messages.toKind, toKind), eq(t.messages.toId, toId), pending(t))),
+          .where(
+            inWorkspace(
+              t.messages,
+              eq(t.messages.toKind, toKind),
+              eq(t.messages.toId, toId),
+              pending(t),
+            ),
+          ),
       ),
     )
     .prepare()
@@ -604,7 +634,8 @@ const latestPendingOperator = prepared((db, t) =>
     .select()
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.toKind, 'session'),
         eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
         eq(t.messages.fromKind, 'operator'),
@@ -627,6 +658,7 @@ const readBySession = prepared((db, t) =>
     .from(t.messageReads)
     .where(
       and(
+        sameWorkspace(t.messageReads, t.messages),
         eq(t.messageReads.messageId, t.messages.id),
         eq(t.messageReads.sessionId, param(t.messageReads.sessionId, 'sessionId')),
       ),
@@ -644,7 +676,8 @@ const subscribedToIssueMail = prepared((db, t) =>
     .select({ one: sql`1` })
     .from(t.subscriptions)
     .where(
-      and(
+      inWorkspace(
+        t.subscriptions,
         eq(t.subscriptions.subscriberId, param(t.subscriptions.subscriberId, 'sessionId')),
         eq(t.subscriptions.sourceKind, 'issue'),
         eq(t.subscriptions.event, 'issue.mail'),
@@ -692,7 +725,7 @@ function pendingForSession(db: StoreDrizzle, t: StoreTables, handedToSession: bo
       isNull(t.messages.onBehalfOf),
       eq(
         t.messages.onBehalfOf,
-        sql`COALESCE((SELECT ${t.sessions.ownerUserId} FROM ${t.sessions} WHERE ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('on_behalf_of')})`,
+        sql`COALESCE((SELECT ${t.sessions.ownerUserId} FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('on_behalf_of')})`,
       ),
       eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
       exists(subscribedToIssueMail(db)),
@@ -701,7 +734,7 @@ function pendingForSession(db: StoreDrizzle, t: StoreTables, handedToSession: bo
       pending(t),
       gte(
         t.messages.createdAt,
-        sql`COALESCE((SELECT ${t.sessions.createdAt} FROM ${t.sessions} WHERE ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('created_at')})`,
+        sql`COALESCE((SELECT ${t.sessions.createdAt} FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('created_at')})`,
       ),
     ),
   ) as SQL
@@ -730,9 +763,12 @@ const pendingSummaryOf = preparedFamily((db, t, slice: PendingSlice) =>
     })
     .from(t.messages)
     .where(
-      isSessionSlice(slice)
-        ? pendingForSession(db, t, slice === 'session')
-        : and(...addressedTo(t, slice), pending(t), notOnItsWay(t, false)),
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t), notOnItsWay(t, false)),
+      ),
     )
     .groupBy(t.messages.fromKind, t.messages.fromIssue, t.messages.fromSession)
     .orderBy(asc(t.messages.fromKind), asc(t.messages.fromIssue), asc(t.messages.fromSession))
@@ -749,9 +785,12 @@ const pendingSendersOf = preparedFamily((db, t, slice: PendingSlice) =>
     })
     .from(t.messages)
     .where(
-      isSessionSlice(slice)
-        ? pendingForSession(db, t, slice === 'session')
-        : and(...addressedTo(t, slice), pending(t)),
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t)),
+      ),
     )
     .orderBy(asc(t.messages.fromKind), asc(t.messages.fromIssue), asc(t.messages.fromSession))
     .prepare(),
@@ -762,21 +801,29 @@ const pendingCountOf = preparedFamily((db, t, slice: PendingSlice) =>
     .select({ n: count() })
     .from(t.messages)
     .where(
-      isSessionSlice(slice)
-        ? pendingForSession(db, t, slice === 'session')
-        : and(...addressedTo(t, slice), pending(t)),
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t)),
+      ),
     )
     .prepare(),
 )
 
 const queuedCount = prepared((db, t) =>
-  db.select({ n: count() }).from(t.messages).where(pending(t)).prepare(),
+  db
+    .select({ n: count() })
+    .from(t.messages)
+    .where(inWorkspace(t.messages, pending(t)))
+    .prepare(),
 )
 
 const insertRead = prepared((db, t) =>
   db
     .insert(t.messageReads)
     .values({
+      workspaceId: WORKSPACE,
       messageId: sql.placeholder('messageId'),
       sessionId: sql.placeholder('sessionId'),
       readAt: sql.placeholder('readAt'),
@@ -790,7 +837,7 @@ const existingIdsAmong = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.messages.id })
     .from(t.messages)
-    .where(inListOf(t.messages.id, size, 'ids'))
+    .where(inWorkspace(t.messages, inListOf(t.messages.id, size, 'ids')))
     .prepare(),
 )
 
@@ -799,7 +846,8 @@ const receiptsAmong = preparedFamily((db, t, size: number) =>
     .select({ messageId: t.messageReads.messageId })
     .from(t.messageReads)
     .where(
-      and(
+      inWorkspace(
+        t.messageReads,
         eq(t.messageReads.sessionId, param(t.messageReads.sessionId, 'sessionId')),
         inListOf(t.messageReads.messageId, size, 'ids'),
       ),
@@ -812,7 +860,8 @@ const sentAmong = preparedFamily((db, t, size: number) =>
     .select({ id: t.messages.id })
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.fromSession, param(t.messages.fromSession, 'sessionId')),
         inListOf(t.messages.id, size, 'ids'),
       ),
@@ -825,7 +874,8 @@ const communicatedSince = preparedFamily((db, t, shape: AddressShape) =>
     .select({ hit: sql<number>`1` })
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.fromIssue, param(t.messages.fromIssue, 'fromIssue')),
         gte(t.messages.createdAt, param(t.messages.createdAt, 'sinceIso')),
         ...addressedTo(t, shape),
@@ -980,7 +1030,7 @@ const statusOf = prepared((db, t) =>
   db
     .select({ status: t.messages.deliveryStatus })
     .from(t.messages)
-    .where(eq(t.messages.id, param(t.messages.id, 'id')))
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
@@ -992,7 +1042,8 @@ const nameTranscriptItemOnce = prepared((db, t) =>
       transcriptItemCursor: sql.placeholder('transcriptItemCursor'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.id, param(t.messages.id, 'id')),
         isNull(t.messages.transcriptItemId),
         or(
@@ -1010,7 +1061,7 @@ const harnessRefOf = prepared((db, t) =>
   db
     .select({ harnessRefJson: t.messages.harnessRefJson })
     .from(t.messages)
-    .where(eq(t.messages.id, param(t.messages.id, 'id')))
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
@@ -1020,7 +1071,8 @@ const swapHarnessRef = preparedFamily((db, t, stored: 'null' | 'text') =>
     .update(t.messages)
     .set({ harnessRefJson: sql.placeholder('harnessRefJson') })
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.id, param(t.messages.id, 'id')),
         stored === 'null'
           ? isNull(t.messages.harnessRefJson)
@@ -1042,7 +1094,7 @@ const stampRetractRequest = prepared((db, t) =>
     .set({
       retractRequestedAt: sql`COALESCE(${t.messages.retractRequestedAt}, ${sql.placeholder('at')})`,
     })
-    .where(and(eq(t.messages.id, param(t.messages.id, 'id')), pending(t)))
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id')), pending(t)))
     .returning()
     .prepare(),
 )
@@ -1051,7 +1103,13 @@ const stampFirstRead = prepared((db, t) =>
   db
     .update(t.messages)
     .set({ readAt: sql.placeholder('readAt') })
-    .where(and(eq(t.messages.id, param(t.messages.id, 'id')), isNull(t.messages.readAt)))
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.id, param(t.messages.id, 'id')),
+        isNull(t.messages.readAt),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -1086,7 +1144,7 @@ const openBoundTo = preparedFamily((db, t, key: `${number}${'' | '|issue'}`) => 
   return db
     .select()
     .from(t.messages)
-    .where(and(pending(t), or(...bound)))
+    .where(inWorkspace(t.messages, pending(t), or(...bound)))
     .orderBy(...DELIVERY_ORDER(t))
     .prepare()
 })
@@ -1096,7 +1154,8 @@ const dismissNoticeOnce = prepared((db, t) =>
     .update(t.messages)
     .set({ noticeDismissedAt: sql.placeholder('at') })
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         eq(t.messages.id, param(t.messages.id, 'id')),
         isNull(t.messages.noticeDismissedAt),
         inArray(t.messages.deliveryStatus, ['failed', 'expired', 'unknown']),
@@ -1139,7 +1198,10 @@ const openChat = prepared((db, t) =>
     .select(MESSAGE_COLUMNS(t))
     .from(sql`${t.messages} INDEXED BY idx_messages_open_chat`)
     .where(
-      sql`${t.messages.fromKind} = 'operator' AND ${t.messages.toKind} = 'session' AND ${t.messages.noticeDismissedAt} IS NULL AND ${t.messages.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
+      inWorkspace(
+        t.messages,
+        sql`${t.messages.fromKind} = 'operator' AND ${t.messages.toKind} = 'session' AND ${t.messages.noticeDismissedAt} IS NULL AND ${t.messages.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
+      ),
     )
     .orderBy(asc(t.messages.createdAt), asc(sql`rowid`))
     .limit(sql.placeholder('limit'))
@@ -1162,9 +1224,9 @@ const confirmedChatWindow = prepared((db, t) =>
     .from(
       sql`(SELECT m.*, row_number() OVER (PARTITION BY m.to_id ORDER BY m.created_at DESC, m.id DESC) AS window_rank
         FROM ${t.messages} m
-        WHERE m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
+        WHERE m.workspace_id = ${WORKSPACE} AND m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
           AND m.to_id IN (SELECT s.id FROM ${t.sessions} s
-            WHERE s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)) ranked`,
+            WHERE s.workspace_id = ${WORKSPACE} AND s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)) ranked`,
     )
     .where(sql`window_rank <= ${sql.placeholder('perSession')}`)
     .orderBy(asc(sql`created_at`), asc(sql`id`))
@@ -1203,7 +1265,8 @@ const confirmedChatTail = preparedFamily((db, t, key: string) => {
             .select({ one: sql`1` })
             .from(t.sessions)
             .where(
-              and(
+              inWorkspace(
+                t.sessions,
                 eq(t.sessions.id, param(t.sessions.id, `ids${i}`)),
                 ne(t.sessions.status, 'exited'),
                 eq(t.sessions.archived, false),
@@ -1217,7 +1280,7 @@ const confirmedChatTail = preparedFamily((db, t, key: string) => {
       db
         .select()
         .from(t.messages)
-        .where(and(...where))
+        .where(inWorkspace(t.messages, ...where))
         .orderBy(desc(t.messages.createdAt), desc(t.messages.id))
         .limit(sql.placeholder('perSession'))
         .as(`tail${i}`),
@@ -1235,7 +1298,7 @@ const queuedPage = preparedFamily((db, t, from: 'start' | 'after') => {
   return db
     .select()
     .from(t.messages)
-    .where(and(...where))
+    .where(inWorkspace(t.messages, ...where))
     .orderBy(...DELIVERY_ORDER(t))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -1244,7 +1307,11 @@ const queuedPage = preparedFamily((db, t, from: 'start' | 'after') => {
 const upsertWakeCooldown = prepared((db, t) =>
   db
     .insert(t.messageWakeCooldowns)
-    .values({ key: sql.placeholder('key'), attemptedAt: sql.placeholder('attemptedAt') })
+    .values({
+      workspaceId: WORKSPACE,
+      key: sql.placeholder('key'),
+      attemptedAt: sql.placeholder('attemptedAt'),
+    })
     .onConflictDoUpdate({
       target: t.messageWakeCooldowns.key,
       set: { attemptedAt: sql.placeholder('attemptedAt') },
@@ -1256,7 +1323,12 @@ const wakeCooldownOf = prepared((db, t) =>
   db
     .select({ attemptedAt: t.messageWakeCooldowns.attemptedAt })
     .from(t.messageWakeCooldowns)
-    .where(eq(t.messageWakeCooldowns.key, param(t.messageWakeCooldowns.key, 'key')))
+    .where(
+      inWorkspace(
+        t.messageWakeCooldowns,
+        eq(t.messageWakeCooldowns.key, param(t.messageWakeCooldowns.key, 'key')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1265,7 +1337,7 @@ const wakeCooldownsOf = preparedFamily((db, t, size: number) =>
   db
     .select({ key: t.messageWakeCooldowns.key, attemptedAt: t.messageWakeCooldowns.attemptedAt })
     .from(t.messageWakeCooldowns)
-    .where(inListOf(t.messageWakeCooldowns.key, size, 'keys'))
+    .where(inWorkspace(t.messageWakeCooldowns, inListOf(t.messageWakeCooldowns.key, size, 'keys')))
     .prepare(),
 )
 
@@ -1285,7 +1357,7 @@ const pendingDeliveredToPage = preparedFamily((db, t, from: 'start' | 'after') =
   return db
     .select()
     .from(t.messages)
-    .where(and(...where))
+    .where(inWorkspace(t.messages, ...where))
     .orderBy(...DELIVERY_ORDER(t))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -1295,7 +1367,13 @@ const stampAckOnce = prepared((db, t) =>
   db
     .update(t.messages)
     .set({ ackedBy: sql.placeholder('ackedBy') })
-    .where(and(eq(t.messages.id, param(t.messages.id, 'id')), isNull(t.messages.ackedBy)))
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.id, param(t.messages.id, 'id')),
+        isNull(t.messages.ackedBy),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -1315,7 +1393,7 @@ const deliveredUnacked = prepared((db, t) =>
     .select()
     .from(t.messages)
     // The agent has it either way — pushed or pulled; both confirm.
-    .where(and(unackedRequest(t)))
+    .where(inWorkspace(t.messages, unackedRequest(t)))
     .orderBy(...DELIVERY_ORDER(t))
     .prepare(),
 )
@@ -1326,13 +1404,20 @@ const settleNotifiable = prepared((db, t) => {
     .select()
     .from(t.messages)
     .where(
-      and(
+      inWorkspace(
+        t.messages,
         unackedRequest(t),
         notExists(
           db
             .select({ one: sql`1` })
             .from(notice)
-            .where(and(eq(notice.kind, 'notification'), eq(notice.inReplyTo, t.messages.id))),
+            .where(
+              and(
+                sameWorkspace(notice, t.messages),
+                eq(notice.kind, 'notification'),
+                eq(notice.inReplyTo, t.messages.id),
+              ),
+            ),
         ),
       ),
     )
@@ -1344,7 +1429,13 @@ const stampRemindedOnce = prepared((db, t) =>
   db
     .update(t.messages)
     .set({ remindedAt: sql.placeholder('at') })
-    .where(and(eq(t.messages.id, param(t.messages.id, 'id')), isNull(t.messages.remindedAt)))
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.id, param(t.messages.id, 'id')),
+        isNull(t.messages.remindedAt),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -1357,15 +1448,15 @@ export class MessagesRepository {
    * This aggregate opens no span today, but both members are retained so adding
    * one later does not change constructor arity or the composition root.
    */
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** The chat feed's capture, run inside every write's transaction [POD-4764]. */
   private feedCapture: MessageFeedCapture | undefined
 
-  constructor(queries: StoreQueries) {
+  constructor(queries: WorkspaceQueries) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'messages')
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -1404,8 +1495,8 @@ export class MessagesRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Store a new message, ONCE PER ID (POD-4763). Every row starts `stored`:
@@ -1425,7 +1516,8 @@ export class MessagesRepository {
     if (m.toKind === 'operator' && m.toId !== null) {
       throw new Error(`message ${m.id} to the operator must carry no recipient id (got ${m.toId})`)
     }
-    const values: typeof messagesTable.$inferInsert = {
+    // The handle fills the workspace (POD-6959): a caller never names it.
+    const values: Omit<typeof messagesTable.$inferInsert, 'workspaceId'> = {
       id: m.id,
       threadId: m.threadId,
       inReplyTo: m.inReplyTo,
@@ -1826,7 +1918,7 @@ export class MessagesRepository {
     const key = `${opts.variant ?? 'plain'}|${to}`
     return await moveStatus({
       machine: MessageDelivery,
-      column: storeTables(this.db).messages.deliveryStatus,
+      column: storeTables(this.scope.drizzle).messages.deliveryStatus,
       to,
       write: async (guard) => {
         let statement = this.moveWrites.get(key)
@@ -1836,7 +1928,8 @@ export class MessagesRepository {
               .update(t.messages)
               .set({ ...spec.set?.(t), deliveryStatus: to })
               .where(
-                and(
+                inWorkspace(
+                  t.messages,
                   eq(t.messages.id, param(t.messages.id, 'id')),
                   guard,
                   ...(spec.where?.(t) ?? []),
@@ -1870,7 +1963,7 @@ export class MessagesRepository {
   }
 
   /** The prepared status writes, one per (variant, to); see {@link move}. */
-  private readonly moveWrites = new Map<string, (db: StoreDrizzle) => MoveWrite>()
+  private readonly moveWrites = new Map<string, (db: WorkspaceDb) => MoveWrite>()
 
   /** stored → dispatched: handed to `deliveredTo`'s delivery path (its durable
    *  queue, or a direct push toward its machine) without claiming the agent has

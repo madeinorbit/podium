@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Telegram conversation ↔ directly attached session (POD-6212) — which of the
  * bound user's own sessions a chat (or one forum topic of it) talks to, across
@@ -5,9 +6,14 @@
  */
 
 import type { SessionId, UserId } from '@podium/model'
-import { and, eq, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { eq, sql } from 'drizzle-orm'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 export interface MessagingSessionAttachmentRow {
   chatId: string
@@ -23,12 +29,23 @@ export interface MessagingSessionAttachmentRow {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
+/** The row's own columns: a read hands back no `workspace_id` (POD-6959). */
+const attachmentColumns = (t: StoreTables) => ({
+  chatId: t.messagingSessionAttachments.chatId,
+  threadRef: t.messagingSessionAttachments.threadRef,
+  userId: t.messagingSessionAttachments.userId,
+  sessionId: t.messagingSessionAttachments.sessionId,
+  attachedAt: t.messagingSessionAttachments.attachedAt,
+  relayedItemId: t.messagingSessionAttachments.relayedItemId,
+})
+
 const attachmentOfConversation = prepared((db, t) =>
   db
-    .select()
+    .select(attachmentColumns(t))
     .from(t.messagingSessionAttachments)
     .where(
-      and(
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
           t.messagingSessionAttachments.chatId,
           param(t.messagingSessionAttachments.chatId, 'chatId'),
@@ -44,12 +61,15 @@ const attachmentOfConversation = prepared((db, t) =>
 
 const attachmentsOfSession = prepared((db, t) =>
   db
-    .select()
+    .select(attachmentColumns(t))
     .from(t.messagingSessionAttachments)
     .where(
-      eq(
-        t.messagingSessionAttachments.sessionId,
-        param(t.messagingSessionAttachments.sessionId, 'sessionId'),
+      inWorkspace(
+        t.messagingSessionAttachments,
+        eq(
+          t.messagingSessionAttachments.sessionId,
+          param(t.messagingSessionAttachments.sessionId, 'sessionId'),
+        ),
       ),
     )
     .prepare(),
@@ -59,6 +79,7 @@ const upsertAttachment = prepared((db, t) =>
   db
     .insert(t.messagingSessionAttachments)
     .values({
+      workspaceId: WORKSPACE,
       chatId: sql.placeholder('chatId'),
       threadRef: sql.placeholder('threadRef'),
       userId: sql.placeholder('userId'),
@@ -82,7 +103,8 @@ const deleteAttachment = prepared((db, t) =>
   db
     .delete(t.messagingSessionAttachments)
     .where(
-      and(
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
           t.messagingSessionAttachments.chatId,
           param(t.messagingSessionAttachments.chatId, 'chatId'),
@@ -103,7 +125,8 @@ const markRelayed = prepared((db, t) =>
     .update(t.messagingSessionAttachments)
     .set({ relayedItemId: sql.placeholder('relayedItemId') })
     .where(
-      and(
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
           t.messagingSessionAttachments.chatId,
           param(t.messagingSessionAttachments.chatId, 'chatId'),
@@ -122,17 +145,17 @@ const markRelayed = prepared((db, t) =>
 )
 
 export class MessagingSessionAttachmentsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access [POD-3221 spec rule 34a]. */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async get(chatId: string, threadRef: string): Promise<MessagingSessionAttachmentRow | undefined> {

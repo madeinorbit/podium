@@ -23,8 +23,9 @@
 
 import type { IssueId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { NotificationFactsRepository } from './notification-facts'
 
 let facts: NotificationFactsRepository
@@ -45,7 +46,9 @@ const claim = async (over: Partial<Parameters<NotificationFactsRepository['claim
   })
 
 beforeEach(() => {
-  facts = new NotificationFactsRepository(syncQueriesOver(openMigratedTestDatabase()))
+  facts = new NotificationFactsRepository(
+    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('NotificationFactsRepository.claim', () => {

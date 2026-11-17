@@ -6,9 +6,10 @@
 
 import { asSessionId, asUserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { expectConstantStatements } from '../test-support/statement-count'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import {
   type MessagingSessionAttachmentRow,
   MessagingSessionAttachmentsRepository,
@@ -30,7 +31,9 @@ const row = (over: Partial<MessagingSessionAttachmentRow> = {}): MessagingSessio
 })
 
 beforeEach(() => {
-  attachments = new MessagingSessionAttachmentsRepository(syncQueriesOver(openMigratedTestDatabase()))
+  attachments = new MessagingSessionAttachmentsRepository(
+    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('MessagingSessionAttachmentsRepository', () => {
@@ -87,7 +90,9 @@ describe('MessagingSessionAttachmentsRepository', () => {
         name: 'messaging session attachment reads',
         setup: async (size) => {
           const db = openMigratedTestDatabase()
-          const repo = new MessagingSessionAttachmentsRepository(syncQueriesOver(db))
+          const repo = new MessagingSessionAttachmentsRepository(
+            legacyWorkspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
+          )
           for (let i = 0; i < size; i += 1) {
             await repo.upsert(row({ chatId: `chat-${i}`, sessionId: asSessionId(`other-${i}`) }))
           }

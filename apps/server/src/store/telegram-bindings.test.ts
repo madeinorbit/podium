@@ -15,8 +15,10 @@ import type { TelegramChatBinding } from '@podium/model'
 import { asUserId, resolveTelegramPrincipal } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { TelegramBindingsRepository } from './telegram-bindings'
 
 const ALICE = asUserId('user:alice')
@@ -31,7 +33,9 @@ beforeEach(() => {
   // directly rather than through `SessionStore` because these tests must plant
   // rows the repository would never write.
   db = openMigratedTestDatabase()
-  bindings = new TelegramBindingsRepository(stageASeam(db))
+  bindings = new TelegramBindingsRepository(
+    legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 const binding = (

@@ -10,9 +10,10 @@
 import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { NotificationFactsRepository } from './notification-facts'
 import { prefixUpperBound } from './prefix-range'
 
@@ -35,7 +36,9 @@ describe('NotificationFactsRepository.retireFactKeyPrefix', () => {
   let facts: NotificationFactsRepository
 
   beforeEach(() => {
-    facts = new NotificationFactsRepository(syncQueriesOver(openMigratedTestDatabase()))
+    facts = new NotificationFactsRepository(
+      legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
   })
 
   const claim = async (factKey: string) =>

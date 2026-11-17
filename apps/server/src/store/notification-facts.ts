@@ -1,12 +1,13 @@
+// workspace-scoped (POD-6959)
 import type { IssueId } from '@podium/model'
 import { and, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
@@ -32,6 +33,7 @@ const claimFact = prepared((db, t) =>
   db
     .insert(t.notificationFacts)
     .values({
+      workspaceId: WORKSPACE,
       factKey: sql.placeholder('factKey'),
       target: sql.placeholder('target'),
       source: sql.placeholder('source'),
@@ -73,7 +75,8 @@ const activeFact = prepared((db, t) =>
     .select({ one: sql<number>`1` })
     .from(t.notificationFacts)
     .where(
-      and(
+      inWorkspace(
+        t.notificationFacts,
         factKeyIs(t),
         targetIs(t),
         isNull(t.notificationFacts.consumedAt),
@@ -90,7 +93,14 @@ const retireFact = prepared((db, t) =>
   db
     .update(t.notificationFacts)
     .set({ consumedAt: sql.placeholder('consumedAt') })
-    .where(and(factKeyIs(t), targetIs(t), isNull(t.notificationFacts.consumedAt)))
+    .where(
+      inWorkspace(
+        t.notificationFacts,
+        factKeyIs(t),
+        targetIs(t),
+        isNull(t.notificationFacts.consumedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -98,7 +108,7 @@ const retireFactsOfKey = prepared((db, t) =>
   db
     .update(t.notificationFacts)
     .set({ consumedAt: sql.placeholder('consumedAt') })
-    .where(and(factKeyIs(t), isNull(t.notificationFacts.consumedAt)))
+    .where(inWorkspace(t.notificationFacts, factKeyIs(t), isNull(t.notificationFacts.consumedAt)))
     .prepare(),
 )
 
@@ -107,7 +117,8 @@ const retireFactsOfKeyPrefix = prepared((db, t) =>
     .update(t.notificationFacts)
     .set({ consumedAt: sql.placeholder('consumedAt') })
     .where(
-      and(
+      inWorkspace(
+        t.notificationFacts,
         gte(t.notificationFacts.factKey, param(t.notificationFacts.factKey, 'from')),
         lt(t.notificationFacts.factKey, param(t.notificationFacts.factKey, 'below')),
         isNull(t.notificationFacts.consumedAt),
@@ -119,7 +130,12 @@ const retireFactsOfKeyPrefix = prepared((db, t) =>
 const deleteFactsOfIssue = prepared((db, t) =>
   db
     .delete(t.notificationFacts)
-    .where(eq(t.notificationFacts.issueId, param(t.notificationFacts.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.notificationFacts,
+        eq(t.notificationFacts.issueId, param(t.notificationFacts.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -127,7 +143,8 @@ const deleteExpiredFacts = prepared((db, t) =>
   db
     .delete(t.notificationFacts)
     .where(
-      and(
+      inWorkspace(
+        t.notificationFacts,
         isNotNull(t.notificationFacts.expiresAt),
         lt(t.notificationFacts.expiresAt, param(t.notificationFacts.expiresAt, 'now')),
       ),
@@ -136,11 +153,11 @@ const deleteExpiredFacts = prepared((db, t) =>
 )
 
 export class NotificationFactsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -151,8 +168,8 @@ export class NotificationFactsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

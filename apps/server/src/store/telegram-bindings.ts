@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE TELEGRAM CHAT BINDING TABLE (POD-1080) — the persistence half of
  * `@podium/model`'s `TelegramChatBinding`, and the only thing an inbound message
@@ -33,8 +34,8 @@ import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { asc, eq, sql } from 'drizzle-orm'
 import type { telegramChatBindings } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /** The stored row, as drizzle's own execution path maps it back. */
 type BindingRow = typeof telegramChatBindings.$inferSelect
@@ -98,7 +99,12 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const bindingsByTime = prepared((db, t) =>
-  db.select().from(t.telegramChatBindings).orderBy(asc(t.telegramChatBindings.boundAt)).prepare(),
+  db
+    .select()
+    .from(t.telegramChatBindings)
+    .where(inWorkspace(t.telegramChatBindings))
+    .orderBy(asc(t.telegramChatBindings.boundAt))
+    .prepare(),
 )
 
 const bindingPlaceholders = {
@@ -113,7 +119,7 @@ const bindingPlaceholders = {
 const upsertBinding = prepared((db, t) =>
   db
     .insert(t.telegramChatBindings)
-    .values(bindingPlaceholders)
+    .values({ workspaceId: WORKSPACE, ...bindingPlaceholders })
     .onConflictDoUpdate({ target: t.telegramChatBindings.chatId, set: bindingPlaceholders })
     .prepare(),
 )
@@ -121,30 +127,40 @@ const upsertBinding = prepared((db, t) =>
 const deleteBinding = prepared((db, t) =>
   db
     .delete(t.telegramChatBindings)
-    .where(eq(t.telegramChatBindings.chatId, param(t.telegramChatBindings.chatId, 'chatId')))
+    .where(
+      inWorkspace(
+        t.telegramChatBindings,
+        eq(t.telegramChatBindings.chatId, param(t.telegramChatBindings.chatId, 'chatId')),
+      ),
+    )
     .prepare(),
 )
 
 const deleteBindingsForUser = prepared((db, t) =>
   db
     .delete(t.telegramChatBindings)
-    .where(eq(t.telegramChatBindings.userId, param(t.telegramChatBindings.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.telegramChatBindings,
+        eq(t.telegramChatBindings.userId, param(t.telegramChatBindings.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
 export class TelegramBindingsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted
