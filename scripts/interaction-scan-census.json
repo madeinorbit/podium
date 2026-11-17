@@ -36306,26 +36306,6 @@
       "owner": "POD-2378"
     },
     {
-      "file": "apps/mobile/src/components/ComposerModelChip.tsx",
-      "holder": "ComposerModelChip/ComposerModelChip/configure/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "acbea1d77a403712c9c1db4d693cb005416c7146fad4087ac1bcf5cc4ba636c7",
-      "gate": [
-        "exit:then:a120c8686db91e926850bbeef82dd8fdd4a99fd4f14dc0305aae1c3a500ee3e7"
-      ],
-      "origin": [
-        "e5ad25cf8dede18115fdfa9ec962a756c669d54cd1a2952bed857af91558004c"
-      ],
-      "fingerprint": "e8ee433ceae765ff89756615539673a7f8c4264213a7f66a0b56d592b6c4c016",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-2380",
-      "trigger": "The operator picks a model or effort in the phone composer's model menu.",
-      "bound": "One sessions.configure answer per pick, turned into one caption sentence.",
-      "reason": "The callback reads the mutation's own answer, not pool state, and shows the shared configureResultNotice sentence in the composer caption for a few seconds.",
-      "guard": "session-model.test.ts covers configureResultNotice; the web chip renders the same sentence."
-    },
-    {
       "file": "packages/client-core/src/values/pulse.ts",
       "holder": "capacityView/hosts",
       "rule": "helper-consumer",
