@@ -119,7 +119,19 @@ export interface PlacementRef {
   kind: PlacementKind
 }
 
-export interface Placement extends PlacementRef {
+/** A placement as it is recorded: a home placement names the home it is. */
+export interface PlacementRecord extends PlacementRef {
+  /**
+   * The daemon's id of the home (`<credentialId>:<harness>`), for a `home`
+   * placement. It names another credential's id when a sign-in started for
+   * one credential signed in as an account another credential already holds
+   * (§10, review focus 5). Absent for a copied login file and for rows written
+   * before it was recorded, where the home is the credential's own.
+   */
+  homeId?: string
+}
+
+export interface Placement extends PlacementRecord {
   state: PlacementState
   createdAt: string
   removedAt: string | null
@@ -210,6 +222,7 @@ function toPlacement(r: typeof credentialPlacements.$inferSelect): Placement {
     credentialId: asCredentialId(r.credentialId),
     machineId: r.machineId,
     kind: toPlacementKind(r.kind),
+    ...(r.homeId ? { homeId: r.homeId } : {}),
     state: toPlacementState(r.state),
     createdAt: r.createdAt,
     removedAt: r.removedAt,
@@ -495,6 +508,7 @@ const upsertPlacement = prepared((db: StoreDrizzle) =>
       credentialId: sql.placeholder('credentialId'),
       machineId: sql.placeholder('machineId'),
       kind: sql.placeholder('kind'),
+      homeId: sql.placeholder('homeId'),
       state: 'present',
       createdAt: sql.placeholder('now'),
     })
@@ -504,7 +518,8 @@ const upsertPlacement = prepared((db: StoreDrizzle) =>
         credentialPlacements.machineId,
         credentialPlacements.kind,
       ],
-      set: { state: 'present', removedAt: null },
+      // A home recorded again names the home it is now; a copy keeps none.
+      set: { state: 'present', removedAt: null, homeId: sql`excluded."home_id"` },
     })
     .prepare(),
 )
@@ -939,8 +954,14 @@ export class CredentialsRepository {
     }
   }
 
-  async recordPlacement(ref: PlacementRef): Promise<void> {
-    await upsertPlacement(this.db).run({ ...ref, now: now() })
+  async recordPlacement(ref: PlacementRecord): Promise<void> {
+    await upsertPlacement(this.db).run({
+      credentialId: ref.credentialId,
+      machineId: ref.machineId,
+      kind: ref.kind,
+      homeId: ref.homeId ?? null,
+      now: now(),
+    })
   }
 
   async listPlacements(id: CredentialId): Promise<Placement[]> {
@@ -968,7 +989,9 @@ export class CredentialsRepository {
 
   async setPlacementState(ref: PlacementRef, state: PlacementState): Promise<void> {
     await setPlacement(this.db).run({
-      ...ref,
+      credentialId: ref.credentialId,
+      machineId: ref.machineId,
+      kind: ref.kind,
       state,
       removedAt: state === 'removed' ? now() : null,
     })

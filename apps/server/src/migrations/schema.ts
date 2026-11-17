@@ -3729,6 +3729,8 @@ export const credentialPlacements = sqliteTable(
     }).notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     kind: text().notNull(),
+    /** A home placement's daemon home id (`<credentialId>:<harness>`); null for a copy. */
+    homeId: text('home_id'),
     state: text().default('present').notNull(),
     createdAt: text('created_at').notNull(),
     removedAt: text('removed_at'),

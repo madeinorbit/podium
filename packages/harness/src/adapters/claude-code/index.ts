@@ -134,6 +134,7 @@ export const claudeCodeManifest: AgentManifest = {
     // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
     // is the real sign-in entry point [POD-1307].
     loginCommand: supported({ args: ['auth', 'login'] }),
+    signOutCommand: { args: ['auth', 'logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       claudeCredentials.identity(credentialFileReader(claudeCredentials, homeDir, env)),
     ),

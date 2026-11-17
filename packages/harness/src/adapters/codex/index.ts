@@ -256,7 +256,12 @@ export const codexManifest: AgentManifest = {
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
-    loginCommand: supported({ args: ['login'] }),
+    // `--device-auth`: the default sign-in starts a callback server on
+    // localhost:1455 of the machine Codex runs on, which a browser on another
+    // computer (the person's, looking at a Podium terminal) cannot reach. The
+    // device flow prints a link and a one-time code instead (POD-6893 S1).
+    loginCommand: supported({ args: ['login', '--device-auth'] }),
+    signOutCommand: { args: ['logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       codexCredentials.identity(credentialFileReader(codexCredentials, homeDir, env)),
     ),

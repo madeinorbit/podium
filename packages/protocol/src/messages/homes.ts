@@ -81,12 +81,18 @@ export type HomeEnsureResultMessage = z.infer<typeof HomeEnsureResultMessage>
  * Server → daemon: remove a Podium home. The daemon stops what runs in it
  * (the engines of its sessions, Codex's own app-server daemon) and deletes the
  * directory. `default` is refused: Podium never removes the harness's own
- * directory. The vendor's sign-out, where one exists, runs before this (Task 9).
+ * directory. With `signOut`, the vendor's sign-out runs in the home first.
  */
 export const HomeRemoveRequestMessage = z.object({
   type: z.literal('homeRemoveRequest'),
   requestId: z.string(),
   homeId: z.string(),
+  /**
+   * Run the harness's own sign-out in the home before deleting it (§8). The
+   * server sends it only while its sign-out switch is on (Task 9); a sign-out
+   * that fails does not keep the home.
+   */
+  signOut: z.boolean().optional(),
 })
 export type HomeRemoveRequestMessage = z.infer<typeof HomeRemoveRequestMessage>
 

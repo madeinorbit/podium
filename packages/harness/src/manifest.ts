@@ -354,6 +354,12 @@ export interface HarnessInventory {
    * reports `unknown`.
    */
   authStatusProbe?: HarnessAuthStatusProbe
+  /**
+   * The harness's own sign-out, run in a Podium home before the home is
+   * deleted (credential management §8 "cleanup"). Never run in the harness's
+   * own directory. Absent: the harness has no sign-out command.
+   */
+  signOutCommand?: { readonly args: readonly string[] }
 }
 
 /** What a harness says it authenticated with. Never a secret. */

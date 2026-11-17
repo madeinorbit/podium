@@ -159,11 +159,35 @@ describe('CredentialsRepository', () => {
       removedAt: expect.any(String),
     })
 
+    // A copied login file names no home.
+    expect((await s.credentials.listPlacements(c.id))[0]?.homeId).toBeUndefined()
+
     expect(await s.credentials.isMachineAllowed(c.id, MACHINE)).toBe(false)
     await s.credentials.allowMachine(c.id, MACHINE, OWNER)
     await s.credentials.allowMachine(c.id, MACHINE, OWNER)
     expect(await s.credentials.isMachineAllowed(c.id, MACHINE)).toBe(true)
     await s.credentials.disallowMachine(c.id, MACHINE)
     expect(await s.credentials.isMachineAllowed(c.id, MACHINE)).toBe(false)
+  })
+
+  it('a home placement records the home it is, and a second record names the newer one (Task 9)', async () => {
+    const s = await open()
+    const c = await s.credentials.insert({
+      ownerUserId: OWNER,
+      label: 'login',
+      type: 'anthropic.claude-login',
+    })
+    const ref = { credentialId: c.id, machineId: MACHINE, kind: 'home' as const }
+    await s.credentials.recordPlacement({ ...ref, homeId: 'cred_other:claude-code' })
+    expect(await s.credentials.listPlacements(c.id)).toEqual([
+      expect.objectContaining({ homeId: 'cred_other:claude-code', state: 'present' }),
+    ])
+    await s.credentials.setPlacementState(ref, 'removal-pending')
+    expect((await s.credentials.listPlacements(c.id))[0]?.homeId).toBe('cred_other:claude-code')
+    await s.credentials.recordPlacement({ ...ref, homeId: `${c.id}:claude-code` })
+    expect(await s.credentials.listPlacements(c.id)).toEqual([
+      expect.objectContaining({ homeId: `${c.id}:claude-code`, state: 'present' }),
+    ])
+    expect(await s.credentials.listPendingPlacementsOn(MACHINE)).toEqual([])
   })
 })

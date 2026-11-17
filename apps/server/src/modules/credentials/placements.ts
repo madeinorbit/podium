@@ -13,7 +13,7 @@
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import type { SessionStore } from '../../store'
-import type { CredentialRecord, PlacementKind, PlacementRef } from '../../store/credentials'
+import type { CredentialRecord, PlacementKind, PlacementRecord } from '../../store/credentials'
 
 const log = createLogger('server:credentials')
 
@@ -25,7 +25,14 @@ const log = createLogger('server:credentials')
 export interface PlacementTransport {
   isOnline(machineId: MachineId): boolean
   removers: Partial<
-    Record<PlacementKind, (machineId: MachineId, credential: CredentialRecord) => Promise<boolean>>
+    Record<
+      PlacementKind,
+      (
+        machineId: MachineId,
+        credential: CredentialRecord,
+        placement: PlacementRecord,
+      ) => Promise<boolean>
+    >
   >
 }
 
@@ -42,7 +49,7 @@ export class Placements {
   }
 
   /** Remove one placement now, or leave it `removal-pending` until its machine confirms. */
-  async removePlacement(placement: PlacementRef): Promise<'removed' | 'pending'> {
+  async removePlacement(placement: PlacementRecord): Promise<'removed' | 'pending'> {
     const credentials = this.deps.store.credentials
     if (await this.tryRemove(placement)) {
       await credentials.setPlacementState(placement, 'removed')
@@ -62,14 +69,14 @@ export class Placements {
     }
   }
 
-  private async tryRemove(placement: PlacementRef): Promise<boolean> {
+  private async tryRemove(placement: PlacementRecord): Promise<boolean> {
     const transport = this.transport
     const remover = transport?.removers[placement.kind]
     if (!transport || !remover || !transport.isOnline(placement.machineId)) return false
     const credential = await this.deps.store.credentials.get(placement.credentialId)
     if (!credential) return false
     try {
-      return await remover(placement.machineId, credential)
+      return await remover(placement.machineId, credential, placement)
     } catch (err) {
       log.warn('a machine did not confirm a credential removal; it stays pending', {
         err,

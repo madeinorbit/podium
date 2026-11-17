@@ -1322,12 +1322,18 @@ export class DaemonRpcService {
   async homeRemove(
     homeId: string,
     machineId: MachineId,
+    options: { signOut?: boolean } = {},
   ): Promise<Payload<HomeRemoveResultMessage>> {
     return await this.request(
       HOME_REMOVE,
       120_000,
       () => ({ ok: false, error: 'The machine did not answer in time.' }),
-      (requestId) => ({ type: 'homeRemoveRequest', requestId, homeId }),
+      (requestId) => ({
+        type: 'homeRemoveRequest',
+        requestId,
+        homeId,
+        ...(options.signOut ? { signOut: true } : {}),
+      }),
       machineId,
     )
   }

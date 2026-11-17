@@ -349,7 +349,9 @@ describe('agent manifest registry', () => {
     )
     expect(declared).toEqual({
       'claude-code': 'claude auth login',
-      codex: 'codex login',
+      // Device auth: the default flow calls back to localhost on the machine it
+      // runs on, which a browser on another computer cannot reach (POD-6893 S1).
+      codex: 'codex login --device-auth',
       grok: 'grok login',
       opencode: 'opencode auth login',
       // Cursor declares no native login; the UI tells the operator to run it by hand.

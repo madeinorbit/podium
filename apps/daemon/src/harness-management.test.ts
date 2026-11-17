@@ -108,7 +108,7 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
     // control/session.ts binds it to the login harness context's executable.
     it.each([
       { harness: 'claude-code', args: ['auth', 'login'] },
-      { harness: 'codex', args: ['login'] },
+      { harness: 'codex', args: ['login', '--device-auth'] },
       { harness: 'grok', args: ['login'] },
       { harness: 'opencode', args: ['auth', 'login'] },
     ])('returns the static $harness argv with no runtime', ({ harness, args }) => {

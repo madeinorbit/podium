@@ -22,6 +22,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { CredentialRemoveOutcome, HomeHarness } from '@podium/protocol'
 import { resolveManagementCredentialHome } from '../harness-management'
+import { signOutOfHome } from '../homes/sign-out'
 import type { ControlHandlers, DaemonContext } from './context'
 import { reportInventory } from './inventory'
 
@@ -75,6 +76,18 @@ export const homeHandlers: Pick<
         return
       }
       try {
+        // The vendor's sign-out first, when asked (Task 9). A failed one does
+        // not keep the home: deleting it still ends the login on this machine.
+        const home = msg.signOut ? ctx.homes.get(msg.homeId) : undefined
+        if (home) {
+          const signedOut = await signOutOfHome(ctx, home)
+          if (!signedOut.ok) {
+            log.warn('the sign-out in a home failed; removing the home anyway', {
+              homeId: msg.homeId,
+              error: signedOut.error,
+            })
+          }
+        }
         const { removed, freedBytes } = await ctx.homes.remove(msg.homeId)
         ctx.send({
           type: 'homeRemoveResult',
