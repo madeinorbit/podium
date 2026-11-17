@@ -106,7 +106,9 @@ const advanceReceived = prepared((db, t) =>
         t.artifactUploads,
         eq(t.artifactUploads.issueId, param(t.artifactUploads.issueId, 'issueId')),
         eq(t.artifactUploads.uploadId, param(t.artifactUploads.uploadId, 'uploadId')),
-        eq(t.artifactUploads.receivedJson, param(t.artifactUploads.receivedJson, 'previous')),
+        // As text on both engines: Postgres's `json` has no equality (POD-6958 design
+        // 2.3, rule 7), and SQLite compares the text.
+        sql`CAST(${t.artifactUploads.receivedJson} AS TEXT) = ${param(t.artifactUploads.receivedJson, 'previous')}`,
       ),
     )
     .prepare(),

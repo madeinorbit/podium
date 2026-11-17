@@ -2,6 +2,7 @@
 import { asIssueId, IssueGitState, type IssueGitStateProjection } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import type { StoreTables, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -61,23 +62,28 @@ const pageOf = preparedFamily((db, t, phase: 'start' | 'after') =>
     .prepare(),
 )
 
-/** Only fact changes replace the observation time. A repeated probe writes nothing. */
+/**
+ * Only fact changes replace the observation time. A repeated probe writes nothing.
+ * The facts compare as text on both engines: Postgres's `json` has no equality, and
+ * SQLite compares the text (POD-6958 design 2.3, rule 7).
+ */
 const save = prepared((db, t) =>
-  db
-    .insert(t.issueGitStates)
-    .values({
-      workspaceId: WORKSPACE,
-      issueId: sql.placeholder('id'),
-      factsJson: sql.placeholder('facts'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: t.issueGitStates.issueId,
-      set: { factsJson: sql`excluded.facts_json`, updatedAt: sql`excluded.updated_at` },
-      setWhere: sql`${t.issueGitStates.factsJson} <> excluded.facts_json`,
-    })
-    .returning(columns(t))
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issueGitStates)
+      .values({
+        workspaceId: WORKSPACE,
+        issueId: sql.placeholder('id'),
+        factsJson: sql.placeholder('facts'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: t.issueGitStates.issueId,
+        set: { factsJson: sql`excluded.facts_json`, updatedAt: sql`excluded.updated_at` },
+        setWhere: sql`CAST(${t.issueGitStates.factsJson} AS TEXT) <> CAST(excluded.facts_json AS TEXT)`,
+      })
+      .returning(columns(t)),
+  ).prepare(),
 )
 
 function recordOf(row: { id: string; facts: string; updatedAt: string }): IssueGitStateProjection {

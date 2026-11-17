@@ -8,6 +8,7 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import type { WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -90,33 +91,35 @@ const todoNext = prepared((db, t) =>
     .prepare(),
 )
 const todoRemove = prepared((db, t) =>
-  db
-    .delete(t.issuePanelTodos)
-    .where(
-      inWorkspace(
-        t.issuePanelTodos,
-        eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
-        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issuePanelTodos)
+      .where(
+        inWorkspace(
+          t.issuePanelTodos,
+          eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
+          eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 const todoSave = prepared((db, t) =>
-  db
-    .insert(t.issuePanelTodos)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      issueId: sql.placeholder('issueId'),
-      position: sql.placeholder('position'),
-      text: sql.placeholder('text'),
-      done: sql.placeholder('done'),
-    })
-    .onConflictDoUpdate({
-      target: t.issuePanelTodos.id,
-      set: { text: sql`excluded.text`, done: sql`excluded.done` },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issuePanelTodos)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        issueId: sql.placeholder('issueId'),
+        position: sql.placeholder('position'),
+        text: sql.placeholder('text'),
+        done: sql.placeholder('done'),
+      })
+      .onConflictDoUpdate({
+        target: t.issuePanelTodos.id,
+        set: { text: sql`excluded.text`, done: sql`excluded.done` },
+      }),
+  ).prepare(),
 )
 
 const artifactByIds = preparedFamily((db, t, size: number) =>
@@ -188,33 +191,35 @@ const artifactNext = prepared((db, t) =>
     .prepare(),
 )
 const artifactRemove = prepared((db, t) =>
-  db
-    .delete(t.issuePanelArtifacts)
-    .where(
-      inWorkspace(
-        t.issuePanelArtifacts,
-        eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')),
-        eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issuePanelArtifacts)
+      .where(
+        inWorkspace(
+          t.issuePanelArtifacts,
+          eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')),
+          eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 const artifactSave = prepared((db, t) =>
-  db
-    .insert(t.issuePanelArtifacts)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      issueId: sql.placeholder('issueId'),
-      position: sql.placeholder('position'),
-      path: sql.placeholder('path'),
-      value: sql.placeholder('value'),
-    })
-    .onConflictDoUpdate({
-      target: t.issuePanelArtifacts.id,
-      set: { path: sql`excluded.path`, value: sql`excluded.value` },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issuePanelArtifacts)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        issueId: sql.placeholder('issueId'),
+        position: sql.placeholder('position'),
+        path: sql.placeholder('path'),
+        value: sql.placeholder('value'),
+      })
+      .onConflictDoUpdate({
+        target: t.issuePanelArtifacts.id,
+        set: { path: sql`excluded.path`, value: sql`excluded.value` },
+      }),
+  ).prepare(),
 )
 
 const deferredByIds = preparedFamily((db, t, size: number) =>
@@ -286,33 +291,35 @@ const deferredNext = prepared((db, t) =>
     .prepare(),
 )
 const deferredRemove = prepared((db, t) =>
-  db
-    .delete(t.issuePanelDeferred)
-    .where(
-      inWorkspace(
-        t.issuePanelDeferred,
-        eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')),
-        eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issuePanelDeferred)
+      .where(
+        inWorkspace(
+          t.issuePanelDeferred,
+          eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')),
+          eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 const deferredSave = prepared((db, t) =>
-  db
-    .insert(t.issuePanelDeferred)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      issueId: sql.placeholder('issueId'),
-      position: sql.placeholder('position'),
-      text: sql.placeholder('text'),
-      addedAt: sql.placeholder('addedAt'),
-    })
-    .onConflictDoUpdate({
-      target: t.issuePanelDeferred.id,
-      set: { text: sql`excluded.text`, addedAt: sql`excluded.added_at` },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issuePanelDeferred)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        issueId: sql.placeholder('issueId'),
+        position: sql.placeholder('position'),
+        text: sql.placeholder('text'),
+        addedAt: sql.placeholder('addedAt'),
+      })
+      .onConflictDoUpdate({
+        target: t.issuePanelDeferred.id,
+        set: { text: sql`excluded.text`, addedAt: sql`excluded.added_at` },
+      }),
+  ).prepare(),
 )
 
 const stateByIds = preparedFamily((db, t, size: number) =>
@@ -362,46 +369,49 @@ const statePage = preparedFamily((db, t, phase: 'start' | 'after') =>
     .prepare(),
 )
 const stateSave = prepared((db, t) =>
-  db
-    .insert(t.issuePanelStates)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      text: sql.placeholder('text'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: t.issuePanelStates.id,
-      set: { text: sql`excluded.text`, updatedAt: sql`excluded.updated_at` },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issuePanelStates)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        text: sql.placeholder('text'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: t.issuePanelStates.id,
+        set: { text: sql`excluded.text`, updatedAt: sql`excluded.updated_at` },
+      }),
+  ).prepare(),
 )
 
 const clearTodos = prepared((db, t) =>
-  db
-    .delete(t.issuePanelTodos)
-    .where(
-      inWorkspace(
-        t.issuePanelTodos,
-        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
-      ),
-    )
-    .returning({ id: t.issuePanelTodos.id })
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.issuePanelTodos)
+      .where(
+        inWorkspace(
+          t.issuePanelTodos,
+          eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+        ),
+      )
+      .returning({ id: t.issuePanelTodos.id }),
+  ).prepare(),
 )
 const toggleTodo = prepared((db, t) =>
-  db
-    .update(t.issuePanelTodos)
-    .set({ done: sql.placeholder('done') })
-    .where(
-      inWorkspace(
-        t.issuePanelTodos,
-        eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
-        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.issuePanelTodos)
+      .set({ done: sql.placeholder('done') })
+      .where(
+        inWorkspace(
+          t.issuePanelTodos,
+          eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
+          eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const todoExists = prepared((db, t) =>

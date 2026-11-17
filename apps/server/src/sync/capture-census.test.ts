@@ -90,9 +90,6 @@ function sqlOf(built: unknown, depth = 0): string[] {
  */
 const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly writes: number }> =
   new Map([
-    ['apps/server/src/store/issue-git-states.ts', { task: 'POD-6984', writes: 1 }],
-    ['apps/server/src/store/issue-panel.ts', { task: 'POD-6984', writes: 9 }],
-    ['apps/server/src/store/issues.ts', { task: 'POD-6984', writes: 16 }],
     ['apps/server/src/store/shipping.ts', { task: 'POD-6986', writes: 12 }],
     ['apps/server/src/store/agent-profiles.ts', { task: 'POD-6987', writes: 3 }],
     ['apps/server/src/store/checkouts.ts', { task: 'POD-6987', writes: 3 }],

@@ -133,10 +133,6 @@ function taskOfFile(file: string): string | undefined {
  */
 const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ['apps/server/src/store/agent-profiles.ts:profileByName', 'SQLite-only COLLATE NOCASE'],
-  [
-    'apps/server/src/store/artifact-uploads.ts:advanceReceived',
-    'json column received_json compared without CAST(… AS TEXT)',
-  ],
   ['apps/server/src/store/conversations/index.ts:createFtsDeleteTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsInsertTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsUpdateTrigger', 'SQLite-only rowid'],
@@ -186,29 +182,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'SQLite-only MATCH, SQLite-only rowid',
   ],
   ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
-  [
-    'apps/server/src/store/issue-git-states.ts:save',
-    'json column facts_json compared without CAST(… AS TEXT)',
-  ],
-  [
-    'apps/server/src/store/issue-listings.ts:issueCountGroups',
-    'SQLite-only char(), SQLite-only printf()',
-  ],
-  [
-    'apps/server/src/store/issue-listings.ts:issueListing',
-    'ORDER BY nullable column repo_id without NULLS FIRST/LAST, SQLite-only instr(), SQLite-only julianday()',
-  ],
-  ['apps/server/src/store/issues.ts:issuesUnderPathOutsideRepo', 'SQLite-only rowid'],
-  [
-    'apps/server/src/store/issues.ts:labelVocabulary',
-    'computed text (lower()) without COLLATE "C"',
-  ],
-  ['apps/server/src/store/issues.ts:labelsNamed', 'computed text (lower()) without COLLATE "C"'],
-  ['apps/server/src/store/issues.ts:liveWorktreesOnMachines', 'SQLite-only INDEXED BY'],
-  [
-    'apps/server/src/store/issues.ts:worktreeOwnersOf',
-    'computed text (lower()) without COLLATE "C"',
-  ],
   [
     'apps/server/src/store/machines.ts:recordHarnessVersionOf',
     'SQLite-only json_extract(), SQLite-only json_set(), SQLite-only two-argument MAX/MIN',

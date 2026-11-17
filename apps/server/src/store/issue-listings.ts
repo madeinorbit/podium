@@ -35,6 +35,8 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
+import type { StoreDialect } from './executor/binding'
+import { dialectOf } from './executor/dialect-prepared'
 import type { StoreTables } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -164,7 +166,18 @@ function parseListingKey(key: string): IssueListingShape {
   return shape
 }
 
-function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined {
+/**
+ * The two engines' forms of what differs (POD-6984, POD-6958 design 2.3): SQLite
+ * compares the text `updated_at` as an instant through `julianday`, Postgres compares
+ * and orders its `timestamptz` column directly; SQLite's `instr` is Postgres's
+ * `strpos`, over a lowered text kept in byte order (`COLLATE "C"`, rule 13), which
+ * also keeps Postgres's `lower()` to ASCII as SQLite's is.
+ */
+function listingWhere(
+  t: StoreTables,
+  shape: IssueListingShape,
+  dialect: StoreDialect,
+): SQL | undefined {
   // The boot load's structural quarantine (`structurallySound` in issues.ts):
   // a corrupt row counts in no listing, as it was in no map.
   const where: (SQL | undefined)[] = [
@@ -182,7 +195,11 @@ function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined
   if (shape.parents !== undefined) where.push(inListOf(t.issues.parentId, shape.parents, 'parent'))
   if (shape.ids !== undefined) where.push(inListOf(t.issues.id, shape.ids, 'id'))
   if (shape.updatedBefore)
-    where.push(sql`julianday(${t.issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
+    where.push(
+      dialect === 'pg'
+        ? sql`${t.issues.updatedAt} < ${sql.placeholder('before')}`
+        : sql`julianday(${t.issues.updatedAt}) < julianday(${sql.placeholder('before')})`,
+    )
   if (shape.completeParent) {
     const liveVisibleChild = (extra: SQL) =>
       sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child(t).workspaceId} = ${t.issues.workspaceId} AND ${child(t).parentId} = ${t.issues.id} AND ${child(t).deletedAt} IS NULL AND ${extra})`
@@ -207,18 +224,24 @@ function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined
     )
   }
   if (shape.text) {
+    const haystack = sql`${t.issues.title} || ' ' || ${t.issues.description} || ' ' || coalesce(${t.issues.brief}, '')`
     where.push(
-      sql`instr(lower(${t.issues.title} || ' ' || ${t.issues.description} || ' ' || coalesce(${t.issues.brief}, '')), ${sql.placeholder('text')}) > 0`,
+      dialect === 'pg'
+        ? sql`strpos(lower((${haystack}) COLLATE "C"), ${sql.placeholder('text')}) > 0`
+        : sql`instr(lower(${haystack}), ${sql.placeholder('text')}) > 0`,
     )
   }
   return inWorkspace(t.issues, ...where)
 }
 
-function listingOrder(t: StoreTables, shape: IssueListingShape) {
+function listingOrder(t: StoreTables, shape: IssueListingShape, dialect: StoreDialect) {
   switch (shape.order) {
-    // `list`: by repository, then sequence — the unique (repo_id, seq) index.
+    // `list`: by repository, then sequence — the unique (repo_id, seq) index. A
+    // row without a repository id comes first, where SQLite sorts NULL.
     case 'repo-seq':
-      return [asc(t.issues.repoId), asc(t.issues.seq)]
+      return dialect === 'pg'
+        ? [sql`${t.issues.repoId} asc nulls first`, asc(t.issues.seq)]
+        : [asc(t.issues.repoId), asc(t.issues.seq)]
     // Work queues: priority, then sequence; the repository path and id only
     // break ties between repositories, in the order the boot load read them.
     case 'priority-seq':
@@ -228,18 +251,23 @@ function listingOrder(t: StoreTables, shape: IssueListingShape) {
     case 'seq':
       return [asc(t.issues.seq), asc(t.issues.repoPath), asc(t.issues.id)]
     case 'updated':
-      return [sql`julianday(${t.issues.updatedAt})`, asc(t.issues.repoPath), asc(t.issues.seq)]
+      return [
+        dialect === 'pg' ? asc(t.issues.updatedAt) : sql`julianday(${t.issues.updatedAt})`,
+        asc(t.issues.repoPath),
+        asc(t.issues.seq),
+      ]
   }
 }
 
 /** Full issue rows for one listing shape. */
 export const issueListing = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
+  const dialect = dialectOf(db)
   return db
     .select()
     .from(t.issues)
-    .where(listingWhere(t, shape))
-    .orderBy(...listingOrder(t, shape))
+    .where(listingWhere(t, shape, dialect))
+    .orderBy(...listingOrder(t, shape, dialect))
     .prepare()
 })
 
@@ -279,9 +307,12 @@ export function listingValues(
 /** Counted per (stage, priority, type, assignee) for `issues.count`, the
  *  assignee being the owner (POD-6287); the
  *  minimum (repo path, sequence) of each group keeps the boot map's order of
- *  first appearance. */
+ *  first appearance. `first` is only that order's key: the path, a separator
+ *  below every path character (SQLite's NUL; Postgres text cannot hold one, so
+ *  U+0001) and the zero-padded sequence, compared in byte order on both engines. */
 export const issueCountGroups = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
+  const dialect = dialectOf(db)
   return db
     .select({
       stage: t.issues.stage,
@@ -289,10 +320,13 @@ export const issueCountGroups = preparedFamily((db, t, key: string) => {
       type: t.issues.type,
       assignee: t.issues.ownerUserId,
       n: count(),
-      first: sql<string>`min(${t.issues.repoPath} || char(0) || printf('%020d', ${t.issues.seq}))`,
+      first:
+        dialect === 'pg'
+          ? sql<string>`min((${t.issues.repoPath} || chr(1) || lpad(${t.issues.seq}::text, 20, '0')) COLLATE "C")`
+          : sql<string>`min(${t.issues.repoPath} || char(0) || printf('%020d', ${t.issues.seq}))`,
     })
     .from(t.issues)
-    .where(listingWhere(t, shape))
+    .where(listingWhere(t, shape, dialect))
     .groupBy(t.issues.stage, t.issues.priority, t.issues.type, t.issues.ownerUserId)
     .prepare()
 })
@@ -309,7 +343,7 @@ export const issueStatTotals = preparedFamily((db, t, key: string) => {
       blocked: sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`,
     })
     .from(t.issues)
-    .where(listingWhere(t, shape))
+    .where(listingWhere(t, shape, dialectOf(db)))
     .prepare()
 })
 
@@ -324,7 +358,7 @@ export const deferralsOf = preparedFamily((db, t, key: string) => {
       ready: sql<number>`case when not ${closedOf(t.issues)} and ${inArray(t.issues.stage, [...READY_STAGES])} and not ${blockedOf(t, t.issues)} then 1 else 0 end`,
     })
     .from(t.issues)
-    .where(and(listingWhere(t, shape), isNotNull(t.issues.deferUntil)))
+    .where(and(listingWhere(t, shape, dialectOf(db)), isNotNull(t.issues.deferUntil)))
     .prepare()
 })
 

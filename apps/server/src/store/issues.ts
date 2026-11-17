@@ -45,9 +45,13 @@ import {
   notInArray,
   or,
   type Placeholder,
+  type SQL,
   sql,
 } from 'drizzle-orm'
+import { textColumnClass } from '../migrations/pg/schema-classes'
 import type { issues, issueTextRevisions, labels } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
@@ -258,8 +262,18 @@ export function folderOwnerKeys(cwd: string): { literal: string[]; folded: strin
   return { literal: [...literal], folded: [...folded] }
 }
 
-const foldedWorktreePath = (t: StoreTables) =>
-  sql`lower(replace(${t.issues.worktreePath}, '/', '\\'))`
+/**
+ * `lower(<text>)` in byte order on both engines. SQLite compares bytes; Postgres gives
+ * a computed text the database's collation unless it says `COLLATE "C"` (POD-6958
+ * design 2.3, rule 13). The collation goes outside `lower()`, so the expression stays
+ * the one the `lower(…)` indexes are built on, and `lower()` itself folds ASCII only,
+ * as SQLite's does, because its argument is a `COLLATE "C"` column.
+ */
+const loweredText = (db: StoreDrizzle, text: SQL): SQL =>
+  dialectOf(db) === 'pg' ? sql`lower(${text}) COLLATE "C"` : sql`lower(${text})`
+
+const foldedWorktreePath = (db: StoreDrizzle, t: StoreTables) =>
+  loweredText(db, sql`replace(${t.issues.worktreePath}, '/', '\\')`)
 
 /** Live issues at any of the candidate keys: one index search per arm, no
  *  sort (the caller orders the few rows). Both arms share one IN-list size, so
@@ -290,7 +304,7 @@ const worktreeOwnersOf = preparedFamily((db, t, size: number) => {
       inWorkspace(
         t.issues,
         inArray(
-          foldedWorktreePath(t),
+          foldedWorktreePath(db, t),
           Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`)),
         ),
         isNotNull(t.issues.worktreePath),
@@ -305,7 +319,8 @@ const worktreeOwnersOf = preparedFamily((db, t, size: number) => {
  * (POD-6291): the rows whose machine path changes hands with the machine's
  * custody. Walks `idx_issues_worktree`, the live worktrees only, named with
  * INDEXED BY for the reason `openChat` in `store/messages.ts` gives; read on a
- * custody change, never per request.
+ * custody change, never per request. Postgres has no index hints: its planner picks
+ * the partial index from the same predicate.
  */
 const liveWorktreesOnMachines = preparedFamily((db, t, size: number) =>
   db
@@ -315,7 +330,9 @@ const liveWorktreesOnMachines = preparedFamily((db, t, size: number) =>
       machineId: sql<string | null>`${sql.identifier('machine_id')}`,
       ownerUserId: sql<string>`${sql.identifier('owner_user_id')}`,
     })
-    .from(sql`${t.issues} INDEXED BY idx_issues_worktree`)
+    .from(
+      dialectOf(db) === 'pg' ? sql`${t.issues}` : sql`${t.issues} INDEXED BY idx_issues_worktree`,
+    )
     .where(
       inWorkspace(
         t.issues,
@@ -385,9 +402,10 @@ const issueSeqRows = prepared((db, t) =>
  * The path itself, or a path under it: the second arm is the range of paths
  * that start with `<path>/` (`under` .. `below`, see {@link prefixUpperBound}),
  * which idx_issues_repo seeks. The `/` is the PATH BOUNDARY: `/rootless` merely
- * shares a text prefix with `/root` and must not be swept in. The `rowid`
- * tie-break is load-bearing on equal `created_at`, and `rowid` is not a schema
- * column, so it stays a fragment.
+ * shares a text prefix with `/root` and must not be swept in. The tie-break on
+ * equal `created_at` is load-bearing (the first row keeps a colliding seq), so it
+ * is the primary key, on both engines: Postgres has no `rowid` (POD-6958 design
+ * 2.3; the order this replaced was SQLite's insertion order).
  */
 const issuesUnderPathOutsideRepo = prepared((db, t) =>
   db
@@ -406,7 +424,7 @@ const issuesUnderPathOutsideRepo = prepared((db, t) =>
         or(isNull(t.issues.repoId), ne(t.issues.repoId, param(t.issues.repoId, 'repoId'))),
       ),
     )
-    .orderBy(asc(t.issues.createdAt), sql`rowid asc`)
+    .orderBy(asc(t.issues.createdAt), asc(t.issues.id))
     .prepare(),
 )
 
@@ -597,10 +615,9 @@ const liveMachineById = prepared((db, t) =>
 )
 
 const insertLegacyWorktreeReceipt = preparedGlobal((db, t) =>
-  db
-    .insert(t.meta)
-    .values({ key: LEGACY_WORKTREE_MIGRATION, value: sql.placeholder('value') })
-    .prepare(),
+  captureWrite(
+    db.insert(t.meta).values({ key: LEGACY_WORKTREE_MIGRATION, value: sql.placeholder('value') }),
+  ).prepare(),
 )
 
 /**
@@ -652,7 +669,7 @@ const labelsNamed = preparedFamily((db, t, size: number) =>
       inWorkspace(
         t.labels,
         inArray(
-          sql`lower(${t.labels.name})`,
+          loweredText(db, sql`${t.labels.name}`),
           Array.from({ length: size }, (_, index) => sql.placeholder(`name${index}`)),
         ),
       ),
@@ -688,32 +705,34 @@ const labelVocabulary = prepared((db, t) =>
     .select()
     .from(t.labels)
     .where(inWorkspace(t.labels))
-    .orderBy(asc(sql`lower(${t.labels.name})`))
+    .orderBy(asc(loweredText(db, sql`${t.labels.name}`)))
     .prepare(),
 )
 
 const deleteLabelsOf = prepared((db, t) =>
-  db
-    .delete(t.issueLabels)
-    .where(
-      inWorkspace(
-        t.issueLabels,
-        eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issueLabels)
+      .where(
+        inWorkspace(
+          t.issueLabels,
+          eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const insertLabel = prepared((db, t) =>
-  db
-    .insert(t.issueLabels)
-    .values({
-      workspaceId: WORKSPACE,
-      issueId: sql.placeholder('issueId'),
-      labelId: sql.placeholder('labelId'),
-    })
-    .onConflictDoNothing()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issueLabels)
+      .values({
+        workspaceId: WORKSPACE,
+        issueId: sql.placeholder('issueId'),
+        labelId: sql.placeholder('labelId'),
+      })
+      .onConflictDoNothing(),
+  ).prepare(),
 )
 
 const labelsOf = prepared((db, t) =>
@@ -744,43 +763,46 @@ const issuesOfLabels = preparedFamily((db, t, size: number) =>
 )
 
 const insertDep = prepared((db, t) =>
-  db
-    .insert(t.issueDeps)
-    .values({
-      workspaceId: WORKSPACE,
-      fromId: sql.placeholder('fromId'),
-      toId: sql.placeholder('toId'),
-      type: sql.placeholder('type'),
-    })
-    .onConflictDoNothing()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.issueDeps)
+      .values({
+        workspaceId: WORKSPACE,
+        fromId: sql.placeholder('fromId'),
+        toId: sql.placeholder('toId'),
+        type: sql.placeholder('type'),
+      })
+      .onConflictDoNothing(),
+  ).prepare(),
 )
 
 const deleteDepOfType = prepared((db, t) =>
-  db
-    .delete(t.issueDeps)
-    .where(
-      inWorkspace(
-        t.issueDeps,
-        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
-        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
-        eq(t.issueDeps.type, param(t.issueDeps.type, 'type')),
+  captureWrite(
+    db
+      .delete(t.issueDeps)
+      .where(
+        inWorkspace(
+          t.issueDeps,
+          eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
+          eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
+          eq(t.issueDeps.type, param(t.issueDeps.type, 'type')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteDepsBetween = prepared((db, t) =>
-  db
-    .delete(t.issueDeps)
-    .where(
-      inWorkspace(
-        t.issueDeps,
-        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
-        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
+  captureWrite(
+    db
+      .delete(t.issueDeps)
+      .where(
+        inWorkspace(
+          t.issueDeps,
+          eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
+          eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const depsFrom = prepared((db, t) =>
@@ -977,7 +999,11 @@ const commentSearch = preparedFamily((db, t, limited: 'all' | 'limited') => {
     .where(
       inWorkspace(
         t.issueComments,
-        sql`${t.issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`,
+        // SQLite's LIKE folds ASCII case; Postgres's ILIKE over a `COLLATE "C"`
+        // column folds ASCII only, which is the same match.
+        dialectOf(db) === 'pg'
+          ? sql`${t.issueComments.body} ILIKE ${sql.placeholder('pattern')} ESCAPE '\\'`
+          : sql`${t.issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`,
       ),
     )
     .orderBy(desc(t.issueComments.createdAt))
@@ -1154,56 +1180,59 @@ const issueUserStateOne = prepared((db, t) =>
 )
 
 const deleteIssueUserStateOne = prepared((db, t) =>
-  db
-    .delete(t.issueUserState)
-    .where(
-      inWorkspace(
-        t.issueUserState,
-        eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
-        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issueUserState)
+      .where(
+        inWorkspace(
+          t.issueUserState,
+          eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
+          eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const upsertIssueUserState = prepared((db, t) =>
-  db
-    .insert(t.issueUserState)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: sql.placeholder('userId'),
-      issueId: sql.placeholder('issueId'),
-      readAt: sql.placeholder('readAt'),
-      tuckedAt: sql.placeholder('tuckedAt'),
-      joinedAt: sql.placeholder('joinedAt'),
-      joinedVia: sql.placeholder('joinedVia'),
-      assignedAt: sql.placeholder('assignedAt'),
-      assignedBy: sql.placeholder('assignedBy'),
-    })
-    .onConflictDoUpdate({
-      target: [t.issueUserState.userId, t.issueUserState.issueId],
-      set: {
+  captureWrite(
+    db
+      .insert(t.issueUserState)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        issueId: sql.placeholder('issueId'),
         readAt: sql.placeholder('readAt'),
         tuckedAt: sql.placeholder('tuckedAt'),
         joinedAt: sql.placeholder('joinedAt'),
         joinedVia: sql.placeholder('joinedVia'),
         assignedAt: sql.placeholder('assignedAt'),
         assignedBy: sql.placeholder('assignedBy'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [t.issueUserState.userId, t.issueUserState.issueId],
+        set: {
+          readAt: sql.placeholder('readAt'),
+          tuckedAt: sql.placeholder('tuckedAt'),
+          joinedAt: sql.placeholder('joinedAt'),
+          joinedVia: sql.placeholder('joinedVia'),
+          assignedAt: sql.placeholder('assignedAt'),
+          assignedBy: sql.placeholder('assignedBy'),
+        },
+      }),
+  ).prepare(),
 )
 
 const deleteIssueUserStateOf = prepared((db, t) =>
-  db
-    .delete(t.issueUserState)
-    .where(
-      inWorkspace(
-        t.issueUserState,
-        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issueUserState)
+      .where(
+        inWorkspace(
+          t.issueUserState,
+          eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 /** Single UPDATE guarded on status, so there is no read-then-write race. */
@@ -1238,18 +1267,19 @@ const deleteMessagesOf = prepared((db, t) =>
 )
 
 const deleteDepsTouching = prepared((db, t) =>
-  db
-    .delete(t.issueDeps)
-    .where(
-      inWorkspace(
-        t.issueDeps,
-        or(
-          eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'issueId')),
-          eq(t.issueDeps.toId, param(t.issueDeps.toId, 'issueId')),
+  captureWrite(
+    db
+      .delete(t.issueDeps)
+      .where(
+        inWorkspace(
+          t.issueDeps,
+          or(
+            eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'issueId')),
+            eq(t.issueDeps.toId, param(t.issueDeps.toId, 'issueId')),
+          ),
         ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteCommentsOf = prepared((db, t) =>
@@ -1819,26 +1849,35 @@ export class IssuesRepository {
       }
       // Compare the columns this statement sets, including optional ownership
       // reassignment and updatedAt (activity for recency and unread). Separate
-      // issue panel records are compared by their own builders.
+      // issue panel records are compared by their own builders. SQLite's
+      // `IS NOT` between two values is Postgres's `IS DISTINCT FROM`, and a
+      // `json` column compares as its text there, as SQLite compares it
+      // (POD-6958 design 2.3, rule 7).
+      const pg = dialectOf(db) === 'pg'
       const changed = Object.keys(set)
         .filter((column) => column !== 'revision')
         .map((column) => {
           const stored = t.issues[column as keyof typeof issues.$inferInsert]
-          return sql`${stored} IS NOT excluded.${sql.identifier(stored.name)}`
+          const proposed = sql`excluded.${sql.identifier(stored.name)}`
+          if (!pg) return sql`${stored} IS NOT ${proposed}`
+          return textColumnClass('issues', stored.name) === 'json'
+            ? sql`CAST(${stored} AS TEXT) IS DISTINCT FROM CAST(${proposed} AS TEXT)`
+            : sql`${stored} IS DISTINCT FROM ${proposed}`
         })
-      return db
-        .insert(t.issues)
-        .values({
-          ...placeholders,
-          workspaceId: WORKSPACE,
-        } as unknown as typeof issues.$inferInsert)
-        .onConflictDoUpdate({
-          target: t.issues.id,
-          set: set as unknown as Partial<typeof issues.$inferInsert>,
-          setWhere: sql.join(changed, sql` OR `),
-        })
-        .returning()
-        .prepare()
+      return captureWrite(
+        db
+          .insert(t.issues)
+          .values({
+            ...placeholders,
+            workspaceId: WORKSPACE,
+          } as unknown as typeof issues.$inferInsert)
+          .onConflictDoUpdate({
+            target: t.issues.id,
+            set: set as unknown as Partial<typeof issues.$inferInsert>,
+            setWhere: sql.join(changed, sql` OR `),
+          })
+          .returning(),
+      ).prepare()
     }))
     const written = await this.writeRows(
       async () =>
@@ -1878,23 +1917,24 @@ export class IssuesRepository {
     // stored value, so the expression references the column rather than a bound
     // parameter.
     const transition = (this.issueWrites.shippingStage ??= prepared((db, t) =>
-      db
-        .update(t.issues)
-        .set({
-          stage: sql.placeholder('nextStage'),
-          updatedAt: sql.placeholder('updatedAt'),
-          revision: sql`COALESCE(${t.issues.revision}, 0) + 1`,
-        })
-        .where(
-          inWorkspace(
-            t.issues,
-            eq(t.issues.id, param(t.issues.id, 'id')),
-            eq(t.issues.stage, param(t.issues.stage, 'expectedStage')),
-            isNull(t.issues.deletedAt),
-          ),
-        )
-        .returning()
-        .prepare(),
+      captureWrite(
+        db
+          .update(t.issues)
+          .set({
+            stage: sql.placeholder('nextStage'),
+            updatedAt: sql.placeholder('updatedAt'),
+            revision: sql`COALESCE(${t.issues.revision}, 0) + 1`,
+          })
+          .where(
+            inWorkspace(
+              t.issues,
+              eq(t.issues.id, param(t.issues.id, 'id')),
+              eq(t.issues.stage, param(t.issues.stage, 'expectedStage')),
+              isNull(t.issues.deletedAt),
+            ),
+          )
+          .returning(),
+      ).prepare(),
     ))
     const result = await this.writeRows(
       async () => await transition(this.db).all({ id, expectedStage, nextStage, updatedAt }),
@@ -2485,11 +2525,12 @@ export class IssuesRepository {
     await deleteRefLettersOf(this.db).run({ issueId: asIssueId(id) })
     await this.invalidateRowCache()
     const remove = (this.issueWrites.remove ??= prepared((db, t) =>
-      db
-        .delete(t.issues)
-        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
-        .returning()
-        .prepare(),
+      captureWrite(
+        db
+          .delete(t.issues)
+          .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
+          .returning(),
+      ).prepare(),
     ))
     await this.writeRows(async () => await remove(this.db).all({ id: asIssueId(id) }), 'delete', [
       asIssueId(id),
@@ -2568,12 +2609,13 @@ export class IssuesRepository {
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
     const setSeq = (this.issueWrites.seq ??= prepared((db, t) =>
-      db
-        .update(t.issues)
-        .set({ seq: sql.placeholder('seq') })
-        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
-        .returning()
-        .prepare(),
+      captureWrite(
+        db
+          .update(t.issues)
+          .set({ seq: sql.placeholder('seq') })
+          .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
+          .returning(),
+      ).prepare(),
     ))
     await this.createOrJoinTransaction(async () => {
       for (const u of updates) {
@@ -2608,12 +2650,13 @@ export class IssuesRepository {
     const taken = async (seq: number) => await issueIdAtSeq(this.db).get({ repoId, seq })
     await this.invalidateRowCache()
     const setRepoIdAndSeq = (this.issueWrites.repoIdAndSeq ??= prepared((db, t) =>
-      db
-        .update(t.issues)
-        .set({ repoId: sql.placeholder('repoId'), seq: sql.placeholder('seq') })
-        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
-        .returning()
-        .prepare(),
+      captureWrite(
+        db
+          .update(t.issues)
+          .set({ repoId: sql.placeholder('repoId'), seq: sql.placeholder('seq') })
+          .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
+          .returning(),
+      ).prepare(),
     ))
     await this.createOrJoinTransaction(async () => {
       for (const r of rows) {
@@ -2685,12 +2728,13 @@ export class IssuesRepository {
       await this.invalidateRowCache()
       const backfill = (this.issueWrites.legacyMachine ??= prepared((db, t) => {
         const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
-        return db
-          .update(t.issues)
-          .set({ machineId: sql.placeholder('hostMachineId') })
-          .where(inWorkspace(t.issues, legacyWorktreeRow, not(contradictorySession)))
-          .returning()
-          .prepare()
+        return captureWrite(
+          db
+            .update(t.issues)
+            .set({ machineId: sql.placeholder('hostMachineId') })
+            .where(inWorkspace(t.issues, legacyWorktreeRow, not(contradictorySession)))
+            .returning(),
+        ).prepare()
       }))
       const backfilled = Number(
         (await this.writeRows(async () => await backfill(this.db).all({ hostMachineId }), 'upsert'))

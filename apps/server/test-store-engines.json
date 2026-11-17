@@ -311,8 +311,6 @@
     "apps/server/src/store/grants-read-parity.test.ts",
     "apps/server/src/store/grants.test.ts",
     "apps/server/src/store/index-friendly-shapes.test.ts",
-    "apps/server/src/store/issue-storage.test.ts",
-    "apps/server/src/store/issues-golden.test.ts",
     "apps/server/src/store/json-column-corruption-oracle.test.ts",
     "apps/server/src/store/machines-sentinel-scan.test.ts",
     "apps/server/src/store/machines.build.test.ts",
