@@ -11,6 +11,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { harnessTerminalDriverId } from '@podium/harness'
 import { harnessAccepts } from '@podium/harness/metadata'
 import {
   type AgentKind,
@@ -35,6 +36,7 @@ import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
+import type { ChatgptTokenSet } from '../credentials/chatgpt-plan/openai'
 import { connectThrough } from '../credentials/legacy-accounts'
 import { CREDENTIAL_RESOURCE_KIND, mayUse } from '../credentials/may-use'
 import { sealCredentialSecret } from '../credentials/vault'
@@ -284,6 +286,64 @@ describe('a new session', () => {
     const frame = spawns(daemon).at(-1)
     expect(frame?.agentKind).toBe('shell')
     expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
+  })
+})
+
+describe('a ChatGPT plan signed in to Podium (epic Task 15, acceptance 2)', () => {
+  /** Obviously fake: the access token inside the sealed token set. */
+  const PLAN_TOKEN = 'tok-FAKE-plan-launch-access-0015'
+
+  async function planCredential(store: SessionStore): Promise<CredentialId> {
+    const set: ChatgptTokenSet = {
+      seq: 1,
+      clientId: 'oaiapp_FAKE_client',
+      accessToken: PLAN_TOKEN,
+      refreshToken: 'rt.FAKE-refresh',
+      idToken: 'FAKE.id.token',
+      // Two hours left: no renewal is needed for a session start.
+      expiresAt: Date.now() + 2 * 3600_000,
+      scopes: ['chatgpt.tokens.use.direct'],
+      savedAt: Date.now(),
+    }
+    return await credential(store, { type: 'openai.chatgpt-plan', secret: JSON.stringify(set) })
+  }
+
+  it('a launch naming the plan and no driver runs on the Codex server driver, with the token', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await planCredential(store)
+    const { reg, daemon } = await makeRegistry(store)
+    const spawned = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/p',
+      credentialId: id,
+    })
+    const frame = spawns(daemon).at(-1)
+    expect(frame?.requestedDriverId).toBe('codex-app-server')
+    // The keeper's access token, not the sealed token set.
+    expect(delivered(frame)).toEqual({ ACCESS_TOKEN: PLAN_TOKEN })
+    expect((await store.sessions.getSession(spawned.sessionId))?.requestedDriverId).toBe(
+      'codex-app-server',
+    )
+  })
+
+  it('the plan on the Codex terminal driver is refused with wrong-type; nothing is sent', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await planCredential(store)
+    const { reg, daemon } = await makeRegistry(store)
+    const terminal = harnessTerminalDriverId('codex')
+    expect(terminal).toBeDefined()
+    const refused = await reg.modules.sessions
+      .createSession({
+        agentKind: 'codex',
+        cwd: '/p',
+        credentialId: id,
+        ...(terminal ? { requestedDriverId: terminal } : {}),
+      })
+      .catch((err: unknown) => err)
+    expect(refused).toBeInstanceOf(CredentialRefusal)
+    expect(refused).toMatchObject({ refusal: 'wrong-type' })
+    expect(spawns(daemon)).toEqual([])
+    expect(JSON.stringify(daemon)).not.toContain(PLAN_TOKEN)
   })
 })
 

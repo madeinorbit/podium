@@ -15,6 +15,7 @@ import {
   type MachineId,
   type UserId,
 } from '@podium/model'
+import { harnessTerminalDriverId } from '@podium/harness'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -180,6 +181,17 @@ describe('resolveSessionAccess', () => {
       name: 'wrong-type (a line limited to another driver)',
       setup: async (s) => ({
         harness: 'codex',
+        credentialId: await vaultCredential(s, 'openai.chatgpt-plan'),
+        actingUserId: OWNER,
+        machineId: OWN_MACHINE,
+      }),
+      expected: refused('wrong-type'),
+    },
+    {
+      name: 'wrong-type (the plan on the Codex terminal driver, Task 15 acceptance 2)',
+      setup: async (s) => ({
+        harness: 'codex',
+        driverId: harnessTerminalDriverId('codex') ?? 'no-codex-terminal-driver',
         credentialId: await vaultCredential(s, 'openai.chatgpt-plan'),
         actingUserId: OWNER,
         machineId: OWN_MACHINE,

@@ -16,8 +16,8 @@ import {
 } from '@podium/model'
 import { credentialEnv } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
+import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
 import { declaredValue } from './manifest.js'
 import { harnessAccepts, harnessHideFromCommands } from './metadata.js'
@@ -207,7 +207,10 @@ describe('accepts on the descriptor wire', () => {
     for (const set of [served, buildBundledDescriptors(), [...BUNDLED_DESCRIPTORS]]) {
       expect(set.length).toBe(Object.keys(AGENT_MANIFESTS).length)
       for (const descriptor of set) {
-        expect(descriptor.accepts, descriptor.kind).toEqual(harnessAccepts(descriptor.kind))
+        // The wire carries every line, without the start arguments: those are
+        // read by the daemon off its own manifest.
+        const wire = harnessAccepts(descriptor.kind).map(({ startArgs: _local, ...line }) => line)
+        expect(descriptor.accepts, descriptor.kind).toEqual(wire)
       }
     }
     // Not vacuous: some descriptor carries a line.
