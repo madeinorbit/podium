@@ -4,17 +4,20 @@
  * Two workspaces over one database of the run's engine (`openMessageStoreSlices`), each seeded through its own
  * repositories with its own sessions, messages, read receipts, wake cooldowns, chat topics,
  * chat attachments, Telegram bindings and notification facts.
- * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
- * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
- * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
- * both are marked below, and the rest of the conversion is POD-7025's.
+ * Both workspaces hold the SAME ids and natural keys (POD-7025): the same sessions, messages,
+ * issues, chat, thread, cooldown key, fact keys and people. Every key leads with workspace_id
+ * (POD-7024), so the same id is two rows, told apart only by the workspace. The content
+ * differs (message bodies, timestamps, which message a session read, the superagent thread,
+ * a fact's source), so a read that crossed over would answer the other workspace's content.
+ * Where a case needs an id the other workspace does not hold, it plants one only the other
+ * holds (`only-<tag>…`).
  *
  * For every repository method of the group (messages, messaging topics, messaging session
  * attachments, Telegram bindings, notification facts):
  *   - a read answers only its own workspace's rows, including the reads no id narrows (the
  *     operator's mail, the queue, the chat feed, every binding, the expired facts);
- *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
- *     a write in A addressed at B's own ids, which must find nothing to change.
+ *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, both for
+ *     the ids the two share and for ids only the other holds, which must find nothing to change.
  */
 
 import {
@@ -23,8 +26,6 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  type IssueId,
-  type SessionId,
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -38,22 +39,30 @@ import type { MessageRow, SessionRow } from './types'
 
 type Tag = 'a' | 'b'
 const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
-const AT = '2026-11-17T10:00:00.000Z'
+/** Each workspace's own timestamp: content, not a key. */
+const AT_OF: Record<Tag, string> = { a: '2026-11-17T10:00:00.000Z', b: '2026-11-17T10:30:00.000Z' }
+const AT = AT_OF.a
 const NOW = '2026-11-17T12:00:00.000Z'
 const EARLIER = '2026-11-01T00:00:00.000Z'
 const LATER = '2099-01-01T00:00:00.000Z'
 const scope = fixtureWriteScope()
 
 const otherOf = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
-const alice = (tag: Tag): UserId => asUserId(`user:${tag}-alice`)
-const sid = (tag: Tag, n: number): SessionId => asSessionId(`${tag}-s${n}`)
-const iss = (tag: Tag, n: number): IssueId => asIssueId(`${tag}-iss-${n}`)
-const mid = (tag: Tag, n: number): string => `${tag}-m${n}`
-const item = (tag: Tag): string => `${tag}-item`
-const chat = (tag: Tag): string => `${tag}-chat`
-const cooldown = (tag: Tag): string => `${tag}-key`
-const fact = (tag: Tag, n: number): string => `fact:${tag}:${n}`
-const target = (tag: Tag): string => `${tag}-target`
+// The same ids and natural keys in both workspaces.
+const ALICE: UserId = asUserId('user:alice')
+const sid = (n: number) => asSessionId(`s${n}`)
+const iss = (n: number) => asIssueId(`iss-${n}`)
+/** A message id; `prefix` makes the ids a plant only one workspace holds. */
+const mid = (n: number, prefix = ''): string => `${prefix}m${n}`
+const ITEM = 'item-1'
+const CHAT = 'chat-1'
+const THREAD = 'thread-1'
+const COOLDOWN = 'key-1'
+const fact = (n: number): string => `fact:${n}`
+const TARGET = 'target-1'
+/** The message s1 read: the same ids, a different receipt per workspace. */
+const receipt = (tag: Tag): string => mid(tag === 'a' ? 1 : 5)
+const body = (tag: Tag, id: string): string => `${tag} body ${id}`
 
 let opened: WorkspaceMessageSlice | undefined
 
@@ -93,27 +102,27 @@ async function rowsOf(store: WorkspaceMessageSlice, tag: Tag): Promise<Record<st
 
 function session(tag: Tag, n: number): SessionRow {
   return {
-    id: sid(tag, n),
-    ownerUserId: alice(tag),
+    id: sid(n),
+    ownerUserId: ALICE,
     agentKind: 'codex',
-    cwd: `/repo-${tag}/w${n}`,
+    cwd: `/repo/w${n}`,
     title: `${tag} session ${n}`,
     name: null,
     nameSource: null,
     originKind: 'spawn',
     conversationId: null,
     resumeKind: 'codex',
-    resumeValue: `${tag}-resume-${n}`,
+    resumeValue: `resume-${n}`,
     status: 'live',
     exitCode: null,
     spawnFailure: null,
-    durableLabel: `podium-${tag}-${n}`,
+    durableLabel: `podium-${n}`,
     createdAt: `2026-11-0${n}T00:00:00.000Z`,
     lastActiveAt: `2026-11-0${n}T00:00:00.000Z`,
     geometry: { cols: 120, rows: 40 },
     archived: false,
     workState: null,
-    machineId: asMachineId(`${tag}-machine`),
+    machineId: asMachineId('machine-1'),
     lastOutputAt: null,
     lastInputAt: null,
     lastResumedAt: null,
@@ -134,7 +143,7 @@ function session(tag: Tag, n: number): SessionRow {
   }
 }
 
-function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): MessageRow {
+function message(tag: Tag, input: Omit<Partial<MessageRow>, 'id'> & { id: string }): MessageRow {
   return {
     threadId: asThreadId(input.id),
     inReplyTo: null,
@@ -146,7 +155,7 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
     kind: 'message',
     urgency: 'fyi',
     lifecycle: 'wait',
-    body: input.id,
+    body: body(tag, input.id),
     expiresAt: null,
     createdAt: AT,
     deliveryStatus: 'stored',
@@ -167,62 +176,61 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
 }
 
 /**
- * One workspace's rows, written through its own repositories. Messages:
+ * One workspace's messages, through its own repository (`prefix` names a set only this
+ * workspace holds):
  *   m1 s1 (for issue 2) to issue 1, stored;          m2 operator to s1, stored, with attachments;
  *   m3 operator to s1, confirmed into s1, owes a reply; m4 s1 to s2, dispatched toward s2;
  *   m5 system to the operator, stored.
- * Plus s1's receipt of m1, a wake cooldown, a chat topic, a chat attachment, a Telegram binding,
- * and two notification facts (one live, one expired).
  */
-async function seed(store: WorkspaceMessageSlice, tag: Tag): Promise<void> {
-  await store.sessions.upsertSessions(scope, [session(tag, 1), session(tag, 2)])
+async function seedMessages(store: WorkspaceMessageSlice, tag: Tag, prefix = ''): Promise<void> {
   const m = store.messages
+  const at = AT_OF[tag]
   await m.addMessage(
     scope,
-    message({
-      id: mid(tag, 1),
-      fromSession: sid(tag, 1),
-      fromIssue: iss(tag, 2),
+    message(tag, {
+      id: mid(1, prefix),
+      fromSession: sid(1),
+      fromIssue: iss(2),
       toKind: 'issue',
-      toId: iss(tag, 1),
+      toId: iss(1),
       createdAt: '2026-11-17T10:01:00.000Z',
     }),
   )
   await m.addMessage(
     scope,
-    message({
-      id: mid(tag, 2),
+    message(tag, {
+      id: mid(2, prefix),
       fromKind: 'operator',
       toKind: 'session',
-      toId: sid(tag, 1),
+      toId: sid(1),
       createdAt: '2026-11-17T10:02:00.000Z',
     }),
   )
   await m.addMessage(
     scope,
-    message({
-      id: mid(tag, 3),
+    message(tag, {
+      id: mid(3, prefix),
       fromKind: 'operator',
       toKind: 'session',
-      toId: sid(tag, 1),
+      toId: sid(1),
       expectsResponse: true,
       createdAt: '2026-11-17T10:03:00.000Z',
     }),
   )
   await m.addMessage(
     scope,
-    message({
-      id: mid(tag, 4),
-      fromSession: sid(tag, 1),
+    message(tag, {
+      id: mid(4, prefix),
+      fromSession: sid(1),
       toKind: 'session',
-      toId: sid(tag, 2),
+      toId: sid(2),
       createdAt: '2026-11-17T10:04:00.000Z',
     }),
   )
   await m.addMessage(
     scope,
-    message({
-      id: mid(tag, 5),
+    message(tag, {
+      id: mid(5, prefix),
       fromKind: 'system',
       toKind: 'operator',
       toId: null,
@@ -232,50 +240,62 @@ async function seed(store: WorkspaceMessageSlice, tag: Tag): Promise<void> {
   // Statuses and stamps the reads need, set directly: these tests are about which workspace a
   // read or write reaches, not how a row got where it is.
   await store.run(
-    sql`UPDATE messages SET attachments_json = '[]', transcript_item_id = ${item(tag)} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 2)}`,
+    sql`UPDATE messages SET attachments_json = '[]', transcript_item_id = ${`${prefix}${ITEM}`} WHERE workspace_id = ${WS[tag]} AND id = ${mid(2, prefix)}`,
   )
   await store.run(
-    sql`UPDATE messages SET delivery_status = 'confirmed', delivered_to = ${sid(tag, 1)}, delivered_at = ${AT} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 3)}`,
+    sql`UPDATE messages SET delivery_status = 'confirmed', delivered_to = ${sid(1)}, delivered_at = ${at} WHERE workspace_id = ${WS[tag]} AND id = ${mid(3, prefix)}`,
   )
   await store.run(
-    sql`UPDATE messages SET delivery_status = 'dispatched', delivered_to = ${sid(tag, 2)}, injected_at = ${AT} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 4)}`,
+    sql`UPDATE messages SET delivery_status = 'dispatched', delivered_to = ${sid(2)}, injected_at = ${at} WHERE workspace_id = ${WS[tag]} AND id = ${mid(4, prefix)}`,
   )
-  await m.recordRead(mid(tag, 1), sid(tag, 1), AT)
-  await m.recordWakeCooldown(cooldown(tag), AT)
+}
+
+/**
+ * One workspace's rows, written through its own repositories: the messages above, s1's
+ * receipt of its own message, a wake cooldown, a chat topic, a chat attachment, a Telegram
+ * binding, and two notification facts (one live, one expired).
+ */
+async function seed(store: WorkspaceMessageSlice, tag: Tag): Promise<void> {
+  const at = AT_OF[tag]
+  await store.sessions.upsertSessions(scope, [session(tag, 1), session(tag, 2)])
+  await seedMessages(store, tag)
+  const m = store.messages
+  await m.recordRead(receipt(tag), sid(1), at)
+  await m.recordWakeCooldown(COOLDOWN, at)
 
   await store.messagingTopics.upsert({
-    issueId: iss(tag, 1),
-    chatId: chat(tag),
-    threadRef: `${tag}-thread`,
+    issueId: iss(1),
+    chatId: CHAT,
+    threadRef: THREAD,
     superagentThreadId: asThreadId(`${tag}-thread-sa`),
-    updatedAt: AT,
+    updatedAt: at,
   })
   await store.messagingSessionAttachments.upsert({
-    chatId: chat(tag),
+    chatId: CHAT,
     threadRef: '',
-    userId: alice(tag),
-    sessionId: sid(tag, 1),
-    attachedAt: AT,
+    userId: ALICE,
+    sessionId: sid(1),
+    attachedAt: at,
     relayedItemId: null,
   })
   await store.telegramBindings.upsert({
-    chatId: chat(tag),
-    userId: alice(tag),
-    boundAt: AT,
-    boundBy: { actor: { kind: 'user', id: alice(tag) }, onBehalfOf: null },
+    chatId: CHAT,
+    userId: ALICE,
+    boundAt: at,
+    boundBy: { actor: { kind: 'user', id: ALICE }, onBehalfOf: null },
   })
   const facts = store.notificationFacts
   await facts.claim({
-    factKey: fact(tag, 1),
-    target: target(tag),
+    factKey: fact(1),
+    target: TARGET,
     source: `${tag}-source`,
-    issueId: iss(tag, 1),
-    createdAt: AT,
+    issueId: iss(1),
+    createdAt: at,
     expiresAt: LATER,
   })
   await facts.claim({
-    factKey: fact(tag, 2),
-    target: target(tag),
+    factKey: fact(2),
+    target: TARGET,
     source: null,
     issueId: null,
     createdAt: EARLIER,
@@ -291,23 +311,37 @@ async function twoSeeded(): Promise<readonly [WorkspaceMessageSlice, WorkspaceMe
   return stores
 }
 
-const ids = (rows: Iterable<{ id: string }>) => [...rows].map((row) => row.id).sort()
-const allMessageIds = [1, 2, 3, 4, 5].flatMap((n) => [mid('a', n), mid('b', n)])
-const ownMessages = (tag: Tag, ...ns: number[]) => ns.map((n) => mid(tag, n)).sort()
+/** The sorted ids of `rows`, each held to its own workspace's body: the ids are the same in
+ *  both workspaces, so the body is what tells a crossed-over row. */
+function ids(rows: Iterable<{ id: string; body: string }>, tag: Tag): string[] {
+  const list = [...rows]
+  for (const row of list) expect(row.body, row.id).toBe(body(tag, row.id))
+  return list.map((row) => row.id).sort()
+}
+const own = (...ns: number[]) => ns.map((n) => mid(n)).sort()
+const sharedIds = [1, 2, 3, 4, 5].map((n) => mid(n))
+/** A cancelled message from s1 only `tag`'s workspace holds: no queue, no pending. */
+const onlyMessage = (tag: Tag): string => `only-${tag}-m`
+async function plantOnlyMessage(store: WorkspaceMessageSlice, tag: Tag): Promise<void> {
+  await store.messages.addMessage(
+    scope,
+    message(tag, { id: onlyMessage(tag), fromSession: sid(1), toId: asIssueId(`only-${tag}`) }),
+  )
+  await store.messages.markCancelled(scope, onlyMessage(tag))
+}
 
-/** Every string in `value` that names a seeded thing starts with the workspace's tag. */
+/** No content of the other workspace anywhere in `value`. */
 function onlyOwn(value: unknown, tag: Tag): void {
   const other = otherOf(tag)
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
-    new RegExp(
-      `\\b${other}-(m\\d|s\\d|iss-|item|chat|key|alice|thread|source|target)|fact:${other}:|"${other} `,
-    ),
+    new RegExp(`"${other} |\\b${other}-(thread-sa|source)|only-${other}|"${WS[other]}"`),
   )
+  expect(text).not.toContain(AT_OF[other])
 }
 
 describe('the group writes every row under its own workspace', () => {
-  it('seeds each table in both workspaces, each with only its own names', async () => {
+  it('seeds each table in both workspaces, each with only its own content', async () => {
     const [a] = await twoSeeded()
     for (const tag of ['a', 'b'] as const) {
       const rows = await rowsOf(a, tag)
@@ -327,45 +361,36 @@ describe('the messages repository reads only its own workspace', () => {
       [stores[1], 'b'],
     ] as const) {
       const m = store.messages
-      const other = otherOf(tag)
-      expect((await m.getMessage(mid(tag, 1)))?.id).toBe(mid(tag, 1))
-      expect(await m.getMessage(mid(other, 1))).toBeNull()
-      expect(ids(await m.getMessages(allMessageIds))).toEqual(ownMessages(tag, 1, 2, 3, 4, 5))
-      expect(ids(await m.getTranscriptAttachmentMessages(sid(tag, 1), [item(tag)]))).toEqual([
-        mid(tag, 2),
-      ])
-      expect(await m.getTranscriptAttachmentMessages(sid(other, 1), [item(other)])).toEqual([])
-      expect(ids(await m.listMessagesFor({ kind: 'operator' }))).toEqual([mid(tag, 5)])
-      expect(ids(await m.listMessagesFor({ kind: 'issue', id: iss(tag, 1) }))).toEqual([
-        mid(tag, 1),
-      ])
-      expect(await m.listMessagesFor({ kind: 'issue', id: iss(other, 1) })).toEqual([])
-      expect(ids(await m.pendingForSessionProof(sid(tag, 1), NOW))).toEqual(ownMessages(tag, 2, 3))
-      expect(await m.pendingForSessionProof(sid(other, 1), NOW)).toEqual([])
-      expect(ids(await m.listLedger({ issueId: iss(tag, 1), sessionId: sid(tag, 1) }))).toEqual(
-        ownMessages(tag, 1, 2, 3, 4),
+      expect((await m.getMessage(mid(1)))?.body).toBe(body(tag, mid(1)))
+      expect(ids(await m.getMessages(sharedIds), tag)).toEqual(own(1, 2, 3, 4, 5))
+      expect(ids(await m.getTranscriptAttachmentMessages(sid(1), [ITEM]), tag)).toEqual([mid(2)])
+      expect(ids(await m.listMessagesFor({ kind: 'operator' }), tag)).toEqual([mid(5)])
+      expect(ids(await m.listMessagesFor({ kind: 'issue', id: iss(1) }), tag)).toEqual([mid(1)])
+      expect(ids(await m.pendingForSessionProof(sid(1), NOW), tag)).toEqual(own(2, 3))
+      expect(ids(await m.listLedger({ issueId: iss(1), sessionId: sid(1) }), tag)).toEqual(
+        own(1, 2, 3, 4),
       )
-      expect(await m.listLedger({ issueId: iss(other, 1), sessionId: sid(other, 1) })).toEqual([])
-      expect(await m.queuedPositionForSession(sid(tag, 1), mid(tag, 2))).toBe(1)
-      expect(await m.queuedPositionForSession(sid(other, 1), mid(other, 2))).toBeUndefined()
+      expect(await m.queuedPositionForSession(sid(1), mid(2))).toBe(1)
       expect(
         await m.pendingTargets([
-          { kind: 'issue', id: iss(tag, 1) },
-          { kind: 'issue', id: iss(other, 1) },
+          { kind: 'issue', id: iss(1) },
+          { kind: 'issue', id: iss(2) },
         ]),
       ).toEqual([true, false])
       const pages = await m.pendingForPages([
-        { to: { kind: 'issue', id: iss(tag, 1) } },
-        { to: { kind: 'issue', id: iss(other, 1) } },
+        { to: { kind: 'issue', id: iss(1) } },
+        { to: { kind: 'issue', id: iss(2) } },
       ])
-      expect(pages.map(ids)).toEqual([[mid(tag, 1)], []])
-      expect((await m.latestPendingOperatorForSession(sid(tag, 1)))?.id).toBe(mid(tag, 2))
-      expect(await m.latestPendingOperatorForSession(sid(other, 1))).toBeUndefined()
+      expect(pages.map((page) => ids(page, tag))).toEqual([[mid(1)], []])
+      expect((await m.latestPendingOperatorForSession(sid(1)))?.body).toBe(body(tag, mid(2)))
     }
   })
 
   it('answers the counts and summaries with its own rows', async () => {
     const stores = await twoSeeded()
+    await plantOnlyMessage(stores[0], 'a')
+    await plantOnlyMessage(stores[1], 'b')
+    const candidates = [...sharedIds, onlyMessage('a'), onlyMessage('b')]
     for (const [store, tag] of [
       [stores[0], 'a'],
       [stores[1], 'b'],
@@ -379,41 +404,28 @@ describe('the messages repository reads only its own workspace', () => {
         senders: [systemSender],
       })
       expect(await m.countPending({ kind: 'operator' })).toBe(1)
-      expect(await m.countPending({ kind: 'issue', id: iss(other, 1) })).toBe(0)
+      expect(await m.countPending({ kind: 'issue', id: iss(1) })).toBe(1)
       const queued = await m.listQueued()
-      expect(ids(queued)).toEqual(ownMessages(tag, 1, 2, 4, 5))
+      expect(ids(queued, tag)).toEqual(own(1, 2, 4, 5))
       expect(await m.countQueued()).toBe(queued.length)
-      expect(ids(await m.listQueuedPage({ limit: 10 }))).toEqual(ownMessages(tag, 1, 2, 4, 5))
-      expect([...(await m.existingMessageIds(allMessageIds))].sort()).toEqual(
-        ownMessages(tag, 1, 2, 3, 4, 5),
+      expect(ids(await m.listQueuedPage({ limit: 10 }), tag)).toEqual(own(1, 2, 4, 5))
+      expect([...(await m.existingMessageIds(candidates))].sort()).toEqual(
+        [...own(1, 2, 3, 4, 5), onlyMessage(tag)].sort(),
       )
-      expect([...(await m.readReceipts(sid(tag, 1), [mid(tag, 1), mid(other, 1)]))]).toEqual([
-        mid(tag, 1),
-      ])
-      expect([...(await m.readReceipts(sid(other, 1), [mid(other, 1)]))]).toEqual([])
-      expect([...(await m.selfSentIds(sid(tag, 1), allMessageIds))].sort()).toEqual(
-        ownMessages(tag, 1, 4),
+      // Each workspace's s1 read a different message of the same ids.
+      expect([...(await m.readReceipts(sid(1), [mid(1), mid(5)]))]).toEqual([receipt(tag)])
+      expect([...(await m.selfSentIds(sid(1), candidates))].sort()).toEqual(
+        [...own(1, 4), onlyMessage(tag)].sort(),
       )
-      expect([...(await m.selfSentIds(sid(other, 1), allMessageIds))]).toEqual([])
-      const fromS1 = { fromKind: 'agent', fromIssue: iss(tag, 2), fromSession: sid(tag, 1) }
-      expect(await m.pendingSummaryForSession(iss(tag, 1), sid(tag, 2))).toEqual({
+      expect([...(await m.selfSentIds(sid(1), [onlyMessage(other)]))]).toEqual([])
+      const fromS1 = { fromKind: 'agent', fromIssue: iss(2), fromSession: sid(1) }
+      expect(await m.pendingSummaryForSession(iss(1), sid(2))).toEqual({
         count: 1,
         senders: [fromS1],
       })
-      expect(await m.pendingSummaryForSession(iss(other, 1), sid(other, 2))).toEqual({
-        count: 0,
-        senders: [],
-      })
-      expect(await m.countPendingForSession(iss(tag, 1), sid(tag, 2))).toBe(1)
-      expect(await m.countPendingForSession(iss(other, 1), sid(other, 2))).toBe(0)
-      expect(await m.listPendingSendersForSession(iss(tag, 1), sid(tag, 2))).toEqual([fromS1])
-      expect(await m.listPendingSendersForSession(iss(other, 1), sid(other, 2))).toEqual([])
-      expect(
-        await m.alreadyCommunicated(iss(tag, 2), { kind: 'issue', id: iss(tag, 1) }, EARLIER),
-      ).toBe(true)
-      expect(
-        await m.alreadyCommunicated(iss(other, 2), { kind: 'issue', id: iss(other, 1) }, EARLIER),
-      ).toBe(false)
+      expect(await m.countPendingForSession(iss(1), sid(2))).toBe(1)
+      expect(await m.listPendingSendersForSession(iss(1), sid(2))).toEqual([fromS1])
+      expect(await m.alreadyCommunicated(iss(2), { kind: 'issue', id: iss(1) }, EARLIER)).toBe(true)
     }
   })
 
@@ -424,29 +436,17 @@ describe('the messages repository reads only its own workspace', () => {
       [stores[1], 'b'],
     ] as const) {
       const m = store.messages
-      const other = otherOf(tag)
-      expect(ids(await m.listOpenBoundTo([sid(tag, 1), sid(tag, 2)]))).toEqual(
-        ownMessages(tag, 2, 4),
-      )
-      expect(await m.listOpenBoundTo([sid(other, 1), sid(other, 2)], iss(other, 1))).toEqual([])
-      expect(ids(await m.listOpenChat())).toEqual([mid(tag, 2)])
-      expect(ids(await m.confirmedChatWindow(10))).toEqual([mid(tag, 3)])
+      expect(ids(await m.listOpenBoundTo([sid(1), sid(2)]), tag)).toEqual(own(2, 4))
+      expect(ids(await m.listOpenChat(), tag)).toEqual([mid(2)])
+      expect(ids(await m.confirmedChatWindow(10), tag)).toEqual([mid(3)])
       for (const liveness of ['live', 'any'] as const) {
-        expect(ids(await m.confirmedChatTail(10, [sid(tag, 1), sid(other, 1)], liveness))).toEqual([
-          mid(tag, 3),
-        ])
+        expect(ids(await m.confirmedChatTail(10, [sid(1)], liveness), tag)).toEqual([mid(3)])
       }
-      expect(await m.getWakeCooldown(cooldown(tag))).toBe(AT)
-      expect(await m.getWakeCooldown(cooldown(other))).toBeNull()
-      expect([...(await m.getWakeCooldowns([cooldown(tag), cooldown(other)]))]).toEqual([
-        [cooldown(tag), AT],
-      ])
-      expect(ids(await m.pendingDeliveredToPage(sid(tag, 2)))).toEqual([mid(tag, 4)])
-      expect(await m.pendingDeliveredToPage(sid(other, 2))).toEqual([])
-      expect(ids(await m.listDeliveredUnacked(sid(tag, 1), NOW))).toEqual([mid(tag, 3)])
-      expect(await m.listDeliveredUnacked(sid(other, 1), NOW)).toEqual([])
-      expect(ids(await m.listSettleNotifiable(sid(tag, 1), NOW))).toEqual([mid(tag, 3)])
-      expect(await m.listSettleNotifiable(sid(other, 1), NOW)).toEqual([])
+      expect(await m.getWakeCooldown(COOLDOWN)).toBe(AT_OF[tag])
+      expect([...(await m.getWakeCooldowns([COOLDOWN]))]).toEqual([[COOLDOWN, AT_OF[tag]]])
+      expect(ids(await m.pendingDeliveredToPage(sid(2)), tag)).toEqual([mid(4)])
+      expect(ids(await m.listDeliveredUnacked(sid(1), NOW), tag)).toEqual([mid(3)])
+      expect(ids(await m.listSettleNotifiable(sid(1), NOW), tag)).toEqual([mid(3)])
     }
   })
 })
@@ -454,157 +454,207 @@ describe('the messages repository reads only its own workspace', () => {
 describe('the messaging repositories read only their own workspace', () => {
   it('answers topic, attachment, binding and fact reads with its own rows', async () => {
     const stores = await twoSeeded()
+    // A fact only each workspace holds.
+    for (const [store, tag] of [
+      [stores[0], 'a'],
+      [stores[1], 'b'],
+    ] as const) {
+      await store.notificationFacts.claim({
+        factKey: `only-${tag}:fact`,
+        target: TARGET,
+        source: null,
+        issueId: null,
+        createdAt: AT_OF[tag],
+        expiresAt: LATER,
+      })
+    }
     for (const [store, tag] of [
       [stores[0], 'a'],
       [stores[1], 'b'],
     ] as const) {
       const other = otherOf(tag)
+      const at = AT_OF[tag]
       const topics = store.messagingTopics
       const topic = {
-        issueId: iss(tag, 1),
-        chatId: chat(tag),
-        threadRef: `${tag}-thread`,
+        issueId: iss(1),
+        chatId: CHAT,
+        threadRef: THREAD,
         superagentThreadId: `${tag}-thread-sa`,
-        updatedAt: AT,
+        updatedAt: at,
       }
-      expect(await topics.listForChat(chat(tag))).toEqual([topic])
-      expect(await topics.listForChat(chat(other))).toEqual([])
-      expect(await topics.getByIssue(chat(tag), iss(tag, 1))).toEqual(topic)
-      expect(await topics.getByIssue(chat(other), iss(other, 1))).toBeUndefined()
-      expect(await topics.getByThreadRef(chat(tag), `${tag}-thread`)).toEqual(topic)
-      expect(await topics.getByThreadRef(chat(other), `${other}-thread`)).toBeUndefined()
+      expect(await topics.listForChat(CHAT)).toEqual([topic])
+      expect(await topics.getByIssue(CHAT, iss(1))).toEqual(topic)
+      expect(await topics.getByThreadRef(CHAT, THREAD)).toEqual(topic)
 
       const attachments = store.messagingSessionAttachments
       const attachment = {
-        chatId: chat(tag),
+        chatId: CHAT,
         threadRef: '',
-        userId: alice(tag),
-        sessionId: sid(tag, 1),
-        attachedAt: AT,
+        userId: ALICE,
+        sessionId: sid(1),
+        attachedAt: at,
         relayedItemId: null,
       }
-      expect(await attachments.get(chat(tag), '')).toEqual(attachment)
-      expect(await attachments.get(chat(other), '')).toBeUndefined()
-      expect(await attachments.listForSession(sid(tag, 1))).toEqual([attachment])
-      expect(await attachments.listForSession(sid(other, 1))).toEqual([])
+      expect(await attachments.get(CHAT, '')).toEqual(attachment)
+      expect(await attachments.listForSession(sid(1))).toEqual([attachment])
 
       const bindings = store.telegramBindings
       const binding = {
-        chatId: chat(tag),
-        userId: alice(tag),
-        boundAt: AT,
-        boundBy: { actor: { kind: 'user', id: alice(tag) }, onBehalfOf: null },
+        chatId: CHAT,
+        userId: ALICE,
+        boundAt: at,
+        boundBy: { actor: { kind: 'user', id: ALICE }, onBehalfOf: null },
       }
       expect(await bindings.list()).toEqual([binding])
-      expect(await bindings.listForUser(alice(tag))).toEqual([binding])
-      expect(await bindings.listForUser(alice(other))).toEqual([])
+      expect(await bindings.listForUser(ALICE)).toEqual([binding])
 
       const facts = store.notificationFacts
-      expect(await facts.hasActive(fact(tag, 1), target(tag), NOW)).toBe(true)
-      expect(await facts.hasActive(fact(other, 1), target(other), NOW)).toBe(false)
+      expect(await facts.hasActive(fact(1), TARGET, NOW)).toBe(true)
+      expect(await facts.hasActive(`only-${tag}:fact`, TARGET, NOW)).toBe(true)
+      expect(await facts.hasActive(`only-${other}:fact`, TARGET, NOW)).toBe(false)
     }
   })
 })
 
 describe("a write in one workspace leaves the other's rows unchanged", () => {
-  it('message writes, including writes addressed at the other workspace’s ids', async () => {
-    const [a, b] = await twoSeeded()
-    const before = await rowsOf(a, 'b')
-    const m = a.messages
-    const B = (n: number) => mid('b', n)
-
-    // Moves and stamps aimed at B's ids: nothing in A matches them.
-    await m.markDispatched(scope, B(1), sid('b', 1), AT)
-    await m.markTyped(scope, B(1), sid('b', 1), AT)
-    await m.markAccepted(scope, B(2), sid('b', 1), 'durable', AT)
-    await m.markUnknown(scope, B(4), sid('b', 2))
-    await m.markDeliveryAbandoned(scope, B(4), sid('b', 2), AT, 'teardown')
-    await m.markDelivered(scope, B(2), sid('b', 1), AT)
-    expect(await m.nameTranscriptItem(scope, B(2), sid('b', 1), { id: 'b-item-2' })).toBe(false)
-    expect(
-      await m.recordHarnessRef(scope, B(2), sid('b', 1), [{ kind: 'codex-turn', id: 'turn-b' }]),
-    ).toBe(false)
-    await m.markCancelled(scope, B(1))
-    await m.markTyping(scope, B(2))
-    expect(await m.requestRetract(scope, B(1), AT)).toBe(false)
-    await m.markDeliveredByPull(scope, B(1), sid('b', 1), AT)
-    await m.markDeliveredByPull(scope, B(5), null, AT)
-    await m.markRead(scope, B(3), sid('b', 1), AT)
-    await m.markDeadLetter(scope, B(1), AT)
-    await m.markDeadLetter(scope, B(2), AT, 'delivery-failed')
-    expect(await m.dismissNotice(scope, B(4), AT)).toBe(false)
+  /** Every move and stamp of the messages repository, at the ids `M` names. `miss` holds the
+   *  answers to the ones a miss reports. */
+  async function moves(slice: WorkspaceMessageSlice, M: (n: number) => string, miss: boolean) {
+    const m = slice.messages
+    const answer = async (value: Promise<boolean>) => {
+      const got = await value
+      if (miss) expect(got).toBe(false)
+    }
+    await m.markDispatched(scope, M(1), sid(1), AT)
+    await m.markTyped(scope, M(1), sid(1), AT)
+    await m.markAccepted(scope, M(2), sid(1), 'durable', AT)
+    await m.markUnknown(scope, M(4), sid(2))
+    await m.markDeliveryAbandoned(scope, M(4), sid(2), AT, 'teardown')
+    await m.markDelivered(scope, M(2), sid(1), AT)
+    await answer(m.nameTranscriptItem(scope, M(2), sid(1), { id: 'item-2' }))
+    await answer(m.recordHarnessRef(scope, M(2), sid(1), [{ kind: 'codex-turn', id: 'turn-1' }]))
+    await m.markCancelled(scope, M(1))
+    await m.markTyping(scope, M(2))
+    await answer(m.requestRetract(scope, M(1), AT))
+    await m.markDeliveredByPull(scope, M(1), sid(1), AT)
+    await m.markDeliveredByPull(scope, M(5), null, AT)
+    await m.markRead(scope, M(3), sid(1), AT)
+    await m.markDeadLetter(scope, M(1), AT)
+    await m.markDeadLetter(scope, M(2), AT, 'delivery-failed')
+    await answer(m.dismissNotice(scope, M(4), AT))
     await m.expireObserved(scope, {
-      id: B(1),
+      id: M(1),
       createdAt: '2026-11-17T10:01:00.000Z',
       lifecycle: 'wait',
       expiresAt: null,
     })
-    expect(await m.markAcked(scope, B(3), 'b-ack')).toBe(false)
-    expect(await m.markReminded(scope, B(3), AT)).toBe(false)
+    await answer(m.markAcked(scope, M(3), 'ack'))
+    await answer(m.markReminded(scope, M(3), AT))
+  }
 
-    // A's own writes.
+  it('message writes, of ids only the other holds and of the ids both hold', async () => {
+    const [a, b] = await twoSeeded()
+    // Messages only B holds, in the same states as the shared ones.
+    await seedMessages(b, 'b', 'only-b-')
+    const before = await rowsOf(a, 'b')
+    const m = a.messages
+
+    // Moves and stamps aimed at ids only B holds: nothing in A matches them.
+    await moves(a, (n) => mid(n, 'only-b-'), true)
+    expect(await rowsOf(a, 'b')).toEqual(before)
+
+    // A's own writes, at the ids both hold.
+    expect(await m.markAcked(scope, mid(3), 'a-ack')).toBe(true)
+    expect(await m.markReminded(scope, mid(3), AT)).toBe(true)
     expect(
-      await m.addMessage(scope, message({ id: mid('a', 6), toKind: 'operator', toId: null })),
+      await m.addMessage(scope, message('a', { id: mid(6), toKind: 'operator', toId: null })),
     ).toBe(true)
-    await m.recordRead(mid('a', 2), sid('a', 1), AT)
-    await m.recordWakeCooldown(cooldown('a'), NOW)
-    await m.recordWakeCooldown('a-key-2', NOW)
-    await m.markCancelled(scope, mid('a', 1))
-    expect(await m.markAcked(scope, mid('a', 3), 'a-ack')).toBe(true)
-    expect(await m.markReminded(scope, mid('a', 3), AT)).toBe(true)
+    await m.recordRead(mid(2), sid(1), AT)
+    await m.recordWakeCooldown(COOLDOWN, NOW)
+    await m.recordWakeCooldown('key-2', NOW)
+    await moves(a, mid, false)
 
     expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
-    expect((await m.getMessage(mid('a', 1)))?.deliveryStatus).toBe('cancelled')
-    expect((await m.getMessage(mid('a', 6)))?.id).toBe(mid('a', 6))
-    expect(await m.getWakeCooldown(cooldown('a'))).toBe(NOW)
-    // B still reads all of its own rows as they were.
-    expect((await b.messages.getMessage(B(1)))?.deliveryStatus).toBe('stored')
-    expect((await b.messages.getMessage(B(3)))?.ackedBy).toBeNull()
-    expect(await b.messages.getWakeCooldown(cooldown('b'))).toBe(AT)
+    expect((await m.getMessage(mid(1)))?.deliveryStatus).toBe('cancelled')
+    expect((await m.getMessage(mid(3)))?.ackedBy).toBe('a-ack')
+    expect((await m.getMessage(mid(6)))?.id).toBe(mid(6))
+    expect(await m.getWakeCooldown(COOLDOWN)).toBe(NOW)
+    // B still reads all of its own rows of the same ids as they were.
+    expect((await b.messages.getMessage(mid(1)))?.deliveryStatus).toBe('stored')
+    expect((await b.messages.getMessage(mid(3)))?.ackedBy).toBeNull()
+    expect(await b.messages.getMessage(mid(6))).toBeNull()
+    expect(await b.messages.getWakeCooldown(COOLDOWN)).toBe(AT_OF.b)
   })
 
-  it('messaging writes, including writes addressed at the other workspace’s ids', async () => {
+  it('messaging writes, of keys only the other holds and of the keys both hold', async () => {
     const [a, b] = await twoSeeded()
+    // Keys only B holds: a chat with an attachment and a binding of a person only B holds, and
+    // a fact of an issue only B holds.
+    const ONLY_CHAT = 'only-b-chat'
+    const ONLY_USER = asUserId('user:only-b')
+    await b.messagingSessionAttachments.upsert({
+      chatId: ONLY_CHAT,
+      threadRef: '',
+      userId: ONLY_USER,
+      sessionId: sid(1),
+      attachedAt: AT_OF.b,
+      relayedItemId: null,
+    })
+    await b.telegramBindings.upsert({
+      chatId: ONLY_CHAT,
+      userId: ONLY_USER,
+      boundAt: AT_OF.b,
+      boundBy: { actor: { kind: 'user', id: ONLY_USER }, onBehalfOf: null },
+    })
+    await b.notificationFacts.claim({
+      factKey: 'only-b:fact',
+      target: TARGET,
+      source: null,
+      issueId: asIssueId('only-b'),
+      createdAt: AT_OF.b,
+      expiresAt: LATER,
+    })
     const before = await rowsOf(a, 'b')
 
-    // Deletes and updates aimed at B's keys: nothing in A matches them.
-    await a.messagingSessionAttachments.markRelayed(chat('b'), '', sid('b', 1), 'b-relayed')
-    await a.messagingSessionAttachments.remove(chat('b'), '')
-    await a.telegramBindings.remove(chat('b'))
-    await a.telegramBindings.removeForUser(alice('b'))
+    // Deletes and updates aimed at keys only B holds: nothing in A matches them.
+    await a.messagingSessionAttachments.markRelayed(ONLY_CHAT, '', sid(1), 'relayed')
+    await a.messagingSessionAttachments.remove(ONLY_CHAT, '')
+    await a.telegramBindings.remove(ONLY_CHAT)
+    await a.telegramBindings.removeForUser(ONLY_USER)
     const facts = a.notificationFacts
-    expect(await facts.retire(fact('b', 1), target('b'), NOW)).toBe(false)
-    expect(await facts.retireFactKey(fact('b', 1), NOW)).toBe(0)
-    expect(await facts.retireFactKeyPrefix('fact:b:', NOW)).toBe(0)
-    await facts.retireByIssue(iss('b', 1))
+    expect(await facts.retire('only-b:fact', TARGET, NOW)).toBe(false)
+    expect(await facts.retireFactKey('only-b:fact', NOW)).toBe(0)
+    expect(await facts.retireFactKeyPrefix('only-b:', NOW)).toBe(0)
+    await facts.retireByIssue(asIssueId('only-b'))
+    expect(await rowsOf(a, 'b')).toEqual(before)
 
-    // A's own upserts.
+    // A's own upserts, at the keys both hold.
     await a.messagingTopics.upsert({
-      issueId: iss('a', 1),
-      chatId: chat('a'),
-      threadRef: 'a-thread-2',
+      issueId: iss(1),
+      chatId: CHAT,
+      threadRef: 'thread-2',
       superagentThreadId: asThreadId('a-thread-sa'),
       updatedAt: NOW,
     })
     await a.messagingSessionAttachments.upsert({
-      chatId: chat('a'),
+      chatId: CHAT,
       threadRef: '',
-      userId: alice('a'),
-      sessionId: sid('a', 2),
+      userId: ALICE,
+      sessionId: sid(2),
       attachedAt: NOW,
       relayedItemId: null,
     })
     await a.telegramBindings.upsert({
-      chatId: chat('a'),
-      userId: alice('a'),
+      chatId: CHAT,
+      userId: ALICE,
       boundAt: NOW,
-      boundBy: { actor: { kind: 'user', id: alice('a') }, onBehalfOf: null },
+      boundBy: { actor: { kind: 'user', id: ALICE }, onBehalfOf: null },
     })
     expect(
       await facts.claim({
-        factKey: fact('a', 3),
-        target: target('a'),
+        factKey: fact(3),
+        target: TARGET,
         source: null,
         issueId: null,
         createdAt: AT,
@@ -618,10 +668,8 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
     expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
-    expect((await a.messagingTopics.getByIssue(chat('a'), iss('a', 1)))?.threadRef).toBe(
-      'a-thread-2',
-    )
-    expect((await a.messagingSessionAttachments.get(chat('a'), ''))?.sessionId).toBe(sid('a', 2))
+    expect((await a.messagingTopics.getByIssue(CHAT, iss(1)))?.threadRef).toBe('thread-2')
+    expect((await a.messagingSessionAttachments.get(CHAT, ''))?.sessionId).toBe(sid(2))
     expect((await a.telegramBindings.list()).map((row) => row.boundAt)).toEqual([NOW])
     // A's live claims are retired, and its sweep deleted its expired one.
     const ownFacts = (await rowsOf(a, 'a')).notification_facts as {
@@ -629,28 +677,30 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
       consumed_at: string | null
     }[]
     expect(ownFacts.map((row) => [row.fact_key, row.consumed_at])).toEqual([
-      [fact('a', 1), NOW],
-      [fact('a', 3), NOW],
+      [fact(1), NOW],
+      [fact(3), NOW],
     ])
-    // B still reads all of its own rows.
-    expect(await b.notificationFacts.hasActive(fact('b', 1), target('b'), NOW)).toBe(true)
-    expect((await b.telegramBindings.list()).map((row) => row.chatId)).toEqual([chat('b')])
-    expect(await b.messagingSessionAttachments.listForSession(sid('b', 1))).toHaveLength(1)
+    // B still reads all of its own rows of the same keys.
+    expect(await b.notificationFacts.hasActive(fact(1), TARGET, NOW)).toBe(true)
+    expect((await b.messagingTopics.getByIssue(CHAT, iss(1)))?.threadRef).toBe(THREAD)
+    expect((await b.telegramBindings.list()).map((row) => row.chatId).sort()).toEqual([
+      CHAT,
+      ONLY_CHAT,
+    ])
+    expect((await b.messagingSessionAttachments.get(CHAT, ''))?.attachedAt).toBe(AT_OF.b)
   })
 
-  it('A’s own deletes take A’s rows and no others', async () => {
-    const [a] = await twoSeeded()
+  it('A’s own deletes of the keys both hold take A’s rows and no others', async () => {
+    const [a, b] = await twoSeeded()
     const before = await rowsOf(a, 'b')
-    await a.messagingSessionAttachments.markRelayed(chat('a'), '', sid('a', 1), 'a-relayed')
-    expect((await a.messagingSessionAttachments.get(chat('a'), ''))?.relayedItemId).toBe(
-      'a-relayed',
-    )
-    await a.messagingSessionAttachments.remove(chat('a'), '')
-    await a.telegramBindings.removeForUser(alice('a'))
-    await a.telegramBindings.remove(chat('a'))
+    await a.messagingSessionAttachments.markRelayed(CHAT, '', sid(1), 'a-relayed')
+    expect((await a.messagingSessionAttachments.get(CHAT, ''))?.relayedItemId).toBe('a-relayed')
+    await a.messagingSessionAttachments.remove(CHAT, '')
+    await a.telegramBindings.removeForUser(ALICE)
+    await a.telegramBindings.remove(CHAT)
     const facts = a.notificationFacts
-    expect(await facts.retire(fact('a', 1), target('a'), NOW)).toBe(true)
-    await facts.retireByIssue(iss('a', 1))
+    expect(await facts.retire(fact(1), TARGET, NOW)).toBe(true)
+    await facts.retireByIssue(iss(1))
     await facts.retireExpired(NOW)
 
     const own = await rowsOf(a, 'a')
@@ -658,11 +708,13 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(own.telegram_chat_bindings).toEqual([])
     expect(own.notification_facts).toEqual([])
     expect(await rowsOf(a, 'b')).toEqual(before)
+    expect((await b.messagingSessionAttachments.get(CHAT, ''))?.relayedItemId).toBeNull()
+    expect(await b.telegramBindings.listForUser(ALICE)).toHaveLength(1)
   })
 })
 
 /**
- * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * THE SAME ID UPSERTED FIRST IN THE OTHER WORKSPACE (POD-7024): every ON CONFLICT target leads with workspace_id,
  * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
  * as it was, and A's second upsert of the id updates A's row only.
  */
@@ -674,20 +726,20 @@ describe('the same id in both workspaces, upserted through the repository (POD-7
         sql`SELECT * FROM telegram_chat_bindings WHERE workspace_id = ${WS[tag]} AND chat_id = ${SAME}`,
       )
     const [a, b] = await twoSeeded()
-    const bind = async (store: WorkspaceMessageSlice, tag: Tag, boundAt: string) =>
+    const bind = async (store: WorkspaceMessageSlice, boundAt: string) =>
       await store.telegramBindings.upsert({
         chatId: SAME,
-        userId: alice(tag),
+        userId: ALICE,
         boundAt,
-        boundBy: { actor: { kind: 'user', id: alice(tag) }, onBehalfOf: null },
+        boundBy: { actor: { kind: 'user', id: ALICE }, onBehalfOf: null },
       })
-    await bind(b, 'b', AT)
+    await bind(b, AT)
     const before = await rowsIn(b, 'b')
     expect(before).toHaveLength(1)
-    await bind(a, 'a', AT)
+    await bind(a, AT)
     expect(await rowsIn(a, 'a')).toHaveLength(1)
     expect(await rowsIn(b, 'b')).toEqual(before)
-    await bind(a, 'a', LATER)
+    await bind(a, LATER)
     expect(await rowsIn(a, 'a')).toHaveLength(1)
     expect((await a.telegramBindings.list()).find((row) => row.chatId === SAME)?.boundAt).toBe(
       LATER,
