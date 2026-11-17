@@ -310,7 +310,22 @@ describe('machine scope and the writer class', () => {
     // 42 with the server-side Codex LLM reply (POD-4750) — the correlated
     // codexCompleteResult answering a daemon-side Responses turn, settled by
     // the same correlator for the same reason.
-    expect(rpcFrames.length).toBe(42)
+    // 47 with the credential management epic's five correlated replies:
+    // `oauthLoopbackResult` and the `oauthLoopbackCallback` it relays (Sign in
+    // with ChatGPT, POD-6901), and `homeEnsureResult`, `homeRemoveResult` and
+    // `credentialRemoveResult` (harness homes, POD-6895). Each is a reply a
+    // waiting server call settles; none opens a port of its own. Named here so
+    // the next count cannot drift past them unnoticed, as it did once.
+    expect(rpcFrames).toEqual(
+      expect.arrayContaining([
+        'oauthLoopbackResult',
+        'oauthLoopbackCallback',
+        'homeEnsureResult',
+        'homeRemoveResult',
+        'credentialRemoveResult',
+      ]),
+    )
+    expect(rpcFrames.length).toBe(47)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
