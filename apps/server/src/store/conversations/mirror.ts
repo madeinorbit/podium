@@ -88,11 +88,25 @@ const segmentMirrorCursor = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * The cursor compare-and-set of the fleet fence [POD-6963 design 2.3]: the
+ * advance applies only while the cursor still holds the value the writer read.
+ * `RETURNING` says whether it did, on SQLite and Postgres alike.
+ */
 const setSegmentMirrorCursor = prepared((db, t) =>
   db
     .update(t.conversationSegments)
     .set({ mirroredBytes: sql.placeholder('bytes'), mirroredAt: sql.placeholder('at') })
-    .where(segmentKey(t))
+    .where(
+      and(
+        segmentKey(t),
+        eq(
+          t.conversationSegments.mirroredBytes,
+          param(t.conversationSegments.mirroredBytes, 'expected'),
+        ),
+      ),
+    )
+    .returning({ mirroredBytes: t.conversationSegments.mirroredBytes })
     .prepare(),
 )
 
@@ -135,6 +149,14 @@ const insertIncarnation = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * Retire the active incarnation, but only while it is still the one the caller
+ * observed: same sequence, same file identity, not yet retired. This is the
+ * rotation's part of the fleet fence [POD-6963 design 2.3]: of two writers that
+ * see the same new identity, the second's update matches no row (on Postgres it
+ * waits for the first's row lock, then re-reads `retired_at`), and `RETURNING`
+ * tells it so.
+ */
 const retireIncarnation = prepared((db, t) =>
   db
     .update(t.conversationSegmentIncarnations)
@@ -146,8 +168,18 @@ const retireIncarnation = prepared((db, t) =>
           t.conversationSegmentIncarnations.sequence,
           param(t.conversationSegmentIncarnations.sequence, 'sequence'),
         ),
+        eq(
+          t.conversationSegmentIncarnations.device,
+          param(t.conversationSegmentIncarnations.device, 'device'),
+        ),
+        eq(
+          t.conversationSegmentIncarnations.inode,
+          param(t.conversationSegmentIncarnations.inode, 'inode'),
+        ),
+        isNull(t.conversationSegmentIncarnations.retiredAt),
       ),
     )
+    .returning({ sequence: t.conversationSegmentIncarnations.sequence })
     .prepare(),
 )
 
@@ -248,13 +280,26 @@ export class TranscriptMirrorRepository {
     return row?.mirroredBytes ?? 0
   }
 
+  /**
+   * Move the mirrored cursor from `expected` to `bytes`. False, with nothing
+   * written, when the cursor no longer equals `expected` (another writer moved
+   * it) or the segment does not exist.
+   */
   async setMirrorCursor(
     machineId: MachineId,
     nativeId: string,
+    expected: number,
     bytes: number,
     at: string,
-  ): Promise<void> {
-    await setSegmentMirrorCursor(this.db).run({ machineId, nativeId, bytes, at })
+  ): Promise<boolean> {
+    const moved = await setSegmentMirrorCursor(this.db).all({
+      machineId,
+      nativeId,
+      expected,
+      bytes,
+      at,
+    })
+    return moved.length > 0
   }
 
   async activeIncarnation(
@@ -283,37 +328,41 @@ export class TranscriptMirrorRepository {
     })
   }
 
-  /** Retire the current file identity after its lake bytes have been archived,
-   *  then start a clean cursor for the replacement file. */
+  /**
+   * Retire the incarnation the caller observed (`from`) with its readable byte
+   * count, then start a clean cursor for the replacement file. False, with
+   * nothing written, when `from` is no longer the active incarnation: another
+   * writer rotated first, and the caller re-reads and continues on the new one.
+   */
   async rotateIncarnation(
     machineId: MachineId,
     nativeId: string,
+    from: { sequence: number; device: string; inode: string },
     identity: { device: string; inode: string },
     archivedBytes: number,
     at: string,
-  ): Promise<void> {
-    await this.createOrJoinTransaction(async () => {
-      const active = await this.activeIncarnation(machineId, nativeId)
-      if (!active) {
-        await this.startIncarnation(machineId, nativeId, identity, at)
-        return
-      }
-      await retireIncarnation(this.db).run({
+  ): Promise<boolean> {
+    return await this.createOrJoinTransaction(async () => {
+      const retired = await retireIncarnation(this.db).all({
         machineId,
         nativeId,
-        sequence: active.sequence,
+        sequence: from.sequence,
+        device: from.device,
+        inode: from.inode,
         archivedBytes,
         at,
       })
+      if (retired.length === 0) return false
       await insertIncarnation(this.db).run({
         machineId,
         nativeId,
-        sequence: active.sequence + 1,
+        sequence: from.sequence + 1,
         device: identity.device,
         inode: identity.inode,
         at,
       })
       await resetSegmentCursors(this.db).run({ machineId, nativeId, at })
+      return true
     })
   }
 

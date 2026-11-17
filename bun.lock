@@ -508,6 +508,7 @@
       "name": "@podium/sync",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/blob-store": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",

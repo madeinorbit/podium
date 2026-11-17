@@ -1667,7 +1667,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     title: 'Blobs (content-addressed)',
     sites: [
       'the content-addressed store',
-      '`<stateDir>/transcripts` — the mirror lake on disk (`mirrorLakeDir`, apps/server/src/server.ts)',
+      '`<stateDir>/transcripts` — the parted mirror lake through the blob store (`transcriptLake`, apps/server/src/server.ts)',
     ],
     home: 'server',
     idMinting: 'sha256 — identity IS the hash',

@@ -797,9 +797,6 @@ export async function startServer(
         process.env,
       )) === 'on'
 
-  // The transcript lake lives in the state dir next to podium.db (transcript-mirror
-  // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
-  // SessionRegistry without it produce no mirror traffic.
   /**
    * LATE-BOUND, because the two halves are constructed in this order and cannot
    * be reordered: the updates service (inside the registry) owns the resolver,
@@ -838,7 +835,12 @@ export async function startServer(
     // TranscriptLake already supports — the mirror and the indexer are simply
     // never constructed. Spread rather than `undefined` so its absence keeps
     // meaning exactly what it means for every test that omits it today.
-    ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
+    // The lake keeps its parts in this workspace's files (transcript-mirror
+    // spec §2.1, POD-6963 design 2.3): `<state>/transcripts` on local disk, the
+    // workspace's prefix on a bucket.
+    ...(lakeEnabled
+      ? { transcriptLake: { blobs: workspaceFiles, workspaceId: SELF_HOSTED_WORKSPACE_ID } }
+      : {}),
     files: workspaceFiles,
     portableStateFence,
     // Inbound daemon pairing is a HUB capability, injected here (the composition

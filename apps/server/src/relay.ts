@@ -178,6 +178,7 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import { type MachineRecordsDeps, makeMachineRecordCompare } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import type { TranscriptLakeStorage } from './modules/memory/lake'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
 import { readMessageRecords } from './modules/message-feed/records'
@@ -362,9 +363,10 @@ interface SessionRegistryOptions {
    * and the shipped poll interval. A send never waits on it [POD-4661].
    */
   mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
-  /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
-   *  (the default — every existing test), NO mirror traffic is produced. */
-  mirrorLakeDir?: string
+  /** Where the transcript lake keeps its parts (POD-6963 design 2.3): the workspace's
+   *  `files` handle and its id. Opt-in: when unset (the default — every existing
+   *  test), NO mirror traffic is produced. */
+  transcriptLake?: TranscriptLakeStorage
   /**
    * This workspace's user files (POD-6963 design 2.1): the handle the
    * composition root built with `forWorkspace`, on the state directory or on a
@@ -1572,7 +1574,7 @@ export class SessionRegistry {
         daemonRequest: requestBroker,
       },
       {
-        ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
+        ...(options.transcriptLake ? { transcriptLake: options.transcriptLake } : {}),
       },
     )
     const rpcLate: { rpc?: DaemonRpcService } = {}

@@ -44,6 +44,40 @@ describe('SessionStore transcript mirror state', () => {
     await store.close()
   })
 
+  it('setMirrorCursor is a compare-and-set: a stale expected cursor writes nothing', async () => {
+    const store = await openTestStore(':memory:')
+    const m1 = asMachineId('m1')
+    await store.conversations.registry.ensure({
+      machineId: m1,
+      nativeId: 'n1',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/n1.jsonl',
+    })
+    expect(
+      await store.conversations.mirror.setMirrorCursor(m1, 'n1', 0, 100, '2026-07-02T10:00:00Z'),
+    ).toBe(true)
+    // A second writer that still believes the cursor is 0 loses (POD-6963 design 2.3).
+    expect(
+      await store.conversations.mirror.setMirrorCursor(m1, 'n1', 0, 50, '2026-07-02T10:00:01Z'),
+    ).toBe(false)
+    expect(await store.conversations.mirror.mirrorCursor(m1, 'n1')).toBe(100)
+    expect(rawMirrorRow(store, 'm1', 'n1')).toEqual({
+      mirrored_bytes: 100,
+      mirrored_at: '2026-07-02T10:00:00Z',
+    })
+    // A segment that does not exist moves nothing either.
+    expect(
+      await store.conversations.mirror.setMirrorCursor(
+        m1,
+        'never-seen',
+        0,
+        1,
+        '2026-07-02T10:00:02Z',
+      ),
+    ).toBe(false)
+    await store.close()
+  })
+
   it('setMirrorCursor round-trips and stores mirrored_at', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.registry.ensure({
@@ -55,6 +89,7 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'n1',
+      0,
       4096,
       '2026-07-02T10:00:00.000Z',
     )
@@ -67,6 +102,7 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'n1',
+      4096,
       0,
       '2026-07-02T11:00:00.000Z',
     )
@@ -92,18 +128,34 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'reused',
+      0,
       1_229_180,
       '2026-08-08T21:06:39Z',
     )
-    await store.conversations.mirror.rotateIncarnation(
+    const observed = await store.conversations.mirror.activeIncarnation(asMachineId('m1'), 'reused')
+    expect(observed).toEqual({ sequence: 1, device: '7', inode: '8961297' })
+    const rotate = async () =>
+      await store.conversations.mirror.rotateIncarnation(
+        asMachineId('m1'),
+        'reused',
+        observed as { sequence: number; device: string; inode: string },
+        { device: '7', inode: '7115245' },
+        1_229_180,
+        '2026-08-08T21:57:00Z',
+      )
+    // Two writers that observed the same new identity: one rotates, the other
+    // finds its observed incarnation retired and rotates nothing (POD-6963 2.3).
+    expect(await rotate()).toBe(true)
+    await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'reused',
-      { device: '7', inode: '7115245' },
-      1_229_180,
-      '2026-08-08T21:57:00Z',
+      0,
+      10,
+      '2026-08-08T21:58:00Z',
     )
+    expect(await rotate()).toBe(false)
 
-    expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'reused')).toBe(0)
+    expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'reused')).toBe(10)
     expect(await store.conversations.mirror.incarnations(asMachineId('m1'), 'reused')).toEqual([
       {
         sequence: 1,
@@ -116,7 +168,7 @@ describe('SessionStore transcript mirror state', () => {
         sequence: 2,
         device: '7',
         inode: '7115245',
-        mirroredBytes: 0,
+        mirroredBytes: 10,
         active: true,
       },
     ])
@@ -147,6 +199,7 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'with-path',
+      0,
       128,
       '2026-07-02T10:00:00.000Z',
     )
@@ -223,6 +276,7 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'caught-up',
+      0,
       64,
       '2026-07-02T10:00:00.000Z',
     )
@@ -230,6 +284,7 @@ describe('SessionStore transcript mirror state', () => {
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'behind',
+      0,
       64,
       '2026-07-02T10:00:00.000Z',
     )
@@ -242,8 +297,7 @@ describe('SessionStore transcript mirror state', () => {
     })
 
     expect(
-      (await store.conversations.mirror
-        .segmentsToMirrorDirty(asMachineId('m1')))
+      (await store.conversations.mirror.segmentsToMirrorDirty(asMachineId('m1')))
         .map((s) => s.nativeId)
         .sort(),
     ).toEqual(['behind', 'never-reported'])
@@ -268,6 +322,7 @@ describe('SessionStore transcript mirror state', () => {
     await first.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'n1',
+      0,
       777,
       '2026-07-02T10:00:00.000Z',
     )
