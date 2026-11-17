@@ -44,6 +44,7 @@ import { type CredentialEvent, recordCredentialEvent } from './events'
 import { pastedIdentity } from './fingerprint'
 import type { CredentialHealth } from './health'
 import { CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel, mayUse } from './may-use'
+import { type HomeSignInService, SignInRefused as HomeSignInRefused } from './sign-in'
 import { sealCredentialSecret, VaultLockedError } from './vault'
 
 /** The store tables the credential family reaches. A SessionStore satisfies it. */
@@ -60,6 +61,8 @@ export interface CredentialsState {
   readonly health: CredentialHealth
   /** Sign in with ChatGPT and its keeper (Task 14). Absent: not offered here. */
   readonly chatgpt?: ChatgptPlanService
+  /** Signing in to a subscription on a machine (Task 9). Absent: not offered here. */
+  readonly signIn?: HomeSignInService
 }
 
 export type CredentialHandler<In, Out> = (state: CredentialsState, input: In) => Out
@@ -115,6 +118,29 @@ function chatgptOf(state: CredentialsState): ChatgptPlanService {
 const signInRefusal = (error: unknown): never => {
   if (error instanceof SignInRefused || error instanceof LoopbackUnavailable) {
     throw badRequest(error.message)
+  }
+  throw error
+}
+
+/** The machine sign-in module, or a refusal when this server was built without it. */
+function signInOf(state: CredentialsState): HomeSignInService {
+  if (!state.signIn) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Signing in on a machine is not available on this server.',
+    })
+  }
+  return state.signIn
+}
+
+const homeSignInRefusal = (error: unknown): never => {
+  if (error instanceof HomeSignInRefused) {
+    if (error.code === 'not-found') throw new TRPCError({ code: 'NOT_FOUND', message: error.message })
+    throw new TRPCError({
+      code: error.refusal === 'machine-not-allowed' ? 'FORBIDDEN' : 'BAD_REQUEST',
+      message: error.message,
+      ...(error.refusal ? { cause: error } : {}),
+    })
   }
   throw error
 }
@@ -313,6 +339,29 @@ export const CREDENTIAL_COMMANDS_TRPC = {
         })
         .catch(signInRefusal)
     }) satisfies CredentialHandler<In<'chatgptSignInComplete'>, unknown>,
+  },
+  signInStart: {
+    contract: CREDENTIAL_CONTRACTS.signInStart,
+    targetPermitted: personOnly,
+    handler: (async (state, input) => {
+      return await signInOf(state)
+        .start({
+          ownerUserId: state.callerUserId,
+          type: input.type,
+          machineId: input.machineId as MachineId,
+          ...(input.label ? { label: input.label } : {}),
+          ...(input.credentialId ? { credentialId: input.credentialId } : {}),
+        })
+        .catch(homeSignInRefusal)
+    }) satisfies CredentialHandler<In<'signInStart'>, unknown>,
+  },
+  signInCancel: {
+    contract: CREDENTIAL_CONTRACTS.signInCancel,
+    targetPermitted: personOnly,
+    handler: (async (state, input) => {
+      await signInOf(state).cancel(input.credentialId, state.callerUserId).catch(homeSignInRefusal)
+      return { ok: true as const }
+    }) satisfies CredentialHandler<In<'signInCancel'>, unknown>,
   },
   share: {
     contract: CREDENTIAL_CONTRACTS.share,

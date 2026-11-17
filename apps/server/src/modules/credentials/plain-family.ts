@@ -11,6 +11,7 @@ export const CREDENTIALS_PLAIN_FAMILY = definePlainFamily({
     callerUserId: asUserId(state.caller.userId),
     health: state.modules.credentialHealth,
     chatgpt: state.modules.chatgptPlan,
+    signIn: state.modules.homeSignIn,
   }),
   commands: CREDENTIAL_COMMANDS_TRPC,
 })

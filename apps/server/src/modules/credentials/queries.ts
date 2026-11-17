@@ -150,6 +150,15 @@ export const CREDENTIAL_QUERIES = {
   list: query(z.object({}).passthrough().optional(), async (state) =>
     listCredentials(state.store, state.callerUserId),
   ),
+  /** Where the caller's sign-in on a machine stands (§6 way 2): waiting, signed in as an account, or failed. */
+  signInStatus: query(z.object({ credentialId: z.string().min(1).max(100) }), (state, input) =>
+    state.signIn
+      ? state.signIn.status(input.credentialId, state.callerUserId)
+      : ({
+          state: 'failed',
+          reason: 'Signing in on a machine is not available on this server.',
+        } as const),
+  ),
   /** Where the caller's ChatGPT sign-in attempt stands (§11): waiting, signed in, or failed. */
   chatgptSignInStatus: query(z.object({ attemptId: z.string().min(1).max(100) }), (state, input) =>
     state.chatgpt

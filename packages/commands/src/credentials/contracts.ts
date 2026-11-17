@@ -2,7 +2,8 @@
  * THE CREDENTIAL CONTRACTS (credential management design §6, §8, §12; epic Task 4).
  *
  * `credentials.add · rename · renew · remove · share · unshare · allowMachine ·
- * disallowMachine · chatgptSignInStart · chatgptSignInComplete`. A credential belongs to the person who added it. Its owner,
+ * disallowMachine · chatgptSignInStart · chatgptSignInComplete · signInStart ·
+ * signInCancel`. A credential belongs to the person who added it. Its owner,
  * or a person the owner gave `manage`, may change it; a person with `use` may run
  * on it and change nothing. Being an admin gives no access to another person's
  * credential. Every write is a person's: an agent session is refused, whoever it
@@ -154,6 +155,20 @@ export const credentialsChatgptSignInStartInput = z.object({
   machineId: MachineIdField.optional(),
   credentialId: credentialId.optional(),
 })
+
+/**
+ * Sign in to a subscription on a machine (§6 way 2): a home-stored type, the
+ * machine, a name, and the credential to sign in again when there is one.
+ */
+export const credentialsSignInStartInput = z.object({
+  type: z.enum(CREDENTIAL_TYPE_IDS),
+  machineId: MachineIdField,
+  label: label.optional(),
+  credentialId: credentialId.optional(),
+})
+
+/** Give up a sign-in on a machine; `credentialId` is what `signInStart` returned. */
+export const credentialsSignInCancelInput = z.object({ credentialId })
 
 /** The address the browser ended on, pasted. It holds a one-time code. */
 export const credentialsChatgptSignInCompleteInput = z.object({
@@ -398,6 +413,60 @@ export const credentialsChatgptSignInCompleteContract = {
   conflictRule: 'An attempt completes once; a second completion is refused',
 } as const satisfies CommandContract<typeof credentialsChatgptSignInCompleteInput>
 
+export const credentialsSignInStartContract = {
+  ...common,
+  name: 'credentials.signInStart',
+  input: credentialsSignInStartInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Makes a home for a subscription login on a machine the caller holds custody of or sent ' +
+      'the credential to, and opens the vendor’s own sign-in there in a terminal. An agent may ' +
+      'not sign its person in.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS(
+    'Opens a sign-in terminal (a session the server writes) and keeps the attempt in server ' +
+      'memory; the credential is created when the machine reports the login.',
+  ),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A credential the caller does not own or a machine that does not exist answers as one ' +
+      'that does not exist; a machine the credential was not sent to is `machine-not-allowed`.',
+  },
+  conflictRule: 'A second start for a credential already waiting on that machine returns that attempt',
+} as const satisfies CommandContract<typeof credentialsSignInStartInput>
+
+export const credentialsSignInCancelContract = {
+  ...common,
+  name: 'credentials.signInCancel',
+  input: credentialsSignInCancelInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Gives up the caller’s own sign-in on a machine: closes its terminal and removes the home ' +
+      'it made, so nothing is left behind.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Ends a sign-in attempt; creates nothing.'),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another person’s attempt answers as an unknown one.',
+  },
+  conflictRule: 'Idempotent: a finished attempt is left as it is',
+} as const satisfies CommandContract<typeof credentialsSignInCancelInput>
+
 export const CREDENTIAL_CONTRACTS = {
   add: credentialsAddContract,
   chatgptSignInComplete: credentialsChatgptSignInCompleteContract,
@@ -408,6 +477,8 @@ export const CREDENTIAL_CONTRACTS = {
   rename: credentialsRenameContract,
   renew: credentialsRenewContract,
   share: credentialsShareContract,
+  signInCancel: credentialsSignInCancelContract,
+  signInStart: credentialsSignInStartContract,
   unshare: credentialsUnshareContract,
 } as const
 export type CredentialContractName = keyof typeof CREDENTIAL_CONTRACTS

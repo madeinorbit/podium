@@ -132,6 +132,7 @@ import {
   classifyCredentialFailure,
 } from './modules/credentials/health'
 import { placementRemovers } from './modules/credentials/home-removers'
+import { HomeSignInService } from './modules/credentials/sign-in'
 import { Placements } from './modules/credentials/placements'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
@@ -524,6 +525,8 @@ export interface RegistryModules {
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
   nativeLogin: NativeLoginService
+  /** Signing in to a subscription in a home on a machine (§6 way 2; Task 9). */
+  homeSignIn: HomeSignInService
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
@@ -2205,6 +2208,54 @@ export class SessionRegistry {
       cwdForMachine: async (machineId) =>
         (await this.store.repos.listRepoPaths(machineId))[0] ?? '/',
       custodianOf: async (machineId) => await this.store.machines.custodian(machineId),
+    })
+    // ADDING A SUBSCRIPTION ON A MACHINE (credential management §6 way 2;
+    // Task 9): a home on the machine and the vendor's sign-in in a terminal
+    // there. The terminal is the server's own write, as the login pane above.
+    const homeSignIn = new HomeSignInService({
+      store: this.store,
+      daemon: {
+        isOnline: (machineId) => machines.hasDaemon(machineId),
+        supports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+      },
+      rpc: {
+        homeEnsure: async (credentialId, harness, machineId) =>
+          await rpc.homeEnsure(credentialId, harness, machineId),
+        homeRemove: async (homeId, machineId) => await rpc.homeRemove(homeId, machineId),
+      },
+      terminals: {
+        open: async (i) => {
+          const cwd = (await this.store.repos.listRepoPaths(i.machineId))[0] ?? '/'
+          const spawned = await asSystemWrite(
+            async () =>
+              await sessionsSvc.createSession({
+                agentKind: 'shell',
+                loginHarness: i.harness,
+                loginHome: { credentialId: i.credentialId, homeId: i.homeId },
+                cwd,
+                title: `${i.harness} sign-in`,
+                name: `${i.harness} sign-in`,
+                machineId: i.machineId,
+                ownerUserId: i.ownerUserId,
+              }),
+          )
+          return spawned.sessionId
+        },
+        close: async (sessionId) =>
+          await asSystemWrite(
+            async () => await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
+          ),
+      },
+      requestInventory: (machineId) => machines.toMachine(machineId, { type: 'inventoryRequest' }),
+      now: () => this.now(),
+    })
+    this.bus.on('session.exited', async ({ sessionId, code }) => {
+      await homeSignIn.onExit(sessionId, code)
+    })
+    this.bus.on('machine.metadataChanged', async ({ machineId, inventory }) => {
+      if (!inventory) return
+      const machine = await this.store.machines.getMachine(machineId)
+      await homeSignIn.onInventory(machineId, machine?.inventory)
     })
     this.bus.on('superagent.turnEnded', async (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
@@ -4867,6 +4918,7 @@ export class SessionRegistry {
       serverTransfer,
       loginPropagation,
       nativeLogin,
+      homeSignIn,
       memory,
       hosts,
       settings,
