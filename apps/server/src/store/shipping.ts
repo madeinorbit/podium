@@ -1323,29 +1323,30 @@ const insertTrainMember = prepared((db, t) => {
   const train = param(m.id, 'trainId')
   const ordinal = sql`CAST(${param(member.ordinal, 'ordinal')} AS integer)`
   const memberCount = sql`(SELECT m.member_count FROM ${m} m WHERE m.workspace_id = ${workspace} AND m.id = ${train})`
+  // drizzle types an insert's selection by the table's own column types; this row is
+  // cast column by column (`insertedRow`), so its type is asserted here.
+  const row = db
+    .select(insertedRow(member, TRAIN_MEMBER_KEYS))
+    .from(ONE_ROW)
+    .where(
+      refusalTerm([
+        {
+          when: sql`${ordinal} >= ${memberCount}`,
+          text: GUARD_TEXT.ship_train_members_ordinal,
+        },
+        {
+          when: sql`EXISTS (SELECT 1 FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${workspace} AND c.train_id = ${train})`,
+          text: GUARD_TEXT.ship_train_members_sealed,
+        },
+        {
+          when: sql`${ordinal} + 1 = ${memberCount} AND NOT EXISTS (SELECT 1 FROM ${m} m WHERE m.workspace_id = ${workspace} AND m.id = ${train} AND m.leader_order_id = ${param(m.leaderOrderId, 'orderId')} AND m.leader_attempt_id = ${param(m.leaderAttemptId, 'attemptId')} AND m.leader_generation = ${param(m.leaderGeneration, 'generation')})`,
+          text: GUARD_TEXT.ship_train_members_final_leader,
+        },
+      ]),
+    )
   return db
     .insert(member)
-    .select(
-      db
-        .select(insertedRow(member, TRAIN_MEMBER_KEYS))
-        .from(ONE_ROW)
-        .where(
-          refusalTerm([
-            {
-              when: sql`${ordinal} >= ${memberCount}`,
-              text: GUARD_TEXT.ship_train_members_ordinal,
-            },
-            {
-              when: sql`EXISTS (SELECT 1 FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${workspace} AND c.train_id = ${train})`,
-              text: GUARD_TEXT.ship_train_members_sealed,
-            },
-            {
-              when: sql`${ordinal} + 1 = ${memberCount} AND NOT EXISTS (SELECT 1 FROM ${m} m WHERE m.workspace_id = ${workspace} AND m.id = ${train} AND m.leader_order_id = ${param(m.leaderOrderId, 'orderId')} AND m.leader_attempt_id = ${param(m.leaderAttemptId, 'attemptId')} AND m.leader_generation = ${param(m.leaderGeneration, 'generation')})`,
-              text: GUARD_TEXT.ship_train_members_final_leader,
-            },
-          ]),
-        ),
-    )
+    .select(row as never)
     .prepare()
 })
 
@@ -1374,32 +1375,31 @@ const insertActiveClaim = prepared((db, t) => {
   const tm = t.shipTrainMembers
   const claim = t.shipTrainActiveClaims
   const workspace = param(m.workspaceId, 'workspaceId')
+  // drizzle types an insert's selection by the table's own column types; this row is
+  // cast column by column (`insertedRow`), so its type is asserted here.
+  const row = db
+    .select(insertedRow(claim, ['workspaceId', 'trainId', 'orderId', 'attemptId', 'generation']))
+    .from(ONE_ROW)
+    .where(
+      refusalTerm([
+        {
+          when: sql`NOT EXISTS (SELECT 1 FROM ${m} m JOIN ${tm} tm ON tm.workspace_id = m.workspace_id AND tm.train_id = m.id
+            WHERE m.workspace_id = ${workspace} AND m.id = ${param(m.id, 'trainId')} AND m.released_at IS NULL
+              AND tm.order_id = ${param(tm.orderId, 'orderId')} AND tm.attempt_id = ${param(tm.attemptId, 'attemptId')}
+              AND tm.generation = ${param(tm.generation, 'generation')}
+              AND (SELECT COUNT(*) FROM ${tm} all_members WHERE all_members.workspace_id = m.workspace_id AND all_members.train_id = m.id) = m.member_count
+              AND EXISTS (SELECT 1 FROM ${tm} leader WHERE leader.workspace_id = m.workspace_id AND leader.train_id = m.id
+                AND leader.ordinal = m.member_count - 1 AND leader.order_id = m.leader_order_id
+                AND leader.attempt_id = m.leader_attempt_id AND leader.generation = m.leader_generation)
+              AND NOT EXISTS (SELECT 1 FROM ${tm} generation_member WHERE generation_member.workspace_id = m.workspace_id
+                AND generation_member.train_id = m.id AND generation_member.generation <= 0))`,
+          text: GUARD_TEXT.ship_train_active_claims_insert_guard,
+        },
+      ]),
+    )
   return db
     .insert(claim)
-    .select(
-      db
-        .select(
-          insertedRow(claim, ['workspaceId', 'trainId', 'orderId', 'attemptId', 'generation']),
-        )
-        .from(ONE_ROW)
-        .where(
-          refusalTerm([
-            {
-              when: sql`NOT EXISTS (SELECT 1 FROM ${m} m JOIN ${tm} tm ON tm.workspace_id = m.workspace_id AND tm.train_id = m.id
-                WHERE m.workspace_id = ${workspace} AND m.id = ${param(m.id, 'trainId')} AND m.released_at IS NULL
-                  AND tm.order_id = ${param(tm.orderId, 'orderId')} AND tm.attempt_id = ${param(tm.attemptId, 'attemptId')}
-                  AND tm.generation = ${param(tm.generation, 'generation')}
-                  AND (SELECT COUNT(*) FROM ${tm} all_members WHERE all_members.workspace_id = m.workspace_id AND all_members.train_id = m.id) = m.member_count
-                  AND EXISTS (SELECT 1 FROM ${tm} leader WHERE leader.workspace_id = m.workspace_id AND leader.train_id = m.id
-                    AND leader.ordinal = m.member_count - 1 AND leader.order_id = m.leader_order_id
-                    AND leader.attempt_id = m.leader_attempt_id AND leader.generation = m.leader_generation)
-                  AND NOT EXISTS (SELECT 1 FROM ${tm} generation_member WHERE generation_member.workspace_id = m.workspace_id
-                    AND generation_member.train_id = m.id AND generation_member.generation <= 0))`,
-              text: GUARD_TEXT.ship_train_active_claims_insert_guard,
-            },
-          ]),
-        ),
-    )
+    .select(row as never)
     .prepare()
 })
 
@@ -3444,7 +3444,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
 
   /** Delete a released train's claims and return how many; see {@link recordTrainMember}. */
   protected async releaseActiveClaims(trainId: ShipTrainManifestValue['id']): Promise<number> {
-    return (await deleteActiveClaimsOfTrain(this.db).run({ trainId })).changes
+    return Number((await deleteActiveClaimsOfTrain(this.db).run({ trainId })).changes)
   }
 
   async releaseTrain(
