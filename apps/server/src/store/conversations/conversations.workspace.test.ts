@@ -372,12 +372,14 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
         const other = tag === 'a' ? 'b' : 'a'
         const m = machine(tag)
 
-        expect((await mirror.segmentsToMirror(m)).map((row) => row.nativeId)).toEqual([
+        // No ORDER BY: Postgres may return them in either order.
+        expect((await mirror.segmentsToMirror(m)).map((row) => row.nativeId).sort()).toEqual([
           nat(tag, 1),
           nat(tag, 2),
         ])
         expect(await mirror.segmentsToMirror(machine(other))).toEqual([])
-        expect((await mirror.segmentsToMirrorDirty(m)).map((row) => row.nativeId)).toEqual([
+        // No ORDER BY: Postgres may return them in either order.
+        expect((await mirror.segmentsToMirrorDirty(m)).map((row) => row.nativeId).sort()).toEqual([
           nat(tag, 1),
           nat(tag, 2),
         ])
@@ -639,21 +641,22 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
  */
 describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
   it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
-    const rowsIn = (store: SessionStore, ws: string) =>
-      rawDb(store)
-        .prepare('SELECT * FROM conversations WHERE workspace_id = ? AND id = ? ORDER BY rowid')
-        .all(ws, SAME)
     const SAME = 'same-conversation'
+    const rowsIn = async (store: SessionStore, ws: string) =>
+      await store.all<Record<string, unknown>>(
+        sql`SELECT * FROM conversations WHERE workspace_id = ${ws} AND id = ${SAME}`,
+      )
     const { a, b } = stores
     await b.conversations.index.upsert(scope, [conversation('b', 7, { id: SAME })])
-    const before = rowsIn(b, WS.b)
+    const before = await rowsIn(b, WS.b)
+    expect(before).toHaveLength(1)
     await a.conversations.index.upsert(scope, [conversation('a', 7, { id: SAME })])
-    expect(rowsIn(a, WS.a)).toHaveLength(1)
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toHaveLength(1)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
     await a.conversations.index.upsert(scope, [
       conversation('a', 7, { id: SAME, title: 'a retitled' }),
     ])
-    expect(rowsIn(a, WS.a)).toEqual([expect.objectContaining({ title: 'a retitled' })])
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toEqual([expect.objectContaining({ title: 'a retitled' })])
+    expect(await rowsIn(b, WS.b)).toEqual(before)
   })
 })
