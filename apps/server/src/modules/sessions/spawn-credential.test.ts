@@ -289,23 +289,28 @@ describe('a new session', () => {
   })
 })
 
+/** A ChatGPT plan's sealed token set around `accessToken`, with two hours left. */
+function planTokenSet(accessToken: string): string {
+  const set: ChatgptTokenSet = {
+    seq: 1,
+    clientId: 'oaiapp_FAKE_client',
+    accessToken,
+    refreshToken: 'rt.FAKE-refresh',
+    idToken: 'FAKE.id.token',
+    // Two hours left: no renewal is needed for a session start.
+    expiresAt: Date.now() + 2 * 3600_000,
+    scopes: ['chatgpt.tokens.use.direct'],
+    savedAt: Date.now(),
+  }
+  return JSON.stringify(set)
+}
+
 describe('a ChatGPT plan signed in to Podium (epic Task 15, acceptance 2)', () => {
   /** Obviously fake: the access token inside the sealed token set. */
   const PLAN_TOKEN = 'tok-FAKE-plan-launch-access-0015'
 
   async function planCredential(store: SessionStore): Promise<CredentialId> {
-    const set: ChatgptTokenSet = {
-      seq: 1,
-      clientId: 'oaiapp_FAKE_client',
-      accessToken: PLAN_TOKEN,
-      refreshToken: 'rt.FAKE-refresh',
-      idToken: 'FAKE.id.token',
-      // Two hours left: no renewal is needed for a session start.
-      expiresAt: Date.now() + 2 * 3600_000,
-      scopes: ['chatgpt.tokens.use.direct'],
-      savedAt: Date.now(),
-    }
-    return await credential(store, { type: 'openai.chatgpt-plan', secret: JSON.stringify(set) })
+    return await credential(store, { type: 'openai.chatgpt-plan', secret: planTokenSet(PLAN_TOKEN) })
   }
 
   it('a launch naming the plan and no driver runs on the Codex server driver, with the token', async () => {
@@ -784,7 +789,13 @@ describe('delivery to the daemon (Task 5)', () => {
     it(`${harness} on ${line.type}: the secret is in access, never in env (acceptance 9)`, async () => {
       if (line.deliver.kind !== 'env') throw new Error('a vault line delivers by env')
       const store = await openTestStore(':memory:')
-      const id = await credential(store, { type: line.type, secret: FAKE_A })
+      // A type Podium renews is sealed as its token set; what a session gets
+      // is the access token in it (epic Task 15).
+      const renewed = CREDENTIAL_TYPES[line.type as CredentialTypeId]?.renewal === 'podium'
+      const id = await credential(store, {
+        type: line.type,
+        secret: renewed ? planTokenSet(FAKE_A) : FAKE_A,
+      })
       const { reg, daemon } = await makeRegistry(store)
       await reg.modules.sessions.createSession({
         agentKind: harness,

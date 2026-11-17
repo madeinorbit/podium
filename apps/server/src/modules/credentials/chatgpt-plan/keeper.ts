@@ -225,9 +225,18 @@ export class ChatgptPlanKeeper {
 
   private async read(credentialId: CredentialId): Promise<ChatgptTokenSet> {
     try {
-      return await withSecret(this.deps.store, credentialId, async (secret) =>
-        parseTokenSet(secret),
-      )
+      return await withSecret(this.deps.store, credentialId, async (secret) => {
+        try {
+          return parseTokenSet(secret)
+        } catch {
+          // Not a token set: nothing can be renewed or handed out from it.
+          throw new SecretUnavailableError(
+            credentialId,
+            'needs-attention',
+            'The stored ChatGPT sign-in cannot be read. Sign in with ChatGPT again.',
+          )
+        }
+      })
     } catch (err) {
       if (err instanceof SecretUnavailableError) {
         const refusal =
