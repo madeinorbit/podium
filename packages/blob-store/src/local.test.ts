@@ -123,6 +123,39 @@ describe('local puts', () => {
     expect(await filesUnder(join(stateDir, 'r'))).toEqual([])
   })
 
+  it('removes the directories a delete leaves empty, never the root directory', async () => {
+    const store = localStore()
+    await store.put(blobKey('artifacts/iss/a1/img/x.png'), bytes('x'))
+    await store.put(blobKey('artifacts/iss/a1/index.html'), bytes('i'))
+    await store.put(blobKey('artifacts/iss/a2/y.md'), bytes('y'))
+    await store.delete(blobKey('artifacts/iss/a1/img/x.png'))
+    // `img` is empty and goes; `a1` still holds index.html and stays.
+    expect(await readdir(join(stateDir, 'artifacts/iss/a1'))).toEqual(['index.html'])
+    await store.delete(blobKey('artifacts/iss/a1/index.html'))
+    expect(await readdir(join(stateDir, 'artifacts/iss'))).toEqual(['a2'])
+    await store.delete(blobKey('artifacts/iss/a2/y.md'))
+    // Everything below the root is gone; the root itself stays.
+    expect(await readdir(join(stateDir, 'artifacts'))).toEqual([])
+    // A put into a removed directory makes it again; a one-segment key is fine too.
+    await store.put(blobKey('artifacts/iss/a3/z.md'), bytes('z'))
+    expect(await bodyText(await store.get(blobKey('artifacts/iss/a3/z.md')))).toBe('z')
+    await store.put(blobKey('top'), bytes('t'))
+    await store.delete(blobKey('top'))
+    expect(await readdir(stateDir)).toEqual(['artifacts'])
+  })
+
+  it('keeps a put racing the delete of its directory', async () => {
+    const store = localStore()
+    for (let i = 0; i < 20; i += 1) {
+      await store.put(blobKey(`artifacts/race/${i}/a`), bytes('a'))
+      await Promise.all([
+        store.delete(blobKey(`artifacts/race/${i}/a`)),
+        store.put(blobKey(`artifacts/race/${i}/b`), bytes('b')),
+      ])
+      expect(await bodyText(await store.get(blobKey(`artifacts/race/${i}/b`)))).toBe('b')
+    }
+  })
+
   it('makes a new inode on every put and uses inode, size and mtime as the etag', async () => {
     const store = localStore()
     const first = await store.put(blobKey('e/x'), bytes('same'))

@@ -10,6 +10,10 @@
  *   renames it over the key, so a reader sees the old bytes or the new ones.
  *   `durable` (default true) fsyncs the file before the rename and the
  *   directory after it; a `durable` delete fsyncs the directory after the unlink.
+ * - **Delete** removes the directories it leaves empty, up to but never including the
+ *   top-level root the key lives under (`artifacts`, `transcripts`, …), so a prefix delete
+ *   leaves no empty tree behind. A put whose directory such a delete removed under it makes
+ *   the directory again.
  * - **Conditional writes.** The etag is the file's inode, size and modification
  *   time; a replace always makes a new inode, so every put changes it. The
  *   condition check and the rename run under a per-key in-process mutex, which
@@ -29,7 +33,17 @@
 
 import { randomUUID } from 'node:crypto'
 import type { BigIntStats, Dirent } from 'node:fs'
-import { type FileHandle, mkdir, open, readdir, rename, rm, stat, unlink } from 'node:fs/promises'
+import {
+  type FileHandle,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  unlink,
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { WorkspaceId } from '@podium/model'
 import { bodyChunks, KeyedMutex } from './internal'
@@ -210,7 +224,8 @@ class LocalBlobStore implements BlobStore {
           if (!isMissing(error)) throw error
           return
         }
-        if (opts.durable ?? true) await fsyncDirectory(dirname(path))
+        const kept = await this.removeEmptyParents(valid)
+        if (opts.durable ?? true) await fsyncDirectory(kept)
       }),
     )
   }
@@ -274,6 +289,30 @@ class LocalBlobStore implements BlobStore {
     })
   }
 
+  /**
+   * Remove the directories a deleted key leaves empty, deepest first, stopping at the first
+   * one that is not empty and never removing the key's top-level root directory. Returns
+   * the directory that stays, for the fsync.
+   */
+  private async removeEmptyParents(key: BlobKey): Promise<string> {
+    const segments = key.split('/')
+    // Directories of the key below its root: `a/b/c/key` → `a/b/c`, `a/b`; never `a`.
+    for (let depth = segments.length - 1; depth > 1; depth -= 1) {
+      const dir = join(this.stateDir, ...segments.slice(0, depth))
+      try {
+        await rmdir(dir)
+      } catch (error) {
+        const code = errorCode(error)
+        if (code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'EBUSY' || isMissing(error)) {
+          return dir
+        }
+        throw error
+      }
+    }
+    // A key of one segment lives in the state directory itself.
+    return segments.length === 1 ? this.stateDir : join(this.stateDir, segments[0] as string)
+  }
+
   private write<T>(writer: () => Promise<T>): Promise<T> {
     return this.fence === undefined ? writer() : this.fence.runWriter(writer)
   }
@@ -285,12 +324,11 @@ class LocalBlobStore implements BlobStore {
   ): Promise<BlobHead> {
     const path = this.path(key)
     const dir = dirname(path)
-    await mkdir(dir, { recursive: true })
     const temp = join(dir, `${TEMP_PREFIX}${randomUUID()}`)
     let renamed = false
     try {
       let head: BlobHead
-      const handle = await open(temp, 'wx')
+      const handle = await this.openTemp(dir, temp)
       try {
         await fill(handle)
         if (conditions.durable) await handle.sync()
@@ -319,6 +357,21 @@ class LocalBlobStore implements BlobStore {
       })
     } finally {
       if (!renamed) await rm(temp, { force: true })
+    }
+  }
+
+  /**
+   * Make `dir` and create the temp file in it. A delete of the directory's last key may
+   * remove the directory between the two; then it is made again.
+   */
+  private async openTemp(dir: string, temp: string): Promise<FileHandle> {
+    for (let attempt = 1; ; attempt += 1) {
+      await mkdir(dir, { recursive: true })
+      try {
+        return await open(temp, 'wx')
+      } catch (error) {
+        if (errorCode(error) !== 'ENOENT' || attempt >= 5) throw error
+      }
     }
   }
 

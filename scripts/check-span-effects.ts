@@ -99,6 +99,10 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
   },
   {
+    key: 'node:fs/promises.rmdir@apps/server/src/application/issue-attach-orchestrator.ts:27',
+    why: 'the same prefix delete as the readdir entry above: the local adapter removes the directories the delete leaves empty (POD-7054)',
+  },
+  {
     key: '@smithy/core.send@apps/server/src/application/issue-attach-orchestrator.ts:27',
     why: 'the same prefix delete as the readdir entry above: one more leaf of IssueArtifactStore.removeIssue on the blob store (POD-7054)',
   },
