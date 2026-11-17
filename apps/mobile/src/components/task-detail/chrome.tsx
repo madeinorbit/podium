@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { alpha } from '../../theme/mix'
-import { color, font, leading, monoLabel, radius, sans, space, spring } from '../../theme/theme'
+import { color, font, leading, radius, sans, space, spring } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -20,17 +20,12 @@ import { PressableScale } from '../PressableScale'
  * and commits on nothing else.
  */
 
-/** Mono micro-label — the page's machine voice (section names, field names). */
+/** A secondary label within a grouped property row. */
 export function MachineLabel({ children }: { children: ReactNode }) {
   return <Text style={styles.machine}>{children}</Text>
 }
 
-/**
- * A section heading: mono label, an optional count, a hairline that takes the
- * remaining width, and an optional trailing control. Same grammar as the
- * desktop's `SectionHeading` and the phone's own list headers, so a page made of
- * eight sections still reads as one document.
- */
+/** Group headings follow the board's 34pt content axis. */
 export function SectionHeading({
   label,
   count,
@@ -46,6 +41,24 @@ export function SectionHeading({
       {count ? <Text style={styles.count}>{count}</Text> : null}
       <View style={styles.spacer} />
       {right}
+    </View>
+  )
+}
+
+/** An inset group for content that should be readable without opening a fold. */
+export function DetailSection({
+  label,
+  children,
+  testID,
+}: {
+  label: string
+  children: ReactNode
+  testID?: string
+}) {
+  return (
+    <View testID={testID}>
+      <SectionHeading label={label} />
+      <View style={styles.contentGroup}>{children}</View>
     </View>
   )
 }
@@ -91,7 +104,7 @@ export function Disclosure({
   }, [open, reduceMotion, spin])
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] })
   return (
-    <View testID={testID}>
+    <View style={styles.disclosure} testID={testID}>
       <PressableScale
         accessibilityRole="button"
         // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
@@ -103,12 +116,14 @@ export function Disclosure({
         scaleTo={0.995}
         style={({ pressed }) => [styles.discHead, pressed && styles.discHeadPressed]}
       >
+        <View style={styles.discLabel}>
+          <Text style={styles.discTitle}>{label}</Text>
+          {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+        </View>
+        {count ? <Text style={styles.count}>{count}</Text> : null}
         <Animated.View style={[styles.chevron, { transform: [{ rotate }] }]}>
           <Icon as={ChevronRight} size={14} color={color.textFaint} />
         </Animated.View>
-        <Text style={styles.title}>{label}</Text>
-        {count ? <Text style={styles.count}>{count}</Text> : null}
-        {hint ? <Text style={[styles.hint, styles.countRight]}>{hint}</Text> : null}
       </PressableScale>
       {open ? <View style={styles.discBody}>{children}</View> : null}
     </View>
@@ -150,7 +165,9 @@ export function InlineEditable({
     return (
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={filled ? `${ariaLabel} — edit` : ariaLabel}
+        accessibilityLabel={ariaLabel}
+        accessibilityValue={{ text: filled ? value : placeholder }}
+        accessibilityHint="Opens a text editor"
         onPress={() => {
           setDraft(value)
           setEditing(true)
@@ -228,38 +245,51 @@ export function ErrorNote({ message }: { message: string | null }) {
 
 const styles = StyleSheet.create({
   machine: {
-    ...monoLabel(),
-    color: color.label,
+    ...sans(400),
+    fontSize: font.tiny,
+    color: color.textDim,
   },
   // Section names: the iOS board's sentence-case group header, 13pt semibold.
   title: {
     ...sans(600),
     color: color.textDim,
     fontSize: font.tiny,
+    flexShrink: 1,
   },
   count: {
     ...sans(400),
     color: color.textFaint,
-    fontSize: 12,
-  },
-  countRight: {
-    marginLeft: 'auto',
+    fontSize: font.tiny,
+    flexShrink: 1,
+    fontVariant: ['tabular-nums'],
   },
   hint: {
     ...sans(400),
-    color: color.textMicro,
-    fontSize: font.micro,
+    color: color.textDim,
+    fontSize: font.tiny,
   },
   // On the card axis: 12pt in, the chevron in a 14pt gutter, the name after it.
   heading: {
-    minHeight: 28,
+    minHeight: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     paddingLeft: space.md + 14 + space.sm,
     paddingRight: space.md,
-    marginTop: space.lg,
-    marginBottom: space.xs,
+    marginBottom: space.sm,
+  },
+  contentGroup: {
+    padding: space.md,
+    gap: space.lg,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+    backgroundColor: color.groupedCard,
+  },
+  disclosure: {
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
   },
   spacer: { flex: 1 },
   chevron: { width: 14, alignItems: 'center' },
@@ -269,20 +299,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
-    borderRadius: 6,
+    paddingVertical: space.md,
   },
+  discLabel: { flex: 1, minWidth: 0, gap: space.xs },
+  discTitle: { ...sans(400), color: color.text, fontSize: font.body },
   discHeadPressed: {
     backgroundColor: alpha(color.surface, 0.7),
   },
   discBody: {
-    paddingTop: space.xs,
+    marginHorizontal: space.md,
+    paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
   },
   editTarget: {
     marginHorizontal: -space.sm,
     paddingHorizontal: space.sm,
-    paddingVertical: 6,
-    borderRadius: radius.md,
-    minHeight: 34,
+    paddingVertical: space.xs,
+    borderRadius: radius.control,
+    minHeight: 44,
     justifyContent: 'center',
   },
   editTargetPressed: {
@@ -296,7 +331,6 @@ const styles = StyleSheet.create({
   },
   editPlaceholder: {
     color: color.textMicro,
-    fontStyle: 'italic',
   },
   editor: {
     gap: space.sm,
@@ -307,11 +341,11 @@ const styles = StyleSheet.create({
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
     backgroundColor: color.bgSunken,
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.borderStrong,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    paddingVertical: space.md,
   },
   fieldMultiline: {
     minHeight: 112,
@@ -323,10 +357,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   editBtn: {
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: space.lg,
-    borderRadius: radius.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.control,
     backgroundColor: color.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,

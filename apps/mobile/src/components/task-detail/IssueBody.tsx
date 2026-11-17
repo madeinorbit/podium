@@ -9,9 +9,9 @@ import { useIssueOpening } from '../../client/issue-opening'
 import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
-import { color, font, leading, mono, radius, sans, space, tracking } from '../../theme/theme'
+import { color, font, leading, radius, sans, space, tracking } from '../../theme/theme'
 import { RichMarkdown } from '../RichMarkdown'
-import { Disclosure, InlineEditable, SectionHeading } from './chrome'
+import { DetailSection, Disclosure, InlineEditable } from './chrome'
 
 /**
  * The task's own text [POD-724]: the inline-editable title, the status strip, the
@@ -42,7 +42,6 @@ export const IssueTitle = observer(function IssueTitle({
       placeholder="Untitled task"
       ariaLabel="Task title"
       busy={busy}
-      multiline={false}
       onCommit={commands.commitTitle}
       textStyle={styles.title}
     />
@@ -132,7 +131,7 @@ export const IssueDescription = observer(function IssueDescription({
   commands: IssueCommands
 }) {
   return (
-    <View style={styles.section}>
+    <View>
       <InlineEditable
         value={issue.description}
         placeholder="Add a description…"
@@ -156,7 +155,7 @@ export const IssueBrief = observer(function IssueBrief({ issue }: { issue: Issue
     <View>
       <Disclosure
         label="Brief"
-        hint="written for the agent"
+        hint="Instructions for the agent"
         open={open}
         onToggle={() => setOpen((v) => !v)}
         testID="issue-brief"
@@ -194,8 +193,7 @@ export const LongFormFields = observer(function LongFormFields({
   return (
     <View testID="long-form-fields">
       {filled.map(({ field, label }) => (
-        <View key={field} style={styles.section}>
-          <SectionHeading label={label} />
+        <DetailSection key={field} label={label}>
           <InlineEditable
             value={issue[field] ?? ''}
             placeholder={`Add ${label.toLowerCase()}…`}
@@ -204,7 +202,7 @@ export const LongFormFields = observer(function LongFormFields({
             onCommit={(value) => commands.commitLongForm(field, value)}
             render={(text) => <RichMarkdown text={text} />}
           />
-        </View>
+        </DetailSection>
       ))}
     </View>
   )
@@ -222,35 +220,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    paddingTop: space.xs,
-    paddingBottom: space.lg,
+    gap: space.sm,
   },
   stripText: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
   },
   chip: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    borderRadius: radius.control,
     backgroundColor: color.idleSoft,
   },
   chipText: {
-    ...mono(500),
+    ...sans(400),
     color: color.textDim,
-    fontSize: 9.5,
-    letterSpacing: 0.3,
-  },
-  section: {
-    paddingBottom: space.xl,
+    fontSize: font.tiny,
   },
   brief: {
     ...sans(400),
-    color: color.textDim,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
-    paddingTop: space.xs,
+    color: color.body,
+    fontSize: font.body,
+    lineHeight: leading(font.body, 'prose'),
   },
 })

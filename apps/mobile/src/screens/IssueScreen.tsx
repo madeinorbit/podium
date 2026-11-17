@@ -49,7 +49,7 @@ import {
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
-import { ErrorNote } from '../components/task-detail/chrome'
+import { DetailSection, ErrorNote } from '../components/task-detail/chrome'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import { IssueAge } from '../components/task-detail/IssueAge'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
@@ -80,35 +80,8 @@ import { launchAgentHref, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { color, space } from '../theme/theme'
 
-/**
- * THE TASK PAGE, WITH THE DESKTOP'S POWER [POD-724].
- *
- * What this replaced was a thin page: a chip row, the description, a list of
- * sessions and a comment list. Everything else a task carries — its banners, its
- * agent-published artifacts, its sub-tasks, its mail, its relations,
- * its branch, its event history — was desk-only, which meant the phone could show
- * you that something needed you and then could not show you what it was.
- *
- * The section order is the iOS redesign board's (POD-2378): actions first.
- *
- *   banners → title → header pills → the summary card (state text, the lead
- *   session's offer buttons, chat) → artifact strip → sessions → activity →
- *   the reference sections, each folded: description, brief, changes,
- *   sub-tasks, mail, Details.
- *
- * -------------------------------------------------------------------------
- * THIS FILE IS COMPOSITION AND PAGE-LEVEL STATE. NOTHING ELSE.
- * -------------------------------------------------------------------------
- *
- * Each section is its own module under `../components/task-detail/`, chosen by
- * the question it answers; every mutation is a named command in
- * `../lib/issue-detail.ts`; the three lazy reads are one hook. What is LEFT here
- * is the state that genuinely spans sections — which sheet is open and the
- * busy / error pair — because pushing either of those down would duplicate them.
- *
- * NO PINNED COMPOSER. The summary card's chat button is the reply: it opens the
- * lead session's chat, or, on a task with no session, a sheet that posts on the
- * task through the same comment path.
+/** Native task detail composition. Data and commands come from the shared page view.
+ * Title/state, agents and actions lead; activity follows the task's reference content.
  */
 export function IssueScreen(props: { dismiss?: boolean }) {
   return (
@@ -377,8 +350,25 @@ const IssueContent = observer(function IssueContent({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
+          <View style={styles.header} testID="issue-detail-header">
+            <IssueTitle issue={issue} busy={busy} commands={commands} />
+            <PropertyBar
+              issue={issue}
+              project={repoName}
+              trailing={<IssueAge stamp={issue.updatedAt} />}
+              onStage={() => setSheet({ kind: 'stage' })}
+              onPriority={() => setSheet({ kind: 'priority' })}
+              onType={() => setSheet({ kind: 'type' })}
+              onSelect={{
+                status: commands.selectStatus,
+                priority: (priority) => commands.update({ priority }),
+                type: (type) => commands.update({ type }),
+              }}
+            />
+            <StatusStrip issue={issue} exceptionsOnly />
+          </View>
           <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
-
+          <TaskSessions issue={issue} sessions={seats} onOpenSession={openSession} />
           {issue.needsHuman ? (
             <View style={styles.question}>
               <IssueQuestionCard
@@ -406,74 +396,50 @@ const IssueContent = observer(function IssueContent({
             </View>
           ) : null}
 
-          <IssueTitle issue={issue} busy={busy} commands={commands} />
-          <PropertyBar
-            issue={issue}
-            project={repoName}
-            trailing={<IssueAge stamp={issue.updatedAt} />}
-            onStage={() => setSheet({ kind: 'stage' })}
-            onPriority={() => setSheet({ kind: 'priority' })}
-            onType={() => setSheet({ kind: 'type' })}
-            onSelect={{
-              status: commands.selectStatus,
-              priority: (priority) => commands.update({ priority }),
-              type: (type) => commands.update({ type }),
-            }}
-          />
-          <StatusStrip issue={issue} exceptionsOnly />
-
-          {/* The board's order: what it waits on, what it made, who is on it;
-              then activity, and the folded reference sections below it. */}
           <TaskOfferSummary
             issue={issue}
             lead={lead}
             onOpenSession={openSession}
             onComment={(text) => commands.postComment(text, appendLocalComment)}
           />
+          <DetailSection label="Description" testID="issue-description-section">
+            <IssueDescription issue={issue} busy={busy} commands={commands} />
+            <IssueAgentPanel issue={issue} only="deferred" />
+          </DetailSection>
+          <LongFormFields issue={issue} busy={busy} commands={commands} />
+          <IssueBrief issue={issue} />
+          <IssueSubIssuesSection
+            issue={issue}
+            busy={busy}
+            commands={commands}
+            onOpen={openIssue}
+            onStatus={(child) => setSheet({ kind: 'child-status', child })}
+          />
           <ArtifactStrip issue={issue}>
             <IssueAgentPanel issue={issue} only="artifacts" />
           </ArtifactStrip>
-          <TaskSessions issue={issue} sessions={seats} onOpenSession={openSession} />
-
-          {/* Activity, then the reference half, each folded under its own
-              chevron header so the activity feed is never buried. */}
-          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
-          <View style={styles.reference}>
-            <FoldedSection label="Description" testID="issue-description-fold">
-              <IssueDescription issue={issue} busy={busy} commands={commands} />
-              <LongFormFields issue={issue} busy={busy} commands={commands} />
-              <IssueAgentPanel issue={issue} only="deferred" />
+          {issue.worktreePath ? (
+            <FoldedSection label="Changes">
+              <GitReviewSection
+                root={issue.worktreePath}
+                headless
+                {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+              />
             </FoldedSection>
-            <IssueBrief issue={issue} />
-            {issue.worktreePath ? (
-              <FoldedSection label="Changes">
-                <GitReviewSection
-                  root={issue.worktreePath}
-                  headless
-                  {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
-                />
-              </FoldedSection>
-            ) : null}
-            <IssueSubIssuesSection
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              onOpen={openIssue}
-              onStatus={(child) => setSheet({ kind: 'child-status', child })}
-            />
-            <PhoneMail issue={issue} />
-            <PhoneProperties
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              open={detailsOpen}
-              onToggle={detailsCollapsed}
-              onOpenSession={openSession}
-              onOpenIssue={openIssue}
-              onPickParent={() => setSheet({ kind: 'parent' })}
-              onAddRelation={() => setSheet({ kind: 'relation-type' })}
-            />
-          </View>
+          ) : null}
+          <PhoneProperties
+            issue={issue}
+            busy={busy}
+            commands={commands}
+            open={detailsOpen}
+            onToggle={detailsCollapsed}
+            onOpenSession={openSession}
+            onOpenIssue={openIssue}
+            onPickParent={() => setSheet({ kind: 'parent' })}
+            onAddRelation={() => setSheet({ kind: 'relation-type' })}
+          />
+          <PhoneMail issue={issue} />
+          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
         </ScrollView>
 
         {/* Pinned to the bottom, not placed where the failing control was. A
@@ -792,16 +758,14 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: space.lg,
-    paddingTop: space.md,
+    paddingTop: space.lg,
     paddingBottom: space.xxl,
+    gap: space.xl,
   },
-  // The reference half of the page sits a group's breath below the sessions.
-  reference: {
-    paddingTop: space.sm,
+  header: {
+    gap: space.sm,
   },
-  question: {
-    paddingBottom: space.md,
-  },
+  question: {},
   errorBand: {
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,

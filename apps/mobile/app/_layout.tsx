@@ -102,9 +102,11 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
         name="inspect/[issueId]"
         options={{
           presentation: 'formSheet',
-          sheetAllowedDetents: [0.5, 0.9],
+          sheetAllowedDetents: [0.5, 1],
           sheetGrabberVisible: true,
           title: 'Task details',
+          headerLargeTitleEnabled: false,
+          contentStyle: { backgroundColor: color.groupedBg },
         }}
       />
       <Stack.Screen

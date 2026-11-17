@@ -20,7 +20,6 @@ import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { NativePicker, type NativePickerOption } from '../action-sheet-native'
 import { Icon } from '../Icon'
@@ -91,7 +90,7 @@ export const IssueProperties = observer(function IssueProperties({
   return (
     <View style={styles.section}>
       <Disclosure label="Details" open={open} onToggle={onToggle} testID="issue-details">
-        <Row label="Labels">
+        <Row label="Labels" first>
           <View style={styles.labels}>
             {issue.labels.map((l) => (
               <PressableScale
@@ -176,9 +175,7 @@ export const IssueProperties = observer(function IssueProperties({
 
         {issue.worktreePath ? (
           <Row label="Branch">
-            <Text style={styles.mono} numberOfLines={1}>
-              {issue.branch ?? '—'}
-            </Text>
+            <Text style={styles.mono}>{issue.branch ?? '—'}</Text>
             <View style={styles.ghostRow}>
               {/* THE SIGNAL RULE. The merge button takes the accent only when
                   there is something to land; on every other task both actions are
@@ -305,6 +302,11 @@ export const PropertyBar = observer(function PropertyBar({
             }
           : {})}
       />
+      {project ? (
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{project}</Text>
+        </View>
+      ) : null}
       <Chip
         label={`P${issue.priority}`}
         accessibilityLabel={`Priority P${issue.priority} — change`}
@@ -321,13 +323,6 @@ export const PropertyBar = observer(function PropertyBar({
             }
           : {})}
       />
-      {project ? (
-        <View style={styles.chip}>
-          <Text style={styles.chipText} numberOfLines={1}>
-            {project}
-          </Text>
-        </View>
-      ) : null}
       {issue.type !== 'task' ? (
         <Chip
           label={issue.type}
@@ -394,19 +389,19 @@ const Chip = observer(function Chip({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Opens a picker"
       onPress={press}
-      hitSlop={8}
-      style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+      style={({ pressed }) => [styles.chipTarget, pressed && styles.chipPressed]}
     >
-      {glyph}
-      <Text style={styles.chipText} numberOfLines={1}>
-        {label}
-      </Text>
+      <View style={styles.chip}>
+        {glyph}
+        <Text style={styles.chipText}>{label}</Text>
+      </View>
     </PressableScale>
   )
   if (!picker) return chip(onPress)
   return (
     <NativePicker
       label={picker.label}
+      style={styles.chipTarget}
       options={picker.options}
       selected={picker.selected}
       onSelect={picker.onSelect}
@@ -437,10 +432,12 @@ const PropertyParentReference = observer(function PropertyParentReference({
       style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
     >
       <StageGlyph stage={parent.stage} size={13} />
-      <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
-      <Text style={styles.linkTitle} numberOfLines={1}>
-        {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
-      </Text>
+      <View style={styles.referenceBody}>
+        <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
+        <Text style={styles.linkTitle}>
+          {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
+        </Text>
+      </View>
       {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
       <Icon as={ChevronRight} size={13} color={color.textFaint} />
     </PressableScale>
@@ -478,10 +475,12 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
           style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
         >
           <StageGlyph stage={target.stage} size={13} />
-          <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
-          <Text style={styles.linkTitle} numberOfLines={1}>
-            {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
-          </Text>
+          <View style={styles.referenceBody}>
+            <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
+            <Text style={styles.linkTitle}>
+              {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
+            </Text>
+          </View>
         </PressableScale>
       ) : (
         <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
@@ -495,7 +494,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
         accessibilityLabel={`Remove ${entry.type} relation`}
         accessibilityState={{ disabled: busy }}
         disabled={busy}
-        hitSlop={8}
+        style={styles.removeRelation}
         onPress={() => commands.removeRelation(entry)}
       >
         <Icon as={X} size={13} color={color.textFaint} />
@@ -517,18 +516,26 @@ const PropertySessionRow = observer(function PropertySessionRow({
       onPress={() => onOpenSession(session.sessionId)}
       style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
     >
-      <Text style={styles.linkTitle} numberOfLines={1}>
-        {sessionTitle(session)}
-      </Text>
-      <Text style={styles.meta}>{session.status}</Text>
+      <View style={styles.referenceBody}>
+        <Text style={styles.linkTitle}>{sessionTitle(session)}</Text>
+        <Text style={styles.meta}>{session.status}</Text>
+      </View>
       <Icon as={ChevronRight} size={13} color={color.textFaint} />
     </PressableScale>
   )
 })
 
-const Row = observer(function Row({ label, children }: { label: string; children: ReactNode }) {
+const Row = observer(function Row({
+  label,
+  children,
+  first = false,
+}: {
+  label: string
+  children: ReactNode
+  first?: boolean
+}) {
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, first && styles.firstRow]}>
       <MachineLabel>{label}</MachineLabel>
       <View style={styles.rowBody}>{children}</View>
     </View>
@@ -583,29 +590,35 @@ const External = observer(function External({ label, url }: { label: string; url
 
 const styles = StyleSheet.create({
   section: {
-    paddingBottom: space.xl,
+    paddingBottom: 0,
   },
   // The board's header pills: 24pt fills on the control radius, no outline.
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    paddingBottom: space.md,
+    gap: space.sm,
   },
   barTrailing: {
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
   },
+  chipTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    borderRadius: radius.control,
+  },
   chip: {
-    minHeight: 24,
+    minHeight: 28,
+    paddingVertical: space.xs,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: space.sm,
     maxWidth: '100%',
     paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
+    borderRadius: radius.control,
     backgroundColor: color.tertiaryFill,
   },
   chipPressed: {
@@ -618,7 +631,7 @@ const styles = StyleSheet.create({
     ...sans(400),
     flexShrink: 1,
     color: color.body,
-    fontSize: 12,
+    fontSize: font.small,
   },
   chipNeedsYouText: {
     color: color.needsYouText,
@@ -630,72 +643,74 @@ const styles = StyleSheet.create({
     color: color.dangerText,
   },
   row: {
-    gap: 5,
-    paddingVertical: space.sm,
+    gap: space.sm,
+    paddingVertical: space.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
+  firstRow: { borderTopWidth: 0, paddingTop: space.xs },
   rowBody: {
-    gap: 5,
+    gap: space.sm,
   },
   labels: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
+    gap: space.sm,
   },
   label: {
-    minHeight: 30,
+    minHeight: 44,
+    paddingVertical: space.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
+    borderRadius: radius.control,
     backgroundColor: color.accentSoft,
   },
   labelText: {
     ...sans(500),
     color: color.accentTint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   labelField: {
     ...sans(400),
-    minHeight: 34,
+    minHeight: 44,
+    paddingVertical: space.sm,
     minWidth: 120,
     flexGrow: 1,
     color: color.text,
-    fontSize: font.tiny,
+    fontSize: font.body,
     paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
     backgroundColor: color.bgSunken,
   },
   linkRow: {
-    minHeight: 40,
+    minHeight: 44,
+    paddingVertical: space.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.sm,
     marginHorizontal: -space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   linkRef: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: 10,
+    fontSize: font.tiny,
   },
   linkTitle: {
     ...sans(400),
-    flex: 1,
-    minWidth: 0,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   archived: {
     ...mono(500),
     color: color.textMicro,
-    fontSize: 9,
+    fontSize: font.tiny,
     letterSpacing: 0.5,
   },
   link: {
@@ -706,7 +721,7 @@ const styles = StyleSheet.create({
   inert: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   opaque: {
     ...sans(400),
@@ -720,24 +735,27 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   meta: {
-    ...mono(400),
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   mono: {
     ...mono(400),
     color: color.body,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
+  removeRelation: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  referenceBody: { flex: 1, minWidth: 0, gap: space.xs },
   relGroup: {
-    gap: 3,
+    gap: space.xs,
     paddingBottom: space.xs,
   },
   relRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 34,
+    minHeight: 44,
+    paddingVertical: space.sm,
     gap: space.sm,
   },
   relOpen: {
@@ -746,8 +764,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    justifyContent: 'center',
-    minHeight: 34,
+    justifyContent: 'flex-start',
+    minHeight: 44,
+    paddingVertical: space.sm,
   },
   ghostRow: {
     flexDirection: 'row',
@@ -755,13 +774,14 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   ghost: {
-    minHeight: 36,
+    minHeight: 44,
+    paddingVertical: space.sm,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: space.sm,
     paddingHorizontal: space.md,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
     backgroundColor: color.surface,
