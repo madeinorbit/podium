@@ -171,6 +171,14 @@ export interface RecordSource {
    * issue's deletion) watches updates alone.
    */
   readonly ops?: readonly ('i' | 'u' | 'd')[]
+  /**
+   * The Postgres forms of {@link rows} and {@link derived} (POD-6982, POD-6958 design
+   * 2.5), where the SQLite SQL is not Postgres SQL: JSON read with `->>`, `#>>` and
+   * `json_array_elements` over the `json` columns, booleans as booleans. Absent, the
+   * SQLite text is portable and serves both engines. `capture-pg.ts` uses them in the
+   * capture forms, `capture-oracle.ts` in its test triggers.
+   */
+  readonly pg?: PgForms
   /** The record ids these changes can have changed, from keys in {@link keys}' order. */
   ids(
     changes: readonly SourceChange[],
@@ -179,6 +187,12 @@ export interface RecordSource {
 }
 
 export type RecordSources = Readonly<Record<MetadataEntityKind, readonly RecordSource[]>>
+
+/** A source's row filter and derived values in Postgres SQL, over `{row}` as on SQLite. */
+export interface PgForms {
+  readonly rows?: string
+  readonly derived?: readonly string[]
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -250,7 +264,7 @@ function source(
   table: Table,
   keys: readonly Column[],
   ids: RecordSource['ids'],
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'ops'>>,
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'ops' | 'pg'>>,
 ): RecordSource {
   const scoped = workspaceColumnOf(table) !== undefined
   return {
@@ -266,7 +280,7 @@ function own(
   table: Table,
   keys: readonly Column[],
   idOf: (key: readonly unknown[]) => string | null,
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived'>> = {},
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'pg'>> = {},
 ): RecordSource {
   return source(
     table,
@@ -286,7 +300,7 @@ function own(
 const byId = (
   table: Table,
   key: Column,
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived'>> = {},
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'pg'>> = {},
 ): RecordSource => own(table, [key], (k) => (k[0] == null ? null : str(k[0])), more)
 
 /** A parent table whose change reaches records found by a batched read. */
@@ -295,7 +309,7 @@ function via(
   keys: readonly Column[],
   reads: RecordSource['reads'],
   ids: RecordSource['ids'],
-  more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops'>> = {},
+  more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops' | 'pg'>> = {},
 ): RecordSource {
   return source(table, keys, ids, { reads, ...more })
 }
@@ -482,6 +496,8 @@ async function messageIds(changes: readonly SourceChange[], reads: RecordReads):
 
 /** A session is a live conversation: not exited, archived or deleted. */
 const LIVE_CONVERSATION = `(coalesce({row}.${sessions.status.name}, '') <> 'exited' AND coalesce({row}.${sessions.archived.name}, 0) = 0 AND {row}.${sessions.deletedAt.name} IS NULL)`
+/** {@link LIVE_CONVERSATION} on Postgres, where `archived` is a boolean. */
+const LIVE_CONVERSATION_PG = `(coalesce({row}.${sessions.status.name}, '') <> 'exited' AND NOT coalesce({row}.${sessions.archived.name}, false) AND {row}.${sessions.deletedAt.name} IS NULL)`
 
 /** Every confirmed chat record of these sessions' tails, live or not. */
 async function confirmedTailIds(
@@ -638,6 +654,15 @@ const MACHINE_ROW_READS = {
     `CASE WHEN json_valid({row}.${machines.serviceReportJson.name}) THEN json_remove({row}.${machines.serviceReportJson.name}, '$.server.observedAt', '$.agentExecution.observedAt') ELSE {row}.${machines.serviceReportJson.name} END`,
     `CASE WHEN json_valid({row}.${machines.harnessVersionsJson.name}) THEN (SELECT json_group_array(json_remove(report.value, '$.lastSeen')) FROM json_each({row}.${machines.harnessVersionsJson.name}) AS report) ELSE {row}.${machines.harnessVersionsJson.name} END`,
   ],
+  // On Postgres the documents are `json`, always valid; the observation times come
+  // off through `jsonb`, so these compare semantically (a rewrite that only reorders
+  // keys is captured on SQLite and not here: design 2.3 rule 11). Each value is text.
+  pg: {
+    derived: [
+      `CASE WHEN json_typeof({row}.${machines.serviceReportJson.name}) = 'object' THEN ({row}.${machines.serviceReportJson.name}::jsonb #- '{server,observedAt}' #- '{agentExecution,observedAt}')::text ELSE {row}.${machines.serviceReportJson.name}::text END`,
+      `CASE json_typeof({row}.${machines.harnessVersionsJson.name}) WHEN 'object' THEN (SELECT coalesce(jsonb_agg(CASE WHEN jsonb_typeof(report.value) = 'object' THEN report.value - 'lastSeen' ELSE report.value END ORDER BY report.key COLLATE "C"), '[]'::jsonb)::text FROM jsonb_each({row}.${machines.harnessVersionsJson.name}::jsonb) AS report) WHEN 'array' THEN (SELECT coalesce(jsonb_agg(CASE WHEN jsonb_typeof(report.value) = 'object' THEN report.value - 'lastSeen' ELSE report.value END ORDER BY report.n), '[]'::jsonb)::text FROM jsonb_array_elements({row}.${machines.harnessVersionsJson.name}::jsonb) WITH ORDINALITY AS report(value, n)) ELSE {row}.${machines.harnessVersionsJson.name}::text END`,
+    ],
+  },
 } as const satisfies Partial<RecordSource>
 
 /**
@@ -647,6 +672,11 @@ const MACHINE_ROW_READS = {
  * logged out, so its first report of nothing logged out reaches no record.
  */
 const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.name}) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each({row}.${machines.inventoryJson.name}, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE '[]' END`
+/**
+ * {@link MACHINE_LOGGED_OUT} on Postgres. `installed` is SQLite's `= 1`: JSON `true` or
+ * the number 1. An inventory whose agents are not a list shows none, as one with none.
+ */
+const MACHINE_LOGGED_OUT_PG = `CASE WHEN json_typeof({row}.${machines.inventoryJson.name} -> 'agents') = 'array' THEN (SELECT coalesce(json_agg(agent.value ->> 'kind' ORDER BY agent.n)::text, '[]') FROM json_array_elements({row}.${machines.inventoryJson.name} -> 'agents') WITH ORDINALITY AS agent(value, n) WHERE CAST(agent.value -> 'installed' AS TEXT) IN ('true', '1') AND (agent.value #>> '{login,state}') COLLATE "C" = 'out') ELSE '[]' END`
 
 /**
  * A tombstoned row is on no record: its tombstoning (and a restore) is
@@ -684,9 +714,23 @@ const MACHINE_CONTEXT_VALUE = `CASE WHEN {row}.${meta.key.name} = 'updates.execu
  */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE}) IS NOT NULL)`
 
+/**
+ * {@link MACHINE_CONTEXT_VALUE} on Postgres, where `meta.value` is text: `IS JSON`
+ * stands for `json_valid`, and only a list of targets is read (SQLite would also walk
+ * an object's values; the updates module writes a list).
+ */
+const MACHINE_CONTEXT_VALUE_PG = `CASE WHEN {row}.${meta.key.name} = 'updates.execution.v1' AND {row}.${meta.value.name} IS JSON THEN (SELECT string_agg(((target.value ->> 0) || '=' || coalesce(target.value #>> '{1,version}', '')) COLLATE "C", ',' ORDER BY target.n) FROM json_array_elements(CASE WHEN json_typeof({row}.${meta.value.name}::json -> 'targets') = 'array' THEN {row}.${meta.value.name}::json -> 'targets' END) WITH ORDINALITY AS target(value, n)) ELSE {row}.${meta.value.name} END`
+
+/** {@link MACHINE_CONTEXT_ROWS} on Postgres. */
+const MACHINE_CONTEXT_ROWS_PG = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE_PG}) IS NOT NULL)`
+
 /** The machine context rows, captured by key and by {@link MACHINE_CONTEXT_VALUE}. */
 const machineContext = (ids: RecordSource['ids']): RecordSource =>
-  via(meta, [meta.key], [], ids, { rows: MACHINE_CONTEXT_ROWS, derived: [MACHINE_CONTEXT_VALUE] })
+  via(meta, [meta.key], [], ids, {
+    rows: MACHINE_CONTEXT_ROWS,
+    derived: [MACHINE_CONTEXT_VALUE],
+    pg: { rows: MACHINE_CONTEXT_ROWS_PG, derived: [MACHINE_CONTEXT_VALUE_PG] },
+  })
 
 /** The feed event kinds, as an SQL list. */
 const FEED_KINDS_SQL = FEED_EVENT_KINDS.map((kind) => `'${kind.replaceAll("'", "''")}'`).join(', ')
@@ -759,6 +803,7 @@ export const RECORD_SOURCES: RecordSources = {
         machines.installKind,
       ],
       derived: [MACHINE_LOGGED_OUT],
+      pg: { derived: [MACHINE_LOGGED_OUT_PG] },
     }),
     // The custodian is read from the machine's custody edge
     // (`custodianFromEdges`); its shares are the access rows'.
@@ -770,6 +815,9 @@ export const RECORD_SOURCES: RecordSources = {
         unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
       {
         rows: `{row}.${grants.resourceKind.name} = 'machine' AND {row}.${grants.verb.name} = 'manage' AND {row}.${grants.custody.name} = 1`,
+        pg: {
+          rows: `{row}.${grants.resourceKind.name} = 'machine' AND {row}.${grants.verb.name} = 'manage' AND {row}.${grants.custody.name}`,
+        },
       },
     ),
     // The fleet's update channel and published targets reach every machine.
@@ -794,7 +842,7 @@ export const RECORD_SOURCES: RecordSources = {
         ],
       },
       (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
-      { derived: MACHINE_ROW_READS.derived },
+      { derived: MACHINE_ROW_READS.derived, pg: MACHINE_ROW_READS.pg },
     ),
     // A machine grant edge changes its grantee's row, and the rows that list
     // the machine's grants (its custodian's and the admins'); a custody edge
@@ -1047,7 +1095,7 @@ export const RECORD_SOURCES: RecordSources = {
       [sessions.id],
       [],
       async (changes, reads) => await confirmedTailIds(firstKeys(changes), reads),
-      { derived: [LIVE_CONVERSATION] },
+      { derived: [LIVE_CONVERSATION], pg: { derived: [LIVE_CONVERSATION_PG] } },
     ),
   ],
   session: [
@@ -1074,6 +1122,9 @@ export const RECORD_SOURCES: RecordSources = {
       // (`isNeverBound`: 'never', with the resume columns watched as read).
       derived: [`{row}.${sessions.conversationBinding.name} IS 'never'`],
       rows: notTombstoned(sessions.deletedAt),
+      pg: {
+        derived: [`{row}.${sessions.conversationBinding.name} IS NOT DISTINCT FROM 'never'`],
+      },
     }),
     own(offers, [offers.sessionId], (key) => str(key[0]), {
       rows: ofLiveSession(offers.sessionId),
@@ -1103,6 +1154,9 @@ export const RECORD_SOURCES: RecordSources = {
     // items can change it.
     own(podiumEvents, [podiumEvents.subject], (key) => str(key[0]), {
       rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND json_extract({row}.${podiumEvents.payload.name}, '$.t') IN ('transcript-reset', 'item') AND ${ofLiveSession(podiumEvents.subject)}`,
+      pg: {
+        rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND ({row}.${podiumEvents.payload.name} ->> 't') COLLATE "C" IN ('transcript-reset', 'item') AND ${ofLiveSession(podiumEvents.subject)}`,
+      },
     }),
     // The queued message count.
     own(queuedMessages, [queuedMessages.sessionId], (key) => str(key[0]), {
