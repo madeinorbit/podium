@@ -28,7 +28,6 @@ import {
 } from './classification'
 import { InstancePreferences, PersonalPreferences } from './preferences'
 import {
-  ApiKeySecrets,
   IntegrationSecrets,
   NOT_A_SETTINGS_SECRET,
   NotificationSecrets,
@@ -216,14 +215,10 @@ describe('the key-name detector over every projection', () => {
     // what POD-419 still has to scrub. If this list ever empties, the scrub
     // landed; if it grows, a new secret arrived in the blob.
     const legacy = [
-      ...settingsLeafPaths(ApiKeySecrets, 'apiKeys'),
       ...settingsLeafPaths(IntegrationSecrets, 'integrations'),
       ...settingsLeafPaths(NotificationSecrets, 'notifications'),
     ]
     expect(legacy.filter((p) => SECRET_SHAPED.test(p)).sort()).toEqual([
-      'apiKeys.anthropic',
-      'apiKeys.openai',
-      'apiKeys.openrouter',
       'integrations.linearApiKey',
       'notifications.telegramBotToken',
     ])

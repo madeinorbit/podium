@@ -9,7 +9,7 @@ import { HOST_REPOS } from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, type PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'
-import type { NativeLoginOptIn } from '../../store/accounts'
+import type { NativeLoginOptIn } from '../../store/native-logins'
 import type { DaemonRpcService } from './rpc'
 import type { MachinesService } from './service'
 
@@ -222,7 +222,7 @@ export class LoginPropagationService {
 
   /** Is the owner's choice for this login still the ticked one read earlier? */
   private async stillTicked(ownerUserId: UserId, chosen: NativeLoginOptIn): Promise<boolean> {
-    const fresh = await this.deps.store.accounts.optInFor(
+    const fresh = await this.deps.store.nativeLogins.optInFor(
       ownerUserId,
       chosen.harness,
       chosen.fingerprint,
@@ -236,7 +236,7 @@ export class LoginPropagationService {
     machineId: MachineId,
     outcome: 'installed' | 'preserved',
   ): Promise<void> {
-    await this.deps.store.accounts.recordTransfer(ownerUserId, {
+    await this.deps.store.nativeLogins.recordTransfer(ownerUserId, {
       harness: chosen.harness,
       fingerprint: chosen.fingerprint,
       machineId,
@@ -300,7 +300,7 @@ export class LoginPropagationService {
     }
 
     // THE OWNER'S TICKED LOGINS for this harness. Nothing ticked, nothing copied.
-    const ticked = (await this.deps.store.accounts.optInsFor(input.ownerUserId)).filter(
+    const ticked = (await this.deps.store.nativeLogins.optInsFor(input.ownerUserId)).filter(
       (choice) =>
         choice.enabled &&
         choice.harness === input.harness &&

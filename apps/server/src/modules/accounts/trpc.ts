@@ -1,5 +1,5 @@
 /**
- * THE DERIVED ACCOUNT SURFACE (POD-314) — `connect` and `disconnect` from their
+ * THE DERIVED ACCOUNT SURFACE (POD-314) — `login` and `useOnMyMachines` from their
  * contracts, `list` from the query table. The family's declaration is
  * `plain-family.ts`.
  */

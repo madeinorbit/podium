@@ -6,7 +6,7 @@ import {
   modelOptions,
 } from '@podium/client-core/agent-models'
 import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
-import { type AccountView, asAccountId } from '@podium/model/browser'
+import type { AccountView } from '@podium/model/browser'
 import {
   type HarnessAgent,
   type PodiumSettings,
@@ -31,17 +31,16 @@ import { useModelCatalogState } from '@/lib/use-model-catalog'
 import { SettingsPageSection } from '../settings-anchors'
 import {
   agentOptions,
-  agentOptionValue,
   BACKGROUND_MODELS,
   backendForAgent,
   backgroundDefaultModel,
-  providerNames,
 } from './agent-options'
 import { ModelAvailabilityWarning } from './model-availability-warning'
-import { harnessAgentLabel, Row, Section, SegmentedRow, SelectRow, SwitchRow } from './shared'
+import { Row, Section, SegmentedRow, SelectRow, SwitchRow } from './shared'
 
 interface AgentsProps {
   settings: PodiumSettings
+  /** The native logins on the person's machines (`accounts.list`), for hints. */
   accounts: AccountView[]
   patch: (patch: Partial<PodiumSettings>) => void
 }
@@ -152,21 +151,14 @@ export const AgentRoleFields = observer(function AgentRoleFields({
 }) {
   const { served } = useHarnessDescriptors(undefined)
   const { catalog } = useModelCatalogState()
-  const options = agentOptions(accounts, roleName === 'superagent', served)
-  const value = agentOptionValue(resolved.accountId, resolved.harness)
+  const options = agentOptions(accounts, served)
+  const value = resolved.harness
   const selected = options.find((option) => option.value === value)
-  const machineLogin =
-    resolved.accountId === `native:${resolved.harness}` &&
-    options.some(
-      (option) =>
-        option.group === 'Signed in on your machines' && option.harness === resolved.harness,
-    )
   const label =
     issueAgentDescriptors(served).find((d) => d.kind === resolved.harness)?.label ??
     resolved.harness
-  const groups = (['Signed in on your machines', 'Using your API key', 'Shared with you'] as const)
-    .map((group) => ({ label: group, options: options.filter((option) => option.group === group) }))
-    .filter((group) => group.options.length > 0)
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+  const savedKey = backend.accountId.startsWith('managed:')
   const changeModel = (model: string) => {
     const efforts = catalog[resolved.harness]?.find((entry) => entry.value === model)?.efforts
     onChange({
@@ -197,25 +189,20 @@ export const AgentRoleFields = observer(function AgentRoleFields({
         ]}
         label="Agent"
         description={
-          selected?.help ??
-          (machineLogin
-            ? 'Uses the login already on each target machine. Usage counts against that subscription or account.'
-            : 'This agent is not connected. Sign in or add a key under Credentials. Your saved choice is kept.')
+          savedKey
+            ? `Still runs on the key chosen before credentials existed. Pick a default credential for ${label} under Credentials, then choose an agent here to stop using it.`
+            : (selected?.help ??
+              'This agent is not served by your machines. Your saved choice is kept.')
         }
         value={value}
-        options={
-          selected
-            ? []
-            : [
-                {
-                  value,
-                  label,
-                  hint: machineLogin ? 'Login on the target machine' : 'Not connected',
-                  disabled: true,
-                },
-              ]
-        }
-        groups={groups}
+        options={[
+          ...options.map((option) => ({
+            value: option.value,
+            label: option.label,
+            ...(option.hint ? { hint: option.hint } : {}),
+          })),
+          ...(selected ? [] : [{ value, label, hint: 'Not available', disabled: true }]),
+        ]}
         onChange={(value) => {
           const next = options.find((option) => option.value === value)
           if (next)
@@ -349,56 +336,15 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
 }: AgentsProps) {
   const resolved = resolveRole(settings, 'background')
   const backend = settings.roles.background
-  const selected = accounts.find((account) => account.id === resolved.accountId)
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+  // With no credential picked, the role still runs on its choice from before
+  // credentials (`roles.background.accountId`); its model list follows it.
   const native = resolved.accountId.startsWith('native:')
-  const provider = selected?.provider ?? resolved.provider ?? 'openrouter'
-  const available = accounts.filter(
-    (account) =>
-      account.status === 'connected' &&
-      ((account.source === 'managed' &&
-        account.kind !== 'oauth' &&
-        Boolean(BACKGROUND_MODELS[account.provider])) ||
-        (account.source === 'native' && account.harness === 'codex')),
-  )
-  const labelFor = (account: AccountView) =>
-    account.source === 'native'
-      ? 'Codex login'
-      : (providerNames[account.provider] ?? account.provider)
-  const hintFor = (account: AccountView) =>
-    account.source === 'native'
-      ? [account.identity, account.machines?.join(', ')].filter(Boolean).join(' · ')
-      : account.credentialSource === 'shared'
-        ? `${account.sharedBy || 'Another member'}’s key`
-        : 'Your key'
-  const groups = [
-    {
-      label: 'Your API keys',
-      filter: (account: AccountView) =>
-        account.source === 'managed' && account.credentialSource !== 'shared',
-    },
-    {
-      label: 'Shared with you',
-      filter: (account: AccountView) =>
-        account.source === 'managed' && account.credentialSource === 'shared',
-    },
-    {
-      label: 'Signed in on your machines',
-      filter: (account: AccountView) => account.source === 'native',
-    },
-  ]
-    .map((group) => ({
-      label: group.label,
-      options: available.filter(group.filter).map((account) => ({
-        value: account.id,
-        label: labelFor(account),
-        hint: hintFor(account),
-      })),
-    }))
-    .filter((group) => group.options.length > 0)
+  const provider = resolved.provider ?? 'openrouter'
   const change = (value: Partial<RoleBackend>) =>
     patch({ roles: { ...settings.roles, background: { ...backend, ...value } } })
   // A picked credential serves the role's calls, so its provider decides the
-  // model list; with none picked, "Runs on" does (credential management §9).
+  // model list; with none picked, the choice saved before credentials does (§9).
   const credentialViews = useCredentialViews()
   const sourceOf = (credentialId: RoleBackend['credentialId']): ModelSource | undefined => {
     const view = credentialId
@@ -414,16 +360,11 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
   const models = source.kind === 'api' ? (BACKGROUND_MODELS[source.provider] ?? []) : []
   const defaultModel = source.kind === 'api' ? backgroundDefaultModel(source.provider) : AUTO
   const modelValue = backend.model || defaultModel
-  const machineLogin =
-    native &&
-    resolved.accountId === `native:${resolved.harness}` &&
-    available.some((account) => account.source === 'native' && account.harness === resolved.harness)
   const serverAi = native
-    ? (selected?.serverAi ??
-      (machineLogin
-        ? available.find((account) => account.harness === resolved.harness && account.serverAi)
-            ?.serverAi
-        : undefined))
+    ? accounts.find(
+        (account) =>
+          account.source === 'native' && account.harness === resolved.harness && account.serverAi,
+      )?.serverAi
     : undefined
   const lastError = serverAi?.lastError
   return (
@@ -431,59 +372,6 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
       title="Background model"
       hint="Small jobs Podium runs for you: naming sessions, summarising tasks, reading what an agent is doing. Cheap and fast is right here."
     >
-      <SelectRow
-        setting={[
-          'roles.background.accountId',
-          'roles.background.harness',
-          'roles.background.model',
-          'roles.background.effort',
-        ]}
-        label="Runs on"
-        value={resolved.accountId}
-        options={
-          available.some((account) => account.id === resolved.accountId)
-            ? []
-            : [
-                {
-                  value: resolved.accountId,
-                  label: selected
-                    ? labelFor(selected)
-                    : native
-                      ? `${harnessAgentLabel(resolved.harness)} login`
-                      : (providerNames[provider] ?? provider),
-                  hint: machineLogin ? 'Login on the target machine' : 'Not connected',
-                  disabled: true,
-                },
-              ]
-        }
-        groups={groups}
-        description={
-          selected?.credentialSource === 'shared'
-            ? `Uses the key ${selected.sharedBy || 'another member'} shared because you have no ${providerNames[provider] ?? provider} key of your own. Billed per token to their key.`
-            : native
-              ? 'Uses the ChatGPT login on your machines. Usage counts against that subscription.'
-              : 'Billed per token to your key. Manage your keys under Credentials.'
-        }
-        onChange={(id) => {
-          const account = available.find((account) => account.id === id)
-          if (!account) return
-          const nextNative = account.source === 'native'
-          const nextModels = BACKGROUND_MODELS[account.provider] ?? []
-          change({
-            accountId: asAccountId(id),
-            harness: undefined,
-            effort: AUTO,
-            // A picked credential keeps deciding the model.
-            model: pickedSource
-              ? backend.model
-              : nextNative
-                ? AUTO
-                : nextModels.some((model) => model.value === backend.model)
-                  ? backend.model
-                  : backgroundDefaultModel(account.provider),
-          })
-        }}
-      />
       <RoleCredentialSelect
         roleName="background"
         views={credentialViews}

@@ -3,7 +3,7 @@
 
 import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
 import { type ResolvedRole, resolveRole } from '@podium/runtime'
-import { TRPCError } from '@trpc/server'
+
 import {
   type CodexLoginMachineSource,
   codexAuthorizerFor,
@@ -63,23 +63,14 @@ export function assembleCodexServerAiMarker(opts: {
 export const ACCOUNT_PLAIN_FAMILY = definePlainFamily({
   family: 'accounts',
   service: (state) => ({
-    accounts: state.store.accounts,
+    nativeLogins: state.store.nativeLogins,
     machines: state.store.machines,
     machineService: state.modules.machines,
     settings: state.modules.settings,
     nativeLogin: state.modules.nativeLogin,
     loginPropagation: state.modules.loginPropagation,
-    audit: state.store.settingsAudit,
-    // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-    credentialStore: state.store,
-    callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
     machineStanding: async () => await state.privateAccess.machineStanding(),
     callerUserId: state.caller.userId,
-    requireKeyAdmin: () => {
-      if (state.principal.kind !== 'user' || state.principal.capability.role !== 'admin') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Administrator required' })
-      }
-    },
     // Which native login THIS viewer's server AI would spend — see
     // {@link assembleCodexServerAiMarker}. Undefined when the role runs on
     // no native login or none is usable for the viewer: rows omit the

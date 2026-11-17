@@ -75,7 +75,6 @@ import { Vault } from './modules/credentials/vault'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { importConfigSettings } from './settings-config-import'
-import { AccountsRepository } from './store/accounts'
 import { AgentProfilesRepository } from './store/agent-profiles'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
@@ -111,6 +110,7 @@ import { MessagesRepository } from './store/messages'
 import { MessagingSessionAttachmentsRepository } from './store/messaging-session-attachments'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { sweepOldNativeLoginTransfers } from './store/native-login-transfer-sweep'
+import { NativeLoginsRepository } from './store/native-logins'
 import { NoticesRepository } from './store/notices'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
@@ -202,16 +202,14 @@ export class SessionStore {
    *  a person has read the issue-event log, on every device they use. */
   readonly readPositions: UserReadPositionRepository
   /** Server-owned secrets (ADR 1 D6) — the keyed store POD-419 lifted them into,
-   *  out of the settings blob that round-trips to the browser. Same reasoning as
-   *  `accounts` below, now applied to the material that was left behind. */
+   *  out of the settings blob that round-trips to the browser. */
   readonly secrets: ServerSecretsRepository
   /** The settings family's append-only audit trail (POD-421, ADR 9 D5 A3) — who
    *  changed which setting, and who was refused. Server-only and projected into
    *  nothing; see `store/settings-audit.ts` for why that is load-bearing. */
   readonly settingsAudit: SettingsAuditRepository
-  /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
-   *  Deliberately NOT in the settings blob, which round-trips to the browser. */
-  readonly accounts: AccountsRepository
+  /** Each member's D11 choices for their native logins, and the copies made under them. */
+  readonly nativeLogins: NativeLoginsRepository
   /** Credentials and their sealed secrets (credential management design §4). */
   readonly credentials: CredentialsRepository
   /** The vault as the credentials repository sees it; set once the store opens it. */
@@ -502,7 +500,7 @@ export class SessionStore {
     this.readPositions = new UserReadPositionRepository(this.queries)
     this.secrets = new ServerSecretsRepository(this.queries)
     this.settingsAudit = new SettingsAuditRepository(this.queries)
-    this.accounts = new AccountsRepository(this.queries)
+    this.nativeLogins = new NativeLoginsRepository(this.queries)
     this.credentials = new CredentialsRepository(this.queries, () => this.vaultKeyCheck)
     this.grants = new GrantsRepository(this.queries)
     this.machines = new MachinesRepository(
@@ -582,7 +580,6 @@ export class SessionStore {
     // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
     try {
       await importLegacyCredentials({
-        secrets: this.secrets,
         users: this.users,
         credentials: this.credentials,
         grants: this.grants,
@@ -643,7 +640,6 @@ export class SessionStore {
     const state = readLegacyPlaintextState(this.db)
     if (state === 'done' && !hasLegacyPlaintextRows(this.db)) return { ran: false }
     const { destroy, leftInPlace } = await legacyValuesToDestroy({
-      secrets: this.secrets,
       users: this.users,
       credentials: this.credentials,
       grants: this.grants,

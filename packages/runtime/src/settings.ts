@@ -2,7 +2,6 @@ import {
   type AccountId,
   AccountIdField,
   AGENT_CHOICE_HARNESS_KINDS,
-  ApiKeySecrets,
   AutoContinuePreferences,
   asAccountId,
   CodingRole,
@@ -83,7 +82,7 @@ export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
  *     {@link GitWorkflowPolicy}, {@link IssueAssistantPolicy},
  *     {@link StewardPolicy}, {@link ExperimentalFlags},
  *     {@link WorktreeGcPolicy}
- *   - `server-secrets`: {@link ApiKeySecrets}, {@link IntegrationSecrets},
+ *   - `server-secrets`: {@link IntegrationSecrets},
  *     {@link NotificationSecrets}
  *
  * Same members, same order, same defaults — the settings wire is unchanged, and
@@ -92,7 +91,6 @@ export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
  * sees the fork (POD-305).
  */
 export {
-  ApiKeySecrets,
   AutoContinuePreferences,
   CodingRole,
   DeploymentPreferences,
@@ -251,34 +249,6 @@ export function managedAccountId(provider: ApiProvider): AccountId {
   return asAccountId(`${MANAGED_ACCOUNT}${provider}`)
 }
 
-/** A credential Podium holds and injects (SP-6454, managed accounts). Only
- *  long-lived, non-CLI-refreshed credentials ride here: a provider API key, or a
- *  Claude `setup-token` OAuth token. The refreshing OAuth blobs (claudeAiOauth,
- *  codex auth.json) are credential FILES, not env, and are out of scope. */
-export interface ManagedCredential {
-  provider: string
-  kind: 'api-key' | 'oauth'
-  credential: string
-}
-
-/** Which env var a managed credential becomes on an agent spawn. An unmapped
- *  provider or an empty secret yields {} — never a blank env var, which some CLIs
- *  treat as "configured but broken" rather than "absent". */
-export function credentialEnv(c: ManagedCredential): Record<string, string> {
-  if (!c.credential) return {}
-  if (c.kind === 'oauth') {
-    // Only Claude has a long-lived, env-consumable OAuth token (`claude setup-token`).
-    return c.provider === 'anthropic' ? { CLAUDE_CODE_OAUTH_TOKEN: c.credential } : {}
-  }
-  const KEY_ENV: Record<string, string> = {
-    anthropic: 'ANTHROPIC_API_KEY',
-    openai: 'OPENAI_API_KEY',
-    openrouter: 'OPENROUTER_API_KEY',
-  }
-  const name = KEY_ENV[c.provider]
-  return name ? { [name]: c.credential } : {}
-}
-
 /**
  * The legacy `notifications` object: ROUTING (per-user preference) and the bot
  * TOKEN (server-owned secret) in one nested shape, on two matrix rows.
@@ -308,7 +278,7 @@ const NotificationSettings = z.object({
  * Reading the tiers off this object: `roles` / `sidebar` / `autoContinue` and
  * three of four `notifications` members are `preferences-personal`;
  * `hibernation` / `gitWorkflow` / `issues` / `steward` / `experimental` are
- * `preferences-instance`; `apiKeys` / `integrations` /
+ * `preferences-instance`; `integrations` /
  * `notifications.telegramBotToken` are `server-secrets`. That mapping is not
  * documentation — it is `SETTINGS_CLASSIFICATION` in `@podium/model`, and
  * `settings.classification.test.ts` fails if this object and that table
@@ -321,7 +291,6 @@ export const PodiumSettings = z.object({
   /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
    *  domain as the shell the agents already run in. `server-secrets`: never
    *  replicated and never enqueued once POD-419/POD-420 land. */
-  apiKeys: ApiKeySecrets.default({}),
   integrations: IntegrationSecrets.default({}),
   hibernation: HibernationPolicy.default({}),
   notifications: NotificationSettings.default({}),
@@ -533,9 +502,24 @@ const BACKGROUND_API_PROVIDERS: Partial<Record<HarnessAgent, ApiProvider>> = {
   codex: 'codex',
 }
 
-/** Decode a synthetic account id into an execution plan for a role. A native
- *  superagent account always means that harness. Background Codex remains the
- *  one special case: that one-shot consumer uses the ChatGPT Responses API. */
+/** The execution plan of a harness for a role. A harness always means that
+ *  harness; background Codex is the one special case: that one-shot consumer
+ *  uses the ChatGPT Responses API. */
+function decodeHarness(
+  harness: HarnessAgent,
+  role: RoleName,
+): { execution: 'harness' | 'api'; harness: HarnessAgent; provider?: ApiProvider } {
+  const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
+  if (role === 'background' && backgroundProvider) {
+    return { execution: 'api', harness, provider: backgroundProvider }
+  }
+  return { execution: 'harness', harness }
+}
+
+// LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+/** Decode an account id saved before credentials into an execution plan for a
+ *  role: `native:<harness>` is that harness; `managed:<provider>` a direct call
+ *  to that provider. The pickers no longer write one (they write `harness`). */
 function decodeAccount(
   accountId: AccountId,
   role: RoleName,
@@ -546,11 +530,7 @@ function decodeAccount(
     const harness = HarnessAgent.safeParse(harnessRaw).success
       ? (harnessRaw as HarnessAgent)
       : DEFAULT_HARNESS_AGENT
-    const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
-    if (role === 'background' && backgroundProvider) {
-      return { execution: 'api', harness, provider: backgroundProvider }
-    }
-    return { execution: 'harness', harness }
+    return decodeHarness(harness, role)
   }
   if (accountId.startsWith(MANAGED_ACCOUNT)) {
     const raw = accountId.slice(MANAGED_ACCOUNT.length)
@@ -572,6 +552,12 @@ function decodeAccount(
 export function resolveRole(settings: PodiumSettings, role: RoleName): ResolvedRole {
   const rb = settings.roles[role]
   const accountId = rb.accountId || DEFAULT_ACCOUNT[role]
+  // A harness picked with no saved account id (every pick since credentials):
+  // the role runs that harness. Its credential is chosen apart from the role
+  // (credential management §9); `accountId` stays the role's default.
+  if (rb.harness && !rb.accountId) {
+    return { accountId, ...decodeHarness(rb.harness, role), model: rb.model, effort: rb.effort }
+  }
   // A native account already names its harness; a stale explicit harness must not
   // override it and make that account's model/effort leak to another CLI
   // [spec:SP-7ff1]. Managed credentials still need an explicit harness to choose

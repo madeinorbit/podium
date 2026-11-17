@@ -95,7 +95,6 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
 
   const COMPOSED: readonly [keyof typeof shape, z.ZodTypeAny][] = [
     ['roles', model.Roles],
-    ['apiKeys', model.ApiKeySecrets],
     ['integrations', model.IntegrationSecrets],
     ['hibernation', model.HibernationPolicy],
     ['sidebar', model.Sidebar],

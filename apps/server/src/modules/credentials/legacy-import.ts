@@ -53,14 +53,12 @@ import {
 } from '../../store/credentials'
 import type { GrantsRepository } from '../../store/grants'
 import type { LegacyValueToDestroy } from '../../store/legacy-plaintext'
-import type { ServerSecretsRepository } from '../../store/server-secrets'
 import type { UsersRepository } from '../../store/users'
 import { type Vault, VaultLockedError, withSecret } from './vault'
 
 const moduleLog = createLogger('server:credentials')
 
 export interface LegacyImportDeps {
-  secrets: Pick<ServerSecretsRepository, 'get'>
   users: Pick<UsersRepository, 'earliestAdmin' | 'get'>
   credentials: CredentialsRepository
   grants: Pick<GrantsRepository, 'upsert'>
@@ -158,8 +156,11 @@ async function plan(deps: LegacyImportDeps): Promise<Plan> {
     else if (candidate) sources.push(candidate)
   }
   if (adminId) {
+    const stored = new Map(
+      (await deps.credentials.legacyApiKeySecrets()).map((row) => [row.key, row.value]),
+    )
     for (const key of LEGACY_API_KEY_SECRETS) {
-      const secret = await deps.secrets.get(key)
+      const secret = stored.get(key)
       if (!secret) continue
       const provider = key.slice('apiKeys.'.length)
       const type = API_KEY_TYPES[provider] as CredentialTypeId

@@ -70,13 +70,14 @@ import { z } from 'zod'
  *
  * The paths are the LEGACY blob's, on purpose: POD-419's scrub migration and
  * POD-420's commands both need to name what they are removing and refusing, and
- * a key named `apiKeys.anthropic` is greppable in a way a renamed one is not.
- * Renaming them is a later, separate change with a migration behind it.
+ * a key named `integrations.linearApiKey` is greppable in a way a renamed one is
+ * not. Renaming them is a later, separate change with a migration behind it.
+ *
+ * The three provider keys that sat here are credentials now (credential
+ * management §18: "the secret-key list loses those three"); the one-time move
+ * reads their old rows by name (`store/credentials.ts`, `legacyApiKeySecrets`).
  */
 export const SERVER_SECRET_KEYS = [
-  'apiKeys.openrouter',
-  'apiKeys.anthropic',
-  'apiKeys.openai',
   'integrations.linearApiKey',
   'notifications.telegramBotToken',
 ] as const
@@ -196,16 +197,6 @@ export type SecretPresenceListWire = z.infer<typeof SecretPresenceListWire>
 // The legacy in-blob groups — declared here so the classification can be TOTAL
 // ---------------------------------------------------------------------------
 
-/** Provider API keys as the legacy blob still carries them. Stored plaintext in
- *  the self-hosted SQLite — same trust domain as the shell the agents already
- *  run in — and REMOVED FROM THE CLIENT BLOB by POD-419. */
-export const ApiKeySecrets = z.object({
-  openrouter: z.string().default(''),
-  anthropic: z.string().default(''),
-  openai: z.string().default(''),
-})
-export type ApiKeySecrets = z.infer<typeof ApiKeySecrets>
-
 /** Third-party integration credentials as the legacy blob still carries them. */
 export const IntegrationSecrets = z.object({
   linearApiKey: z.string().default(''),
@@ -231,7 +222,6 @@ export type NotificationSecrets = z.infer<typeof NotificationSecrets>
  * silently unclassified secret.
  */
 export const LEGACY_IN_BLOB_SECRET_GROUPS = [
-  { prefix: 'apiKeys', schema: ApiKeySecrets },
   { prefix: 'integrations', schema: IntegrationSecrets },
   { prefix: 'notifications', schema: NotificationSecrets },
 ] as const

@@ -19,7 +19,7 @@ import {
   type MachineId,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, isNotNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -27,6 +27,7 @@ import {
   credentialPlacements,
   credentialSecrets,
   credentials,
+  serverSecrets,
   users,
   vaultKey,
 } from '../migrations/schema'
@@ -362,15 +363,6 @@ const setCredentialIdentity = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-// LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-const clearLegacyIdsOf = prepared((db: StoreDrizzle) =>
-  db
-    .update(credentials)
-    .set({ legacyId: null, legacyKey: null, updatedAt: sql.placeholder('now') })
-    .where(idIs())
-    .prepare(),
-)
-
 const setCredentialStatus = prepared((db: StoreDrizzle) =>
   db
     .update(credentials)
@@ -699,6 +691,18 @@ const legacySends = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+// LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+/** The three provider keys the server secrets held before credentials, by their old names. */
+const legacyApiKeys = prepared((db: StoreDrizzle) =>
+  db
+    .select({ key: serverSecrets.key, value: serverSecrets.value })
+    .from(serverSecrets)
+    .where(
+      inArray(serverSecrets.key, ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']),
+    )
+    .prepare(),
+)
+
 const now = (): string => new Date().toISOString()
 
 /** A new credential id: `cred_<uuid>`, minted by the server, meaning nothing by itself. */
@@ -897,12 +901,6 @@ export class CredentialsRepository {
     }))
   }
 
-  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-  /** Let go of the old account ids, so a later connect under them is a new credential. */
-  async clearLegacyIds(id: CredentialId): Promise<void> {
-    await clearLegacyIdsOf(this.db).run({ id, now: now() })
-  }
-
   /** Delete the secrets; keep the record as `revoked`, which hides it from lists. */
   async remove(id: CredentialId): Promise<void> {
     await this.createOrJoinTransaction(async () => {
@@ -1044,6 +1042,11 @@ export class CredentialsRepository {
 
   // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
   /** Every machine an old account was sent to, by `accounts.id`. */
+  async legacyApiKeySecrets(): Promise<{ key: string; value: string }[]> {
+    return await legacyApiKeys(this.db).all()
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
   async legacyAccountSends(): Promise<{ accountId: string; machineId: MachineId }[]> {
     return await legacySends(this.db).all()
   }

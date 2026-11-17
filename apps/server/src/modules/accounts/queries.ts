@@ -1,20 +1,19 @@
 /**
- * THE ACCOUNT QUERIES — `list` and the admin's `keys` directory.
+ * THE ACCOUNT QUERY — `list`.
  *
- * Native CLI logins on this machine (observed read-only) plus the managed
- * credentials Podium holds. Read at CALL TIME — native identity and quota drift,
- * so it is never cached as truth. NB: never returns a credential, only its
- * masked `identity`.
+ * The native CLI logins on the caller's own machines (observed read-only), with
+ * the D11 tick and the login terminal's state. Read at CALL TIME — native
+ * identity and quota drift, so it is never cached as truth. The stored keys it
+ * once listed beside them are credentials (`credentials.list`; plan Task 21).
  *
  * A table rather than a read contract: a `visibility` class describes what a
  * command WRITES and a read writes nothing.
  */
 
 import type { TransportTag } from '@podium/commands'
-import { asAccountId, asUserId, type MachineId } from '@podium/model'
+import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
 import { z } from 'zod'
-import { accountViews } from '../../accounts'
-import { SHARED_WITH_EVERYONE } from '../../store/accounts'
+import { nativeAccountViews } from './native-views'
 import type { AccountState } from './registry'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
@@ -33,27 +32,10 @@ const query = <I extends z.ZodTypeAny, Out>(
 const noInput = z.object({}).passthrough().optional()
 
 export const ACCOUNT_QUERIES = {
-  /** Owner, masked identity and sharing only; credentials never leave the server. */
-  keys: query(z.object({}), async (state) => {
-    state.requireKeyAdmin()
-    return (await state.accounts.summaries()).map((row) => ({
-      owner: row.ownerUserId,
-      id: row.accountKey,
-      provider: row.provider,
-      kind: row.kind,
-      ...(row.identity ? { identity: row.identity } : {}),
-      sharing: {
-        everyone: row.sharedWith.includes(SHARED_WITH_EVERYONE),
-        users: row.sharedWith.filter((grantee) => grantee !== SHARED_WITH_EVERYONE),
-      },
-    }))
-  }),
   list: query(noInput, async (state) => {
-    // ONE MEMBER'S HUB (POD-6300, design §2.5). The caller's own managed
-    // connections or explicitly shared keys; native logins on machines in their
-    // OWN custody (a machine's native logins belong to the person who looks after
-    // it). Nothing of another
-    // member's private connection reaches this list, admins included.
+    // ONE MEMBER'S HUB (POD-6300, design §2.5): native logins on machines in
+    // their OWN custody (a machine's native logins belong to the person who looks
+    // after it), admins included.
     const viewer = asUserId(state.callerUserId)
     const standing = await state.machineStanding()
     const custody = new Set([...standing].filter(([, s]) => s === 'custody').map(([id]) => id))
@@ -67,7 +49,7 @@ export const ACCOUNT_QUERIES = {
     const serviceMachines = await state.machineService.listMachines()
     const ownOnline = serviceMachines.filter((machine) => machine.online && custody.has(machine.id))
     // Served descriptors across the fleet for the provider labels (POD-4529):
-    // `accountViews` resolves these over the bundled fallback, so an older
+    // `nativeAccountViews` resolves these over the bundled fallback, so an older
     // daemon that reported no descriptors still renders. Labels only, so every
     // online machine contributes, not just the viewer's.
     const served = (
@@ -86,49 +68,24 @@ export const ACCOUNT_QUERIES = {
     // The viewer's D11 choices and how their ticked logins' copies went (POD-6301).
     const choiceKey = (harness: string, fingerprint: string) => `${harness}\u0000${fingerprint}`
     const ticked = new Set(
-      (await state.accounts.optInsFor(viewer))
+      (await state.nativeLogins.optInsFor(viewer))
         .filter((choice) => choice.enabled)
         .map((choice) => choiceKey(choice.harness, choice.fingerprint)),
     )
     const keptOn = new Map<string, MachineId[]>()
-    for (const transfer of await state.accounts.transfersFor(viewer)) {
+    for (const transfer of await state.nativeLogins.transfersFor(viewer)) {
       if (transfer.outcome !== 'preserved' || !custody.has(transfer.machineId)) continue
       const key = choiceKey(transfer.harness, transfer.fingerprint)
       keptOn.set(key, [...(keptOn.get(key) ?? []), transfer.machineId])
     }
     const nameOf = new Map(serviceMachines.map((machine) => [machine.id, machine.name]))
-    const sends = await state.accounts.sendsOf(viewer)
-    const sharedMachines = [...standing]
-      .filter(([, s]) => s === 'use')
-      .map(([id]) => ({ id, name: nameOf.get(id) ?? id }))
     return await Promise.all(
-      (
-        await accountViews(
-          state.accounts,
-          viewer,
-          ownOnline as unknown as Parameters<typeof accountViews>[2],
-          served,
-        )
+      nativeAccountViews(
+        ownOnline as unknown as Parameters<typeof nativeAccountViews>[0],
+        served,
       ).map(async (account) => {
-        if (account.source === 'managed') {
-          if (account.credentialSource !== 'stored') return account
-          // Where the viewer's own connection may run beyond their own machines,
-          // and every send recorded for it (POD-6699), usable there or not.
-          const recorded = sends.get(asAccountId(account.id)) ?? []
-          const sent = new Set(recorded.map((send) => send.machineId))
-          return {
-            ...account,
-            sentTo: sharedMachines.filter((machine) => sent.has(machine.id)),
-            sendableTo: sharedMachines.filter((machine) => !sent.has(machine.id)),
-            sends: recorded.map((send) => ({
-              id: send.machineId,
-              name: nameOf.get(send.machineId) ?? send.machineId,
-              sentAt: send.sentAt,
-            })),
-          }
-        }
         if (!account.harness) return account
-        const harness = account.harness as import('@podium/model').HarnessAgent
+        const harness = account.harness as HarnessAgent
         const attempt = state.nativeLogin.attempt(viewer, harness)
         const loginMachines = ownOnline
           .filter((machine) =>

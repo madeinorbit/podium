@@ -8,12 +8,18 @@
  * of its own and the credential type, truncated. Without the server key nothing
  * can be compared against it.
  *
- * The mask is the display-only preview the accounts page always showed.
+ * The mask is the display-only preview the old accounts page showed: the first
+ * and last four characters, or a placeholder for a short secret.
  */
 
 import { createHmac } from 'node:crypto'
-import { maskCredential } from '../../accounts'
 import { FINGERPRINT_BYTES } from '../settings/secret-fingerprint'
+
+/** Display-only preview of a secret. The full value never leaves the server. */
+export function maskCredential(secret: string): string {
+  if (secret.length <= 8) return '""""'
+  return `${secret.slice(0, 4)}…${secret.slice(-4)}`
+}
 
 const DOMAIN = 'podium.credential.fingerprint.v1'
 const SEP = String.fromCharCode(0)

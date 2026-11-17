@@ -184,7 +184,7 @@ await op(
 )
 await op('layout.getSnapshot', async () => await store.layout.getSnapshot(ALICE))
 await op('secrets.presence', async () => await store.secrets.presence())
-await op('accounts.listFor', async () => await store.accounts.listFor(ALICE))
+await op('nativeLogins.optInsFor', async () => await store.nativeLogins.optInsFor(ALICE))
 await op('locks.getLock', async () => await store.locks.getLock('repo_census' as never, 'merge'))
 await op('workflows.listWorkflows', async () => await store.workflows.listWorkflows())
 await op(

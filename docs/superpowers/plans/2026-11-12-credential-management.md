@@ -224,8 +224,8 @@ sealCredentialSecret(deps, credential: { id; type }, plaintext: string, expected
 //   PlacementRecord = PlacementRef & { homeId? }   (Task 9: column credential_placements.home_id,
 //     the daemon home id of a home placement; absent: the credential's own homeIdFor)
 //   allowMachine, disallowMachine, isMachineAllowed,
-//   getMany(ids) (not revoked), allowedMachinesOf(ids) → Map<id, MachineId[]>, setIdentity(id, identity),
-//   clearLegacyIds(id)   // 2027-05: lets a later accounts.connect under the same old id make a new credential
+//   getMany(ids) (not revoked), allowedMachinesOf(ids) → Map<id, MachineId[]>, setIdentity(id, identity)
+//   (clearLegacyIds went with the accounts.* commands, Task 21)
 // apps/server/src/store/grants.ts — GrantsRepository.listForGrantees(resourceKind, grantees[])
 // apps/server/src/modules/credentials/events.ts
 // writes `settings_audit_events` (command `credentials.<kind>`); deps: { settingsAudit } — a SessionStore
