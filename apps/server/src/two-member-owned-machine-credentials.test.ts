@@ -401,7 +401,7 @@ it('refuses an in-flight transfer if the target starts keeping its own logins du
   await addMachine(donor, 'alice', fingerprint)
   await addMachine(target, 'alice', undefined)
   const { modules, sessionStore } = f.handle.registry
-  await sessionStore.accounts.setOptIn(
+  await sessionStore.nativeLogins.setOptIn(
     MEMBERS.alice.id,
     'codex',
     fingerprint,
@@ -454,7 +454,7 @@ it.each([
   await addMachine(donor, 'alice', fingerprint)
   await addMachine(target, 'alice', undefined)
   const { modules, sessionStore, gateway } = f.handle.registry
-  await sessionStore.accounts.setOptIn(
+  await sessionStore.nativeLogins.setOptIn(
     MEMBERS.alice.id,
     'codex',
     fingerprint,

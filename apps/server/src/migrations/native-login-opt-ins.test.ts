@@ -12,7 +12,7 @@
 import { asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { AccountsRepository } from '../store/accounts'
+import { NativeLoginsRepository } from '../store/native-logins'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -107,7 +107,7 @@ describe(`migration ${MIGRATION}`, () => {
         { owner: member, harness: 'codex', fingerprint: 'codex-me', enabled: 1 },
       ])
       // The repository reads them back as ticked, as propagation will.
-      const accounts = new AccountsRepository(stageASeam(db))
+      const accounts = new NativeLoginsRepository(stageASeam(db))
       expect((await accounts.optInsFor(asUserId(member))).every((row) => row.enabled)).toBe(true)
     } finally {
       db.close()

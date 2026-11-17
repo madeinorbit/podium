@@ -53,6 +53,13 @@ const PLANTED = [
   FREED,
 ]
 
+/** The step's report at a start where it ran. */
+function ran(store: SessionStore) {
+  const report = store.legacyPlaintextReport
+  if (!report?.ran) throw new Error('the step did not run at this start')
+  return report
+}
+
 function place() {
   const dir = mkdtempSync(join(tmpdir(), 'legacy-plaintext-'))
   return { dir, dbPath: join(dir, 'podium.db'), keyPath: join(dir, 'config', 'vault.key') }
@@ -292,7 +299,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     const dispose = addSink(sink)
     try {
       const store = await openAt(dbPath, keyPath)
-      expect(store.legacyPlaintextReport?.leftInPlace).toEqual([`managed:anthropic@${admin}`])
+      expect(ran(store).leftInPlace).toEqual([`managed:anthropic@${admin}`])
     } finally {
       dispose()
     }
@@ -318,7 +325,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     await close(await openAt(dbPath, keyPath, { destroy: false }))
     const store = await openAt(dbPath, join(dir, 'config', 'another.key'))
     expect(store.vault.state()).toBe('locked')
-    expect(store.legacyPlaintextReport?.destroyed).toBe(0)
+    expect(ran(store).destroyed).toBe(0)
     await close(store)
     expect(
       accountRows(dbPath)
@@ -348,7 +355,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     await close(first)
 
     const store = await openAt(dbPath, keyPath)
-    expect(store.legacyPlaintextReport?.leftInPlace).toEqual([])
+    expect(ran(store).leftInPlace).toEqual([])
     await close(store)
     expect(accountRows(dbPath)).toEqual([])
   })
@@ -406,7 +413,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     const { dbPath, keyPath } = place()
     await plantOldDatabase(dbPath, keyPath)
     const first = await openAt(dbPath, keyPath)
-    expect(first.legacyPlaintextReport?.ran).toBe(true)
+    expect(ran(first).ran).toBe(true)
     await close(first)
     expect(
       sql(dbPath, (db) =>
@@ -436,7 +443,7 @@ describe('the old plaintext keys after the move into the vault', () => {
       },
     })
     expect(waits).toBe(1)
-    expect(store.legacyPlaintextReport?.compaction).toBe('clean')
+    expect(ran(store).compaction).toBe('clean')
     expect(heldIn(databaseBytes(dbPath))).toEqual([])
   })
 
@@ -447,7 +454,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     reader.exec('BEGIN')
     reader.prepare('SELECT count(*) FROM server_secrets').get()
     const first = await openAt(dbPath, keyPath, { attempts: 3, wait: () => {} })
-    expect(first.legacyPlaintextReport?.compaction).toBe('busy')
+    expect(ran(first).compaction).toBe('busy')
     reader.exec('COMMIT')
     reader.close()
     await close(first)

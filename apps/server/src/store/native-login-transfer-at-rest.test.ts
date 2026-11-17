@@ -164,7 +164,7 @@ describe('a native login transfer at rest', () => {
         }),
       )
     }
-    await store.accounts.setOptIn(owner, 'codex', 'same-account', true, new Date(0).toISOString())
+    await store.nativeLogins.setOptIn(owner, 'codex', 'same-account', true, new Date(0).toISOString())
 
     const bundle = fakeLoginFile('propagated', 6000)
     const atInstall: { rows: string[]; bytes: number; received: PortableCredentialBundle[] } = {

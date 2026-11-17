@@ -45,11 +45,7 @@ function codexMachine(id = 'desk'): MachineRecord {
 function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState {
   const machines = [codexMachine()]
   return {
-    accounts: {
-      ownedBy: async () => [],
-      sharedWithUser: async () => [],
-      sentTo: async () => [],
-      sendsOf: async () => new Map(),
+    nativeLogins: {
       optInsFor: async () => [],
       transfersFor: async () => [],
     },
@@ -73,11 +69,7 @@ function stateWithMachines(
   onlineById: Record<string, boolean> = {},
 ): AccountState {
   return {
-    accounts: {
-      ownedBy: async () => [],
-      sharedWithUser: async () => [],
-      sentTo: async () => [],
-      sendsOf: async () => new Map(),
+    nativeLogins: {
       optInsFor: async () => [],
       transfersFor: async () => [],
     },

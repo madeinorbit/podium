@@ -25,6 +25,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { seedRaw } from '../../test-support/seed-rows'
 import { sealCredentialSecret } from '../credentials/vault'
 import { mailHarness } from '../messages/characterization-support'
 import {
@@ -35,7 +36,6 @@ import {
   provisional,
 } from './oracle-support'
 import { type SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
-import { seedRaw } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -98,19 +98,7 @@ async function ownConnectionOnHost(
   owner: UserId,
 ): Promise<void> {
   const id = asAccountId('managed:openai')
-  await store.accounts.upsert({
-    id,
-    ownerUserId: owner,
-    provider: 'openai',
-    kind: 'api-key',
-    credential: `sk-${owner}`,
-    identity: `${owner}@example.com`,
-    scope: 'role',
-    createdAt: 1,
-  })
-  await store.accounts.markSent(owner, id, store.hostMachineId, '2026-11-04T00:00:00.000Z')
-  // Launches read credentials (credential management epic, Task 3): the
-  // credential the legacy import makes of this connection, and its send.
+  // The credential the one-time move made of this connection, and its send.
   const credential = await store.credentials.insert({
     ownerUserId: owner,
     label: 'OpenAI',

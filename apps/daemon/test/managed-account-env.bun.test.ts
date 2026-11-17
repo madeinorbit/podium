@@ -29,7 +29,6 @@ import { agentLaunchCommand, shellCommand } from '@podium/harness'
 import type { HarnessAgent } from '@podium/model'
 import { hasBunTerminal } from '@podium/process/pty'
 import { SpawnMessage } from '@podium/protocol'
-import { credentialEnv } from '@podium/runtime'
 import { memoryMarkers, SessionAccessStore } from '../src/control/access'
 import type { DaemonContext } from '../src/control/context'
 import { launchTerminalSpawn } from '../src/control/session'
@@ -218,7 +217,7 @@ it('runs on the Bun terminal PTY — the backend the shipped daemon uses', () =>
 })
 
 it('POSITIVE: a managed credential reaches the real spawned process env (Bun backend)', async () => {
-  const env = credentialEnv({ provider: 'anthropic', kind: 'api-key', credential: CREDENTIAL })
+  const env = { ANTHROPIC_API_KEY: CREDENTIAL }
   expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
 
   const dump = await dumpEnvOfSpawnedProcess('bun-managed', env)

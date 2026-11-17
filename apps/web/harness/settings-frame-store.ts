@@ -112,7 +112,6 @@ const answers: Record<string, unknown> = {
   'settings.secretPresence.query': [],
   'settings.telegramBotPresence.query': false,
   'accounts.list.query': [],
-  'accounts.keys.query': [],
   'auth.profile.query': { email: member ? 'member@example.com' : 'admin@example.com' },
   'auth.status.query': {
     configured: true,
@@ -326,26 +325,6 @@ if (populated) {
         { id: 'studio', name: 'Studio' },
         { id: 'builder', name: 'Build machine' },
       ],
-    },
-    ...['anthropic', 'openai', 'openrouter'].map((provider) => ({
-      id: `managed:${provider}`,
-      source: 'managed',
-      kind: 'api-key',
-      provider,
-      status: provider === 'openai' ? 'not-configured' : 'connected',
-      credentialSource: provider === 'anthropic' ? 'shared' : 'stored',
-      sharedBy: 'member',
-      identity: 'sk-…demo',
-      sharing: { everyone: false, users: [] },
-      sentTo: [],
-      sendableTo: [{ id: 'builder', name: 'Build machine' }],
-    })),
-    {
-      id: 'managed:claude-oauth',
-      source: 'managed',
-      kind: 'oauth',
-      provider: 'anthropic',
-      status: 'not-configured',
     },
   ]
   const machines = [

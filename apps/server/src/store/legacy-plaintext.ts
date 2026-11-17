@@ -135,11 +135,11 @@ export function applyLegacyDestruction(
       const secret = db.prepare('DELETE FROM server_secrets WHERE key = ? AND value = ?')
       for (const value of values) {
         if (value.kind === 'account-row') {
-          const gone = account.run(value.legacyId, value.value).changes
+          const gone = Number(account.run(value.legacyId, value.value).changes)
           if (gone > 0) sends.run(value.legacyId)
           deleted += gone
         } else {
-          deleted += secret.run(value.legacyId, value.value).changes
+          deleted += Number(secret.run(value.legacyId, value.value).changes)
         }
       }
       // Rows that never held a value have nothing to check.

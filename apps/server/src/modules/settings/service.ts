@@ -12,10 +12,9 @@ import {
   telegramClaimCodeIsLive,
   type UserId,
 } from '@podium/model'
-import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { PodiumSettings } from '@podium/runtime'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
 import type { LedgerWriter } from '@podium/sync'
-import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -611,18 +610,11 @@ export class SettingsService {
    * changed token (the notify service's replay, the messaging bridge) must react
    * whichever command wrote it.
    *
-   * The material lands in the keyed store. Provider keys use managed accounts.
+   * The material lands in the keyed store. Provider keys are credentials.
    * The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
-    if (key.startsWith('apiKeys.')) {
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message:
-          'Provider keys are personal managed accounts. Add or replace yours in Settings → Credentials.',
-      })
-    }
     // POD-419: the material lands in the keyed store, never in the blob. The
     // rotation time is now DURABLE — POD-420 could only return it.
     const updatedAt = new Date(this.now()).toISOString()

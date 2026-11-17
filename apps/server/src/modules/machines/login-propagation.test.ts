@@ -117,7 +117,7 @@ describe('login propagation coordinator', () => {
   }
 
   const tick = async (s: SessionStore, enabled = true, fp = 'same-account', who = owner) =>
-    await s.accounts.setOptIn(who, 'codex', fp, enabled, new Date(0).toISOString())
+    await s.nativeLogins.setOptIn(who, 'codex', fp, enabled, new Date(0).toISOString())
 
   const toTarget = { targetMachineId: asMachineId('target'), agentKind: 'codex' as const }
 
@@ -268,7 +268,7 @@ describe('login propagation coordinator', () => {
       propagation: true,
       expectedFingerprint: 'same-account',
     })
-    expect(await s.accounts.transfersFor(owner)).toEqual([
+    expect(await s.nativeLogins.transfersFor(owner)).toEqual([
       expect.objectContaining({ machineId: 'target', outcome: 'installed' }),
     ])
     expect(
@@ -327,7 +327,7 @@ describe('login propagation coordinator', () => {
       reason: 'the target is signed in to a different account, which was kept',
     })
     expect(credentialExport).not.toHaveBeenCalled()
-    expect(await s.accounts.transfersFor(owner)).toEqual([
+    expect(await s.nativeLogins.transfersFor(owner)).toEqual([
       expect.objectContaining({ machineId: 'target', outcome: 'preserved' }),
     ])
   })
@@ -339,7 +339,7 @@ describe('login propagation coordinator', () => {
       install: async () => ({ installed: [], failed: ['codex'], preserved: ['codex'] }),
     })
     await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'preserved' })
-    expect(await s.accounts.transfersFor(owner)).toEqual([
+    expect(await s.nativeLogins.transfersFor(owner)).toEqual([
       expect.objectContaining({ machineId: 'target', outcome: 'preserved' }),
     ])
   })
@@ -469,7 +469,7 @@ describe('login propagation coordinator', () => {
       }
       expect(credentialExport).not.toHaveBeenCalled()
       expect(credentialInstall).not.toHaveBeenCalled()
-      expect(await s.accounts.transfersFor(owner)).toEqual([])
+      expect(await s.nativeLogins.transfersFor(owner)).toEqual([])
     })
 
     it('refuses a plain target before anything is exported', async () => {

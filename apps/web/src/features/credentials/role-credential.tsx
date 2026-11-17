@@ -3,7 +3,7 @@
  * §9 "Direct inference"): the background role names a credential that has a
  * direct-inference route, saved as `roles.<role>.credentialId`. The server's
  * own model calls for the role run on it; with none picked they run on the
- * role's "Runs on" choice.
+ * role's choice from before credentials (`roles.<role>.accountId`), if any.
  *
  * The role's model belongs to the provider that serves it, so a picked
  * credential also decides which models the role's Model row offers
@@ -89,7 +89,7 @@ export const RoleCredentialSelect = observer(function RoleCredentialSelect({
     <SelectRow
       setting={`roles.${roleName}.credentialId`}
       label="Credential"
-      description="Podium’s own model calls for this role (the issue assistant) run on this credential. With none picked they run on “Runs on” above."
+      description="Podium’s own model calls for this role (the issue assistant) run on this credential. With none picked they use the choice saved before credentials, if you made one; otherwise they are off."
       value={value as string}
       options={[
         { value: NONE, label: 'None picked' },

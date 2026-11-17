@@ -120,7 +120,7 @@ describe('the derived settings router CALLS the gate', () => {
   it('lets members read only the workspace bot availability boolean', async () => {
     const { call, store } = await harness('member')
     expect(await call.settings.telegramBotPresence({})).toBe(false)
-    await store.secrets.set('apiKeys.openai', SECRET, '2026-11-10T10:00:00.000Z')
+    await store.secrets.set('integrations.linearApiKey', SECRET, '2026-11-10T10:00:00.000Z')
     expect(await call.settings.telegramBotPresence({})).toBe(false)
     await store.secrets.set(
       'notifications.telegramBotToken',
@@ -136,15 +136,13 @@ describe('the derived settings router CALLS the gate', () => {
     'apiKeys.openai',
     'apiKeys.anthropic',
     'apiKeys.openrouter',
-  ] as const)('an admin cannot write retired %s through the real router', async (key) => {
-    const { call, store, audit } = await harness('admin')
-    await expect(call.settings.setSecret({ key, value: SECRET })).rejects.toMatchObject({
-      code: 'BAD_REQUEST',
-      message:
-        'Provider keys are personal managed accounts. Add or replace yours in Settings → Credentials.',
-    })
-    expect(await store.secrets.get(key)).toBeUndefined()
-    expect((await audit()).at(-1)?.outcome).toBe('refused')
+  ])('an admin cannot write the retired %s through the real router', async (key) => {
+    // The provider keys left the secret vocabulary for credentials (credential
+    // management §18): the command's input no longer names them.
+    const { call, audit } = await harness('admin')
+    await expect(
+      call.settings.setSecret({ key: key as never, value: SECRET }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(JSON.stringify(await audit())).not.toContain(SECRET)
   })
 
@@ -346,14 +344,6 @@ describe('member Telegram disconnect', () => {
 })
 
 describe('the derived settings router WRITES the trail', () => {
-  it('refuses workspace provider keys even for an administrator', async () => {
-    const { call, store } = await harness('admin')
-    await expect(call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })).rejects.toThrow(
-      'Settings → Credentials',
-    )
-    expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
-  })
-
   it('records an applied secret write, with the key and without the material', async () => {
     const { call, audit } = await harness('admin')
     await call.settings.setSecret({ key: SECRET_KEY, value: SECRET })

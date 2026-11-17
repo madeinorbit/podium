@@ -34,11 +34,11 @@ import { resolveTrustedProxyHops } from '../../server'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
 import type { ChatgptTokenSet } from '../credentials/chatgpt-plan/openai'
-import { connectThrough } from '../credentials/legacy-accounts'
 import { CREDENTIAL_RESOURCE_KIND, mayUse } from '../credentials/may-use'
 import { sealCredentialSecret } from '../credentials/vault'
 import { CredentialRefusal } from './launch-config'
@@ -609,19 +609,18 @@ describe('an old account id and a key another member shared', () => {
       { id: BOB, displayName: 'Bob', email: null, role: 'member', createdAt: AT, disabledAt: null },
       'not-a-real-hash',
     )
-    await first.accounts.connect({
-      ownerUserId: alice,
-      accountKey: asAccountId('managed:anthropic'),
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: FAKE_A,
-      identity: 'masked',
-      scope: 'role',
-      createdAt: 1,
-    })
-    expect(await first.accounts.share(alice, asAccountId('managed:anthropic'), [BOB])).toBe(true)
     await one.reg.dispose()
     registries.splice(registries.indexOf(one.reg), 1)
+    // Alice's key and its share with Bob, as a release before credentials stored them.
+    const raw = openDatabase(file)
+    raw
+      .prepare(
+        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+           owner_user_id, account_key, ref, shared_with)
+         VALUES (?, 'anthropic', 'api-key', ?, 'masked', 'role', 1, ?, 'managed:anthropic', NULL, ?)`,
+      )
+      .run(`managed:anthropic@${alice}`, FAKE_A, alice, JSON.stringify([BOB]))
+    raw.close()
     if (sessionId) {
       // Bob's row as a release before credentials wrote it.
       const db = openDatabase(file)
@@ -657,16 +656,13 @@ describe('an old account id and a key another member shared', () => {
 
   /** Bob connects a key of his own under the old id, allowed on the host. */
   async function connectBobs(store: SessionStore): Promise<CredentialId> {
-    const id = await connectThrough(store, {
+    return await seedLegacyKeyCredential(store, {
       owner: BOB,
       accountKey: 'managed:anthropic',
-      provider: 'anthropic',
-      kind: 'api-key',
+      type: 'anthropic.api-key',
       secret: FAKE_B,
+      sentTo: [store.hostMachineId],
     })
-    if (!id) throw new Error('no credential for the key')
-    await store.credentials.allowMachine(id, store.hostMachineId, BOB)
-    return id
   }
 
   const launchAsBob = (reg: SessionRegistry) =>

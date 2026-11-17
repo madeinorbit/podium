@@ -247,7 +247,7 @@ describe('the member fence (POD-6292, MU-12)', () => {
       fetch: base as typeof fetch,
       member: 'mem_alice',
     })
-    await trpc.settings.clearSecret.mutate({ key: 'apiKeys.openai' })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' })
     const init = base.mock.calls[0]?.[1] as RequestInit
     expect(new Headers(init.headers).get('x-podium-member')).toBe('mem_alice')
   })
@@ -257,7 +257,7 @@ describe('the member fence (POD-6292, MU-12)', () => {
       .fn()
       .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
     const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
-    await trpc.settings.clearSecret.mutate({ key: 'apiKeys.openai' })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' })
     const init = base.mock.calls[0]?.[1] as RequestInit
     expect(new Headers(init.headers).has('x-podium-member')).toBe(false)
   })
@@ -275,7 +275,7 @@ describe('the fence’s refusal ends the member’s runtime (POD-6292, MU-12)', 
       onMemberRefused,
       recoveryDelaysMs: [],
     })
-    await trpc.settings.clearSecret.mutate({ key: 'apiKeys.openai' }).catch(() => {})
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' }).catch(() => {})
     await vi.waitFor(() => expect(onMemberRefused).toHaveBeenCalledTimes(1))
   })
 
@@ -287,7 +287,7 @@ describe('the fence’s refusal ends the member’s runtime (POD-6292, MU-12)', 
       onMemberRefused,
       recoveryDelaysMs: [],
     })
-    await trpc.settings.clearSecret.mutate({ key: 'apiKeys.openai' }).catch(() => {})
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' }).catch(() => {})
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(onMemberRefused).not.toHaveBeenCalled()
   })

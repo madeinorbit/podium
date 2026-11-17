@@ -22,10 +22,6 @@
  *    on the operator's own credential;
  *  - agents and the daemon: none of the 29 today. The agent rows below pin what
  *    one would get;
- *  - `accounts.share` (POD-6360): Settings → AI accounts, the owner on their own key
- *    and an admin on any key (POD-6390);
- *  - `accounts.unsend` (POD-6699): the owner taking back a sent key, or an admin
- *    taking it back for them;
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -147,64 +143,6 @@ const CALLERS: readonly {
     who: 'member',
     caller: 'Settings → Account (admin-only UI)',
     expect: 'lost',
-  },
-  // Every user manages their OWN harness accounts (user decision 2026-11-04):
-  // a stored key is the caller's, and only the caller's agents use it until
-  // they share it. Router-level proof that the row touched is the caller's own
-  // (and that another user's key is untouched) is in family.test.ts.
-  {
-    command: 'accounts.connect',
-    who: 'member',
-    caller: 'Settings → AI accounts, own key',
-    expect: 'ok',
-  },
-  {
-    command: 'accounts.disconnect',
-    who: 'member',
-    caller: 'Settings → AI accounts, own key',
-    expect: 'ok',
-  },
-  {
-    command: 'accounts.share',
-    who: 'member',
-    caller: 'share own key',
-    expect: 'ok',
-    input: { id: 'managed:anthropic', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.share',
-    who: 'member',
-    caller: "another user's key",
-    expect: 'floor',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.share',
-    who: 'admin',
-    caller: "an admin, another user's key",
-    expect: 'ok',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: false, users: [] },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'member',
-    caller: 'take back own sent key',
-    expect: 'ok',
-    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'member',
-    caller: "take back another user's sent key",
-    expect: 'floor',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'admin',
-    caller: "take back another user's sent key",
-    expect: 'ok',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
   },
   // Every user signs in their OWN harness accounts (user decision 2026-11-04):
   // the terminal is spawned as the member, on a machine the member may use. The
@@ -370,33 +308,17 @@ const CALLERS: readonly {
   { command: 'credentials.unshare', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'credentials.signInStart', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'credentials.signInCancel', who: 'agent', caller: 'none today', expect: 'floor' },
-  // An agent may not sign its human in, store, remove, share or take back a key as them:
-  // refused by the target check.
+  // An agent may not sign its human in: refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
-  { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
-  { command: 'accounts.disconnect', who: 'agent', caller: 'none today', expect: 'floor' },
-  {
-    command: 'accounts.share',
-    who: 'agent',
-    caller: 'none today',
-    expect: 'floor',
-    input: { id: 'managed:anthropic', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'agent',
-    caller: 'none today',
-    expect: 'floor',
-    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
-  },
 ]
 
-describe('every current caller of the 45 non-sync commands', () => {
-  it('covers the 45 commands, and only them', () => {
+describe('every current caller of the 40 non-sync commands', () => {
+  it('covers the 40 commands, and only them', () => {
     // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891);
     // + chatgptSignInStart and chatgptSignInComplete (POD-6901); + signInStart and
-    // signInCancel (POD-6896).
-    expect(CONTRACTS.size).toBe(45) // includes accounts.unsend; accounts.keys is a query
+    // signInCancel (POD-6896); - accounts.connect, disconnect, share, send and unsend
+    // (POD-6907: the old stored keys are credentials).
+    expect(CONTRACTS.size).toBe(40)
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -404,16 +326,8 @@ describe('every current caller of the 45 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(45)
+    expect(plain).toHaveLength(40)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
-  })
-
-  it('classifies accounts.unsend as an online-sensitive credential write', () => {
-    expect(CONTRACTS.get('accounts.unsend')).toMatchObject({
-      visibility: 'secret',
-      policy: { action: 'write', roleFloor: 'member', resource: 'secret' },
-      delivery: { class: 'online-sensitive' },
-    })
   })
 
   it.each(

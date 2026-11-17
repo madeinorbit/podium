@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  asAccountId,
   asMachineId,
   asUserId,
   firstAdminMemberId,
@@ -16,7 +15,6 @@ import { fileKeyProvider, writeWrappedDataKey } from '@podium/runtime/vault-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
-import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { importLegacyCredentials } from './legacy-import'
 import { mayUse } from './may-use'
 import { withSecret } from './vault'
@@ -33,7 +31,6 @@ const UNSUPPORTED = 'FAKE-ghp-legacy-unsupported-0008'
 
 const MEMBER = asUserId('user:legacy-member')
 const SENT_TO = asMachineId('machine-sent-to')
-const SENT_LATER = asMachineId('machine-sent-later')
 
 type Row = { owner: string; type: string; legacyId: string | null; legacyKey: string | null }
 const byOwnerAndId = (a: Row, b: Row): number =>
@@ -101,36 +98,37 @@ describe('importLegacyCredentials at server start', () => {
       },
       await hashPassword('member-password'),
     )
-    const connect = (
-      owner: UserId,
-      accountKey: string,
-      provider: string,
-      kind: 'api-key' | 'oauth',
-      credential: string,
-    ) =>
-      store.accounts.connect({
-        ownerUserId: owner,
-        accountKey: asAccountId(accountKey),
-        provider,
-        kind,
-        credential,
-        identity: 'masked',
-        scope: 'role',
-        createdAt: 1,
-      })
-    await connect(admin, 'managed:anthropic', 'anthropic', 'api-key', ADMIN_ANTHROPIC)
-    await connect(admin, 'managed:claude-oauth', 'anthropic', 'oauth', ADMIN_CLAUDE_TOKEN)
-    await connect(MEMBER, 'managed:openai', 'openai', 'api-key', MEMBER_OPENAI)
-    await connect(MEMBER, 'managed:claude-oauth', 'anthropic', 'oauth', MEMBER_CLAUDE_TOKEN)
-    await store.accounts.markSent(MEMBER, 'managed:openai', SENT_TO, '2026-11-01T00:00:00Z')
-    const at = new Date().toISOString()
-    await store.secrets.set('apiKeys.anthropic', ADMIN_ANTHROPIC, at)
-    await store.secrets.set('apiKeys.openai', WORKSPACE_OPENAI, at)
-    await store.secrets.set('apiKeys.openrouter', WORKSPACE_OPENROUTER, at)
     await close(store)
-    // Rows the repository API cannot write: one from before connections had owners,
-    // and one of a provider no credential type covers.
+    // The old stores, written raw as a release before the vault left them: rows of
+    // two owners, one from before connections had owners, one of a provider no
+    // credential type covers, a send, and the `apiKeys.*` secrets.
     sql(dbPath, (db) => {
+      const row = db.prepare(
+        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+           owner_user_id, account_key, ref, shared_with)
+         VALUES (?, ?, ?, ?, 'masked', 'role', 1, ?, ?, NULL, NULL)`,
+      )
+      const own = (
+        owner: UserId,
+        accountKey: string,
+        provider: string,
+        kind: string,
+        value: string,
+      ) => row.run(`${accountKey}@${owner}`, provider, kind, value, owner, accountKey)
+      own(admin, 'managed:anthropic', 'anthropic', 'api-key', ADMIN_ANTHROPIC)
+      own(admin, 'managed:claude-oauth', 'anthropic', 'oauth', ADMIN_CLAUDE_TOKEN)
+      own(MEMBER, 'managed:openai', 'openai', 'api-key', MEMBER_OPENAI)
+      own(MEMBER, 'managed:claude-oauth', 'anthropic', 'oauth', MEMBER_CLAUDE_TOKEN)
+      db.prepare(
+        'INSERT INTO account_machine_sends (account_id, machine_id, sent_at) VALUES (?, ?, ?)',
+      ).run(`managed:openai@${MEMBER}`, SENT_TO, '2026-11-01T00:00:00Z')
+      const secret = db.prepare(
+        'INSERT OR REPLACE INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)',
+      )
+      const at = new Date().toISOString()
+      secret.run('apiKeys.anthropic', ADMIN_ANTHROPIC, at)
+      secret.run('apiKeys.openai', WORKSPACE_OPENAI, at)
+      secret.run('apiKeys.openrouter', WORKSPACE_OPENROUTER, at)
       const insert = db.prepare(
         `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
@@ -241,7 +239,6 @@ describe('importLegacyCredentials at server start', () => {
     // The unsupported row is skipped with a log line naming it, never its value.
     const log = { info: vi.fn(), warn: vi.fn() }
     const again = await importLegacyCredentials({
-      secrets: store.secrets,
       users: store.users,
       credentials: store.credentials,
       grants: store.grants,
@@ -349,7 +346,6 @@ describe('importLegacyCredentials at server start', () => {
     })
     const log = { info: vi.fn(), warn: vi.fn() }
     const result = await importLegacyCredentials({
-      secrets: store.secrets,
       users: store.users,
       credentials: store.credentials,
       grants: store.grants,
@@ -376,57 +372,6 @@ describe('importLegacyCredentials at server start', () => {
       true,
     )
     await store.credentials.disallowMachine(sent.id, SENT_TO)
-    await close(store)
-
-    const next = await openAt(dbPath, keyPath)
-    expect(await grantsOf(next, everyone.id)).toEqual([])
-    expect(await next.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(false)
-  })
-
-  /** The old command handlers, as the Settings page reaches them, over this store. */
-  const accountsAs = (store: SessionStore, caller: UserId) =>
-    ({
-      accounts: store.accounts,
-      machines: store.machines,
-      machineStanding: async () => new Map([[SENT_LATER, 'use' as const]]),
-      callerUserId: caller,
-      credentialStore: store,
-    }) as never
-
-  it('a send made after the move through accounts.send is allowed at once', async () => {
-    const { dbPath, keyPath } = place()
-    await plantLegacy(dbPath, keyPath)
-    const store = await openAt(dbPath, keyPath)
-    const credential = await store.credentials.findByLegacyKey(MEMBER, 'managed:openai')
-    if (!credential) throw new Error('the member key was not moved')
-    expect(await store.credentials.isMachineAllowed(credential.id, SENT_LATER)).toBe(false)
-    await ACCOUNT_COMMANDS_TRPC.send.handler(accountsAs(store, MEMBER), {
-      id: 'managed:openai',
-      machineId: SENT_LATER,
-      acknowledgeSharedMachine: true,
-    } as never)
-    expect(await store.credentials.isMachineAllowed(credential.id, SENT_LATER)).toBe(true)
-  })
-
-  it('an unshare and an unsend through accounts.* survive a restart', async () => {
-    const { dbPath, keyPath } = place()
-    const admin = await plantLegacy(dbPath, keyPath)
-    plantShares(dbPath, admin)
-    const store = await openAt(dbPath, keyPath)
-    const everyone = await store.credentials.findByLegacyId(`managed:anthropic@${admin}`)
-    const sent = await store.credentials.findByLegacyKey(MEMBER, 'managed:openai')
-    if (!everyone || !sent) throw new Error('not moved')
-    await ACCOUNT_COMMANDS_TRPC.share.handler(accountsAs(store, admin), {
-      id: 'managed:anthropic',
-      everyone: false,
-      users: [],
-    } as never)
-    await ACCOUNT_COMMANDS_TRPC.unsend.handler(accountsAs(store, MEMBER), {
-      id: 'managed:openai',
-      machineId: SENT_TO,
-    } as never)
-    expect(await grantsOf(store, everyone.id)).toEqual([])
-    expect(await store.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(false)
     await close(store)
 
     const next = await openAt(dbPath, keyPath)

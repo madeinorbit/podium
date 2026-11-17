@@ -74,7 +74,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       row(
         'sessions',
         'Agent',
-        'Which CLI runs, and which login or key it uses.',
+        'Which CLI runs. Its credential is your default for that CLI, under Credentials.',
         'harness account login api key subscription billing shared',
       ),
       row(
@@ -121,7 +121,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       row(
         'superagent',
         'Agent',
-        'Uses a CLI login, so its usage counts against that subscription.',
+        'Which CLI runs the orchestrator, on your default credential for it.',
         'harness account login subscription billing',
       ),
       row('superagent', 'Model', 'Auto shows the model it resolves to.', 'llm inference'),
@@ -133,9 +133,9 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       ),
       row(
         'workllm',
-        'Runs on',
-        'Your API keys, keys shared with you, or your Codex login.',
-        'provider openrouter anthropic openai chatgpt',
+        'Credential',
+        'An API key, a ChatGPT login or plan, or none picked.',
+        'provider openrouter anthropic openai chatgpt key',
       ),
       row(
         'workllm',

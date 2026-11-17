@@ -27,9 +27,9 @@ import { withPlainCommand } from '../../plain-command-scope'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
-import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -80,7 +80,10 @@ describe('records.instancePreferences', () => {
       o,
       envelope(
         'records.instancePreferences.edit',
-        { id: ID, patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.defaultParentBranch': 'release' } },
+        {
+          id: ID,
+          patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.defaultParentBranch': 'release' },
+        },
         'i-1',
       ),
       { writes: true },
@@ -143,7 +146,7 @@ describe('records.instancePreferences', () => {
       )
       expect(refusalOf(reply)?.kind, path).toBe('invalid')
     }
-    expect(await o.store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
+    expect(await o.store.secrets.getOrEmpty('notifications.telegramBotToken')).toBe('')
   })
 
   it('only an admin writes it: a member and a disabled admin are refused, and the refusal is trailed', async () => {
@@ -367,11 +370,14 @@ describe('bootstrap streams stored instance settings', () => {
   it('every member loads the stored blob without appending to the log', async () => {
     const { store, authority } = await feedFixture()
     const stored = await store.settings.getSettings()
-    await seedRows(store, async () => await store.settings.setSettings({
-      ...stored,
-      hibernation: { ...stored.hibernation, memoryPct: 70 },
-    }))
-
+    await seedRows(
+      store,
+      async () =>
+        await store.settings.setSettings({
+          ...stored,
+          hibernation: { ...stored.hibernation, memoryPct: 70 },
+        }),
+    )
 
     for (const user of [ME, 'user:anyone-6677']) {
       const rows = (await authority.bootstrap(principal(user))).changes.filter(

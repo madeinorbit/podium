@@ -14,7 +14,6 @@ import {
   type CredentialTypeId,
   INFERENCE_ROUTES,
 } from '@podium/model'
-import { credentialEnv } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
@@ -74,45 +73,6 @@ describe('credential matrix over the registry and every bundled adapter', () => 
     expect(problemsOf(consumers)).toEqual([
       { kind: 'duplicate-type', consumer: target.kind, type: line.type },
     ])
-  })
-})
-
-// LEGACY comparison: deleted together with `credentialEnv()` in plan Task 21.
-describe('declarations agree with credentialEnv() for the pairs it knows today', () => {
-  // How the managed-account (provider, kind) pairs map onto the type ids.
-  const typeOf = (provider: string, kind: 'api-key' | 'oauth'): string =>
-    kind === 'oauth' ? `${provider}.claude-token` : `${provider}.api-key`
-
-  const known = ['anthropic', 'openai', 'openrouter'].flatMap((provider) =>
-    (['api-key', 'oauth'] as const).flatMap((kind) => {
-      const env = Object.keys(credentialEnv({ provider, kind, credential: 'fake-not-a-secret' }))
-      return env.length === 1
-        ? [{ provider, kind, type: typeOf(provider, kind), variable: env[0] }]
-        : []
-    }),
-  )
-
-  it('knows the four pairs', () => {
-    expect(known.map(({ type }) => type).sort()).toEqual([
-      'anthropic.api-key',
-      'anthropic.claude-token',
-      'openai.api-key',
-      'openrouter.api-key',
-    ])
-  })
-
-  it('every env declaration of those types names the same variable, and each is declared', () => {
-    for (const { type, variable } of known) {
-      const lines = Object.values(AGENT_MANIFESTS).flatMap((manifest) =>
-        manifest.inventory.accepts
-          .filter((line) => line.type === type)
-          .map((line) => ({ kind: manifest.kind, deliver: line.deliver })),
-      )
-      expect(lines.length, `${type} is declared by some adapter`).toBeGreaterThan(0)
-      for (const { kind, deliver } of lines) {
-        expect(deliver, `${kind} ${type}`).toEqual({ kind: 'env', variable })
-      }
-    }
   })
 })
 

@@ -57,7 +57,9 @@ describe('acceptance 7: the background role offers credentials with a direct-inf
         onChange={onChange}
       />,
     )
-    expect(screen.getByText(/With none picked they run on “Runs on” above/)).toBeTruthy()
+    expect(
+      screen.getByText(/With none picked they use the choice saved before credentials/),
+    ).toBeTruthy()
     fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
     pick(/None picked/)
     const { credentialId: _gone, ...rest } = backend

@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { harnessResumeKind } from './harness-manifest'
 import type { EventMap } from './modules/bus'
 import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
-import { connectThrough, sendThrough, shareThrough } from './modules/credentials/legacy-accounts'
+import { CREDENTIAL_RESOURCE_KIND } from './modules/credentials/may-use'
 import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,
@@ -39,6 +39,7 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -423,33 +424,19 @@ describe('managed credential on headless turns (two members)', () => {
   const ALICE_TOKEN = 'sk-ant-oat-alice-6733-000000'
   const BOB_KEY = 'sk-ant-bob-6733-00000000000'
 
-  /** What `accounts.connect` does: the credential first, then the old row. */
+  /** A key stored under an old account id, as the one-time move left it. */
   const connect = async (
     h: Awaited<ReturnType<typeof harness>>,
     owner: typeof ALICE,
     accountKey: string,
     credential: string,
   ): Promise<CredentialId> => {
-    const kind = accountKey === 'managed:claude-oauth' ? 'oauth' : 'api-key'
-    const id = await connectThrough(h.registry.sessionStore, {
+    return await seedLegacyKeyCredential(h.registry.sessionStore, {
       owner,
       accountKey,
-      provider: 'anthropic',
-      kind,
+      type: accountKey === 'managed:claude-oauth' ? 'anthropic.claude-token' : 'anthropic.api-key',
       secret: credential,
     })
-    if (!id) throw new Error(`no credential type for ${accountKey}`)
-    await h.registry.sessionStore.accounts.connect({
-      ownerUserId: owner,
-      accountKey: asAccountId(accountKey),
-      provider: 'anthropic',
-      kind,
-      credential,
-      identity: `${credential.slice(0, 4)}…`,
-      scope: 'role',
-      createdAt: Date.now(),
-    })
-    return id
   }
 
   const turnFor = async (
@@ -522,12 +509,17 @@ describe('managed credential on headless turns (two members)', () => {
     )
 
     // Once Alice shares it with Bob explicitly, Bob's turn runs on it.
-    await shareThrough(h.registry.sessionStore, {
+    await h.registry.sessionStore.grants.upsert({
+      resourceKind: CREDENTIAL_RESOURCE_KIND,
+      resourceId: aliceKey,
+      grantee: BOB,
+      verb: 'use',
       owner: ALICE,
-      accountKey: 'managed:anthropic',
-      everyone: false,
-      users: [BOB],
-      actor: ALICE,
+      visibility: 'secret',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: ALICE,
+      onBehalfOf: ALICE,
     })
     const shared = await turnFor(h, BOB, aliceKey, 'bob-shared')
     expect(shared.result).toMatchObject({ ok: true })
@@ -540,13 +532,7 @@ describe('managed credential on headless turns (two members)', () => {
     expect(legacy.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
 
     // Alice stops sharing: the old id names nothing again, and her key is not sent.
-    await shareThrough(h.registry.sessionStore, {
-      owner: ALICE,
-      accountKey: 'managed:anthropic',
-      everyone: false,
-      users: [],
-      actor: ALICE,
-    })
+    await h.registry.sessionStore.grants.remove(CREDENTIAL_RESOURCE_KIND, aliceKey, BOB, 'use')
     const unsharedAgain = await turnFor(h, BOB, 'managed:anthropic', 'bob-legacy-unshared')
     expect(unsharedAgain.request).toBeUndefined()
     expect(unsharedAgain.result).toMatchObject({
@@ -653,20 +639,11 @@ describe('managed credential on headless turns (two members)', () => {
     }
     await useAccount(ALICE, 'native:claude-code')
     const bobKey = await connect(h, BOB, 'managed:anthropic', BOB_KEY)
-    // What `accounts.send` does: the machine allowed on the credential, then
-    // the old row.
-    await sendThrough(h.registry.sessionStore, {
-      owner: BOB,
-      accountKey: 'managed:anthropic',
-      machineId: h.registry.sessionStore.hostMachineId,
-      sent: true,
-      actor: BOB,
-    })
-    await h.registry.sessionStore.accounts.markSent(
-      BOB,
-      'managed:anthropic',
+    // The machine Bob sent his key to, as the one-time move allowed it.
+    await h.registry.sessionStore.credentials.allowMachine(
+      bobKey,
       h.registry.sessionStore.hostMachineId,
-      new Date().toISOString(),
+      BOB,
     )
     await useAccount(BOB, 'managed:anthropic')
     const aliceFirst = await send(ALICE, 'hi')
@@ -806,37 +783,14 @@ describe('native superagent on a machine someone else looks after (two members)'
   it('runs Bob’s superagent on Alice’s machine with his own managed key sent there', async () => {
     const h = await harness()
     const host = h.registry.sessionStore.hostMachineId
-    // What `accounts.connect` and `accounts.send` do: the credential first.
-    const bobKey = await connectThrough(h.registry.sessionStore, {
+    // Bob's key as the one-time move left it: his credential, sent to the host.
+    const bobKey = await seedLegacyKeyCredential(h.registry.sessionStore, {
       owner: BOB,
       accountKey: 'managed:anthropic',
-      provider: 'anthropic',
-      kind: 'api-key',
+      type: 'anthropic.api-key',
       secret: BOB_KEY,
+      sentTo: [host],
     })
-    await sendThrough(h.registry.sessionStore, {
-      owner: BOB,
-      accountKey: 'managed:anthropic',
-      machineId: host,
-      sent: true,
-      actor: BOB,
-    })
-    await h.registry.sessionStore.accounts.connect({
-      ownerUserId: BOB,
-      accountKey: asAccountId('managed:anthropic'),
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: BOB_KEY,
-      identity: 'sk-a…',
-      scope: 'role',
-      createdAt: Date.now(),
-    })
-    await h.registry.sessionStore.accounts.markSent(
-      BOB,
-      'managed:anthropic',
-      host,
-      new Date().toISOString(),
-    )
     await selectSuperagentAccount(h, BOB, 'managed:anthropic')
     // The turn names the credential Bob's `managed:anthropic` became.
     expect(await send(h, BOB)).toMatchObject({

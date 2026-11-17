@@ -32,6 +32,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
+import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { messageRecordOf } from '../message-feed/feed'
 import { machinesForPrincipal, sessionCommandServices, usableRepos } from './command-ctx'
@@ -901,21 +902,20 @@ async function oracleWithPairedMachine(): Promise<{
  */
 async function colleagueConnectionOnHost(o: Oracle): Promise<void> {
   const id = asAccountId('managed:openai')
-  await o.store.accounts.upsert({
-    id,
-    ownerUserId: COLLEAGUE,
-    provider: 'openai',
-    kind: 'api-key',
-    credential: 'sk-colleague',
-    identity: 'colleague@example.com',
-    scope: 'role',
-    createdAt: 1,
+  await seedLegacyKeyCredential(o.store, {
+    owner: COLLEAGUE,
+    accountKey: id,
+    type: 'openai.api-key',
+    secret: 'sk-colleague',
+    sentTo: [o.store.hostMachineId],
   })
-  await o.store.accounts.markSent(COLLEAGUE, id, o.store.hostMachineId, '2026-11-04T00:00:00.000Z')
   const settings = await o.store.settings.getSettingsFor(COLLEAGUE)
   await o.store.settings.setSettingsFor(
     COLLEAGUE,
-    { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } } },
+    {
+      ...settings,
+      roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } },
+    },
     '2026-11-04T00:00:00.000Z',
   )
 }
@@ -1085,7 +1085,9 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // reached the daemon. The owner's kill goes through.
     const before = o.daemon.length
     expect(await dispatchSessionCommand(asColleague, 'kill', { sessionId })).toBeUndefined()
-    expect(o.daemon.slice(before).some((m) => m.type === 'kill' || m.type === 'runtimeLifecycleRequest')).toBe(false)
+    expect(
+      o.daemon.slice(before).some((m) => m.type === 'kill' || m.type === 'runtimeLifecycleRequest'),
+    ).toBe(false)
     expect(await dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
   })
 })
@@ -1539,7 +1541,9 @@ describe('session id prefix (POD-4536)', () => {
       sessionById: async (id) => rows.get(id),
       // Every fake row is the first admin's: this suite is about id resolution.
       ownerOf: async (id) => (rows.has(id) ? firstAdminMemberId() : undefined),
-      sessionIdsWithPrefix: opts?.listSpy ?? ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
+      sessionIdsWithPrefix:
+        opts?.listSpy ??
+        ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
       issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
     }
   }

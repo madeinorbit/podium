@@ -50,14 +50,6 @@ const accounts: AccountView[] = [
     harness: 'claude-code',
     status: 'connected',
   },
-  {
-    id: 'managed:openai',
-    provider: 'openai',
-    source: 'managed',
-    kind: 'api-key',
-    credentialSource: 'stored',
-    status: 'connected',
-  },
 ]
 function machine(id: string, name: string, patch: Partial<MachineModel> = {}): MachineModel {
   return observable({
@@ -142,10 +134,12 @@ describe('Model availability', () => {
 })
 
 describe('Agent role fields', () => {
-  it('writes account and harness together without resetting compatible overrides', () => {
+  it('writes the harness, clears an old account id, and keeps compatible overrides', () => {
     fixture.catalog = { codex: [{ value: 'shared-model', label: 'Shared', efforts: ['high'] }] }
     const settings = normalizeSettings({
-      roles: { coding: { accountId: 'native:codex', model: 'shared-model', effort: 'high' } },
+      roles: {
+        coding: { accountId: 'native:claude-code', model: 'shared-model', effort: 'high' },
+      },
     })
     const onChange = vi.fn()
     render(
@@ -158,13 +152,13 @@ describe('Agent role fields', () => {
       />,
     )
     fireEvent.click(screen.getByRole('combobox', { name: 'Agent' }))
-    const option = screen.getByRole('option', { name: /your OpenAI key/ })
+    const option = screen.getByRole('option', { name: /^Codex/ })
     fireEvent.pointerDown(option)
     fireEvent.pointerUp(option)
     fireEvent.click(option)
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        accountId: 'managed:openai',
+        accountId: '',
         harness: 'codex',
         model: 'shared-model',
         effort: 'high',
@@ -218,9 +212,7 @@ it('shows subagent model only when the harness accepts it', () => {
   expect(screen.getByText('Subagent model')).toBeTruthy()
   const section = screen.getByRole('heading', { name: 'New sessions' }).closest('section')
   if (!section) throw new Error('Missing new sessions section')
-  expect(
-    within(section).getByText(/usage counts against that subscription or account/i),
-  ).toBeTruthy()
+  expect(within(section).getByText(/on your default credential for it/i)).toBeTruthy()
   const next = normalizeSettings({ roles: { coding: { accountId: 'native:codex' } } })
   rerender(<AgentsSection settings={next} accounts={accounts} patch={vi.fn()} />)
   expect(screen.queryByText('Subagent model')).toBeNull()
@@ -268,36 +260,13 @@ it('shows the native background Auto model resolved exactly as the one-shot call
   if (!section) throw new Error('Missing background section')
   const head = bundledDescriptorFor('codex')?.catalog.models[0]?.label
   expect(within(section).getByRole('button', { name: 'Model' }).textContent).toBe(`Auto · ${head}`)
-  expect(within(section).getByText(/usage counts against that subscription/i)).toBeTruthy()
   expect(screen.queryByText('Status')).toBeNull()
 })
 
-it('labels a saved native background default when the catalog contains individual logins', () => {
-  const settings = normalizeSettings({
-    roles: { background: { accountId: 'native:codex', model: 'auto' } },
-  })
-  render(
-    <AgentsSection
-      settings={settings}
-      accounts={accounts.map((account) =>
-        account.source === 'native' ? { ...account, id: 'native:codex:individual-login' } : account,
-      )}
-      patch={vi.fn()}
-    />,
-  )
-  const section = screen.getByRole('heading', { name: 'Background model' }).closest('section')
-  if (!section) throw new Error('Missing background section')
-  expect(within(section).getByRole('combobox', { name: 'Runs on' }).textContent).toContain(
-    'Codex login',
-  )
-  expect(within(section).getByText('Login on the target machine')).toBeTruthy()
-})
-
-it('shows the server default account for an unset background role and lists concrete API models', () => {
+it('offers no "Runs on" row; an unset background role lists concrete API models', () => {
   const settings = normalizeSettings({})
   render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
-  expect(screen.getByRole('combobox', { name: 'Runs on' }).textContent).toContain('OpenRouter')
-  expect(screen.getByText(/billed per token to your key/i)).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Runs on' })).toBeNull()
   const model = screen.getByRole('combobox', { name: 'Model' })
   expect(model.textContent).toContain('Gemini 2.5 Flash')
   fireEvent.click(model)
@@ -335,7 +304,7 @@ describe('the background Model row follows the picked credential (credential man
     })
   })
 
-  it('with a credential picked the row lists its provider’s models; clearing it returns to Runs on', () => {
+  it('with a credential picked the row lists its provider’s models; clearing it returns to the saved choice', () => {
     const key = credentialView({ label: 'Key B', type: 'anthropic.api-key' })
     fixture.credentialViews = [key]
     const settings = normalizeSettings({

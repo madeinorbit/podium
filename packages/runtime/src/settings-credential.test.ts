@@ -1,33 +1,5 @@
 import { expect, it } from 'vitest'
-import { credentialEnv, normalizeSettings, resolveRole } from './settings'
-
-it('maps an anthropic api key to ANTHROPIC_API_KEY', () => {
-  expect(credentialEnv({ provider: 'anthropic', kind: 'api-key', credential: 'sk-ant-1' })).toEqual(
-    {
-      ANTHROPIC_API_KEY: 'sk-ant-1',
-    },
-  )
-})
-
-it('maps an openai api key to OPENAI_API_KEY', () => {
-  expect(credentialEnv({ provider: 'openai', kind: 'api-key', credential: 'sk-1' })).toEqual({
-    OPENAI_API_KEY: 'sk-1',
-  })
-})
-
-it('maps an anthropic oauth token to CLAUDE_CODE_OAUTH_TOKEN', () => {
-  expect(credentialEnv({ provider: 'anthropic', kind: 'oauth', credential: 'oat-1' })).toEqual({
-    CLAUDE_CODE_OAUTH_TOKEN: 'oat-1',
-  })
-})
-
-it('yields nothing for a provider with no env mapping', () => {
-  expect(credentialEnv({ provider: 'xai', kind: 'api-key', credential: 'x' })).toEqual({})
-})
-
-it('yields nothing for an empty credential rather than exporting a blank var', () => {
-  expect(credentialEnv({ provider: 'anthropic', kind: 'api-key', credential: '' })).toEqual({})
-})
+import { normalizeSettings, resolveRole } from './settings'
 
 /** decodeAccount: 'claude-oauth' is not an ApiProvider name. Parsing it as one
  *  fails and silently falls back to 'openrouter' — so the Claude subscription
@@ -41,9 +13,9 @@ it('decodes the Claude subscription account as ANTHROPIC, not the openrouter fal
   expect(role.accountId).toBe('managed:claude-oauth')
 })
 
-/** The #216 coding shape the picker now writes: a managed credential plus the
- *  harness it runs on. `harness` must force harness execution, and the accountId
- *  must survive — that id is what resolveAccountEnv() looks the credential up by. */
+/** The #216 coding shape the picker wrote before credentials: a managed account
+ *  plus the harness it runs on. `harness` must force harness execution, and the
+ *  accountId must survive — the 2027-02 legacy reader resolves it to a credential. */
 it('resolves a managed coding account + harness into a harness run on that credential', () => {
   const settings = normalizeSettings({
     roles: {
@@ -59,4 +31,35 @@ it('resolves a managed coding account + harness into a harness run on that crede
   expect(role.execution).toBe('harness')
   expect(role.harness).toBe('claude-code')
   expect(role.accountId).toBe('managed:claude-oauth')
+})
+
+/** The shape every pick writes since credentials: a harness and no account id.
+ *  The harness decides; the role keeps its default account id for old readers. */
+it('a harness picked with no account id runs that harness', () => {
+  const settings = normalizeSettings({
+    roles: { coding: { accountId: '', harness: 'codex', model: 'auto', effort: 'auto' } },
+  })
+  const role = resolveRole(settings, 'coding')
+  expect(role.execution).toBe('harness')
+  expect(role.harness).toBe('codex')
+})
+
+it('a background role picked on Codex with no account id calls the ChatGPT Responses API', () => {
+  const settings = normalizeSettings({
+    roles: { background: { accountId: '', harness: 'codex', model: 'auto', effort: 'auto' } },
+  })
+  expect(resolveRole(settings, 'background')).toMatchObject({
+    execution: 'api',
+    harness: 'codex',
+    provider: 'codex',
+  })
+})
+
+it('a saved native account id still decides over a stale harness', () => {
+  const settings = normalizeSettings({
+    roles: {
+      coding: { accountId: 'native:claude-code', harness: 'codex', model: 'auto', effort: 'auto' },
+    },
+  })
+  expect(resolveRole(settings, 'coding').harness).toBe('claude-code')
 })
