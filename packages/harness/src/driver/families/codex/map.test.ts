@@ -233,9 +233,11 @@ describe('turn errors → the failure vocabulary', () => {
     expect(describeTurnError({ message: onPort }, { planProvider: true })).toMatchObject({
       reason: 'provider-error',
     })
-    expect(describeTurnError({ message: 'unexpected status 429 Too Many Requests' })).toMatchObject({
-      reason: 'rate-limit',
-    })
+    expect(describeTurnError({ message: 'unexpected status 429 Too Many Requests' })).toMatchObject(
+      {
+        reason: 'rate-limit',
+      },
+    )
   })
 
   it('the same 401 off a plan stays a sign-in ask', () => {
