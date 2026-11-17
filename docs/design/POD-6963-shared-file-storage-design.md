@@ -483,21 +483,21 @@ machines; (c) AWS S3, the richest feature set, with egress fees.
 
 ## 5. Child tasks
 
-Filed under this issue, not started. Each is sized for one worker. "Owns" lists the files it
+Filed under this issue as POD-7049 to POD-7058, not started; F6 and F7 also wait for POD-7012. Each is sized for one worker. "Owns" lists the files it
 writes; tasks that can run at the same time own disjoint files. No task runs the full suite.
 
 | # | Task | Owns | Waits for |
 |---|---|---|---|
-| F1 | **Blob store and local adapter.** `packages/blob-store`: `BlobStore`, key validator and encoding, local adapter (temp + rename, `durable`, conditional writes, refuses non-`local`, temp cleanup), in-memory adapter with object-store semantics, one contract suite run against both | `packages/blob-store/**` | — |
-| F2 | **S3 adapter and configuration.** Bun S3 client adapter (AWS SDK fallback), `fileStorage` config and env, `forWorkspace` wiring in the composition; the contract suite against R2 in an opt-in lane | `packages/blob-store/src/s3*`, config files, composition | F1 |
-| F3 | **Readers over a byte source.** `ByteSource` in `packages/harness/src/store`, `ChainEntry` and the three readers take it, slice cache keyed on `version()`; the daemon's file-backed source; no behaviour change | `packages/harness/src/store/**`, daemon read call sites | — |
-| F4 | **Parted lake.** `PartedLake` over `BlobStore`; `MirrorService` writes through it (its file code removed); `TranscriptLake` reads its source; conditional part writes; the cursor compare-and-set; shrink and rotation rules; spec 2.1 and the two path-writing tests | `packages/sync/src/mirror.ts`, `packages/sync/src/lake*.ts`, `modules/memory/lake.ts`, the cursor statement in `store/conversations/mirror.ts`, `docs/spec/transcript-mirror.md` | F1, F3 |
-| F5 | **Lake conversion on self-hosted.** The blocking, resumable boot step of 2.3.1 with preflight, verification and done marker; a test that kills it mid-segment and resumes | a new `migrations/lake-parts-conversion.ts` and its boot hook | F4 |
-| F6 | **Artifacts on the blob store.** Snapshot, upload, read (streamed), remove; CLI uploads as chunk objects with `artifact_uploads` and publish by compose | `modules/issues/artifact-store.ts`, the table's migration and repository | F1, POD-7012 |
-| F7 | **Composer uploads on the blob store.** `pending_uploads` table, `PendingUploadStore` and the claim and relinquish paths | `modules/issues/pending-uploads.ts`, its call sites in `crud.ts` and `session-launch-effect.ts`, the table | F6, POD-7012 |
-| F8 | **Streaming `/files` route.** Stream `get` with ranges; refuse a path workspace that differs from the request's bound workspace once POD-6960 provides it | `file-artifact-route.ts`, `modules/files/queries.ts` | F6 |
-| F9 | **Sweeps, orphan audit and file isolation proof.** Table-driven sweeps; per-workspace orphan audit; two workspaces with the same issue, artifact, upload and segment ids over one in-memory bucket (reads, writes, sweeps, route) | sweep code in `relay.ts`, a new audit module, test files | F4, F7, F8 |
-| F10 | **Hosted lake measurement.** Part size, write amplification and read latency of the parted lake against R2 in the opt-in lane; sets P before hosted turns the lake on | a bench script and its report | F2, F4 |
+| F1 (POD-7049) | **Blob store and local adapter.** `packages/blob-store`: `BlobStore`, key validator and encoding, local adapter (temp + rename, `durable`, conditional writes, refuses non-`local`, temp cleanup), in-memory adapter with object-store semantics, one contract suite run against both | `packages/blob-store/**` | — |
+| F2 (POD-7050) | **S3 adapter and configuration.** Bun S3 client adapter (AWS SDK fallback), `fileStorage` config and env, `forWorkspace` wiring in the composition; the contract suite against R2 in an opt-in lane | `packages/blob-store/src/s3*`, config files, composition | F1 |
+| F3 (POD-7051) | **Readers over a byte source.** `ByteSource` in `packages/harness/src/store`, `ChainEntry` and the three readers take it, slice cache keyed on `version()`; the daemon's file-backed source; no behaviour change | `packages/harness/src/store/**`, daemon read call sites | — |
+| F4 (POD-7052) | **Parted lake.** `PartedLake` over `BlobStore`; `MirrorService` writes through it (its file code removed); `TranscriptLake` reads its source; conditional part writes; the cursor compare-and-set; shrink and rotation rules; spec 2.1 and the two path-writing tests | `packages/sync/src/mirror.ts`, `packages/sync/src/lake*.ts`, `modules/memory/lake.ts`, the cursor statement in `store/conversations/mirror.ts`, `docs/spec/transcript-mirror.md` | F1, F3 |
+| F5 (POD-7053) | **Lake conversion on self-hosted.** The blocking, resumable boot step of 2.3.1 with preflight, verification and done marker; a test that kills it mid-segment and resumes | a new `migrations/lake-parts-conversion.ts` and its boot hook | F4 |
+| F6 (POD-7054) | **Artifacts on the blob store.** Snapshot, upload, read (streamed), remove; CLI uploads as chunk objects with `artifact_uploads` and publish by compose | `modules/issues/artifact-store.ts`, the table's migration and repository | F1, POD-7012 |
+| F7 (POD-7055) | **Composer uploads on the blob store.** `pending_uploads` table, `PendingUploadStore` and the claim and relinquish paths | `modules/issues/pending-uploads.ts`, its call sites in `crud.ts` and `session-launch-effect.ts`, the table | F6, POD-7012 |
+| F8 (POD-7056) | **Streaming `/files` route.** Stream `get` with ranges; refuse a path workspace that differs from the request's bound workspace once POD-6960 provides it | `file-artifact-route.ts`, `modules/files/queries.ts` | F6 |
+| F9 (POD-7057) | **Sweeps, orphan audit and file isolation proof.** Table-driven sweeps; per-workspace orphan audit; two workspaces with the same issue, artifact, upload and segment ids over one in-memory bucket (reads, writes, sweeps, route) | sweep code in `relay.ts`, a new audit module, test files | F4, F7, F8 |
+| F10 (POD-7058) | **Hosted lake measurement.** Part size, write amplification and read latency of the parted lake against R2 in the opt-in lane; sets P before hosted turns the lake on | a bench script and its report | F2, F4 |
 
 Order: F1 and F3 start at once; F2 and F4 follow; F5, F6 and F10 after them; F7, F8, then F9.
 POD-6962's lease for the sweeps and POD-6960's request binding are named in the briefs of F9
