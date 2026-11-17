@@ -36,9 +36,18 @@ export function SectionHeading({
   count?: string | undefined
   right?: ReactNode
 }) {
+  const singleWord = /^\S+$/.test(label.trim())
   return (
     <View style={styles.heading} accessibilityRole="header">
-      <Text style={styles.title}>{label}</Text>
+      <Text
+        style={styles.title}
+        numberOfLines={singleWord ? 1 : undefined}
+        adjustsFontSizeToFit={singleWord}
+        minimumFontScale={0.85}
+        ellipsizeMode="tail"
+      >
+        {label}
+      </Text>
       {count ? <Text style={styles.count}>{count}</Text> : null}
       <View style={styles.spacer} />
       {right}

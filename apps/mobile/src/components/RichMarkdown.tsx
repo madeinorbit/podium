@@ -189,13 +189,22 @@ function Inline({
   tokens,
   ctx,
   style,
+  fitSingleWordHeading = false,
 }: {
   tokens: MarkdownToken[]
   ctx: RenderContext
   style?: StyleProp<TextStyle>
+  fitSingleWordHeading?: boolean
 }) {
   return (
-    <Text selectable={ctx.selectable} style={[styles.body, ctx.textStyle, style]}>
+    <Text
+      selectable={ctx.selectable}
+      style={[styles.body, ctx.textStyle, style]}
+      numberOfLines={fitSingleWordHeading ? 1 : undefined}
+      adjustsFontSizeToFit={fitSingleWordHeading}
+      minimumFontScale={0.85}
+      ellipsizeMode="tail"
+    >
       {renderInline(tokens, ctx, 'inline')}
     </Text>
   )
@@ -453,6 +462,7 @@ function Blocks({
             tokens={token.tokens ?? []}
             ctx={ctx}
             style={[styles.heading, headingStyles[depth]]}
+            fitSingleWordHeading={/^\S+$/.test((token.text ?? '').trim())}
           />
         )
       }
