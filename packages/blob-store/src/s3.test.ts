@@ -283,6 +283,14 @@ describe('s3 adapter', () => {
       expect(copy?.name).toBe('ws/cp/dst')
     }))
 
+  it('reports a missing bucket on get instead of a missing key', () =>
+    withFake(async (fake) => {
+      const store = storageFor(fake, fake.endpoint, { bucket: 'no-such-bucket' }).forWorkspace(
+        asWorkspaceId('ws'),
+      )
+      await expect(store.get(blobKey('k/x'))).rejects.toThrow(/the bucket does not exist/)
+    }))
+
   it('validates its options', () =>
     withFake(async (fake) => {
       const endpoint = fake.endpoint

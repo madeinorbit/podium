@@ -241,7 +241,11 @@ class S3BlobStore implements BlobStore {
         : { range: `bytes=${range.offset}-${range.offset + range.length - 1}` }
     const response = await fetch(url, { headers })
     if (response.status === 404) {
-      await response.body?.cancel()
+      // A missing key is `undefined`; a missing bucket is a misconfiguration.
+      const code = /<Code>([^<]+)<\/Code>/.exec(await response.text())?.[1]
+      if (code === 'NoSuchBucket') {
+        throw new S3RequestError(`GET ${key}: the bucket does not exist`, 404, code)
+      }
       return undefined
     }
     if (response.status === 416) {
