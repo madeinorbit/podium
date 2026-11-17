@@ -27,8 +27,10 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { runAtRoot } from './executor/context'
+import { dialectOf } from './executor/dialect-prepared'
 import { afterCommit, spanOpen } from './executor/executor'
 import { withOwnOperation } from './executor/operation-scope'
 import type {
@@ -49,6 +51,7 @@ import {
   preparedFamily,
   WORKSPACE,
 } from './executor/sync-drizzle'
+import { RUNTIME_EVENT_LOG_KIND } from './runtime-event-kind'
 import type { Subscription } from './types'
 
 /**
@@ -140,7 +143,7 @@ function rowToSubscription(r: SubscriptionRow): Subscription {
   }
 }
 
-export const RUNTIME_EVENT_LOG_KIND = 'session.runtime'
+export { RUNTIME_EVENT_LOG_KIND }
 
 /** The projector whose head fences runtime-event pruning. */
 const RUNTIME_BOARD_PROJECTOR = 'runtime.board.v1'
@@ -188,30 +191,31 @@ const turnStatesOfIds = preparedFamily((db, t, size: number) =>
 )
 
 const upsertCheckpoint = prepared((db, t) =>
-  db
-    .insert(t.runtimeEventCheckpoints)
-    .values({
-      workspaceId: WORKSPACE,
-      sessionId: sql.placeholder('sessionId'),
-      observerGeneration: sql.placeholder('observerGeneration'),
-      cursorJson: sql.placeholder('cursorJson'),
-      turnEpoch: sql.placeholder('turnEpoch'),
-      closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
-      updatedAt: sql.placeholder('updatedAt'),
-      turnStateJson: sql.placeholder('turnStateJson'),
-    })
-    .onConflictDoUpdate({
-      target: t.runtimeEventCheckpoints.sessionId,
-      set: {
+  captureWrite(
+    db
+      .insert(t.runtimeEventCheckpoints)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         observerGeneration: sql.placeholder('observerGeneration'),
         cursorJson: sql.placeholder('cursorJson'),
         turnEpoch: sql.placeholder('turnEpoch'),
         closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
         updatedAt: sql.placeholder('updatedAt'),
         turnStateJson: sql.placeholder('turnStateJson'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: t.runtimeEventCheckpoints.sessionId,
+        set: {
+          observerGeneration: sql.placeholder('observerGeneration'),
+          cursorJson: sql.placeholder('cursorJson'),
+          turnEpoch: sql.placeholder('turnEpoch'),
+          closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
+          updatedAt: sql.placeholder('updatedAt'),
+          turnStateJson: sql.placeholder('turnStateJson'),
+        },
+      }),
+  ).prepare(),
 )
 
 /**
@@ -244,12 +248,53 @@ const runtimeEventSubjects = prepared((db, t) =>
 )
 
 /**
+ * THE PAYLOAD FIELDS THESE READS FILTER ON, per engine. SQLite stores the payload as
+ * text and reads it with `json_extract`; Postgres stores `json` and reads it with
+ * `->>` / `#>>`, as text in byte order (`COLLATE "C"`, design 2.3 rule 13). A number
+ * is compared as a number on both; a missing field is NULL on both. Postgres also
+ * yields NULL for a field that holds no number, where SQLite would compare its text
+ * (the fields read here, `turnEpoch`, are always numbers when present).
+ */
+interface PayloadFields {
+  /** `$.t`, the event's type. */
+  readonly type: (payload: SQL) => SQL
+  /** A nested text field, by its path. */
+  readonly text: (payload: SQL, path: readonly string[]) => SQL
+  /** A numeric field, NULL when it is not a number. */
+  readonly number: (payload: SQL, field: string) => SQL
+  /** Whether a field holds an array with at least one element. */
+  readonly nonEmptyArray: (payload: SQL, field: string) => SQL
+}
+
+const SQLITE_PAYLOAD: PayloadFields = {
+  type: (payload) => sql`json_extract(${payload}, '$.t')`,
+  text: (payload, path) => sql`json_extract(${payload}, ${sql.raw(`'$.${path.join('.')}'`)})`,
+  number: (payload, field) => sql`json_extract(${payload}, ${sql.raw(`'$.${field}'`)})`,
+  nonEmptyArray: (payload, field) =>
+    sql`coalesce(json_array_length(${payload}, ${sql.raw(`'$.${field}'`)}), 0) > 0`,
+}
+
+const PG_PAYLOAD: PayloadFields = {
+  type: (payload) => sql`(${payload} ->> 't') COLLATE "C"`,
+  text: (payload, path) => sql`(${payload} #>> ${sql.raw(`'{${path.join(',')}}'`)}) COLLATE "C"`,
+  number: (payload, field) =>
+    sql`(CASE WHEN json_typeof(${payload} -> ${sql.raw(`'${field}'`)}) = 'number' THEN (${payload} ->> ${sql.raw(`'${field}'`)})::numeric END)`,
+  // `-> 0` is an array's first element, and NULL for an empty array or anything else.
+  nonEmptyArray: (payload, field) => sql`(${payload} -> ${sql.raw(`'${field}'`)} -> 0) IS NOT NULL`,
+}
+
+const payloadFieldsOf = (db: StoreDrizzle): PayloadFields =>
+  dialectOf(db) === 'pg' ? PG_PAYLOAD : SQLITE_PAYLOAD
+
+/**
  * The inner query takes the NEWEST `limit` matching rows and the outer one puts
  * them back in ascending order. Both orderings are load-bearing: taking the
  * newest is what bounds the read, and returning them oldest-first is what the
  * transcript reader expects.
  */
 const runtimeTranscriptPayloads = prepared((db, t) => {
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
   const recent = db
     .select({ id: t.podiumEvents.id, payload: t.podiumEvents.payload })
     .from(t.podiumEvents)
@@ -258,9 +303,9 @@ const runtimeTranscriptPayloads = prepared((db, t) => {
         t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
-        sql`(json_extract(${t.podiumEvents.payload}, '$.t') = 'transcript-reset'
-          OR (json_extract(${t.podiumEvents.payload}, '$.t') = 'item'
-            AND json_extract(${t.podiumEvents.payload}, '$.item.kind') = 'complete'))`,
+        sql`(${f.type(payload)} = 'transcript-reset'
+          OR (${f.type(payload)} = 'item'
+            AND ${f.text(payload, ['item', 'kind'])} = 'complete'))`,
       ),
     )
     .orderBy(desc(t.podiumEvents.id))
@@ -280,9 +325,11 @@ const runtimeTranscriptPayloads = prepared((db, t) => {
  * doubled, plus one when its `items` are not empty.
  */
 const runtimeTranscriptSubjectsOfIds = preparedFamily((db, t, size: number) => {
-  const type = sql`json_extract(${t.podiumEvents.payload}, '$.t')`
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
+  const type = f.type(payload)
   const newestReset = sql`coalesce(max(CASE WHEN ${type} = 'transcript-reset'
-    THEN ${t.podiumEvents.id} * 2 + (coalesce(json_array_length(${t.podiumEvents.payload}, '$.items'), 0) > 0) END), 0)`
+    THEN ${t.podiumEvents.id} * 2 + (CASE WHEN ${f.nonEmptyArray(payload, 'items')} THEN 1 ELSE 0 END) END), 0)`
   return db
     .select({ subject: t.podiumEvents.subject })
     .from(t.podiumEvents)
@@ -295,15 +342,17 @@ const runtimeTranscriptSubjectsOfIds = preparedFamily((db, t, size: number) => {
     )
     .groupBy(t.podiumEvents.subject)
     .having(
-      sql`max(CASE WHEN ${type} = 'item' AND json_extract(${t.podiumEvents.payload}, '$.item.kind') = 'complete'
+      sql`max(CASE WHEN ${type} = 'item' AND ${f.text(payload, ['item', 'kind'])} = 'complete'
           THEN ${t.podiumEvents.id} * 2 END) > ${newestReset}
         OR ${newestReset} % 2 = 1`,
     )
     .prepare()
 })
 
-const liveTurnFailure = prepared((db, t) =>
-  db
+const liveTurnFailure = prepared((db, t) => {
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
+  return db
     .select({ present: sql<number>`1` })
     .from(t.podiumEvents)
     .where(
@@ -311,15 +360,15 @@ const liveTurnFailure = prepared((db, t) =>
         t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
-        sql`json_extract(${t.podiumEvents.payload}, '$.t') = 'turn'`,
-        sql`json_extract(${t.podiumEvents.payload}, '$.ev.ev') = 'failed'`,
-        sql`json_extract(${t.podiumEvents.payload}, '$.provenance') = 'live'`,
-        sql`json_extract(${t.podiumEvents.payload}, '$.turnEpoch') >= ${sql.placeholder('turnEpoch')}`,
+        sql`${f.type(payload)} = 'turn'`,
+        sql`${f.text(payload, ['ev', 'ev'])} = 'failed'`,
+        sql`${f.text(payload, ['provenance'])} = 'live'`,
+        sql`${f.number(payload, 'turnEpoch')} >= ${sql.placeholder('turnEpoch')}`,
       ),
     )
     .limit(1)
-    .prepare(),
-)
+    .prepare()
+})
 
 const runtimeEventsAfter = prepared((db, t) =>
   db
@@ -381,17 +430,20 @@ const advanceProjectionCursor = prepared((db, t) =>
 )
 
 const insertEvent = prepared((db, t) =>
-  db
-    .insert(t.podiumEvents)
-    .values({
-      workspaceId: WORKSPACE,
-      ts: sql.placeholder('ts'),
-      kind: sql.placeholder('kind'),
-      subject: sql.placeholder('subject'),
-      repoPath: sql.placeholder('repoPath'),
-      payload: sql.placeholder('payload'),
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.podiumEvents)
+      .values({
+        workspaceId: WORKSPACE,
+        ts: sql.placeholder('ts'),
+        kind: sql.placeholder('kind'),
+        subject: sql.placeholder('subject'),
+        repoPath: sql.placeholder('repoPath'),
+        payload: sql.placeholder('payload'),
+      })
+      // The new id by RETURNING, on both engines: Postgres has no last insert rowid.
+      .returning({ id: t.podiumEvents.id }),
+  ).prepare(),
 )
 
 const eventById = prepared((db, t) =>
@@ -607,20 +659,21 @@ const pruneCandidates = (db: StoreDrizzle, t: StoreTables) => {
 
 const deletePruneBatch = prepared((db, t) => {
   const victims = pruneCandidates(db, t).as('victims')
-  return db
-    .delete(t.podiumEvents)
-    .where(
-      inWorkspace(
-        t.podiumEvents,
-        inArray(t.podiumEvents.id, db.select({ id: victims.id }).from(victims)),
-      ),
-    )
-    .returning({
-      id: t.podiumEvents.id,
-      kind: t.podiumEvents.kind,
-      subject: t.podiumEvents.subject,
-    })
-    .prepare()
+  return captureWrite(
+    db
+      .delete(t.podiumEvents)
+      .where(
+        inWorkspace(
+          t.podiumEvents,
+          inArray(t.podiumEvents.id, db.select({ id: victims.id }).from(victims)),
+        ),
+      )
+      .returning({
+        id: t.podiumEvents.id,
+        kind: t.podiumEvents.kind,
+        subject: t.podiumEvents.subject,
+      }),
+  ).prepare()
 })
 
 const stewardValueOf = prepared((db, t) =>
@@ -652,9 +705,8 @@ const janitorOwnership = prepared((db, t) =>
 )
 
 const insertSubscription = prepared((db, t) =>
-  db
-    .insert(t.subscriptions)
-    .values({
+  captureWrite(
+    db.insert(t.subscriptions).values({
       workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       subscriberKind: sql.placeholder('subscriberKind'),
@@ -667,15 +719,16 @@ const insertSubscription = prepared((db, t) =>
       origin: sql.placeholder('origin'),
       enabled: sql.placeholder('enabled'),
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const deleteSubscription = prepared((db, t) =>
-  db
-    .delete(t.subscriptions)
-    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.subscriptions)
+      .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))),
+  ).prepare(),
 )
 
 /** One keyset page of ONE MEMBER'S subscriptions, oldest first (POD-6288):
@@ -741,11 +794,12 @@ const subscriptionsOf = prepared((db, t) =>
 )
 
 const setSubscriptionEnabledById = prepared((db, t) =>
-  db
-    .update(t.subscriptions)
-    .set({ enabled: sql.placeholder('enabled') })
-    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.subscriptions)
+      .set({ enabled: sql.placeholder('enabled') })
+      .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))),
+  ).prepare(),
 )
 
 /** Subscriptions by id, for building `subscription` records by id (POD-6763). */
@@ -1128,14 +1182,15 @@ export class EventsRepository {
       logged ? this.logCommit : undefined,
       this.createOrJoinTransaction,
       async () => {
-        const r = await insertEvent(this.db).run({
+        const inserted = await insertEvent(this.db).get({
           ts: e.ts,
           kind: e.kind,
           subject: e.subject,
           repoPath: e.repoPath ?? null,
           payload: JSON.stringify(e.payload ?? {}),
         })
-        const id = Number(r.lastInsertRowid)
+        if (inserted === undefined) throw new Error('podium event insert returned no row')
+        const id = Number(inserted.id)
         // AFTER the insert, never before: the feed must not carry a row the log does
         // not have. The listener is documented as non-throwing, and this call is not
         // guarded here on purpose — a swallow at both ends hides a wiring fault

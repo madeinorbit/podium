@@ -21,6 +21,7 @@ import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } f
 import { foldModelTotals } from '@podium/model'
 import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
 import type { transcriptCosts } from '../migrations/schema'
+import { dialectOf } from './executor/dialect-prepared'
 import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -146,7 +147,12 @@ const recordCost = prepared((db, t) =>
         // issue_id NULL and its token totals intact.
         sessionId: sql`COALESCE(excluded.session_id, ${t.transcriptCosts.sessionId})`,
         issueId: sql`COALESCE(excluded.issue_id, ${t.transcriptCosts.issueId})`,
-        scannedBytes: sql`MAX(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
+        // The larger of the two: SQLite's scalar MAX(a, b) is GREATEST(a, b) on
+        // Postgres. The column is not null, so the two agree on every value.
+        scannedBytes:
+          dialectOf(db) === 'pg'
+            ? sql`GREATEST(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`
+            : sql`MAX(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
         firstTsMs: sql`excluded.first_ts_ms`,
         lastTsMs: sql`excluded.last_ts_ms`,
         messages: sql`excluded.messages`,
@@ -177,7 +183,15 @@ const attributedCosts = prepared((db, t) =>
 
 const ownCohortFolds = prepared((db, t) =>
   db
-    .select({ folds: sql<string>`json_group_array(${t.transcriptCosts.modelsJson})` })
+    // One JSON array of each row's models text. Postgres stores the column as `json`,
+    // so it aggregates the text (`::text`) to give the same array of strings; its
+    // spacing differs from SQLite's, and the reader parses it before use.
+    .select({
+      folds:
+        dialectOf(db) === 'pg'
+          ? sql<string>`json_agg(${t.transcriptCosts.modelsJson}::text)::text`
+          : sql<string>`json_group_array(${t.transcriptCosts.modelsJson})`,
+    })
     .from(t.transcriptCosts)
     .innerJoin(
       t.issues,

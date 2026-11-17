@@ -106,13 +106,6 @@ const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly wri
     ['apps/server/src/store/users.ts', { task: 'POD-6987', writes: 2 }],
     // The fleet update checkpoint, an install key of `meta` beside the update-channel context.
     ['apps/server/src/modules/updates/recovery-store.ts', { task: 'POD-6987', writes: 1 }],
-    ['apps/server/src/store/automations.ts', { task: 'POD-6988', writes: 6 }],
-    ['apps/server/src/store/effects.ts', { task: 'POD-6988', writes: 12 }],
-    ['apps/server/src/store/events.ts', { task: 'POD-6988', writes: 6 }],
-    ['apps/server/src/store/interactions.ts', { task: 'POD-6988', writes: 9 }],
-    ['apps/server/src/store/observation-checkpoints.ts', { task: 'POD-6988', writes: 4 }],
-    ['apps/server/src/store/superagent.ts', { task: 'POD-6988', writes: 7 }],
-    ['apps/server/src/store/workflows.ts', { task: 'POD-6988', writes: 11 }],
     ['apps/server/src/store/conversations/index.ts', { task: 'POD-6990', writes: 4 }],
     ['apps/server/src/store/conversations/registry.ts', { task: 'POD-6990', writes: 3 }],
   ])

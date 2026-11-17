@@ -28,7 +28,9 @@ import {
 import type { WriteScope } from '@podium/sync'
 import { asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import type { effects } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
+import { dialectOf } from './executor/dialect-prepared'
 import { afterCommit } from './executor/executor'
 import type {
   StoreTables,
@@ -163,27 +165,28 @@ const notAwaiting = (t: StoreTables) =>
   sql`(${t.effects.decision} IS NULL OR ${t.effects.decision} <> 'awaiting')`
 
 const insertEffect = prepared((db, t) =>
-  db
-    .insert(t.effects)
-    .values({
-      workspaceId: WORKSPACE,
-      id: P('id'),
-      kind: P('kind'),
-      targetKind: P('targetKind'),
-      targetId: P('targetId'),
-      inputJson: P('inputJson'),
-      status: P('status'),
-      stage: P('stage'),
-      decision: P('decision'),
-      deciders: P('deciders'),
-      deadlineAt: P('deadlineAt'),
-      createdBy: P('createdBy'),
-      actor: P('actor'),
-      createdAt: P('now'),
-      updatedAt: P('now'),
-    })
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.effects)
+      .values({
+        workspaceId: WORKSPACE,
+        id: P('id'),
+        kind: P('kind'),
+        targetKind: P('targetKind'),
+        targetId: P('targetId'),
+        inputJson: P('inputJson'),
+        status: P('status'),
+        stage: P('stage'),
+        decision: P('decision'),
+        deciders: P('deciders'),
+        deadlineAt: P('deadlineAt'),
+        createdBy: P('createdBy'),
+        actor: P('actor'),
+        createdAt: P('now'),
+        updatedAt: P('now'),
+      })
+      .returning(),
+  ).prepare(),
 )
 
 /** By id, tombstones included: a create must never reuse a removed id. */
@@ -235,13 +238,18 @@ const audiencesOfIds = preparedFamily((db, t, size: number) =>
 // The live records on targets of SEVERAL kinds in one read (POD-6401): every
 // listed kind crossed with every listed id, seeking `idx_effects_target`; the
 // caller keeps only the (kind, id) pairs it asked for. Keyed `<kinds>x<ids>`.
-// The index is named with INDEXED BY: on default statistics the planner costs
-// `deleted_at IS NULL` on `idx_effects_deleted` below the crossed seeks, and
-// that walk reads every live record (POD-6599). Ordered as the index is, by
-// target, then `created_at`, then rowid, so the seeks need no sort: the caller
-// orders across targets itself and needs only each target's oldest-first order.
+// The caller orders across targets itself and needs only each target's
+// oldest-first order.
+//
+// TWO FORMS. SQLite names the index with INDEXED BY: on default statistics the
+// planner costs `deleted_at IS NULL` on `idx_effects_deleted` below the crossed
+// seeks, and that walk reads every live record (POD-6599). Ordered as the index
+// is, by target, then `created_at`, then rowid, so the seeks need no sort.
+// Postgres has neither index hints nor a rowid: it plans from its own statistics
+// and breaks a `created_at` tie by the primary key.
 const liveOnTargetKeys = preparedFamily((db, t, shape: string) => {
   const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
+  const pg = dialectOf(db) === 'pg'
   return (
     db
       // Bare column names: the FROM is an INDEXED BY clause, not the table object.
@@ -250,7 +258,7 @@ const liveOnTargetKeys = preparedFamily((db, t, shape: string) => {
         targetKind: sql<string>`target_kind`,
         targetId: sql<string>`target_id`,
       })
-      .from(sql`${t.effects} INDEXED BY idx_effects_target`)
+      .from(pg ? sql`${t.effects}` : sql`${t.effects} INDEXED BY idx_effects_target`)
       .where(
         inWorkspace(
           t.effects,
@@ -263,7 +271,7 @@ const liveOnTargetKeys = preparedFamily((db, t, shape: string) => {
         asc(t.effects.targetKind),
         asc(t.effects.targetId),
         asc(t.effects.createdAt),
-        asc(sql`rowid`),
+        pg ? asc(t.effects.id) : asc(sql`rowid`),
       )
       .prepare()
   )
@@ -307,82 +315,86 @@ const newestOnTargetIn = preparedFamily((db, t, phase: EffectPhase) =>
 
 /** The claim: `pending` → `running`, one more attempt. Not when cancel was asked. */
 const claimEffect = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({
-      status: 'running',
-      attempts: sql`${t.effects.attempts} + 1`,
-      startedAt: P('now'),
-      updatedAt: P('now'),
-      revision: sql`${t.effects.revision} + 1`,
-    })
-    .where(
-      inWorkspace(
-        t.effects,
-        idIs(t),
-        live(t),
-        statusIn(t, EffectLifecycle.allowedFrom('running')),
-        eq(t.effects.cancelRequested, false),
-        // A gated record runs only once its person has approved it.
-        sql`(${t.effects.decision} IS NULL OR ${t.effects.decision} = 'approve')`,
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'running',
+        attempts: sql`${t.effects.attempts} + 1`,
+        startedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          statusIn(t, EffectLifecycle.allowedFrom('running')),
+          eq(t.effects.cancelRequested, false),
+          // A gated record runs only once its person has approved it.
+          sql`(${t.effects.decision} IS NULL OR ${t.effects.decision} = 'approve')`,
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** An ending (or `unknown`): one shape per target status, each guarded by the machine. */
 const settleEffect = preparedFamily((db, t, to: EffectStatus) =>
-  db
-    .update(t.effects)
-    .set({
-      status: to,
-      errorCode: P('errorCode'),
-      errorMessage: P('errorMessage'),
-      // A settlement without a result keeps the one published while it ran.
-      resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
-      stage: P('stage'),
-      finishedAt: EffectLifecycle.isTerminal(to) ? P('now') : sql`${t.effects.finishedAt}`,
-      updatedAt: P('now'),
-      revision: sql`${t.effects.revision} + 1`,
-    })
-    .where(inWorkspace(t.effects, idIs(t), live(t), statusIn(t, EffectLifecycle.allowedFrom(to))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: to,
+        errorCode: P('errorCode'),
+        errorMessage: P('errorMessage'),
+        // A settlement without a result keeps the one published while it ran.
+        resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
+        stage: P('stage'),
+        finishedAt: EffectLifecycle.isTerminal(to) ? P('now') : sql`${t.effects.finishedAt}`,
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(inWorkspace(t.effects, idIs(t), live(t), statusIn(t, EffectLifecycle.allowedFrom(to))))
+      .returning(),
+  ).prepare(),
 )
 
 /** A stage, and with it the result known so far when one is given (POD-6358). */
 const stageEffect = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({
-      stage: P('stage'),
-      resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
-      updatedAt: P('now'),
-      revision: sql`${t.effects.revision} + 1`,
-    })
-    .where(inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'running')))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        stage: P('stage'),
+        resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'running')))
+      .returning(),
+  ).prepare(),
 )
 
 /** Cancel asked of a record that has not started: it ends here, never runs. */
 const cancelPendingEffect = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({
-      status: 'cancelled',
-      cancelRequested: true,
-      finishedAt: P('now'),
-      updatedAt: P('now'),
-      revision: sql`${t.effects.revision} + 1`,
-    })
-    // An awaiting approval ends by its person's deny, never by a cancel.
-    .where(
-      inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'pending'), notAwaiting(t)),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'cancelled',
+        cancelRequested: true,
+        finishedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      // An awaiting approval ends by its person's deny, never by a cancel.
+      .where(
+        inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'pending'), notAwaiting(t)),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /**
@@ -392,36 +404,37 @@ const cancelPendingEffect = prepared((db, t) =>
  * moved since (a stale revision).
  */
 const decideEffect = preparedFamily((db, t, decision: EffectDecision) =>
-  db
-    .update(t.effects)
-    .set(
-      decision === 'approve'
-        ? {
-            decision: 'approve',
-            updatedAt: P('now'),
-            revision: sql`${t.effects.revision} + 1`,
-          }
-        : {
-            decision: 'deny',
-            status: 'cancelled',
-            stage: null,
-            finishedAt: P('now'),
-            updatedAt: P('now'),
-            revision: sql`${t.effects.revision} + 1`,
-          },
-    )
-    .where(
-      inWorkspace(
-        t.effects,
-        idIs(t),
-        live(t),
-        eq(t.effects.status, 'pending'),
-        eq(t.effects.decision, 'awaiting'),
-        eq(t.effects.revision, param(t.effects.revision, 'revision')),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set(
+        decision === 'approve'
+          ? {
+              decision: 'approve',
+              updatedAt: P('now'),
+              revision: sql`${t.effects.revision} + 1`,
+            }
+          : {
+              decision: 'deny',
+              status: 'cancelled',
+              stage: null,
+              finishedAt: P('now'),
+              updatedAt: P('now'),
+              revision: sql`${t.effects.revision} + 1`,
+            },
+      )
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          eq(t.effects.status, 'pending'),
+          eq(t.effects.decision, 'awaiting'),
+          eq(t.effects.revision, param(t.effects.revision, 'revision')),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** One kind's records waiting for a person, oldest first (`idx_effects_awaiting`). */
@@ -447,98 +460,104 @@ const awaitingOfKind = prepared((db, t) =>
  * `idx_effects_unpublished`), moved to revision 1 through the funnel, a batch.
  */
 const publishCopied = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({ revision: 1 })
-    .where(
-      inWorkspace(
-        t.effects,
-        inArray(
-          t.effects.id,
-          db
-            .select({ id: t.effects.id })
-            .from(t.effects)
-            // A literal, so the planner can use the partial index.
-            .where(inWorkspace(t.effects, sql`${t.effects.revision} = 0`))
-            .limit(P('limit')),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ revision: 1 })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: t.effects.id })
+              .from(t.effects)
+              // A literal, so the planner can use the partial index.
+              .where(inWorkspace(t.effects, sql`${t.effects.revision} = 0`))
+              .limit(P('limit')),
+          ),
         ),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** Cancel asked of a running (or lost-track) record: the executor decides. */
 const flagCancelEffect = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({ cancelRequested: true, updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
-    .where(
-      inWorkspace(
-        t.effects,
-        idIs(t),
-        live(t),
-        inArray(t.effects.status, ['running', 'unknown']),
-        eq(t.effects.cancelRequested, false),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ cancelRequested: true, updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          inArray(t.effects.status, ['running', 'unknown']),
+          eq(t.effects.cancelRequested, false),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** Off the feed. Only a record that has ended (or that nobody can settle: `unknown`). */
 const tombstoneEffect = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
-    .where(
-      inWorkspace(
-        t.effects,
-        idIs(t),
-        live(t),
-        inArray(t.effects.status, [...EffectLifecycle.terminal, 'unknown']),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          inArray(t.effects.status, [...EffectLifecycle.terminal, 'unknown']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** The sweep's expiry: pending records whose deadline has passed, a bounded batch. */
 const expireDueEffects = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({
-      status: 'expired',
-      errorCode: 'deadline',
-      errorMessage: 'It waited past its deadline and never ran.',
-      finishedAt: P('now'),
-      updatedAt: P('now'),
-      revision: sql`${t.effects.revision} + 1`,
-    })
-    .where(
-      inWorkspace(
-        t.effects,
-        inArray(
-          t.effects.id,
-          db
-            .select({ id: t.effects.id })
-            .from(t.effects)
-            .where(
-              inWorkspace(
-                t.effects,
-                eq(t.effects.status, 'pending'),
-                isNotNull(t.effects.deadlineAt),
-                lte(t.effects.deadlineAt, param(t.effects.deadlineAt, 'now')),
-                live(t),
-              ),
-            )
-            .orderBy(asc(t.effects.deadlineAt))
-            .limit(P('limit')),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'expired',
+        errorCode: 'deadline',
+        errorMessage: 'It waited past its deadline and never ran.',
+        finishedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: t.effects.id })
+              .from(t.effects)
+              .where(
+                inWorkspace(
+                  t.effects,
+                  eq(t.effects.status, 'pending'),
+                  isNotNull(t.effects.deadlineAt),
+                  lte(t.effects.deadlineAt, param(t.effects.deadlineAt, 'now')),
+                  live(t),
+                ),
+              )
+              // NULLS FIRST is SQLite's own order for ASC, written out for Postgres,
+              // which puts them last (none reach here: the filter wants a deadline).
+              .orderBy(sql`${t.effects.deadlineAt} ASC NULLS FIRST`)
+              .limit(P('limit')),
+          ),
         ),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** Records in one status, oldest first, a bounded page (the sweep's re-dispatch). */
@@ -548,66 +567,70 @@ const effectsInStatus = preparedFamily((db, t, status: 'pending' | 'running') =>
     .from(t.effects)
     // An awaiting record waits for its person, not for the sweep (POD-6674).
     .where(inWorkspace(t.effects, eq(t.effects.status, status), live(t), notAwaiting(t)))
-    // The index's own order after the equality: no sort.
-    .orderBy(asc(t.effects.deadlineAt))
+    // The index's own order after the equality: no sort. NULLS FIRST is SQLite's
+    // order for ASC (a pending record without a deadline comes first), written out
+    // for Postgres, which puts them last.
+    .orderBy(sql`${t.effects.deadlineAt} ASC NULLS FIRST`)
     .limit(P('limit'))
     .prepare(),
 )
 
 /** Finished records that were kept for the retention window, a bounded batch. */
 const pruneFinishedEffects = prepared((db, t) =>
-  db
-    .update(t.effects)
-    .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
-    .where(
-      inWorkspace(
-        t.effects,
-        inArray(
-          t.effects.id,
-          db
-            .select({ id: t.effects.id })
-            .from(t.effects)
-            .where(
-              inWorkspace(
-                t.effects,
-                // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
-                inArray(t.effects.status, ['succeeded', 'cancelled', 'expired']),
-                lte(t.effects.finishedAt, param(t.effects.finishedAt, 'cutoff')),
-                live(t),
-              ),
-            )
-            .limit(P('limit')),
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: t.effects.id })
+              .from(t.effects)
+              .where(
+                inWorkspace(
+                  t.effects,
+                  // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
+                  inArray(t.effects.status, ['succeeded', 'cancelled', 'expired']),
+                  lte(t.effects.finishedAt, param(t.effects.finishedAt, 'cutoff')),
+                  live(t),
+                ),
+              )
+              .limit(P('limit')),
+          ),
         ),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** Tombstones older than the feed's retention: gone from every device already. */
 const purgeTombstones = prepared((db, t) =>
-  db
-    .delete(t.effects)
-    .where(
-      inWorkspace(
-        t.effects,
-        inArray(
-          t.effects.id,
-          db
-            .select({ id: t.effects.id })
-            .from(t.effects)
-            .where(
-              inWorkspace(
-                t.effects,
-                lte(t.effects.deletedAt, param(t.effects.deletedAt, 'cutoff')),
-              ),
-            )
-            .limit(P('limit')),
+  captureWrite(
+    db
+      .delete(t.effects)
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: t.effects.id })
+              .from(t.effects)
+              .where(
+                inWorkspace(
+                  t.effects,
+                  lte(t.effects.deletedAt, param(t.effects.deletedAt, 'cutoff')),
+                ),
+              )
+              .limit(P('limit')),
+          ),
         ),
-      ),
-    )
-    .returning({ id: t.effects.id })
-    .prepare(),
+      )
+      .returning({ id: t.effects.id }),
+  ).prepare(),
 )
 
 /** Under SQLite's bound-parameter limit, like the other batched readers. */

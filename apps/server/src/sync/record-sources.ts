@@ -127,7 +127,7 @@ import {
 import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
-import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
+import { RUNTIME_EVENT_LOG_KIND } from '../store/runtime-event-kind'
 import type { RecordReads } from './record-builders'
 
 // ---------------------------------------------------------------------------

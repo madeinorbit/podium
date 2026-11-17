@@ -1,6 +1,6 @@
 // workspace-scoped (POD-6959)
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
-import { asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { asc, eq, lt, sql } from 'drizzle-orm'
 import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './executor/sync-drizzle'
 
@@ -85,7 +85,7 @@ const insertCommand = prepared((db, t) =>
 
 const pruneOldestCommands = prepared((db, t) => {
   const oldest = db
-    .select({ rowid: sql<number>`rowid` })
+    .select({ jobKind: t.maintenanceCommands.jobKind, runKey: t.maintenanceCommands.runKey })
     .from(t.maintenanceCommands)
     .where(
       inWorkspace(
@@ -102,10 +102,18 @@ const pruneOldestCommands = prepared((db, t) => {
       asc(t.maintenanceCommands.runKey),
     )
     .limit(sql.placeholder('batchSize'))
-  return db
-    .delete(t.maintenanceCommands)
-    .where(inWorkspace(t.maintenanceCommands, inArray(sql`rowid`, oldest)))
-    .prepare()
+  return (
+    db
+      .delete(t.maintenanceCommands)
+      // The victims by their key (a row value), not by `rowid`, which Postgres has not.
+      .where(
+        inWorkspace(
+          t.maintenanceCommands,
+          sql`(${t.maintenanceCommands.jobKind}, ${t.maintenanceCommands.runKey}) IN ${oldest}`,
+        ),
+      )
+      .prepare()
+  )
 })
 
 export class MaintenanceRepository {
@@ -171,7 +179,7 @@ export class MaintenanceRepository {
    * Bounded head prune of the maintenance idempotency ledger [POD-845 residual].
    * Deletes oldest rows with applied_at strictly before cutoff, in batches.
    *
-   * STILL ONE STATEMENT. The bound and the order live in a SUBQUERY over `rowid`,
+   * STILL ONE STATEMENT. The bound and the order live in a SUBQUERY over the key,
    * exactly as the raw form did: selecting the victims first and deleting them
    * second would be two statements with a window between them, and after the flip
    * that window contains awaits.

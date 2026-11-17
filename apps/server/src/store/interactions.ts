@@ -38,6 +38,7 @@ import {
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { pendingInteractions } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type {
   StoreTables,
@@ -145,36 +146,38 @@ function toRow(r: InteractionSelect): InteractionRow {
 const idIs = (t: StoreTables) => eq(t.pendingInteractions.id, param(t.pendingInteractions.id, 'id'))
 
 const insertInteraction = prepared((db, t) =>
-  db
-    .insert(t.pendingInteractions)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      sessionId: sql.placeholder('sessionId'),
-      kind: sql.placeholder('kind'),
-      payloadJson: sql.placeholder('payloadJson'),
-      source: sql.placeholder('source'),
-      answerable: sql.placeholder('answerable'),
-      fingerprint: sql.placeholder('fingerprint'),
-      status: 'asked',
-      askedAt: sql.placeholder('askedAt'),
-      expiresAt: sql.placeholder('expiresAt'),
-    })
-    // NO TARGET, exactly as the raw form had none: the conflict this collapses
-    // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
-    // 'asked', which is not a target drizzle can name.
-    .onConflictDoNothing()
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.pendingInteractions)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        sessionId: sql.placeholder('sessionId'),
+        kind: sql.placeholder('kind'),
+        payloadJson: sql.placeholder('payloadJson'),
+        source: sql.placeholder('source'),
+        answerable: sql.placeholder('answerable'),
+        fingerprint: sql.placeholder('fingerprint'),
+        status: 'asked',
+        askedAt: sql.placeholder('askedAt'),
+        expiresAt: sql.placeholder('expiresAt'),
+      })
+      // NO TARGET, exactly as the raw form had none: the conflict this collapses
+      // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
+      // 'asked', which is not a target drizzle can name.
+      .onConflictDoNothing()
+      .returning(),
+  ).prepare(),
 )
 
 const enrichInteraction = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({ payloadJson: sql.placeholder('payloadJson') })
-    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ payloadJson: sql.placeholder('payloadJson') })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
 )
 
 const interactionById = prepared((db, t) =>
@@ -267,106 +270,114 @@ const interactionsOfSession = prepared((db, t) =>
 )
 
 const answerInteraction = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({
-      status: 'answered',
-      answerJson: sql.placeholder('answerJson'),
-      answeredBy: sql.placeholder('answeredBy'),
-      deliveredVia: sql.placeholder('deliveredVia'),
-      answeredAt: sql.placeholder('answeredAt'),
-    })
-    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({
+        status: 'answered',
+        answerJson: sql.placeholder('answerJson'),
+        answeredBy: sql.placeholder('answeredBy'),
+        deliveredVia: sql.placeholder('deliveredVia'),
+        answeredAt: sql.placeholder('answeredAt'),
+      })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
 )
 
 const recordInteractionDelivery = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({ deliveredVia: sql.placeholder('deliveredVia') })
-    .where(
-      inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'answered')),
-    )
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ deliveredVia: sql.placeholder('deliveredVia') })
+      .where(
+        inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'answered')),
+      ),
+  ).prepare(),
 )
 
 const answeredBy = (t: StoreTables) =>
   eq(t.pendingInteractions.answeredBy, param(t.pendingInteractions.answeredBy, 'answeredBy'))
 
 const reopenInteraction = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({
-      status: 'asked',
-      // FOUR CLEARS. A reopened ask that still carried its answer would be
-      // back on the list and already answered at the same time.
-      answerJson: null,
-      answeredBy: null,
-      deliveredVia: null,
-      answeredAt: null,
-      policyVerdict: 'escalated',
-    })
-    .where(
-      inWorkspace(
-        t.pendingInteractions,
-        idIs(t),
-        eq(t.pendingInteractions.status, 'answered'),
-        answeredBy(t),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({
+        status: 'asked',
+        // FOUR CLEARS. A reopened ask that still carried its answer would be
+        // back on the list and already answered at the same time.
+        answerJson: null,
+        answeredBy: null,
+        deliveredVia: null,
+        answeredAt: null,
+        policyVerdict: 'escalated',
+      })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          idIs(t),
+          eq(t.pendingInteractions.status, 'answered'),
+          answeredBy(t),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const retireClaimedInteraction = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(
-      inWorkspace(
-        t.pendingInteractions,
-        idIs(t),
-        eq(t.pendingInteractions.status, 'answered'),
-        answeredBy(t),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          idIs(t),
+          eq(t.pendingInteractions.status, 'answered'),
+          answeredBy(t),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const closeInteraction = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
 )
 
 const closeSessionInteractions = prepared((db, t) =>
-  db
-    .update(t.pendingInteractions)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(
-      inWorkspace(
-        t.pendingInteractions,
-        and(
-          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
-          eq(t.pendingInteractions.status, 'asked'),
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          and(
+            eq(
+              t.pendingInteractions.sessionId,
+              param(t.pendingInteractions.sessionId, 'sessionId'),
+            ),
+            eq(t.pendingInteractions.status, 'asked'),
+          ),
         ),
-      ),
-    )
-    .returning()
-    .prepare(),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** Every status but `asked`: the rows retention may drop. */
 const RESOLVED_STATUSES = InteractionStatus.options.filter((status) => status !== 'asked')
 
 const pruneResolvedInteractions = prepared((db, t) =>
-  db
-    .delete(t.pendingInteractions)
-    .where(
+  captureWrite(
+    db.delete(t.pendingInteractions).where(
       inWorkspace(
         t.pendingInteractions,
         and(
@@ -386,8 +397,8 @@ const pruneResolvedInteractions = prepared((db, t) =>
           ),
         ),
       ),
-    )
-    .prepare(),
+    ),
+  ).prepare(),
 )
 
 /** Successful writes of the open set, captured before their transaction commits. */

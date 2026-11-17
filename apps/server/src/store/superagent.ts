@@ -13,9 +13,11 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
+import { asc, desc, eq, inArray, isNull, notExists, type SQL, sql } from 'drizzle-orm'
 import type { superagentThreads } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
+import { dialectPrepared } from './executor/dialect-prepared'
 import type {
   StoreDrizzle,
   StoreTables,
@@ -69,19 +71,20 @@ const threadIdIs = (t: StoreTables) =>
 // What is left reachable is the `id` primary-key conflict, which is the whole
 // point of the statement and which both forms swallow identically.
 const seedGlobal = prepared((db, t) =>
-  db
-    .insert(t.superagentThreads)
-    .values({
-      workspaceId: WORKSPACE,
-      id: asThreadId('global'),
-      ownerUserId: P('ownerUserId'),
-      kind: 'global',
-      createdAt: P('now'),
-      updatedAt: P('now'),
-    })
-    .onConflictDoNothing()
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.superagentThreads)
+      .values({
+        workspaceId: WORKSPACE,
+        id: asThreadId('global'),
+        ownerUserId: P('ownerUserId'),
+        kind: 'global',
+        createdAt: P('now'),
+        updatedAt: P('now'),
+      })
+      .onConflictDoNothing()
+      .returning(),
+  ).prepare(),
 )
 
 const threadMessages = prepared((db, t) =>
@@ -122,16 +125,19 @@ const insertMessage = prepared((db, t) =>
       toolName: P('toolName'),
       createdAt: P('createdAt'),
     })
+    // The new id by RETURNING, on both engines: Postgres has no last insert rowid.
+    .returning({ id: t.superagentMessages.id })
     .prepare(),
 )
 
 const touchThread = prepared((db, t) =>
-  db
-    .update(t.superagentThreads)
-    .set({ updatedAt: P('updatedAt') })
-    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.superagentThreads)
+      .set({ updatedAt: P('updatedAt') })
+      .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
+      .returning(),
+  ).prepare(),
 )
 
 const deleteThreadMessages = prepared((db, t) =>
@@ -193,31 +199,32 @@ const ownedThreadById = prepared((db, t) =>
 )
 
 const upsertThread = prepared((db, t) =>
-  db
-    .insert(t.superagentThreads)
-    .values({
-      workspaceId: WORKSPACE,
-      id: P('id'),
-      ownerUserId: P('ownerUserId'),
-      kind: P('kind'),
-      originSessionId: P('originSessionId'),
-      repoPath: P('repoPath'),
-      title: P('title'),
-      createdAt: P('now'),
-      updatedAt: P('now'),
-    })
-    .onConflictDoUpdate({
-      target: t.superagentThreads.id,
-      set: {
-        title: sql`COALESCE(excluded.title, ${t.superagentThreads.title})`,
-        // RE-OPENING IS A SIDE EFFECT OF WRITING. `archiveSuperagentThread`
-        // hides a thread; this line is the only thing that brings it back.
-        archived: false,
+  captureWrite(
+    db
+      .insert(t.superagentThreads)
+      .values({
+        workspaceId: WORKSPACE,
+        id: P('id'),
+        ownerUserId: P('ownerUserId'),
+        kind: P('kind'),
+        originSessionId: P('originSessionId'),
+        repoPath: P('repoPath'),
+        title: P('title'),
+        createdAt: P('now'),
         updatedAt: P('now'),
-      },
-    })
-    .returning()
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: t.superagentThreads.id,
+        set: {
+          title: sql`COALESCE(excluded.title, ${t.superagentThreads.title})`,
+          // RE-OPENING IS A SIDE EFFECT OF WRITING. `archiveSuperagentThread`
+          // hides a thread; this line is the only thing that brings it back.
+          archived: false,
+          updatedAt: P('now'),
+        },
+      })
+      .returning(),
+  ).prepare(),
 )
 
 const setWatermark = prepared((db, t) =>
@@ -230,21 +237,23 @@ const setWatermark = prepared((db, t) =>
 
 /** The binding patch writes only the keys it carries, so its key set is the shape. */
 const setThreadBinding = preparedFamily((db, t, shape: string) =>
-  db
-    .update(t.superagentThreads)
-    .set(placeholdersFor(shape) as unknown as Partial<typeof superagentThreads.$inferInsert>)
-    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.superagentThreads)
+      .set(placeholdersFor(shape) as unknown as Partial<typeof superagentThreads.$inferInsert>)
+      .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
+      .returning(),
+  ).prepare(),
 )
 
 const archiveThread = prepared((db, t) =>
-  db
-    .update(t.superagentThreads)
-    .set({ archived: true })
-    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.superagentThreads)
+      .set({ archived: true })
+      .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
+      .returning(),
+  ).prepare(),
 )
 
 /** Every thread, archived ones included: the `superagentThread` boot reconcile. */
@@ -276,73 +285,81 @@ const pendingTurnOfThread = (db: StoreDrizzle, t: StoreTables) =>
  * with nothing to clear it; this clears it, and a thread whose pending row
  * survived keeps it until that turn ends. Only rows that change are written.
  */
-const syncTurnRunning = prepared((db, t) =>
-  db
-    .update(t.superagentThreads)
-    .set({ turnRunning: false })
-    .where(
-      inWorkspace(
-        t.superagentThreads,
-        inArray(
-          t.superagentThreads.id,
-          db
-            .select({ id: sql<ThreadId>`${t.superagentThreads.id}` })
-            // A sparse running set remains bounded even under statistics from a
-            // tiny database. Recover no archived history just to rediscover false.
-            .from(sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`)
-            .where(
-              inWorkspace(
-                t.superagentThreads,
-                eq(t.superagentThreads.turnRunning, true),
-                notExists(pendingTurnOfThread(db, t)),
+const turnRunningSync = (db: StoreDrizzle, t: StoreTables, running: SQL) =>
+  captureWrite(
+    db
+      .update(t.superagentThreads)
+      .set({ turnRunning: false })
+      .where(
+        inWorkspace(
+          t.superagentThreads,
+          inArray(
+            t.superagentThreads.id,
+            db
+              .select({ id: sql<ThreadId>`${t.superagentThreads.id}` })
+              .from(running)
+              .where(
+                inWorkspace(
+                  t.superagentThreads,
+                  eq(t.superagentThreads.turnRunning, true),
+                  notExists(pendingTurnOfThread(db, t)),
+                ),
               ),
-            ),
+          ),
         ),
-      ),
-    )
-    .returning()
-    .prepare(),
-)
+      )
+      .returning(),
+  ).prepare()
+
+// TWO FORMS: SQLite names the index (a sparse running set remains bounded even under
+// statistics from a tiny database; recover no archived history just to rediscover
+// false); Postgres has no index hints and plans from its own statistics.
+const syncTurnRunning = dialectPrepared<Record<string, never>, ThreadSelect>()({
+  sqlite: (db, t) =>
+    turnRunningSync(db, t, sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`),
+  pg: (db, t) => turnRunningSync(db, t, sql`${t.superagentThreads}`),
+})
 
 /** A newly created member's global, in the account write's transaction. */
 const seedMemberGlobal = prepared((db, t) =>
-  db
-    .insert(t.superagentThreads)
-    .select(
-      db
-        .select({
-          // The member's own workspace: the users read below is held to it.
-          workspaceId: t.users.workspaceId,
-          id: sql<ThreadId>`'global:' || ${t.users.id}`.as('id'),
-          ownerUserId: t.users.id,
-          kind: sql<string>`'global'`.as('kind'),
-          createdAt: sql<string>`${P('now')}`.as('created_at'),
-          updatedAt: sql<string>`${P('now')}`.as('updated_at'),
-        })
-        .from(t.users)
-        .where(
-          inWorkspace(
-            t.users,
-            eq(t.users.id, param(t.users.id, 'ownerUserId')),
-            isNull(t.users.disabledAt),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(t.superagentThreads)
-                .where(
-                  inWorkspace(
-                    t.superagentThreads,
-                    eq(t.superagentThreads.ownerUserId, t.users.id),
-                    eq(t.superagentThreads.kind, 'global'),
+  captureWrite(
+    db
+      .insert(t.superagentThreads)
+      .select(
+        db
+          .select({
+            // The member's own workspace: the users read below is held to it.
+            workspaceId: t.users.workspaceId,
+            id: sql<ThreadId>`'global:' || ${t.users.id}`.as('id'),
+            ownerUserId: t.users.id,
+            kind: sql<string>`'global'`.as('kind'),
+            createdAt: sql<string>`${P('now')}`.as('created_at'),
+            updatedAt: sql<string>`${P('now')}`.as('updated_at'),
+          })
+          .from(t.users)
+          .where(
+            inWorkspace(
+              t.users,
+              eq(t.users.id, param(t.users.id, 'ownerUserId')),
+              isNull(t.users.disabledAt),
+              notExists(
+                db
+                  .select({ one: sql`1` })
+                  .from(t.superagentThreads)
+                  .where(
+                    inWorkspace(
+                      t.superagentThreads,
+                      eq(t.superagentThreads.ownerUserId, t.users.id),
+                      eq(t.superagentThreads.kind, 'global'),
+                    ),
                   ),
-                ),
+              ),
             ),
           ),
-        ),
-    )
-    .onConflictDoNothing()
-    .returning()
-    .prepare(),
+      )
+      .onConflictDoNothing()
+      .returning(),
+  ).prepare(),
 )
 
 const insertQueuedInput = prepared((db, t) =>
@@ -592,7 +609,7 @@ export class SuperagentRepository {
     const createdAt = new Date().toISOString()
     const ownerUserId = m.ownerUserId ?? (await this.getSuperagentThread(threadId))?.ownerUserId
     if (!ownerUserId) throw new Error(`unknown superagent thread: ${threadId}`)
-    const result = await insertMessage(this.db).run({
+    const inserted = await insertMessage(this.db).get({
       threadId,
       ownerUserId,
       role: m.role,
@@ -605,7 +622,8 @@ export class SuperagentRepository {
     await this.writeThreads(
       async () => await touchThread(this.db).all({ id: threadId, updatedAt: createdAt }),
     )
-    return { ...m, ownerUserId, id: Number(result.lastInsertRowid), createdAt }
+    if (inserted === undefined) throw new Error('superagent message insert returned no row')
+    return { ...m, ownerUserId, id: Number(inserted.id), createdAt }
   }
 
   async clearSuperagentMessages(threadId = 'global'): Promise<void> {

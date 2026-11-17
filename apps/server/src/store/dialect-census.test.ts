@@ -137,10 +137,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'apps/server/src/store/artifact-uploads.ts:advanceReceived',
     'json column received_json compared without CAST(… AS TEXT)',
   ],
-  ['apps/server/src/store/automations.ts:allLiveRuns', 'SQLite-only rowid'],
-  ['apps/server/src/store/automations.ts:lastSpawnedRunOf', 'SQLite-only rowid'],
-  ['apps/server/src/store/automations.ts:lastSpawnedRuns', 'SQLite-only rowid'],
-  ['apps/server/src/store/automations.ts:runsOfAutomation', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsDeleteTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsInsertTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsUpdateTrigger', 'SQLite-only rowid'],
@@ -191,24 +187,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
   [
-    'apps/server/src/store/effects.ts:effectsInStatus',
-    'ORDER BY nullable column deadline_at without NULLS FIRST/LAST',
-  ],
-  [
-    'apps/server/src/store/effects.ts:expireDueEffects',
-    'ORDER BY nullable column deadline_at without NULLS FIRST/LAST',
-  ],
-  [
-    'apps/server/src/store/effects.ts:liveOnTargetKeys',
-    'SQLite-only INDEXED BY, SQLite-only rowid',
-  ],
-  ['apps/server/src/store/events.ts:liveTurnFailure', 'SQLite-only json_extract()'],
-  ['apps/server/src/store/events.ts:runtimeTranscriptPayloads', 'SQLite-only json_extract()'],
-  [
-    'apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds',
-    'SQLite-only json_array_length(), SQLite-only json_extract()',
-  ],
-  [
     'apps/server/src/store/issue-git-states.ts:save',
     'json column facts_json compared without CAST(… AS TEXT)',
   ],
@@ -235,7 +213,6 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'apps/server/src/store/machines.ts:recordHarnessVersionOf',
     'SQLite-only json_extract(), SQLite-only json_set(), SQLite-only two-argument MAX/MIN',
   ],
-  ['apps/server/src/store/maintenance.ts:pruneOldestCommands', 'SQLite-only rowid'],
   ['apps/server/src/store/messages.ts:latestPendingOperator', 'SQLite-only rowid'],
   ['apps/server/src/store/messages.ts:openChat', 'SQLite-only INDEXED BY, SQLite-only rowid'],
   [
@@ -250,24 +227,16 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'apps/server/src/store/messages.ts:swapHarnessRef',
     'json column harness_ref_json compared without CAST(… AS TEXT)',
   ],
-  [
-    'apps/server/src/store/observation-checkpoints.ts:renewTerminalProof',
-    'json column proof_json compared without CAST(… AS TEXT)',
-  ],
   ['apps/server/src/store/repos.ts:registryRows', 'SQLite-only rowid'],
   ['apps/server/src/store/shipping.ts:activeOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', 'SQLite-only json_each()'],
   ['apps/server/src/store/shipping.ts:resumableOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains', 'SQLite-only INDEXED BY'],
-  ['apps/server/src/store/superagent.ts:syncTurnRunning', 'SQLite-only INDEXED BY'],
-  ['apps/server/src/store/transcript-costs.ts:ownCohortFolds', 'SQLite-only json_group_array()'],
-  ['apps/server/src/store/transcript-costs.ts:recordCost', 'SQLite-only two-argument MAX/MIN'],
   [
     'apps/server/src/store/users.ts:memberHoldingEmail',
     'computed text (lower()) without COLLATE "C"',
   ],
   ['apps/server/src/store/users.ts:userIdByEmail', 'computed text (lower()) without COLLATE "C"'],
-  ['apps/server/src/store/workflows.ts:workflowsWhere', 'SQLite-only COLLATE NOCASE'],
 ])
 
 // ---------------------------------------------------------------------------

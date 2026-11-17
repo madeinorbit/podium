@@ -38,6 +38,8 @@ import type {
   workflowRuns,
   workflows as workflowsTable,
 } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
 import type {
   StoreTables,
   TransactionRunner,
@@ -286,8 +288,15 @@ const workflowsWhere = preparedFamily((db, t, key: string) => {
       .select(workflowSelection(t))
       .from(t.workflows)
       .where(inWorkspace(t.workflows, clauses.length ? and(...clauses) : undefined))
-      // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
-      .orderBy(sql`${t.workflows.name} COLLATE NOCASE`, asc(t.workflows.createdAt))
+      // Case-folded: with a binary collation 'Zebra' would sort before 'apple'. SQLite's
+      // NOCASE folds ASCII only, as Postgres's `lower()` does on a "C" column, so the
+      // two engines order the same names the same way.
+      .orderBy(
+        dialectOf(db) === 'pg'
+          ? sql`lower(${t.workflows.name}) COLLATE "C"`
+          : sql`${t.workflows.name} COLLATE NOCASE`,
+        asc(t.workflows.createdAt),
+      )
       .prepare()
   )
 })
@@ -301,9 +310,8 @@ const workflowById = prepared((db, t) =>
 )
 
 const insertWorkflowRow = prepared((db, t) =>
-  db
-    .insert(t.workflows)
-    .values({
+  captureWrite(
+    db.insert(t.workflows).values({
       workspaceId: WORKSPACE,
       id: P('id'),
       name: P('name'),
@@ -315,8 +323,8 @@ const insertWorkflowRow = prepared((db, t) =>
       ownerUserId: P('ownerUserId'),
       createdAt: P('now'),
       updatedAt: P('now'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const revisionsOf = prepared((db, t) =>
@@ -360,9 +368,8 @@ const latestRevisionVersion = prepared((db, t) =>
 )
 
 const insertRevisionRow = prepared((db, t) =>
-  db
-    .insert(t.workflowRevisions)
-    .values({
+  captureWrite(
+    db.insert(t.workflowRevisions).values({
       workspaceId: WORKSPACE,
       id: P('id'),
       workflowId: P('workflowId'),
@@ -372,31 +379,33 @@ const insertRevisionRow = prepared((db, t) =>
       createdByKind: P('createdByKind'),
       createdById: P('createdById'),
       createdAt: P('now'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const setLatestRevision = prepared((db, t) =>
-  db
-    .update(t.workflows)
-    .set({ latestRevisionId: P('revisionId'), updatedAt: P('now') })
-    .where(inWorkspace(t.workflows, eq(t.workflows.id, param(t.workflows.id, 'workflowId'))))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.workflows)
+      .set({ latestRevisionId: P('revisionId'), updatedAt: P('now') })
+      .where(inWorkspace(t.workflows, eq(t.workflows.id, param(t.workflows.id, 'workflowId')))),
+  ).prepare(),
 )
 
 const publishRevisionRow = prepared((db, t) =>
-  db
-    .update(t.workflowRevisions)
-    // COALESCE: a published revision has ONE publication moment, so a repeat
-    // must not re-date it.
-    .set({ publishedAt: sql`COALESCE(${t.workflowRevisions.publishedAt}, ${P('now')})` })
-    .where(
-      inWorkspace(
-        t.workflowRevisions,
-        eq(t.workflowRevisions.id, param(t.workflowRevisions.id, 'revisionId')),
+  captureWrite(
+    db
+      .update(t.workflowRevisions)
+      // COALESCE: a published revision has ONE publication moment, so a repeat
+      // must not re-date it.
+      .set({ publishedAt: sql`COALESCE(${t.workflowRevisions.publishedAt}, ${P('now')})` })
+      .where(
+        inWorkspace(
+          t.workflowRevisions,
+          eq(t.workflowRevisions.id, param(t.workflowRevisions.id, 'revisionId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const bindingOf = prepared((db, t) =>
@@ -417,30 +426,31 @@ const allBindings = prepared((db, t) =>
 )
 
 const upsertBinding = prepared((db, t) =>
-  db
-    .insert(t.workflowBindings)
-    .values({
-      workspaceId: WORKSPACE,
-      targetKind: P('targetKind'),
-      targetId: P('targetId'),
-      revisionId: P('revisionId'),
-      updatedByKind: P('updatedByKind'),
-      updatedById: P('updatedById'),
-      ownerUserId: P('ownerUserId'),
-      updatedAt: P('now'),
-    })
-    .onConflictDoUpdate({
-      target: [t.workflowBindings.targetKind, t.workflowBindings.targetId],
-      // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
-      // rebind may not change the resource owner `ownerOf` authorizes from.
-      set: {
+  captureWrite(
+    db
+      .insert(t.workflowBindings)
+      .values({
+        workspaceId: WORKSPACE,
+        targetKind: P('targetKind'),
+        targetId: P('targetId'),
         revisionId: P('revisionId'),
         updatedByKind: P('updatedByKind'),
         updatedById: P('updatedById'),
+        ownerUserId: P('ownerUserId'),
         updatedAt: P('now'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [t.workflowBindings.targetKind, t.workflowBindings.targetId],
+        // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
+        // rebind may not change the resource owner `ownerOf` authorizes from.
+        set: {
+          revisionId: P('revisionId'),
+          updatedByKind: P('updatedByKind'),
+          updatedById: P('updatedById'),
+          updatedAt: P('now'),
+        },
+      }),
+  ).prepare(),
 )
 
 /** One keyset page of the run history, newest first, through
@@ -563,9 +573,8 @@ const liveRunOfSession = prepared((db, t) =>
 )
 
 const insertRunRow = prepared((db, t) =>
-  db
-    .insert(t.workflowRuns)
-    .values({
+  captureWrite(
+    db.insert(t.workflowRuns).values({
       workspaceId: WORKSPACE,
       id: P('id'),
       subjectKind: P('subjectKind'),
@@ -577,8 +586,8 @@ const insertRunRow = prepared((db, t) =>
       startedAt: P('startedAt'),
       completedAt: P('completedAt'),
       ownerUserId: P('ownerUserId'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 /**
@@ -587,9 +596,8 @@ const insertRunRow = prepared((db, t) =>
  * backstop bounds it regardless).
  */
 const insertRunSteps = preparedFamily((db, t, count: number) =>
-  db
-    .insert(t.workflowRunSteps)
-    .values(
+  captureWrite(
+    db.insert(t.workflowRunSteps).values(
       Array.from({ length: count }, (_, i) => ({
         workspaceId: WORKSPACE,
         runId: P('runId'),
@@ -605,16 +613,17 @@ const insertRunSteps = preparedFamily((db, t, count: number) =>
         status: 'pending' as const,
         evidenceJson: '{}',
       })),
-    )
-    .prepare(),
+    ),
+  ).prepare(),
 )
 
 const setRunStatus = prepared((db, t) =>
-  db
-    .update(t.workflowRuns)
-    .set({ status: P('status'), completedAt: P('completedAt') })
-    .where(inWorkspace(t.workflowRuns, eq(t.workflowRuns.id, param(t.workflowRuns.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.workflowRuns)
+      .set({ status: P('status'), completedAt: P('completedAt') })
+      .where(inWorkspace(t.workflowRuns, eq(t.workflowRuns.id, param(t.workflowRuns.id, 'id')))),
+  ).prepare(),
 )
 
 const stepIs = (t: StoreTables) =>
@@ -624,47 +633,50 @@ const stepIs = (t: StoreTables) =>
   )
 
 const updateStepRow = prepared((db, t) =>
-  db
-    .update(t.workflowRunSteps)
-    .set({
-      status: P('status'),
-      assignedSessionId: P('assignedSessionId'),
-      summary: P('summary'),
-      evidenceJson: P('evidenceJson'),
-      observationJson: P('observationJson'),
-      warningsJson: P('warningsJson'),
-      startedAt: P('startedAt'),
-      completedAt: P('completedAt'),
-    })
-    .where(inWorkspace(t.workflowRunSteps, stepIs(t)))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.workflowRunSteps)
+      .set({
+        status: P('status'),
+        assignedSessionId: P('assignedSessionId'),
+        summary: P('summary'),
+        evidenceJson: P('evidenceJson'),
+        observationJson: P('observationJson'),
+        warningsJson: P('warningsJson'),
+        startedAt: P('startedAt'),
+        completedAt: P('completedAt'),
+      })
+      .where(inWorkspace(t.workflowRunSteps, stepIs(t))),
+  ).prepare(),
 )
 
 const assignStepRow = prepared((db, t) =>
-  db
-    .update(t.workflowRunSteps)
-    .set({ assignedSessionId: P('sessionId') })
-    .where(inWorkspace(t.workflowRunSteps, stepIs(t)))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.workflowRunSteps)
+      .set({ assignedSessionId: P('sessionId') })
+      .where(inWorkspace(t.workflowRunSteps, stepIs(t))),
+  ).prepare(),
 )
 
 const resetStepRow = prepared((db, t) =>
-  db
-    .update(t.workflowRunSteps)
-    .set({
-      status: 'pending',
-      // READ-MODIFY-WRITE IN SQL. Binding a computed value would need a prior
-      // read and would be a different statement with a different race.
-      attempt: sql`${t.workflowRunSteps.attempt} + 1`,
-      summary: '',
-      evidenceJson: '{}',
-      observationJson: null,
-      warningsJson: '[]',
-      startedAt: null,
-      completedAt: null,
-    })
-    .where(inWorkspace(t.workflowRunSteps, stepIs(t)))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.workflowRunSteps)
+      .set({
+        status: 'pending',
+        // READ-MODIFY-WRITE IN SQL. Binding a computed value would need a prior
+        // read and would be a different statement with a different race.
+        attempt: sql`${t.workflowRunSteps.attempt} + 1`,
+        summary: '',
+        evidenceJson: '{}',
+        observationJson: null,
+        warningsJson: '[]',
+        startedAt: null,
+        completedAt: null,
+      })
+      .where(inWorkspace(t.workflowRunSteps, stepIs(t))),
+  ).prepare(),
 )
 
 const appendEventRow = prepared((db, t) =>
