@@ -1,9 +1,7 @@
 # POD-6958: round trips at hosted Postgres latency
 
-As of 2026-11-17. Round trips and timings at `6bd105edd0`
-(`issue/6992-postgres-query-plans-and-round-trips`, on `integrate/6951-cloud-hosting` at
-`e2532166d1`); query plans at `ccb4f263b3`, on `integrate/6951-cloud-hosting` at `6cff54310f`,
-which added the janitor's reads. Task POD-6992, design section 2.11
+As of `5f81d150c9` (`issue/6992-postgres-query-plans-and-round-trips`, on
+`integrate/6951-cloud-hosting` at `6cff54310f`), 2026-11-17. Task POD-6992, design section 2.11
 of `docs/design/POD-6958-postgres-store-design.md`. This report feeds operator decision OD2
 (a round-trip budget before a second workspace goes live); the reductions are POD-7030.
 
@@ -39,8 +37,8 @@ interactive pin is three to six times over.
   200 rows.
 - **Database time** is round trips × 2.6 ms. The wall times below come from
   `bun --conditions=@podium/source scripts/measure-hot-paths.ts --suite round-trips --repeat 7`,
-  which also holds 2.6 ms before every round trip. They were taken twice on the second test host
-  (8 CPU); the two runs agreed within 5%, and the table gives the first.
+  which also holds 2.6 ms before every round trip. They were taken twice on the agents VM
+  (16 CPU); the two runs agreed within 3%, and the table gives the first.
 
 ## The pinned operations (design 2.11)
 
@@ -76,14 +74,14 @@ Medians of 7 runs.
 
 | Operation | Statements | Round trips | Wall time as run | Wall time at 2.6 ms per round trip | Round trips × 2.6 ms |
 |---|---:|---:|---:|---:|---:|
-| In-process draft session create | 27 | 33 | 7.5 ms | 88 ms | 86 ms |
-| tRPC `sessions.create` | 58 | 78 | 15.4 ms | 236 ms | 203 ms |
-| tRPC `messages.send` to a running session | 89 | 131 | 23.4 ms | 419 ms | 341 ms |
-| `issues.crud.create` | 33 | 47 | 9.7 ms | 147 ms | 122 ms |
-| Issue frame reads (the ready list, then one issue read per session, 50) | 664 | 664 | 48.1 ms | 2,063 ms | 1,726 ms |
+| In-process draft session create | 27 | 33 | 6.8 ms | 84 ms | 86 ms |
+| tRPC `sessions.create` | 58 | 78 | 14.3 ms | 209 ms | 203 ms |
+| tRPC `messages.send` to a running session | 89 | 131 | 23.3 ms | 377 ms | 341 ms |
+| `issues.crud.create` | 33 | 47 | 8.3 ms | 137 ms | 122 ms |
+| Issue frame reads (the ready list, then one issue read per session, 50) | 664 | 664 | 71.2 ms | 1,884 ms | 1,726 ms |
 
-The latency is held before each round trip at a tenth of a millisecond's precision, but timers
-overshoot under load: the measured wall time runs about 0.4 ms per round trip above the sum.
+The latency is held before each round trip at a tenth of a millisecond's precision; timers
+overshoot a little, and the measured wall time runs up to 0.1 ms per round trip above the sum.
 The round trips themselves are exact.
 
 ## Where the round trips go (for POD-7030)
