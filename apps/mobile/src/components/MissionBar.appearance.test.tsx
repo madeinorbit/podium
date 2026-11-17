@@ -221,3 +221,18 @@ it.each([
   expect(label.parentElement?.textContent).toBe(reading)
   expect(Boolean(screen.queryByTestId('working-word'))).toBe(working > 0)
 })
+
+// 704dcf3ba7 MissionBar set minHeight: 40, overriding PressableScale's iOS 44pt floor.
+const NATIVE_STRIP_HEIGHT_704DCF = 40
+
+it.each(
+  [1, 1.8, 2.35, 3.12].flatMap((scale) => [true, false].map((ready) => ({ scale, ready }))),
+)('matches the 704dcf native strip height at scale=$scale, ready=$ready', ({ scale, ready }) => {
+  appearance.fontScale = scale
+  render(<MissionBar full={{ ...long, ready } as FullDeck} onOpen={() => {}} />)
+  const style = getComputedStyle(screen.getByTestId('mission-bar'))
+  // Native/Yoga clamps height to minHeight. Checking only `height`
+  // misses the inherited 44pt floor even while it enlarges the scroll edge.
+  expect(Number.parseFloat(style.height)).toBe(NATIVE_STRIP_HEIGHT_704DCF)
+  expect(Number.parseFloat(style.minHeight)).toBe(NATIVE_STRIP_HEIGHT_704DCF)
+})

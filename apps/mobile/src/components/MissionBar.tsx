@@ -103,6 +103,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     height: 40,
+    // Override the native press target floor so the scroll edge stays at 40pt.
+    minHeight: 40,
     paddingHorizontal: space.lg,
   },
   pressed: { opacity: 0.6 },
