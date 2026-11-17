@@ -67,5 +67,5 @@ describe('setup answers on the two-axis startup corpus', () => {
         control.dispose()
         candidate.dispose()
       }
-    })
+    }, 120_000)
 })

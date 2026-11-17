@@ -28,7 +28,7 @@ async function fixture(path = ':memory:') {
   const identity = await openTestIdentity(store)
   const firstAdmin = await store.users.earliestAdmin()
   if (!firstAdmin) throw new Error('Fixture has no installer')
-  const admin = firstAdmin.id
+  const admin = asUserId(firstAdmin.id)
   const app = new Hono()
   registerAdminRoutes(app, {
     users: store.users,
