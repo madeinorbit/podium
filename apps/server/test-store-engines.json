@@ -104,6 +104,7 @@
     "apps/server/src/modules/issues/issue-reader.test.ts",
     "apps/server/src/modules/issues/service/deck.test.ts",
     "apps/server/src/modules/issues/service/hierarchy-reads.test.ts",
+    "apps/server/src/modules/issues/service/issue-registry-model.test.ts",
     "apps/server/src/modules/issues/service/listings.test.ts",
     "apps/server/src/modules/issues/service/mail-pending.test.ts",
     "apps/server/src/modules/issues/service/point-reads.test.ts",
