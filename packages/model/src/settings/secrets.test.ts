@@ -54,8 +54,16 @@ import {
  *     path NAME, not material. An over-matching detector is not a safe one: it
  *     forces the next reader to add exclusions, and an exclusion list is where a
  *     real leak eventually hides.
+ *
+ * `credential` counts only as the noun a name ENDS on (`credential`,
+ * `credentials.openai`, `oauthCredential`): that names the credential itself.
+ * Followed by another word it qualifies that word instead, and names something
+ * ABOUT a credential: `credentialId` is a reference (the same presence-not-value
+ * shape as `accountId`), `credentialDefaults` maps a harness to such ids, and
+ * `credentialAttention` is a notice preference. `(?![a-z])` under `i` rejects
+ * any following letter, so this is one rule rather than a list of exclusions.
  */
-const SECRET_SHAPED = /password|credential|hash|secret|token|salt|apikey/i
+const SECRET_SHAPED = /password|credentials?(?![a-z])|hash|secret|token|salt|apikey/i
 
 /** Every wire / read projection this issue introduces. Enumerated so a new one
  *  added without being checked is a visible omission in THIS list, not an
@@ -179,6 +187,20 @@ describe('the key-name detector over every projection', () => {
     expect(SECRET_SHAPED.test('notifications.telegramChatId')).toBe(false)
     expect(SECRET_SHAPED.test('notifications.ntfyTopic')).toBe(false)
     expect(SECRET_SHAPED.test('roles.coding.accountId')).toBe(false)
+    // A credential's id, a map of ids and a notice about a credential name no
+    // material, any more than `accountId` does.
+    expect(SECRET_SHAPED.test('roles.coding.credentialId')).toBe(false)
+    expect(SECRET_SHAPED.test('credentialDefaults')).toBe(false)
+    expect(SECRET_SHAPED.test('notifications.notices.credentialAttention')).toBe(false)
+  })
+
+  it('still fires on the CREDENTIAL ITSELF, wherever the word ends the name', () => {
+    // The other arm of the id rule above: a leaf, a parent and a qualified
+    // credential all name material.
+    expect(SECRET_SHAPED.test('credential')).toBe(true)
+    expect(SECRET_SHAPED.test('credentials.openai')).toBe(true)
+    expect(SECRET_SHAPED.test('roles.coding.oauthCredential')).toBe(true)
+    expect(SECRET_SHAPED.test('roles.coding.credentialSecret')).toBe(true)
   })
 
   it('matches on the FULL PATH, so a parent that names the secret is not missed', () => {
