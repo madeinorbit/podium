@@ -1,4 +1,4 @@
-import { type PodiumTarget, canonicalPodiumOrigin, parsePodiumLink } from '@podium/protocol'
+import { canonicalPodiumOrigin, type PodiumTarget, parsePodiumLink } from '@podium/protocol'
 import type { ServerProfile } from './server-profiles'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
@@ -203,7 +203,7 @@ const FALLBACK_STATUS: Record<MobileHandoffFallbackReason, string> = {
   'profile-unavailable': 'Opened Work because the matching saved server is unavailable.',
   'session-unavailable': 'Opened Work because this session is not available to this profile.',
   'target-unavailable': 'Opened Work because this link is not available to this profile.',
-  unscoped: 'Opened Work because this link does not identify a saved server.',
+  unscoped: 'Opened Work because this link is not supported.',
 }
 
 /** Fixed copy by reason. No inaccessible identifier can enter the status text. */

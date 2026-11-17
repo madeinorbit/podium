@@ -425,6 +425,35 @@ describe('handoff profile selection', () => {
   it.each([
     'cold',
     'warm',
+  ])('opens Work for a %s unsupported path with neutral copy', async (delivery) => {
+    const url = 'podium://inspect/private-id'
+    if (delivery === 'cold') {
+      seams.getInitialUrl.mockResolvedValue(url)
+      render(
+        <ServerProfileGate>
+          <ProfileProbe />
+        </ServerProfileGate>,
+      )
+    } else {
+      await mountActiveProfileA()
+      act(() => seams.linkListener?.({ url }))
+    }
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.bearer).toBe('token-a')
+      expect(seams.announce).toHaveBeenCalledWith('Opened Work because this link is not supported.')
+    })
+    expect(seams.router.replace.mock.calls).toEqual([['/work']])
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(screen.queryByText(/does not identify a saved server/)).toBeNull()
+  })
+
+  it.each([
+    'cold',
+    'warm',
   ])('leaves a %s mission link on the native chat route', async (delivery) => {
     const url = 'podium://mission/iss_one/session-one'
     if (delivery === 'cold') {
