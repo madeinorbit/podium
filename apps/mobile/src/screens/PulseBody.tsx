@@ -505,7 +505,9 @@ function ProjectRowBase({ project, first }: { project: ProjectCostRow; first: bo
         <Text style={styles.rowMeta} numberOfLines={1}>
           {projectSubtitle(project)}
         </Text>
-        <Text style={[styles.rowMeta, styles.mono]}>{formatShare(project.sharePercent, 100)}</Text>
+        <Text style={[styles.rowMeta, styles.mono, styles.figure]} numberOfLines={1}>
+          {formatShare(project.sharePercent, 100)}
+        </Text>
       </View>
     </View>
   )
@@ -526,7 +528,9 @@ function ModelRowBase({ model, first }: { model: UsageModelShare; first: boolean
           {USAGE_PROVIDER_LABEL[model.provider]} · {model.messages.toLocaleString('en-US')}{' '}
           {model.messages === 1 ? 'reply' : 'replies'}
         </Text>
-        <Text style={[styles.rowMeta, styles.mono]}>{formatShare(model.sharePercent, 100)}</Text>
+        <Text style={[styles.rowMeta, styles.mono, styles.figure]} numberOfLines={1}>
+          {formatShare(model.sharePercent, 100)}
+        </Text>
       </View>
     </View>
   )
@@ -628,16 +632,32 @@ function MachineMetric({
   severity: 'ok' | 'warn' | 'critical'
   value: string
 }) {
+  const { fontScale } = useWindowDimensions()
+  const valueStyle = [styles.metricValue, severity === 'critical' && pct !== null && styles.crit]
+  // At large text sizes the fixed label and value columns would squeeze the
+  // meter to nothing and break "Memory" mid-word: the name and reading share a
+  // line, the meter runs full width under them.
+  if (fontScale >= STACKED_STATS_SCALE)
+    return (
+      <View style={styles.metricStacked} accessible accessibilityLabel={`${label}: ${value}`}>
+        <View style={styles.line}>
+          <Text style={[styles.metricLabel, styles.metricLabelStacked]} numberOfLines={1}>
+            {label}
+          </Text>
+          <Text style={[valueStyle, styles.metricValueStacked]} numberOfLines={1}>
+            {value}
+          </Text>
+        </View>
+        {pct !== null ? <Meter pct={pct} tone={SEVERITY_TONE[severity]} /> : null}
+      </View>
+    )
   return (
     <View style={styles.metric} accessible accessibilityLabel={`${label}: ${value}`}>
       <Text style={styles.metricLabel}>{label}</Text>
       <View style={styles.metricMeter}>
         {pct !== null ? <Meter pct={pct} tone={SEVERITY_TONE[severity]} /> : null}
       </View>
-      <Text
-        style={[styles.metricValue, severity === 'critical' && pct !== null && styles.crit]}
-        numberOfLines={1}
-      >
+      <Text style={valueStyle} numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -810,8 +830,10 @@ const styles = StyleSheet.create({
   crit: {
     color: color.dangerText,
   },
+  // Grows with Dynamic Type: a fixed 44 clipped titles from AX3 up.
   task: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: space.xs,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
@@ -866,6 +888,10 @@ const styles = StyleSheet.create({
   metricMeter: {
     flex: 1,
   },
+  metricStacked: { gap: space.xs },
+  metricLabelStacked: { width: 'auto', flexShrink: 0 },
+  metricValueStacked: { width: 'auto', flexShrink: 1 },
+  figure: { flexShrink: 0 },
   metricValue: {
     ...sans(400),
     ...tabular,
