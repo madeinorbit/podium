@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Effect records (ADR 12 D5 E2, POD-6357): the `effects` table. Pure persistence;
  * the lifecycle (who may move a record where, the trigger, the sweep, the feed)
@@ -25,23 +26,25 @@ import {
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import { asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import type { effects } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { afterCommit } from './executor/executor'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 type EffectSelect = typeof effects.$inferSelect
@@ -163,6 +166,7 @@ const insertEffect = prepared((db, t) =>
   db
     .insert(t.effects)
     .values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       kind: P('kind'),
       targetKind: P('targetKind'),
@@ -183,7 +187,13 @@ const insertEffect = prepared((db, t) =>
 )
 
 /** By id, tombstones included: a create must never reuse a removed id. */
-const effectById = prepared((db, t) => db.select().from(t.effects).where(idIs(t)).prepare())
+const effectById = prepared((db, t) =>
+  db
+    .select()
+    .from(t.effects)
+    .where(inWorkspace(t.effects, idIs(t)))
+    .prepare(),
+)
 
 /** Live records (not tombstoned) by id, and every record a page at a time in
  *  id order: the `effect` kind's records from the table (POD-6763). */
@@ -191,7 +201,7 @@ const liveEffectsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.effects)
-    .where(and(inListOf(t.effects.id, size, 'ids'), isNull(t.effects.deletedAt)))
+    .where(inWorkspace(t.effects, inListOf(t.effects.id, size, 'ids'), isNull(t.effects.deletedAt)))
     .prepare(),
 )
 
@@ -201,7 +211,7 @@ const effectsPage = prepared((db, t) =>
   db
     .select()
     .from(t.effects)
-    .where(gt(t.effects.id, param(t.effects.id, 'after')))
+    .where(inWorkspace(t.effects, gt(t.effects.id, param(t.effects.id, 'after'))))
     .orderBy(asc(t.effects.id))
     .limit(P('limit'))
     .prepare(),
@@ -218,7 +228,7 @@ const audiencesOfIds = preparedFamily((db, t, size: number) =>
       deciders: t.effects.deciders,
     })
     .from(t.effects)
-    .where(inListOf(t.effects.id, size))
+    .where(inWorkspace(t.effects, inListOf(t.effects.id, size)))
     .prepare(),
 )
 
@@ -242,7 +252,8 @@ const liveOnTargetKeys = preparedFamily((db, t, shape: string) => {
       })
       .from(sql`${t.effects} INDEXED BY idx_effects_target`)
       .where(
-        and(
+        inWorkspace(
+          t.effects,
           inListOf(t.effects.targetKind, kindSize, 'kind'),
           inListOf(t.effects.targetId, idSize, 'id'),
           live(t),
@@ -279,7 +290,8 @@ const newestOnTargetIn = preparedFamily((db, t, phase: EffectPhase) =>
     .select()
     .from(t.effects)
     .where(
-      and(
+      inWorkspace(
+        t.effects,
         eq(t.effects.kind, param(t.effects.kind, 'kind')),
         eq(t.effects.targetKind, param(t.effects.targetKind, 'targetKind')),
         eq(t.effects.targetId, param(t.effects.targetId, 'targetId')),
@@ -305,7 +317,8 @@ const claimEffect = prepared((db, t) =>
       revision: sql`${t.effects.revision} + 1`,
     })
     .where(
-      and(
+      inWorkspace(
+        t.effects,
         idIs(t),
         live(t),
         statusIn(t, EffectLifecycle.allowedFrom('running')),
@@ -333,7 +346,7 @@ const settleEffect = preparedFamily((db, t, to: EffectStatus) =>
       updatedAt: P('now'),
       revision: sql`${t.effects.revision} + 1`,
     })
-    .where(and(idIs(t), live(t), statusIn(t, EffectLifecycle.allowedFrom(to))))
+    .where(inWorkspace(t.effects, idIs(t), live(t), statusIn(t, EffectLifecycle.allowedFrom(to))))
     .returning()
     .prepare(),
 )
@@ -348,7 +361,7 @@ const stageEffect = prepared((db, t) =>
       updatedAt: P('now'),
       revision: sql`${t.effects.revision} + 1`,
     })
-    .where(and(idIs(t), live(t), eq(t.effects.status, 'running')))
+    .where(inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'running')))
     .returning()
     .prepare(),
 )
@@ -365,7 +378,9 @@ const cancelPendingEffect = prepared((db, t) =>
       revision: sql`${t.effects.revision} + 1`,
     })
     // An awaiting approval ends by its person's deny, never by a cancel.
-    .where(and(idIs(t), live(t), eq(t.effects.status, 'pending'), notAwaiting(t)))
+    .where(
+      inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'pending'), notAwaiting(t)),
+    )
     .returning()
     .prepare(),
 )
@@ -396,7 +411,8 @@ const decideEffect = preparedFamily((db, t, decision: EffectDecision) =>
           },
     )
     .where(
-      and(
+      inWorkspace(
+        t.effects,
         idIs(t),
         live(t),
         eq(t.effects.status, 'pending'),
@@ -414,7 +430,8 @@ const awaitingOfKind = prepared((db, t) =>
     .select()
     .from(t.effects)
     .where(
-      and(
+      inWorkspace(
+        t.effects,
         eq(t.effects.kind, param(t.effects.kind, 'kind')),
         sql`${t.effects.decision} = 'awaiting'`,
         live(t),
@@ -434,14 +451,17 @@ const publishCopied = prepared((db, t) =>
     .update(t.effects)
     .set({ revision: 1 })
     .where(
-      inArray(
-        t.effects.id,
-        db
-          .select({ id: t.effects.id })
-          .from(t.effects)
-          // A literal, so the planner can use the partial index.
-          .where(sql`${t.effects.revision} = 0`)
-          .limit(P('limit')),
+      inWorkspace(
+        t.effects,
+        inArray(
+          t.effects.id,
+          db
+            .select({ id: t.effects.id })
+            .from(t.effects)
+            // A literal, so the planner can use the partial index.
+            .where(inWorkspace(t.effects, sql`${t.effects.revision} = 0`))
+            .limit(P('limit')),
+        ),
       ),
     )
     .returning()
@@ -454,7 +474,8 @@ const flagCancelEffect = prepared((db, t) =>
     .update(t.effects)
     .set({ cancelRequested: true, updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
     .where(
-      and(
+      inWorkspace(
+        t.effects,
         idIs(t),
         live(t),
         inArray(t.effects.status, ['running', 'unknown']),
@@ -471,7 +492,12 @@ const tombstoneEffect = prepared((db, t) =>
     .update(t.effects)
     .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
     .where(
-      and(idIs(t), live(t), inArray(t.effects.status, [...EffectLifecycle.terminal, 'unknown'])),
+      inWorkspace(
+        t.effects,
+        idIs(t),
+        live(t),
+        inArray(t.effects.status, [...EffectLifecycle.terminal, 'unknown']),
+      ),
     )
     .returning()
     .prepare(),
@@ -490,21 +516,25 @@ const expireDueEffects = prepared((db, t) =>
       revision: sql`${t.effects.revision} + 1`,
     })
     .where(
-      inArray(
-        t.effects.id,
-        db
-          .select({ id: t.effects.id })
-          .from(t.effects)
-          .where(
-            and(
-              eq(t.effects.status, 'pending'),
-              isNotNull(t.effects.deadlineAt),
-              lte(t.effects.deadlineAt, param(t.effects.deadlineAt, 'now')),
-              live(t),
-            ),
-          )
-          .orderBy(asc(t.effects.deadlineAt))
-          .limit(P('limit')),
+      inWorkspace(
+        t.effects,
+        inArray(
+          t.effects.id,
+          db
+            .select({ id: t.effects.id })
+            .from(t.effects)
+            .where(
+              inWorkspace(
+                t.effects,
+                eq(t.effects.status, 'pending'),
+                isNotNull(t.effects.deadlineAt),
+                lte(t.effects.deadlineAt, param(t.effects.deadlineAt, 'now')),
+                live(t),
+              ),
+            )
+            .orderBy(asc(t.effects.deadlineAt))
+            .limit(P('limit')),
+        ),
       ),
     )
     .returning()
@@ -517,7 +547,7 @@ const effectsInStatus = preparedFamily((db, t, status: 'pending' | 'running') =>
     .select()
     .from(t.effects)
     // An awaiting record waits for its person, not for the sweep (POD-6674).
-    .where(and(eq(t.effects.status, status), live(t), notAwaiting(t)))
+    .where(inWorkspace(t.effects, eq(t.effects.status, status), live(t), notAwaiting(t)))
     // The index's own order after the equality: no sort.
     .orderBy(asc(t.effects.deadlineAt))
     .limit(P('limit'))
@@ -530,20 +560,24 @@ const pruneFinishedEffects = prepared((db, t) =>
     .update(t.effects)
     .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
     .where(
-      inArray(
-        t.effects.id,
-        db
-          .select({ id: t.effects.id })
-          .from(t.effects)
-          .where(
-            and(
-              // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
-              inArray(t.effects.status, ['succeeded', 'cancelled', 'expired']),
-              lte(t.effects.finishedAt, param(t.effects.finishedAt, 'cutoff')),
-              live(t),
-            ),
-          )
-          .limit(P('limit')),
+      inWorkspace(
+        t.effects,
+        inArray(
+          t.effects.id,
+          db
+            .select({ id: t.effects.id })
+            .from(t.effects)
+            .where(
+              inWorkspace(
+                t.effects,
+                // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
+                inArray(t.effects.status, ['succeeded', 'cancelled', 'expired']),
+                lte(t.effects.finishedAt, param(t.effects.finishedAt, 'cutoff')),
+                live(t),
+              ),
+            )
+            .limit(P('limit')),
+        ),
       ),
     )
     .returning()
@@ -555,13 +589,21 @@ const purgeTombstones = prepared((db, t) =>
   db
     .delete(t.effects)
     .where(
-      inArray(
-        t.effects.id,
-        db
-          .select({ id: t.effects.id })
-          .from(t.effects)
-          .where(lte(t.effects.deletedAt, param(t.effects.deletedAt, 'cutoff')))
-          .limit(P('limit')),
+      inWorkspace(
+        t.effects,
+        inArray(
+          t.effects.id,
+          db
+            .select({ id: t.effects.id })
+            .from(t.effects)
+            .where(
+              inWorkspace(
+                t.effects,
+                lte(t.effects.deletedAt, param(t.effects.deletedAt, 'cutoff')),
+              ),
+            )
+            .limit(P('limit')),
+        ),
       ),
     )
     .returning({ id: t.effects.id })
@@ -597,13 +639,13 @@ export interface EffectSettlement {
 export type EffectsCommittedListener = (rows: readonly EffectRow[]) => void
 
 export class EffectsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   private readonly transact: TransactionRunner
   private feedCapture: EffectFeedCapture | undefined
   private readonly listeners = new Set<EffectsCommittedListener>()
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.transact = queries.createOrJoinTransaction
   }
 
@@ -616,8 +658,8 @@ export class EffectsRepository {
   }
 
   /** A getter: transactions are routed ambiently (see `AutomationsRepository.db`). */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Install the feed capture, run inside every write's transaction. */

@@ -1,21 +1,25 @@
+// workspace-scoped (POD-6959)
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { sessionObservationCheckpoints } from '../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
@@ -102,7 +106,11 @@ const tcSessionIs = (t: StoreTables) =>
   )
 
 const leaseOf = prepared((db, t) =>
-  db.select(LEASE_COLUMNS(t)).from(t.sessionObservationCheckpoints).where(ckSessionIs(t)).prepare(),
+  db
+    .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
+    .where(inWorkspace(t.sessionObservationCheckpoints, ckSessionIs(t)))
+    .prepare(),
 )
 
 const rebindReceiptOf = prepared((db, t) =>
@@ -118,9 +126,12 @@ const rebindReceiptOf = prepared((db, t) =>
     })
     .from(t.sessionObservationRebinds)
     .where(
-      eq(
-        t.sessionObservationRebinds.sessionId,
-        param(t.sessionObservationRebinds.sessionId, 'sessionId'),
+      inWorkspace(
+        t.sessionObservationRebinds,
+        eq(
+          t.sessionObservationRebinds.sessionId,
+          param(t.sessionObservationRebinds.sessionId, 'sessionId'),
+        ),
       ),
     )
     .prepare(),
@@ -132,9 +143,16 @@ const checkpointedLeasesOfIds = preparedFamily((db, t, size: number) =>
   db
     .select(LEASE_COLUMNS(t))
     .from(t.sessionObservationCheckpoints)
-    .innerJoin(t.sessions, eq(t.sessions.id, t.sessionObservationCheckpoints.sessionId))
-    .where(
+    .innerJoin(
+      t.sessions,
       and(
+        sameWorkspace(t.sessions, t.sessionObservationCheckpoints),
+        eq(t.sessions.id, t.sessionObservationCheckpoints.sessionId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
         inListOf(t.sessionObservationCheckpoints.sessionId, size),
         isNull(t.sessions.deletedAt),
         isNotNull(t.sessionObservationCheckpoints.checkpointJson),
@@ -147,6 +165,7 @@ const openLease = prepared((db, t) =>
   db
     .insert(t.sessionObservationCheckpoints)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: P('sessionId'),
       schemaVersion: 1,
       provider: P('provider'),
@@ -185,7 +204,8 @@ const advanceLeaseGeneration = prepared((db, t) =>
       updatedAt: P('updatedAt'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
         ckSessionIs(t),
         eq(
           t.sessionObservationCheckpoints.provider,
@@ -207,7 +227,8 @@ const rebindLease = prepared((db, t) =>
       updatedAt: P('updatedAt'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
         ckSessionIs(t),
         eq(
           t.sessionObservationCheckpoints.provider,
@@ -244,7 +265,7 @@ const rebindReceiptColumns = {
 const upsertRebindReceipt = prepared((db, t) =>
   db
     .insert(t.sessionObservationRebinds)
-    .values({ sessionId: P('sessionId'), ...rebindReceiptColumns })
+    .values({ workspaceId: WORKSPACE, sessionId: P('sessionId'), ...rebindReceiptColumns })
     .onConflictDoUpdate({
       target: t.sessionObservationRebinds.sessionId,
       set: rebindReceiptColumns,
@@ -261,7 +282,8 @@ const saveCheckpoint = prepared((db, t) =>
       updatedAt: P('updatedAt'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
         ckSessionIs(t),
         eq(
           t.sessionObservationCheckpoints.provider,
@@ -293,7 +315,7 @@ const terminalCandidateOf = prepared((db, t) =>
       updatedAt: t.sessionTerminalCandidates.updatedAt,
     })
     .from(t.sessionTerminalCandidates)
-    .where(tcSessionIs(t))
+    .where(inWorkspace(t.sessionTerminalCandidates, tcSessionIs(t)))
     .prepare(),
 )
 
@@ -301,6 +323,7 @@ const upsertTerminalProof = prepared((db, t) =>
   db
     .insert(t.sessionTerminalCandidates)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: P('sessionId'),
       proofJson: P('proofJson'),
       confirmedAt: null,
@@ -323,7 +346,13 @@ const confirmTerminalProof = prepared((db, t) =>
       confirmedAt: sql`COALESCE(${t.sessionTerminalCandidates.confirmedAt}, ${P('confirmedAt')})`,
       updatedAt: P('at'),
     })
-    .where(and(tcSessionIs(t), isNull(t.sessionTerminalCandidates.consumedAt)))
+    .where(
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        tcSessionIs(t),
+        isNull(t.sessionTerminalCandidates.consumedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -332,7 +361,8 @@ const renewTerminalProof = prepared((db, t) =>
     .update(t.sessionTerminalCandidates)
     .set({ proofJson: P('proofJson'), updatedAt: P('at') })
     .where(
-      and(
+      inWorkspace(
+        t.sessionTerminalCandidates,
         tcSessionIs(t),
         // The PREVIOUS proof text is part of the guard: a renewal only lands
         // on the exact row it read, so a concurrent write cannot be
@@ -353,7 +383,8 @@ const consumeTerminalProof = prepared((db, t) =>
     .update(t.sessionTerminalCandidates)
     .set({ consumedAt: P('at'), updatedAt: P('at') })
     .where(
-      and(
+      inWorkspace(
+        t.sessionTerminalCandidates,
         tcSessionIs(t),
         sql`${t.sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
         isNull(t.sessionTerminalCandidates.consumedAt),
@@ -363,20 +394,26 @@ const consumeTerminalProof = prepared((db, t) =>
 )
 
 const deleteTerminalCandidate = prepared((db, t) =>
-  db.delete(t.sessionTerminalCandidates).where(tcSessionIs(t)).prepare(),
+  db
+    .delete(t.sessionTerminalCandidates)
+    .where(inWorkspace(t.sessionTerminalCandidates, tcSessionIs(t)))
+    .prepare(),
 )
 
 const deleteLease = prepared((db, t) =>
-  db.delete(t.sessionObservationCheckpoints).where(ckSessionIs(t)).prepare(),
+  db
+    .delete(t.sessionObservationCheckpoints)
+    .where(inWorkspace(t.sessionObservationCheckpoints, ckSessionIs(t)))
+    .prepare(),
 )
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -388,8 +425,8 @@ export class ObservationCheckpointsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   private async mapRow(r: LeaseSelect): Promise<ObservationLeaseRecord | null> {

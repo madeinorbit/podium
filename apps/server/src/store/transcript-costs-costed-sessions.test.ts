@@ -17,8 +17,9 @@
 
 import type { CostModelTotalWire, MachineId, SessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { type TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
 
 let costs: TranscriptCostsRepository
@@ -50,7 +51,9 @@ const record = (over: Partial<TranscriptCostRecord> = {}): TranscriptCostRecord 
 })
 
 beforeEach(() => {
-  costs = new TranscriptCostsRepository(syncQueriesOver(openMigratedTestDatabase()))
+  costs = new TranscriptCostsRepository(
+    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('TranscriptCostsRepository.costedSessionIds', () => {
@@ -65,7 +68,10 @@ describe('TranscriptCostsRepository.costedSessionIds', () => {
   })
 
   it('excludes a transcript that resolved to no session', async () => {
-    await costs.record([record({ nativeId: 'native-2', sessionId: null })], '2026-01-01T00:00:00.000Z')
+    await costs.record(
+      [record({ nativeId: 'native-2', sessionId: null })],
+      '2026-01-01T00:00:00.000Z',
+    )
 
     // The row exists and was counted as read — it just cannot name a session.
     expect(await costs.countAll()).toBe(1)

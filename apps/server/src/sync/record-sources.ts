@@ -220,13 +220,26 @@ function capturedKeys(table: Table, keys: readonly Column[]): readonly Column[] 
   return workspace === undefined ? keys : [workspace, ...keys]
 }
 
-/** These changes with the workspace taken off each key: what a mapping reads. */
+/**
+ * These changes with the workspace taken off each key: what a mapping reads.
+ *
+ * An update that moves a row to another workspace leaves one workspace's reads
+ * and enters the other's, so it reaches the mapping as a delete of the old key
+ * and an insert of the new one. Without the workspace the two keys look alike,
+ * and a mapping that compares them (the issue-event window) would see no move.
+ */
 function withoutWorkspace(changes: readonly SourceChange[]): SourceChange[] {
-  return changes.map((change) => ({
-    op: change.op,
-    old: change.old === null ? null : change.old.slice(1),
-    new: change.new === null ? null : change.new.slice(1),
-  }))
+  return changes.flatMap((change): SourceChange[] => {
+    const old = change.old === null ? null : change.old.slice(1)
+    const now = change.new === null ? null : change.new.slice(1)
+    if (change.old !== null && change.new !== null && change.old[0] !== change.new[0]) {
+      return [
+        { op: 'd', old, new: null },
+        { op: 'i', old: null, new: now },
+      ]
+    }
+    return [{ op: change.op, old, new: now }]
+  })
 }
 
 /**

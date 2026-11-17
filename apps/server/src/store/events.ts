@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
  * (`podium_events`), the steward's KV state (`steward_state`) and the
@@ -32,18 +33,21 @@ import { afterCommit, spanOpen } from './executor/executor'
 import { withOwnOperation } from './executor/operation-scope'
 import type {
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   notInListOf,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import type { Subscription } from './types'
 
@@ -158,9 +162,12 @@ const checkpointOf = prepared((db, t) =>
     })
     .from(t.runtimeEventCheckpoints)
     .where(
-      eq(
-        t.runtimeEventCheckpoints.sessionId,
-        param(t.runtimeEventCheckpoints.sessionId, 'sessionId'),
+      inWorkspace(
+        t.runtimeEventCheckpoints,
+        eq(
+          t.runtimeEventCheckpoints.sessionId,
+          param(t.runtimeEventCheckpoints.sessionId, 'sessionId'),
+        ),
       ),
     )
     .prepare(),
@@ -174,7 +181,9 @@ const turnStatesOfIds = preparedFamily((db, t, size: number) =>
       turnStateJson: t.runtimeEventCheckpoints.turnStateJson,
     })
     .from(t.runtimeEventCheckpoints)
-    .where(inListOf(t.runtimeEventCheckpoints.sessionId, size))
+    .where(
+      inWorkspace(t.runtimeEventCheckpoints, inListOf(t.runtimeEventCheckpoints.sessionId, size)),
+    )
     .prepare(),
 )
 
@@ -182,6 +191,7 @@ const upsertCheckpoint = prepared((db, t) =>
   db
     .insert(t.runtimeEventCheckpoints)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: sql.placeholder('sessionId'),
       observerGeneration: sql.placeholder('observerGeneration'),
       cursorJson: sql.placeholder('cursorJson'),
@@ -214,7 +224,8 @@ const recentRuntimeEventPayloads = prepared((db, t) =>
     .select({ payload: t.podiumEvents.payload })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
       ),
@@ -228,7 +239,7 @@ const runtimeEventSubjects = prepared((db, t) =>
   db
     .selectDistinct({ subject: t.podiumEvents.subject })
     .from(t.podiumEvents)
-    .where(eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND))
+    .where(inWorkspace(t.podiumEvents, eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND)))
     .prepare(),
 )
 
@@ -243,7 +254,8 @@ const runtimeTranscriptPayloads = prepared((db, t) => {
     .select({ id: t.podiumEvents.id, payload: t.podiumEvents.payload })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
         sql`(json_extract(${t.podiumEvents.payload}, '$.t') = 'transcript-reset'
@@ -275,7 +287,11 @@ const runtimeTranscriptSubjectsOfIds = preparedFamily((db, t, size: number) => {
     .select({ subject: t.podiumEvents.subject })
     .from(t.podiumEvents)
     .where(
-      and(eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), inListOf(t.podiumEvents.subject, size)),
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        inListOf(t.podiumEvents.subject, size),
+      ),
     )
     .groupBy(t.podiumEvents.subject)
     .having(
@@ -291,7 +307,8 @@ const liveTurnFailure = prepared((db, t) =>
     .select({ present: sql<number>`1` })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
         sql`json_extract(${t.podiumEvents.payload}, '$.t') = 'turn'`,
@@ -313,7 +330,8 @@ const runtimeEventsAfter = prepared((db, t) =>
     })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
         gt(t.podiumEvents.id, param(t.podiumEvents.id, 'afterId')),
       ),
@@ -328,9 +346,12 @@ const projectionCursorOf = prepared((db, t) =>
     .select({ lastEventId: t.runtimeEventProjectionCursors.lastEventId })
     .from(t.runtimeEventProjectionCursors)
     .where(
-      eq(
-        t.runtimeEventProjectionCursors.projector,
-        param(t.runtimeEventProjectionCursors.projector, 'projector'),
+      inWorkspace(
+        t.runtimeEventProjectionCursors,
+        eq(
+          t.runtimeEventProjectionCursors.projector,
+          param(t.runtimeEventProjectionCursors.projector, 'projector'),
+        ),
       ),
     )
     .prepare(),
@@ -340,6 +361,7 @@ const advanceProjectionCursor = prepared((db, t) =>
   db
     .insert(t.runtimeEventProjectionCursors)
     .values({
+      workspaceId: WORKSPACE,
       projector: sql.placeholder('projector'),
       lastEventId: sql.placeholder('lastEventId'),
       updatedAt: sql.placeholder('updatedAt'),
@@ -362,6 +384,7 @@ const insertEvent = prepared((db, t) =>
   db
     .insert(t.podiumEvents)
     .values({
+      workspaceId: WORKSPACE,
       ts: sql.placeholder('ts'),
       kind: sql.placeholder('kind'),
       subject: sql.placeholder('subject'),
@@ -375,7 +398,7 @@ const eventById = prepared((db, t) =>
   db
     .select()
     .from(t.podiumEvents)
-    .where(eq(t.podiumEvents.id, param(t.podiumEvents.id, 'id')))
+    .where(inWorkspace(t.podiumEvents, eq(t.podiumEvents.id, param(t.podiumEvents.id, 'id'))))
     .prepare(),
 )
 
@@ -399,7 +422,7 @@ const eventsSince = preparedFamily((db, t, shape: string) => {
   return db
     .select()
     .from(t.podiumEvents)
-    .where(and(...where))
+    .where(inWorkspace(t.podiumEvents, ...where))
     .orderBy(order === 'desc' ? desc(t.podiumEvents.id) : asc(t.podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -419,7 +442,8 @@ function feedPage(db: StoreDrizzle, t: StoreTables, kind: string, i: number) {
     .select()
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, kind),
         ne(t.podiumEvents.subject, ''),
         lte(t.podiumEvents.id, param(t.podiumEvents.id, 'through')),
@@ -463,7 +487,8 @@ const feedEventsOfIds = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         inListOf(t.podiumEvents.id, size),
         gte(t.podiumEvents.id, param(t.podiumEvents.id, 'floor')),
         inArray(t.podiumEvents.kind, [...FEED_EVENT_KINDS]),
@@ -480,7 +505,8 @@ const feedEventsOfSubjects = preparedFamily((db, t, size: number) =>
     .select({ id: t.podiumEvents.id, subject: t.podiumEvents.subject })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         inArray(t.podiumEvents.kind, [...FEED_EVENT_KINDS]),
         inListOf(t.podiumEvents.subject, size, 'subject'),
         gte(t.podiumEvents.id, param(t.podiumEvents.id, 'floor')),
@@ -495,7 +521,8 @@ const kindSubjectPrior = prepared((db, t) =>
     .select()
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, param(t.podiumEvents.kind, 'kind')),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'subject')),
         sql`${t.podiumEvents.ts} < ${sql.placeholder('since')}`,
@@ -511,7 +538,8 @@ const kindSubjectSince = prepared((db, t) =>
     .select()
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         eq(t.podiumEvents.kind, param(t.podiumEvents.kind, 'kind')),
         eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'subject')),
         sql`${t.podiumEvents.ts} >= ${sql.placeholder('since')}`,
@@ -525,6 +553,7 @@ const highestEventId = prepared((db, t) =>
   db
     .select({ m: max(t.podiumEvents.id) })
     .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents))
     .prepare(),
 )
 
@@ -532,6 +561,7 @@ const eventIdBeyondCap = prepared((db, t) =>
   db
     .select({ id: t.podiumEvents.id })
     .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents))
     .orderBy(desc(t.podiumEvents.id))
     .limit(1)
     .offset(sql.placeholder('maxRows'))
@@ -547,12 +577,18 @@ const pruneCandidates = (db: StoreDrizzle, t: StoreTables) => {
   const projectedThrough = db
     .select({ head: t.runtimeEventProjectionCursors.lastEventId })
     .from(t.runtimeEventProjectionCursors)
-    .where(eq(t.runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
+    .where(
+      inWorkspace(
+        t.runtimeEventProjectionCursors,
+        eq(t.runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR),
+      ),
+    )
   return db
     .select({ id: t.podiumEvents.id, kind: t.podiumEvents.kind, subject: t.podiumEvents.subject })
     .from(t.podiumEvents)
     .where(
-      and(
+      inWorkspace(
+        t.podiumEvents,
         or(
           sql`${t.podiumEvents.ts} < ${sql.placeholder('cutoff')}`,
           lte(t.podiumEvents.id, param(t.podiumEvents.id, 'capThroughId')),
@@ -573,7 +609,12 @@ const deletePruneBatch = prepared((db, t) => {
   const victims = pruneCandidates(db, t).as('victims')
   return db
     .delete(t.podiumEvents)
-    .where(inArray(t.podiumEvents.id, db.select({ id: victims.id }).from(victims)))
+    .where(
+      inWorkspace(
+        t.podiumEvents,
+        inArray(t.podiumEvents.id, db.select({ id: victims.id }).from(victims)),
+      ),
+    )
     .returning({
       id: t.podiumEvents.id,
       kind: t.podiumEvents.kind,
@@ -586,14 +627,18 @@ const stewardValueOf = prepared((db, t) =>
   db
     .select({ value: t.stewardState.value })
     .from(t.stewardState)
-    .where(eq(t.stewardState.key, param(t.stewardState.key, 'key')))
+    .where(inWorkspace(t.stewardState, eq(t.stewardState.key, param(t.stewardState.key, 'key'))))
     .prepare(),
 )
 
 const upsertStewardValue = prepared((db, t) =>
   db
     .insert(t.stewardState)
-    .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
+    .values({
+      workspaceId: WORKSPACE,
+      key: sql.placeholder('key'),
+      value: sql.placeholder('value'),
+    })
     .onConflictDoUpdate({ target: t.stewardState.key, set: { value: sql.placeholder('value') } })
     .prepare(),
 )
@@ -602,7 +647,7 @@ const janitorOwnership = prepared((db, t) =>
   db
     .select({ present: sql<number>`1` })
     .from(t.stewardState)
-    .where(eq(t.stewardState.key, JANITOR_OWNERSHIP_KEY))
+    .where(inWorkspace(t.stewardState, eq(t.stewardState.key, JANITOR_OWNERSHIP_KEY)))
     .prepare(),
 )
 
@@ -610,6 +655,7 @@ const insertSubscription = prepared((db, t) =>
   db
     .insert(t.subscriptions)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       subscriberKind: sql.placeholder('subscriberKind'),
       subscriberId: sql.placeholder('subscriberId'),
@@ -628,7 +674,7 @@ const insertSubscription = prepared((db, t) =>
 const deleteSubscription = prepared((db, t) =>
   db
     .delete(t.subscriptions)
-    .where(eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))
+    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
     .prepare(),
 )
 
@@ -642,16 +688,17 @@ const ownSubscriptionsPage = prepared((db, t) =>
     .select()
     .from(t.subscriptions)
     .where(
-      and(
+      inWorkspace(
+        t.subscriptions,
         sql`(${t.subscriptions.createdAt}, ${t.subscriptions.id}) > (${param(t.subscriptions.createdAt, 'afterCreatedAt')}, ${param(t.subscriptions.id, 'afterId')})`,
         or(
           and(
             eq(t.subscriptions.subscriberKind, 'session'),
-            sql`EXISTS (SELECT 1 FROM ${t.sessions} WHERE ${t.sessions.id} = ${t.subscriptions.subscriberId} AND ${t.sessions.ownerUserId} = ${sql.placeholder('userId')})`,
+            sql`EXISTS (SELECT 1 FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${t.subscriptions.subscriberId} AND ${t.sessions.ownerUserId} = ${sql.placeholder('userId')})`,
           ),
           and(
             eq(t.subscriptions.subscriberKind, 'issue'),
-            sql`EXISTS (SELECT 1 FROM ${t.issues} WHERE ${t.issues.id} = ${t.subscriptions.subscriberId} AND ${t.issues.ownerUserId} = ${sql.placeholder('userId')})`,
+            sql`EXISTS (SELECT 1 FROM ${t.issues} WHERE ${t.issues.workspaceId} = ${WORKSPACE} AND ${t.issues.id} = ${t.subscriptions.subscriberId} AND ${t.issues.ownerUserId} = ${sql.placeholder('userId')})`,
           ),
         ),
       ),
@@ -669,7 +716,10 @@ const subscriptionsPage = prepared((db, t) =>
     .select()
     .from(t.subscriptions)
     .where(
-      sql`(${t.subscriptions.createdAt}, ${t.subscriptions.id}) > (${param(t.subscriptions.createdAt, 'afterCreatedAt')}, ${param(t.subscriptions.id, 'afterId')})`,
+      inWorkspace(
+        t.subscriptions,
+        sql`(${t.subscriptions.createdAt}, ${t.subscriptions.id}) > (${param(t.subscriptions.createdAt, 'afterCreatedAt')}, ${param(t.subscriptions.id, 'afterId')})`,
+      ),
     )
     .orderBy(asc(t.subscriptions.createdAt), asc(t.subscriptions.id))
     .limit(sql.placeholder('limit'))
@@ -680,7 +730,12 @@ const subscriptionsOf = prepared((db, t) =>
   db
     .select()
     .from(t.subscriptions)
-    .where(eq(t.subscriptions.subscriberId, param(t.subscriptions.subscriberId, 'subscriberId')))
+    .where(
+      inWorkspace(
+        t.subscriptions,
+        eq(t.subscriptions.subscriberId, param(t.subscriptions.subscriberId, 'subscriberId')),
+      ),
+    )
     .orderBy(asc(t.subscriptions.createdAt))
     .prepare(),
 )
@@ -689,7 +744,7 @@ const setSubscriptionEnabledById = prepared((db, t) =>
   db
     .update(t.subscriptions)
     .set({ enabled: sql.placeholder('enabled') })
-    .where(eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))
+    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
     .prepare(),
 )
 
@@ -698,7 +753,7 @@ const subscriptionsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.subscriptions)
-    .where(inListOf(t.subscriptions.id, size, 'ids'))
+    .where(inWorkspace(t.subscriptions, inListOf(t.subscriptions.id, size, 'ids')))
     .prepare(),
 )
 
@@ -706,7 +761,7 @@ const subscriptionById = prepared((db, t) =>
   db
     .select()
     .from(t.subscriptions)
-    .where(eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))
+    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
     .prepare(),
 )
 
@@ -721,7 +776,8 @@ const relationshipSubscriptionFor = preparedFamily((db, t, size: number) =>
     .select({ id: t.subscriptions.id })
     .from(t.subscriptions)
     .where(
-      and(
+      inWorkspace(
+        t.subscriptions,
         inListOf(t.subscriptions.event, size, 'kind'),
         eq(t.subscriptions.sourceKind, 'relationship'),
         eq(t.subscriptions.enabled, true),
@@ -756,7 +812,8 @@ const matchingSubscriptions = preparedFamily((db, t, shape: string) => {
       .select()
       .from(t.subscriptions)
       .where(
-        and(
+        inWorkspace(
+          t.subscriptions,
           subscriber,
           eq(t.subscriptions.subscriberKind, subscriberKind),
           eq(t.subscriptions.sourceKind, 'relationship'),
@@ -771,7 +828,8 @@ const matchingSubscriptions = preparedFamily((db, t, shape: string) => {
         .select()
         .from(t.subscriptions)
         .where(
-          and(
+          inWorkspace(
+            t.subscriptions,
             kinds(),
             inArray(t.subscriptions.sourceKind, ['session', 'issue']),
             inListOf(t.subscriptions.sourceRef, size, 'ref'),
@@ -790,7 +848,13 @@ const matchingSubscriptions = preparedFamily((db, t, shape: string) => {
           db
             .select({ id: t.sessions.id })
             .from(t.sessions)
-            .where(and(inListOf(t.sessions.issueId, size, 'anchor'), isNull(t.sessions.deletedAt))),
+            .where(
+              inWorkspace(
+                t.sessions,
+                inListOf(t.sessions.issueId, size, 'anchor'),
+                isNull(t.sessions.deletedAt),
+              ),
+            ),
         ),
       ),
     )
@@ -805,6 +869,7 @@ const insertDeliveryIfNew = prepared((db, t) =>
   db
     .insert(t.subscriptionDeliveries)
     .values({
+      workspaceId: WORKSPACE,
       subscriptionId: sql.placeholder('subscriptionId'),
       eventId: sql.placeholder('eventId'),
     })
@@ -853,7 +918,7 @@ export class EventsRepository {
   private appendListener: EventAppendListener | undefined
   private logCommit: EventLogCommit | undefined
 
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** Appends waiting for the next group transaction (`appendEventGrouped`). */
@@ -861,8 +926,8 @@ export class EventsRepository {
   /** The group drain in flight, if any: one at a time, like the board drain. */
   private appendDrain: Promise<void> | undefined
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -874,8 +939,8 @@ export class EventsRepository {
    * (rule 35) this resolves the ENCLOSING transaction on every access, and a
    * field frozen at construction could never do that. B1 changes this one line.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Install the post-append announcement. One listener: this is the feed's

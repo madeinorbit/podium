@@ -1,7 +1,8 @@
+// workspace-scoped (POD-6959)
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './executor/sync-drizzle'
 
 export interface MaintenanceLeaseRow {
   name: string
@@ -15,8 +16,12 @@ export interface MaintenanceLeaseRow {
 
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 // Every query this repository runs, prepared once per store [POD-6147].
+//
+// TWO KINDS OF ROW (POD-6959 design 2.1). The lease is the installation's (an
+// install table, so its definitions are global); the idempotency ledger is the
+// workspace's, so a job's receipts and their prune are this workspace's only.
 
-const leaseByName = prepared((db, t) =>
+const leaseByName = preparedGlobal((db, t) =>
   db
     .select()
     .from(t.maintenanceLeases)
@@ -24,7 +29,7 @@ const leaseByName = prepared((db, t) =>
     .prepare(),
 )
 
-const upsertLease = prepared((db, t) =>
+const upsertLease = preparedGlobal((db, t) =>
   db
     .insert(t.maintenanceLeases)
     .values({
@@ -55,7 +60,8 @@ const commandResult = prepared((db, t) =>
     .select({ resultJson: t.maintenanceCommands.resultJson })
     .from(t.maintenanceCommands)
     .where(
-      and(
+      inWorkspace(
+        t.maintenanceCommands,
         eq(t.maintenanceCommands.jobKind, param(t.maintenanceCommands.jobKind, 'jobKind')),
         eq(t.maintenanceCommands.runKey, param(t.maintenanceCommands.runKey, 'runKey')),
       ),
@@ -67,6 +73,7 @@ const insertCommand = prepared((db, t) =>
   db
     .insert(t.maintenanceCommands)
     .values({
+      workspaceId: WORKSPACE,
       jobKind: sql.placeholder('jobKind'),
       runKey: sql.placeholder('runKey'),
       fencingToken: sql.placeholder('fencingToken'),
@@ -81,9 +88,12 @@ const pruneOldestCommands = prepared((db, t) => {
     .select({ rowid: sql<number>`rowid` })
     .from(t.maintenanceCommands)
     .where(
-      lt(
-        t.maintenanceCommands.appliedAt,
-        param(t.maintenanceCommands.appliedAt, 'cutoffAppliedAt'),
+      inWorkspace(
+        t.maintenanceCommands,
+        lt(
+          t.maintenanceCommands.appliedAt,
+          param(t.maintenanceCommands.appliedAt, 'cutoffAppliedAt'),
+        ),
       ),
     )
     .orderBy(
@@ -92,15 +102,18 @@ const pruneOldestCommands = prepared((db, t) => {
       asc(t.maintenanceCommands.runKey),
     )
     .limit(sql.placeholder('batchSize'))
-  return db.delete(t.maintenanceCommands).where(inArray(sql`rowid`, oldest)).prepare()
+  return db
+    .delete(t.maintenanceCommands)
+    .where(inWorkspace(t.maintenanceCommands, inArray(sql`rowid`, oldest)))
+    .prepare()
 })
 
 export class MaintenanceRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -112,8 +125,8 @@ export class MaintenanceRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   async getLease(name: string): Promise<MaintenanceLeaseRow | undefined> {

@@ -16,8 +16,9 @@
 
 import { asSessionId, asThreadId, firstAdminMemberId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { SuperagentRepository } from './superagent'
 
 let superagent: SuperagentRepository
@@ -31,7 +32,9 @@ const listed = async () =>
   (await superagent.listSuperagentThreads(OWNER)).map((t) => t.id).filter((id) => id !== 'global')
 
 beforeEach(async () => {
-  superagent = new SuperagentRepository(syncQueriesOver(openMigratedTestDatabase()))
+  superagent = new SuperagentRepository(
+    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
   await superagent.upsertSuperagentThread({
     id: 'thread-1',
     ownerUserId: OWNER,

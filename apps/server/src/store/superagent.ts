@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Superagent aggregate — owns `superagent_threads` and `superagent_messages`
  * (the 'global' orchestrator thread, per-session 'btw' threads and per-repo
@@ -12,24 +13,27 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
+import { asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
 import type { superagentThreads } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type {
+  LegacyWorkspaceQueries,
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
   shapeOf,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -68,6 +72,7 @@ const seedGlobal = prepared((db, t) =>
   db
     .insert(t.superagentThreads)
     .values({
+      workspaceId: WORKSPACE,
       id: asThreadId('global'),
       ownerUserId: P('ownerUserId'),
       kind: 'global',
@@ -92,7 +97,12 @@ const threadMessages = prepared((db, t) =>
       createdAt: t.superagentMessages.createdAt,
     })
     .from(t.superagentMessages)
-    .where(eq(t.superagentMessages.threadId, param(t.superagentMessages.threadId, 'threadId')))
+    .where(
+      inWorkspace(
+        t.superagentMessages,
+        eq(t.superagentMessages.threadId, param(t.superagentMessages.threadId, 'threadId')),
+      ),
+    )
     .orderBy(desc(t.superagentMessages.id))
     .limit(P('limit'))
     .prepare(),
@@ -102,6 +112,7 @@ const insertMessage = prepared((db, t) =>
   db
     .insert(t.superagentMessages)
     .values({
+      workspaceId: WORKSPACE,
       threadId: P('threadId'),
       ownerUserId: P('ownerUserId'),
       role: P('role'),
@@ -118,7 +129,7 @@ const touchThread = prepared((db, t) =>
   db
     .update(t.superagentThreads)
     .set({ updatedAt: P('updatedAt') })
-    .where(threadIdIs(t))
+    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
     .returning()
     .prepare(),
 )
@@ -126,7 +137,12 @@ const touchThread = prepared((db, t) =>
 const deleteThreadMessages = prepared((db, t) =>
   db
     .delete(t.superagentMessages)
-    .where(eq(t.superagentMessages.threadId, param(t.superagentMessages.threadId, 'threadId')))
+    .where(
+      inWorkspace(
+        t.superagentMessages,
+        eq(t.superagentMessages.threadId, param(t.superagentMessages.threadId, 'threadId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -135,7 +151,8 @@ const openThreadsOf = prepared((db, t) =>
     .select()
     .from(t.superagentThreads)
     .where(
-      and(
+      inWorkspace(
+        t.superagentThreads,
         eq(t.superagentThreads.ownerUserId, param(t.superagentThreads.ownerUserId, 'ownerUserId')),
         eq(t.superagentThreads.archived, false),
       ),
@@ -145,7 +162,11 @@ const openThreadsOf = prepared((db, t) =>
 )
 
 const threadById = prepared((db, t) =>
-  db.select().from(t.superagentThreads).where(threadIdIs(t)).prepare(),
+  db
+    .select()
+    .from(t.superagentThreads)
+    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
+    .prepare(),
 )
 
 /** Threads by id, for building `superagentThread` records by id (POD-6763). */
@@ -153,7 +174,7 @@ const threadsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.superagentThreads)
-    .where(inListOf(t.superagentThreads.id, size, 'ids'))
+    .where(inWorkspace(t.superagentThreads, inListOf(t.superagentThreads.id, size, 'ids')))
     .prepare(),
 )
 
@@ -162,7 +183,8 @@ const ownedThreadById = prepared((db, t) =>
     .select()
     .from(t.superagentThreads)
     .where(
-      and(
+      inWorkspace(
+        t.superagentThreads,
         threadIdIs(t),
         eq(t.superagentThreads.ownerUserId, param(t.superagentThreads.ownerUserId, 'ownerUserId')),
       ),
@@ -174,6 +196,7 @@ const upsertThread = prepared((db, t) =>
   db
     .insert(t.superagentThreads)
     .values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       ownerUserId: P('ownerUserId'),
       kind: P('kind'),
@@ -201,7 +224,7 @@ const setWatermark = prepared((db, t) =>
   db
     .update(t.superagentThreads)
     .set({ watermarkItemId: P('itemId'), watermarkTs: P('ts') })
-    .where(threadIdIs(t))
+    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
     .prepare(),
 )
 
@@ -210,18 +233,28 @@ const setThreadBinding = preparedFamily((db, t, shape: string) =>
   db
     .update(t.superagentThreads)
     .set(placeholdersFor(shape) as unknown as Partial<typeof superagentThreads.$inferInsert>)
-    .where(threadIdIs(t))
+    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
     .returning()
     .prepare(),
 )
 
 const archiveThread = prepared((db, t) =>
-  db.update(t.superagentThreads).set({ archived: true }).where(threadIdIs(t)).returning().prepare(),
+  db
+    .update(t.superagentThreads)
+    .set({ archived: true })
+    .where(inWorkspace(t.superagentThreads, threadIdIs(t)))
+    .returning()
+    .prepare(),
 )
 
 /** Every thread, archived ones included: the `superagentThread` boot reconcile. */
 const allThreads = prepared((db, t) =>
-  db.select().from(t.superagentThreads).orderBy(asc(t.superagentThreads.id)).prepare(),
+  db
+    .select()
+    .from(t.superagentThreads)
+    .where(inWorkspace(t.superagentThreads))
+    .orderBy(asc(t.superagentThreads.id))
+    .prepare(),
 )
 
 /** A pending-turn row of the outer thread (its unique `thread_id` index). */
@@ -229,7 +262,12 @@ const pendingTurnOfThread = (db: StoreDrizzle, t: StoreTables) =>
   db
     .select({ one: sql`1` })
     .from(t.superagentPendingTurns)
-    .where(eq(t.superagentPendingTurns.threadId, t.superagentThreads.id))
+    .where(
+      inWorkspace(
+        t.superagentPendingTurns,
+        eq(t.superagentPendingTurns.threadId, t.superagentThreads.id),
+      ),
+    )
 
 /**
  * BOOT TRUTH OF `turn_running` (POD-6675): a thread runs a turn exactly when it
@@ -243,16 +281,23 @@ const syncTurnRunning = prepared((db, t) =>
     .update(t.superagentThreads)
     .set({ turnRunning: false })
     .where(
-      inArray(
-        t.superagentThreads.id,
-        db
-          .select({ id: sql<ThreadId>`${t.superagentThreads.id}` })
-          // A sparse running set remains bounded even under statistics from a
-          // tiny database. Recover no archived history just to rediscover false.
-          .from(sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`)
-          .where(
-            and(eq(t.superagentThreads.turnRunning, true), notExists(pendingTurnOfThread(db, t))),
-          ),
+      inWorkspace(
+        t.superagentThreads,
+        inArray(
+          t.superagentThreads.id,
+          db
+            .select({ id: sql<ThreadId>`${t.superagentThreads.id}` })
+            // A sparse running set remains bounded even under statistics from a
+            // tiny database. Recover no archived history just to rediscover false.
+            .from(sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`)
+            .where(
+              inWorkspace(
+                t.superagentThreads,
+                eq(t.superagentThreads.turnRunning, true),
+                notExists(pendingTurnOfThread(db, t)),
+              ),
+            ),
+        ),
       ),
     )
     .returning()
@@ -266,6 +311,8 @@ const seedMemberGlobal = prepared((db, t) =>
     .select(
       db
         .select({
+          // The member's own workspace: the users read below is held to it.
+          workspaceId: t.users.workspaceId,
           id: sql<ThreadId>`'global:' || ${t.users.id}`.as('id'),
           ownerUserId: t.users.id,
           kind: sql<string>`'global'`.as('kind'),
@@ -274,7 +321,8 @@ const seedMemberGlobal = prepared((db, t) =>
         })
         .from(t.users)
         .where(
-          and(
+          inWorkspace(
+            t.users,
             eq(t.users.id, param(t.users.id, 'ownerUserId')),
             isNull(t.users.disabledAt),
             notExists(
@@ -282,7 +330,8 @@ const seedMemberGlobal = prepared((db, t) =>
                 .select({ one: sql`1` })
                 .from(t.superagentThreads)
                 .where(
-                  and(
+                  inWorkspace(
+                    t.superagentThreads,
                     eq(t.superagentThreads.ownerUserId, t.users.id),
                     eq(t.superagentThreads.kind, 'global'),
                   ),
@@ -300,6 +349,7 @@ const insertQueuedInput = prepared((db, t) =>
   db
     .insert(t.superagentQueuedInputs)
     .values({
+      workspaceId: WORKSPACE,
       inputId: P('inputId'),
       ownerUserId: P('ownerUserId'),
       threadId: P('threadId'),
@@ -318,7 +368,7 @@ const allQueuedInputs = prepared((db, t) =>
   db
     .select()
     .from(t.superagentQueuedInputs)
-    .where(undefined)
+    .where(inWorkspace(t.superagentQueuedInputs))
     .orderBy(asc(t.superagentQueuedInputs.createdAt))
     .prepare(),
 )
@@ -328,7 +378,10 @@ const queuedInputsOfThread = prepared((db, t) =>
     .select()
     .from(t.superagentQueuedInputs)
     .where(
-      eq(t.superagentQueuedInputs.threadId, param(t.superagentQueuedInputs.threadId, 'threadId')),
+      inWorkspace(
+        t.superagentQueuedInputs,
+        eq(t.superagentQueuedInputs.threadId, param(t.superagentQueuedInputs.threadId, 'threadId')),
+      ),
     )
     .orderBy(asc(t.superagentQueuedInputs.createdAt))
     .prepare(),
@@ -337,7 +390,12 @@ const queuedInputsOfThread = prepared((db, t) =>
 const deleteQueuedInputRow = prepared((db, t) =>
   db
     .delete(t.superagentQueuedInputs)
-    .where(eq(t.superagentQueuedInputs.inputId, param(t.superagentQueuedInputs.inputId, 'inputId')))
+    .where(
+      inWorkspace(
+        t.superagentQueuedInputs,
+        eq(t.superagentQueuedInputs.inputId, param(t.superagentQueuedInputs.inputId, 'inputId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -345,6 +403,7 @@ const insertPendingTurn = prepared((db, t) =>
   db
     .insert(t.superagentPendingTurns)
     .values({
+      workspaceId: WORKSPACE,
       turnId: P('turnId'),
       ownerUserId: P('ownerUserId'),
       threadId: P('threadId'),
@@ -360,6 +419,7 @@ const allPendingTurns = prepared((db, t) =>
   db
     .select()
     .from(t.superagentPendingTurns)
+    .where(inWorkspace(t.superagentPendingTurns))
     .orderBy(asc(t.superagentPendingTurns.createdAt))
     .prepare(),
 )
@@ -367,7 +427,12 @@ const allPendingTurns = prepared((db, t) =>
 const deletePendingTurnRow = prepared((db, t) =>
   db
     .delete(t.superagentPendingTurns)
-    .where(eq(t.superagentPendingTurns.turnId, param(t.superagentPendingTurns.turnId, 'turnId')))
+    .where(
+      inWorkspace(
+        t.superagentPendingTurns,
+        eq(t.superagentPendingTurns.turnId, param(t.superagentPendingTurns.turnId, 'turnId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -379,16 +444,22 @@ export type SuperagentThreadFeedCapture = ChangeLogCommit
 
 type ThreadSelect = typeof superagentThreads.$inferSelect
 
+/** The columns a thread update may set: never its workspace, which the handle fills
+ *  (POD-6959). */
+type ThreadPatch = Omit<Partial<typeof superagentThreads.$inferInsert>, 'workspaceId'>
+
 export class SuperagentRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
   private threadFeedCapture: SuperagentThreadFeedCapture | undefined
 
   private readonly users: UsersRepository
 
-  constructor(queries: StoreQueries) {
+  /** The queries are one workspace's; `rootDb` rides along only for the users
+   *  repository, whose own scoping task narrows it (POD-6959). */
+  constructor(queries: LegacyWorkspaceQueries) {
     this.users = new UsersRepository(queries)
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -399,8 +470,8 @@ export class SuperagentRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Install the thread feed capture, run inside every thread write's transaction. */
@@ -465,7 +536,7 @@ export class SuperagentRepository {
     running: boolean,
     opts: { clearFailure?: boolean } = {},
   ): Promise<void> {
-    const set: Partial<typeof superagentThreads.$inferInsert> = { turnRunning: running }
+    const set: ThreadPatch = { turnRunning: running }
     if (opts.clearFailure === true) {
       set.lastTurnFailureAt = null
       set.lastTurnFailureMessage = null
@@ -483,10 +554,7 @@ export class SuperagentRepository {
     })
   }
 
-  private async writeTurnStatus(
-    id: ThreadId,
-    set: Partial<typeof superagentThreads.$inferInsert>,
-  ): Promise<void> {
+  private async writeTurnStatus(id: ThreadId, set: ThreadPatch): Promise<void> {
     await this.writeThreads(
       async () => await setThreadBinding(this.db, shapeOf(set)).all({ ...set, id }),
     )
@@ -622,7 +690,7 @@ export class SuperagentRepository {
     // hand-built SET list did: an absent key leaves the column alone, and an
     // explicit `null` CLEARS it. Building the object the same way keeps that
     // distinction, which a spread of the whole patch would lose.
-    const set: Partial<typeof superagentThreads.$inferInsert> = {}
+    const set: ThreadPatch = {}
     if (patch.agentKind !== undefined) set.agentKind = patch.agentKind
     if (patch.podiumSessionId !== undefined) set.podiumSessionId = patch.podiumSessionId
     if (patch.harnessSessionId !== undefined) set.harnessSessionId = patch.harnessSessionId

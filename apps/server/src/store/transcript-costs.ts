@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * WHAT EACH TRANSCRIPT COST, AND WHOSE IT WAS (POD-1858).
  *
@@ -20,13 +21,16 @@ import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } f
 import { foldModelTotals } from '@podium/model'
 import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
 import type { transcriptCosts } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
@@ -106,6 +110,7 @@ const recordCost = prepared((db, t) =>
   db
     .insert(t.transcriptCosts)
     .values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       path: sql.placeholder('path'),
@@ -155,19 +160,30 @@ const recordCost = prepared((db, t) =>
 )
 
 const costsOfIssues = preparedFamily((db, t, size: number) =>
-  db.select().from(t.transcriptCosts).where(inListOf(t.transcriptCosts.issueId, size)).prepare(),
+  db
+    .select()
+    .from(t.transcriptCosts)
+    .where(inWorkspace(t.transcriptCosts, inListOf(t.transcriptCosts.issueId, size)))
+    .prepare(),
 )
 
 const attributedCosts = prepared((db, t) =>
-  db.select().from(t.transcriptCosts).where(isNotNull(t.transcriptCosts.issueId)).prepare(),
+  db
+    .select()
+    .from(t.transcriptCosts)
+    .where(inWorkspace(t.transcriptCosts, isNotNull(t.transcriptCosts.issueId)))
+    .prepare(),
 )
 
 const ownCohortFolds = prepared((db, t) =>
   db
     .select({ folds: sql<string>`json_group_array(${t.transcriptCosts.modelsJson})` })
     .from(t.transcriptCosts)
-    .innerJoin(t.issues, eq(t.issues.id, t.transcriptCosts.issueId))
-    .where(isNull(t.issues.deletedAt))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.transcriptCosts), eq(t.issues.id, t.transcriptCosts.issueId)),
+    )
+    .where(inWorkspace(t.transcriptCosts, isNull(t.issues.deletedAt)))
     .groupBy(t.transcriptCosts.issueId)
     .having(gt(sum(t.transcriptCosts.messages), sql.placeholder('minReplies')))
     .prepare(),
@@ -177,7 +193,13 @@ const costedSessions = prepared((db, t) =>
   db
     .selectDistinct({ sessionId: t.transcriptCosts.sessionId })
     .from(t.transcriptCosts)
-    .where(and(isNotNull(t.transcriptCosts.sessionId), gt(t.transcriptCosts.messages, 0)))
+    .where(
+      inWorkspace(
+        t.transcriptCosts,
+        isNotNull(t.transcriptCosts.sessionId),
+        gt(t.transcriptCosts.messages, 0),
+      ),
+    )
     .prepare(),
 )
 
@@ -185,17 +207,20 @@ const latestWindow = prepared((db, t) =>
   db
     .select({ m: max(t.transcriptCosts.windowSinceMs) })
     .from(t.transcriptCosts)
+    .where(inWorkspace(t.transcriptCosts))
     .prepare(),
 )
 
-const costCount = prepared((db, t) => db.select({ n: count() }).from(t.transcriptCosts).prepare())
+const costCount = prepared((db, t) =>
+  db.select({ n: count() }).from(t.transcriptCosts).where(inWorkspace(t.transcriptCosts)).prepare(),
+)
 
 export class TranscriptCostsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -206,8 +231,8 @@ export class TranscriptCostsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * The PendingInteraction store (POD-2020, spec §4) — durable rows for every
  * blocking ask, so a blocked session is an ENUMERABLE session.
@@ -39,18 +40,20 @@ import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { pendingInteractions } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
@@ -145,6 +148,7 @@ const insertInteraction = prepared((db, t) =>
   db
     .insert(t.pendingInteractions)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       sessionId: sql.placeholder('sessionId'),
       kind: sql.placeholder('kind'),
@@ -168,13 +172,17 @@ const enrichInteraction = prepared((db, t) =>
   db
     .update(t.pendingInteractions)
     .set({ payloadJson: sql.placeholder('payloadJson') })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
+    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
 
 const interactionById = prepared((db, t) =>
-  db.select().from(t.pendingInteractions).where(idIs(t)).prepare(),
+  db
+    .select()
+    .from(t.pendingInteractions)
+    .where(inWorkspace(t.pendingInteractions, idIs(t)))
+    .prepare(),
 )
 
 const openInteractionByFingerprint = prepared((db, t) =>
@@ -182,15 +190,18 @@ const openInteractionByFingerprint = prepared((db, t) =>
     .select()
     .from(t.pendingInteractions)
     .where(
-      and(
-        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
-        eq(
-          t.pendingInteractions.fingerprint,
-          param(t.pendingInteractions.fingerprint, 'fingerprint'),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+          eq(
+            t.pendingInteractions.fingerprint,
+            param(t.pendingInteractions.fingerprint, 'fingerprint'),
+          ),
+          // OPEN ROWS ONLY, which is what makes the same question asked again
+          // after the first was answered a genuinely new ask.
+          eq(t.pendingInteractions.status, 'asked'),
         ),
-        // OPEN ROWS ONLY, which is what makes the same question asked again
-        // after the first was answered a genuinely new ask.
-        eq(t.pendingInteractions.status, 'asked'),
       ),
     )
     .prepare(),
@@ -201,7 +212,7 @@ const openInteractions = prepared((db, t) =>
   db
     .select()
     .from(t.pendingInteractions)
-    .where(and(eq(t.pendingInteractions.status, 'asked'), undefined))
+    .where(inWorkspace(t.pendingInteractions, eq(t.pendingInteractions.status, 'asked'), undefined))
     .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
     .prepare(),
 )
@@ -212,9 +223,12 @@ const openInteractionsOfIds = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.pendingInteractions)
     .where(
-      and(
-        inListOf(t.pendingInteractions.id, size, 'ids'),
-        eq(t.pendingInteractions.status, 'asked'),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          inListOf(t.pendingInteractions.id, size, 'ids'),
+          eq(t.pendingInteractions.status, 'asked'),
+        ),
       ),
     )
     .prepare(),
@@ -225,9 +239,12 @@ const openInteractionsOfSession = prepared((db, t) =>
     .select()
     .from(t.pendingInteractions)
     .where(
-      and(
-        eq(t.pendingInteractions.status, 'asked'),
-        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          eq(t.pendingInteractions.status, 'asked'),
+          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+        ),
       ),
     )
     .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
@@ -238,7 +255,12 @@ const interactionsOfSession = prepared((db, t) =>
   db
     .select()
     .from(t.pendingInteractions)
-    .where(eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')))
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+      ),
+    )
     .orderBy(desc(t.pendingInteractions.askedAt), desc(t.pendingInteractions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -254,7 +276,7 @@ const answerInteraction = prepared((db, t) =>
       deliveredVia: sql.placeholder('deliveredVia'),
       answeredAt: sql.placeholder('answeredAt'),
     })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
+    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
@@ -263,7 +285,9 @@ const recordInteractionDelivery = prepared((db, t) =>
   db
     .update(t.pendingInteractions)
     .set({ deliveredVia: sql.placeholder('deliveredVia') })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered')))
+    .where(
+      inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'answered')),
+    )
     .prepare(),
 )
 
@@ -283,7 +307,14 @@ const reopenInteraction = prepared((db, t) =>
       answeredAt: null,
       policyVerdict: 'escalated',
     })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered'), answeredBy(t)))
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        idIs(t),
+        eq(t.pendingInteractions.status, 'answered'),
+        answeredBy(t),
+      ),
+    )
     .returning()
     .prepare(),
 )
@@ -292,7 +323,14 @@ const retireClaimedInteraction = prepared((db, t) =>
   db
     .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'answered'), answeredBy(t)))
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        idIs(t),
+        eq(t.pendingInteractions.status, 'answered'),
+        answeredBy(t),
+      ),
+    )
     .prepare(),
 )
 
@@ -300,7 +338,7 @@ const closeInteraction = prepared((db, t) =>
   db
     .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(t), eq(t.pendingInteractions.status, 'asked')))
+    .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
     .returning()
     .prepare(),
 )
@@ -310,9 +348,12 @@ const closeSessionInteractions = prepared((db, t) =>
     .update(t.pendingInteractions)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
     .where(
-      and(
-        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
-        eq(t.pendingInteractions.status, 'asked'),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+          eq(t.pendingInteractions.status, 'asked'),
+        ),
       ),
     )
     .returning()
@@ -326,20 +367,23 @@ const pruneResolvedInteractions = prepared((db, t) =>
   db
     .delete(t.pendingInteractions)
     .where(
-      and(
-        inArray(t.pendingInteractions.status, RESOLVED_STATUSES),
-        // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
-        // after it is asked, so a row resolved before the cutoff was asked
-        // before it too: this takes nothing out of what the next clause
-        // selects, and bounds the read to the resolved rows asked before the
-        // cutoff. A row whose clocks stamped its ask after its resolution is
-        // dropped once its ask passes the cutoff instead.
-        lt(t.pendingInteractions.askedAt, param(t.pendingInteractions.askedAt, 'cutoffIso')),
-        // The cutoff is compared against the RESOLUTION time, falling back to
-        // the ask time only when a row has neither — not against asked_at.
-        lt(
-          sql`COALESCE(${t.pendingInteractions.answeredAt}, ${t.pendingInteractions.expiredAt}, ${t.pendingInteractions.askedAt})`,
-          sql.placeholder('cutoffIso'),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          inArray(t.pendingInteractions.status, RESOLVED_STATUSES),
+          // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
+          // after it is asked, so a row resolved before the cutoff was asked
+          // before it too: this takes nothing out of what the next clause
+          // selects, and bounds the read to the resolved rows asked before the
+          // cutoff. A row whose clocks stamped its ask after its resolution is
+          // dropped once its ask passes the cutoff instead.
+          lt(t.pendingInteractions.askedAt, param(t.pendingInteractions.askedAt, 'cutoffIso')),
+          // The cutoff is compared against the RESOLUTION time, falling back to
+          // the ask time only when a row has neither — not against asked_at.
+          lt(
+            sql`COALESCE(${t.pendingInteractions.answeredAt}, ${t.pendingInteractions.expiredAt}, ${t.pendingInteractions.askedAt})`,
+            sql.placeholder('cutoffIso'),
+          ),
         ),
       ),
     )
@@ -350,12 +394,12 @@ const pruneResolvedInteractions = prepared((db, t) =>
 export type InteractionFeedCapture = ChangeLogCommit
 
 export class InteractionsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
   private feedCapture: InteractionFeedCapture | undefined
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -367,8 +411,8 @@ export class InteractionsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   setFeedCapture(capture: InteractionFeedCapture): void {

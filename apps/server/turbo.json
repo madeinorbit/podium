@@ -1121,6 +1121,7 @@
         "src/store/effects.ts",
         "src/store/events-golden.test.ts",
         "src/store/events.ts",
+        "src/store/events.workspace.test.ts",
         "src/store/executor/binding.ts",
         "src/store/executor/bun-driver.ts",
         "src/store/executor/caller-attribution.test.ts",

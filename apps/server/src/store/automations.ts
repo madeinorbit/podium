@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Automations aggregate (#470) [spec:SP-17db] — owns the `automations` and
  * `automation_runs` tables (timestamped automations migrations). Pure persistence: the schedule
@@ -20,18 +21,21 @@ import type { WriteScope } from '@podium/sync'
 import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm'
 import type { automationRuns, automations } from '../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
@@ -117,7 +121,7 @@ const liveAutomations = prepared((db, t) =>
   db
     .select()
     .from(t.automations)
-    .where(isNull(t.automations.deletedAt))
+    .where(inWorkspace(t.automations, isNull(t.automations.deletedAt)))
     .orderBy(asc(t.automations.createdAt))
     .prepare(),
 )
@@ -126,7 +130,7 @@ const liveAutomationById = prepared((db, t) =>
   db
     .select()
     .from(t.automations)
-    .where(and(automationIdIs(t), isNull(t.automations.deletedAt)))
+    .where(inWorkspace(t.automations, automationIdIs(t), isNull(t.automations.deletedAt)))
     .prepare(),
 )
 
@@ -135,7 +139,7 @@ const automationOwner = prepared((db, t) =>
   db
     .select({ ownerUserId: t.automations.ownerUserId })
     .from(t.automations)
-    .where(automationIdIs(t))
+    .where(inWorkspace(t.automations, automationIdIs(t)))
     .prepare(),
 )
 
@@ -143,8 +147,14 @@ const runOwner = prepared((db, t) =>
   db
     .select({ ownerUserId: t.automations.ownerUserId })
     .from(t.automationRuns)
-    .innerJoin(t.automations, eq(t.automations.id, t.automationRuns.automationId))
-    .where(runIdIs(t))
+    .innerJoin(
+      t.automations,
+      and(
+        sameWorkspace(t.automations, t.automationRuns),
+        eq(t.automations.id, t.automationRuns.automationId),
+      ),
+    )
+    .where(inWorkspace(t.automationRuns, runIdIs(t)))
     .prepare(),
 )
 
@@ -154,7 +164,7 @@ const automationOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.automations.id, ownerUserId: t.automations.ownerUserId })
     .from(t.automations)
-    .where(inListOf(t.automations.id, size))
+    .where(inWorkspace(t.automations, inListOf(t.automations.id, size)))
     .prepare(),
 )
 
@@ -162,8 +172,14 @@ const runOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.automationRuns.id, ownerUserId: t.automations.ownerUserId })
     .from(t.automationRuns)
-    .innerJoin(t.automations, eq(t.automations.id, t.automationRuns.automationId))
-    .where(inListOf(t.automationRuns.id, size))
+    .innerJoin(
+      t.automations,
+      and(
+        sameWorkspace(t.automations, t.automationRuns),
+        eq(t.automations.id, t.automationRuns.automationId),
+      ),
+    )
+    .where(inWorkspace(t.automationRuns, inListOf(t.automationRuns.id, size)))
     .prepare(),
 )
 
@@ -175,7 +191,9 @@ const liveAutomationsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.automations)
-    .where(and(inListOf(t.automations.id, size), isNull(t.automations.deletedAt)))
+    .where(
+      inWorkspace(t.automations, inListOf(t.automations.id, size), isNull(t.automations.deletedAt)),
+    )
     .prepare(),
 )
 
@@ -183,7 +201,13 @@ const liveRunsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.automationRuns)
-    .where(and(inListOf(t.automationRuns.id, size), isNull(t.automationRuns.deletedAt)))
+    .where(
+      inWorkspace(
+        t.automationRuns,
+        inListOf(t.automationRuns.id, size),
+        isNull(t.automationRuns.deletedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -208,6 +232,7 @@ const insertAutomation = prepared((db, t) =>
   db
     .insert(t.automations)
     .values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       ...automationColumns,
       createdAt: P('createdAt'),
@@ -219,14 +244,18 @@ const insertAutomation = prepared((db, t) =>
 )
 
 const updateAutomation = prepared((db, t) =>
-  db.update(t.automations).set(automationColumns).where(automationIdIs(t)).prepare(),
+  db
+    .update(t.automations)
+    .set(automationColumns)
+    .where(inWorkspace(t.automations, automationIdIs(t)))
+    .prepare(),
 )
 
 const tombstoneAutomation = prepared((db, t) =>
   db
     .update(t.automations)
     .set({ deletedAt: P('deletedAt') })
-    .where(and(automationIdIs(t), isNull(t.automations.deletedAt)))
+    .where(inWorkspace(t.automations, automationIdIs(t), isNull(t.automations.deletedAt)))
     .prepare(),
 )
 
@@ -235,7 +264,8 @@ const tombstoneRunsOf = prepared((db, t) =>
     .update(t.automationRuns)
     .set({ deletedAt: P('deletedAt') })
     .where(
-      and(
+      inWorkspace(
+        t.automationRuns,
         eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'id')),
         isNull(t.automationRuns.deletedAt),
       ),
@@ -247,6 +277,7 @@ const insertRun = prepared((db, t) =>
   db
     .insert(t.automationRuns)
     .values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       automationId: P('automationId'),
       firedAt: P('firedAt'),
@@ -263,7 +294,7 @@ const liveRunById = prepared((db, t) =>
   db
     .select()
     .from(t.automationRuns)
-    .where(and(runIdIs(t), isNull(t.automationRuns.deletedAt)))
+    .where(inWorkspace(t.automationRuns, runIdIs(t), isNull(t.automationRuns.deletedAt)))
     .prepare(),
 )
 
@@ -271,7 +302,7 @@ const finalizeRun = prepared((db, t) =>
   db
     .update(t.automationRuns)
     .set({ sessionId: P('sessionId'), outcome: P('outcome'), detail: P('detail') })
-    .where(and(runIdIs(t), isNull(t.automationRuns.deletedAt)))
+    .where(inWorkspace(t.automationRuns, runIdIs(t), isNull(t.automationRuns.deletedAt)))
     .prepare(),
 )
 
@@ -280,7 +311,8 @@ const runsOfAutomation = prepared((db, t) =>
     .select()
     .from(t.automationRuns)
     .where(
-      and(
+      inWorkspace(
+        t.automationRuns,
         eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
         isNull(t.automationRuns.deletedAt),
       ),
@@ -296,7 +328,7 @@ const allLiveRuns = prepared((db, t) =>
   db
     .select()
     .from(t.automationRuns)
-    .where(isNull(t.automationRuns.deletedAt))
+    .where(inWorkspace(t.automationRuns, isNull(t.automationRuns.deletedAt)))
     .orderBy(asc(t.automationRuns.firedAt), asc(sql`rowid`))
     .prepare(),
 )
@@ -307,7 +339,8 @@ const liveRunIdsOf = prepared((db, t) =>
     .select({ id: t.automationRuns.id })
     .from(t.automationRuns)
     .where(
-      and(
+      inWorkspace(
+        t.automationRuns,
         eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
         isNull(t.automationRuns.deletedAt),
       ),
@@ -319,9 +352,12 @@ const liveRunIdsOf = prepared((db, t) =>
 // runs, which the builder has no vocabulary for, so it stays a `sql` fragment
 // inside the builder query (rule 1). `rowid` and not `MAX(fired_at)`: see
 // `lastSpawnedSessions`. The subquery seeks `idx_automation_runs_automation`.
-const latestSpawnedRowid = (automationId: SQL) => sql`(
+// `workspace` holds `x` to the caller's workspace in the subquery's own scope:
+// the placeholder, or the correlated automation's own column (POD-6959).
+const latestSpawnedRowid = (automationId: SQL, workspace: SQL) => sql`(
     SELECT MAX(x.rowid) FROM automation_runs x
-    WHERE x.automation_id = ${automationId}
+    WHERE x.workspace_id = ${workspace}
+      AND x.automation_id = ${automationId}
       AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
       AND x.deleted_at IS NULL
   )`
@@ -338,8 +374,15 @@ const lastSpawnedRuns = prepared((db, t) =>
     .from(t.automations)
     .innerJoin(
       t.automationRuns,
-      sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(sql`${t.automations.id}`)}`,
+      and(
+        sameWorkspace(t.automationRuns, t.automations),
+        sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(
+          sql`${t.automations.id}`,
+          sql`${t.automations.workspaceId}`,
+        )}`,
+      ),
     )
+    .where(inWorkspace(t.automations))
     .prepare(),
 )
 
@@ -348,7 +391,10 @@ const lastSpawnedRunOf = prepared((db, t) =>
     .select({ sessionId: t.automationRuns.sessionId })
     .from(t.automationRuns)
     .where(
-      sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`,
+      inWorkspace(
+        t.automationRuns,
+        sql`${t.automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`, sql`${WORKSPACE}`)}`,
+      ),
     )
     .prepare(),
 )
@@ -376,11 +422,11 @@ function automationValues(a: AutomationRow) {
 }
 
 export class AutomationsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -392,8 +438,8 @@ export class AutomationsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   async list(): Promise<AutomationRow[]> {

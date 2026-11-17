@@ -25,8 +25,10 @@
 import { type AgentProfileWire, asSessionId, asUserId, type UserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { type WorkflowActor, WorkflowsRepository } from './workflows'
 
 /** The Stage A seam the store asserts once; a test builds it the same way. */
@@ -46,7 +48,7 @@ let workflows: WorkflowsRepository
 beforeEach(() => {
   db = openMigratedTestDatabase()
   const stage = stageQueries(db)
-  workflows = new WorkflowsRepository(stage)
+  workflows = new WorkflowsRepository(legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
 })
 
 const makeWorkflow = async (
@@ -520,18 +522,35 @@ describe('run queries', () => {
   it('listRunsPage reads the history newest first, one keyset page at a time (POD-6209)', async () => {
     // Two runs share a start time: the id breaks the tie, so the page boundary
     // between them neither repeats nor skips one.
-    await seedRun('r1', { status: 'complete', subjectId: 'iss_1', startedAt: '2026-10-01T00:00:00.000Z' })
-    await seedRun('r2a', { status: 'complete', subjectId: 'iss_2', startedAt: '2026-10-02T00:00:00.000Z' })
-    await seedRun('r2b', { status: 'superseded', subjectId: 'iss_3', startedAt: '2026-10-02T00:00:00.000Z' })
+    await seedRun('r1', {
+      status: 'complete',
+      subjectId: 'iss_1',
+      startedAt: '2026-10-01T00:00:00.000Z',
+    })
+    await seedRun('r2a', {
+      status: 'complete',
+      subjectId: 'iss_2',
+      startedAt: '2026-10-02T00:00:00.000Z',
+    })
+    await seedRun('r2b', {
+      status: 'superseded',
+      subjectId: 'iss_3',
+      startedAt: '2026-10-02T00:00:00.000Z',
+    })
     await seedRun('r3', { subjectId: 'iss_4', startedAt: '2026-10-03T00:00:00.000Z' })
 
     const first = await workflows.listRunsPage({ limit: 2 })
     expect(first.map((r) => r.id)).toEqual(['r3', 'r2b'])
     const last = first.at(-1)!
-    const second = await workflows.listRunsPage({ before: { startedAt: last.startedAt, id: last.id }, limit: 2 })
+    const second = await workflows.listRunsPage({
+      before: { startedAt: last.startedAt, id: last.id },
+      limit: 2,
+    })
     expect(second.map((r) => r.id)).toEqual(['r2a', 'r1'])
     const end = second.at(-1)!
-    expect(await workflows.listRunsPage({ before: { startedAt: end.startedAt, id: end.id }, limit: 2 })).toEqual([])
+    expect(
+      await workflows.listRunsPage({ before: { startedAt: end.startedAt, id: end.id }, limit: 2 }),
+    ).toEqual([])
   })
 
   it('findLiveRun ignores a terminal run for the same subject', async () => {
