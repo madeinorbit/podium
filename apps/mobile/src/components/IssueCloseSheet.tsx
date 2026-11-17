@@ -1,7 +1,6 @@
-import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/values'
-import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model'
-import { StyleSheet, Text, View } from 'react-native'
+import type { IssueCloseConcern } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { StyleSheet, Text, View } from 'react-native'
 import { useIssueCloseConcerns } from '../client/use-issue-close'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
@@ -15,58 +14,41 @@ import {
   MessageCircleQuestion,
   Users,
 } from './icons'
+import {
+  closeConfirmLabel,
+  closeSubtitle,
+  closeTitle,
+  type IssueCloseSheetProps,
+} from './issue-close-copy'
 import { PressableScale } from './PressableScale'
 
-/**
- * WHAT A CLOSE WOULD COST, ON THE PHONE [POD-1129].
- *
- * The desktop raises an `AlertDialog` before every close. Both phone paths — the
- * task inspector's status sheet and the task page's `selectStatus` — fired
- * `closeIssue` straight through, so marking a task Done from a phone retired
- * pending agent decisions and walked away from uncommitted work in silence.
- *
- * This is that guard in the phone's own grammar rather than a ported dialog: the
- * one shared {@link BottomSheet}, the {@link ActionSheet}'s inset groups and its
- * hairlines, a destructive action, and a Cancel pill in the footer. The FACTS
- * are not restated here — they come from the shared maintained close counts
- * derivation, which is the whole point: a guard that lists different things
- * depending on which screen you closed from teaches that the list is advisory.
- *
- * TWO THINGS ABOUT THE LAYOUT, both about a thumb that is already moving.
- *
- *  1. The safe action is the BOTTOM-MOST thing on the sheet, in the footer where
- *     every other sheet in this app puts Cancel. The sheet rises from the bottom
- *     edge, so during the entry animation every row is still below its final
- *     resting place — a tap that beats the animation lands on the footer or the
- *     backdrop, never on `Close anyway`.
- *  2. The concerns sit ABOVE the destructive row, so the more there is to lose,
- *     the further that row travels from wherever the previous tap landed. The
- *     interruption is proportional to the cost by construction.
- *
- * The list follows LIVE scalar facts, not a snapshot taken at the press. An
- * agent that finishes while the sheet is open empties it, and the sheet then
- * says exactly that rather than holding up a stale warning — the same thing the
- * desktop dialog does, and the reason its no-blocker copy exists at all.
- */
+/** Android and web confirmation; iOS uses the native sheet in IssueCloseSheet.ios. */
 export function IssueCloseSheet({
   issue,
   reason,
   busy = false,
   onConfirm,
   onClose,
-}: {
-  issue: IssueNavigationModel
-  /** The ending being recorded, or `null` when the sheet is down. */
-  reason: IssueCloseReason | null
-  busy?: boolean
-  onConfirm: (reason: IssueCloseReason) => void
-  onClose: () => void
-}) {
+}: IssueCloseSheetProps) {
   if (reason === null) return null
-  return <VisibleIssueCloseSheet issue={issue} reason={reason} busy={busy} onConfirm={onConfirm} onClose={onClose} />
+  return (
+    <VisibleIssueCloseSheet
+      issue={issue}
+      reason={reason}
+      busy={busy}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
+  )
 }
 
-function VisibleIssueCloseSheet({ issue, reason, busy = false, onConfirm, onClose }: Parameters<typeof IssueCloseSheet>[0]) {
+function VisibleIssueCloseSheet({
+  issue,
+  reason,
+  busy = false,
+  onConfirm,
+  onClose,
+}: Parameters<typeof IssueCloseSheet>[0]) {
   const value = useIssueCloseConcerns(issue.id)
   const pending = value === LOADING
   const concerns = pending ? [] : value
@@ -85,20 +67,9 @@ function VisibleIssueCloseSheet({ issue, reason, busy = false, onConfirm, onClos
             <Icon as={AlertTriangle} size={15} color={color.needsYouText} />
           </View>
           <Text style={styles.title} numberOfLines={2}>
-            {/* The ending is named only when it is NOT the ordinary one:
-                "Close this task?" already means done, and spelling that out
-                would make the common path read like a special case. */}
-            {pending ? 'Checking this task…' : concerns.length > 0
-              ? 'This task still needs attention'
-              : reason && reason !== 'done'
-                ? `Close this task as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
-                : 'Close this task?'}
+            {closeTitle(reason, concerns.length, pending)}
           </Text>
-          <Text style={styles.subtitle}>
-            {pending ? 'Waiting for the latest task status.' : concerns.length > 0
-              ? 'Closing is still available, but it should be an explicit decision.'
-              : 'Nothing unresolved is left on it.'}
-          </Text>
+          <Text style={styles.subtitle}>{closeSubtitle(concerns.length, pending)}</Text>
         </View>
       }
       footerRule={false}
@@ -133,7 +104,7 @@ function VisibleIssueCloseSheet({ issue, reason, busy = false, onConfirm, onClos
       <View style={styles.group}>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={confirmLabel(reason, concerns.length > 0, false)}
+          accessibilityLabel={closeConfirmLabel(reason, concerns.length > 0, false)}
           disabled={busy || pending || reason === null}
           scaleTo={0.99}
           // Dismiss FIRST, then close. The store's close is optimistic and
@@ -153,7 +124,7 @@ function VisibleIssueCloseSheet({ issue, reason, busy = false, onConfirm, onClos
           ]}
         >
           <Text style={[styles.label, styles.destructive]}>
-            {confirmLabel(reason, concerns.length > 0, busy)}
+            {closeConfirmLabel(reason, concerns.length > 0, busy)}
           </Text>
         </PressableScale>
       </View>
@@ -168,16 +139,6 @@ const CONCERN_ICONS: Record<IssueCloseConcern['icon'], AppIcon> = {
   sessions: Users,
   children: GitBranch,
   git: GitCommit,
-}
-
-/** The button says which ENDING is being recorded, not just "close" — the status
- *  sheet offers three of them and this is the last place to catch a mispick.
- *  `done` keeps the plain wording so the common path stays a plain sentence.
- *  Word for word the desktop's, so the two guards cannot drift apart in tone. */
-function confirmLabel(reason: IssueCloseReason | null, blocked: boolean, busy: boolean): string {
-  if (busy) return 'Closing…'
-  if (reason && reason !== 'done') return `Close as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}`
-  return blocked ? 'Close anyway' : 'Close task'
 }
 
 const styles = StyleSheet.create({
@@ -210,7 +171,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   content: {
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingBottom: space.sm,
     gap: space.sm,
   },
@@ -275,7 +236,7 @@ const styles = StyleSheet.create({
   },
   cancel: {
     paddingVertical: 15,
-    marginHorizontal: space.md,
+    marginHorizontal: space.lg,
     marginTop: space.sm,
     alignItems: 'center',
     borderRadius: radius.lg,
@@ -285,7 +246,7 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     ...sans(600),
-    color: color.textDim,
+    color: color.text,
     fontSize: font.body,
   },
 })
