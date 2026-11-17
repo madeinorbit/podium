@@ -43,7 +43,12 @@ import {
 import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
-import { clonePgTestDatabase, testStoreEngine } from './pg-test-database'
+import {
+  clonePgTestDatabase,
+  closeBeforeDrop,
+  type PgTestDatabase,
+  testStoreEngine,
+} from './pg-test-database'
 
 /**
  * Build a `SessionStore` for a test. The parameters are the constructor's, in
@@ -67,12 +72,15 @@ export async function openTestStore(
   // would have them.
   // No change capture until the test attaches a change log (POD-6920): a
   // store-level fixture seeds with no log to bypass.
-  const location = testStoreEngine() === 'pg' ? await postgresLocation(path) : path
+  const clone = testStoreEngine() === 'pg' ? await postgresDatabase(path) : undefined
+  const location = clone?.url ?? path
   const store = await SessionStore.open(location, hostMachineId, {
     ...snapshotVerifierDeps,
     changeCapture: 'whenLogAttaches',
     workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
   })
+  // A store left open would still be querying when its database is dropped.
+  if (clone !== undefined) closeBeforeDrop(clone.name, async () => await store.close())
   // The workspace's own first admin (POD-7019: members are the workspace's). A workspace the
   // image does not seed (its people are the self-hosted workspace's) has none, and then no
   // earlier store's admin stays primed.
@@ -82,8 +90,8 @@ export async function openTestStore(
   return store
 }
 
-/** The location of a Postgres test store standing in for `path`. */
-async function postgresLocation(path: string | undefined): Promise<string> {
+/** The Postgres database of a test store standing in for `path`. */
+async function postgresDatabase(path: string | undefined): Promise<PgTestDatabase> {
   if (path !== undefined && path !== ':memory:') {
     throw new Error(
       `openTestStore: ${path} is a SQLite file, and this run uses Postgres. A test that needs ` +
@@ -91,5 +99,5 @@ async function postgresLocation(path: string | undefined): Promise<string> {
         'apps/server/test-store-engines.json.',
     )
   }
-  return (await clonePgTestDatabase()).url
+  return await clonePgTestDatabase()
 }

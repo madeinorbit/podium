@@ -236,6 +236,10 @@ export class StoreDatabase {
    * workspace's store it belongs to. See `store/table-writes.ts`.
    */
   readonly tableWrites = new TableWrites()
+  /** See {@link StoreLifecycle.legacyIdentityStorage}. */
+  get legacyIdentityStorage(): boolean {
+    return this.lifecycle.legacyIdentityStorage
+  }
   /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
   readonly hostMachineId: MachineId
   private readonly publicationIdleSubscriptions = new Set<() => void>()
@@ -822,7 +826,9 @@ export class SessionStore {
     // structurally (POD-3338, spec §6 rule 20). It is bound to this workspace:
     // its feed, change log and kind generations are this workspace's.
     this.sync = new SyncRepository(this.queries, syncServerTables, workspaceId)
-    this.identityUpgrade = new IdentityUpgradeRepository(this.queries)
+    this.identityUpgrade = new IdentityUpgradeRepository(this.queries, {
+      legacyStorage: database.legacyIdentityStorage,
+    })
     this.superagent = new SuperagentRepository(this.queries)
     this.settings = new SettingsRepository(this.queries)
     this.layout = new UserLayoutRepository(this.queries)

@@ -41,10 +41,11 @@
  */
 
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { primeFirstAdminMember } from '@podium/model'
+import { asUserId, primeFirstAdminMember } from '@podium/model'
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { installStoreDatabaseOpener, resetStoreDatabaseOpener } from '../store-database'
+import { PG_TEST_FIRST_ADMIN_ENV } from './pg-template-seed'
 import { testStoreEngine } from './pg-test-database'
 
 /**
@@ -108,6 +109,10 @@ export function installPreMigratedStoreFixtureFor(testPath: string): boolean {
   // so the seam refuses it and says where the file belongs.
   if (testStoreEngine() === 'pg') {
     installStoreDatabaseOpener(refuseSqliteStore(testPath))
+    // The template holds a fresh SQLite store's rows, its first admin included
+    // (`pg-template-seed.ts`); the lane's globalSetup read its id once.
+    const firstAdmin = process.env[PG_TEST_FIRST_ADMIN_ENV]
+    if (firstAdmin) primeFirstAdminMember(asUserId(firstAdmin))
     return false
   }
   if (usesRealMigrationChain(testPath)) return false

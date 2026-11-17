@@ -80,6 +80,12 @@ export interface StoreLifecycle {
   /** Whether the store keeps planner statistics of its own (a SQLite file does). */
   readonly keepsPlannerStatistics: boolean
   /**
+   * Whether the database can hold the pre-identity credential and invitation tables the
+   * boot imports once (`identity/ensure-local-identity.ts`). A SQLite install may (the
+   * retirement migration drops them after the import); a Postgres baseline never had them.
+   */
+  readonly legacyIdentityStorage: boolean
+  /**
    * DERIVED CHANGE CAPTURE ON (POD-6920): from here a transaction that does not drain
    * what it captured cannot commit. Until then a write captures nothing that reaches a
    * commit: SQLite has no capture triggers, and Postgres drops a transaction's capture
@@ -186,6 +192,7 @@ export async function openSqliteStoreLifecycle(
     connection: db,
     applied,
     keepsPlannerStatistics: !memory,
+    legacyIdentityStorage: true,
     async attachChangeCapture() {
       await store.exclusive(async (session) => await installChangeCapture(session))
     },

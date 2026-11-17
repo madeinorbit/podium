@@ -34,6 +34,13 @@ import postgres from 'postgres'
 import type { DrizzleMigration } from '../migrations/index'
 import { migratePg, PG_MIGRATIONS } from '../migrations/pg/index'
 import {
+  copySeedTables,
+  PG_EARLIEST_ADMIN_SQL,
+  PG_TEST_FIRST_ADMIN_ENV,
+  type SeedTable,
+  sqliteImageSeedTables,
+} from './pg-template-seed'
+import {
   connectPgTest,
   PG_TEST_RUN_ENV,
   PG_TEST_TEMPLATE_ENV,
@@ -44,6 +51,8 @@ import {
   quotePgIdentifier,
   TEST_STORE_ENGINE_ENV,
 } from './pg-test-database'
+import { schemaFingerprint } from './pre-migrated-store.build'
+import { buildSchemaImage } from './pre-migrated-store.image'
 
 const run = promisify(execFile)
 
@@ -81,10 +90,20 @@ export interface PgTemplateSource {
 
 export function chainTemplateSource(
   migrations: readonly DrizzleMigration[] = PG_MIGRATIONS,
+  sqliteSeed: { readonly fingerprint: string; readonly tables: () => SeedTable[] } = {
+    fingerprint: schemaFingerprint(),
+    tables: () => sqliteImageSeedTables(buildSchemaImage()),
+  },
 ): PgTemplateSource {
+  // The SQLite chain is part of what the template holds: its fresh-database rows are
+  // the template's starting rows (`pg-template-seed.ts`, POD-6994).
   const digest = createHash('sha256')
     .update(
-      JSON.stringify({ kind: 'pg-chain', migrations: migrations.map((m) => [m.name, m.sql]) }),
+      JSON.stringify({
+        kind: 'pg-chain',
+        migrations: migrations.map((m) => [m.name, m.sql]),
+        sqliteSeed: sqliteSeed.fingerprint,
+      }),
     )
     .digest('hex')
   return {
@@ -93,13 +112,13 @@ export function chainTemplateSource(
       const sql = postgres(url, { max: 1, onnotice: () => {} })
       try {
         await migratePg(sql, migrations)
+        await copySeedTables(sql, sqliteSeed.tables())
       } finally {
         await sql.end({ timeout: 5 })
       }
     },
   }
 }
-
 export function templateName(digest: string): string {
   return `podium_tpl_${digest.slice(0, 16)}`
 }
@@ -417,9 +436,43 @@ export async function preparePgTestServer(
   })
 }
 
+/**
+ * The first admin a clone of `template` holds, read from a throwaway clone (the template
+ * itself takes no connections). Named under the run's prefix, so teardown drops it even if
+ * this does not.
+ */
+async function templateFirstAdmin(
+  adminUrl: string,
+  template: string,
+  runId: string,
+): Promise<string | undefined> {
+  const probe = `${pgRunPrefix(runId)}first_admin`
+  const admin = connectPgTest(adminUrl)
+  try {
+    await admin.unsafe(
+      `CREATE DATABASE ${quotePgIdentifier(probe)} TEMPLATE ${quotePgIdentifier(template)} STRATEGY FILE_COPY`,
+    )
+    const clone = connectPgTest(pgUrlForDatabase(adminUrl, probe))
+    try {
+      const [row] = await clone.unsafe<{ id: string }>(PG_EARLIEST_ADMIN_SQL)
+      return row?.id
+    } finally {
+      await clone.close({ timeout: 5 })
+    }
+  } finally {
+    await admin.unsafe(`DROP DATABASE IF EXISTS ${quotePgIdentifier(probe)} WITH (FORCE)`)
+    await admin.close({ timeout: 5 })
+  }
+}
+
 export default async function setup(): Promise<() => Promise<void>> {
   const { adminUrl, template } = await preparePgTestServer()
   const runId = newRunId()
+  // The template's rows are a fresh SQLite store's (`pg-template-seed.ts`), its first
+  // admin included; the forks prime it before a test file is imported.
+  const firstAdmin = await templateFirstAdmin(adminUrl, template, runId)
+  if (firstAdmin === undefined) delete process.env[PG_TEST_FIRST_ADMIN_ENV]
+  else process.env[PG_TEST_FIRST_ADMIN_ENV] = firstAdmin
   // Forks inherit the environment; `inject()` would not reach the synchronous
   // module-scope reads the store fixtures make.
   process.env[TEST_STORE_ENGINE_ENV] = 'pg'

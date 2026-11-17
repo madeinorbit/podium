@@ -141,7 +141,11 @@ export type PgTestScope = 'test' | 'file'
 
 let admin: PgTestClient | undefined
 let workerDatabase: Promise<PgTestDatabase> | undefined
-let created: { readonly name: string; readonly scope: PgTestScope }[] = []
+let created: {
+  readonly name: string
+  readonly scope: PgTestScope
+  readonly closers: (() => Promise<void>)[]
+}[] = []
 let sequence = 0
 let currentScope: () => PgTestScope = () => 'file'
 
@@ -199,7 +203,7 @@ async function createPgTestDatabase(template: string, scope: PgTestScope): Promi
   await adminClient(environment.url).unsafe(
     `CREATE DATABASE ${quotePgIdentifier(name)} TEMPLATE ${quotePgIdentifier(template)} STRATEGY FILE_COPY`,
   )
-  created.push({ name, scope })
+  created.push({ name, scope, closers: [] })
   return { name, url: pgUrlForDatabase(environment.url, name) }
 }
 
@@ -214,6 +218,31 @@ export function pgTestDatabasesCreated(): readonly string[] {
   return created.map((database) => database.name)
 }
 
+/**
+ * Run `close` before the database named `name` is dropped when its file ends
+ * [POD-6994]: a store a test opened on it and never closed still has timers and queries
+ * of its own, and a `DROP … WITH (FORCE)` under them fails those queries as errors nobody
+ * awaits. A close that fails or hangs past two seconds does not stop the drop.
+ */
+export function closeBeforeDrop(name: string, close: () => Promise<void>): void {
+  created.find((database) => database.name === name)?.closers.push(close)
+}
+
+async function runClosers(closers: readonly (() => Promise<void>)[]): Promise<void> {
+  await Promise.all(
+    closers.map(async (close) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        close().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 2000)
+        }),
+      ])
+      clearTimeout(timer)
+    }),
+  )
+}
+
 async function drop(client: PgTestClient, names: readonly string[]): Promise<void> {
   // `WITH (FORCE)` ends connections a test left open (a store it never closed),
   // so a leaked pool cannot keep a database alive.
@@ -222,15 +251,43 @@ async function drop(client: PgTestClient, names: readonly string[]): Promise<voi
   }
 }
 
-/** Drop the databases made during the test that just ended. */
+/**
+ * Drop the databases made during the test that just ended, the ones nothing still uses.
+ *
+ * A database a store still holds (a test that left its store, and a registry's timers
+ * over it, running: harmless on SQLite, where an in-memory store simply stays open)
+ * is not forced away under it; it is kept until the file ends [POD-6994]. Whether
+ * anything still uses one is read from `pg_stat_activity` first: a plain `DROP
+ * DATABASE` on a database with connections waits five seconds before it refuses.
+ */
 export async function dropPgTestScopedDatabases(): Promise<void> {
   const ending = created.filter((database) => database.scope === 'test')
   if (ending.length === 0 || admin === undefined) return
-  created = created.filter((database) => database.scope !== 'test')
-  await drop(
-    admin,
-    ending.map((database) => database.name),
+  const busy = new Set(
+    (
+      await admin.unsafe<{ datname: string }>(
+        `SELECT DISTINCT datname FROM pg_stat_activity WHERE datname IN (${ending
+          .map((database) => `'${database.name.replaceAll("'", "''")}'`)
+          .join(', ')})`,
+      )
+    ).map((row) => row.datname),
   )
+  const kept: typeof created = []
+  for (const database of ending) {
+    if (busy.has(database.name)) {
+      kept.push({ ...database, scope: 'file' })
+      continue
+    }
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS ${quotePgIdentifier(database.name)}`)
+    } catch (error) {
+      // A connection that arrived since the read: keep it to the file's end.
+      const { errno, code } = error as { errno?: string; code?: string }
+      if (errno !== '55006' && code !== '55006') throw error
+      kept.push({ ...database, scope: 'file' })
+    }
+  }
+  created = [...created.filter((database) => database.scope !== 'test'), ...kept]
 }
 
 /**
@@ -239,12 +296,14 @@ export async function dropPgTestScopedDatabases(): Promise<void> {
  */
 export async function dropPgTestDatabases(): Promise<void> {
   const names = pgTestDatabasesCreated()
+  const closers = created.flatMap((database) => database.closers)
   created = []
   workerDatabase = undefined
   const client = admin
   admin = undefined
   if (client === undefined) return
   try {
+    await runClosers(closers)
     await drop(client, names)
   } finally {
     await client.close({ timeout: 5 })

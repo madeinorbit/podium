@@ -40,9 +40,18 @@ const retiredSessions = prepared((db, t) =>
 )
 
 export class IdentityUpgradeRepository {
-  constructor(private readonly queries: WorkspaceQueries) {}
+  /**
+   * `legacyStorage` is false on a store that never held the pre-identity tables (a
+   * Postgres baseline, POD-6994): there is nothing to import, so the two legacy reads
+   * answer empty without a statement.
+   */
+  constructor(
+    private readonly queries: WorkspaceQueries,
+    private readonly options: { readonly legacyStorage: boolean } = { legacyStorage: true },
+  ) {}
 
   async passwordHashes() {
+    if (!this.options.legacyStorage) return new Map<ReturnType<typeof asUserId>, string>()
     const rows = await passwords(this.queries.db).all()
     return new Map(
       rows.flatMap(({ userId, passwordHash }) =>
@@ -52,6 +61,7 @@ export class IdentityUpgradeRepository {
   }
 
   async pendingLinks() {
+    if (!this.options.legacyStorage) return []
     return await links(this.queries.db).all()
   }
   async retireSessions() {

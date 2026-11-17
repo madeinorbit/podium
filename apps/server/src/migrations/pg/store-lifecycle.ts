@@ -98,6 +98,7 @@ export async function openPgStoreLifecycle(
     connection,
     applied,
     keepsPlannerStatistics: false,
+    legacyIdentityStorage: false,
     async attachChangeCapture() {
       capture.attach()
     },
