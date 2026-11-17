@@ -110,6 +110,51 @@ on the engine for the measurement only.
 | Client, engine with the override | No modal; the client's launch prompt is answered; nothing written. Same on 0.147.0 and 0.169.0. |
 | Re-probe with the committed code (engine argv from the engine's trust args, engine env with `PODIUM_SESSION_ID` and no hook URL or socket), 0.147.0 and 0.169.0 | No modal; both prompts answered; Codex runs the handlers (`hook/started`, `hook/completed`) and none reaches the listener; no `config.toml`. |
 
+### Folder trust in a worktree (POD-7039, 0.147.0, 0.169.0)
+
+Found by the acceptance run (POD-6867): a Codex chat-view session in a linked
+worktree, whose CLI tab starts `resume -C <worktree> <thread> --remote …`, drew
+"Folder access: Trust this folder?" while the engine trusted only the main
+checkout. Measured on the acceptance test host with a probe built like the
+POD-7028 one: a scratch home holding `auth.json` plus Podium's `hooks.json`, a
+repository with one commit and a `git worktree add` (both paths contain a space
+and `é`), the engine started in the worktree with the engine terms
+`codexPosture` builds (hook trust included), a JSON-RPC thread and turn in the
+worktree, then the stock TUI as a client with a launch prompt. "Screen": the
+"Folder access: Trust this folder?" screen; "Answered": the client's launch
+prompt got its reply.
+
+| Engine `projects=` | Client `-C` | 0.169.0 | 0.147.0 |
+|---|---|---|---|
+| main checkout only (the old terms) | worktree | **Screen**; prompt not sent | No screen; answered |
+| main checkout only | main checkout | No screen; answered | not run |
+| main checkout only, plus the client's own `-c projects={worktree}` | worktree | **Screen**: the client's copy is ignored | not run |
+| main checkout and worktree, one table (the new terms) | worktree | No screen; answered | No screen; answered |
+| main checkout and worktree, one table | main checkout | No screen; answered | No screen; answered |
+| two separate `-c projects=` (main checkout, then worktree) | main checkout | **Screen**: the second replaced the first | not run |
+| two separate `-c projects=` | worktree | No screen; answered | not run |
+| main-checkout session: main checkout only (the new terms there) | main checkout | No screen; answered | No screen; answered |
+
+| Terminal `projects=`, TUI in the worktree | 0.169.0 | 0.147.0 |
+|---|---|---|
+| main checkout only | No screen; answered | not run |
+| main checkout and worktree, one table | No screen; answered | No screen; answered |
+
+So a terminal resolves a worktree's trust to the main checkout, but on 0.169.0
+the engine checks a client's `-C` folder as given. 0.147.0 does not show the
+screen even with the old terms.
+
+Then live in Podium, on the same host and at the fix commit: a real server and
+daemon in one process, a scratch home holding only Codex's `auth.json`, a
+fresh repository and its worktree, and Codex 0.169.0. A chat-view session
+(`codex-app-server`) in each folder was created through `sessions.create`. The
+first message was sent from chat, and the web app's CLI tab was opened.
+
+| Session | Engine `projects=` (from `/proc`) | CLI tab (`resume -C <folder> --remote`) | First message | Home edits |
+|---|---|---|---|---|
+| Worktree | main checkout and worktree | Composer, **no trust screen** | Answered; `podium issue prime` ran | The rules file only (first launch in the fresh home) |
+| Main checkout | main checkout only, as before | Composer, no trust screen | Answered; `podium issue prime` ran | None |
+
 ## OpenCode 1.18.35
 
 All turns used the default free model (OpenCode Zen, "Big Pickle"), so no

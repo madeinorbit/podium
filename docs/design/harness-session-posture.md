@@ -430,7 +430,8 @@ The Cursor row is from `--help` and the installed bundle only; its screen cells
   checkout's entry alone, but the engine checks a `resume --remote` client's
   `-C` folder as given, and the CLI tab of a worktree chat view starts its
   client with `-C <worktree>`: with only the main checkout trusted it drew
-  "Folder access: Trust this folder?". Both folders go in one `projects=`
+  "Folder access: Trust this folder?" (0.169.0; 0.147.0 did not ask). Both
+  folders go in one `projects=`
   table, in terminal, engine and turn; a second `-c projects=` replaces the
   first rather than adding to it. The client still takes no trust of its own.
 - **Codex keeps loopback open in every mode.** Today the app-server only opens
