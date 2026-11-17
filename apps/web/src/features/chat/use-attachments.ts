@@ -38,10 +38,10 @@ import { hasFileItems } from './transfer-items'
  * contract for why a known session ignores it.
  */
 
-export interface Attachment extends Omit<ComposerAttachment, 'previewUri'> {
+export interface Attachment extends ComposerAttachment {
   /** An object URL when the browser can render this file inline, otherwise ''
    *  — a document chip shows its name and nothing else. */
-  previewUrl: string
+  previewUri: string
   /** The picked bytes, kept so the upload can be REDONE against a different
    *  machine (POD-1203). The home composer's target is a dropdown the operator
    *  can still change after attaching, and an uploaded path is only valid on the
@@ -100,12 +100,7 @@ export function useAttachments(opts: {
 }): UseAttachmentsResult {
   const { sessionId, trpc, machineId, destination = 'session' } = opts
   const [localAttachments, setLocalAttachments] = useState<Attachment[]>([])
-  const attachments: Attachment[] = opts.draft
-    ? opts.draft.attachments.map(({ previewUri, ...attachment }) => ({
-        ...attachment,
-        previewUrl: previewUri,
-      }))
-    : localAttachments
+  const attachments: Attachment[] = opts.draft?.attachments ?? localAttachments
   const draftRef = useRef(opts.draft)
   draftRef.current = opts.draft
   const setAttachments = useCallback((change: SetStateAction<Attachment[]>) => {
@@ -115,18 +110,13 @@ export function useAttachments(opts: {
       return
     }
     updateFirstTaskDraftAttachments(draft.uiState, (current) => {
-      const previous = current.map(({ previewUri, ...attachment }) => ({
-        ...attachment,
-        previewUrl: previewUri,
-      }))
-      const next = typeof change === 'function' ? change(previous) : change
+      const next = typeof change === 'function' ? change(current) : change
       // File bytes belong to the active upload. The draft retains its result
       // and the existing preview URL, so reopening never uploads those bytes again.
-      return next.map((attachment, index) => {
-        const saved = current[index]
-        if (saved && attachment === previous[index]) return saved
-        const { previewUrl, file: _file, ...chip } = attachment
-        return { ...chip, previewUri: previewUrl }
+      return next.map((attachment) => {
+        if (!attachment.file) return attachment
+        const { file: _file, ...chip } = attachment
+        return chip
       })
     })
   }, [])
@@ -197,7 +187,7 @@ export function useAttachments(opts: {
         id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: f.name,
         size: f.size,
-        previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : '',
+        previewUri: f.type.startsWith('image/') ? URL.createObjectURL(f) : '',
         state: 'uploading' as const,
         file: f,
       }))
@@ -245,11 +235,11 @@ export function useAttachments(opts: {
       paths: readyOnes.flatMap((a) => (a.path ? [a.path] : [])),
       legacyPaths: readyOnes.flatMap((a) => (!a.ref && a.path ? [a.path] : [])),
       refs: readyOnes.flatMap((a) => (a.ref ? [a.ref] : [])),
-      // The tag kind is what the transcript renders the chip as, and `previewUrl`
+      // The tag kind is what the transcript renders the chip as, and `previewUri`
       // is already the answer to "can this be shown as a picture?" — reuse it
       // rather than testing the mime a second time and getting a different answer.
       tags: readyOnes.map((a) => ({
-        kind: a.previewUrl ? ('image' as const) : ('file' as const),
+        kind: a.previewUri ? ('image' as const) : ('file' as const),
         label: a.name,
       })),
     }

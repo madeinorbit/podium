@@ -883,6 +883,30 @@ describe('ColdStartComposer', () => {
    * whole point is that the agent receives it — a chip that only ever decorated
    * this screen would be worse than no affordance at all. */
   describe('attachments', () => {
+    it('keeps attachment writes on chip changes and does not rewrite them on prompt renders', async () => {
+      const writes = vi.spyOn(store.uiState, 'set')
+      try {
+        const mounted = render(<ColdStartComposer first />)
+        attach(new File(['bytes'], 'shot.png', { type: 'image/png' }))
+        await waitForAttachment('shot.png')
+        const before = readFirstTaskDraft(
+          uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY) ?? null,
+        ).attachments
+        writes.mockClear()
+        mounted.rerender(<ColdStartComposer first />)
+        expect(writes).not.toHaveBeenCalled()
+        fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+          target: { value: 'Review the image' },
+        })
+        expect(writes).toHaveBeenCalledTimes(1)
+        expect(
+          readFirstTaskDraft(uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY) ?? null).attachments,
+        ).toEqual(before)
+      } finally {
+        writes.mockRestore()
+      }
+    })
+
     it('holds the file on the server, not on the selected machine (POD-2148)', async () => {
       render(<ColdStartComposer first />)
 
