@@ -509,6 +509,17 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['identity'],
     deps: ['packages/model'],
   },
+  // The blob store (POD-6963 design 2.1): one byte interface for user files
+  // (artifacts, uploads, the transcript lake) with a local-disk adapter and an
+  // in-memory one. NODE-ONLY: the local adapter is node:fs. Layer 1 so the
+  // sync kernel (L2) can write the lake through it; it reaches the model leaf
+  // and nothing else, never an app.
+  'packages/blob-store': {
+    layer: 1,
+    platform: 'node-only',
+    features: ['blob-store'],
+    deps: ['packages/model'],
+  },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // the durable host (the vendored Rust podium-host; the abduco attach client for
   // sessions older releases started), byte framing, OSC scan,

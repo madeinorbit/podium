@@ -1,0 +1,41 @@
+{
+  "name": "@podium/blob-store",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One small byte interface for user files (POD-6963 design 2.1): whole-object put with conditional writes, ranged get, head, delete, sorted list and copy, built for one workspace. A local-disk adapter that keeps today's paths under the state directory and an in-memory adapter with object-store semantics for tests. Depends only on @podium/model, never apps/*.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./local": {
+      "@podium/source": "./src/local.ts",
+      "types": "./src/local.ts",
+      "import": "./src/local.ts"
+    },
+    "./memory": {
+      "@podium/source": "./src/memory.ts",
+      "types": "./src/memory.ts",
+      "import": "./src/memory.ts"
+    },
+    "./testing": {
+      "@podium/source": "./src/testing/contract.ts",
+      "types": "./src/testing/contract.ts",
+      "import": "./src/testing/contract.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/blob-store:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+  },
+  "dependencies": {
+    "@podium/model": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "vitest": "5.0.0-beta.6"
+  }
+}
