@@ -22,6 +22,7 @@
     "test:contracts": {
       "dependsOn": [],
       "inputs": [
+        "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -1286,6 +1287,7 @@
         "src/test-support/host-daemon.ts",
         "src/test-support/issue-corpus.ts",
         "src/test-support/issue-row.ts",
+        "src/test-support/lake-backends.ts",
         "src/test-support/legacy-client-session.ts",
         "src/test-support/logged-rows.ts",
         "src/test-support/message-writer.ts",
@@ -3074,6 +3076,7 @@
         "src/test-support/issue-corpus.ts",
         "src/test-support/issue-pin.ts",
         "src/test-support/issue-row.ts",
+        "src/test-support/lake-backends.ts",
         "src/test-support/logged-rows.ts",
         "src/test-support/machine-records.ts",
         "src/test-support/message-writer.ts",
