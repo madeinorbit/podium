@@ -7,11 +7,11 @@
  * on a plan that reads a whole table or sorts in a temporary B-tree, unless
  * the query is on one of the lists below with a written reason.
  *
- * ONE MODULE INSTANCE. The audit pairs each registered definition with its
- * source site by position (see `matchSites`), which needs every repository
- * module loaded once. It therefore never imports a repository by a second
- * specifier (an absolute path next to the server's `@podium/sync/...` or
- * relative import can load the same file twice).
+ * ONE MODULE INSTANCE. The audit pairs each registered definition with the
+ * source site its call is on (see `siteContaining`), and plans what one store
+ * built. It therefore never imports a repository by a second specifier (an
+ * absolute path next to the server's `@podium/sync/...` or relative import can
+ * load the same file twice, and register every definition in it twice).
  *
  * HOW IT SEES EVERY QUERY, NOT ONLY THE ONES A TEST RUNS. Each definition
  * registers itself when it is made (`preparedDefinitions()` in

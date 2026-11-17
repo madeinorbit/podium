@@ -245,11 +245,12 @@ export interface QueryDefinitionSite {
    */
   readonly name: string
   readonly kind: 'prepared' | 'family'
-  /** First and last line of the call, 1-based, inclusive. */
+  /**
+   * First and last line of the call, 1-based, inclusive. A definition whose stack
+   * names a line in this range is this one.
+   */
   readonly startLine: number
   readonly endLine: number
-  /** False for a definition made inside a function or method rather than at module level. */
-  readonly moduleLevel: boolean
 }
 
 function definitionName(call: ts.CallExpression): string {
@@ -277,19 +278,6 @@ function definitionName(call: ts.CallExpression): string {
   return [owner, own ?? '<anonymous>'].filter(Boolean).join('.')
 }
 
-function atModuleLevel(node: ts.Node): boolean {
-  for (let current = node.parent; current; current = current.parent) {
-    if (
-      ts.isFunctionLike(current) &&
-      !(current.parent && ts.isCallExpression(current.parent) && isDefinerCall(current.parent))
-    ) {
-      return false
-    }
-    if (ts.isClassLike(current)) return false
-  }
-  return true
-}
-
 function isDefinerCall(node: ts.CallExpression): boolean {
   return definerOf(node) !== undefined
 }
@@ -306,7 +294,6 @@ export function queryDefinitionSites(file: string, source: string): QueryDefinit
         kind: definerOf(node) === 'preparedFamily' ? 'family' : 'prepared',
         startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
         endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
-        moduleLevel: atModuleLevel(node),
       })
     }
     ts.forEachChild(node, visit)

@@ -72,7 +72,8 @@ import {
  * `build` itself on a drizzle instance that records instead of running (and
  * `build` takes the instance's bound tables as the definition's `t`), so it
  * sees every repository query whether or not a test ever executes it, and
- * `site` names the definition (the audit maps its stack to the source).
+ * `site` names the definition: its stack, formatted when the definition was
+ * made, gives the source line of the call (the audit finds the call there).
  */
 export interface PreparedDefinition {
   readonly kind: 'prepared' | 'family'
@@ -121,12 +122,19 @@ function register(
   entry?: CrossWorkspaceEntry,
 ): void {
   if (definitions.length >= DEFINITION_LIMIT) return
+  const site = new Error('query definition')
+  // Format the stack now, while the code it names is running [POD-7064]. Left
+  // unread, the engine formats it whenever a collection frees that code (Bun
+  // does so without `Error.prepareStackTrace`, so the test runner's source map
+  // is skipped) or at first read (with it), and one process then holds stacks
+  // in two coordinate systems: transformed lines and source lines.
+  void site.stack
   definitions.push({
     kind,
     scope,
     ...(entry === undefined ? {} : { entry }),
     build,
-    site: new Error('query definition'),
+    site,
   })
 }
 

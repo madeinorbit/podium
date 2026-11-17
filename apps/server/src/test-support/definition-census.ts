@@ -40,8 +40,8 @@ import {
 import {
   type BuiltStatement,
   definitionFrame,
-  matchSites,
   recordingDrizzle,
+  siteContaining,
   statementsOf,
 } from './query-plan-audit'
 
@@ -581,7 +581,15 @@ export interface KeyedDefinition {
 
 /**
  * Every registered definition paired with its source site, plus the coverage
- * facts: sites never reached, files whose positions could not be paired.
+ * facts: sites never reached, and definitions no site accounts for.
+ *
+ * A definition is paired with the site whose call spans the source line its
+ * stack names (`siteContaining`), so the pairing of one definition does not
+ * depend on any other, on the order the engine reports positions in, or on a
+ * column [POD-7064]. `unmapped` lists each definition whose frame lands in a
+ * census file but on no site, or on a site of the other kind (a family on a
+ * plain definition, or the reverse): either means the frame is not where the
+ * call is, and a census that took it would key the definition wrongly.
  */
 export function keyedDefinitions(
   sources: readonly string[],
@@ -596,63 +604,33 @@ export function keyedDefinitions(
   const sitesByFile = new Map<string, QueryDefinitionSite[]>()
   for (const site of sites)
     sitesByFile.set(site.file, [...(sitesByFile.get(site.file) ?? []), site])
-  const definitions = preparedDefinitions().map((definition) => ({
-    definition,
-    frame: definitionFrame(definition.site, REPO_ROOT),
-  }))
-  const positionsByFile = new Map<string, { line: number; column: number }[]>()
-  for (const { frame } of definitions) {
-    if (frame && sitesByFile.has(frame.file)) {
-      positionsByFile.set(frame.file, [...(positionsByFile.get(frame.file) ?? []), frame])
-    }
-  }
-  const unmapped: string[] = []
-  const siteAt = new Map<string, Map<string, QueryDefinitionSite>>()
-  for (const [file, fileSites] of sitesByFile) {
-    const matched = matchSites(positionsByFile.get(file) ?? [], fileSites)
-    if (matched) siteAt.set(file, matched)
-    else {
-      const reached = new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`))
-        .size
-      const methodSites = fileSites.filter((site) => !site.moduleLevel).map((site) => site.name)
-      const frames = [
-        ...new Set(
-          definitions
-            .filter(({ frame }) => frame?.file === file)
-            .map(
-              ({ definition }) =>
-                (definition.site.stack ?? '').split('\n').find((line) => line.includes(file)) ?? '',
-            ),
-        ),
-      ].slice(0, 6)
-      unmapped.push(
-        `${file}: ${fileSites.length} definition sites, ${reached} positions reached; ` +
-          `method-level sites: ${methodSites.join(', ')}; positions: ${[
-            ...new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`)),
-          ].join(
-            ' ',
-          )}; site lines: ${fileSites.map((site) => site.startLine).join(' ')}; sample frames: ${frames.join(' || ')}`,
-      )
-    }
-  }
+  const unmapped = new Set<string>()
   const registered = new Set<QueryDefinitionSite>()
   const keyed: KeyedDefinition[] = []
-  for (const { definition, frame } of definitions) {
-    const site = frame && siteAt.get(frame.file)?.get(`${frame.line}:${frame.column}`)
-    if (!site) continue
+  for (const definition of preparedDefinitions()) {
+    const frame = definitionFrame(definition.site, REPO_ROOT)
+    const fileSites = frame && sitesByFile.get(frame.file)
+    if (!frame || !fileSites) continue
+    const site = siteContaining(fileSites, frame.line)
+    const at = `${frame.file}:${frame.line}:${frame.column}`
+    if (!site) {
+      unmapped.add(`${at}: a ${definition.kind} definition on no definition site`)
+      continue
+    }
+    if (site.kind !== definition.kind) {
+      unmapped.add(`${at}: a ${definition.kind} definition on ${site.kind} site ${site.name}`)
+      continue
+    }
     registered.add(site)
     keyed.push({ key: `${site.file}:${site.name}`, definition })
   }
   return {
     sites,
     keyed,
-    unregisteredSites:
-      siteAt.size === sitesByFile.size
-        ? sites
-            .filter((site) => !registered.has(site))
-            .map((site) => `${site.file}:${site.startLine} ${site.name}`)
-        : [],
-    unmapped,
+    unregisteredSites: sites
+      .filter((site) => !registered.has(site))
+      .map((site) => `${site.file}:${site.startLine} ${site.name}`),
+    unmapped: [...unmapped],
   }
 }
 
