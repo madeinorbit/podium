@@ -14074,18 +14074,18 @@
       "file": "packages/client-core/src/session-values.ts",
       "holder": "sessionViews/map:callback",
       "rule": "helper-consumer",
-      "tokens": "42df230cc2933588ff2f4d85af9c394de0c9c69194013531fcdfe1956aee816c",
+      "tokens": "0a99534729b130a4a68ceeabd6eea399c8648bee2e0f9cdb96e3fa9d60d3c07f",
       "gate": [],
       "origin": [
         "59fc72082e6a1071267e24d755cf036583c6f2b8ad0d741c7000ca5047f476b7"
       ],
-      "fingerprint": "251ec26621b3d866d999ebc90e2c341ffc382dc0e1a14269c372cc1fdfdb1e68",
+      "fingerprint": "1ae8efed03a119b8f6c4098cf6c92cadc2c5b88a657605ee7cee636e607b3580",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of sessionViews/map:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7062: the session input's credentialId and accountId (the login condition reads them) change this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7062: the session input's credentialId and accountId (the login condition reads them) change this fingerprint; the collection bound and classification are unchanged. POD-7062 had rehashed it; POD-6907 changed only the accountId field's removal-marker comment, which moves it again.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
