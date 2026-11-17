@@ -21,7 +21,6 @@ import { Icon } from '../Icon'
 import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
-import { WorkingMark } from '../WorkingMark'
 import { WorkingWord } from '../WorkingWord'
 import { Disclosure } from './chrome'
 import { useDetailSize } from './detail-type'
@@ -451,7 +450,15 @@ const TaskSessionRow = observer(function TaskSessionRow({
       ) : null}
       <View style={[styles.gutter, { width: size(14), height: size(leading(font.body)) }]}>
         {phase === 'working' ? (
-          <WorkingMark size={size(14)} />
+          <View
+            style={{
+              width: size(8),
+              height: size(8),
+              borderRadius: size(4),
+              borderWidth: 1.5,
+              borderColor: deckWordColor('working'),
+            }}
+          />
         ) : (
           <View
             style={[

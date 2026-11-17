@@ -277,7 +277,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     }
     if (Surface === IssueScreen) {
       expect(screen.getAllByText(/POD-42/).length).toBeGreaterThan(0)
-      fireEvent.click(screen.getByRole('button', { name: 'Description' }))
+      // The description is a visible inset-grouped section, no longer a fold.
       expect(screen.getByText('The normalized description.')).toBeTruthy()
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
     }
