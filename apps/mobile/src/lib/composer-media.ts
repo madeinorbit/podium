@@ -3,6 +3,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as ImagePicker from 'expo-image-picker'
 import { ActionSheetIOS, Platform } from 'react-native'
+import { onImagePaste } from './composer-image-paste'
 import {
   type AttachmentReadSource,
   checkedClipboardImage,
@@ -20,8 +21,7 @@ export type { PickedFile } from './composer-media-types'
  * The composer itself is platform-blind: it holds chips, uploads bytes and
  * prefixes paths onto the prompt. What differs is how a phone hands it a file at
  * all — a browser has a clipboard `paste` event, a drop target and a file
- * dialog; a native runtime has none of those on a text field, but it does have
- * a readable image clipboard.
+ * dialog; an iOS text field needs the image paste responder bridge below.
  *
  * This is the NATIVE half. See `./composer-media.web.ts` for the browser half,
  * which is what the shipped `/mobile` PWA runs.
@@ -144,15 +144,22 @@ export async function pickFiles(): Promise<PickedFile[]> {
 }
 
 /**
- * No-op on native: `TextInput` reports no paste event, so there is nothing to
- * intercept. The clipboard route below is the native answer to the same need.
+ * The native responder captures image files during the system Paste command.
+ * Their reads join the same serialized intake as Photos, Camera and Files.
  */
-export function onMediaPaste(_node: unknown, _handler: (files: PickedFile[]) => void): () => void {
-  return () => {}
+export function onMediaPaste(
+  node: Parameters<typeof onImagePaste>[0],
+  handler: (files: PickedFile[]) => void,
+  fromSource?: (source: () => Promise<PickedFile[]>) => void,
+): () => void {
+  return onImagePaste(node, (sources) => {
+    const read = () => readPicked(sources)
+    if (fromSource) fromSource(read)
+    else void read().then(handler)
+  })
 }
 
-/** Native's one real media route: the OS image clipboard, read on an explicit
- *  press. This is what "paste a screenshot" means on a phone. */
+/** Explicit clipboard control for native callers without a picker button. */
 export const canPasteMedia = true
 
 export async function pasteMedia(): Promise<PickedFile[]> {

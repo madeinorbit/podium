@@ -211,3 +211,55 @@ diff --git a/React/Tests/Text/RCTParagraphComponentViewTests.mm b/React/Tests/Te
 +}
 +
  @end
+diff --git a/Libraries/Text/TextInput/Multiline/RCTUITextView.h b/Libraries/Text/TextInput/Multiline/RCTUITextView.h
+--- a/Libraries/Text/TextInput/Multiline/RCTUITextView.h
++++ b/Libraries/Text/TextInput/Multiline/RCTUITextView.h
+@@ -22,6 +22,8 @@
+
+ @property (nonatomic, weak) id<RCTBackedTextInputDelegate> textInputDelegate;
+
++// Opt-in image paste for Podium's composer. Other inputs retain UIKit behavior.
++@property (nonatomic, copy, nullable) void (^podiumImagePasteHandler)(void);
+ @property (nonatomic, assign) BOOL contextMenuHidden;
+ @property (nonatomic, assign, readonly) BOOL textWasPasted;
+ @property (nonatomic, assign, readonly) BOOL dictationRecognizing;
+diff --git a/Libraries/Text/TextInput/Multiline/RCTUITextView.mm b/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+--- a/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
++++ b/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+@@ -216,6 +216,10 @@
+
+ - (void)paste:(id)sender
+ {
++  if (_podiumImagePasteHandler && self.editable && UIPasteboard.generalPasteboard.hasImages) {
++    _podiumImagePasteHandler();
++    return;
++  }
+   _textWasPasted = YES;
+   [super paste:sender];
+ }
+@@ -309,6 +313,12 @@
+     return NO;
+   }
+
++  // hasImages checks types only. Do not read clipboard contents before Paste.
++  if (action == @selector(paste:) && _podiumImagePasteHandler && self.editable &&
++      UIPasteboard.generalPasteboard.hasImages) {
++    return YES;
++  }
++
+   return [super canPerformAction:action withSender:sender];
+ }
+
+diff --git a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+--- a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+@@ -378,6 +378,9 @@
+ {
+   [super prepareForRecycle];
+   _state.reset();
++  if ([_backedTextInputView isKindOfClass:RCTUITextView.class]) {
++    ((RCTUITextView *)_backedTextInputView).podiumImagePasteHandler = nil;
++  }
+   _backedTextInputView.attributedText = nil;
+   _mostRecentEventCount = 0;
+   _comingFromJS = NO;

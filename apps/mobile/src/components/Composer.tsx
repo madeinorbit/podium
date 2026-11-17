@@ -293,10 +293,16 @@ export function Composer({
    */
   const acceptRef = useRef(attachments?.accept)
   acceptRef.current = attachments?.accept
+  const fromSourceRef = useRef(attachments?.fromSource)
+  fromSourceRef.current = attachments?.fromSource
   const takesMedia = attachments !== undefined
   useEffect(() => {
     if (!takesMedia) return
-    return onMediaPaste(inputRef.current, (files) => acceptRef.current?.(files))
+    return onMediaPaste(
+      inputRef.current,
+      (files) => acceptRef.current?.(files),
+      (source) => fromSourceRef.current?.(source),
+    )
   }, [takesMedia])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a keyed insertion runs once; each render has the current writer.

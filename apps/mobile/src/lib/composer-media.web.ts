@@ -104,7 +104,11 @@ function filesOf(transfer: DataTransfer | null): File[] {
  * relies on). Attaching here rather than at the document keeps a paste into the
  * PROMPT distinct from a paste anywhere else on the page.
  */
-export function onMediaPaste(node: unknown, handler: (files: PickedFile[]) => void): () => void {
+export function onMediaPaste(
+  node: unknown,
+  handler: (files: PickedFile[]) => void,
+  _fromSource?: (source: () => Promise<PickedFile[]>) => void,
+): () => void {
   const el = node as HTMLElement | null
   if (!el || typeof el.addEventListener !== 'function') return () => {}
 
