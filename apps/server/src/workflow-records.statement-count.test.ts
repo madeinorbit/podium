@@ -207,7 +207,19 @@ async function writeFixture(size: number): Promise<WriteFixture> {
         createdAt: AT,
       }),
   )
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  await o.reg.changeLedger.authority.settled()
   return { o, session: sessionId }
+}
+
+/**
+ * The operation's own delivery runs inside the count, whole (POD-7068). It trails
+ * the commit and the submit does not await it, so a window that ended when the
+ * submit returned held as many of its reads as had started by then.
+ */
+async function delivered<T>(f: WriteFixture, result: T): Promise<T> {
+  await f.o.reg.changeLedger.authority.settled()
+  return result
 }
 
 const write = (
@@ -217,7 +229,7 @@ const write = (
   name,
   setup: writeFixture,
   target: (f) => f.o.store,
-  run: async (f) => appliedReply(await submit(f.o, envelopeOf(f, ++seq))),
+  run: async (f) => await delivered(f, appliedReply(await submit(f.o, envelopeOf(f, ++seq)))),
   check: (reply) => expect((reply as ReturnType<typeof appliedReply>).replayed).toBe(false),
 })
 
@@ -317,7 +329,10 @@ describe('statement counts of the profile, workflow and subscription records', (
       // POD-6769: a workflow record is named after the write and built once,
       // with no read of the stored copy (20 -> 19).
       // POD-6920: the capture mark and the binding read of the capture mapping (19 -> 21).
-      21,
+      // POD-7068: its delivery is counted whole: four reads (the binding's owner, the
+      // feed head, its grants, the admins), and the window had ended before one of
+      // them (21 -> 22).
+      22,
     )
   })
 
@@ -331,7 +346,10 @@ describe('statement counts of the profile, workflow and subscription records', (
         ),
       ),
       // POD-6920: the commit's capture mark (22 -> 23).
-      23,
+      // POD-7068: its delivery is counted whole: four reads (the workflow's owner, the
+      // feed head, its revisions, the admins), and the window had ended before one of
+      // them (23 -> 24).
+      24,
     )
   })
 })

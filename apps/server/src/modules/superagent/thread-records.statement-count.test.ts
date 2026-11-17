@@ -48,7 +48,19 @@ async function fixture(size: number): Promise<Oracle> {
       })
     }
   }
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  await o.reg.changeLedger.authority.settled()
   return o
+}
+
+/**
+ * The operation's own delivery runs inside the count, whole (POD-7068). It trails
+ * the commit unawaited, so a window that ended when the write returned held as
+ * many of its reads as had started by then, a number that moved with the host.
+ */
+async function delivered<T>(o: Oracle, result: T): Promise<T> {
+  await o.reg.changeLedger.authority.settled()
+  return result
 }
 
 const edit = {
@@ -56,13 +68,16 @@ const edit = {
   setup: fixture,
   target: (o) => o.store,
   run: async (o) =>
-    appliedReply(
-      await submit(
-        o,
-        envelope(
-          'records.superagentThread.edit',
-          { id: superagentThreadRowId(ME, 'global'), patch: { title: `title ${++seq}` } },
-          `thread-edit-${seq}`,
+    await delivered(
+      o,
+      appliedReply(
+        await submit(
+          o,
+          envelope(
+            'records.superagentThread.edit',
+            { id: superagentThreadRowId(ME, 'global'), patch: { title: `title ${++seq}` } },
+            `thread-edit-${seq}`,
+          ),
         ),
       ),
     ),
@@ -80,6 +95,7 @@ const turnStatus = {
   target: (o) => o.store,
   run: async (o) => {
     await o.store.superagent.setTurnRunning(asThreadId('global'), false)
+    await delivered(o, undefined)
   },
   check: () => undefined,
 } satisfies StatementPin<Oracle>
@@ -94,6 +110,7 @@ const recover = {
   target: (o: Oracle) => o.store,
   run: async (o: Oracle) => {
     await o.store.superagent.syncTurnRunningWithPendingTurns()
+    await delivered(o, undefined)
     return (await o.store.superagent.getSuperagentThread('global'))?.turnRunning
   },
   check: (running: unknown) => expect(running).toBe(false),

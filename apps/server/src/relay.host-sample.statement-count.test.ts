@@ -87,6 +87,8 @@ async function fixture(size: number, quiet: boolean): Promise<Fixture> {
   // depending on how fast setup ran, which made 8 and 49 below include setup.
   for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
   await new Promise((resolve) => setTimeout(resolve, 50))
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  await reg.changeLedger.authority.settled()
   return { store, reg, ids }
 }
 
@@ -110,7 +112,14 @@ const pin = (
   name,
   setup: async (size) => await fixture(size, quiet),
   target: (f) => f.store,
-  run: async (f) => await f.reg.modules.hosts.onHostMetrics(f.store.hostMachineId, sample()),
+  run: async (f) => {
+    const result = await f.reg.modules.hosts.onHostMetrics(f.store.hostMachineId, sample())
+    // The sample's own delivery runs inside the count, whole (POD-7068): it trails
+    // the commit unawaited, so a window that ended when the sample returned held as
+    // many of its reads as had started by then.
+    await f.reg.changeLedger.authority.settled()
+    return result
+  },
   check: async (_result, f) => await check(f),
   teardown: async (f) => {
     await f.reg.dispose()
