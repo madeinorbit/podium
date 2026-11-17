@@ -286,7 +286,7 @@ describe('quota windows (store/quota-history.ts)', () => {
 
 /** The id of an operation row's first step: the workspace's own content (in its payload). */
 const stepOf = (row: { payload: string } | undefined): string | undefined =>
-  row && (JSON.parse(row.payload) as PersistedOperation).steps[0]?.id
+  row && (JSON.parse(row.payload) as PersistedOperation).steps?.[0]?.id
 
 describe('operations (modules/operations/store.ts)', () => {
   it.each(TAGS)('get, active, activeByGroup and history in %s read only its own', async (tag) => {
