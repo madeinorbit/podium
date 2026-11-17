@@ -52,7 +52,7 @@ import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
-import type { RuntimeEventOutbox } from './runtime-event-outbox'
+import type { DurableRuntimeEvent, RuntimeEventOutbox } from './runtime-event-outbox'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const log = createLogger('daemon:connection')
@@ -100,6 +100,17 @@ const RECONNECT_MAX_MS = 5_000
 const SOCKET_OPEN_DEADLINE_MS = 10_000
 const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
+/*
+ * RUNTIME EVENT RETRY ON A LIVE LINK. A link delivers frames in order, so an
+ * event without an ack is either still queued at the server or met a server
+ * failure. Resending the whole pending set every tick turned slow acks into a
+ * storm: a server L ms behind received each event about L/500 times, fell
+ * further behind, missed the handshake deadline and dropped the link. A tick
+ * now resends only events that went a full interval without an ack, and each
+ * resend doubles the interval up to the cap. A new link still replays everything.
+ */
+const RUNTIME_EVENT_RETRY_MIN_MS = 500
+const RUNTIME_EVENT_RETRY_MAX_MS = 30_000
 /** Drops in a row before the link is called flapping and logged above info. */
 const FLAPPING_DROP_THRESHOLD = 3
 /*
@@ -275,6 +286,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let acknowledgementDeadline: { generation: number; handle: unknown } | undefined
   let queueDrainRetryTimer: unknown | undefined
   let runtimeEventRetryTimer: unknown | undefined
+  let runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+  /** Retry ticks fired on this link; each send records the tick it went out in. */
+  let runtimeEventRetryTick = 0
+  const runtimeEventSentAtTick = new Map<string, number>()
   let reconnectBackoffMs = RECONNECT_MIN_MS
   /**
    * Consecutive drops with no successful connect in between (POD-4261).
@@ -520,13 +535,38 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     runtimeEventRetryTimer = timers.setTimeout(() => {
       runtimeEventRetryTimer = undefined
-      replayRuntimeEvents()
-    }, QUEUE_DRAIN_RETRY_MS)
+      resendOverdueRuntimeEvents()
+    }, runtimeEventRetryMs)
   }
 
+  const sendRuntimeEvent = (event: DurableRuntimeEvent): void => {
+    sendConnected(event)
+    runtimeEventSentAtTick.set(event.deliveryId, runtimeEventRetryTick)
+  }
+
+  /** A new link: nothing sent on the old one is in flight, so replay it all. */
   const replayRuntimeEvents = (): void => {
     if (state !== 'connected') return
-    for (const event of deps.runtimeEventOutbox.pending()) sendConnected(event)
+    runtimeEventSentAtTick.clear()
+    runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+    for (const event of deps.runtimeEventOutbox.pending()) sendRuntimeEvent(event)
+    scheduleRuntimeEventRetry()
+  }
+
+  /** A retry tick: resend only events sent before the previous tick. */
+  const resendOverdueRuntimeEvents = (): void => {
+    if (state !== 'connected') return
+    runtimeEventRetryTick += 1
+    let resent = false
+    for (const event of deps.runtimeEventOutbox.pending()) {
+      const sentAt = runtimeEventSentAtTick.get(event.deliveryId)
+      if (sentAt !== undefined && sentAt >= runtimeEventRetryTick - 1) continue
+      sendRuntimeEvent(event)
+      resent = true
+    }
+    if (resent) {
+      runtimeEventRetryMs = Math.min(runtimeEventRetryMs * 2, RUNTIME_EVENT_RETRY_MAX_MS)
+    }
     scheduleRuntimeEventRetry()
   }
 
@@ -1472,9 +1512,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
         return
       }
-      sendConnected(msg)
+      if (msg.type === 'runtimeEvent' && isRetainedRuntimeEvent && msg.deliveryId) {
+        sendRuntimeEvent({ ...msg, deliveryId: msg.deliveryId })
+        scheduleRuntimeEventRetry()
+      } else sendConnected(msg)
       if (isQueueDrainReport) scheduleQueueDrainRetry()
-      if (isRetainedRuntimeEvent) scheduleRuntimeEventRetry()
     },
     quiesceEndpoint(transferId) {
       // A final snapshot may replace the target stage (and therefore transfer id)
@@ -1514,7 +1556,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     acknowledgeRuntimeEvent(deliveryId) {
       deps.runtimeEventOutbox.acknowledge(deliveryId)
-      if (deps.runtimeEventOutbox.pending().length === 0) stopRuntimeEventRetry()
+      runtimeEventSentAtTick.delete(deliveryId)
+      if (deps.runtimeEventOutbox.pending().length === 0) {
+        stopRuntimeEventRetry()
+        runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+      }
     },
     async close() {
       closing = true

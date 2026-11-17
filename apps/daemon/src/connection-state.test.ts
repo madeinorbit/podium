@@ -1585,6 +1585,95 @@ it('forwards superseded observations live and replays only retained events after
   }
 })
 
+it('resends only overdue runtime events on a live link, backing off while acks lag', async () => {
+  // The retry storm: every tick resent the WHOLE pending set, so a server whose
+  // acks lagged by L received each event L/500ms times, fell further behind,
+  // and the link dropped. A tick resends only events a full interval old.
+  const harness = timerHarness()
+  const delivered: DaemonMessage[] = []
+  const outbox = createRuntimeEventOutbox(temp())
+  const options = localOptions(() => {}, {
+    machineToken: 'local-secret',
+    reconnectTimers: harness.timers,
+    localLink: {
+      attach: async () => ({
+        established: true,
+        reply: ok,
+        machineId: MACHINE_ID,
+        deliver: (frame) => {
+          delivered.push(frame)
+        },
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    },
+  })
+  const conn = createDaemonConnection({
+    options,
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: {},
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: outbox,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+  })
+  const event = (deliveryId: string): Extract<DaemonMessage, { type: 'runtimeEvent' }> => ({
+    type: 'runtimeEvent',
+    deliveryId,
+    sessionId: asSessionId('s'),
+    event: {
+      at: '2026-11-17T12:00:00.000Z',
+      provenance: 'bootstrap',
+      observerGeneration: 1,
+      turnEpoch: 1,
+      cursor: { segmentId: 'segment', components: { seq: 1 } },
+      t: 'state',
+      change: { kind: 'activity' },
+    },
+  })
+  const ids = () => delivered.map((frame) => (frame as { deliveryId?: string }).deliveryId)
+  try {
+    await conn.start()
+    conn.send(event('a'))
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // First tick: 'a' has been on the wire less than one interval. Not resent.
+    harness.runNext(500)
+    conn.send(event('b'))
+    expect(ids()).toEqual(['b'])
+    delivered.length = 0
+
+    // Second tick: 'a' went a full interval unacknowledged and is resent once;
+    // 'b' is still fresh and is not.
+    harness.runNext(500)
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // Resending backs the interval off instead of firing every 500ms.
+    expect(harness.next(500)).toBeUndefined()
+    harness.runNext(1_000)
+    expect(ids()).toEqual(['b'])
+    delivered.length = 0
+    harness.runNext(2_000)
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // Draining the pending set stops the retry and resets the interval.
+    conn.acknowledgeRuntimeEvent('a')
+    conn.acknowledgeRuntimeEvent('b')
+    expect(harness.next(4_000)).toBeUndefined()
+    conn.send(event('c'))
+    expect(harness.next(500)).toBeDefined()
+  } finally {
+    await conn.close()
+    outbox.close()
+  }
+})
+
 describe('podium connect locator rescue (POD-4533)', () => {
   // Real keys (the shared locate vectors), so a candidate can actually prove itself.
   const INSTALLATION_ID = vectors.server.installationId
