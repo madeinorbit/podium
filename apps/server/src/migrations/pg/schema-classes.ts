@@ -64,6 +64,10 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
     json: 'op_json',
     text: 'id machine_id session_id issue_id status actor on_behalf_of result_text workspace_id',
   },
+  artifact_uploads: {
+    json: 'begin_json received_json',
+    text: 'issue_id upload_id workspace_id',
+  },
   automation_runs: {
     timestamp: 'fired_at deleted_at',
     text: 'id actor on_behalf_of automation_id session_id outcome detail workspace_id',

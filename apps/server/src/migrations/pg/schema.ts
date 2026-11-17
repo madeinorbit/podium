@@ -194,6 +194,30 @@ export const approvalRequests = pgTable(
   ],
 )
 
+export const artifactUploads = pgTable(
+  'artifact_uploads',
+  {
+    issueId: textC('issue_id').notNull().$type<SqliteRow<'artifactUploads'>['issueId']>(),
+    uploadId: textC('upload_id').notNull().$type<SqliteRow<'artifactUploads'>['uploadId']>(),
+    beginJson: jsonText('begin_json').notNull().$type<SqliteRow<'artifactUploads'>['beginJson']>(),
+    receivedJson: jsonText('received_json')
+      .notNull()
+      .$type<SqliteRow<'artifactUploads'>['receivedJson']>(),
+    createdAt: int8('created_at').notNull().$type<SqliteRow<'artifactUploads'>['createdAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .default(sql`'local'`)
+      .$type<SqliteRow<'artifactUploads'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'artifact_uploads_pk',
+      columns: [table.workspaceId, table.issueId, table.uploadId],
+    }),
+    index('idx_artifact_uploads_created').on(table.workspaceId, table.createdAt),
+  ],
+)
+
 export const automationRuns = pgTable(
   'automation_runs',
   {

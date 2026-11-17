@@ -80,6 +80,8 @@ const TASK_OF_FILE: ReadonlyMap<string, string> = new Map([
   ['apps/server/src/store/issue-storage.ts', 'POD-6984'],
   ['apps/server/src/store/issue-revision.ts', 'POD-6984'],
   ['apps/server/src/store/issue-git-states.ts', 'POD-6984'],
+  // Not in design section 5; an issue's artifact uploads go with the issue bindings.
+  ['apps/server/src/store/artifact-uploads.ts', 'POD-6984'],
   ['apps/server/src/store/messages.ts', 'POD-6985'],
   ['apps/server/src/store/messaging-', 'POD-6985'],
   ['apps/server/src/store/telegram-bindings.ts', 'POD-6985'],
@@ -131,6 +133,10 @@ function taskOfFile(file: string): string | undefined {
  */
 const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ['apps/server/src/store/agent-profiles.ts:profileByName', 'SQLite-only COLLATE NOCASE'],
+  [
+    'apps/server/src/store/artifact-uploads.ts:advanceReceived',
+    'json column received_json compared without CAST(… AS TEXT)',
+  ],
   ['apps/server/src/store/automations.ts:allLiveRuns', 'SQLite-only rowid'],
   ['apps/server/src/store/automations.ts:lastSpawnedRunOf', 'SQLite-only rowid'],
   ['apps/server/src/store/automations.ts:lastSpawnedRuns', 'SQLite-only rowid'],
