@@ -4,12 +4,12 @@
  * Two claims the binding's one cast rests on, checked by `bun run typecheck`, the
  * ordinary gate:
  *
- * 1. *The twins type as their SQLite tables.* The slice's hand-written Postgres tables
- *    (`test-support/pg-slice-tables.ts`) have exactly the `$inferSelect` and
- *    `$inferInsert` of `migrations/schema.ts`'s, so a definition written against the
- *    SQLite types and handed the Postgres objects through `bindingFor` reads and writes
- *    the same JavaScript values. POD-6978's schema parity test makes the same check
- *    for every table once the generated schema exists.
+ * 1. *The twins type as their SQLite tables.* The slice's two Postgres tables (the
+ *    generated twins of `migrations/pg/schema.ts`, bound by `test-support/pg-slice-tables.ts`)
+ *    have exactly the `$inferSelect` and `$inferInsert` of `migrations/schema.ts`'s, so a
+ *    definition written against the SQLite types and handed the Postgres objects through
+ *    `bindingFor` reads and writes the same JavaScript values.
+ *    `migrations/pg/schema-parity.type-test.ts` makes the same check for every table.
  * 2. *A two-form definition cannot drift.* Each `@ts-expect-error` below plants a
  *    `dialectPrepared` form whose row is not the declared one (reported on that form's
  *    body), or a caller passing the wrong values. The directive passes only while tsc rejects the line under it; if
