@@ -218,7 +218,10 @@ until a Postgres store can boot (the lifecycle port, POD-6994), add it to `pendi
 now: `openEngineHarness()` (`store/executor/harness.ts`) and `createPgStoreExecutor` give it
 the leg's engine.
 `src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
-a SQLite-only entry without a reason, and a file in both lists.
+a SQLite-only entry without a reason, and a file in both lists. Until POD-6994 it also refuses
+a Postgres-leg file that calls a store opener (`openTestStore`, `SessionStore.open`, or a test
+helper whose body reaches one, such as `openWorkspaceStores` or `makeOracle`) and never reads
+the engine (`testStoreEngine()`): that file belongs on `pending` (POD-7098).
 
 **How it gets Postgres.** The config's globalSetup (`src/test-support/pg-test-host.ts`):
 
