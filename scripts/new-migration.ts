@@ -31,9 +31,12 @@
  *
  * For a data backfill or any DDL drizzle can't diff (e.g. an FTS/expression
  * object), author an empty migration with `drizzle-kit generate --custom` and
- * hand-write its SQL, then rerun `bun run migration:manifest`. After the Postgres
- * freeze, write its Postgres twin under the same folder name the same way
- * (`--config=drizzle.config.pg.ts`).
+ * hand-write its SQL. That path does NOT touch the Postgres chain: before the Postgres
+ * freeze, run `bun run migration:pg-baseline` (the baseline is named after the newest
+ * SQLite migration, so it must be regenerated; it also rebuilds both manifests). After
+ * the freeze, write its Postgres twin under the same folder name the same way
+ * (`--config=drizzle.config.pg.ts`), then rerun `bun run migration:manifest`.
+ * `chain-parity.test.ts`, in the lean gate, fails until the chains agree.
  */
 import { spawnSync } from 'node:child_process'
 import { readdirSync, renameSync, statSync } from 'node:fs'

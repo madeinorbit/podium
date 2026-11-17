@@ -28,6 +28,7 @@ import {
   pgBaselineDrift,
   pgChainProblems,
   pgHeadSnapshotDrift,
+  REGENERATE_BASELINE,
   SQLITE_DRIZZLE_DIR,
 } from './chain'
 import { PG_MIGRATIONS } from './manifest.generated'
@@ -87,7 +88,11 @@ describe('the chain rule finds planted one-sided migrations', () => {
         pgNames: [baseline],
         frozen: false,
       }),
-    ).toEqual([expect.stringMatching(/^SQLite migration 20261118000000_add-widgets is newer than/)])
+    ).toEqual([
+      expect.stringMatching(
+        /^SQLite migration 20261118000000_add-widgets is newer than .*bun run migration:pg-baseline.*hand-run `drizzle-kit generate`/,
+      ),
+    ])
   })
 
   it('after the freeze: accepts a change written in both chains', () => {
@@ -139,7 +144,7 @@ describe('the baseline check finds a hand edit', () => {
     writeFileSync(join(pgDir, folder as string, 'migration.sql'), 'CREATE TABLE edited (id int);')
     expect(await pgBaselineDrift(SQLITE_DRIZZLE_DIR, pgDir)).toEqual([
       `${folder}/migration.sql differs from what the Postgres twin renders`,
-      'Run `bun run migration:pg-baseline` and commit the result.',
+      REGENERATE_BASELINE,
     ])
   })
 })

@@ -52,17 +52,21 @@ export class PostgresLocationError extends Error {
 }
 
 /**
- * A Postgres store was asked to boot. The engine is chosen and the driver exists, but
- * a Postgres store has no schema chain to migrate (POD-6981) and no store-lifecycle
- * port for its boot steps (POD-6994) yet, so the open refuses before it touches
- * anything: no pool, no directory named after the URL.
+ * A Postgres store was asked to boot. The engine is chosen, the driver exists and so
+ * does the migration chain (`migrations/pg/index.ts`, POD-6981), but a Postgres store
+ * has no store-lifecycle port for its boot steps (POD-6994) yet, so the open refuses
+ * before it touches anything: no pool, no directory named after the URL.
+ *
+ * On the `server-store-pg` lane this is what a store test file that has not been
+ * converted hits through `openTestStore()`, so the message names the list it belongs on.
  */
 export class PostgresStoreBootError extends Error {
   constructor() {
     super(
       'this store location is a Postgres URL, and a Postgres store cannot boot yet: it needs ' +
-        'the Postgres migration chain (POD-6981) and the store-lifecycle port (POD-6994). ' +
-        'Open the driver alone with openPgStoreDriver.',
+        'the store-lifecycle port (POD-6994). Open the driver alone with openPgStoreDriver. ' +
+        'On the server-store-pg lane, a test file that opens a store belongs on "pending" in ' +
+        'apps/server/test-store-engines.json until then.',
     )
     this.name = 'PostgresStoreBootError'
   }

@@ -5,7 +5,7 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PG_MIGRATIONS } from '../migrations/pg/index'
-import { openStoreDatabase } from '../store-database'
+import { openStoreDatabase, PostgresLocationError, PostgresStoreBootError } from '../store-database'
 import {
   clonePgTestDatabase,
   connectPgTest,
@@ -85,11 +85,20 @@ describe.skipIf(testStoreEngine() !== 'pg')('postgres test databases', () => {
   })
 
   it('refuses a SQLite store open and names the list this file belongs on', async () => {
-    for (const location of [':memory:', (await pgWorkerDatabase()).url]) {
-      await expect(openStoreDatabase(location)).rejects.toThrow(
-        /^apps\/server\/src\/store\/pg-test-database\.test\.ts opened a store .*Add the file to "pending" in apps\/server\/test-store-engines\.json/,
-      )
-    }
+    await expect(openStoreDatabase(':memory:')).rejects.toThrow(
+      /^apps\/server\/src\/store\/pg-test-database\.test\.ts opened a SQLite store \(:memory:\) .*Add the file to "pending" in apps\/server\/test-store-engines\.json/,
+    )
+  })
+
+  it('refuses a Postgres URL at the SQLite opener before any test opener runs', async () => {
+    // A URL is refused as a URL on every leg; a store opened on one fails in
+    // StoreDatabase.open instead, with a message naming the same list.
+    await expect(openStoreDatabase((await pgWorkerDatabase()).url)).rejects.toBeInstanceOf(
+      PostgresLocationError,
+    )
+    expect(new PostgresStoreBootError().message).toMatch(
+      /"pending" in apps\/server\/test-store-engines\.json/,
+    )
   })
 
   it('drops every database it made', async () => {

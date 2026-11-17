@@ -33,14 +33,27 @@ use the normal write funnel and a durable completion receipt.
 **Two migration chains** [POD-6981, design `docs/design/POD-6958-postgres-store-design.md`
 §2.7]. SQLite migrates at boot from `apps/server/src/migrations/drizzle/`; Postgres has its
 own chain in `apps/server/src/migrations/pg/drizzle/`, starting from one baseline generated
-from the Postgres schema twin (`bun run migration:pg-baseline`, never edited by hand). On
-hosted Postgres migrating is a deploy step, `podium server migrate --database <url>`; a
-server only checks the ledger at boot. `bun run migration:new <name>` writes both chains.
-Until the first hosted database exists the Postgres baseline is regenerated in place on
-every schema change. Once a hosted database has applied it, set `PG_BASELINE_FROZEN` in
-`apps/server/src/migrations/pg/chain.ts` in the same commit; from then on regenerating it
-is not allowed, and every change is a migration in both chains under the same folder name
-(`chain-parity.test.ts`). The generation bump rule above applies to both chains.
+from the Postgres schema twin and never edited by hand. On hosted Postgres migrating is a
+deploy step, `podium server migrate --database <url>`; a server only checks the ledger at
+boot. The baseline is named after the newest SQLite migration it covers, so **every new
+SQLite migration changes the Postgres chain too**:
+
+1. Edit `apps/server/src/migrations/schema.ts` and its twin `migrations/pg/schema.ts`
+   (`bun run schema:pg -- --check <table>` shows what the generator would write).
+2. `bun run migration:new <name>` writes the SQLite migration and then the Postgres side:
+   until the baseline is frozen it regenerates the baseline in place; after the freeze it
+   writes a Postgres migration under the same folder name.
+3. A migration written by hand with `drizzle-kit generate` (`--custom` for a data
+   migration) does not touch the Postgres chain: run `bun run migration:pg-baseline`
+   yourself before the freeze, or write the Postgres twin under the same folder name
+   after it. `chain-parity.test.ts`, in the lean gate, fails until the chains agree, and
+   its message names the command.
+
+Until the first hosted database exists the baseline is regenerated in place. Once a hosted
+database has applied it, set `PG_BASELINE_FROZEN` in `apps/server/src/migrations/pg/chain.ts`
+in the same commit; from then on regenerating it is not allowed, and every change is a
+migration in both chains under the same folder name. The generation bump rule above applies
+to both chains.
 
 ## Rules
 

@@ -49,6 +49,17 @@ import * as pgServer from './schema'
  */
 export const PG_BASELINE_FROZEN = false
 
+/**
+ * What every baseline failure says. The baseline is named after the newest SQLite
+ * migration, so EVERY SQLite migration needs it regenerated until the freeze, a data-only
+ * one included. `migration:new` does that; a hand-run `drizzle-kit generate` (`--custom`
+ * included) does not.
+ */
+export const REGENERATE_BASELINE =
+  'Run `bun run migration:pg-baseline` and commit the regenerated baseline. Every new ' +
+  'SQLite migration needs this until the baseline is frozen: `bun run migration:new` does ' +
+  'it for you, a hand-run `drizzle-kit generate` (--custom included) does not.'
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** The SQLite chain's folders. */
 export const SQLITE_DRIZZLE_DIR = join(HERE, '..', 'drizzle')
@@ -193,7 +204,7 @@ export async function pgBaselineDrift(
   if (committed.length !== 1 || committed[0] !== rendered.folder) {
     return [
       `the Postgres baseline folder is ${JSON.stringify(committed)}; the twin renders ` +
-        `'${rendered.folder}'. Run \`bun run migration:pg-baseline\`.`,
+        `'${rendered.folder}'. ${REGENERATE_BASELINE}`,
     ]
   }
   const problems: string[] = []
@@ -202,8 +213,7 @@ export async function pgBaselineDrift(
     problems.push(`${rendered.folder}/migration.sql differs from what the Postgres twin renders`)
   if (read('snapshot.json') !== rendered.snapshotJson)
     problems.push(`${rendered.folder}/snapshot.json differs from what the Postgres twin renders`)
-  if (problems.length > 0)
-    problems.push('Run `bun run migration:pg-baseline` and commit the result.')
+  if (problems.length > 0) problems.push(REGENERATE_BASELINE)
   return problems
 }
 
@@ -241,13 +251,13 @@ export function pgChainProblems(input: {
     for (const name of pgAfter) {
       problems.push(
         `${name} is a Postgres migration after the baseline, but the baseline is not frozen ` +
-          '(PG_BASELINE_FROZEN): regenerate the baseline instead (`bun run migration:pg-baseline`)',
+          `(PG_BASELINE_FROZEN), so the change belongs in the baseline. ${REGENERATE_BASELINE}`,
       )
     }
     for (const name of sqliteAfter) {
       problems.push(
-        `SQLite migration ${name} is newer than the Postgres baseline ${baseline}: ` +
-          'regenerate the baseline (`bun run migration:pg-baseline`)',
+        `SQLite migration ${name} is newer than the Postgres baseline ${baseline}. ` +
+          REGENERATE_BASELINE,
       )
     }
     return problems

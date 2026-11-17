@@ -895,6 +895,21 @@ CREATE TABLE "pending_interactions" (
 	CONSTRAINT "pending_interactions_source_check" CHECK (source IN ('protocol','sdk-callback','hook','screen-classifier'))
 );
 --> statement-breakpoint
+CREATE TABLE "pending_uploads" (
+	"id" text COLLATE "C",
+	"owner_user_id" text COLLATE "C" NOT NULL,
+	"filename" text COLLATE "C" NOT NULL,
+	"entry" text COLLATE "C" NOT NULL,
+	"media_type" text COLLATE "C" NOT NULL,
+	"size" bigint NOT NULL,
+	"created_at" bigint NOT NULL,
+	"claimed_issue_id" text COLLATE "C",
+	"claimed_artifact_id" text COLLATE "C",
+	"workspace_id" text COLLATE "C" DEFAULT 'local',
+	CONSTRAINT "pending_uploads_pk" PRIMARY KEY("workspace_id","id"),
+	CONSTRAINT "pending_uploads_claim_pair" CHECK ((claimed_issue_id IS NULL) = (claimed_artifact_id IS NULL))
+);
+--> statement-breakpoint
 CREATE TABLE "pins" (
 	"user_id" text COLLATE "C",
 	"kind" text COLLATE "C",
@@ -1867,6 +1882,8 @@ CREATE INDEX "idx_operations_kind_created" ON "operations" ("kind","created_at")
 CREATE INDEX "idx_pending_interactions_session_time" ON "pending_interactions" ("session_id","asked_at","id");--> statement-breakpoint
 CREATE INDEX "idx_pending_interactions_open" ON "pending_interactions" ("status","asked_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_pending_interactions_fingerprint" ON "pending_interactions" ("session_id","fingerprint") WHERE status = 'asked';--> statement-breakpoint
+CREATE INDEX "idx_pending_uploads_created" ON "pending_uploads" ("workspace_id","created_at");--> statement-breakpoint
+CREATE INDEX "idx_pending_uploads_claimed" ON "pending_uploads" ("workspace_id","claimed_issue_id");--> statement-breakpoint
 CREATE INDEX "idx_pins_target" ON "pins" ("kind","id");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_repo" ON "podium_events" ("repo_path");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_kind" ON "podium_events" ("kind");--> statement-breakpoint

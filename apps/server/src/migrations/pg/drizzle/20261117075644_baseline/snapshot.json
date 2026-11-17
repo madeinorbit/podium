@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e5239188-a5cc-475c-8a48-e4f73c759a14",
+  "id": "bd119e71-21c8-4f33-8215-f38a40e371a7",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -393,6 +393,12 @@
     {
       "isRlsEnabled": false,
       "name": "pending_interactions",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "pending_uploads",
       "entityType": "tables",
       "schema": "public"
     },
@@ -9253,6 +9259,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "pending_interactions"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "filename",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "entry",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "media_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "size",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "claimed_issue_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "claimed_artifact_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'local'",
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pending_uploads"
     },
     {
       "type": "text COLLATE \"C\"",
@@ -19725,6 +19861,62 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_pending_uploads_created",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "claimed_issue_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_pending_uploads_claimed",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "kind",
           "isExpression": false,
           "asc": true,
@@ -23112,6 +23304,17 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "pending_uploads_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "pending_uploads"
+    },
+    {
+      "columns": [
         "user_id",
         "kind",
         "id"
@@ -24533,6 +24736,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "pending_interactions"
+    },
+    {
+      "value": "(claimed_issue_id IS NULL) = (claimed_artifact_id IS NULL)",
+      "name": "pending_uploads_claim_pair",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "pending_uploads"
     },
     {
       "value": "principal_kind IN ('user','agent','system')",

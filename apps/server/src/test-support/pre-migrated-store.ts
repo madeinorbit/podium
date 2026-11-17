@@ -148,17 +148,17 @@ function primeFirstAdminFromImage(): void {
 
 /**
  * The opener a Postgres run installs: any SQLite store open fails, naming the test
- * file and the list it belongs on. Until the Postgres store driver lands (POD-6979)
- * that is every store open, `openTestStore()`'s included.
+ * file and the list it belongs on. Only SQLite locations reach it: `openStoreDatabase`
+ * refuses a Postgres URL itself (`PostgresLocationError`) before any opener runs, and a
+ * store opened on a URL fails in `StoreDatabase.open` with `PostgresStoreBootError`,
+ * which names the same list until the Postgres store can boot (POD-6994).
  */
 export function refuseSqliteStore(testPath: string): (path: string) => never {
   const at = testPath.replaceAll('\\', '/').lastIndexOf('/apps/server/')
   const file = at === -1 ? testPath : testPath.slice(at + 1)
   return (path) => {
-    const location = path.startsWith('postgres') ? 'a Postgres URL' : path
     throw new Error(
-      `${file} opened a store (${location}) on the Postgres leg, and only SQLite stores ` +
-        'open until the Postgres store driver lands (POD-6979). Add the file to "pending" ' +
+      `${file} opened a SQLite store (${path}) on the Postgres leg. Add the file to "pending" ` +
         'in apps/server/test-store-engines.json; if it tests SQLite itself, list it under ' +
         '"sqliteOnly" with the reason instead.',
     )
