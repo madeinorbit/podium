@@ -1310,12 +1310,16 @@ describe('against the live repo', () => {
     expect(new Set(tables.map((t) => t.table))).toEqual(DECLARED_WORKSPACE_TABLES)
     expect(DECLARED_WORKSPACE_TABLES.size).toBeGreaterThan(100)
     const files = new Set(tables.map((t) => t.file))
-    // The two schema files, and the sync package's test mirrors of the two
-    // server tables its repository is handed (which must match them).
+    // The two schema files, their Postgres twins (POD-6978: the same tables under the
+    // same names, held to them by schema-parity.test.ts, so each declares the column
+    // too), and the sync package's test mirrors of the two server tables its
+    // repository is handed (which must match them).
     expect(files).toEqual(
       new Set([
         'apps/server/src/migrations/schema.ts',
+        'apps/server/src/migrations/pg/schema.ts',
         'packages/sync/src/adapters/sqlite/schema.ts',
+        'packages/sync/src/adapters/pg/schema.ts',
         'packages/sync/src/adapters/sqlite/test-support.ts',
       ]),
     )
