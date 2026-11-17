@@ -326,7 +326,10 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
     'apps/server/src/store/conversations/transcript-index.ts:createTranscriptKeys',
     ['table', 'drop'],
   ],
-  ['apps/server/src/store/conversations/transcript-index.ts:catchUpKeys', ['all', 'after-last']],
+  [
+    'apps/server/src/store/conversations/transcript-index.ts:catchUpKeys',
+    ['all|owned', 'all|every', 'after-last|owned', 'after-last|every'],
+  ],
 ])
 
 /**

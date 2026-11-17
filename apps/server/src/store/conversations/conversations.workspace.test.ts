@@ -13,6 +13,9 @@
  *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
  *     a write in A addressed at B's own ids, which must find nothing to change.
  *
+ * A transcript row whose segment no workspace holds is the self-hosted workspace's: only its
+ * search finds it.
+ *
  * And the search key table's open path: a `transcript_fts_keys` from before the workspace column
  * is made again with it, and its rows are keyed again to the workspace whose segment they
  * belong to.
@@ -21,6 +24,7 @@
 import { asMachineId, type ConversationId, type MachineId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openWorkspaceStores } from '../../test-support/workspace-stores'
 import type { ConversationIndexRow } from '../types'
@@ -555,6 +559,49 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
       expect(await stores.b.conversations.transcriptIndex.searchCandidates('shared')).toHaveLength(
         1,
       )
+    })
+  })
+
+  describe('a transcript row whose segment no workspace holds', () => {
+    it('is the self-hosted workspace’s: its search finds it, no other workspace’s does', async () => {
+      const [local, other] = await openWorkspaceStores([SELF_HOSTED_WORKSPACE_ID, 'ws_other'], {
+        path: ':memory:',
+      })
+      try {
+        for (const store of [local, other]) await store.conversations.ensureFts(true)
+        // A row with no segment row anywhere, as an older build left it: no key.
+        rawDb(local)
+          .prepare('INSERT INTO transcript_fts (content, machine_id, native_id) VALUES (?, ?, ?)')
+          .run('orphan needle', 'gone-machine', 'gone-native')
+
+        // The other workspace opens first and keys nothing it does not own.
+        await other.conversations.transcriptIndex.enableFts()
+        expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
+        await local.conversations.transcriptIndex.enableFts()
+
+        const found = await local.conversations.transcriptIndex.searchCandidates('orphan')
+        expect(found.map((match) => [match.machineId, match.nativeId, match.podiumId])).toEqual([
+          ['gone-machine', 'gone-native', undefined],
+        ])
+        expect(
+          await local.conversations.transcriptIndex.rows(
+            asMachineId('gone-machine'),
+            'gone-native',
+          ),
+        ).toEqual([{ content: 'orphan needle' }])
+        expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
+        expect(
+          await other.conversations.transcriptIndex.rows(
+            asMachineId('gone-machine'),
+            'gone-native',
+          ),
+        ).toEqual([])
+        expect(
+          rawDb(local).prepare('SELECT DISTINCT workspace_id AS ws FROM transcript_fts_keys').all(),
+        ).toEqual([{ ws: SELF_HOSTED_WORKSPACE_ID }])
+      } finally {
+        await local.close()
+      }
     })
   })
 })

@@ -1,6 +1,7 @@
 // workspace-scoped (POD-6959)
 import { asMachineId, type MachineId } from '@podium/model'
-import { and, eq, gt, sql } from 'drizzle-orm'
+import { and, eq, gt, type SQL, sql } from 'drizzle-orm'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type {
   StoreTables,
   TransactionRunner,
@@ -54,7 +55,7 @@ const createTranscriptFts = prepared((db) =>
  * made before the column existed is REPLACED when the index opens (`drop`, then
  * `table`), not altered: its rows say nothing of their workspace, so each would
  * be keyed again anyway, and {@link catchUpKeys} derives every key from
- * `transcript_fts` (all of them, for the workspace of each row's segment). An
+ * `transcript_fts` (all of them, for the workspace that owns each row). An
  * `ADD COLUMN` would also need a default the final table must not have, and the
  * query-plan audit cannot compile it against a table that has the column.
  */
@@ -80,26 +81,35 @@ const createTranscriptKeysIndex = prepared((db) =>
 )
 
 /**
- * Key FTS rows to this workspace: every row (`all`, right after the key table
+ * Key FTS rows to this workspace: every row (`all|…`, right after the key table
  * was made again with its workspace column) or the rows past this workspace's
- * last key (`after-last`, a rowid range of `transcript_fts`).
+ * last key (`after-last|…`, a rowid range of `transcript_fts`).
  *
- * ONLY A ROW WHOSE SEGMENT IS THIS WORKSPACE'S. `transcript_fts` holds every
- * workspace's rows and says nothing of whose they are, so a row is this
- * workspace's when its segment (`machine_id`, `native_id`) is. On a database of
- * one workspace that keys every row of a known segment to it; a row no
- * workspace's segment names stays unkeyed and matches no search.
+ * WHICH ROWS ARE THIS WORKSPACE'S. `transcript_fts` holds every workspace's
+ * rows and says nothing of whose they are.
+ *   - `…|owned`: a row whose segment (`machine_id`, `native_id`) this workspace
+ *     holds. Every workspace but the self-hosted one keys these only, so a row is
+ *     never keyed to a workspace that does not hold its segment.
+ *   - `…|every`: every row, the self-hosted workspace's (POD-7022 review). FTS5
+ *     exists only on the SQLite engine, and a SQLite install is self-hosted: one
+ *     workspace, which owns every row, including those whose segment row is gone
+ *     (they matched a search before the workspace column, and still do).
  */
-const catchUpKeys = preparedFamily((db, _t, range: 'all' | 'after-last') => {
-  const after =
-    range === 'all'
-      ? sql``
-      : sql`f.rowid > (SELECT coalesce(max(k.fts_rowid), 0) FROM transcript_fts_keys k
-          WHERE k.workspace_id = ${WORKSPACE}) AND `
-  return db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
-        SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f
-        WHERE ${after}EXISTS (SELECT 1 FROM conversation_segments s
+type CatchUpShape = `${'all' | 'after-last'}|${'owned' | 'every'}`
+const catchUpKeys = preparedFamily((db, _t, shape: CatchUpShape) => {
+  const [range, rows] = shape.split('|')
+  const terms: SQL[] = []
+  if (range === 'after-last') {
+    terms.push(sql`f.rowid > (SELECT coalesce(max(k.fts_rowid), 0) FROM transcript_fts_keys k
+          WHERE k.workspace_id = ${WORKSPACE})`)
+  }
+  if (rows === 'owned') {
+    terms.push(sql`EXISTS (SELECT 1 FROM conversation_segments s
           WHERE s.workspace_id = ${WORKSPACE} AND s.machine_id = f.machine_id AND s.native_id = f.native_id)`)
+  }
+  const where = terms.length === 0 ? sql`` : sql` WHERE ${sql.join(terms, sql` AND `)}`
+  return db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+        SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f${where}`)
 })
 
 const segmentsBehindMirror = prepared((db, t) =>
@@ -241,8 +251,12 @@ export class TranscriptIndexRepository {
   private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
+  /** Whether this is the self-hosted workspace, which keys every FTS row (see {@link catchUpKeys}). */
+  private readonly ownsEveryRow: boolean
+
   constructor(queries: WorkspaceQueries) {
     this.scope = queries.db
+    this.ownsEveryRow = queries.db.context.workspaceId === SELF_HOSTED_WORKSPACE_ID
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -266,7 +280,7 @@ export class TranscriptIndexRepository {
         await executeRaw(createTranscriptFts(this.db))
         await executeRaw(createTranscriptKeys(this.db, 'table'))
         // A key table from before the workspace column is made again with it,
-        // and every FTS row is keyed again to the workspace of its segment.
+        // and every FTS row is keyed again to the workspace that owns it.
         const [column] = await executeRaw(keysWorkspaceColumn(this.db))
         const replaced = Number(column?.present ?? 0) === 0
         if (replaced) {
@@ -274,7 +288,8 @@ export class TranscriptIndexRepository {
           await executeRaw(createTranscriptKeys(this.db, 'table'))
         }
         await executeRaw(createTranscriptKeysIndex(this.db))
-        await executeRaw(catchUpKeys(this.db, replaced ? 'all' : 'after-last'))
+        const rows = this.ownsEveryRow ? 'every' : 'owned'
+        await executeRaw(catchUpKeys(this.db, `${replaced ? 'all' : 'after-last'}|${rows}`))
       })
       this.available = true
     } catch {

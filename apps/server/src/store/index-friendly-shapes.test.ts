@@ -12,7 +12,6 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
 import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { NotificationFactsRepository } from './notification-facts'
@@ -72,18 +71,14 @@ describe('TranscriptIndexRepository keys', () => {
   const m1 = asMachineId('m1')
   let database: SqlDatabase
   let index: TranscriptIndexRepository
-  let registry: ConversationRegistryRepository
 
   beforeEach(() => {
     database = openMigratedTestDatabase()
-    const queries = legacyWorkspaceQueries(syncQueriesOver(database), SELF_HOSTED_WORKSPACE_ID)
-    index = new TranscriptIndexRepository(queries)
-    registry = new ConversationRegistryRepository(queries)
+    // The self-hosted workspace keys every FTS row, segment or not (POD-7022).
+    index = new TranscriptIndexRepository(
+      legacyWorkspaceQueries(syncQueriesOver(database), SELF_HOSTED_WORKSPACE_ID),
+    )
   })
-
-  /** The segment an unkeyed row belongs to: the catch-up keys a row to its segment's workspace. */
-  const segment = async (nativeId: string) =>
-    await registry.ensure({ machineId: m1, nativeId, providerId: 'claude-code' })
 
   /** An FTS row as a build from before the key table wrote it: no key. */
   const writeUnkeyed = (nativeId: string, content: string) =>
@@ -116,8 +111,6 @@ describe('TranscriptIndexRepository keys', () => {
   it('keys the rows a table from before the keys holds when search opens', async () => {
     database.exec(`CREATE VIRTUAL TABLE transcript_fts USING fts5(
       content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`)
-    await segment('old')
-    await segment('other')
     writeUnkeyed('old', 'o1')
     writeUnkeyed('other', 'x1')
     writeUnkeyed('old', 'o2')
@@ -131,7 +124,6 @@ describe('TranscriptIndexRepository keys', () => {
   })
 
   it('keys rows an older build appended after the keys existed, the next time search opens', async () => {
-    await segment('seg')
     await index.enableFts()
     await index.append(m1, 'seg', [{ content: 's1' }], 10)
     writeUnkeyed('seg', 's2')
