@@ -39,64 +39,6 @@
       "encoded": "\"\""
     },
     {
-      "schema": "AccountView",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "provider": "provider",
-        "source": "native",
-        "status": "connected"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"status\":\"connected\"}"
-    },
-    {
-      "schema": "AccountView",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "provider": "provider",
-        "source": "native",
-        "harness": "claude-code",
-        "identity": "identity",
-        "machines": ["machines[0]"],
-        "identityFingerprint": "identityFingerprint",
-        "status": "connected",
-        "serverAi": {
-          "machineId": "serverAi.machineId",
-          "machineName": "serverAi.machineName",
-          "lastError": "serverAi.lastError"
-        },
-        "loginRequired": true,
-        "loginMachines": [
-          {
-            "id": "loginMachines[0].id",
-            "name": "loginMachines[0].name"
-          }
-        ],
-        "loginAttempt": {
-          "sessionId": "loginAttempt.sessionId",
-          "machineId": "loginAttempt.machineId",
-          "machineName": "loginAttempt.machineName",
-          "status": "running",
-          "error": "loginAttempt.error"
-        },
-        "useOnMyMachines": true,
-        "keptOn": [
-          {
-            "id": "keptOn[0].id",
-            "name": "keptOn[0].name"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"provider\":\"provider\",\"source\":\"native\",\"harness\":\"claude-code\",\"identity\":\"identity\",\"machines\":[\"machines[0]\"],\"identityFingerprint\":\"identityFingerprint\",\"status\":\"connected\",\"serverAi\":{\"machineId\":\"serverAi.machineId\",\"machineName\":\"serverAi.machineName\",\"lastError\":\"serverAi.lastError\"},\"loginRequired\":true,\"loginMachines\":[{\"id\":\"loginMachines[0].id\",\"name\":\"loginMachines[0].name\"}],\"loginAttempt\":{\"sessionId\":\"loginAttempt.sessionId\",\"machineId\":\"loginAttempt.machineId\",\"machineName\":\"loginAttempt.machineName\",\"status\":\"running\",\"error\":\"loginAttempt.error\"},\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"keptOn[0].id\",\"name\":\"keptOn[0].name\"}]}"
-    },
-    {
       "schema": "ActorRef",
       "variant": "minimal",
       "wire": {
@@ -2296,12 +2238,37 @@
             "grantee": "all-members",
             "verb": "use"
           }
-        ]
+        ],
+        "nativeLogin": {
+          "harness": "claude-code",
+          "machines": [
+            {
+              "id": "nativeLogin.machines[0].id",
+              "name": "nativeLogin.machines[0].name",
+              "state": "in"
+            }
+          ],
+          "required": true,
+          "useOnMyMachines": true,
+          "keptOn": [
+            {
+              "id": "nativeLogin.keptOn[0].id",
+              "name": "nativeLogin.keptOn[0].name"
+            }
+          ],
+          "attempt": {
+            "sessionId": "nativeLogin.attempt.sessionId",
+            "machineId": "nativeLogin.attempt.machineId",
+            "machineName": "nativeLogin.attempt.machineName",
+            "status": "running",
+            "error": "nativeLogin.attempt.error"
+          }
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\",\"sharedWith\":[{\"grantee\":\"all-members\",\"verb\":\"use\"}]}"
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\",\"sharedWith\":[{\"grantee\":\"all-members\",\"verb\":\"use\"}],\"nativeLogin\":{\"harness\":\"claude-code\",\"machines\":[{\"id\":\"nativeLogin.machines[0].id\",\"name\":\"nativeLogin.machines[0].name\",\"state\":\"in\"}],\"required\":true,\"useOnMyMachines\":true,\"keptOn\":[{\"id\":\"nativeLogin.keptOn[0].id\",\"name\":\"nativeLogin.keptOn[0].name\"}],\"attempt\":{\"sessionId\":\"nativeLogin.attempt.sessionId\",\"machineId\":\"nativeLogin.attempt.machineId\",\"machineName\":\"nativeLogin.attempt.machineName\",\"status\":\"running\",\"error\":\"nativeLogin.attempt.error\"}}}"
     },
     {
       "schema": "CredentialView",
@@ -2340,12 +2307,37 @@
             },
             "verb": "manage"
           }
-        ]
+        ],
+        "nativeLogin": {
+          "harness": "codex",
+          "machines": [
+            {
+              "id": "nativeLogin.machines[0].id",
+              "name": "nativeLogin.machines[0].name",
+              "state": "out"
+            }
+          ],
+          "required": false,
+          "useOnMyMachines": false,
+          "keptOn": [
+            {
+              "id": "nativeLogin.keptOn[0].id",
+              "name": "nativeLogin.keptOn[0].name"
+            }
+          ],
+          "attempt": {
+            "sessionId": "nativeLogin.attempt.sessionId",
+            "machineId": "nativeLogin.attempt.machineId",
+            "machineName": "nativeLogin.attempt.machineName",
+            "status": "refreshing",
+            "error": "nativeLogin.attempt.error"
+          }
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"attention\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"out\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":2,\"access\":\"manage\",\"sharedWith\":[{\"grantee\":{\"userId\":\"sharedWith[0].grantee.userId\"},\"verb\":\"manage\"}]}"
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"attention\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"out\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":2,\"access\":\"manage\",\"sharedWith\":[{\"grantee\":{\"userId\":\"sharedWith[0].grantee.userId\"},\"verb\":\"manage\"}],\"nativeLogin\":{\"harness\":\"codex\",\"machines\":[{\"id\":\"nativeLogin.machines[0].id\",\"name\":\"nativeLogin.machines[0].name\",\"state\":\"out\"}],\"required\":false,\"useOnMyMachines\":false,\"keptOn\":[{\"id\":\"nativeLogin.keptOn[0].id\",\"name\":\"nativeLogin.keptOn[0].name\"}],\"attempt\":{\"sessionId\":\"nativeLogin.attempt.sessionId\",\"machineId\":\"nativeLogin.attempt.machineId\",\"machineName\":\"nativeLogin.attempt.machineName\",\"status\":\"refreshing\",\"error\":\"nativeLogin.attempt.error\"}}}"
     },
     {
       "schema": "DaemonLinkPolicy",

@@ -155,6 +155,8 @@ Object.assign(window, { settingsHarness: { calls, pool } })
 function endpoint(path: string[] = []): unknown {
   return new Proxy(() => {}, {
     get(_, key) {
+      // React's development render logger stringifies callable RPC stubs.
+      if (key === Symbol.toPrimitive || key === 'toString') return () => `harness:${path.join('.')}`
       return key === 'then' ? undefined : endpoint([...path, String(key)])
     },
     apply(_, __, args) {
