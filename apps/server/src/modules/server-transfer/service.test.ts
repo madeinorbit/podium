@@ -3,10 +3,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asMachineId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { vaultCheckValue } from '@podium/runtime/vault-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { DaemonRpcService } from '../machines/rpc'
+import { type MachinesDeps, MachinesService } from '../machines/service'
 import { assertWritableServerBoot } from './journal'
+import { serverTransferRpcAdapter } from './rpc-adapter'
 import { ServerTransferService } from './service'
 import {
   SERVER_TRANSFER_CONFIRMATION,
@@ -734,6 +738,70 @@ describe('ServerTransferService vault key hand-over', () => {
     expect(service.status()?.state).toBe('aborted')
     expect(() => assertWritableServerBoot(root)).not.toThrow()
     expect(existsSync(keyPath)).toBe(true)
+  })
+
+  it('aborts when the promote holding the key is refused at the send; a later attach gets no key', async () => {
+    // The real chain from the adapter down: DaemonRpcService, its broker, and
+    // MachinesService.toMachine, with the target's daemon gone since the preflight.
+    const machines = new MachinesService({
+      instanceId: 'default',
+      daemonLinkKind: () => 'encrypted',
+      store: {
+        machines: {
+          getMachine: async () => ({ revokedAt: null }),
+          addMachineComponent: () => false,
+          setAvailability: async () => {},
+          setPresenceSource: () => {},
+          committed: { subscribe: () => () => {} },
+        },
+      } as unknown as MachinesDeps['store'],
+      hostMachineId: asMachineId('source-1'),
+    } satisfies MachinesDeps)
+    const wire = new DaemonRpcService({
+      toMachine: machines.toMachine,
+      defaultMachine: () => input.targetMachineId,
+    } as never)
+    const fake = fakeRpc()
+    fake.rpc.serverTransferPromote = vi.fn(serverTransferRpcAdapter(wire).serverTransferPromote)
+    const releaseFence = vi.fn()
+    const demoteSource = vi.fn()
+    const service = makeService(fake.rpc, {
+      releaseFence,
+      demoteSource,
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+    })
+
+    const result = await service.transfer(input, allow)
+
+    // The key was really in the request: the refusal, not an empty vault, kept it home.
+    expect(fake.rpc.serverTransferPromote).toHaveBeenCalledWith(
+      expect.objectContaining({ vaultDataKey: dataKey.toString('base64') }),
+      input.targetMachineId,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      state: 'aborted',
+      error: { code: 'target-unreachable' },
+    })
+    expect(JSON.stringify(result)).not.toContain(dataKey.toString('base64'))
+    expect(releaseFence).toHaveBeenCalledOnce()
+    expect(demoteSource).not.toHaveBeenCalled()
+    expect(fake.rpc.serverTransferAbort).toHaveBeenCalledWith(
+      expect.objectContaining({ transferId: result.transferId }),
+      input.targetMachineId,
+    )
+    expect(service.status()?.state).toBe('aborted')
+    expect(() => assertWritableServerBoot(root)).not.toThrow()
+    expect(existsSync(keyPath)).toBe(true)
+
+    // The target's daemon comes back: nothing was parked for it.
+    const got: ControlMessage[] = []
+    await machines.attach(input.targetMachineId, (m) => got.push(m), [])
+    await machines.flushQueued(input.targetMachineId)
+    expect(got.map((m) => m.type)).not.toContain('serverTransferPromoteRequest')
+    expect(JSON.stringify(got)).not.toContain(dataKey.toString('base64'))
   })
 
   it('treats a promoted target with a wrong check value as uncertain and keeps the key file', async () => {

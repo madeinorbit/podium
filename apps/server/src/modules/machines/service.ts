@@ -84,6 +84,7 @@ import {
   sha256,
 } from './enrollment'
 import { storedMachineRecordFacts } from './record-facts'
+import { RefusedSendError } from './refused-send'
 import { supersedeMachine } from './supersession'
 import { UpdateSpaceRequests } from './update-space-requests'
 import { deriveVersionState } from './version-state'
@@ -128,10 +129,19 @@ const fencedSessionOf = (delivery: PendingDaemonDelivery): SessionId | undefined
 }
 
 /** A control frame whose `access` holds a secret (an `env` delivery). */
-function carriesSecret(message: ControlMessage): boolean {
+function carriesAccessSecret(message: ControlMessage): boolean {
   if (!carriesAccess(message.type)) return false
   const access = (message as { access?: { delivery: { kind: string } } }).access
   return access?.delivery.kind === 'env'
+}
+
+/** A server-transfer promote frame that holds the vault's data key (credential management §7). */
+function carriesVaultKey(message: ControlMessage): boolean {
+  return (
+    message.type === 'serverTransferPromoteRequest' &&
+    message.vaultDataKey !== undefined &&
+    message.vaultDataKey !== null
+  )
 }
 
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
@@ -1047,6 +1057,12 @@ export class MachinesService {
   private secretUnsafe(machineId: MachineId): string | undefined {
     if (!this.daemons.has(machineId)) return 'no daemon is connected'
     if (!this.daemonSupports(machineId, CAP_SESSION_ACCESS)) return 'its daemon is too old'
+    return this.linkUnsafe(machineId)
+  }
+
+  /** Why a secret may not go to `machineId`'s live daemon link now, if it may not. */
+  private linkUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
     if (this.deps.daemonLinkKind?.(machineId) === 'plain') return 'its connection is not encrypted'
     return undefined
   }
@@ -1098,9 +1114,30 @@ export class MachinesService {
     // attached for the daemon connected when the launch was resolved; if that
     // socket went away or was replaced by an older daemon or a plain link since,
     // the frame is refused here rather than parked for whatever connects next.
-    if (carriesSecret(msg)) {
+    if (carriesAccessSecret(msg)) {
       const unsafe = this.secretUnsafe(machineId)
-      if (unsafe) throw new Error(`refusing to send a credential to ${machineId}: ${unsafe}`)
+      if (unsafe) {
+        throw new RefusedSendError(`refusing to send a credential to ${machineId}: ${unsafe}`)
+      }
+    }
+    // A SERVER PROMOTION IS NEVER QUEUED either (credential management §7). The
+    // transfer checked the target before committing, but the RPC awaits before it
+    // sends. A parked promote would reach whatever daemon attaches next, after the
+    // transfer timed out as uncertain or was aborted (and ahead of the abort
+    // queued behind it), with the vault key when it holds one. The key also needs
+    // a link that is not plain. The capability that matters (taking the key) is
+    // the transfer's own preflight, so only the live link is judged here.
+    if (msg.type === 'serverTransferPromoteRequest') {
+      const unsafe = carriesVaultKey(msg)
+        ? this.linkUnsafe(machineId)
+        : this.daemons.has(machineId)
+          ? undefined
+          : 'no daemon is connected'
+      if (unsafe) {
+        throw new RefusedSendError(
+          `refusing to send the server promotion to ${machineId}: ${unsafe}`,
+        )
+      }
     }
     // Keep target and origin together: aggregate task timings cannot distinguish
     // a repeated target from a sweep, or an offline queue from a fresh request.

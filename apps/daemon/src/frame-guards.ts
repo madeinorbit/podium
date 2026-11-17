@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { DaemonPtyInputMetadata } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { carriesAccess, encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
+import { carriesSecret, encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
 import { dispatchInputBytes } from './control/legacy-terminal-input'
@@ -187,11 +187,11 @@ export function createFrameGuard(
         // 35s timeout makes a stale daemon indistinguishable from an unreachable one.
         const reply = payloadRejectionReply(text, error)
         if (reply) ctx.send(reply)
-        // NEVER LOGGED (credential management §8): a frame that can carry a
-        // session's credential is named by its type and failing paths only,
-        // never by an error that may quote its fields.
+        // NEVER LOGGED (credential management §7, §8): a frame that can carry a
+        // secret (an access or the vault key) is named by its type and failing paths
+        // only, never by an error that may quote its fields.
         const type = envelopeType(text)
-        if (type !== undefined && carriesAccess(type)) warnDroppedByType(type, error)
+        if (type !== undefined && carriesSecret(type)) warnDroppedByType(type, error)
         else warnDropped(error, 'inbound')
         return
       }

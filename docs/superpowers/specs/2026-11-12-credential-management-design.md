@@ -304,6 +304,10 @@ to move the ability to open the vault as well.
   - It travels in the transfer's promotion step in a field of its own, not as a file in the
     copied package, and only over a connection that meets the rule in section 8. A target on a
     connection that is not encrypted is refused before anything is copied.
+  - The promotion goes only to a daemon connected when it is sent, over such a connection. It
+    is never queued for a target that went offline: nothing is sent, and the transfer aborts.
+    Otherwise a delayed promotion could deliver the key, and commit, after the transfer had
+    given up.
   - The target encrypts the data key under its own outside key (its own key file or keychain)
     and writes the result into the database it has just received. The outside key itself never
     leaves the machine it was made on.

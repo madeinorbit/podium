@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ACCESS_CARRYING_CONTROL_TYPES, ControlMessage, carriesAccess } from './control.js'
+import {
+  ACCESS_CARRYING_CONTROL_TYPES,
+  ControlMessage,
+  carriesAccess,
+  carriesSecret,
+  SECRET_CARRYING_CONTROL_TYPES,
+} from './control.js'
 import { AccessField, CAP_SESSION_ACCESS, SessionAccessRefreshMessage } from './session-access.js'
 import { SpawnMessage } from './terminal.js'
 
@@ -79,5 +85,19 @@ describe('messages that carry access', () => {
     for (const type of withAccess) expect(carriesAccess(type)).toBe(true)
     expect(carriesAccess('kill')).toBe(false)
     expect(carriesAccess('not-a-type')).toBe(false)
+  })
+
+  it('the never-logged list is exactly the control types whose shape has access or a vault key', () => {
+    const withSecret = controlArms()
+      .filter((arm) => arm.keys.includes('access') || arm.keys.includes('vaultDataKey'))
+      .map((arm) => arm.type)
+      .sort()
+    // Canaries: the derivation finds both kinds of carrier.
+    expect(withSecret).toContain('spawn')
+    expect(withSecret).toContain('serverTransferPromoteRequest')
+    expect([...SECRET_CARRYING_CONTROL_TYPES].sort()).toEqual(withSecret)
+    for (const type of withSecret) expect(carriesSecret(type)).toBe(true)
+    expect(carriesSecret('serverTransferAbortRequest')).toBe(false)
+    expect(carriesSecret('not-a-type')).toBe(false)
   })
 })

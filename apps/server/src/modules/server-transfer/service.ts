@@ -532,6 +532,7 @@ export class ServerTransferService {
       }
       let prepared: { transferId: string; manifestDigest: string } | undefined
       let fenceHeld = false
+      let promoteNotSent = false
       const persistProgress = (bytesCopied: number, totalBytes: number) => {
         if (hooks.canceled?.()) {
           throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
@@ -694,6 +695,12 @@ export class ServerTransferService {
           },
           input.targetMachineId,
         )
+        if (!promoted.ok && promoted.notSent === true) {
+          // Refused at the send, never queued: the target saw no promote and no key,
+          // so the commit never began and the transfer aborts.
+          promoteNotSent = true
+          throw fail(TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE, promoted.error.detail)
+        }
         if (
           !promoted.ok &&
           vault.vaultCheck !== undefined &&
@@ -758,8 +765,9 @@ export class ServerTransferService {
         const detail = classified(error)
         const refusedPromotion =
           current?.state === 'committing' &&
-          error instanceof ServerTransferError &&
-          error.code === TRANSFER_FAILURE_CODES.VAULT_CHECK_FAILED
+          (promoteNotSent ||
+            (error instanceof ServerTransferError &&
+              error.code === TRANSFER_FAILURE_CODES.VAULT_CHECK_FAILED))
         if (current?.state === 'committing' && !refusedPromotion) {
           this.journal.commitUncertain({
             code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,

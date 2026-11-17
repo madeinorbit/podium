@@ -14,6 +14,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, test } from 'vitest'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { Send } from '../sessions/session'
+import { isRefusedSend, RefusedSendError } from './refused-send'
 import { type MachinesDeps, MachinesService } from './service'
 
 const MACHINE = asMachineId('machine-secret-send')
@@ -92,5 +93,82 @@ describe('toMachine with a frame that carries a secret', () => {
   test('a home delivery holds no secret and is not held back', async () => {
     const svc = makeService({ kind: undefined })
     expect(() => svc.toMachine(MACHINE, spawnWith('home'))).not.toThrow()
+  })
+})
+
+/**
+ * THE VAULT KEY IS NEVER QUEUED EITHER (credential management §7; POD-6906 S3).
+ * A server-transfer promote frame carries the vault's data key. Parked in the
+ * offline queue, it would reach whatever daemon attaches next, after the transfer
+ * timed out as uncertain or was aborted, and ahead of the abort queued behind it.
+ * The first test is POD-6906's repro, inverted.
+ */
+describe('toMachine with a promote frame that carries the vault key', () => {
+  /** Obviously fake: 32 bytes of 7, base64. */
+  const DATA_KEY = Buffer.alloc(32, 7).toString('base64')
+
+  function promote(vaultDataKey: string | null): ControlMessage {
+    return {
+      type: 'serverTransferPromoteRequest',
+      requestId: 'rpc-transfer-1',
+      transferId: '00000000-0000-4000-8000-0000000000c1',
+      manifestDigest: 'b'.repeat(64),
+      publicUrl: 'https://podium.example',
+      bindHost: '127.0.0.1',
+      port: 18787,
+      targetMode: 'server',
+      idempotencyKey: '00000000-0000-4000-8000-0000000000c1',
+      vaultDataKey,
+      ...(vaultDataKey === null ? {} : { vaultCheck: 'a'.repeat(64) }),
+    }
+  }
+
+  test('is refused, not queued, when no daemon is connected; a later attach gets no key', async () => {
+    const link: { kind: DaemonLinkKind | undefined } = { kind: undefined }
+    const svc = makeService(link)
+    let refusal: unknown
+    try {
+      svc.toMachine(MACHINE, promote(DATA_KEY))
+    } catch (error) {
+      refusal = error
+    }
+    expect(isRefusedSend(refusal)).toBe(true)
+    expect(String(refusal)).toContain('no daemon is connected')
+    expect(String(refusal)).not.toContain(DATA_KEY)
+    link.kind = 'encrypted'
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send, [])
+    await svc.flushQueued(MACHINE)
+    expect(daemon.got).toEqual([])
+  })
+
+  test('is refused over a link the server judged plain', async () => {
+    const svc = makeService({ kind: 'plain' })
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send, [])
+    expect(() => svc.toMachine(MACHINE, promote(DATA_KEY))).toThrow(RefusedSendError)
+    expect(() => svc.toMachine(MACHINE, promote(DATA_KEY))).toThrow('not encrypted')
+    expect(JSON.stringify(daemon.got)).not.toContain(DATA_KEY)
+  })
+
+  test('goes to the attached daemon on a safe link', async () => {
+    const svc = makeService({ kind: 'encrypted' })
+    const daemon = recorder()
+    // No session-access capability: the transfer's own preflight judged the target.
+    await svc.attach(MACHINE, daemon.send, [])
+    svc.toMachine(MACHINE, promote(DATA_KEY))
+    expect(JSON.stringify(daemon.got)).toContain(DATA_KEY)
+  })
+
+  test('a promote without a key is not queued either, but a plain link may carry it', async () => {
+    // Offline: a parked promote would commit after the transfer gave up on it.
+    const offline = makeService({ kind: undefined })
+    expect(() => offline.toMachine(MACHINE, promote(null))).toThrow(RefusedSendError)
+    // It holds no secret, so the plain-link rule is the key's alone (canary for the rule above).
+    const plain = makeService({ kind: 'plain' })
+    const daemon = recorder()
+    await plain.attach(MACHINE, daemon.send, [])
+    plain.toMachine(MACHINE, promote(null))
+    expect(daemon.got.map((m) => m.type)).toContain('serverTransferPromoteRequest')
   })
 })

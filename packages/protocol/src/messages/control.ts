@@ -241,7 +241,24 @@ export const ACCESS_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> 
   'sessionAccessRefresh',
 ] as const satisfies readonly ControlMessage['type'][])
 
-/** Can a control frame of this type carry a secret? */
+/** Can a control frame of this type carry a session's access? */
 export function carriesAccess(type: string): boolean {
   return (ACCESS_CARRYING_CONTROL_TYPES as ReadonlySet<string>).has(type)
+}
+
+/**
+ * EVERY FRAME THAT CAN CARRY A SECRET, `access` or not (credential management
+ * §7 and §8): the access carriers, plus the server-transfer promote frame, whose
+ * `vaultDataKey` is the vault's data key. Such a frame is named by its type
+ * only in a log, a trace or a dropped-frame warning. Pinned against the union's
+ * shapes by `session-access.test.ts`.
+ */
+export const SECRET_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
+  ...ACCESS_CARRYING_CONTROL_TYPES,
+  'serverTransferPromoteRequest',
+] as const satisfies readonly ControlMessage['type'][])
+
+/** Can a control frame of this type carry a secret? Log it by type only. */
+export function carriesSecret(type: string): boolean {
+  return (SECRET_CARRYING_CONTROL_TYPES as ReadonlySet<string>).has(type)
 }

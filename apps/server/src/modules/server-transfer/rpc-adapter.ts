@@ -4,7 +4,12 @@ import type {
   ServerTransferManifest,
   ServerTransferResultMessage,
 } from '@podium/protocol'
-import type { ServerTransferRpc, ServerTransferRpcResult } from './types'
+import { isRefusedSend } from '../machines/refused-send'
+import {
+  type ServerTransferRpc,
+  type ServerTransferRpcResult,
+  TRANSFER_FAILURE_CODES,
+} from './types'
 
 type WireReply = Omit<ServerTransferResultMessage, 'type' | 'requestId'>
 
@@ -182,18 +187,32 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
     },
 
     async serverTransferPromote(input, targetMachineId) {
-      const reply = await wire.serverTransferPromote(
-        input.transferId,
-        input.manifestDigest,
-        input.publicUrl,
-        input.bindHost,
-        targetMachineId,
-        input.port,
-        {
-          ...(input.vaultDataKey !== undefined ? { vaultDataKey: input.vaultDataKey } : {}),
-          ...(input.vaultCheck !== undefined ? { vaultCheck: input.vaultCheck } : {}),
-        },
-      )
+      let reply: WireReply
+      try {
+        reply = await wire.serverTransferPromote(
+          input.transferId,
+          input.manifestDigest,
+          input.publicUrl,
+          input.bindHost,
+          targetMachineId,
+          input.port,
+          {
+            ...(input.vaultDataKey !== undefined ? { vaultDataKey: input.vaultDataKey } : {}),
+            ...(input.vaultCheck !== undefined ? { vaultCheck: input.vaultCheck } : {}),
+          },
+        )
+      } catch (error) {
+        // The promote, and the vault key it may hold, was refused at the send and
+        // never queued (credential management §7): the target saw nothing, so this
+        // is a refusal before the commit began, not an uncertain one.
+        if (!isRefusedSend(error)) throw error
+        return {
+          ok: false,
+          state: 'validated',
+          notSent: true,
+          error: { code: TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE, detail: error.message },
+        }
+      }
       if (
         !reply.ok ||
         reply.state !== 'promoted' ||

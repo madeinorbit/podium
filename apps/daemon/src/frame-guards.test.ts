@@ -226,6 +226,34 @@ describe('frames that can carry a credential', () => {
     expect(logged).not.toContain(Buffer.from(PLANTED).toString('base64'))
   })
 
+  it('a malformed promote frame holding the vault key is warned about by type and path only', () => {
+    const warn = vi.fn()
+    // Obviously fake: a well-formed base64 string of 32 bytes, as the schema wants.
+    const plantedKey = Buffer.from('FAKE-planted-vault-data-key-0042').toString('base64')
+    createFrameGuard(context(), { warn }).receive(
+      Buffer.from(
+        JSON.stringify({
+          type: 'serverTransferPromoteRequest',
+          requestId: 'st-1',
+          transferId: '00000000-0000-4000-8000-000000000042',
+          manifestDigest: 'a'.repeat(64),
+          publicUrl: 'https://podium.example',
+          bindHost: '0.0.0.0',
+          port: 'not-a-port',
+          targetMode: 'server',
+          idempotencyKey: '00000000-0000-4000-8000-000000000042',
+          vaultDataKey: plantedKey,
+        }),
+      ),
+    )
+    expect(warn).toHaveBeenCalledWith(
+      'dropped a malformed control frame',
+      expect.objectContaining({ direction: 'inbound', type: 'serverTransferPromoteRequest' }),
+    )
+    expect(warn.mock.calls[0]?.[1]).not.toHaveProperty('err')
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(plantedKey)
+  })
+
   it('a malformed frame of another type still carries its error (canary)', () => {
     const warn = vi.fn()
     createFrameGuard(context(), { warn }).receive(

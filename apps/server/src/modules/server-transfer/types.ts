@@ -144,6 +144,12 @@ export type ServerTransferPromoteRefusal = {
   state: string
   error: ServerTransferFailure
   vaultCheck?: string
+  /**
+   * The promote frame was refused at the send and never queued: no daemon link,
+   * or none safe for the vault key, was live when it was to go out. The target
+   * saw nothing, so the commit never began.
+   */
+  notSent?: true
 }
 
 /**
