@@ -90,7 +90,7 @@ function Glint({
 const styles = StyleSheet.create({
   word: { minWidth: 0, overflow: 'hidden' },
   window: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '40%',
     overflow: 'hidden',
     opacity: 0.75,
