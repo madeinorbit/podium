@@ -227,6 +227,7 @@ export function Composer({
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
+  const [pasteInput, setPasteInput] = useState<TextInput | null>(null)
   const sendGuard = useRef(createSendGuard()).current
   /**
    * THE FOLD BACK TO ONE LINE (POD-2423). Sending empties the field, and on its
@@ -289,7 +290,9 @@ export function Composer({
    * Wired to the composer's own text node rather than the document: a paste into
    * the PROMPT is a different event from a paste anywhere else on the page, and
    * a page-level listener would swallow both. `accept` is read through a ref so
-   * re-binding the listener is not the price of one chip arriving.
+   * re-binding the listener is not the price of one chip arriving. The initial
+   * pager page can mount before Fabric registers its input, so wait for layout
+   * from the actual field, as the New Task prompt does.
    */
   const acceptRef = useRef(attachments?.accept)
   acceptRef.current = attachments?.accept
@@ -297,13 +300,13 @@ export function Composer({
   fromSourceRef.current = attachments?.fromSource
   const takesMedia = attachments !== undefined
   useEffect(() => {
-    if (!takesMedia) return
+    if (!takesMedia || !pasteInput) return
     return onMediaPaste(
-      inputRef.current,
+      pasteInput,
       (files) => acceptRef.current?.(files),
       (source) => fromSourceRef.current?.(source),
     )
-  }, [takesMedia])
+  }, [takesMedia, pasteInput])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a keyed insertion runs once; each render has the current writer.
   useEffect(() => {
@@ -472,6 +475,7 @@ export function Composer({
             placeholderTextColor={color.textDim}
             multiline
             editable={!disabled}
+            onLayout={() => setPasteInput(inputRef.current)}
             onKeyPress={onKeyPress}
             // react-native-web answers this with a scrollHeight that can only
             // grow; useComposerMeasure asks the node directly instead.

@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { type ComponentProps, type ReactNode, useEffect, useState } from 'react'
-import type { View } from 'react-native'
+import { type ComponentProps, type ReactNode, useState } from 'react'
+import type { TextInput, View } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { AttachmentReadSource } from '../lib/composer-media-limits'
@@ -16,7 +16,24 @@ const native = vi.hoisted(() => ({
   getInfoAsync: vi.fn(),
   stop: vi.fn(),
   pasted: undefined as ((source: () => Promise<AttachmentReadSource[]>) => void) | undefined,
+  input: undefined as ComponentProps<typeof TextInput> | undefined,
+  inputVersion: 0,
+  registered: false,
 }))
+vi.mock('react-native', async (original) => {
+  const rn = await original<typeof import('react-native')>()
+  const { forwardRef } = await import('react')
+  return {
+    ...rn,
+    TextInput: forwardRef<TextInput, ComponentProps<typeof TextInput>>((props, ref) => {
+      native.input = props
+      return <rn.TextInput key={native.inputVersion} {...props} ref={ref} onLayout={undefined} />
+    }),
+  }
+})
+// Drive Composer's own binding through the native adapter. The .js specifier
+// resolves its native .ts entry instead of this lane's default .web.ts entry.
+vi.mock('../lib/composer-media', async () => import('../lib/composer-media.js'))
 vi.mock('../lib/composer-image-paste', () => ({ onImagePaste: native.onImagePaste }))
 vi.mock('expo-clipboard', () => ({}))
 vi.mock('expo-image-picker', () => ({}))
@@ -41,9 +58,6 @@ vi.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-// The .js specifier resolves the native .ts entry instead of the lane's .web.ts.
-const { onMediaPaste } = await import('../lib/composer-media.js')
-
 let attachments: ComposerAttachmentsApi
 function Harness({
   onSend = () => {},
@@ -55,7 +69,6 @@ function Harness({
   const api = useComposerAttachments(asSessionId('paste-session'), { pickMedia })
   const [text, setText] = useState('Describe this')
   attachments = api
-  useEffect(() => onMediaPaste(null, api.accept, api.fromSource), [api.accept, api.fromSource])
   return (
     <Composer
       placeholder="Message"
@@ -69,8 +82,13 @@ function Harness({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  native.input = undefined
+  native.inputVersion = 0
+  native.registered = false
+  native.pasted = undefined
   native.onImagePaste.mockImplementation((_node, handler) => {
-    native.pasted = handler
+    // Simulate the initial pager input being unavailable until its first layout.
+    if (native.registered) native.pasted = handler
     return native.stop
   })
 })
@@ -92,12 +110,57 @@ function paste(files: AttachmentReadSource[]) {
   native.pasted?.(async () => files)
 }
 
+function layoutInput() {
+  native.registered = true
+  act(() =>
+    native.input?.onLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 72 } },
+    } as never),
+  )
+}
+
+async function mountComposer(...args: Parameters<typeof renderWithMobileStore>) {
+  const app = await renderWithMobileStore(...args)
+  layoutInput()
+  return app
+}
+
 describe('pasted image attachment intake', () => {
+  it('binds the initial chat input after layout and replaces its binding only when the input changes', async () => {
+    const uploadImage = vi.fn(async () => ({ path: '/uploads/initial.png' }))
+    const app = await renderWithMobileStore(<Harness />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    expect(native.onImagePaste).not.toHaveBeenCalled()
+    const initialInput = screen.getByLabelText('Message')
+    layoutInput()
+    expect(native.onImagePaste).toHaveBeenCalledTimes(1)
+    expect(native.onImagePaste.mock.calls[0]?.[0]).toBe(initialInput)
+    act(() => paste([image('initial.png')]))
+    await waitFor(() => expect(attachments.ready()).toHaveLength(1))
+    expect(screen.getByLabelText('initial.png')).toBeTruthy()
+    fireEvent.change(initialInput, { target: { value: 'Keep this attachment' } })
+    layoutInput()
+    expect(native.onImagePaste).toHaveBeenCalledTimes(1)
+    expect(native.stop).not.toHaveBeenCalled()
+    native.inputVersion += 1
+    native.registered = false
+    fireEvent.change(initialInput, { target: { value: 'Replacement input' } })
+    const replacementInput = screen.getByLabelText('Message')
+    expect(replacementInput).not.toBe(initialInput)
+    layoutInput()
+    expect(native.onImagePaste).toHaveBeenCalledTimes(2)
+    expect(native.onImagePaste.mock.calls[1]?.[0]).toBe(replacementInput)
+    expect(native.stop).toHaveBeenCalledTimes(1)
+    app.unmount()
+    expect(native.stop).toHaveBeenCalledTimes(2)
+  })
+
   it('blocks Send before native image preparation has even produced file sources', async () => {
     let finishPreparation: ((files: AttachmentReadSource[]) => void) | undefined
     const onSend = vi.fn()
     const uploadImage = vi.fn(async () => ({ path: '/uploads/prepared.png' }))
-    await renderWithMobileStore(<Harness onSend={onSend} />, {
+    await mountComposer(<Harness onSend={onSend} />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     const beforeRender = attachments
@@ -124,7 +187,7 @@ describe('pasted image attachment intake', () => {
     let finishPreparation: ((files: AttachmentReadSource[]) => void) | undefined
     const onSend = vi.fn()
     const uploadImage = vi.fn(async () => ({ path: '/uploads/fresh.png' }))
-    await renderWithMobileStore(<Harness onSend={onSend} />, {
+    await mountComposer(<Harness onSend={onSend} />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() =>
@@ -154,7 +217,7 @@ describe('pasted image attachment intake', () => {
     const cancelledPicker = vi.fn(async () => [])
     const nextPicker = vi.fn(async () => [])
     const uploadImage = vi.fn(async () => ({ path: '/uploads/first.png' }))
-    await renderWithMobileStore(<Harness />, {
+    await mountComposer(<Harness />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() => {
@@ -201,7 +264,7 @@ describe('pasted image attachment intake', () => {
     ]
     const onSend = vi.fn()
     const uploadImage = vi.fn(async () => ({ path: '/uploads/delayed.png' }))
-    await renderWithMobileStore(<Harness onSend={onSend} pickMedia={pickMedia} />, {
+    await mountComposer(<Harness onSend={onSend} pickMedia={pickMedia} />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     const input = screen.getByLabelText('Message')
@@ -237,7 +300,7 @@ describe('pasted image attachment intake', () => {
         attachment: { id: filename, filename, mediaType: mimeType, kind: 'image' as const },
       }),
     )
-    await renderWithMobileStore(<Harness />, {
+    await mountComposer(<Harness />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
 
@@ -279,7 +342,7 @@ describe('pasted image attachment intake', () => {
     const uploadImage = vi.fn(async ({ filename }: { filename: string }) => ({
       path: `/uploads/${filename}`,
     }))
-    await renderWithMobileStore(<Harness />, {
+    await mountComposer(<Harness />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() =>
@@ -314,7 +377,7 @@ describe('pasted image attachment intake', () => {
         })
       return { path: `/uploads/${filename}` }
     })
-    await renderWithMobileStore(<Harness />, {
+    await mountComposer(<Harness />, {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() => {
