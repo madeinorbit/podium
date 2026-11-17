@@ -7561,14 +7561,14 @@
       "file": "apps/web/src/features/setup/FirstTaskActivation.tsx",
       "holder": "FirstTaskActivation/renderAgentRows/callback",
       "rule": "consume:map",
-      "tokens": "017229956f7b606f04700a5f8139fc6a48fa87d387b516ee35b93019247e419c",
+      "tokens": "9ff84daebf589288e4c08eaf1e01b81cf95a9c9891cd043681cb024324da3ae8",
       "gate": [
         "exit:then:3690d368562285f15158e021acd00d21982af6c501ec51bce92615ebaeecf396"
       ],
       "origin": [
         "4595d0898188e0fdc4a265ebe9633bec9e6babcde9bf844a35ba284903a2e19e"
       ],
-      "fingerprint": "55cacca05a91245de8a3ea8e52f37c0729f4fd4a9320a10a8992f50382580b02",
+      "fingerprint": "7fb3fadc9d0bc3f675fd2f68ac6c07bc5bcf0c3d19e19406a336df9b3dfbdc3c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
