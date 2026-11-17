@@ -20,7 +20,9 @@ import { openTestStore } from './test-support/open-test-store'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
-  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  repo: {
+    allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]>
+  },
   userId: string,
 ): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
   const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
@@ -31,7 +33,9 @@ async function pinsOf(
 /** One person's tab orders by worktree, read the way the boot reconcile reads them. */
 async function tabOrdersOf(
   repo: {
-    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+    allTabOrdersForBootReconcile(): Promise<
+      { userId: string; entityId: string; sessionIds: string[] }[]
+    >
   },
   userId: string,
 ): Promise<Record<string, string[]>> {
@@ -62,7 +66,9 @@ async function tmpDbPath(): Promise<string> {
 describe('SessionStore repos', () => {
   it('reports the newest migration recorded by a real migrated store', async () => {
     const store = await openTestStore(':memory:')
-    const expected = DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import'))
+    const expected = DRIZZLE_MIGRATIONS.filter(
+      (m) => !m.sql.startsWith('-- after-local-identity-import'),
+    )
       .map(({ name }) => name)
       .sort()
       .at(-1)
@@ -363,7 +369,9 @@ describe('SessionStore sessions', () => {
     const agent = row({ id: asSessionId('a'), name: 'Session title slot', nameSource: 'agent' })
     await s.sessions.upsertSession(fixtureWriteScope(), user)
     await s.sessions.upsertSession(fixtureWriteScope(), agent)
-    expect(await s.sessions.loadSessions()).toEqual([user, agent])
+    // `loadSessions` orders by `created_at ASC, id ASC` (one order on both engines):
+    // the two share a created_at, so 'a' comes first.
+    expect(await s.sessions.loadSessions()).toEqual([agent, user])
 
     // A value that is neither must never read back as one that could out-rank the
     // user — an unknown source degrades to "nobody named it".
@@ -798,8 +806,18 @@ describe('SessionStore pins', () => {
     })
 
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
-    await store.sessions.addPin(firstAdminMemberId(), 'worktree', '/repo/b-feature', '2026-11-08T00:00:00.000Z')
-    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-2', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'worktree',
+      '/repo/b-feature',
+      '2026-11-08T00:00:00.000Z',
+    )
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-2',
+      '2026-11-08T00:00:00.000Z',
+    )
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/a', '2026-11-08T00:00:00.000Z')
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
 
@@ -822,7 +840,12 @@ describe('SessionStore pins', () => {
   it('removes a panel pin when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('session-1') }))
-    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-1', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-1',
+      '2026-11-08T00:00:00.000Z',
+    )
 
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('session-1'))
 

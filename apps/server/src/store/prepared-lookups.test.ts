@@ -276,7 +276,8 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     // The same two reads. b69f2d5917 batches user ids through IN,
     // including a single-key lookup; the executor still sees the same work.
     // The session read names its workspace first (POD-7015), and so does the account read
-    // (POD-7019).
+    // (POD-7019). The session read breaks a created_at tie by id, not rowid, so both
+    // engines order alike (POD-6958).
     await db
       .select()
       .from(sessionsTable)
@@ -286,7 +287,7 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
           eq(sessionsTable.id, asSessionId('sess-a')),
         ),
       )
-      .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+      .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
       .all()
     await db
       .select()

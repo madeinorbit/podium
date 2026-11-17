@@ -74,7 +74,8 @@ const reads = (tally: StatementTally, table: RegExp): number =>
   [...tally.byQuery].reduce((n, [key, count]) => (table.test(key) ? n + count : n), 0)
 
 const USERS = /^select\b.*\bfrom "users"/i
-const META = /^select\b.*\bfrom "meta"/i
+// The admin's settings are a workspace key, in workspace_meta since POD-7013.
+const META = /^select\b.*\bfrom "workspace_meta"/i
 const PREFERENCES = /^select\b.*\bfrom "user_preferences"/i
 
 const expectReads = (counts: PinnedCounts, table: RegExp, expected: number): void => {
