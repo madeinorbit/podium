@@ -26,8 +26,13 @@ import {
 } from './pg-test-database'
 
 const TAG = 'pg-isolation:'
-/** How long a file waits for its partner. Both start together, so this is generous. */
-export const PARTNER_TIMEOUT_MS = 40_000
+/**
+ * How long a file waits for its partner. Both are short and the scheduler usually starts
+ * them together, but with the whole store shard on the leg (POD-6994) a worker can reach
+ * one of them while every other worker is still in a long file; the wait covers that, and
+ * costs nothing when the partner is already there.
+ */
+export const PARTNER_TIMEOUT_MS = 240_000
 
 /** False when this run cannot schedule the pair side by side. */
 export function pairCanRun(env: Record<string, string | undefined> = process.env): boolean {
