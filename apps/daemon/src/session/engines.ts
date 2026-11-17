@@ -34,7 +34,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { withTrailingArgs } from '@podium/harness'
+import { type AppliedTerms, withTrailingArgs } from '@podium/harness'
 import type {
   EngineAttachment,
   EngineBindingRecord,
@@ -53,6 +53,7 @@ import {
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { noDurableBackendRefusal } from '../durable-backend'
+import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import { createEngineJournal } from './journal.js'
 import type { SessionRegistry } from './registry.js'
 
@@ -111,6 +112,13 @@ export interface SessionEngineScopeOptions {
    *  one no-durable-host sentence terminal spawns use (POD-4617). Absent =
    *  assumed available. */
   hostAvailable?: () => boolean
+  /** Where a start writes its launch files and applies its home edits
+   *  (POD-6858). Defaults to the real filesystem; tests hand a fake. */
+  prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /** Where a session engine's applied terms go once they are known, before
+   *  the process starts (POD-6858 Task 11): the server, with the session's
+   *  driver decision. A one-shot turn serves no session and reports none. */
+  onLaunchTerms?: (sessionId: SessionId, applied: AppliedTerms) => void
 }
 
 /**
@@ -165,6 +173,18 @@ export class SessionEngineScope implements EngineProcessOwner {
     if (!(this.options.hostAvailable?.() ?? true)) throw new Error(noDurableBackendRefusal())
     const adapter = engineAdapter(this.durable, req.label)
     const { retention, listen, sessionId, command, ...spawn } = req
+    // THE LAUNCH'S TERMS (POD-6858), once, before the process exists: its
+    // files, its home edits, and what could not be met, reported for the
+    // session it serves. A failed home edit does not stop the start.
+    const applied = await prepareLaunch(
+      command,
+      (this.options.prepareLaunchPorts ?? nodePrepareLaunchPorts)({
+        label: req.label,
+        launch: 'engine',
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      }),
+    )
+    if (sessionId !== undefined) this.options.onLaunchTerms?.(sessionId, applied)
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.

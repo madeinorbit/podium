@@ -67,6 +67,7 @@ describe('an inherited credential never reaches a harness child as if it were ch
         requestId: 'f10-buffered',
         agent: 'claude-code',
         prompt: 'summarize',
+        cwd: '/repo',
       } as BufferedHarnessRequest,
       {
         snapshot: async () => snapshotWithInheritedKey(),

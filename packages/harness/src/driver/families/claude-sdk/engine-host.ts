@@ -30,7 +30,10 @@
 import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
+import { harnessRoots } from '../../../harness-context.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { agentTermsFor, type LaunchFolders, launchPosture } from '../../../launch-terms.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import type { ProcessIdentity } from '../../binding.js'
 import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
 import type { ScopeResources } from '../../capabilities.js'
@@ -65,6 +68,35 @@ import type {
 } from './runtime.js'
 
 const log = createLogger('harness:claude-engine-host')
+
+/**
+ * The instance-owned overlay every engine child runs under (see `startTurn`):
+ * the instance agent home, and that home's own `.claude` as the config root.
+ */
+export function claudeEngineInstanceEnv(homeDir: string): Record<string, string> {
+  return { HOME: homeDir, CLAUDE_CONFIG_DIR: `${homeDir}/.claude` }
+}
+
+/**
+ * The context the engine's launch terms are stated against: the session's,
+ * with the instance overlay the child actually runs under. The overlay moves
+ * Claude's `.claude.json` to `<home>/.claude/.claude.json` (Claude reads it
+ * from `CLAUDE_CONFIG_DIR` when set), so the posture section's trust key must
+ * be written there, not in `<home>/.claude.json`, or the engine never sees it.
+ */
+export function engineChildContext(
+  context: HarnessContext,
+  homeDir: string | undefined,
+): HarnessContext {
+  if (!homeDir) return context
+  const env = { ...context.env, ...claudeEngineInstanceEnv(homeDir) }
+  return {
+    ...context,
+    home: homeDir,
+    env,
+    roots: harnessRoots(context.installation.kind, homeDir, env),
+  }
+}
 
 /**
  * ONE TURN'S USER LINE (POD-6093): images as base64 blocks the model sees as
@@ -183,6 +215,15 @@ export interface ClaudeEngineHostDeps {
   /** The context an adopted session runs under: see
    *  `ClaudeEngineHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `ClaudeEngineHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
+  /**
+   * The session's launch folders (POD-6858): its runtime folder for generated
+   * config and, for a worktree, the main checkout. The engine states its
+   * terms from these, the spec's posture and the spec's grants.
+   */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** Immutable supervisor ownership stamp for orphan attribution. */
   instanceUuid?: string
   /**
@@ -316,6 +357,9 @@ export interface ClaudeEngineHost {
    * supervisor restart, one rebuilt from the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
   stopEngine(sessionId: SessionId, retire: boolean): Promise<void>
   releaseEngines(): void
   /**
@@ -531,10 +575,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
   async function ensureEngine(
     sessionId: SessionId,
     spec: ClaudeStreamTurnSpec,
-    workdir: string,
-    env: Record<string, string>,
-    context: HarnessContext,
+    sessionSpec: StartTurnInput['spec'],
+    envFor: (wiringEnv: Readonly<Record<string, string>>) => Record<string, string>,
   ): Promise<HeldEngine> {
+    const workdir = sessionSpec.workdir
+    const context = sessionSpec.harnessContext
     const held = engines.get(sessionId)
     if (held && held.exit === undefined) return held
     if (held) engines.delete(sessionId)
@@ -585,8 +630,17 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
     // FRESH: the session owner starts the streaming child under the host and
     // this family binds the attachment it gets back; summoning the process
-    // is the owner's job, never this family's.
-    const command = buildClaudeStreamInvocation(spec, context)
+    // is the owner's job, never this family's. The engine runs on the
+    // harness's `engine` terms (POD-6858); what they add to the env is wiring.
+    const posture = launchPosture(
+      { ...sessionSpec, context: engineChildContext(context, deps.homeDir) },
+      await deps.launchFoldersFor(sessionId, workdir),
+    )
+    const command = buildClaudeStreamInvocation(spec, context, {
+      ...agentTermsFor(deps.facts.harnessKind, posture),
+      mode: 'engine',
+    })
+    const env = envFor(command.env)
     const spawned = await claimEngine(
       sessionId,
       label,
@@ -635,6 +689,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     bindings: records,
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
 
     processFor(sessionId) {
       const key = claudeEngineProcessKey(deps.facts, sessionId)
@@ -658,11 +713,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
        * inherited from the daemon's environment from re-opening the
        * reader/child home split (POD-3057).
        */
-      const instanceEnv = deps.homeDir
-        ? { HOME: deps.homeDir, CLAUDE_CONFIG_DIR: `${deps.homeDir}/.claude` }
-        : undefined
+      const instanceEnv = deps.homeDir ? claudeEngineInstanceEnv(deps.homeDir) : undefined
       const sessionEnv = { ...input.spec.env, ...instanceEnv }
-      const env = {
+      // The launch terms' env is wiring: it is known only once the engine's
+      // command is built, so the child env is composed there.
+      const envFor = (wiringEnv: Readonly<Record<string, string>>) => ({
         ...deps.buildEnv({
           ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
           sessionId,
@@ -670,14 +725,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           harnessContext: input.spec.harnessContext,
           ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
           ...(Object.keys(sessionEnv).length > 0 ? { sessionEnv } : {}),
+          ...(Object.keys(wiringEnv).length > 0 ? { harnessEnv: wiringEnv } : {}),
         }),
         ...claudeStreamEnvOverlay({
           isRoot: process.getuid?.() === 0,
           toolSummaries: true,
         }),
-      }
+      })
 
-      return startTurnAsync(sessionId, input, spec, env, sessionEnv)
+      return startTurnAsync(sessionId, input, spec, envFor, sessionEnv)
     },
 
     async stopEngine(sessionId, retire) {
@@ -704,7 +760,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     sessionId: SessionId,
     input: StartTurnInput,
     spec: ClaudeStreamTurnSpec,
-    env: Record<string, string>,
+    envFor: (wiringEnv: Readonly<Record<string, string>>) => Record<string, string>,
     sessionEnv: Record<string, string>,
   ): ClaudeSdkTurnHandle {
     let resolveDone!: (value: {
@@ -766,13 +822,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       let held: HeldEngine
       try {
         // argv[0] is the session's pinned installation (POD-6546).
-        held = await ensureEngine(
-          sessionId,
-          spec,
-          input.spec.workdir,
-          env,
-          input.spec.harnessContext,
-        )
+        held = await ensureEngine(sessionId, spec, input.spec, envFor)
       } catch (error) {
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return
@@ -790,6 +840,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             onPartialText: input.onPartialText,
             onPermission: input.onPermission,
             ...(input.onToolSummary ? { onToolSummary: input.onToolSummary } : {}),
+            ...(input.onMode ? { onMode: input.onMode } : {}),
             // Status badges (`starting`/`running`/`tool`) were already dropped
             // at the session layer before this change — only partial text
             // travels up through `onPartialText`.

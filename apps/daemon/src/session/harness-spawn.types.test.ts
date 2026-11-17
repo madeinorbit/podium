@@ -7,7 +7,7 @@
  * checks test files) fails. The runtime half only shows the bound forms are
  * the ones that type-check.
  */
-import { type BoundCommand, harnessCommand, shellCommand } from '@podium/harness'
+import { type BoundCommand, harnessCommand, noAgentTerms, shellCommand } from '@podium/harness'
 import type { EngineSpawnRequest } from '@podium/harness/driver/host'
 import { testHarnessContext } from '@podium/harness/driver/testing'
 import { describe, expect, it } from 'vitest'
@@ -17,7 +17,11 @@ import type { SessionSpawnOptions } from './harness-spawn.js'
 
 const plain = { cmd: 'codex', args: ['app-server'] }
 const context = testHarnessContext({ kind: 'codex', executable: '/opt/podium-test/bin/codex' })
-const bound: BoundCommand = harnessCommand(context, { args: ['app-server'] })
+const bound: BoundCommand = harnessCommand(
+  context,
+  { args: ['app-server'] },
+  noAgentTerms('spawn-site type proof: runs no agent'),
+)
 
 describe('harness spawn sites take only a BoundCommand', () => {
   it('the PTY session spawn', () => {

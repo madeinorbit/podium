@@ -249,15 +249,14 @@ export interface FakeControl {
   /** The headless per-turn policy the last delivery carried (POD-4386). */
   lastHeadless(sessionId: SessionId):
     | {
-        allowedTools?: string[]
-        permissionMode?: string
+        posture?: TurnInput['posture']
+        legacyTerms?: TurnInput['legacyTerms']
         toolPolicy?: 'none'
         mcpConfig?: string
         resumeValue?: string
         sessionUuid?: string
         accountId?: string
         requestDigest?: string
-        structuredPermissions?: true
         contextPrompt?: string
         systemPrompt?: string
         timeoutMs?: number
@@ -341,15 +340,14 @@ interface SessionCore {
   /** The headless per-turn policy the LAST delivery carried (POD-4386). */
   lastHeadless:
     | {
-        allowedTools?: string[]
-        permissionMode?: string
+        posture?: TurnInput['posture']
+        legacyTerms?: TurnInput['legacyTerms']
         toolPolicy?: 'none'
         mcpConfig?: string
         resumeValue?: string
         sessionUuid?: string
         accountId?: string
         requestDigest?: string
-        structuredPermissions?: true
         contextPrompt?: string
         systemPrompt?: string
         timeoutMs?: number
@@ -843,30 +841,33 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           }
         }
         core.lastHeadless =
-          input.allowedTools !== undefined ||
-          input.permissionMode !== undefined ||
+          input.posture !== undefined ||
+          input.legacyTerms !== undefined ||
           input.toolPolicy !== undefined ||
           input.mcpConfig !== undefined ||
           input.resumeValue !== undefined ||
           input.sessionUuid !== undefined ||
           input.accountId !== undefined ||
           input.requestDigest !== undefined ||
-          input.structuredPermissions !== undefined ||
           input.contextPrompt !== undefined ||
           input.systemPrompt !== undefined ||
           input.timeoutMs !== undefined ||
           input.overrides !== undefined
             ? {
-                ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
-                ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+                ...(input.posture !== undefined ? { posture: input.posture } : {}),
+                ...(input.legacyTerms !== undefined
+                  ? { legacyTerms: { ...input.legacyTerms } }
+                  : {}),
                 ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
                 ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
                 ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
                 ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
                 ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
-                ...(input.requestDigest !== undefined ? { requestDigest: input.requestDigest } : {}),
-                ...(input.structuredPermissions !== undefined
-                  ? { structuredPermissions: input.structuredPermissions }
+                ...(input.requestDigest !== undefined
+                  ? { requestDigest: input.requestDigest }
+                  : {}),
+                ...(input.contextPrompt !== undefined
+                  ? { contextPrompt: input.contextPrompt }
                   : {}),
                 ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
                 ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),

@@ -17,6 +17,7 @@ import {
   supported,
   unsupported,
 } from './manifest.js'
+import { unchangedPosture } from './posture.js'
 import {
   AGENT_MANIFESTS,
   agentStateProviderFor,
@@ -831,6 +832,9 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         foreignCredentialEnv: [],
       },
       launch: (opts) => ({ args: [], cwd: opts.cwd }),
+      // Irreducible (POD-6858): every harness process runs on some terms; the
+      // identity section is the honest answer for a harness with no flags yet.
+      posture: unchangedPosture,
       discovery: {
         id: 'fictional',
         agentKind: fictional,

@@ -9,6 +9,7 @@ import {
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
+import { SessionPostureSchema } from './posture'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 // A headless session is a persistent harness session driven turn-by-turn by the
@@ -95,7 +96,9 @@ export const HeadlessTurnRequestMessage = z.object({
   systemPrompt: z.string().optional(),
   /** MCP config JSON ({ mcpServers: … }), same shape harnessExec takes. */
   mcpConfig: z.string().optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   allowedTools: z.array(z.string()).optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   permissionMode: z.string().optional(),
   /** Requests the adapter's tested all-tools-off mode. */
   toolPolicy: z.literal('none').optional(),
@@ -105,6 +108,9 @@ export const HeadlessTurnRequestMessage = z.object({
    *  thread ↔ transcript binding is deterministic. */
   sessionUuid: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /** The turn's launch terms in Podium's words (POD-6858). Appended at the
+   *  END: an older peer neither sends nor reads it. */
+  posture: SessionPostureSchema.optional(),
 })
 export type HeadlessTurnRequestMessage = z.infer<typeof HeadlessTurnRequestMessage>
 

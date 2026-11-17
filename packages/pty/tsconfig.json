@@ -5,5 +5,8 @@
     "rootDir": "src",
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // `*.bun.test.ts` files run only under `bun test` (they import `bun:test`, which
+  // the typecheck cannot resolve without @types/bun), as in apps/daemon.
+  "exclude": ["src/**/*.bun.test.ts"]
 }

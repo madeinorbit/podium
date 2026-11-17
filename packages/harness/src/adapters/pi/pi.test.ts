@@ -30,7 +30,6 @@ describe('pi manifest', () => {
       effort: 'high',
       systemPrompt: 'SYS-A',
       contextPrompt: 'CTX-B',
-      permissionMode: 'auto',
     })
     expect(spec).toEqual({
       args: [
@@ -47,15 +46,14 @@ describe('pi manifest', () => {
         'SYS-A',
         '--append-system-prompt',
         'CTX-B',
-        '--approve',
       ],
       stdin: 'first prompt',
     })
   })
 
-  it('later turns resume through the same --session-id; non-auto modes refuse project trust', () => {
-    const spec = buildExec?.({ prompt: 'go on', resumeValue: 'abc-123', permissionMode: 'default' })
-    expect(spec?.args).toEqual(['-p', '--mode', 'json', '--session-id', 'abc-123', '--no-approve'])
+  it('later turns resume through the same --session-id; project trust is the posture section', () => {
+    const spec = buildExec?.({ prompt: 'go on', resumeValue: 'abc-123' })
+    expect(spec?.args).toEqual(['-p', '--mode', 'json', '--session-id', 'abc-123'])
     expect(spec?.stdin).toBe('go on')
   })
 
@@ -70,7 +68,6 @@ describe('pi manifest', () => {
       prompt: 'repair',
       sessionId: 's',
       toolPolicy: 'none',
-      permissionMode: 'auto',
     })
     expect(spec?.args).toEqual([
       '-p',

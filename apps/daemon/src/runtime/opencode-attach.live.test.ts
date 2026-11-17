@@ -62,7 +62,7 @@ import { createDurableProcess, hostHasSession } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach'
-import { testHarnessContext } from '@podium/harness/driver/testing'
+import { testHarnessContext, testLaunchPosture } from '@podium/harness/driver/testing'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 
 /** The session's pinned harness context (POD-6546): a client terminal runs the
@@ -162,6 +162,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     // These attachments are DURABLE by construction. Without an explicit close
     // each run would leave a master and a scope behind for the whole warm TTL.
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       // Through the session-owned scope, the relay's only process path
       // (POD-3917).
@@ -179,6 +180,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   ): Promise<{ bytes: string; streamId: string }> => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       clients: createSessionClientScope(createDurableProcess())!,
       sessions: new SessionRegistry(),
@@ -271,6 +273,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // And closing the attachment takes the master with it, rather than leaving
       // a scope resident for the machine's lifetime.
       await createOpencodeClientTerminals({
+        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
         harnessContext: testClientContext,
         clients: createSessionClientScope(createDurableProcess())!,
         sessions: new SessionRegistry(),

@@ -31,6 +31,7 @@ import {
   claudeCodeInstrumentation,
   configureClaudeTranscriptClassifier,
 } from './instrumentation.js'
+import { claudeCodePosture } from './posture.js'
 import { claudeRoots } from './roots.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
 import { claudeCodeStateProvider } from './state-provider.js'
@@ -184,6 +185,7 @@ export const claudeCodeManifest: AgentManifest = {
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
 
+  posture: claudeCodePosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
@@ -209,18 +211,16 @@ export const claudeCodeManifest: AgentManifest = {
         '-p',
         ...(sys ? ['--append-system-prompt', sys] : []),
         ...(model ? ['--model', model] : []),
-        // MCP gives the orchestrator Podium's own tools (list/start/steer agents);
-        // --allowedTools pre-approves them (and read-only built-ins) so they run
-        // without a permission prompt in headless print mode.
+        // MCP gives the orchestrator Podium's own tools (list/start/steer
+        // agents). The posture section pre-approves them, by server, so they
+        // run without a permission prompt in headless print mode.
         ...(opts.mcpConfigPath ? ['--mcp-config', opts.mcpConfigPath] : []),
-        ...(opts.allowedTools && opts.allowedTools.length > 0
-          ? ['--allowedTools', opts.allowedTools.join(',')]
-          : []),
       ],
-      // NO trailing prompt positional: --allowedTools is variadic and would
-      // swallow it as junk tool rules, leaving claude promptless ("Input must
-      // be provided either through stdin or as a prompt argument"). `-p` with
-      // stdin is the documented headless mode and dodges ARG_MAX too.
+      // NO trailing prompt positional: the posture section's --allowedTools is
+      // variadic and would swallow it as a tool rule, leaving claude
+      // promptless ("Input must be provided either through stdin or as a
+      // prompt argument"). `-p` with stdin is the documented headless mode and
+      // dodges ARG_MAX too.
       stdin: opts.prompt,
     }
   }),

@@ -1,5 +1,6 @@
 import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
+import { SessionPostureSchema } from './posture'
 
 // ---------------------------------------------------------------------------
 // Harness identity (POD-303): OPEN on the wire, CLOSED in-repo.
@@ -38,11 +39,17 @@ export const HarnessExecRequestMessage = z.object({
   /** MCP config JSON (Claude `--mcp-config`) giving the harness agent Podium's
    *  own orchestrator tools. The daemon writes it to a temp file per run. */
   mcpConfig: z.string().optional(),
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
+  /** Tools pre-approved so they run headlessly without a permission prompt,
+   *  in Claude's rule syntax. Superseded by `posture`. */
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   allowedTools: z.array(z.string()).optional(),
   /** Kill budget for the CLI process, ms. Superagent turns pass a long budget
    *  (multi-minute orchestration); absent = the daemon's 240s default. */
   timeoutMs: z.number().int().positive().optional(),
+  /** The run's launch terms in Podium's words (POD-6858). Appended at the END:
+   *  an older daemon strips it; an older server sends none and the run takes
+   *  the default posture. */
+  posture: SessionPostureSchema.optional(),
 })
 export const HarnessExecResultMessage = z.object({
   type: z.literal('harnessExecResult'),

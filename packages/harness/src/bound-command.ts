@@ -16,6 +16,9 @@
  * either kind.
  */
 import type { HarnessContext } from './harness-context-types.js'
+import type { LaunchFile } from './manifest.js'
+import { applyTerms } from './posture.js'
+import type { AppliedTerms, LaunchTerms } from './posture-types.js'
 
 declare const boundCommandBrand: unique symbol
 declare const shellCommandBrand: unique symbol
@@ -25,10 +28,25 @@ export interface HarnessArgv {
   readonly args: readonly string[]
 }
 
-/** An argv bound to the executable of one harness context. */
-export type BoundCommand<I extends HarnessArgv = HarnessArgv> = Omit<I, 'cmd' | 'args'> & {
+/**
+ * An argv bound to the executable of one harness context, on stated terms
+ * (POD-6858, docs/design/harness-session-posture.md §4.6).
+ *
+ * `env` and `files` are always present: the builder's own, with whatever the
+ * posture section added. `env` is wiring env (`harnessChildEnv`'s
+ * `wiringEnv`); `files` are written before the process starts. `terms` is what
+ * applying the terms left for the daemon to do and report: the home edits, the
+ * requested mode and the unmet requirements.
+ */
+export type BoundCommand<I extends HarnessArgv = HarnessArgv> = Omit<
+  I,
+  'cmd' | 'args' | 'env' | 'files'
+> & {
   readonly cmd: string
   readonly args: string[]
+  readonly env: Record<string, string>
+  readonly files: LaunchFile[]
+  readonly terms: AppliedTerms
   readonly [boundCommandBrand]: true
 }
 
@@ -40,8 +58,12 @@ export type ShellCommand<I extends HarnessArgv = HarnessArgv> = Omit<I, 'cmd' | 
 }
 
 /**
- * Bind an adapter's argv to ONE harness context: argv[0] is the executable the
- * context's installation names. Nothing here asks the inventory again — a
+ * Bind an adapter's argv to ONE harness context, on stated terms: argv[0] is
+ * the executable the context's installation names, and the terms run over the
+ * argv, env and files before anything is bound (§4.6). There is no way to
+ * build a launchable harness command without saying on what terms it runs: an
+ * agent's posture section and its request, or — for a process that runs no
+ * agent — the reason, in words (`noAgentTerms`). Nothing here asks the inventory again — a
  * session whose context was built before an inventory refresh launches the
  * installation it was built from — and nothing here resolves the path: if the
  * verified file disappeared, the spawn fails against this exact path instead of
@@ -53,12 +75,24 @@ export type ShellCommand<I extends HarnessArgv = HarnessArgv> = Omit<I, 'cmd' | 
 export function harnessCommand<I extends HarnessArgv>(
   context: Pick<HarnessContext, 'installation'>,
   invocation: I,
+  terms: LaunchTerms,
 ): BoundCommand<I> {
-  const { cmd: _ignored, ...rest } = invocation as I & { cmd?: unknown }
+  const { cmd: _ignored, ...rest } = invocation as I & {
+    cmd?: unknown
+    env?: Readonly<Record<string, string>>
+    files?: readonly LaunchFile[]
+  }
+  const { launch, applied } = applyTerms(
+    { args: invocation.args, env: rest.env ?? {}, files: rest.files ?? [] },
+    terms,
+  )
   return {
     ...rest,
     cmd: context.installation.executable,
-    args: [...invocation.args],
+    args: [...launch.args],
+    env: { ...launch.env },
+    files: launch.files.map((file) => ({ ...file })),
+    terms: applied,
   } as unknown as BoundCommand<I>
 }
 

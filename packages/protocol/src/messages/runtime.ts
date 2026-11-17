@@ -1,4 +1,5 @@
 import { NativeBindingReceipt } from './native-binding'
+import { SessionPostureSchema } from './posture'
 
 export { NativeBindingReceipt } from './native-binding'
 
@@ -679,7 +680,14 @@ export const RuntimeSendRequestMessage = z.object({
   // Carried so superagent/shipwright turns can migrate off the legacy headless
   // port onto the driver-contract WS relay without losing per-turn tool, MCP,
   // permission, conversation or durable-identity semantics.
+  //
+  // `allowedTools`, `permissionMode` and `structuredPermissions` are one
+  // vendor's words for the launch terms that `posture` now states (POD-6858).
+  // A server still sends them beside `posture`, and the headless digest is
+  // still minted over them, because a daemon that predates posture reads them.
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   allowedTools: z.array(z.string()).optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   permissionMode: z.string().optional(),
   toolPolicy: z.literal('none').optional(),
   mcpConfig: z.string().optional(),
@@ -690,6 +698,7 @@ export const RuntimeSendRequestMessage = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   structuredPermissions: z.literal(true).optional(),
   // HEADLESS PER-TURN PROMPT CHANNELS + BUDGET (this issue). All optional;
   // absent means absent. Appended at the END so existing golden samples stay
@@ -719,6 +728,16 @@ export const RuntimeSendRequestMessage = z.object({
    * account it came from. Appended at the END; an older daemon strips it.
    */
   env: z.record(z.string(), z.string()).optional(),
+  /**
+   * THE TURN'S LAUNCH TERMS, in Podium's words (POD-6858,
+   * harness-session-posture.md §4.3): how far the agent goes without asking.
+   * A turn's posture wins over its session's. Never part of `requestDigest`:
+   * an older daemon strips it before it recomputes the digest, so the digest
+   * stays over the legacy fields above. Appended at the END; an older daemon
+   * strips it and reads `permissionMode` as before, and an older server sends
+   * none, which the daemon derives from `permissionMode`.
+   */
+  posture: SessionPostureSchema.optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 

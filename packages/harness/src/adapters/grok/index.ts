@@ -26,6 +26,7 @@ import { grokDescriptor } from './descriptor.js'
 import { createGrokConversationProvider } from './discovery.js'
 import { grokInstall } from './install.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
+import { grokPosture } from './posture.js'
 import { locateGrokTranscript } from './state-locate.js'
 import { grokStateProvider, observeGrokState } from './state-provider.js'
 import { grokTranscript } from './transcript.js'
@@ -165,6 +166,7 @@ export const grokManifest: AgentManifest = {
   usage: supported(grokUsage),
   install: supported(grokInstall),
 
+  posture: grokPosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
@@ -308,9 +310,9 @@ export const grokManifest: AgentManifest = {
             ? ['--resume', opts.resumeValue]
             : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
-          ...(opts.permissionMode === 'auto' && opts.toolPolicy !== 'none'
-            ? ['--permission-mode', 'auto']
-            : []),
+          // The mode and the allow rules are the posture section's
+          // (POD-6858). A tool-less turn runs on no-agent terms, so its own
+          // `dontAsk` below is the only mode it carries.
           ...(opts.toolPolicy === 'none'
             ? [
                 '--tools',

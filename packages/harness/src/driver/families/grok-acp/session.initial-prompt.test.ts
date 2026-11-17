@@ -21,6 +21,7 @@ import {
   serverFamilyLaunch,
   createMemoryAttachmentStager,
   testHarnessContext,
+  testEngineTerms,
 } from '../../testing/index.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { createGrokSessionRuntime, type DaemonGrokRuntime } from './session.js'
@@ -42,6 +43,7 @@ describe('grok-acp launch with an initial prompt', () => {
     const entries = new Map<SessionId, never>()
     let seq = 0
     const host: GrokAcpRuntimeHost = {
+      ...testEngineTerms(),
       harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       bindings: {

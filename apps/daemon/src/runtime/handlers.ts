@@ -19,13 +19,15 @@
  * warns about two directories away. So every path below ends in a send.
  */
 
-import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import type { AgentSessionHandle, LegacyTurnTerms, TurnInput } from '@podium/harness/driver/host'
 import { isDriverRefusal } from '@podium/harness/driver/host'
 import { hasTurnEnded, type SessionId } from '@podium/model'
+import type { SessionPosture } from '@podium/protocol'
 import type {
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
   RuntimeHistoryResultMessage,
+  RuntimeSendRequestMessage,
   RuntimeSnapshotResultMessage,
   TurnReceipt,
 } from '@podium/protocol/daemon'
@@ -62,6 +64,42 @@ export function runtimeDriverIdFor(
   sessionId: SessionId,
 ): AgentSessionHandle['binding']['driver'] | undefined {
   return handleFor(ctx, sessionId)?.binding.driver
+}
+
+/**
+ * THE TURN'S LAUNCH TERMS FROM ITS FRAME (POD-6858 Task 9).
+ *
+ * A server that knows posture sends `posture`; the turn runs on it. An older
+ * server sends only the vendor-worded fields: a `permissionMode` is the
+ * person's native pick, and `structuredPermissions` alone (asks reach chat)
+ * is supervised. A frame with neither states no posture, so the session's
+ * applies. The old fields ride on as `legacyTerms`, the facts the server
+ * minted the headless digest over; nothing launches from them.
+ */
+export function turnTermsFromFrame(
+  msg: Pick<
+    RuntimeSendRequestMessage,
+    'posture' | 'permissionMode' | 'allowedTools' | 'structuredPermissions'
+  >,
+): Pick<TurnInput, 'posture' | 'legacyTerms'> {
+  const posture: SessionPosture | undefined =
+    msg.posture ??
+    // LEGACY(remove-after: 2027-02): pre-posture servers state the mode only in these; removing it drops their picks
+    (msg.permissionMode
+      ? { mode: { native: msg.permissionMode } }
+      : msg.structuredPermissions
+        ? { mode: 'supervised' }
+        : undefined)
+  // LEGACY(remove-after: 2027-02): the digest pre-posture servers mint covers these; removing it refuses their turns
+  const legacyTerms: LegacyTurnTerms = {
+    ...(msg.allowedTools ? { allowedTools: [...msg.allowedTools] } : {}),
+    ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+    ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+  }
+  return {
+    ...(posture ? { posture } : {}),
+    ...(Object.keys(legacyTerms).length > 0 ? { legacyTerms } : {}),
+  }
 }
 
 /**
@@ -217,17 +255,13 @@ export const runtimeHandlers: Pick<
           initialPrompt: msg.initialPrompt,
           text: msg.text,
           attachments: msg.attachments,
-          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+          ...turnTermsFromFrame(msg),
           ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
           ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
           ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
           ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
           ...(msg.accountId ? { accountId: msg.accountId } : {}),
           ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
-          ...(msg.structuredPermissions
-            ? { structuredPermissions: msg.structuredPermissions }
-            : {}),
           ...(msg.env ? { env: msg.env } : {}),
           ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
           ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),

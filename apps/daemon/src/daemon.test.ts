@@ -25,7 +25,11 @@ import type {
   GrokAcpRuntimeHost,
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
-import { createMemoryAttachmentStager, testHarnessContext } from '@podium/harness/driver/testing'
+import {
+  createMemoryAttachmentStager,
+  testEngineTerms,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import {
   asAgentIdentityId,
@@ -252,7 +256,22 @@ const TEST_BINDING_USER = asUserId('daemon-runtime-test-user')
  * Runtime tests exercise authenticated server traffic. Supply the binding
  * instruction that production server composition writes; the dedicated
  * session-binding control tests bypass this helper to prove absence refuses.
+ *
+ * That instruction carries the server-authored delegation (POD-3961): the
+ * binding store refuses a spawn or reattach without one (`delegation-missing`),
+ * so a helper that sent only the principal had every spawn below refused.
+ * The record is the one `binding-mint.ts` writes for a user's root session.
  */
+function testDelegation(sessionId: string) {
+  return {
+    actor: asAgentIdentityId(sessionId),
+    onBehalfOf: TEST_BINDING_USER,
+    grantedScope: { kind: 'none' as const },
+    parentBindingId: null,
+    revision: 1,
+  }
+}
+
 function withTestBindingInstruction(message: unknown): unknown {
   if (!message || typeof message !== 'object') return message
   const frame = message as Record<string, unknown>
@@ -265,6 +284,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         transitionId: `test:spawn:${sessionId}`,
         machineAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -276,6 +296,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         machineAccess: 'allowed',
         sessionAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -1105,7 +1126,9 @@ describe('daemon multi-bridge', () => {
     await waitFor(() => fixtureFrame(sessionId) !== undefined)
     expect(existsSync(uploadDir)).toBe(true)
     // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
-    send({ type: 'input', sessionId, data: btoa('\x03') })
+    // A person's keypress: automation bytes for a contracted session (claude-code
+    // is one) are refused at the input adapter (POD-4279).
+    send({ type: 'input', sessionId, data: btoa('\x03'), inputOrigin: 'human' })
     // With backend=none the master IS the process; when it exits the onExit fires
     // and (with the fix) removeSessionUploads is called before agentExit.
     await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
@@ -1175,6 +1198,7 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
@@ -1212,6 +1236,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
@@ -1292,6 +1317,10 @@ function defaultServerSpawnContext(
   return {
     send: (msg: DaemonMessage) => void sent.push(msg),
     machineId: 'default-server-machine',
+    // Every bind reads the session's applied size from the registry
+    // (`sendBind` → `sessionSize`), so a context without one throws on the
+    // first bind a path sends itself, like the parked-resume arm.
+    sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `default-server-${id}`,
     sessionBinding: {
       transition: async () => ({ status: 'applied' }),
@@ -2228,8 +2257,12 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await new Promise((r) => setTimeout(r, 800))
       // The agent is not touched by the reattach: not moved, not signalled, not
-      // even sent a redraw key. Nothing has asked it for anything.
-      expect(painted()).toBe('')
+      // even sent a redraw key. Nothing has asked it for anything. What does
+      // reach this pictureless server is the host's ring replay (POD-4290 seeds
+      // the recovered screen from it): the program's LAST screen, at the paint
+      // counter it already had. A new paint would mean the program was asked.
+      const reattachPaints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+      expect(reattachPaints.every((paint) => paint <= lastPaintBefore)).toBe(true)
       expect(painted()).not.toContain('cols=120')
       // AND THE BIND SAYS SO (POD-3279). A real daemon, a real podium-host
       // survivor, a real size-neutral attach — and the frame that comes back

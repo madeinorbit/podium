@@ -33,7 +33,7 @@ import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../../../version-probe.js'
 import type { SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { testHarnessContext, testEngineTerms, testSessionTerms } from '../../testing/harness-context.js'
 import type { RuntimeEvent } from '../../events.js'
 import {
   type CodexJournalEntry,
@@ -81,6 +81,7 @@ function liveHost(workdir: string): {
   }
 
   const host: CodexRuntimeHost = {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => ({
       id: 'live-attachment',
@@ -223,6 +224,7 @@ describeLive('a real subscription-authed session, end to end', () => {
   it('starts a thread and rides ~/.codex/auth.json — NOT an inherited API key', async () => {
     handle = await runtime.driver.create({
       harness: 'codex',
+      ...testSessionTerms(),
       harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
       workdir,
@@ -322,6 +324,7 @@ describeLive('a real subscription-authed session, end to end', () => {
 
     const resumed = await runtime.driver.resume(resumeRef, {
       harness: 'codex',
+      ...testSessionTerms(),
       harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
       workdir,

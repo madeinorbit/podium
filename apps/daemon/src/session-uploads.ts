@@ -57,6 +57,11 @@ export async function sweepUploads(
   }
 }
 
+/** A session's own upload folder: where its chat attachments are staged. */
+export function sessionUploadsDir(sessionId: SessionId | string, root: string = stateDir()): string {
+  return join(root, 'uploads', sessionId)
+}
+
 /** Remove a session's upload directory when the session is closed/killed. */
 export function removeSessionUploads(
   sessionId: SessionId,
@@ -65,8 +70,7 @@ export function removeSessionUploads(
 ): void {
   try {
     fence.runSync(() => {
-      const sessionUploadsDir = join(root, 'uploads', sessionId)
-      rmSync(sessionUploadsDir, { recursive: true, force: true })
+      rmSync(sessionUploadsDir(sessionId, root), { recursive: true, force: true })
     })
   } catch {
     // Best effort, including deliberate suppression while transfer-fenced.

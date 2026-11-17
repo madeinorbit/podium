@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,7 +22,11 @@ import {
   flattenEngineSpawn,
   type TestEngineSpawn,
 } from '../../testing/binding-records.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -59,6 +63,7 @@ function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
     dialSocket: () => Promise.reject(new Error('no listener in this test')),
+    ...testEngineTerms(),
     harnessContextFor: async () => CONTEXT,
     ...extra,
   })
@@ -116,7 +121,6 @@ describe('the spawn config', () => {
     // requests this driver handles, so no approval policy is generated at all.
     const { args } = codexAppServerConfigArgs({})
     expect(args.join(' ')).not.toContain('approval_policy')
-    expect(args.join(' ')).toContain('sandbox_mode="workspace-write"')
   })
 
   it("hands a session's instructions to Codex as developer instructions (POD-5814)", () => {
@@ -130,11 +134,11 @@ describe('the spawn config', () => {
     ])
   })
 
-  it('opens network access only when an MCP server is actually mounted', () => {
-    // A Podium MCP server is on loopback and is unreachable from a sandbox with
-    // no network, so mounting one without this is mounting nothing. Opening it
-    // for a session with no MCP would widen the sandbox for no reason.
-    expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('network_access')
+  it('leaves the sandbox to the posture section, mounted or not', () => {
+    // Moved to posture (POD-6858): `sandbox_mode="workspace-write"` and the
+    // loopback override are the adapter's `engine` terms now, in every mode,
+    // so the config args name neither, with or without an MCP mount.
+    const bare = codexAppServerConfigArgs({}).args.join(' ')
     const mounted = codexAppServerConfigArgs({
       mcpServers: {
         transport: 'inline',
@@ -142,8 +146,11 @@ describe('the spawn config', () => {
           mcpServers: { podium: { url: 'http://127.0.0.1:7777/mcp' } },
         }),
       },
-    })
-    expect(mounted.args.join(' ')).toContain('sandbox_workspace_write.network_access=true')
+    }).args.join(' ')
+    for (const flat of [bare, mounted]) {
+      expect(flat).not.toContain('sandbox_mode')
+      expect(flat).not.toContain('network_access')
+    }
   })
 
   it('mounts MCP servers through the manifest own verified mechanism', () => {
@@ -451,6 +458,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
       const endpoint = await host.launch({
         sessionId: SESSION,
         workdir: '/tmp',
+        ...testSessionTerms(),
         harnessContext: CONTEXT,
       })
       expect(launched).toHaveLength(1)
@@ -469,6 +477,84 @@ describe('headless engine lifecycle (POD-4433)', () => {
     } finally {
       listener?.close()
     }
+  })
+
+  /**
+   * HOOK REVIEW IS THE ENGINE'S (POD-7028). Measured on 0.169.0: a `resume
+   * --remote` client draws "Hooks need review" for Podium's hooks.json unless
+   * the ENGINE it joins was started with the per-launch trust; the client's own
+   * `-c` is ignored. The trust makes Podium's handlers live in the engine, so
+   * the hook env must not reach it: JSON-RPC stays its only state channel.
+   */
+  it("passes per-launch trust for Podium's hooks and keeps the hook env out of the engine", async () => {
+    const home = mkdtempSync(join(runtimeRoot, 'home-'))
+    mkdirSync(join(home, '.codex'))
+    copyFileSync(
+      join(
+        import.meta.dirname,
+        '../../../adapters/codex/fixtures/hook-trust-0.169.0/trust.hooks.json',
+      ),
+      join(home, '.codex', 'hooks.json'),
+    )
+    const launchWith = async (version: string) => {
+      const launched: TestEngineSpawn[] = []
+      let listener: { frames: Buffer[]; close(): void } | undefined
+      const { session } = fakeEngineSession()
+      const host = engineHost({
+        checkVersion: async () => evaluateCodexVersionProbe('0.147.0', true),
+        buildEnv: () => ({
+          PODIUM_SESSION_ID: SESSION,
+          PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1/hooks',
+          PODIUM_CODEX_HOOK_SOCKET: '/run/podium/hooks.sock',
+        }),
+        dialSocket: async (address) => {
+          listener = listen(socketFile(address))
+          const { default: WebSocket } = await import('ws')
+          return new WebSocket(`ws+unix://${socketFile(address)}:/rpc`, {
+            perMessageDeflate: false,
+          }) as never
+        },
+        ...fakePorts({
+          socketRoot: runtimeRoot,
+          startEngine: async (opts) => {
+            launched.push(opts)
+            return session
+          },
+        }),
+      })
+      try {
+        await host.launch({
+          sessionId: SESSION,
+          workdir: '/tmp',
+          ...testSessionTerms(),
+          harnessContext: testHarnessContext({ kind: 'codex', home, version }),
+        })
+      } finally {
+        listener?.close()
+      }
+      return launched[0] as TestEngineSpawn
+    }
+
+    const trusted = await launchWith('0.169.0')
+    const hooksState = trusted.args.filter((arg) => arg.startsWith('hooks.state='))
+    expect(hooksState).toHaveLength(1)
+    expect(trusted.args[trusted.args.indexOf(hooksState[0] as string) - 1]).toBe('-c')
+    expect(hooksState[0]).toContain(`"${join(home, '.codex', 'hooks.json')}:stop:0:0"`)
+    expect(hooksState[0]).toContain(
+      'sha256:bde712998083bff83f7e1eeb73800c4c83e5fe5a561c25ecf8727696f29dd515',
+    )
+    expect(trusted.args.indexOf(hooksState[0] as string)).toBeLessThan(
+      trusted.args.indexOf('--listen'),
+    )
+    expect(trusted.env).toEqual({ PODIUM_SESSION_ID: SESSION })
+    expect(trusted.stripEnv).toEqual(
+      expect.arrayContaining(['PODIUM_CODEX_HOOK_URL', 'PODIUM_CODEX_HOOK_SOCKET']),
+    )
+
+    // Below the measured minimum the engine gets nothing; the client may ask.
+    const old = await launchWith('0.146.9')
+    expect(old.args.join(' ')).not.toContain('hooks.state')
+    expect(old.env).toEqual({ PODIUM_SESSION_ID: SESSION })
   })
 
   it('adopt rebinds the surviving engine at its journalled address: no spawn', async () => {
@@ -592,7 +678,12 @@ describe('headless engine lifecycle (POD-4433)', () => {
           }),
         })
         const error = await host
-          .launch({ sessionId: SESSION48, workdir: '/tmp', harnessContext: CONTEXT })
+          .launch({
+            sessionId: SESSION48,
+            workdir: '/tmp',
+            ...testSessionTerms(),
+            harnessContext: CONTEXT,
+          })
           .then(
             () => null,
             (err: unknown) => err,

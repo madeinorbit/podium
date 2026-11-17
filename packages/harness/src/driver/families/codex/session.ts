@@ -34,7 +34,10 @@
  * A session reporting through both would double-report every state change —
  * `turn/completed` from the protocol and a `Stop` hook from the same turn — and
  * the two would race to describe one fact. Global hooks stay fail-open-dormant:
- * they are keyed to an env var this spawn never sets.
+ * they are keyed to an env var this spawn never sets. Since POD-7028 the engine
+ * is launched trusting Podium's handlers (so a `resume --remote` client draws no
+ * hook review), which makes that env the only thing keeping them dormant: the
+ * engine host strips it from the spawn.
  */
 
 import { createLogger } from '@podium/logger'

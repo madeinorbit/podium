@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { postureNotices, sessionModeReadout } from '@podium/client-core/values'
 import {
   type AgentPhase,
   type AgentRuntimeState,
@@ -16,8 +17,9 @@ import {
   machineAccessRowId,
   resolveTelegramPrincipal,
   type SessionId,
+  type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { asDelegationRef, CLIENT_WIRE_VERSION, DriverSelectedMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { memberFacts } from './store/fixtures/test-support'
@@ -2319,6 +2321,144 @@ describe('SessionRegistry', () => {
     // `driverId` names a driver we are currently driving through, and after a
     // restart with the daemon away we are driving through nothing.
     expect(restored?.driverId).toBeUndefined()
+  })
+
+  /**
+   * THE LAUNCH'S APPLIED TERMS (POD-6858 Task 11). The daemon repeats its
+   * decision with `posture` once the launch's terms are applied: the session
+   * then carries the mode Podium asked for and one entry per requirement the
+   * launch cannot meet, which the clients turn into one notice each. A new
+   * decision (no `posture`) drops the previous launch's report.
+   */
+  it('keeps the launch report from the repeated decision, and drops it on the next decision', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'pi', cwd: '/a' })
+      const meta = async () =>
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'generic-pty' }
+      const report = {
+        requestedMode: null,
+        unmet: [
+          {
+            requirement: 'autonomy' as const,
+            reason: 'Pi has no approval gate, so it cannot ask first',
+          },
+        ],
+      }
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      expect((await meta())?.launchPosture).toBeUndefined()
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...decision,
+        posture: report,
+      })
+      const reported = await meta()
+      expect(reported?.launchPosture).toEqual(report)
+      expect(reported?.driverFamily).toBe('terminal')
+      expect(postureNotices(reported as SessionMeta)).toEqual([
+        'Pi cannot run in the chosen mode here: Pi has no approval gate, so it cannot ask first',
+      ])
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      expect((await meta())?.launchPosture).toBeUndefined()
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
+  })
+
+  /**
+   * AN OLDER SERVER READS THE REPEAT AS THE SAME DECISION (POD-6858 Task 11).
+   * Its schema has no `posture`, so the field is stripped on parse and the
+   * repeat is the decision frame again: the stored row is the same after it.
+   */
+  it('stores the same row when a server without posture reads the repeated decision', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'codex-app-server' }
+      const repeat = {
+        ...decision,
+        posture: {
+          requestedMode: 'never',
+          unmet: [{ requirement: 'autonomy' as const, reason: 'a one-shot turn has nobody to ask' }],
+        },
+      }
+      // The frame as a server that predates the field parses it.
+      const preposture = DriverSelectedMessage.omit({ posture: true })
+      const asOldServerReadsIt = preposture.parse(repeat)
+      expect(asOldServerReadsIt).toEqual(decision)
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, preposture.parse(decision))
+      const row = async () => (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
+      const before = await row()
+      const metaBefore = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, asOldServerReadsIt)
+      expect(await row()).toEqual(before)
+      const metaAfter = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      expect(metaAfter?.driverFamily).toBe(metaBefore?.driverFamily)
+      expect(metaAfter?.status).toBe(metaBefore?.status)
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
+  })
+
+  /**
+   * THE MODE THE HARNESS REPORTS WINS (POD-6858 Task 11, §4.9). Podium asked
+   * for `auto`; the harness reports `default` (auto mode is not available to
+   * it), and the session shows `default`.
+   */
+  it('shows the mode the harness reports over the one Podium asked for', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/a',
+      })
+      const meta = async () =>
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'generic-pty' }
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...decision,
+        posture: { requestedMode: 'auto', unmet: [] },
+      })
+      expect(sessionModeReadout((await meta()) as SessionMeta)).toEqual({
+        mode: 'auto',
+        source: 'requested',
+      })
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentMode',
+        sessionId,
+        mode: 'default',
+        source: 'transcript',
+      })
+      expect(sessionModeReadout((await meta()) as SessionMeta)).toEqual({
+        mode: 'default',
+        source: 'observed',
+      })
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
   })
 
   it('lets a bind correct the persisted decision when the launch fell back', async () => {

@@ -67,13 +67,9 @@ import {
   type RuntimeEvent,
 } from '@podium/harness/driver/host'
 import type { MachineId, SessionId } from '@podium/model'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-  stateDir,
-} from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { startDaemonProcess } from './daemon-restart-harness'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -160,15 +156,17 @@ const MODEL = process.env.PODIUM_OPENCODE_TEST_MODEL ?? 'opencode/laguna-s-2.1-f
  * 2400 times to be read zero.
  */
 async function waitFor(
-  pred: () => boolean,
+  pred: () => boolean | Promise<boolean>,
   timeoutMs: number,
   what: string,
   detail?: () => string,
 ): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error(`waitFor(${what}): timed out after ${timeoutMs}ms${detail ? `\n${detail()}` : ''}`)
+      throw new Error(
+        `waitFor(${what}): timed out after ${timeoutMs}ms${detail ? `\n${detail()}` : ''}`,
+      )
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
@@ -241,7 +239,7 @@ describe('e2e harness: a daemon in its own process', () => {
         dir: join(tmp, 'harness'),
         options: {
           serverUrl: `ws://localhost:${srv.port}`,
-          machineToken: readOrCreateDaemonSecret(stateDir()),
+          machineToken: srv.machineToken,
           machineId: hostMachineId(),
           identityDir: tmp,
           backend: 'none',
@@ -258,9 +256,10 @@ describe('e2e harness: a daemon in its own process', () => {
         // called: the machine row is the server's own evidence of a handshake
         // that crossed a socket.
         await waitFor(
-          () =>
-            srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
-              ?.online === true,
+          async () =>
+            (await srv.registry.modules.machines.listMachines()).find(
+              (m) => m.id === hostMachineId(),
+            )?.online === true,
           60_000,
           'machine online',
         )
@@ -288,7 +287,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
     const srv = await startServer()
     const daemonOptions = {
       serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp,
       // No `launch` override is possible across a process boundary, and none is
@@ -328,8 +327,8 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
 
     try {
       await waitFor(
-        () =>
-          srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
+        async () =>
+          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
             ?.online === true,
         60_000,
         'machine online',
@@ -339,7 +338,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       //
       // A restart lane that started from a session it never saw work would not
       // be able to tell adoption from a session that was broken all along.
-      const { sessionId } = sessions.createSession({
+      const { sessionId } = await sessions.createSession({
         agentKind: 'opencode',
         cwd: tmp,
         model: MODEL,
@@ -347,7 +346,8 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       })
       watched = sessionId
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
+        async () =>
+          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
         120_000,
         'session live',
         // A spawn that REFUSED never reaches `live`, and the refusal is a frame
@@ -451,8 +451,8 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       await daemon.restart()
       expect(daemon.pid).not.toBe(deadPid)
       await waitFor(
-        () =>
-          srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
+        async () =>
+          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
             ?.online === true,
         60_000,
         'machine online after restart',
@@ -483,7 +483,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
           [
             'No `adopted` event arrived. The daemon came back and the opencode server survived — the two facts this lane checked before this point — so what is missing is the rebind between them.',
             `journal still readable: ${existsSync(journalPath(sessionId))}; server still answering: awaited above`,
-            `session status after restart: ${sessions.listSessions().find((s) => s.sessionId === sessionId)?.status}`,
+            `session status after restart: ${sessions.sessions.get(sessionId)?.status}`,
             // AN EMPTY LOG BELOW IS A CLUE, NOT AN ABSENCE OF ONE. Verified by
             // disabling the adopt caller and watching this failure: the daemon
             // refuses a reattach it cannot serve with a `reattachFailed` FRAME,
@@ -565,7 +565,8 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       expect(adopted?.observerGeneration).toBeGreaterThan(generationBefore)
 
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
+        async () =>
+          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
         60_000,
         'session live again',
       )

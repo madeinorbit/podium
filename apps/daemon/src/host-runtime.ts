@@ -11,6 +11,7 @@ import {
   harnessDetectLogin,
   harnessLoginReadEnv,
   harnessRoots,
+  launchPosture,
   manifestFor,
 } from '@podium/harness'
 import type {
@@ -77,12 +78,12 @@ import {
   isHostAvailable,
   sweepStaleDurableBindTemps,
 } from '@podium/process/durable'
-import type {
-  BindingConfirmations,
-  BuiltinHarnessKind,
-  DaemonPtyInputMetadata,
-  DaemonPtyOutputBatch,
-  PeerBuild,
+import {
+  type BindingConfirmations,
+  type BuiltinHarnessKind,
+  type DaemonPtyInputMetadata,
+  type DaemonPtyOutputBatch,
+  type PeerBuild,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -132,6 +133,7 @@ import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   forwardPicture,
   onSessionSize,
+  reportLaunchTerms,
   sendBind,
   sessionProcessEnv,
   stopSessionProcess,
@@ -198,6 +200,8 @@ import { createSessionEngineScope } from './session/engines.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
 import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
+import { launchFoldersFor, podiumGrantsFor } from './session-posture'
+import { storedSessionPosture } from './session-posture-store'
 import { createSessionObservers } from './session-observers'
 import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
@@ -1188,6 +1192,24 @@ export async function createDaemonHostRuntime(args: {
           target.kind as BuiltinHarnessKind,
           target.driverId,
         ),
+      // THE CLIENT'S LAUNCH TERMS (POD-6858). The client attached to a
+      // session runs on the posture the session was spawned on, as the daemon
+      // recorded it. A client mounts no MCP of its own.
+      launchPosture: async (sessionId, target, context) => ({
+        posture: storedSessionPosture(sessionId),
+        grants: podiumGrantsFor(
+          { stateRoot: stateDir() },
+          sessionId,
+          { mcpServers: { supported: false, reason: 'a client terminal mounts no MCP' } },
+          context,
+        ),
+        workdir: target.workdir,
+        ...(await launchFoldersFor({
+          settingsDir: ctx.settingsDir,
+          sessionId,
+          workdir: target.workdir,
+        })),
+      }),
       ...(homeDir ? { homeDir } : {}),
       instanceUuid: instance.instanceUuid,
       // The client terminal is a durable session like any other: it lives under
@@ -1289,6 +1311,9 @@ export async function createDaemonHostRuntime(args: {
     // (which skips the boot probe) must not refuse them: probe lazily, the
     // same memoized resolve the host adapter itself runs at first spawn.
     hostAvailable: () => durableAvailable.host || isHostAvailable(),
+    // A session engine's applied terms, to the server with its driver
+    // decision (POD-6858 Task 11).
+    onLaunchTerms: (sessionId, applied) => reportLaunchTerms(ctx, sessionId, applied),
   })
   /**
    * ENGINES READ THE SESSION'S CONTEXT (POD-6546), never a snapshot taken
@@ -1301,6 +1326,22 @@ export async function createDaemonHostRuntime(args: {
    */
   const engineContextFor = (kind: AgentKind, driverId: string) => (sessionId: SessionId) =>
     engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId)
+  /**
+   * WHAT AN ENGINE STATES ITS LAUNCH TERMS FROM (POD-6858). Podium's grants
+   * for a launch with no spec in hand (adopt, wake), over the same context
+   * `engineContextFor` answers; such a launch mounts no MCP of its own. And
+   * every engine launch's folders: its runtime folder and, for a worktree,
+   * the main checkout.
+   */
+  const engineGrantsFor = (kind: AgentKind, driverId: string) => async (sessionId: SessionId) =>
+    podiumGrantsFor(
+      { stateRoot: stateDir() },
+      sessionId,
+      { mcpServers: { supported: false, reason: 'a launch with no spec in hand' } },
+      await engineContextFor(kind, driverId)(sessionId),
+    )
+  const launchFolders = (sessionId: SessionId, workdir: string) =>
+    launchFoldersFor({ settingsDir: ctx.settingsDir, sessionId, workdir })
   const machineCommandEnv = async (): Promise<Readonly<Record<string, string>>> =>
     harnessRuntime ? (await harnessRuntime.current()).commandEnvironment.env : {}
   // Session-frame ports shared by the four headless families: the frame sink,
@@ -1347,6 +1388,8 @@ export async function createDaemonHostRuntime(args: {
     // JSONL where sessions.read looks for it (POD-3057).
     ...(homeDir ? { homeDir } : {}),
     harnessContextFor: engineContextFor(claudeSdkHarnessKind, CLAUDE_SDK_DRIVER_ID),
+    podiumGrantsFor: engineGrantsFor(claudeSdkHarnessKind, CLAUDE_SDK_DRIVER_ID),
+    launchFoldersFor: launchFolders,
     instanceUuid: instance.instanceUuid,
     // The issue prime, from the same source the terminal family primes from,
     // delivered in band at the engine's own boundaries (POD-5814).
@@ -1389,6 +1432,8 @@ export async function createDaemonHostRuntime(args: {
         verdict.drivable ? null : verdict.diagnostic,
       ),
     harnessContextFor: engineContextFor(ocFacts.harnessKind, ocFacts.driverId),
+    podiumGrantsFor: engineGrantsFor(ocFacts.harnessKind, ocFacts.driverId),
+    launchFoldersFor: launchFolders,
     /**
      * `attach()`'s client terminal (POD-2059), on the frames path this daemon
      * already runs. The stream id is the key, exactly as the engine variant's
@@ -1427,6 +1472,8 @@ export async function createDaemonHostRuntime(args: {
         verdict.drivable ? null : verdict.diagnostic,
       ),
     harnessContextFor: engineContextFor(oc2Facts.harnessKind, oc2Facts.driverId),
+    podiumGrantsFor: engineGrantsFor(oc2Facts.harnessKind, oc2Facts.driverId),
+    launchFoldersFor: launchFolders,
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
     // V2 migrates the stable CLI's default database to an incompatible
@@ -1459,6 +1506,8 @@ export async function createDaemonHostRuntime(args: {
     checkVersion: async (installation) =>
       codexAppServerVersionProbe(installation, { env: await machineCommandEnv() }),
     harnessContextFor: engineContextFor(codexFacts.harnessKind, CODEX_APP_SERVER_DRIVER_ID),
+    podiumGrantsFor: engineGrantsFor(codexFacts.harnessKind, CODEX_APP_SERVER_DRIVER_ID),
+    launchFoldersFor: launchFolders,
     dialSocket: sessionEngines.dialerFor(dialEngineSocket),
     // Omitted outright on a backend=none daemon (POD-3917): without a
     // terminal host the codex host reports it cannot host one, rather than
@@ -1510,6 +1559,8 @@ export async function createDaemonHostRuntime(args: {
     checkVersion: async (installation) =>
       grokAcpVersionProbe(installation, { env: await machineCommandEnv() }),
     harnessContextFor: engineContextFor(grokFacts.harnessKind, GROK_ACP_DRIVER_ID),
+    podiumGrantsFor: engineGrantsFor(grokFacts.harnessKind, GROK_ACP_DRIVER_ID),
+    launchFoldersFor: launchFolders,
     // Omitted outright on a backend=none daemon (POD-3917): same rule as the
     // codex host above — no terminal host, no attach arm.
     ...(clientTerminals
@@ -1597,6 +1648,35 @@ export async function createDaemonHostRuntime(args: {
           ? { CLAUDE_CONFIG_DIR: harnessRoots('claude-code', ctx.accountHome.path, {}).state }
           : {}),
       }),
+      // WHAT ONE TURN STATES ITS LAUNCH TERMS FROM (POD-6858): the same account
+      // context `turnChildEnv` composes over, the session's own grants with
+      // the turn's MCP servers, and its launch folders.
+      turnPosture: async ({ sessionId, agent, cwd, posture, mcpConfig, snapshot }) => {
+        const context = driverHarnessContextFrom(
+          ctx,
+          snapshot,
+          agent as BuiltinHarnessKind,
+          undefined,
+        )
+        return launchPosture(
+          {
+            posture,
+            grants: podiumGrantsFor(
+              { stateRoot: stateDir() },
+              sessionId,
+              {
+                mcpServers: mcpConfig
+                  ? { supported: true, value: { transport: 'inline', config: mcpConfig } }
+                  : { supported: false, reason: 'the turn mounts no MCP' },
+              },
+              context,
+            ),
+            workdir: cwd,
+            context,
+          },
+          await launchFolders(sessionId, cwd),
+        )
+      },
       durableLabel: (sessionId) => ctx.durableLabelFor(sessionId),
       bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue) =>
         ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue),

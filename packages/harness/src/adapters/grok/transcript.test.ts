@@ -35,25 +35,38 @@ function call(name: string, rawInput: Record<string, unknown>, id = `call-${name
 }
 
 describe('grokRecordToItems', () => {
-  it("maps a prompt and a reply, dated by Grok's event time", () => {
-    expect(
-      grokRecordToItems(
-        line({
-          sessionUpdate: 'user_message_chunk',
-          content: { type: 'text', text: 'hello' },
-          _meta: { modelId: 'fake', promptIndex: 0 },
-        }),
-      ),
-    ).toEqual([{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'user', ts: at, text: 'hello' }])
+  it("maps a prompt and a reply, dated by Grok's event time and named by its event id", () => {
+    const prompt = line({
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'text', text: 'hello' },
+      _meta: { modelId: 'fake', promptIndex: 0 },
+    })
+    expect(grokRecordToItems(prompt)).toEqual([
+      { id: `grok-user-${prompt.params._meta.eventId}`, role: 'user', ts: at, text: 'hello' },
+    ])
 
-    expect(
-      grokRecordToItems(
-        line(
-          { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi there ' } },
-          { promptId: '179a1a36-3d91-443a-ae16-06aa06e2f29d', chunkId: 3 },
-        ),
-      ),
-    ).toEqual([{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'assistant', ts: at, text: 'hi there' }])
+    const reply = line(
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi there ' } },
+      { promptId: '179a1a36-3d91-443a-ae16-06aa06e2f29d', chunkId: 3 },
+    )
+    expect(grokRecordToItems(reply)).toEqual([
+      {
+        id: `grok-assistant-${reply.params._meta.eventId}`,
+        role: 'assistant',
+        ts: at,
+        text: 'hi there',
+      },
+    ])
+  })
+
+  it('names a record without an event id by its position (POD-7003)', () => {
+    for (const update of [
+      { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hello' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } },
+    ]) {
+      const record = { method: 'session/update', params: { sessionId: SESSION, update, _meta: {} } }
+      expect(grokRecordToItems(record).map((item) => item.id)).toEqual([SYNTHESIZED_ITEM_ID_PREFIX])
+    }
   })
 
   it('leaves out what nobody typed and what is not conversation', () => {
@@ -109,15 +122,18 @@ describe('grokRecordToItems', () => {
   })
 
   it('keeps an attachment as a tag', () => {
-    expect(
-      grokRecordToItems(
-        line({
-          sessionUpdate: 'user_message_chunk',
-          content: { type: 'image', mimeType: 'image/png' },
-        }),
-      ),
-    ).toEqual([
-      { id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'user', ts: at, text: '', tags: [{ kind: 'image' }] },
+    const image = line({
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'image', mimeType: 'image/png' },
+    })
+    expect(grokRecordToItems(image)).toEqual([
+      {
+        id: `grok-user-${image.params._meta.eventId}`,
+        role: 'user',
+        ts: at,
+        text: '',
+        tags: [{ kind: 'image' }],
+      },
     ])
   })
 

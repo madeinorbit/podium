@@ -9,7 +9,9 @@ import {
 } from './bound-command.js'
 import type { HarnessContext } from './harness-context-types.js'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+import { agentLaunchTerms } from './launch-terms.js'
 import type { HarnessLaunchOptions, LaunchArgv } from './manifest.js'
+import type { PostureRequest } from './posture-types.js'
 import { harnessAdapterFor, harnessSupportsInitialPrompt } from './registry.js'
 
 // Re-exported so daemon/launch consumers can import them alongside agentLaunchCommand.
@@ -20,12 +22,18 @@ export {
 }
 
 /**
- * Launch options as the session spawn path holds them. `harnessContext` is
- * required for every harness kind (the adapter's own `launch` takes it as a
- * required field); only the operator's shell runs without one.
+ * Launch options as the session spawn path holds them. `harnessContext` and
+ * `posture` are required for every harness kind (the adapter's own `launch`
+ * takes the context as a required field; `harnessCommand` takes the terms);
+ * only the operator's shell runs without them.
+ *
+ * `posture` is the session's launch posture without the mode and the context:
+ * this is a terminal launch, and the context is `harnessContext` above
+ * (POD-6858, docs/design/harness-session-posture.md §4.6).
  */
 export type LaunchOptions = Omit<HarnessLaunchOptions, 'harnessContext'> & {
   harnessContext?: HarnessContext
+  posture?: Omit<PostureRequest, 'mode' | 'context'>
 }
 
 /** A launchable session command: a harness bound to its context, or the shell. */
@@ -50,7 +58,13 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
   if (context.installation.kind !== kind) {
     throw new Error(`a ${kind} launch was handed a ${context.installation.kind} harness context`)
   }
-  return harnessCommand(context, adapter.launch({ ...opts, harnessContext: context }))
+  const { posture, ...launchOptions } = opts
+  if (!posture) throw new Error(`a ${kind} launch needs the session's launch posture`)
+  return harnessCommand(
+    context,
+    adapter.launch({ ...launchOptions, harnessContext: context }),
+    agentLaunchTerms(adapter, 'terminal', { ...posture, context }),
+  )
 }
 
 /**

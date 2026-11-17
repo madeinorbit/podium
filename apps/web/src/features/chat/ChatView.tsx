@@ -31,6 +31,7 @@ import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { useQuotes } from './QuoteTokens'
 import { SessionModelChip } from './SessionModelChip'
+import { SessionModeChip } from './SessionPosture'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
 import { useConversation, type WebConversation } from './use-conversation'
@@ -240,7 +241,15 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
               onBackendModelChange: chat.view.setBackendModel,
               onBackendEffortChange: chat.view.setBackendEffort,
             }
-          : { modelControl: <SessionModelChip session={chat.view.session} /> })}
+          : {
+              posture: chat.view.session,
+              modelControl: (
+                <span className="flex min-w-0 items-center">
+                  <SessionModelChip session={chat.view.session} />
+                  <SessionModeChip session={chat.view.session} />
+                </span>
+              ),
+            })}
       />
     </>
   )

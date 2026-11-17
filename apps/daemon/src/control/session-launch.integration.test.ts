@@ -1,7 +1,13 @@
 import { agentLaunchCommand, agentStateProviderFor } from '@podium/harness'
-import { testHarnessContext } from '@podium/harness/driver/testing'
+import { testHarnessContext, testLaunchPosture } from '@podium/harness/driver/testing'
 import { describe, expect, it } from 'vitest'
 import { instrumentedLaunchArgs } from './session'
+
+/** A launch's posture without its context (POD-6858). */
+function launchPostureOf(context: ReturnType<typeof testHarnessContext>) {
+  const { context: _context, ...posture } = testLaunchPosture(context)
+  return posture
+}
 
 function instrumentationArgs(agentKind: 'claude-code' | 'codex'): string[] {
   return agentStateProviderFor(agentKind)!.instrumentation({
@@ -16,6 +22,7 @@ describe('final daemon launch arguments', () => {
     const prompt = '- audit the workspace'
     const launch = agentLaunchCommand('codex', {
       harnessContext: testHarnessContext({ kind: 'codex' }),
+      posture: launchPostureOf(testHarnessContext({ kind: 'codex' })),
       cwd: '/repo',
       model: 'gpt-5.6-sol',
       effort: 'xhigh',
@@ -27,8 +34,15 @@ describe('final daemon launch arguments', () => {
       'gpt-5.6-sol',
       '-c',
       'model_reasoning_effort=xhigh',
+      // Moved to posture (POD-6858): the loopback override, with trust, the
+      // update switch and the default posture's mode beside it.
+      '-c',
+      'projects={"/work/podium-test"={trust_level="trusted"}}',
+      '-c',
+      'check_for_update_on_startup=false',
       '-c',
       'sandbox_workspace_write.network_access=true',
+      '--approve-for-me',
       '-c',
       'tui.theme=ansi',
       '--',
@@ -40,11 +54,19 @@ describe('final daemon launch arguments', () => {
     const prompt = '--help is task text'
     const launch = agentLaunchCommand('claude-code', {
       harnessContext: testHarnessContext({ kind: 'claude-code' }),
+      posture: launchPostureOf(testHarnessContext({ kind: 'claude-code' })),
       cwd: '/repo',
       initialPrompt: prompt,
     })
 
     expect(instrumentedLaunchArgs(launch.args, instrumentationArgs('claude-code'))).toEqual([
+      // Moved to posture (POD-6858): Claude's terminal launch now states its
+      // mode and allow rules, ahead of the boundary like the settings.
+      '--permission-mode',
+      'auto',
+      '--allowedTools=Bash(podium *)',
+      '--allowedTools=PowerShell(podium *)',
+      '--allowedTools=Read(//var/podium-test/uploads/session/**)',
       '--settings',
       '/tmp/podium/s1.json',
       '--',

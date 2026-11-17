@@ -371,6 +371,7 @@ export const DAEMON_PLANE_CLASS = {
   // same stream as agentState/agentModel, not a durable fact about the session.
   agentContext: 'stream.live',
   agentModel: 'stream.live',
+  agentMode: 'stream.live',
   scanResult: 'control.command',
   conversationsChanged: 'control.entity',
   scanReposResult: 'control.command',

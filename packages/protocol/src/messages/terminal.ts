@@ -6,6 +6,7 @@ import {
   GeometryState,
   HarnessAgent,
   IssueIdField,
+  LaunchPostureReport,
   MachineIdField,
   ResumeRef,
   SessionDelegation,
@@ -17,6 +18,7 @@ import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField, SyncKindTokens } from './feed'
 import { ClientLogOrigin } from './logs'
 import { NativeBindingReceipt } from './native-binding'
+import { SessionPostureSchema } from './posture'
 
 const positiveInt = z.number().int().positive()
 
@@ -557,6 +559,15 @@ export const SpawnMessage = z.object({
    * that can tell a typo from a driver this build does not ship.
    */
   requestedDriverId: z.string().min(1).optional(),
+  /**
+   * THE SESSION'S LAUNCH TERMS, in Podium's words (POD-6858,
+   * harness-session-posture.md §4.2–4.3). Absent means
+   * `DEFAULT_SESSION_POSTURE`. The daemon stores the posture it resolves with
+   * the session, so a resume or wake while the server is unreachable runs on
+   * the same terms. Appended at the END: an older daemon strips it and runs
+   * the default, as it always did.
+   */
+  posture: SessionPostureSchema.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -736,6 +747,19 @@ export const DriverSelectedMessage = z.object({
   type: z.literal('driverSelected'),
   sessionId: SessionIdField,
   driverId: z.string().min(1),
+  /**
+   * THE LAUNCH'S TERMS, AS APPLIED (POD-6858 Task 11, harness-session-posture.md
+   * §4.6 and §5): the harness mode Podium asked for and every requirement this
+   * launch cannot meet, with the reason in words.
+   *
+   * The decision above is announced before the launch is built, so it carries
+   * none. The daemon sends this frame once more, with the same `driverId`,
+   * after it has applied the launch's terms and before the process starts. A
+   * frame WITHOUT it announces a new launch decision, so the server drops the
+   * previous launch's report; an older daemon never sends it, and an older
+   * server reads the repeat as the same decision again.
+   */
+  posture: LaunchPostureReport.optional(),
 })
 /** Daemon capability, advertised in its `hello`: this daemon reports the grid it
  *  APPLIED (`geometryApplied`) after every resize it dispatches. A server talking
@@ -972,6 +996,19 @@ export const AgentModelMessage = z.object({
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
   effort: z.string().optional(),
+})
+// Daemon → server: the permission mode the HARNESS reports it is in (POD-6858
+// Task 11, harness-session-posture.md §4.9), read from its own records, e.g.
+// Claude Code's `permission-mode` transcript record. The session's mode chip
+// shows it over the mode Podium asked for at launch. An older server drops
+// the frame unparsed and keeps showing the requested mode.
+export const AgentModeMessage = z.object({
+  type: z.literal('agentMode'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
+  source: z.enum(['transcript', 'native']).optional(),
+  sessionId: SessionIdField,
+  mode: z.string().min(1),
 })
 // Daemon → server: exact context-window usage observed in the harness's native
 // transcript. Harnesses without a reliable numerator + window do not emit it.

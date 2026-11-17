@@ -51,7 +51,12 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
@@ -60,6 +65,7 @@ import type {
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import { reduceAgentState } from '../../../observer.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -227,6 +233,12 @@ export interface OpencodeRuntimeHost {
     /** The session's pinned harness context (POD-6546): the server runs its
      *  installation and starts from its environment. */
     harnessContext: HarnessContext
+    /** The session's posture (POD-6858); a wake or adopt with no spec in hand
+     *  runs on the default. */
+    posture: SessionPosture
+    /** Podium's grants: the spec's on create and resume, from
+     *  {@link podiumGrantsFor} on wake. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
   /**
@@ -236,6 +248,9 @@ export interface OpencodeRuntimeHost {
    * the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
 
   stageAttachment: AttachmentStager
 
@@ -2671,6 +2686,9 @@ export function createOpencodeRuntime(
       secret: host.randomSecret(),
       username: entry.username,
       harnessContext: await host.harnessContextFor(entry.sessionId),
+      // The journal records no posture: a relaunched server runs on the default.
+      posture: DEFAULT_SESSION_POSTURE,
+      grants: await host.podiumGrantsFor(entry.sessionId),
     })
   }
 
@@ -2790,6 +2808,8 @@ export function createOpencodeRuntime(
       secret,
       username,
       harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const make = host.makeClient ?? createOpencodeClient
@@ -2855,6 +2875,8 @@ export function createOpencodeRuntime(
         secret,
         username: 'podium',
         harnessContext: spec.harnessContext,
+        posture: spec.posture,
+        grants: spec.grants,
         ...(spec.env ? { env: spec.env } : {}),
       })
       return attachSession({
@@ -2915,6 +2937,8 @@ export function createOpencodeRuntime(
           harness: 'opencode',
           selection: { auth: 'api-key', platform: 'linux', available: [driverId] },
           workdir: journalled.workdir,
+          // An adopted session's posture is not journalled: it runs on the default.
+          posture: DEFAULT_SESSION_POSTURE,
           // NOT `{}` — see {@link OpencodeJournalEntry.model}.
           model: journalled.model ?? {},
           instructions: { supported: false, reason: 'adopted session carries its own context' },

@@ -1,9 +1,14 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared, SelectionContext } from '../manifest.js'
+import {
+  type AgentInstruction,
+  DEFAULT_SESSION_POSTURE,
+  type SessionPosture,
+} from '@podium/protocol'
 import type { HarnessContext } from '../harness-context-types.js'
-import type { AgentInstruction } from '@podium/protocol'
+import type { Declared, SelectionContext } from '../manifest.js'
+import type { PodiumGrants } from '../posture-types.js'
 import type { InteractionKind } from './interactions.js'
 
 // ---------------------------------------------------------------------------
@@ -74,6 +79,21 @@ export interface SessionSpec {
    * those itself) and carries none.
    */
   harnessContext: HarnessContext
+  /**
+   * HOW FAR THE AGENT GOES WITHOUT ASKING (POD-6858, docs/design/
+   * harness-session-posture.md §4.3), in Podium's words. Every launch of this
+   * session states its terms from it. Stored with the spec: a stored spec
+   * written before this field existed reads as `DEFAULT_SESSION_POSTURE`
+   * ({@link sessionPostureOf}).
+   */
+  posture: SessionPosture
+  /**
+   * PODIUM'S STANDING FACTS FOR THIS SESSION (§4.4): the Podium CLI, the
+   * session's own uploads folder, Podium's MCP servers. Built once by the
+   * daemon on the harness's machine, like the context. Not stored: a launch
+   * with no spec in hand asks its host's `podiumGrantsFor`.
+   */
+  grants: PodiumGrants
   /** Chooses the harness-native login to spawn under; recorded on the binding.
    *  Absent = whichever account the harness itself defaults to.
    *
@@ -107,7 +127,7 @@ export interface SessionSpec {
    *
    * The legacy headless port carried per-session durable identity
    * (durableLabel, executablePath) plus session-level tool policy that the
-   * contract could not name. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
+   * contract could not name. Its launch terms are {@link SessionSpec.posture}. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
    * values on TurnInput win over these session defaults; a driver that does
    * not implement a field refuses `unsupported` rather than silently dropping
    * it.
@@ -116,12 +136,6 @@ export interface SessionSpec {
   durableLabel?: string
   /** Absolute executable captured from the current generation. */
   executablePath?: string
-  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
-  structuredPermissions?: true
-  /** Session-default tools pre-approved; per-turn TurnInput.allowedTools wins. */
-  allowedTools?: string[]
-  /** Session-default permission mode; per-turn TurnInput.permissionMode wins. */
-  permissionMode?: string
   /** Session-default all-tools-off mode; per-turn TurnInput.toolPolicy wins. */
   toolPolicy?: 'none'
   /** Exact native-login fingerprint for the session (durable identity). */
@@ -130,7 +144,8 @@ export interface SessionSpec {
 
 /**
  * WHAT A SERVER FAMILY'S OWN SESSION RECORDS HOLD (POD-6533): the spec without
- * the pinned harness context.
+ * the pinned harness context or the daemon's grants (POD-6858), both of which
+ * a launch with no spec in hand asks its host for.
  *
  * A server family adopts a surviving engine by rebuilding its spec from its own
  * binding journal, and the journal records no context. Engines read the context
@@ -138,7 +153,15 @@ export interface SessionSpec {
  * (adopt, wake) asks its host's `harnessContextFor`, so a family can keep this
  * narrower shape for the specs it stores while no engine launches without one.
  */
-export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext'>
+export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext' | 'grants'>
+
+/**
+ * A stored spec's posture: the one it was stored with, or
+ * `DEFAULT_SESSION_POSTURE` for a spec written before posture existed.
+ */
+export function sessionPostureOf(spec: { posture?: SessionPosture | undefined }): SessionPosture {
+  return spec.posture ?? DEFAULT_SESSION_POSTURE
+}
 
 /**
  * The per-session interaction policy's shape at the contract boundary. The

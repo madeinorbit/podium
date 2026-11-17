@@ -15,6 +15,7 @@ import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
 import { createCursorConversationProvider } from './discovery.js'
 import { cursorInstall } from './install.js'
+import { cursorPosture } from './posture.js'
 import { cursorStateProvider, observeCursorState } from './state.js'
 import { cursorTranscript } from './transcript.js'
 import { cursorUsage } from './usage.js'
@@ -85,6 +86,7 @@ export const cursorManifest: AgentManifest = {
   usage: cursorUsage,
   install: cursorInstall,
 
+  posture: cursorPosture,
   launch(opts) {
     const args = [
       ...(opts.resume ? ['--resume', opts.resume.value] : []),
@@ -171,7 +173,7 @@ export const cursorManifest: AgentManifest = {
           opts.sessionId ?? '',
           '--model',
           model,
-          ...(opts.permissionMode === 'auto' ? ['--auto-review'] : []),
+          // Trust and the mode are the posture section's (POD-6858).
           prompt,
         ],
       }

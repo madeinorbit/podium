@@ -29,6 +29,7 @@ import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { codexMcpServerKey, codexPosture } from './posture.js'
 import { codexRoots } from './roots.js'
 import {
   codexStateProvider,
@@ -136,22 +137,22 @@ export function codexMcpArgs(
   const env: Record<string, string> = {}
   for (const [name, srv] of Object.entries(servers)) {
     if (!srv.url) continue
-    args.push('-c', `mcp_servers.${JSON.stringify(name)}.url=${JSON.stringify(srv.url)}`)
+    // One spelling of the key, shared with the posture section, which reads
+    // these args to approve the Podium servers a launch mounts.
+    const key = codexMcpServerKey(name)
+    args.push('-c', `${key}.url=${JSON.stringify(srv.url)}`)
     const headers = Object.entries(srv.headers ?? {})
     const auth = headers.find(([k]) => CODEX_AUTH_HEADERS.has(k.toLowerCase()))
     if (auth) {
       const envVar = bearerEnvVar(name)
       // codex prepends "Bearer " itself; strip any existing prefix.
       env[envVar] = auth[1].replace(/^Bearer\s+/i, '')
-      args.push(
-        '-c',
-        `mcp_servers.${JSON.stringify(name)}.bearer_token_env_var=${JSON.stringify(envVar)}`,
-      )
+      args.push('-c', `${key}.bearer_token_env_var=${JSON.stringify(envVar)}`)
     }
     const rest = headers.filter(([k]) => !CODEX_AUTH_HEADERS.has(k.toLowerCase()))
     if (rest.length > 0) {
       const toml = rest.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
-      args.push('-c', `mcp_servers.${JSON.stringify(name)}.http_headers={${toml}}`)
+      args.push('-c', `${key}.http_headers={${toml}}`)
     }
   }
   return { args, env }
@@ -318,6 +319,7 @@ export const codexManifest: AgentManifest = {
   usage: supported(codexUsage),
   install: supported(codexInstall),
 
+  posture: codexPosture,
   launch(opts) {
     // [spec:SP-fccf] Session identity never enters model-visible instructions.
     // Official hooks bind the stable Podium pane id to Codex's native thread id.
@@ -328,15 +330,8 @@ export const codexManifest: AgentManifest = {
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
         ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
-        // Codex's workspace-write sandbox denies network — including LOOPBACK — and
-        // Podium hands every agent a CLI that reaches the daemon over
-        // http://127.0.0.1:<relay>. Without this, `podium …` dies with a bare
-        // connection refusal for any command the user has not separately approved
-        // (approval escalates it out of the sandbox). That asymmetry is what made
-        // `podium offer` / `podium worktree` look broken while an already-approved
-        // `podium issue` in the same session worked fine.
-        '-c',
-        'sandbox_workspace_write.network_access=true',
+        // Trust, the sandbox's loopback, the update menu and the approval
+        // mode are the posture section's (./posture.ts), placed before `--`.
         // `--` ends clap's option parsing; without it a prompt starting with `-`
         // dies as "unexpected argument" before the TUI ever opens [POD-1317].
         // Keep this last — a later arg would be parsed as another positional.
@@ -360,9 +355,9 @@ export const codexManifest: AgentManifest = {
         // Podium's MCP servers as per-invocation config overrides: verified on
         // codex-cli 0.144.5 that `mcp_servers.<name>.url` + `.bearer_token_env_var`
         // (+ `.http_headers` for identity) mount a streamable HTTP server over
-        // plain POST. Codex has no --allowedTools equivalent — allowedTools is
-        // ignored here; the run rides `codex exec`'s own default read-only
-        // sandbox, and MCP tool calls need no approval flag in exec mode.
+        // plain POST. Codex has no --allowedTools equivalent: the run rides
+        // `codex exec`'s own default read-only sandbox, and MCP tool calls
+        // need no approval flag in exec mode.
         // Prompt as positional is safe here: `-c` is single-value (clap
         // `<key=value>`), no variadic flag precedes the positional. The
         // daemon closes stdin immediately, else codex would block appending
@@ -434,13 +429,14 @@ export const codexManifest: AgentManifest = {
         launch: ({ cwd, conversation, endpoint }) => ({
           args: [
             ...codexResumeArgs(cwd, conversation),
-            // NO PERMISSION OVERRIDES on a `--remote` resume. The terminal
-            // launch's `-c sandbox_workspace_write.network_access=true` is one:
-            // Codex (0.166.0 checked) refuses it with "Permission overrides are
-            // not supported when resuming a remote task." and exits, because
-            // any `--remote` socket other than Codex's own default daemon socket
-            // counts as remote. The app-server owns the thread's sandbox, so
-            // the override would not have reached the thread anyway.
+            // NO PERMISSION OVERRIDES on a `--remote` resume. Codex (0.166.0
+            // and 0.167.1 checked) refuses one, such as the loopback override
+            // `-c sandbox_workspace_write.network_access=true`, with
+            // "Permission overrides are not supported when resuming a remote
+            // task." and exits, because any `--remote` socket other than
+            // Codex's own default daemon socket counts as remote. The
+            // app-server owns the thread's sandbox. The posture section adds
+            // only the update-menu switch here.
             ...(endpoint.address ? ['--remote', endpoint.address] : []),
           ],
           cwd,

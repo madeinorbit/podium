@@ -54,6 +54,7 @@ vi.mock('../../../packages/harness/src/adapters/codex/owned-rollout.js', async (
   }
 })
 
+import { testSessionTerms } from '@podium/harness/driver/testing'
 import { codexAuthPathFor } from './control/codex'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { terminalInstrumentationSectionsFor } from './runtime/registry'
@@ -146,6 +147,7 @@ function folderOf(world: Layout, path: string | undefined): Folder | 'none' {
 function terminalSpec(harnessContext: HarnessContext): SessionSpec {
   return {
     harness: 'codex',
+    ...testSessionTerms(),
     harnessContext,
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/repo',

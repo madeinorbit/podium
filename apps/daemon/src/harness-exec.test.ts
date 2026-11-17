@@ -16,8 +16,9 @@ describe('buildHarnessExec', () => {
     const i = args.indexOf('--append-system-prompt')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(args[i + 1]).toBe('You are Podium.')
-    // The prompt rides stdin, never argv: --allowedTools is variadic and would
-    // eat a trailing positional (live #84 incident), and argv has ARG_MAX.
+    // The prompt rides stdin, never argv: the posture section's --allowedTools
+    // is variadic and would eat a trailing positional (live #84 incident), and
+    // argv has ARG_MAX.
     expect(stdin).toBe('list my sessions')
     expect(args).not.toContain('list my sessions')
   })
@@ -47,28 +48,24 @@ describe('buildHarnessExec', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('opus')
   })
 
-  it('wires --mcp-config and --allowedTools for Claude, prompt via stdin', () => {
-    const { args, stdin } = buildHarnessExec(
-      'claude-code',
-      {
-        prompt: 'go',
-        mcpConfigPath: '/tmp/mcp.json',
-        allowedTools: ['Read', 'mcp__podium__list_sessions'],
-      },
-    )
+  it('wires --mcp-config for Claude, prompt via stdin', () => {
+    const { args, stdin } = buildHarnessExec('claude-code', {
+      prompt: 'go',
+      mcpConfigPath: '/tmp/mcp.json',
+    })
     expect(args[args.indexOf('--mcp-config') + 1]).toBe('/tmp/mcp.json')
-    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,mcp__podium__list_sessions')
-    // Regression (#84 live): variadic --allowedTools must be the FINAL argv
-    // entry — any trailing positional would be swallowed as junk tool rules.
-    expect(args.at(-1)).toBe('Read,mcp__podium__list_sessions')
+    // Moved to posture (POD-6858): the allow rules are the posture section's,
+    // one `--allowedTools=<rule>` each, never a comma-joined builder list.
+    expect(args.some((arg) => arg.startsWith('--allowedTools'))).toBe(false)
     expect(stdin).toBe('go')
   })
 
   it('ignores mcp args for agents without MCP mounting (grok)', () => {
-    const { args } = buildHarnessExec(
-      'grok',
-      { prompt: 'go', mcpConfigPath: '/tmp/mcp.json', mcpConfig: '{}', allowedTools: ['Read'] },
-    )
+    const { args } = buildHarnessExec('grok', {
+      prompt: 'go',
+      mcpConfigPath: '/tmp/mcp.json',
+      mcpConfig: '{}',
+    })
     expect(args).not.toContain('--mcp-config')
     expect(args).not.toContain('--allowedTools')
     expect(args).not.toContain('-c')
@@ -88,7 +85,6 @@ describe('buildHarnessExec', () => {
             },
           },
         }),
-        allowedTools: ['Read'],
       },
     )
     const { args, env } = exec

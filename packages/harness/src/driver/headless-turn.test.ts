@@ -27,7 +27,7 @@ import {
 } from './headless-turn.js'
 import type { SessionSpec } from './session-spec.js'
 import type { SendOptions, TurnInput } from './turns.js'
-import { testHarnessContext } from './testing/harness-context.js'
+import { testHarnessContext, testSessionTerms } from './testing/harness-context.js'
 import { createFakeDriver, resetFakeRuntime } from './testing/fake-driver.js'
 
 const DIGEST_A = 'a'.repeat(64)
@@ -37,6 +37,7 @@ const OTHER_ACCOUNT = 'native:fake-harness:fp-2'
 
 const SPEC: SessionSpec = {
   harness: 'fake-harness',
+  ...testSessionTerms(),
   harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: { auth: 'unknown', platform: 'linux', available: ['fake'] },
   workdir: '/repo',
@@ -69,28 +70,26 @@ describe('headless contract fields', () => {
       handle,
       {
         text: 'hello',
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
+        posture: { mode: 'supervised' },
+        legacyTerms: { allowedTools: ['Read', 'Bash'], permissionMode: 'auto' },
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-1',
         sessionUuid: 'uuid-1',
         accountId: ACCOUNT,
         requestDigest: DIGEST_A,
-        structuredPermissions: true,
       },
       { turnId: 'turn-1', harness: 'fake-harness' },
     )
     await driveTurn(sessionId, driver)
     await waited
     expect(driver.control.lastHeadless(sessionId)).toMatchObject({
-      allowedTools: ['Read', 'Bash'],
-      permissionMode: 'auto',
+      posture: { mode: 'supervised' },
+      legacyTerms: { allowedTools: ['Read', 'Bash'], permissionMode: 'auto' },
       mcpConfig: '{"mcpServers":{}}',
       resumeValue: 'harness-1',
       sessionUuid: 'uuid-1',
       accountId: ACCOUNT,
       requestDigest: DIGEST_A,
-      structuredPermissions: true,
     })
   })
 
@@ -99,9 +98,6 @@ describe('headless contract fields', () => {
       ...SPEC,
       durableLabel: 'podium-s1',
       executablePath: '/usr/bin/claude',
-      structuredPermissions: true,
-      allowedTools: ['Read'],
-      permissionMode: 'auto',
       toolPolicy: 'none',
       accountId: ACCOUNT,
     }

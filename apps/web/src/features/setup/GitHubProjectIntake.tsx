@@ -11,6 +11,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSettingsDraft } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
+import { FolderTrustNotice } from './folder-trust-notice'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
 type IntakeMachine = Pick<MachineFacts, 'id' | 'name' | 'online' | 'inventory'>
@@ -335,6 +336,7 @@ export function GitHubProjectIntake({
           <Input
             id="github-clone-destination"
             aria-label={`Clone destination on ${machine.name}`}
+            aria-describedby="github-clone-destination-trust"
             aria-disabled={unavailable}
             readOnly={unavailable}
             value={draft.destination}
@@ -351,6 +353,7 @@ export function GitHubProjectIntake({
             {cloning ? 'Preparing…' : selected ? 'Clone repository' : 'Choose a repository'}
           </Button>
         </div>
+        <FolderTrustNotice id="github-clone-destination-trust" />
         {error && (
           <div className="mt-3">
             <SetupError>{error}</SetupError>

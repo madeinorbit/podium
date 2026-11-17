@@ -32,6 +32,8 @@ import {
   type RuntimeHistoryPage,
   type RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
+import type { PodiumGrants } from '../../../posture-types.js'
 
 const log = createLogger('harness:claude-sdk-session')
 
@@ -213,6 +215,8 @@ export function createClaudeSdkSessionRuntime(
         model,
         ...(effort ? { effort } : {}),
       }),
+    reportObservedMode: ({ sessionId, mode }) =>
+      deps.send({ type: 'agentMode', sessionId, mode, source: 'native' }),
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
     ...(deps.askUserGate ? { askUserGate: deps.askUserGate } : {}),
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
@@ -341,6 +345,7 @@ export function createClaudeSdkSessionRuntime(
   function journalSpec(input: {
     cwd: string
     harnessContext: HarnessContext
+    grants: PodiumGrants
     model?: string
     effort?: string
     env?: Readonly<Record<string, string>>
@@ -348,6 +353,9 @@ export function createClaudeSdkSessionRuntime(
     return {
       harness: claudeSdkHarnessKind,
       harnessContext: input.harnessContext,
+      // The journal records no posture: an adopted session runs on the default.
+      posture: DEFAULT_SESSION_POSTURE,
+      grants: input.grants,
       selection: {
         auth: 'unknown',
         platform: process.platform,
@@ -443,6 +451,7 @@ export function createClaudeSdkSessionRuntime(
             // No spec survives a restart: the session's context comes from
             // the host, pinned or rebuilt from the inventory (POD-6546).
             harnessContext: await deps.engine.harnessContextFor(sessionId),
+            grants: await deps.engine.podiumGrantsFor(sessionId),
             ...(entry.model ? { model: entry.model } : {}),
             ...(entry.effort ? { effort: entry.effort } : {}),
             ...(entry.env ? { env: entry.env } : {}),

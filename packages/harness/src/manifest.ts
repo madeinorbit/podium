@@ -21,6 +21,7 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import type { HarnessContext } from './harness-context-types.js'
+import type { PostureSection } from './posture-types.js'
 import type {
   Declared,
   OpencodeMessagePartRow,
@@ -180,8 +181,6 @@ export interface HarnessExecOptions {
   mcpConfigPath?: string
   /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
-  allowedTools?: string[]
 }
 
 /** A one-shot exec's argv, without a command (see {@link LaunchArgv}). */
@@ -655,7 +654,6 @@ export interface HeadlessExecOptions {
   effort?: string
   systemPrompt?: string
   mcpConfig?: string
-  permissionMode?: string
   /** Fail-closed capability request. `none` means the adapter must remove every
    * built-in, MCP, web, subagent and shell tool. */
   toolPolicy?: 'none'
@@ -1736,6 +1734,14 @@ export interface AgentManifest {
   install: Declared<HarnessInstall>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchArgv
+  /**
+   * The terms this harness runs on (POD-6858, docs/design/harness-session-posture.md
+   * §4.5): a pure function that adds this harness's flags, env, generated files
+   * and home edits to what the builders produced, for one launch mode, and
+   * names what it cannot meet. Required, never Declared: every harness process
+   * runs on some terms, and `applyTerms` checks the section only added.
+   */
+  posture: PostureSection
   /** Native-conversation discovery provider. */
   discovery: ConversationProvider
   /** One-shot full-harness turn (`claude -p` / `codex exec` …). Unsupported ⇒ the

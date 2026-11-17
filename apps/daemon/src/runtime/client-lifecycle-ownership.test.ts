@@ -17,7 +17,7 @@
  * wires none.
  */
 
-import { testHarnessContext } from '@podium/harness/driver/testing'
+import { testHarnessContext, testLaunchPosture } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
 import type { BuiltinHarnessKind } from '@podium/protocol'
@@ -90,6 +90,7 @@ describe('client lifecycle ownership (§5: the session summons, the relay render
     const calls: string[] = []
     const clients = recordingScope(calls)
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: new SessionRegistry(),
       clients,
