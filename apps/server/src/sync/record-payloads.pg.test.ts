@@ -24,9 +24,11 @@ import { SyncRepository } from '@podium/sync'
 import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
 import { getTableColumns, getTableName, is, sql, Table } from 'drizzle-orm'
 import { PgTable } from 'drizzle-orm/pg-core'
+import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import type { ControlSend } from '../gateway/daemon-ports'
+import { migratePg } from '../migrations/pg/index'
 import * as pgSchema from '../migrations/pg/schema'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import { SuperagentService } from '../modules/superagent'
@@ -64,7 +66,7 @@ import { UserReadPositionRepository } from '../store/user-read-position'
 import { UsersRepository } from '../store/users'
 import { WorkflowsRepository } from '../store/workflows'
 import { attachHostDaemon } from '../test-support/host-daemon'
-import { clonePgTestDatabase, testStoreEngine } from '../test-support/pg-test-database'
+import { emptyPgTestDatabase, testStoreEngine } from '../test-support/pg-test-database'
 import { useRealMigrationChain } from '../test-support/pre-migrated-store'
 import { quietShipping } from '../test-support/statement-count'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
@@ -300,7 +302,15 @@ describe.runIf(ENGINE === 'pg')('record payloads on both engines (Postgres leg)'
     // SQLite is the reference engine here; the leg's opener refuses it by default.
     useRealMigrationChain()
     store = await sqliteCorpus()
-    const { url } = await clonePgTestDatabase('file')
+    // The schema without the template's starting rows (a fresh SQLite store's, POD-6994):
+    // this database holds exactly the SQLite corpus's rows.
+    const { url } = await emptyPgTestDatabase('file')
+    const migrator = postgres(url, { max: 1, onnotice: () => {} })
+    try {
+      await migratePg(migrator)
+    } finally {
+      await migrator.end({ timeout: 5 })
+    }
     executor = createPgStoreExecutor({ url, poolSize: 2, pgTables: PG_TABLES, startOpen: true })
     copied = await copyInto(store, executor)
   }, 180_000)

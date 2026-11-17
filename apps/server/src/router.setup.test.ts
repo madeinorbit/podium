@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { firstAdminMemberId, type ServerReadiness } from '@podium/model'
 import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { desktopUpdaterEndpoint, InstanceService } from './modules/instance/service'
 
@@ -46,11 +46,22 @@ function installSetupParent() {
     })
 }
 
+/**
+ * Every registry a test here made. They keep timers of their own (machine availability,
+ * among others), so they are disposed when the file ends, before its stores close; a
+ * timer over a closed store would reject with nobody awaiting it (POD-6994).
+ */
+const opened: SessionRegistry[] = []
+afterAll(async () => {
+  for (const registry of opened.splice(0)) await registry.dispose()
+})
+
 async function makeHarness() {
   installSetupParent()
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const { credentials } = await openTestIdentity(store)
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation', memberCredentials: credentials })
+  opened.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -87,6 +98,7 @@ async function activationHarness(opts: {
 }) {
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+  opened.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -192,6 +204,7 @@ describe('setup tRPC', () => {
     installSetupParent()
     const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+    opened.push(registry)
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
