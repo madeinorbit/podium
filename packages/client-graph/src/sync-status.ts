@@ -82,6 +82,11 @@ export function syncReviewCount(signals: Pick<SyncSignals, 'refused' | 'undelive
   return signals.refused + signals.undelivered
 }
 
+/** "1 needs review", "3 need review". */
+export function reviewWords(count: number): string {
+  return `${count} ${count === 1 ? 'needs' : 'need'} review`
+}
+
 /**
  * Catch-up progress as a whole percent, or null when it is not measured. The
  * distance is in feed sequence numbers from where the catch-up started to the

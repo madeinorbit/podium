@@ -27,7 +27,7 @@ export const NoticeRow = observer(function NoticeRow({
   onOpen: () => void
 }): JSX.Element {
   const trpc = useRequestClient<Trpc>(),
-    { openSessionTab } = useUi()
+    { navigateToSession } = useUi()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (
@@ -41,7 +41,9 @@ export const NoticeRow = observer(function NoticeRow({
           size="sm"
           variant="outline"
           onClick={() => {
-            openSessionTab(notice.sessionId)
+            // Navigate, not just add a tab: the chat may belong to another
+            // issue or worktree, or the window may be on another view.
+            navigateToSession(notice.sessionId)
             onOpen()
           }}
         >

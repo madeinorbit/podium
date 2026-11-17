@@ -1,6 +1,7 @@
 import { Popover } from '@base-ui/react/popover'
 import {
   catchUpPercent,
+  reviewWords,
   type SyncDisplay,
   type SyncSignals,
   syncCondition,
@@ -72,7 +73,7 @@ export function SyncStatusItem({
               (shown === null || shown === 'up-to-date' ? (
                 <span className="sync-review" data-testid="sync-review-words">
                   <CircleAlert size={12} aria-hidden="true" />
-                  {review} need review
+                  {reviewWords(review)}
                 </span>
               ) : (
                 <span className="sync-pill" data-testid="sync-review-pill">
@@ -227,7 +228,7 @@ export function announcement(shown: SyncDisplay, queued: number, review: number)
   else if (shown === 'paused') parts.push('Sync paused')
   else if (shown === 'slow') parts.push('Slow connection')
   else if (shown === 'up-to-date' && review === 0) parts.push('Up to date')
-  if (review > 0) parts.push(`${review} need review`)
+  if (review > 0) parts.push(reviewWords(review))
   return parts.join(', ')
 }
 
