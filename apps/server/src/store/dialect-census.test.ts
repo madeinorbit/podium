@@ -187,7 +187,7 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   [
     'apps/server/src/store/conversations/transcript-index.ts:searchTranscripts',
-    'SQLite-only MATCH',
+    'SQLite-only MATCH, SQLite-only rowid',
   ],
   ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
   [

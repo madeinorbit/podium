@@ -1,26 +1,30 @@
+// workspace-scoped (POD-6959)
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
-import { and, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, max, type SQL, sql } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from '../executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
+/** One segment by its key, over the `machineId` / `nativeId` placeholders, in the workspace. */
 const segmentKey = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.conversationSegments,
     eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
     eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
@@ -42,7 +46,8 @@ const podiumIdsOfSegments = preparedFamily((db, t, size: number) =>
     })
     .from(t.conversationSegments)
     .where(
-      and(
+      inWorkspace(
+        t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
         inListOf(t.conversationSegments.nativeId, size),
       ),
@@ -66,7 +71,8 @@ const segmentsWithPaths = preparedFamily((db, t, size: number) =>
     // segment rows attribute this daemon's spend to that host's session and
     // bank it under the wrong (machineId, nativeId) key.
     .where(
-      and(
+      inWorkspace(
+        t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
         inListOf(t.conversationSegments.path, size),
       ),
@@ -82,7 +88,8 @@ const parentsOf = preparedFamily((db, t, size: number) =>
     })
     .from(t.conversationIdentities)
     .where(
-      and(
+      inWorkspace(
+        t.conversationIdentities,
         isNotNull(t.conversationIdentities.parentPodiumId),
         inListOf(t.conversationIdentities.podiumId, size),
       ),
@@ -98,7 +105,7 @@ const nativeIdsOf = preparedFamily((db, t, size: number) =>
       nativeId: t.conversationSegments.nativeId,
     })
     .from(t.conversationSegments)
-    .where(inListOf(t.conversationSegments.podiumId, size))
+    .where(inWorkspace(t.conversationSegments, inListOf(t.conversationSegments.podiumId, size)))
     .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
@@ -108,7 +115,8 @@ const pathsOfNativeIds = preparedFamily((db, t, size: number) =>
     .select({ nativeId: t.conversationSegments.nativeId, path: t.conversationSegments.path })
     .from(t.conversationSegments)
     .where(
-      and(
+      inWorkspace(
+        t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
         isNotNull(t.conversationSegments.path),
         inListOf(t.conversationSegments.nativeId, size),
@@ -130,7 +138,8 @@ const adoptParent = prepared((db, t) =>
     .update(t.conversationIdentities)
     .set({ parentPodiumId: sql.placeholder('parentPodiumId') })
     .where(
-      and(
+      inWorkspace(
+        t.conversationIdentities,
         eq(t.conversationIdentities.podiumId, param(t.conversationIdentities.podiumId, 'podiumId')),
         isNull(t.conversationIdentities.parentPodiumId),
       ),
@@ -167,6 +176,7 @@ const insertIdentity = prepared((db, t) =>
   db
     .insert(t.conversationIdentities)
     .values({
+      workspaceId: WORKSPACE,
       podiumId: sql.placeholder('podiumId'),
       parentPodiumId: sql.placeholder('parentPodiumId'),
       createdAt: sql.placeholder('createdAt'),
@@ -178,6 +188,7 @@ const insertDiscoveredSegment = prepared((db, t) =>
   db
     .insert(t.conversationSegments)
     .values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       providerId: sql.placeholder('providerId'),
@@ -198,6 +209,15 @@ const insertDiscoveredSegment = prepared((db, t) =>
 // its rows as ONE bound JSON array, `rows`, read with json_each, so a statement
 // has one shape for any number of rows, in the array's order.
 
+/**
+ * The workspace as an INSERT ... SELECT item, BARE: the insert names its columns
+ * by the select's keys, so the item needs no alias, and the workspace-scope audit
+ * reads a bare placeholder as the workspace (it does not read through
+ * `? AS "workspace_id"`). Drizzle's types ask every select item for an alias;
+ * the cast says this one needs none.
+ */
+const workspaceItem = sql`${WORKSPACE}` as unknown as SQL.Aliased<unknown>
+
 /** The rows of the bound JSON array `rows`, and one field of the row a statement is reading. */
 const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
 const offered = (field: string) => sql`value ->> ${`$.${field}`}`
@@ -208,6 +228,7 @@ const insertIdentities = prepared((db, t) =>
     .select(
       db
         .select({
+          workspaceId: workspaceItem,
           podiumId: sql`${offered('podiumId')}`.as('podium_id'),
           parentPodiumId: sql`${offered('parentPodiumId')}`.as('parent_podium_id'),
           createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
@@ -223,6 +244,7 @@ const insertDiscoveredSegments = prepared((db, t) =>
     .select(
       db
         .select({
+          workspaceId: workspaceItem,
           machineId: sql`${sql.placeholder('machineId')}`.as('machine_id'),
           nativeId: sql`${offered('nativeId')}`.as('native_id'),
           providerId: sql`${offered('providerId')}`.as('provider_id'),
@@ -247,7 +269,8 @@ const adoptParents = prepared((db, t) =>
         WHERE ${offered('podiumId')} = ${t.conversationIdentities.podiumId})`,
     })
     .where(
-      and(
+      inWorkspace(
+        t.conversationIdentities,
         isNull(t.conversationIdentities.parentPodiumId),
         sql`${t.conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
       ),
@@ -269,7 +292,8 @@ const refreshSegmentFiles = prepared((db, t) => {
     .update(t.conversationSegments)
     .set({ path, reportedBytes })
     .where(
-      and(
+      inWorkspace(
+        t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
         sql`${t.conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
         sql`(${t.conversationSegments.path} IS NOT ${path} OR ${t.conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
@@ -282,7 +306,12 @@ const highestSeqInConversation = prepared((db, t) =>
   db
     .select({ m: max(t.conversationSegments.seqInConv) })
     .from(t.conversationSegments)
-    .where(eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')))
+    .where(
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -290,6 +319,7 @@ const insertRolledSegment = prepared((db, t) =>
   db
     .insert(t.conversationSegments)
     .values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       providerId: sql.placeholder('providerId'),
@@ -309,7 +339,12 @@ const segmentsOfConversation = prepared((db, t) =>
       nativeId: t.conversationSegments.nativeId,
     })
     .from(t.conversationSegments)
-    .where(eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')))
+    .where(
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')),
+      ),
+    )
     .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
@@ -321,21 +356,21 @@ export class ConversationRegistryRepository {
   /** Installed by composition: a native-id mapping is a session record
    *  source, so its write runs as a change-log commit (POD-6920). */
   sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async podiumId(machineId: MachineId, nativeId: string): Promise<ConversationId | undefined> {

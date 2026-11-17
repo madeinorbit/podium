@@ -293,7 +293,8 @@ describe('workspace table manifest', () => {
 
   it('keeps a pending workspace column marker only while the column is missing', () => {
     const marked = Object.entries(manifest).filter(([, entry]) => entry.workspaceColumnPending)
-    expect(marked.map(([name]) => name)).toEqual(['transcript_fts_keys'])
+    // None left: POD-7022 gave transcript_fts_keys its column.
+    expect(marked.map(([name]) => name)).toEqual([])
     for (const [name, entry] of marked) {
       expect(entry.class).toBe('workspace')
       // The task that adds the column removes the marker; this fails until it does.

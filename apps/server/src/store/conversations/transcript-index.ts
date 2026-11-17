@@ -1,20 +1,29 @@
+// workspace-scoped (POD-6959)
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from '../executor/sync-drizzle'
-import { executeRaw, param, prepared } from '../executor/sync-drizzle'
+import {
+  executeRaw,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 // `transcript_fts` is the virtual table this port owns; there is no schema
 // model to build against, so its statements stay whole raw SQL.
 
-/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
+/** One segment by its key, over the `machineId` / `nativeId` placeholders, in the workspace. */
 const segmentKey = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.conversationSegments,
     eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
     eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
@@ -25,8 +34,9 @@ const createTranscriptFts = prepared((db) =>
 )
 
 /*
- * WHICH SEGMENT EACH FTS ROW BELONGS TO, KEYED [POD-6173]. FTS5 indexes only
- * what MATCH searches, so `WHERE machine_id = ? AND native_id = ?` on
+ * WHICH SEGMENT, OF WHICH WORKSPACE, EACH FTS ROW BELONGS TO, KEYED [POD-6173,
+ * POD-6959 design 2.6]. FTS5 indexes only what MATCH searches, so
+ * `WHERE machine_id = ? AND native_id = ?` on
  * `transcript_fts` read every transcript row of every segment; dropping one
  * segment's rows on each re-mirror did that. `transcript_fts_keys` names the
  * segment of every FTS row by its rowid, and its segment index is what those
@@ -38,10 +48,30 @@ const createTranscriptFts = prepared((db) =>
  * key of every FTS row past the last keyed one when the index opens: all of
  * them the first time, after that the rows a build from before this table
  * appended, normally none.
+ *
+ * `transcript_fts` is one table for every workspace; `workspace_id` here is
+ * what holds a search, a read and a delete to one workspace's rows. A key table
+ * made before the column existed is REPLACED when the index opens (`drop`, then
+ * `table`), not altered: its rows say nothing of their workspace, so each would
+ * be keyed again anyway, and {@link catchUpKeys} derives every key from
+ * `transcript_fts` (all of them, for the workspace of each row's segment). An
+ * `ADD COLUMN` would also need a default the final table must not have, and the
+ * query-plan audit cannot compile it against a table that has the column.
  */
-const createTranscriptKeys = prepared((db) =>
-  db.run(sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
-        fts_rowid INTEGER PRIMARY KEY, machine_id TEXT NOT NULL, native_id TEXT NOT NULL)`),
+const createTranscriptKeys = preparedFamily((db, _t, step: 'table' | 'drop') =>
+  step === 'table'
+    ? db.run(sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
+        fts_rowid INTEGER PRIMARY KEY, workspace_id TEXT NOT NULL, machine_id TEXT NOT NULL,
+        native_id TEXT NOT NULL)`)
+    : db.run(sql`DROP TABLE transcript_fts_keys`),
+)
+
+/** Whether the key table has its `workspace_id` column: 1 or 0. */
+const keysWorkspaceColumn = prepared((db) =>
+  db.all<{ present: number }>(
+    sql`SELECT count(*) AS present FROM pragma_table_info('transcript_fts_keys')
+      WHERE name = 'workspace_id'`,
+  ),
 )
 
 const createTranscriptKeysIndex = prepared((db) =>
@@ -49,12 +79,28 @@ const createTranscriptKeysIndex = prepared((db) =>
         ON transcript_fts_keys (machine_id, native_id)`),
 )
 
-/** Key every FTS row past the last keyed one: a rowid range of `transcript_fts`. */
-const catchUpKeys = prepared((db) =>
-  db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
-        SELECT rowid, machine_id, native_id FROM transcript_fts
-        WHERE rowid > (SELECT coalesce(max(fts_rowid), 0) FROM transcript_fts_keys)`),
-)
+/**
+ * Key FTS rows to this workspace: every row (`all`, right after the key table
+ * was made again with its workspace column) or the rows past this workspace's
+ * last key (`after-last`, a rowid range of `transcript_fts`).
+ *
+ * ONLY A ROW WHOSE SEGMENT IS THIS WORKSPACE'S. `transcript_fts` holds every
+ * workspace's rows and says nothing of whose they are, so a row is this
+ * workspace's when its segment (`machine_id`, `native_id`) is. On a database of
+ * one workspace that keys every row of a known segment to it; a row no
+ * workspace's segment names stays unkeyed and matches no search.
+ */
+const catchUpKeys = preparedFamily((db, _t, range: 'all' | 'after-last') => {
+  const after =
+    range === 'all'
+      ? sql``
+      : sql`f.rowid > (SELECT coalesce(max(k.fts_rowid), 0) FROM transcript_fts_keys k
+          WHERE k.workspace_id = ${WORKSPACE}) AND `
+  return db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+        SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f
+        WHERE ${after}EXISTS (SELECT 1 FROM conversation_segments s
+          WHERE s.workspace_id = ${WORKSPACE} AND s.machine_id = f.machine_id AND s.native_id = f.native_id)`)
+})
 
 const segmentsBehindMirror = prepared((db, t) =>
   db
@@ -65,7 +111,8 @@ const segmentsBehindMirror = prepared((db, t) =>
     })
     .from(t.conversationSegments)
     .where(
-      and(
+      inWorkspace(
+        t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
         gt(t.conversationSegments.mirroredBytes, t.conversationSegments.indexedBytes),
       ),
@@ -96,8 +143,8 @@ const insertTranscriptRow = prepared((db) =>
  */
 const insertTranscriptKey = prepared((db) =>
   db.run(
-    sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
-              VALUES(last_insert_rowid(),${sql.placeholder('machineId')},${sql.placeholder('nativeId')})`,
+    sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+              VALUES(last_insert_rowid(),${WORKSPACE},${sql.placeholder('machineId')},${sql.placeholder('nativeId')})`,
   ),
 )
 
@@ -129,10 +176,10 @@ const resetSegmentIfAt = prepared((db, t) =>
     .prepare(),
 )
 
-/** One segment's keys, over the `machineId` / `nativeId` placeholders. */
+/** One segment's keys, over the `machineId` / `nativeId` placeholders, in the workspace. */
 const segmentKeys = () =>
   sql`SELECT fts_rowid FROM transcript_fts_keys
-      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`
+      WHERE workspace_id=${WORKSPACE} AND machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`
 
 /** One segment's FTS rows, each found by rowid; then {@link deleteTranscriptKeys}. */
 const deleteTranscriptRows = prepared((db) =>
@@ -142,7 +189,7 @@ const deleteTranscriptRows = prepared((db) =>
 const deleteTranscriptKeys = prepared((db) =>
   db.run(
     sql`DELETE FROM transcript_fts_keys
-      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
+      WHERE workspace_id=${WORKSPACE} AND machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
   ),
 )
 
@@ -151,20 +198,28 @@ const transcriptRowsOf = prepared((db) =>
   db.all<Record<string, unknown>>(
     sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_fts_keys k
       CROSS JOIN transcript_fts f ON f.rowid=k.fts_rowid
-      WHERE k.machine_id=${sql.placeholder('machineId')} AND k.native_id=${sql.placeholder('nativeId')}
+      WHERE k.workspace_id=${WORKSPACE} AND k.machine_id=${sql.placeholder('machineId')} AND k.native_id=${sql.placeholder('nativeId')}
       ORDER BY k.fts_rowid`,
   ),
 )
 
+/**
+ * The matches of the `fts` placeholder in this workspace's rows. The FTS table
+ * is every workspace's, so each match is held to the workspace through its key
+ * (an FTS row with no key of this workspace never matches); CROSS JOIN keeps the
+ * MATCH the outer loop, each key found by its rowid.
+ */
 const searchTranscripts = prepared((db) =>
   db.all<Record<string, unknown>>(
     sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
       s.podium_id,c.title,c.name,c.updated_at
       FROM transcript_fts f
-      LEFT JOIN conversation_segments s ON s.machine_id=f.machine_id AND s.native_id=f.native_id
-      LEFT JOIN conversations c ON c.id=f.native_id
-      WHERE transcript_fts MATCH ${sql.placeholder('fts')} ORDER BY rank`,
+      CROSS JOIN transcript_fts_keys k ON k.fts_rowid=f.rowid
+      LEFT JOIN conversation_segments s ON s.workspace_id=k.workspace_id
+        AND s.machine_id=f.machine_id AND s.native_id=f.native_id
+      LEFT JOIN conversations c ON c.workspace_id=k.workspace_id AND c.id=f.native_id
+      WHERE k.workspace_id=${WORKSPACE} AND transcript_fts MATCH ${sql.placeholder('fts')} ORDER BY rank`,
   ),
 )
 
@@ -183,21 +238,21 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -209,9 +264,17 @@ export class TranscriptIndexRepository {
     try {
       await this.createOrJoinTransaction(async () => {
         await executeRaw(createTranscriptFts(this.db))
-        await executeRaw(createTranscriptKeys(this.db))
+        await executeRaw(createTranscriptKeys(this.db, 'table'))
+        // A key table from before the workspace column is made again with it,
+        // and every FTS row is keyed again to the workspace of its segment.
+        const [column] = await executeRaw(keysWorkspaceColumn(this.db))
+        const replaced = Number(column?.present ?? 0) === 0
+        if (replaced) {
+          await executeRaw(createTranscriptKeys(this.db, 'drop'))
+          await executeRaw(createTranscriptKeys(this.db, 'table'))
+        }
         await executeRaw(createTranscriptKeysIndex(this.db))
-        await executeRaw(catchUpKeys(this.db))
+        await executeRaw(catchUpKeys(this.db, replaced ? 'all' : 'after-last'))
       })
       this.available = true
     } catch {

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import type { MachineId } from '@podium/model'
 import {
   and,
@@ -15,25 +16,27 @@ import {
   sql,
 } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from '../executor/sync-drizzle'
-import { param, prepared, preparedFamily } from '../executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
+/** One segment by its key, over the `machineId` / `nativeId` placeholders, in the workspace. */
 const segmentKey = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.conversationSegments,
     eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
     eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
 
-/** One segment's incarnations, over the same two placeholders. */
+/** One segment's incarnations, over the same two placeholders, in the workspace. */
 const incarnationKey = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.conversationSegmentIncarnations,
     eq(
       t.conversationSegmentIncarnations.machineId,
       param(t.conversationSegmentIncarnations.machineId, 'machineId'),
@@ -74,7 +77,7 @@ const segmentsToMirror = preparedFamily((db, t, which: 'all' | 'dirty') => {
       mirroredBytes: t.conversationSegments.mirroredBytes,
     })
     .from(t.conversationSegments)
-    .where(and(where, isNotNull(t.conversationSegments.path)))
+    .where(inWorkspace(t.conversationSegments, where, isNotNull(t.conversationSegments.path)))
     .prepare()
 })
 
@@ -151,6 +154,7 @@ const insertIncarnation = prepared((db, t) =>
   db
     .insert(t.conversationSegmentIncarnations)
     .values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       sequence: sql.placeholder('sequence'),
@@ -252,10 +256,10 @@ const lakeConversionSegments = preparedFamily((db, t, phase: 'start' | 'after') 
       // would name the incarnation's own column (a tautology).
       activeSequence: sql<
         number | null
-      >`(SELECT max(inc.sequence) FROM ${i} inc WHERE inc.machine_id = ${outer}.${sql.identifier('machine_id')} AND inc.native_id = ${outer}.${sql.identifier('native_id')} AND inc.retired_at IS NULL)`,
+      >`(SELECT max(inc.sequence) FROM ${i} inc WHERE inc.workspace_id = ${outer}.${sql.identifier('workspace_id')} AND inc.machine_id = ${outer}.${sql.identifier('machine_id')} AND inc.native_id = ${outer}.${sql.identifier('native_id')} AND inc.retired_at IS NULL)`,
     })
     .from(s)
-    .where(and(from, gt(s.mirroredBytes, 0)))
+    .where(inWorkspace(s, from, gt(s.mirroredBytes, 0)))
     .orderBy(asc(s.machineId), asc(s.nativeId))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -281,7 +285,7 @@ const lakeConversionArchived = preparedFamily((db, t, phase: 'start' | 'after') 
       mirroredBytes: i.mirroredBytes,
     })
     .from(i)
-    .where(and(from, gt(i.mirroredBytes, 0), isNotNull(i.retiredAt)))
+    .where(inWorkspace(i, from, gt(i.mirroredBytes, 0), isNotNull(i.retiredAt)))
     .orderBy(asc(i.machineId), asc(i.nativeId), asc(i.sequence))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -314,21 +318,21 @@ export interface MirrorIncarnation {
 
 /** Durable transcript-lake evidence and copy cursors. */
 export class TranscriptMirrorRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async segmentsToMirror(

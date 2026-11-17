@@ -1111,6 +1111,7 @@
         "src/store/committed-rows.ts",
         "src/store/conversations-recent-page.test.ts",
         "src/store/conversations.ts",
+        "src/store/conversations/conversations.workspace.test.ts",
         "src/store/conversations/index.ts",
         "src/store/conversations/mirror.ts",
         "src/store/conversations/registry.ts",

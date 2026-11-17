@@ -321,6 +321,12 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
     ['fts|any', 'fts|posix', 'fts|windows', 'like|any', 'like|posix', 'like|windows'],
   ],
   ['apps/server/src/store/conversations/mirror.ts:segmentsToMirror', ['all', 'dirty']],
+  // The search key table's DDL and its catch-up (POD-7022: the workspace column).
+  [
+    'apps/server/src/store/conversations/transcript-index.ts:createTranscriptKeys',
+    ['table', 'drop'],
+  ],
+  ['apps/server/src/store/conversations/transcript-index.ts:catchUpKeys', ['all', 'after-last']],
 ])
 
 /**

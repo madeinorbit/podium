@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import {
   asMachineId,
   ConversationRecordWire,
@@ -9,19 +10,22 @@ import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, getTableColumns, gt, isNotNull, or, type SQL, sql } from 'drizzle-orm'
 import type { conversations } from '../../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from '../executor/sync-drizzle'
 import {
   executeRaw,
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
@@ -29,8 +33,10 @@ const recordColumns = (t: StoreTables) => ({
   ...getTableColumns(t.conversations),
   podiumId: t.conversationSegments.podiumId,
 })
+/** The segment of a conversation row, in the conversation's workspace. */
 const segmentOf = (t: StoreTables) =>
   and(
+    sameWorkspace(t.conversationSegments, t.conversations),
     eq(t.conversationSegments.machineId, t.conversations.machineId),
     eq(t.conversationSegments.nativeId, t.conversations.id),
   )
@@ -39,7 +45,7 @@ const recordRows = preparedFamily((db, t, size: number) =>
     .select(recordColumns(t))
     .from(t.conversations)
     .leftJoin(t.conversationSegments, segmentOf(t))
-    .where(inListOf(t.conversations.id, size))
+    .where(inWorkspace(t.conversations, inListOf(t.conversations.id, size)))
     .prepare(),
 )
 const recordPage = preparedFamily((db, t, phase: 'start' | 'after') =>
@@ -48,7 +54,10 @@ const recordPage = preparedFamily((db, t, phase: 'start' | 'after') =>
     .from(t.conversations)
     .leftJoin(t.conversationSegments, segmentOf(t))
     .where(
-      phase === 'after' ? gt(t.conversations.id, param(t.conversations.id, 'after')) : undefined,
+      inWorkspace(
+        t.conversations,
+        phase === 'after' ? gt(t.conversations.id, param(t.conversations.id, 'after')) : undefined,
+      ),
     )
     .orderBy(asc(t.conversations.id))
     .limit(sql.placeholder('limit'))
@@ -62,6 +71,8 @@ function conversationRecordOf(
   const {
     resumeKind,
     resumeValue,
+    // The workspace is the repository's, never a record field.
+    workspaceId: _workspaceId,
     updatedAt: _updatedAt,
     messageCount: _messageCount,
     ...fields
@@ -73,6 +84,15 @@ function conversationRecordOf(
       : {}),
   })
 }
+
+/**
+ * The workspace as an INSERT ... SELECT item, BARE: the insert names its columns
+ * by the select's keys, so the item needs no alias, and the workspace-scope audit
+ * reads a bare placeholder as the workspace (it does not read through
+ * `? AS "workspace_id"`). Drizzle's types ask every select item for an alias;
+ * the cast says this one needs none.
+ */
+const workspaceItem = sql`${WORKSPACE}` as unknown as SQL.Aliased<unknown>
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -88,6 +108,7 @@ const upsertConversations = prepared((db, t) => {
     .select(
       db
         .select({
+          workspaceId: workspaceItem,
           id: sql`${field('id')}`.as('id'),
           agentKind: sql`${field('agentKind')}`.as('agent_kind'),
           title: sql`${field('title')}`.as('title'),
@@ -175,7 +196,8 @@ const deleteMachineConversations = prepared((db, t) =>
   db
     .delete(t.conversations)
     .where(
-      and(
+      inWorkspace(
+        t.conversations,
         eq(t.conversations.machineId, param(t.conversations.machineId, 'machineId')),
         sql`${t.conversations.id} in (select value from json_each(${sql.placeholder('ids')}))`,
       ),
@@ -194,7 +216,8 @@ const curatedConversationsOf = preparedFamily((db, t, size: number) =>
     })
     .from(t.conversations)
     .where(
-      and(
+      inWorkspace(
+        t.conversations,
         inListOf(t.conversations.id, size),
         or(isNotNull(t.conversations.name), isNotNull(t.conversations.summary)),
       ),
@@ -206,7 +229,7 @@ const conversationPresent = prepared((db, t) =>
   db
     .select({ one: sql<number>`1` })
     .from(t.conversations)
-    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
+    .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id'))))
     .prepare(),
 )
 
@@ -214,7 +237,7 @@ const setConversationName = prepared((db, t) =>
   db
     .update(t.conversations)
     .set({ name: sql.placeholder('name') })
-    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
+    .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id'))))
     .prepare(),
 )
 
@@ -222,7 +245,7 @@ const setConversationSummary = prepared((db, t) =>
   db
     .update(t.conversations)
     .set({ summary: sql.placeholder('summary') })
-    .where(eq(t.conversations.id, param(t.conversations.id, 'id')))
+    .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id'))))
     .prepare(),
 )
 
@@ -280,12 +303,12 @@ const recentConversations = preparedFamily((db, _t, shape: RecentShape) => {
   return phase === 'dated'
     ? db.all<Record<string, unknown>>(
         sql`SELECT c.* FROM conversations c
-          WHERE (c.updated_at, c.id) < (${sql.placeholder('beforeUpdatedAt')}, ${sql.placeholder('beforeId')})${filter}${topLevel}
+          WHERE c.workspace_id = ${WORKSPACE} AND (c.updated_at, c.id) < (${sql.placeholder('beforeUpdatedAt')}, ${sql.placeholder('beforeId')})${filter}${topLevel}
           ORDER BY c.updated_at DESC, c.id DESC${limit}`,
       )
     : db.all<Record<string, unknown>>(
         sql`SELECT c.* FROM conversations c
-          WHERE c.updated_at IS NULL AND c.id < ${sql.placeholder('beforeId')}${filter}${topLevel}
+          WHERE c.workspace_id = ${WORKSPACE} AND c.updated_at IS NULL AND c.id < ${sql.placeholder('beforeId')}${filter}${topLevel}
           ORDER BY c.id DESC${limit}`,
       )
 })
@@ -305,12 +328,12 @@ const searchConversations = preparedFamily((db, _t, shape: SearchShape) => {
   if (match === 'fts') {
     return db.all<Record<string, unknown>>(
       sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
-        WHERE conversations_fts MATCH ${sql.placeholder('fts')}${filter}${topLevel}${order}`,
+        WHERE c.workspace_id = ${WORKSPACE} AND conversations_fts MATCH ${sql.placeholder('fts')}${filter}${topLevel}${order}`,
     )
   }
   const like = sql.placeholder('like')
   return db.all<Record<string, unknown>>(
-    sql`SELECT c.* FROM conversations c WHERE
+    sql`SELECT c.* FROM conversations c WHERE c.workspace_id = ${WORKSPACE} AND
         (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
         ${filter}${topLevel}${order}`,
   )
@@ -319,20 +342,20 @@ const searchConversations = preparedFamily((db, _t, shape: SearchShape) => {
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async recordEntries(

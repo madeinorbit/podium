@@ -377,8 +377,6 @@ export const TABLE_MANIFEST = {
     idgen: 'natural',
     reason:
       'segment of each FTS row; carries workspace_id so a search joins it with the workspace predicate',
-    workspaceColumnPending:
-      'POD-7022 adds workspace_id to its runtime DDL (store/conversations/transcript-index.ts)',
   },
 
   // ---- engine bookkeeping ----
