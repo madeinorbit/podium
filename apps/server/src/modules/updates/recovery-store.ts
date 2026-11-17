@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+
 import { UpdateChannel } from '@podium/model'
 import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { eq, sql } from 'drizzle-orm'
@@ -6,6 +7,7 @@ import { z } from 'zod'
 import type { StoreDb, TransactionRunner } from '../../store/executor/sync-drizzle'
 import { preparedGlobal } from '../../store/executor/sync-drizzle'
 import { MachineRecordWrites } from '../../store/machine-record-writes'
+import { captureWrite } from '../../sync/capture-pg'
 
 export const MachineFailureReason = z.object({
   code: z.string().optional(),
@@ -84,11 +86,12 @@ const checkpoint = preparedGlobal((db, t) =>
   db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, CHECKPOINT_KEY)).prepare(),
 )
 const saveCheckpoint = preparedGlobal((db, t) =>
-  db
-    .insert(t.meta)
-    .values({ key: CHECKPOINT_KEY, value: sql.placeholder('value') })
-    .onConflictDoUpdate({ target: t.meta.key, set: { value: sql.placeholder('value') } })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: CHECKPOINT_KEY, value: sql.placeholder('value') })
+      .onConflictDoUpdate({ target: t.meta.key, set: { value: sql.placeholder('value') } }),
+  ).prepare(),
 )
 
 /**

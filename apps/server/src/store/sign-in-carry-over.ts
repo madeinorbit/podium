@@ -1,5 +1,6 @@
 // LEGACY(remove-after: 2027-06): every statement of the sign-in carry-over on `client_sessions` and `carried_sign_ins`; removing it signs out whoever still holds only a cookie from before shared sign-in.
 // workspace-scoped (POD-6959)
+
 /**
  * THE STATEMENTS OF THE SIGN-IN CARRY-OVER (POD-6751;
  * docs/design/sign-in-carry-over.md, sections 4, 5 and 7).
@@ -13,6 +14,7 @@
  */
 import type { UserId } from '@podium/model'
 import { eq, gt, inArray, lte, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import {
   inWorkspace,
   param,
@@ -224,15 +226,16 @@ const periodEnd = prepared((db, t) =>
 
 /** Written once: a later start never moves the end of the period. */
 const insertPeriodEnd = prepared((db, t) =>
-  db
-    .insert(t.workspaceMeta)
-    .values({
-      workspaceId: WORKSPACE,
-      key: CARRY_OVER_ENDS_AT_KEY,
-      value: sql.placeholder('value'),
-    })
-    .onConflictDoNothing({ target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key] })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.workspaceMeta)
+      .values({
+        workspaceId: WORKSPACE,
+        key: CARRY_OVER_ENDS_AT_KEY,
+        value: sql.placeholder('value'),
+      })
+      .onConflictDoNothing({ target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key] }),
+  ).prepare(),
 )
 
 /** What the consuming statement hands back: enough to describe the new device, never a token. */

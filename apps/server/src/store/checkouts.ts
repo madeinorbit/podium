@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 /**
  * THE CHECKOUTS ON EACH MACHINE AT REST (POD-6644): the `checkouts` table, one
  * row per registered repository root and per worktree of one, keyed
@@ -235,13 +236,16 @@ const deleteLost = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
-/** At most 500 rows per write, with ten prepared shapes (1 through 512).
- *  Repeating the final row pads a shape without changing an upsert, an
- *  insert-on-conflict-do-nothing or a composite-key deletion. */
-function* reachBatches(rows: readonly object[], at: string) {
+/** At most 500 rows per write. A padded batch has ten prepared shapes (1 through
+ *  512): repeating the final row pads a shape without changing an
+ *  insert-on-conflict-do-nothing or a composite-key deletion, on either engine.
+ *  An upsert is never padded (`pad: false`): Postgres refuses an `ON CONFLICT DO
+ *  UPDATE` that reaches one row twice (ADR 13), so it carries exactly its rows,
+ *  one prepared shape per batch size. */
+function* reachBatches(rows: readonly object[], at: string, pad = true) {
   for (let start = 0; start < rows.length; start += 500) {
     const chunk = rows.slice(start, start + 500)
-    const size = inListSize(chunk.length)
+    const size = pad ? inListSize(chunk.length) : chunk.length
     const values: Record<string, unknown> = { at }
     for (let i = 0; i < size; i++) {
       const row = chunk[Math.min(i, chunk.length - 1)] as object
@@ -265,53 +269,56 @@ const checkoutPlaceholders = {
 }
 
 const upsertCheckout = prepared((db, t) =>
-  db
-    .insert(t.checkouts)
-    .values({ workspaceId: WORKSPACE, ...checkoutPlaceholders })
-    .onConflictDoUpdate({
-      target: [t.checkouts.machineId, t.checkouts.path],
-      set: {
-        root: sql.placeholder('root'),
-        kind: sql.placeholder('kind'),
-        repoId: sql.placeholder('repoId'),
-        branch: sql.placeholder('branch'),
-        originUrl: sql.placeholder('originUrl'),
-        locked: sql.placeholder('locked'),
-        prunable: sql.placeholder('prunable'),
-        updatedAt: sql.placeholder('updatedAt'),
-        // A path registered again is live again.
-        removedAt: null,
-      },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.checkouts)
+      .values({ workspaceId: WORKSPACE, ...checkoutPlaceholders })
+      .onConflictDoUpdate({
+        target: [t.checkouts.machineId, t.checkouts.path],
+        set: {
+          root: sql.placeholder('root'),
+          kind: sql.placeholder('kind'),
+          repoId: sql.placeholder('repoId'),
+          branch: sql.placeholder('branch'),
+          originUrl: sql.placeholder('originUrl'),
+          locked: sql.placeholder('locked'),
+          prunable: sql.placeholder('prunable'),
+          updatedAt: sql.placeholder('updatedAt'),
+          // A path registered again is live again.
+          removedAt: null,
+        },
+      }),
+  ).prepare(),
 )
 
 /** A removed root keeps its row as a tombstone (see `checkouts.removedAt`). */
 const tombstoneRoot = prepared((db, t) =>
-  db
-    .update(t.checkouts)
-    .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
-    .where(
-      inWorkspace(
-        t.checkouts,
-        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
-        eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+  captureWrite(
+    db
+      .update(t.checkouts)
+      .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
+      .where(
+        inWorkspace(
+          t.checkouts,
+          eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+          eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteCheckout = prepared((db, t) =>
-  db
-    .delete(t.checkouts)
-    .where(
-      inWorkspace(
-        t.checkouts,
-        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
-        eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+  captureWrite(
+    db
+      .delete(t.checkouts)
+      .where(
+        inWorkspace(
+          t.checkouts,
+          eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+          eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 /** A stored row as the feed's record. */
@@ -451,7 +458,7 @@ export class CheckoutsRepository {
         if (row.reach === 'none') removes.push(row)
         else upserts.push(row)
       }
-      for (const { size, values } of reachBatches(upserts, at))
+      for (const { size, values } of reachBatches(upserts, at, false))
         await upsertReach(this.db, size).run(values)
       for (const { size, values } of reachBatches(removes, at))
         await deleteReach(this.db, size).run(values)

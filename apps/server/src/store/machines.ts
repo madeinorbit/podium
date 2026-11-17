@@ -1,6 +1,8 @@
 // workspace-scoped (POD-6959)
+
 import type { MachineCredentialRotation } from '@podium/protocol'
 import { z } from 'zod'
+import { captureWrite } from '../sync/capture-pg'
 import { CommittedRows } from './committed-rows'
 /**
  * Machines aggregate — owns the `machines` table (registered daemons and
@@ -315,37 +317,38 @@ const legacySentinelScan = prepared((db) => {
 })
 
 const upsertEnrolledMachine = prepared((db, t) =>
-  db
-    .insert(t.machines)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      name: sql.placeholder('name'),
-      hostname: sql.placeholder('hostname'),
-      tokenHash: sql.placeholder('tokenHash'),
-      createdAt: sql.placeholder('now'),
-      lastSeenAt: sql.placeholder('now'),
-      podiumManaged: sql.placeholder('podiumManaged'),
-      serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
-      assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
-    })
-    .onConflictDoUpdate({
-      target: t.machines.id,
-      setWhere: and(
-        isNull(t.machines.revokedAt),
-        eq(t.machines.credentialKind, 'bearer-hash'),
-        isNull(t.machines.publicKey),
-      ),
-      set: {
+  captureWrite(
+    db
+      .insert(t.machines)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
         name: sql.placeholder('name'),
         hostname: sql.placeholder('hostname'),
         tokenHash: sql.placeholder('tokenHash'),
+        createdAt: sql.placeholder('now'),
         lastSeenAt: sql.placeholder('now'),
         podiumManaged: sql.placeholder('podiumManaged'),
-      },
-    })
-    .returning()
-    .prepare(),
+        serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
+        assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
+      })
+      .onConflictDoUpdate({
+        target: t.machines.id,
+        setWhere: and(
+          isNull(t.machines.revokedAt),
+          eq(t.machines.credentialKind, 'bearer-hash'),
+          isNull(t.machines.publicKey),
+        ),
+        set: {
+          name: sql.placeholder('name'),
+          hostname: sql.placeholder('hostname'),
+          tokenHash: sql.placeholder('tokenHash'),
+          lastSeenAt: sql.placeholder('now'),
+          podiumManaged: sql.placeholder('podiumManaged'),
+        },
+      })
+      .returning(),
+  ).prepare(),
 )
 
 const machinesByCreation = prepared((db, t) =>
@@ -382,102 +385,210 @@ const machineRowById = prepared((db, t) =>
 )
 
 const setAvailabilityOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ availabilityJson: sql.placeholder('availabilityJson') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
+)
+
+/** A live machine's harness versions document, as stored. */
+const harnessVersionsOf = prepared((db, t) =>
   db
-    .update(t.machines)
-    .set({ availabilityJson: sql.placeholder('availabilityJson') })
+    .select({ harnessVersionsJson: t.machines.harnessVersionsJson })
+    .from(t.machines)
     .where(liveMachineById(t))
-    .returning()
     .prepare(),
 )
 
-const recordHarnessVersionOf = prepared((db, t) => {
-  const path = sql.placeholder('path')
-  const harness = sql.placeholder('harness')
-  const version = sql.placeholder('version')
-  const probedAt = sql.placeholder('probedAt')
-  const document = sql`coalesce(${t.machines.harnessVersionsJson}, '{}')`
-  const previousFirst = sql`json_extract(${document}, ${sql.placeholder('firstSeenPath')})`
-  const previousLast = sql`json_extract(${document}, ${sql.placeholder('lastSeenPath')})`
-  return db
-    .update(t.machines)
-    .set({
-      harnessVersionsJson: sql`json_set(${document}, ${path}, json_object(
-        'harness', ${harness},
-        'version', case when ${previousLast} > ${probedAt}
-          then json_extract(${document}, ${sql.placeholder('versionPath')}) else ${version} end,
-        'firstSeen', min(coalesce(${previousFirst}, ${probedAt}), ${probedAt}),
-        'lastSeen', max(coalesce(${previousLast}, ${probedAt}), ${probedAt})
-      ))`,
-    })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare()
-})
+const setHarnessVersionsOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ harnessVersionsJson: sql.placeholder('harnessVersionsJson') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
+)
+
+/** `text` without the whitespace outside its strings, as SQLite's JSON functions print it. */
+function minifiedJson(text: string): string {
+  let out = ''
+  let inString = false
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charAt(i)
+    if (inString) {
+      out += c
+      if (c === '\\') out += text.charAt(++i)
+      else if (c === '"') inString = false
+    } else if (c === '"') {
+      inString = true
+      out += c
+    } else if (c !== ' ' && c !== '\n' && c !== '\r' && c !== '\t') out += c
+  }
+  return out
+}
+
+/** A minified JSON object's members, each as its key's text and its value's text, in order. */
+function objectMembers(object: string): { key: string; value: string }[] {
+  const members: { key: string; value: string }[] = []
+  let depth = 0
+  let inString = false
+  let start = 1
+  for (let i = 1; i < object.length - 1; i += 1) {
+    const c = object.charAt(i)
+    if (inString) {
+      if (c === '\\') i += 1
+      else if (c === '"') inString = false
+    } else if (c === '"') inString = true
+    else if (c === '{' || c === '[') depth += 1
+    else if (c === '}' || c === ']') depth -= 1
+    if (!inString && depth === 0 && (c === ',' || i === object.length - 2)) {
+      const member = object.slice(start, c === ',' ? i : i + 1)
+      // The key is a string, so its closing quote is the first one not escaped.
+      let end = 1
+      while (member.charAt(end) !== '"') end += member.charAt(end) === '\\' ? 2 : 1
+      members.push({ key: member.slice(0, end + 1), value: member.slice(end + 2) })
+      start = i + 1
+    }
+  }
+  return members
+}
+
+/** A JSON field as SQLite's `json_extract` hands it to SQL: absence and null are null. */
+function extracted(value: unknown): string | number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (typeof value === 'number' || typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+/** SQLite's order over the values {@link extracted} yields: numbers before text. */
+function sqliteLess(a: string | number, b: string | number): boolean {
+  if (typeof a === typeof b) return a < b
+  return typeof a === 'number'
+}
+
+/**
+ * THE HARNESS VERSIONS DOCUMENT WITH ONE REPORT SET (POD-6958 design 2.3 rule 6).
+ *
+ * Exactly what SQLite's `json_set(coalesce(doc, '{}'), '$."<harness>"', json_object(
+ * 'harness', …, 'version', …, 'firstSeen', …, 'lastSeen', …))` wrote when this edit
+ * ran in SQL: the document minified; the harness's member replaced IN PLACE when the
+ * document has one (the first, if a key repeats) and appended otherwise, so the order
+ * of the others, which the machine record's `harnessVersions` array follows
+ * (`machineRecordFromRow`), never moves; every other member's text kept as it was;
+ * and a document that is not an object left as it is. A report older than the stored
+ * `lastSeen` keeps the stored version; `firstSeen` and `lastSeen` only widen.
+ *
+ * In TypeScript rather than SQL because Postgres has no `json_set` for the `json` type,
+ * and `jsonb_set` reorders and respaces the whole document, which the sync payload
+ * would show. Malformed stored text throws, as `json_set` refused it.
+ */
+export function withHarnessVersion(
+  stored: string | null,
+  report: { readonly harness: string; readonly version: string; readonly probedAt: string },
+): string {
+  const text = stored ?? '{}'
+  JSON.parse(text)
+  const document = minifiedJson(text)
+  if (!document.startsWith('{')) return document
+  const members = objectMembers(document)
+  const at = members.findIndex(({ key }) => JSON.parse(key) === report.harness)
+  const found = members[at]
+  const previous: unknown = found === undefined ? undefined : JSON.parse(found.value)
+  const field = (name: string) =>
+    extracted(
+      previous !== null && typeof previous === 'object' && !Array.isArray(previous)
+        ? (previous as Record<string, unknown>)[name]
+        : undefined,
+    )
+  const { probedAt } = report
+  const lastSeen = field('lastSeen')
+  const firstSeen = field('firstSeen') ?? probedAt
+  const value = JSON.stringify({
+    harness: report.harness,
+    version:
+      lastSeen !== null && sqliteLess(probedAt, lastSeen) ? field('version') : report.version,
+    firstSeen: sqliteLess(probedAt, firstSeen) ? probedAt : firstSeen,
+    lastSeen: lastSeen !== null && sqliteLess(probedAt, lastSeen) ? lastSeen : probedAt,
+  })
+  if (found === undefined) members.push({ key: JSON.stringify(report.harness), value })
+  else members[at] = { key: found.key, value }
+  return `{${members.map(({ key, value }) => `${key}:${value}`).join(',')}}`
+}
 
 const setInventoryOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({ inventoryJson: sql.placeholder('inventoryJson') })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ inventoryJson: sql.placeholder('inventoryJson') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const setBuildOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      appVersion: sql.placeholder('appVersion'),
-      wireSchemaDigest: sql.placeholder('wireSchemaDigest'),
-      installKind: sql.placeholder('installKind'),
-      deliveryCapsJson: sql.placeholder('deliveryCapsJson'),
-      // COALESCE, not a plain write: a report without a source must LEAVE the
-      // recorded presence alone rather than clearing it.
-      presenceSource: sql`COALESCE(${sql.placeholder('source')}, ${t.machines.presenceSource})`,
-      buildReportedAt: sql.placeholder('at'),
-    })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        appVersion: sql.placeholder('appVersion'),
+        wireSchemaDigest: sql.placeholder('wireSchemaDigest'),
+        installKind: sql.placeholder('installKind'),
+        deliveryCapsJson: sql.placeholder('deliveryCapsJson'),
+        // COALESCE, not a plain write: a report without a source must LEAVE the
+        // recorded presence alone rather than clearing it.
+        presenceSource: sql`COALESCE(${sql.placeholder('source')}, ${t.machines.presenceSource})`,
+        buildReportedAt: sql.placeholder('at'),
+      })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const setSupervisorPresenceOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      appVersion: sql.placeholder('appVersion'),
-      wireSchemaDigest: sql.placeholder('wireSchemaDigest'),
-      installKind: sql.placeholder('installKind'),
-      deliveryCapsJson: sql.placeholder('deliveryCapsJson'),
-      presenceSource: 'supervisor',
-      serviceReportJson: sql.placeholder('serviceReportJson'),
-      buildReportedAt: sql.placeholder('at'),
-      lastSeenAt: sql.placeholder('at'),
-    })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        appVersion: sql.placeholder('appVersion'),
+        wireSchemaDigest: sql.placeholder('wireSchemaDigest'),
+        installKind: sql.placeholder('installKind'),
+        deliveryCapsJson: sql.placeholder('deliveryCapsJson'),
+        presenceSource: 'supervisor',
+        serviceReportJson: sql.placeholder('serviceReportJson'),
+        buildReportedAt: sql.placeholder('at'),
+        lastSeenAt: sql.placeholder('at'),
+      })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const setServiceAssignmentOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
-      assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
-    })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
+        assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
+      })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const setPresenceSourceOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({ presenceSource: sql.placeholder('presenceSource') })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ presenceSource: sql.placeholder('presenceSource') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const tokenFactsOf = prepared((db, t) =>
@@ -495,67 +606,71 @@ const tokenFactsOf = prepared((db, t) =>
 
 /** The rotation CAS names the previous public key, or its absence: two shapes. */
 const rotateCredentialOf = preparedFamily((db, t, previousKey: 'null' | 'key') =>
-  db
-    .update(t.machines)
-    .set({ credentialKind: 'ed25519', tokenHash: '', publicKey: sql.placeholder('newPublicKey') })
-    .where(
-      inWorkspace(
-        t.machines,
-        eq(t.machines.id, param(t.machines.id, 'id')),
-        isNull(t.machines.revokedAt),
-        isNull(t.machines.supersededBy),
-        eq(t.machines.credentialKind, param(t.machines.credentialKind, 'credentialKind')),
-        eq(t.machines.tokenHash, param(t.machines.tokenHash, 'tokenHash')),
-        previousKey === 'null'
-          ? isNull(t.machines.publicKey)
-          : eq(t.machines.publicKey, param(t.machines.publicKey, 'publicKey')),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ credentialKind: 'ed25519', tokenHash: '', publicKey: sql.placeholder('newPublicKey') })
+      .where(
+        inWorkspace(
+          t.machines,
+          eq(t.machines.id, param(t.machines.id, 'id')),
+          isNull(t.machines.revokedAt),
+          isNull(t.machines.supersededBy),
+          eq(t.machines.credentialKind, param(t.machines.credentialKind, 'credentialKind')),
+          eq(t.machines.tokenHash, param(t.machines.tokenHash, 'tokenHash')),
+          previousKey === 'null'
+            ? isNull(t.machines.publicKey)
+            : eq(t.machines.publicKey, param(t.machines.publicKey, 'publicKey')),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const adoptHostCredentialOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      credentialKind: 'ed25519',
-      tokenHash: '',
-      publicKey: sql.placeholder('publicKey'),
-      serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
-      assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
-    })
-    .where(
-      inWorkspace(
-        t.machines,
-        eq(t.machines.id, param(t.machines.id, 'id')),
-        isNull(t.machines.revokedAt),
-        isNull(t.machines.supersededBy),
-        eq(t.machines.credentialKind, 'bearer-hash'),
-        eq(t.machines.tokenHash, param(t.machines.tokenHash, 'tokenHash')),
-        isNull(t.machines.publicKey),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        credentialKind: 'ed25519',
+        tokenHash: '',
+        publicKey: sql.placeholder('publicKey'),
+        serviceAssignmentJson: sql.placeholder('serviceAssignmentJson'),
+        assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
+      })
+      .where(
+        inWorkspace(
+          t.machines,
+          eq(t.machines.id, param(t.machines.id, 'id')),
+          isNull(t.machines.revokedAt),
+          isNull(t.machines.supersededBy),
+          eq(t.machines.credentialKind, 'bearer-hash'),
+          eq(t.machines.tokenHash, param(t.machines.tokenHash, 'tokenHash')),
+          isNull(t.machines.publicKey),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const setUpdateChannelOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({ updateChannelOverride: sql.placeholder('channel') })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ updateChannelOverride: sql.placeholder('channel') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const renameMachineOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({ name: sql.placeholder('name') })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ name: sql.placeholder('name') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 const custodianOf = prepared((db, t) =>
@@ -604,89 +719,95 @@ const enrollmentPlaceholders = {
 }
 
 const insertEnrollment = prepared((db, t) =>
-  db
-    .insert(t.machines)
-    .values({
-      workspaceId: WORKSPACE,
-      ...enrollmentPlaceholders,
-      createdAt: sql.placeholder('now'),
-      lastSeenAt: sql.placeholder('now'),
-    })
-    .onConflictDoNothing()
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.machines)
+      .values({
+        workspaceId: WORKSPACE,
+        ...enrollmentPlaceholders,
+        createdAt: sql.placeholder('now'),
+        lastSeenAt: sql.placeholder('now'),
+      })
+      .onConflictDoNothing()
+      .returning(),
+  ).prepare(),
 )
 
 const replaceRevokedEnrollment = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      ...enrollmentPlaceholders,
-      revokedAt: null,
-      availabilityJson: null,
-      lastSeenAt: sql.placeholder('now'),
-      inventoryJson: null,
-      harnessVersionsJson: null,
-      serviceReportJson: null,
-      appVersion: null,
-      wireSchemaDigest: null,
-      deliveryCapsJson: null,
-      presenceSource: null,
-      buildReportedAt: null,
-    })
-    .where(
-      inWorkspace(
-        t.machines,
-        eq(t.machines.id, param(t.machines.id, 'id')),
-        eq(t.machines.revokedAt, param(t.machines.revokedAt, 'replaceRevokedAt')),
-        isNull(t.machines.supersededBy),
-        sql`CASE WHEN ${t.machines.credentialKind} = 'ed25519' THEN ${t.machines.publicKey} ELSE ${t.machines.tokenHash} END = ${sql.placeholder('replaceIncarnation')}`,
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        ...enrollmentPlaceholders,
+        revokedAt: null,
+        availabilityJson: null,
+        lastSeenAt: sql.placeholder('now'),
+        inventoryJson: null,
+        harnessVersionsJson: null,
+        serviceReportJson: null,
+        appVersion: null,
+        wireSchemaDigest: null,
+        deliveryCapsJson: null,
+        presenceSource: null,
+        buildReportedAt: null,
+      })
+      .where(
+        inWorkspace(
+          t.machines,
+          eq(t.machines.id, param(t.machines.id, 'id')),
+          eq(t.machines.revokedAt, param(t.machines.revokedAt, 'replaceRevokedAt')),
+          isNull(t.machines.supersededBy),
+          sql`CASE WHEN ${t.machines.credentialKind} = 'ed25519' THEN ${t.machines.publicKey} ELSE ${t.machines.tokenHash} END = ${sql.placeholder('replaceIncarnation')}`,
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const supersedeMachineOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      supersededBy: sql.placeholder('replacementId'),
-      revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
-      availabilityJson: null,
-    })
-    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        supersededBy: sql.placeholder('replacementId'),
+        revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
+        availabilityJson: null,
+      })
+      .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
+      .returning(),
+  ).prepare(),
 )
 
 const revokeMachineOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({
-      revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
-      availabilityJson: null,
-    })
-    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({
+        revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
+        availabilityJson: null,
+      })
+      .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
+      .returning(),
+  ).prepare(),
 )
 
 const deleteMachineOf = prepared((db, t) =>
-  db
-    .delete(t.machines)
-    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.machines)
+      .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
+      .returning(),
+  ).prepare(),
 )
 
 const touchMachineOf = prepared((db, t) =>
-  db
-    .update(t.machines)
-    .set({ lastSeenAt: sql.placeholder('now'), hostname: sql.placeholder('hostname') })
-    .where(liveMachineById(t))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.machines)
+      .set({ lastSeenAt: sql.placeholder('now'), hostname: sql.placeholder('hostname') })
+      .where(liveMachineById(t))
+      .returning(),
+  ).prepare(),
 )
 
 export class MachinesRepository {
@@ -877,21 +998,21 @@ export class MachinesRepository {
     },
   ): Promise<void> {
     await this.machineRecordWrites.compare(async () => {
-      const path = `$."${report.harness}"`
-      await this.committed.write(
-        async () =>
-          await recordHarnessVersionOf(this.db).all({
-            id,
-            path,
-            firstSeenPath: `${path}.firstSeen`,
-            lastSeenPath: `${path}.lastSeen`,
-            versionPath: `${path}.version`,
-            harness: report.harness,
-            version: report.version,
-            probedAt: report.probedAt,
-          }),
-        'upsert',
-      )
+      // Read, set and write in one write transaction: the write lock keeps every
+      // other writer of the document out between the read and the write.
+      await this.createOrJoinTransaction(async () => {
+        const row = await harnessVersionsOf(this.db).get({ id })
+        await this.committed.write(
+          async () =>
+            row === undefined
+              ? []
+              : await setHarnessVersionsOf(this.db).all({
+                  id,
+                  harnessVersionsJson: withHarnessVersion(row.harnessVersionsJson, report),
+                }),
+          'upsert',
+        )
+      })
     })
   }
 

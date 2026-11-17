@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 import { CommittedRows } from './committed-rows'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
@@ -8,11 +9,18 @@ import { SignInCarryOverRepository } from './sign-in-carry-over'
 import type { MemberRows, MemberWrite } from '@podium/identity'
 import type { UserId, UserRole } from '@podium/model'
 import { asUserId, LoginEmail, USER_ROLES } from '@podium/model'
-import { asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { asc, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm'
 import type { users } from '../migrations/schema'
+import { dialectOf } from './executor/dialect-prepared'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -102,11 +110,20 @@ const activeAdminIdRows = prepared((db, t) =>
 /** The one key of the earliest-admin loader: the instance has one earliest admin. */
 const EARLIEST_ADMIN = 'earliest-admin'
 
+/**
+ * A member's email folded as `users_email_unique` folds it, for a lookup by an
+ * already folded address. On Postgres the folded text is compared in byte order,
+ * as SQLite compares it (`COLLATE "C"`, POD-6958 design 2.3 rule 13); `lower()` of
+ * a C-collated value folds ASCII only there, exactly as SQLite's `lower()` does.
+ */
+const foldedEmail = (db: StoreDrizzle, t: StoreTables): SQL =>
+  dialectOf(db) === 'pg' ? sql`lower(${t.users.email}) COLLATE "C"` : sql`lower(${t.users.email})`
+
 const userIdByEmail = prepared((db, t) =>
   db
     .select({ id: t.users.id })
     .from(t.users)
-    .where(inWorkspace(t.users, eq(sql`lower(${t.users.email})`, sql.placeholder('email'))))
+    .where(inWorkspace(t.users, eq(foldedEmail(db, t), sql.placeholder('email'))))
     .prepare(),
 )
 
@@ -204,40 +221,42 @@ const custodyMachinesOf = prepared((db, t) =>
 
 /** A member row made by a membership that became active. */
 const insertMemberRow = prepared((db, t) =>
-  db
-    .insert(t.users)
-    .values({
-      workspaceId: WORKSPACE,
-      id: sql.placeholder('id'),
-      displayName: sql.placeholder('displayName'),
-      email: sql.placeholder('email'),
-      cloudAccountId: sql.placeholder('accountId'),
-      avatar: sql.placeholder('avatar'),
-      role: sql.placeholder('role'),
-      createdAt: sql.placeholder('createdAt'),
-      disabledAt: null,
-      membershipVersion: sql.placeholder('membershipVersion'),
-    })
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.users)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        displayName: sql.placeholder('displayName'),
+        email: sql.placeholder('email'),
+        cloudAccountId: sql.placeholder('accountId'),
+        avatar: sql.placeholder('avatar'),
+        role: sql.placeholder('role'),
+        createdAt: sql.placeholder('createdAt'),
+        disabledAt: null,
+        membershipVersion: sql.placeholder('membershipVersion'),
+      })
+      .returning(),
+  ).prepare(),
 )
 
 /** Every identity fact of one member row, with the membership version applied. */
 const writeMemberFacts = prepared((db, t) =>
-  db
-    .update(t.users)
-    .set({
-      role: sql.placeholder('role'),
-      disabledAt: sql.placeholder('disabledAt'),
-      displayName: sql.placeholder('displayName'),
-      avatar: sql.placeholder('avatar'),
-      email: sql.placeholder('email'),
-      cloudAccountId: sql.placeholder('accountId'),
-      membershipVersion: sql.placeholder('membershipVersion'),
-    })
-    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.users)
+      .set({
+        role: sql.placeholder('role'),
+        disabledAt: sql.placeholder('disabledAt'),
+        displayName: sql.placeholder('displayName'),
+        avatar: sql.placeholder('avatar'),
+        email: sql.placeholder('email'),
+        cloudAccountId: sql.placeholder('accountId'),
+        membershipVersion: sql.placeholder('membershipVersion'),
+      })
+      .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
+      .returning(),
+  ).prepare(),
 )
 
 /** The member row that holds an address, in any state. */
@@ -245,7 +264,7 @@ const memberHoldingEmail = prepared((db, t) =>
   db
     .select({ id: t.users.id, disabledAt: t.users.disabledAt })
     .from(t.users)
-    .where(inWorkspace(t.users, eq(sql`lower(${t.users.email})`, sql.placeholder('email'))))
+    .where(inWorkspace(t.users, eq(foldedEmail(db, t), sql.placeholder('email'))))
     .prepare(),
 )
 

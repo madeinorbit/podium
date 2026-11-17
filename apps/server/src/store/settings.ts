@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 /**
  * Settings/meta aggregate — owns the workspace's key/value rows (`workspace_meta`):
  * the settings blob, the live model-catalog SWR cache, the membership cursor and
@@ -101,18 +102,19 @@ const workspaceValue = prepared((db, t) =>
 )
 
 const upsertWorkspaceValue = prepared((db, t) =>
-  db
-    .insert(t.workspaceMeta)
-    .values({
-      workspaceId: WORKSPACE,
-      key: sql.placeholder('key'),
-      value: sql.placeholder('value'),
-    })
-    .onConflictDoUpdate({
-      target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key],
-      set: { value: sql.placeholder('value') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.workspaceMeta)
+      .values({
+        workspaceId: WORKSPACE,
+        key: sql.placeholder('key'),
+        value: sql.placeholder('value'),
+      })
+      .onConflictDoUpdate({
+        target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key],
+        set: { value: sql.placeholder('value') },
+      }),
+  ).prepare(),
 )
 
 /** The install's identity links receipt (`meta`), read by the migrator too. */
@@ -125,11 +127,12 @@ const legacyLinksReceipt = preparedGlobal((db, t) =>
 )
 
 const recordLegacyLinksReceipt = preparedGlobal((db, t) =>
-  db
-    .insert(t.meta)
-    .values({ key: LEGACY_LINKS_IMPORTED_KEY, value: '1' })
-    .onConflictDoUpdate({ target: t.meta.key, set: { value: '1' } })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: LEGACY_LINKS_IMPORTED_KEY, value: '1' })
+      .onConflictDoUpdate({ target: t.meta.key, set: { value: '1' } }),
+  ).prepare(),
 )
 
 /**

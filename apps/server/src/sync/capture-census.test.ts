@@ -91,17 +91,6 @@ function sqlOf(built: unknown, depth = 0): string[] {
 const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly writes: number }> =
   new Map([
     ['apps/server/src/store/shipping.ts', { task: 'POD-6986', writes: 12 }],
-    ['apps/server/src/store/agent-profiles.ts', { task: 'POD-6987', writes: 3 }],
-    ['apps/server/src/store/checkouts.ts', { task: 'POD-6987', writes: 3 }],
-    ['apps/server/src/store/grants.ts', { task: 'POD-6987', writes: 4 }],
-    ['apps/server/src/store/machine-record-context.ts', { task: 'POD-6987', writes: 1 }],
-    ['apps/server/src/store/machines.ts', { task: 'POD-6987', writes: 15 }],
-    ['apps/server/src/store/repos.ts', { task: 'POD-6987', writes: 7 }],
-    ['apps/server/src/store/settings.ts', { task: 'POD-6987', writes: 2 }],
-    ['apps/server/src/store/sign-in-carry-over.ts', { task: 'POD-6987', writes: 1 }],
-    ['apps/server/src/store/users.ts', { task: 'POD-6987', writes: 2 }],
-    // The fleet update checkpoint, an install key of `meta` beside the update-channel context.
-    ['apps/server/src/modules/updates/recovery-store.ts', { task: 'POD-6987', writes: 1 }],
     ['apps/server/src/store/conversations/index.ts', { task: 'POD-6990', writes: 4 }],
     ['apps/server/src/store/conversations/registry.ts', { task: 'POD-6990', writes: 3 }],
   ])

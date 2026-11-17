@@ -137,7 +137,6 @@ function taskOfFile(file: string): string | undefined {
  * {@link taskOfFile}. Only shrinks: a binding task removes its entries as it adds forms.
  */
 const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
-  ['apps/server/src/store/agent-profiles.ts:profileByName', 'SQLite-only COLLATE NOCASE'],
   ['apps/server/src/store/conversations/index.ts:createFtsDeleteTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsInsertTrigger', 'SQLite-only rowid'],
   ['apps/server/src/store/conversations/index.ts:createFtsUpdateTrigger', 'SQLite-only rowid'],
@@ -187,20 +186,10 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
     'SQLite-only MATCH, SQLite-only rowid',
   ],
   ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
-  [
-    'apps/server/src/store/machines.ts:recordHarnessVersionOf',
-    'SQLite-only json_extract(), SQLite-only json_set(), SQLite-only two-argument MAX/MIN',
-  ],
-  ['apps/server/src/store/repos.ts:registryRows', 'SQLite-only rowid'],
   ['apps/server/src/store/shipping.ts:activeOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', 'SQLite-only json_each()'],
   ['apps/server/src/store/shipping.ts:resumableOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains', 'SQLite-only INDEXED BY'],
-  [
-    'apps/server/src/store/users.ts:memberHoldingEmail',
-    'computed text (lower()) without COLLATE "C"',
-  ],
-  ['apps/server/src/store/users.ts:userIdByEmail', 'computed text (lower()) without COLLATE "C"'],
 ])
 
 // ---------------------------------------------------------------------------
@@ -343,6 +332,7 @@ const SQLITE_ONLY: readonly {
   { finding: 'GLOB', at: (t, i) => upper(t[i]) === 'GLOB' },
   { finding: 'MATCH', at: (t, i) => upper(t[i]) === 'MATCH' },
   { finding: 'INSERT OR', at: (t, i) => upper(t[i]) === 'INSERT' && upper(t[i + 1]) === 'OR' },
+  { finding: 'UPDATE OR', at: (t, i) => upper(t[i]) === 'UPDATE' && upper(t[i + 1]) === 'OR' },
   {
     finding: 'REPLACE INTO',
     at: (t, i) => upper(t[i]) === 'REPLACE' && upper(t[i + 1]) === 'INTO',

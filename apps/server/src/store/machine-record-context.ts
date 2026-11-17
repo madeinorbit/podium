@@ -1,7 +1,9 @@
 // workspace-scoped (POD-6959)
+
 import { DEFAULT_FLEET_UPDATE_CHANNEL, UpdateChannel } from '@podium/model'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { captureWrite } from '../sync/capture-pg'
 import type { StoreDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { preparedGlobal } from './executor/sync-drizzle'
 import { MachineRecordWrites } from './machine-record-writes'
@@ -21,16 +23,17 @@ const contextRows = preparedGlobal((db, t) =>
     .prepare(),
 )
 const setChannel = preparedGlobal((db, t) =>
-  db
-    .insert(t.meta)
-    .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
-    .onConflictDoUpdate({
-      target: t.meta.key,
-      set: { value: sql`excluded.value` },
-      setWhere: sql`${t.meta.value} <> excluded.value`,
-    })
-    .returning({ key: t.meta.key })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
+      .onConflictDoUpdate({
+        target: t.meta.key,
+        set: { value: sql`excluded.value` },
+        setWhere: sql`${t.meta.value} <> excluded.value`,
+      })
+      .returning({ key: t.meta.key }),
+  ).prepare(),
 )
 
 // Read only the update authority's existing durable inputs, without constructing

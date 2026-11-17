@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+
 /**
  * AGENT PROFILES — the `agent_profiles` table (POD-6107). Rows only: the rules
  * (who may write, name and candidate validation, refusing a delete in use) are
@@ -10,9 +11,11 @@ import {
   isIssueClosed,
   type MachineId,
 } from '@podium/model'
-import { eq, isNull, sql } from 'drizzle-orm'
+import { type Column, eq, isNull, type Param, type SQL, sql } from 'drizzle-orm'
 import type { agentProfiles } from '../migrations/schema'
-import type { WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
+import type { StoreDrizzle, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -35,6 +38,15 @@ const profileById = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * A profile's name folded for a case-blind lookup: `lower()` on both engines, which
+ * folds ASCII only, as SQLite's `COLLATE NOCASE` did, so the same names collide on
+ * both. On Postgres the folded text is compared in byte order (`COLLATE "C"`,
+ * POD-6958 design 2.3 rule 13).
+ */
+const folded = (db: StoreDrizzle, text: Column | Param): SQL =>
+  dialectOf(db) === 'pg' ? sql`lower(${text}) COLLATE "C"` : sql`lower(${text})`
+
 const profileByName = prepared((db, t) =>
   db
     .select()
@@ -42,16 +54,15 @@ const profileByName = prepared((db, t) =>
     .where(
       inWorkspace(
         t.agentProfiles,
-        sql`${t.agentProfiles.name} = ${param(t.agentProfiles.name, 'name')} COLLATE NOCASE`,
+        eq(folded(db, t.agentProfiles.name), folded(db, param(t.agentProfiles.name, 'name'))),
       ),
     )
     .prepare(),
 )
 
 const insertProfile = prepared((db, t) =>
-  db
-    .insert(t.agentProfiles)
-    .values({
+  captureWrite(
+    db.insert(t.agentProfiles).values({
       workspaceId: WORKSPACE,
       id: P('id'),
       name: P('name'),
@@ -63,31 +74,33 @@ const insertProfile = prepared((db, t) =>
       updatedBy: P('actor'),
       createdAt: P('now'),
       updatedAt: P('now'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const updateProfile = prepared((db, t) =>
-  db
-    .update(t.agentProfiles)
-    .set({
-      name: P('name'),
-      description: P('description'),
-      candidatesJson: P('candidatesJson'),
-      machineId: P('machineId'),
-      instructions: P('instructions'),
-      updatedBy: P('actor'),
-      updatedAt: P('now'),
-    })
-    .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.agentProfiles)
+      .set({
+        name: P('name'),
+        description: P('description'),
+        candidatesJson: P('candidatesJson'),
+        machineId: P('machineId'),
+        instructions: P('instructions'),
+        updatedBy: P('actor'),
+        updatedAt: P('now'),
+      })
+      .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))),
+  ).prepare(),
 )
 
 const deleteProfile = prepared((db, t) =>
-  db
-    .delete(t.agentProfiles)
-    .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.agentProfiles)
+      .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))),
+  ).prepare(),
 )
 
 const liveIssuesUsingProfile = prepared((db, t) =>

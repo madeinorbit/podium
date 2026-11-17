@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 import { CommittedRows } from './committed-rows'
 import { MachineRecordWrites } from './machine-record-writes'
 /**
@@ -171,36 +172,37 @@ const grantsOfResourceKeys = preparedFamily((db, t, shape: string) => {
 
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
 const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
-  db
-    .insert(t.grants)
-    .values({
-      workspaceId: WORKSPACE,
-      resourceKind: sql.placeholder('resourceKind'),
-      resourceId: sql.placeholder('resourceId'),
-      grantee: sql.placeholder('grantee'),
-      verb: sql.placeholder('verb'),
-      custody: sql.placeholder('custody'),
-      owner: sql.placeholder('owner'),
-      visibility: sql.placeholder('visibility'),
-      createdAt: sql.placeholder('createdAt'),
-      actorKind: sql.placeholder('actorKind'),
-      actorId: sql.placeholder('actorId'),
-      onBehalfOf: sql.placeholder('onBehalfOf'),
-    })
-    .onConflictDoUpdate({
-      target: [t.grants.resourceKind, t.grants.resourceId, t.grants.grantee, t.grants.verb],
-      set: {
-        custody: custody === 'set' ? sql.placeholder('custody') : t.grants.custody,
+  captureWrite(
+    db
+      .insert(t.grants)
+      .values({
+        workspaceId: WORKSPACE,
+        resourceKind: sql.placeholder('resourceKind'),
+        resourceId: sql.placeholder('resourceId'),
+        grantee: sql.placeholder('grantee'),
+        verb: sql.placeholder('verb'),
+        custody: sql.placeholder('custody'),
         owner: sql.placeholder('owner'),
         visibility: sql.placeholder('visibility'),
         createdAt: sql.placeholder('createdAt'),
         actorKind: sql.placeholder('actorKind'),
         actorId: sql.placeholder('actorId'),
         onBehalfOf: sql.placeholder('onBehalfOf'),
-      },
-    })
-    .returning()
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [t.grants.resourceKind, t.grants.resourceId, t.grants.grantee, t.grants.verb],
+        set: {
+          custody: custody === 'set' ? sql.placeholder('custody') : t.grants.custody,
+          owner: sql.placeholder('owner'),
+          visibility: sql.placeholder('visibility'),
+          createdAt: sql.placeholder('createdAt'),
+          actorKind: sql.placeholder('actorKind'),
+          actorId: sql.placeholder('actorId'),
+          onBehalfOf: sql.placeholder('onBehalfOf'),
+        },
+      })
+      .returning(),
+  ).prepare(),
 )
 
 const oneEdge = (t: StoreTables): SQL | undefined =>
@@ -216,14 +218,17 @@ const countEdge = prepared((db, t) =>
   db.select({ n: count() }).from(t.grants).where(oneEdge(t)).prepare(),
 )
 
-const deleteEdge = prepared((db, t) => db.delete(t.grants).where(oneEdge(t)).returning().prepare())
+const deleteEdge = prepared((db, t) =>
+  captureWrite(db.delete(t.grants).where(oneEdge(t)).returning()).prepare(),
+)
 
 const deleteGrantsOfGrantee = prepared((db, t) =>
-  db
-    .delete(t.grants)
-    .where(inWorkspace(t.grants, eq(t.grants.grantee, param(t.grants.grantee, 'grantee'))))
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(inWorkspace(t.grants, eq(t.grants.grantee, param(t.grants.grantee, 'grantee'))))
+      .returning(),
+  ).prepare(),
 )
 
 const machinesGrantedTo = prepared((db, t) =>
@@ -241,18 +246,19 @@ const machinesGrantedTo = prepared((db, t) =>
 )
 
 const deleteGrantsOfResource = preparedFamily((db, t, custody: 'retain' | 'all') =>
-  db
-    .delete(t.grants)
-    .where(
-      inWorkspace(
-        t.grants,
-        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
-        eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
-        ...(custody === 'retain' ? [eq(t.grants.custody, false)] : []),
-      ),
-    )
-    .returning()
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(
+        inWorkspace(
+          t.grants,
+          eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+          eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
+          ...(custody === 'retain' ? [eq(t.grants.custody, false)] : []),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** One loader key per `(kind, id)`; NUL cannot occur in either. */
