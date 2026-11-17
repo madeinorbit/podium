@@ -815,3 +815,78 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
     expect(await stores.b.shipping.shippedLeadersOfOpenTrains()).toEqual([seeded.b.covering.id])
   })
 })
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every key and ON CONFLICT target leads with
+ * workspace_id, so an order A creates with an id B already holds is A's own row in a lane
+ * both workspaces name alike, B's rows stay byte for byte as they were, and A's next writes
+ * of that id and that lane (the lane-revision upsert, a transition) change A's rows only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const SAME = asShipOrderId('same-order')
+    const sameIssue = (name: string) => asIssueId(`same-iss-${name}`)
+    for (const tag of ['a', 'b'] as const) {
+      for (const [name, seq] of [
+        ['one', 101],
+        ['two', 102],
+      ] as const) {
+        rawDb(stores[tag])
+          .prepare(
+            `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
+               machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
+             VALUES (?, ?, ?, ?, '/r-same', 'same-repo', 'same-machine', ?, ?, ?, 'review', 'codex', ?, ?)`,
+          )
+          .run(
+            WS[tag],
+            sameIssue(name),
+            firstAdminMemberId(),
+            firstAdminMemberId(),
+            `issue/same-${name}`,
+            seq,
+            `same issue ${name}`,
+            AT,
+            AT,
+          )
+      }
+    }
+    const sameOrder = (id: ShipOrder['id'], name: string) =>
+      shipOrder('a', 'one', {
+        id,
+        issueId: sameIssue(name),
+        repoId: asRepoId('same-repo'),
+        repoPath: '/r-same',
+        machineId: asMachineId('same-machine'),
+        approvedBaseSha: 'same-base',
+        approvedHeadSha: `same-${name}-head`,
+      })
+    const laneRows = (tag: Tag) =>
+      rawDb(stores[tag])
+        .prepare('SELECT * FROM ship_lane_revisions WHERE workspace_id = ? ORDER BY rowid')
+        .all(WS[tag]) as { lane_key: string; revision: number }[]
+    const ordersOf = (tag: Tag) =>
+      rawDb(stores[tag])
+        .prepare('SELECT * FROM ship_orders WHERE workspace_id = ? AND id = ?')
+        .all(WS[tag], SAME)
+
+    const lanesBefore = new Set(laneRows('b').map((row) => row.lane_key))
+    await stores.b.shipping.createOrder(scope, sameOrder(SAME, 'one'))
+    const lane = laneRows('b').find((row) => !lanesBefore.has(row.lane_key))?.lane_key
+    expect(lane).toBeDefined()
+    const before = rowsOf(stores.b, 'b')
+
+    await stores.a.shipping.createOrder(scope, sameOrder(SAME, 'one'))
+    expect(ordersOf('a')).toHaveLength(1)
+    expect(laneRows('a').find((row) => row.lane_key === lane)?.revision).toBe(1)
+    expect(rowsOf(stores.b, 'b')).toEqual(before)
+
+    // The lane-revision upsert hits A's row of the lane, and the transition A's order.
+    await stores.a.shipping.createOrder(scope, sameOrder(asShipOrderId('same-order-2'), 'two'))
+    await stores.a.shipping.transitionOrder(scope, SAME, 'queued', 'cancelled', AT)
+    expect(laneRows('a').find((row) => row.lane_key === lane)?.revision).toBe(2)
+    expect((await stores.a.shipping.getOrder(SAME))?.state).toBe('cancelled')
+    expect((await stores.b.shipping.getOrder(SAME))?.state).toBe('queued')
+    expect(laneRows('b').find((row) => row.lane_key === lane)?.revision).toBe(1)
+    expect(rowsOf(stores.b, 'b')).toEqual(before)
+  })
+})
