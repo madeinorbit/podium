@@ -1,48 +1,4 @@
 import { z } from 'zod'
-import { MachineId } from '../ids/brands'
-import { HarnessAgent } from './agent'
-
-/**
- * A machine's own (native) harness login, as the Accounts hub lists it; no
- * secret enters this record. The stored keys it once also listed (`managed`
- * rows) are credentials (`CredentialView`; credential management Task 21).
- */
-export const AccountView = z.object({
-  id: z.string(),
-  provider: z.string(),
-  source: z.literal('native'),
-  harness: HarnessAgent.optional(),
-  identity: z.string().optional(),
-  machines: z.array(z.string()).optional(),
-  identityFingerprint: z.string().optional(),
-  status: z.enum(['connected', 'not-configured', 'unknown']),
-  serverAi: z
-    .object({
-      machineId: MachineId.optional(),
-      machineName: z.string().optional(),
-      lastError: z.string().optional(),
-    })
-    .optional(),
-  loginRequired: z.boolean().optional(),
-  loginMachines: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
-  loginAttempt: z
-    .object({
-      sessionId: z.string(),
-      machineId: MachineId,
-      machineName: z.string(),
-      status: z.enum(['running', 'refreshing', 'succeeded', 'failed']),
-      error: z.string().optional(),
-    })
-    .optional(),
-  /** A native login with a known identity: the D11 box (POD-6301). True when
-   *  its owner chose to copy and use it on every machine in their custody, now
-   *  and in future; false when not (the default). Absent for other rows. */
-  useOnMyMachines: z.boolean().optional(),
-  /** The owner's machines where copying this login found a different login,
-   *  which Podium kept in place (POD-6301). */
-  keptOn: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
-})
-export type AccountView = z.infer<typeof AccountView>
 
 /**
  * THE SHARED-MACHINE WARNING (POD-6300; design §2.4, decision Q1).

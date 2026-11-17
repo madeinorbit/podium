@@ -196,9 +196,7 @@ describe('Agent role fields', () => {
 
 it('shows subagent model only when the harness accepts it', () => {
   const settings = normalizeSettings({ roles: { coding: { accountId: 'native:claude-code' } } })
-  const { rerender } = render(
-    <AgentsSection settings={settings} patch={vi.fn()} />,
-  )
+  const { rerender } = render(<AgentsSection settings={settings} patch={vi.fn()} />)
   expect(screen.getByText('Subagent model')).toBeTruthy()
   const section = screen.getByRole('heading', { name: 'New sessions' }).closest('section')
   if (!section) throw new Error('Missing new sessions section')

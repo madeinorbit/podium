@@ -51,7 +51,8 @@ export async function withNativeLoginViews(
     const enabled = ticked.has(key)
     if (!targets.length && !enabled) return view
     // A credential held only in a Podium-created home does not repair the machine's own login.
-    if (!observed && !enabled && view.homes.some((home) => home.homeId !== DEFAULT_HOME_ID)) return view
+    if (!observed && !enabled && view.homes.some((home) => home.homeId !== DEFAULT_HOME_ID))
+      return view
     const attempt = state.nativeLogin.attempt(viewer, harness)
     return {
       ...view,

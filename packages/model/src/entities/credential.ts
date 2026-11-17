@@ -49,7 +49,7 @@ export const CredentialShare = z.object({
 export type CredentialShare = z.infer<typeof CredentialShare>
 
 /** Owner-only observations and controls for a harness's own login directory. */
-export const CredentialNativeLogin = z.object({
+const CredentialNativeLogin = z.object({
   harness: HarnessAgent,
   machines: z.array(
     z.object({

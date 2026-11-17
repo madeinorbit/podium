@@ -7,8 +7,8 @@ const participation = ['joinedAt', 'joinedVia', 'assignedAt', 'assignedBy']
 const fields: Array<{ family: string; schema: string; paths: string[]; variants?: string[] }> = [
   {
     family: 'model',
-    schema: 'AccountView',
-    paths: ['useOnMyMachines', 'keptOn'],
+    schema: 'CredentialView',
+    paths: ['nativeLogin.useOnMyMachines', 'nativeLogin.keptOn'],
   },
   { family: 'model', schema: 'IssueAggregate', paths: ['legacyAssignee'] },
   {

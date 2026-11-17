@@ -118,7 +118,9 @@ describe('native controls on found-login credentials', () => {
   it('does not offer a default-home repair for a credential held only in an isolated home', async () => {
     const { state, machines } = fixture()
     machines.splice(0, machines.length, machine('empty', 'out'))
-    const row = view({ homes: [{ machineId: id('empty'), homeId: 'cred_isolated:codex', state: 'in' }] })
+    const row = view({
+      homes: [{ machineId: id('empty'), homeId: 'cred_isolated:codex', state: 'in' }],
+    })
     expect((await withNativeLoginViews([row], state, OWNER))[0]).not.toHaveProperty('nativeLogin')
   })
   it('allows an enabled choice to be turned off when its source is offline', async () => {

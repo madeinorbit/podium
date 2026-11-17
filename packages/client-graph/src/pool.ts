@@ -3,7 +3,6 @@ import type { NotificationSession, SessionPhaseChange } from '@podium/client-cor
 import type { UiStore } from '@podium/client-core/ui'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import {
-  type AccountView,
   type CredentialView,
   asSessionId,
   type CheckoutWire,
@@ -291,7 +290,6 @@ export interface PoolRows {
   issuePanelArtifact: Readonly<IssuePanelArtifactWire> & Readonly<Record<string, unknown>>
   issuePanelDeferred: Readonly<IssuePanelDeferredWire> & Readonly<Record<string, unknown>>
   issuePanelState: Readonly<IssuePanelStateWire> & Readonly<Record<string, unknown>>
-  account: AccountView & Readonly<Record<string, unknown>>
   /** Credential management Task 4: a credential I own or was given, from `credentials.list`. */
   credential: CredentialView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>

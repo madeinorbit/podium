@@ -11,7 +11,18 @@ const shell = readdirSync(cache)
   .sort()
   .at(-1)
 const server = Bun.spawn(
-  ['bun', 'x', '--bun', 'vite', '--config', 'vite.settings-frame-harness.config.ts', '--host', '127.0.0.1', '--port', '55765'],
+  [
+    'bun',
+    'x',
+    '--bun',
+    'vite',
+    '--config',
+    'vite.settings-frame-harness.config.ts',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '55765',
+  ],
   {
     cwd: resolve(import.meta.dir, '..'),
     stdout: 'ignore',
@@ -47,7 +58,7 @@ try {
       })
       page.setDefaultTimeout(90_000)
       const errors: string[] = []
-      page.on('pageerror', (error) => errors.push(String(error)))
+      page.on('pageerror', (error) => errors.push(error.stack ?? String(error)))
       await page.goto(url)
       await page.getByRole('heading', { name: 'Your credentials', exact: true }).waitFor()
       await page.getByRole('button', { name: 'Log in', exact: true }).waitFor()
@@ -55,7 +66,10 @@ try {
         throw new Error('Expected both found-login choices')
       if (await page.getByText('Subscription logins on your machines', { exact: true }).count())
         throw new Error('Retired section is still present')
-      if (errors.length) throw new Error(errors.join('\n'))
+      if (errors.length) {
+        await page.screenshot({ path: `${output}/found-logins-error-${width}.png`, fullPage: true })
+        throw new Error(errors.join('\n'))
+      }
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
       if (overflow) throw new Error(`Page overflows at ${width}px`)
       await page.screenshot({ path: `${output}/found-logins-${width}.png`, fullPage: true })
@@ -63,8 +77,15 @@ try {
         // Exercise the label's real pointer target, which sits beside the row's stretched button.
         await page.getByText('Use on all my machines', { exact: true }).first().click()
         await page.waitForFunction(() => {
-          const harness = (window as unknown as { settingsHarness: { calls: { key: string; input?: { enabled?: boolean } }[] } }).settingsHarness
-          return harness.calls.some((call) => call.key === 'credentials.useOnMyMachines.mutate' && call.input?.enabled === false)
+          const harness = (
+            window as unknown as {
+              settingsHarness: { calls: { key: string; input?: { enabled?: boolean } }[] }
+            }
+          ).settingsHarness
+          return harness.calls.some(
+            (call) =>
+              call.key === 'credentials.useOnMyMachines.mutate' && call.input?.enabled === false,
+          )
         })
         await page.getByRole('heading', { name: 'Your credentials', exact: true }).waitFor()
       }

@@ -1,5 +1,5 @@
-import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
-import { asMachineId, asRepoId } from '@podium/model/browser'
+import type { CredentialView, GitRepositoryWire, MemberView } from '@podium/model'
+import { asCredentialId, asMachineId, asRepoId, asUserId } from '@podium/model/browser'
 import type { DeviceSignInView } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -14,23 +14,14 @@ import { RecordRequest } from './requested-records'
 import { SettingsRepositories } from './settings-repositories'
 import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test.fixture'
 
-const account: AccountView = {
-  id: 'native:codex',
-  provider: 'openai',
-  source: 'native',
-  identity: 'abcd…1234',
-  status: 'connected',
-  harness: 'codex',
-  machines: ['Host'],
-  identityFingerprint: 'fingerprint',
-  loginRequired: false,
-  serverAi: { machineId: asMachineId('host'), machineName: 'Host', lastError: 'prior error' },
-  loginMachines: [{ id: asMachineId('host'), name: 'Host' }],
-  loginAttempt: {
-    sessionId: 'login',
-    machineId: asMachineId('host'),
-    machineName: 'Host',
-    status: 'succeeded',
+const credential: CredentialView = {
+  id: asCredentialId('cred_found'), ownerUserId: asUserId('user:owner'),
+  label: 'Found Codex', type: 'openai.chatgpt-login', identity: { email: 'person@example.test', fingerprint: 'fingerprint' },
+  status: 'ok', access: 'owner', homes: [], allowedMachines: [], sessionCount: 0,
+  nativeLogin: {
+    harness: 'codex', required: false, useOnMyMachines: false, keptOn: [],
+    machines: [{ id: asMachineId('host'), name: 'Host', state: 'in' }],
+    attempt: { sessionId: 'login', machineId: asMachineId('host'), machineName: 'Host', status: 'succeeded' },
   },
 }
 const member: MemberView = {
@@ -59,36 +50,36 @@ function values(model: object, wire: object) {
     Object.keys(wire).map((key) => [key, (model as Record<string, unknown>)[key]]),
   )
 }
-it('matches every account/member/device fact from the old section responses and updates the same models across requests', async () => {
+it('matches every credential/member/device fact from the old section responses and updates the same models across requests', async () => {
   const p = pool()
-  const accounts = new RecordRequest(p, 'account', (row) => row.id)
-  const other = new RecordRequest(p, 'account', (row) => row.id)
+  const accounts = new RecordRequest(p, 'credential', (row) => row.id)
+  const other = new RecordRequest(p, 'credential', (row) => row.id)
   const directory = new MemberDirectory(p)
   const devices = new RecordRequest(p, 'device', (row) => row.id)
   try {
-    await accounts.read(async () => [account])
+    await accounts.read(async () => [credential])
     await directory.read(async () => ({
       members: [member],
       invites: [],
       currentMemberId: 'owner',
     }))
     await devices.read(async () => [device])
-    const accountAnswer = values(accounts.models[0]!, account)
+    const accountAnswer = values(accounts.models[0]!, credential)
     if (process.env.POD5870_PARITY_MUTANT === '1') accountAnswer.status = 'unknown'
-    expect(accountAnswer).toEqual(account)
+    expect(accountAnswer).toEqual(credential)
     expect(values(directory.members[0]!, member)).toEqual(member)
     expect(values(devices.models[0]!, device)).toEqual(device)
     // The old loaders returned exactly the payload. Poisoning one new answer
     // must fail this same comparison, not an assertion about the implementation.
     expect(() =>
-      expect({ ...values(accounts.models[0]!, account), status: 'unknown' }).toEqual(account),
+      expect({ ...values(accounts.models[0]!, credential), status: 'unknown' }).toEqual(credential),
     ).toThrow()
     const a = accounts.models[0],
       m = directory.members[0],
       d = devices.models[0]
     const seen: string[] = []
-    const stop = autorun(() => seen.push([a?.identity, m?.displayName, d?.deviceName].join('|')))
-    await other.read(async () => [{ ...account, identity: 'changed elsewhere' }])
+    const stop = autorun(() => seen.push([a?.identity.email, m?.displayName, d?.deviceName].join('|')))
+    await other.read(async () => [{ ...credential, identity: { email: 'changed elsewhere' } }])
     await directory.read(async () => ({
       members: [{ ...member, displayName: 'Renamed' }],
       invites: [],
@@ -114,18 +105,18 @@ it('matches every account/member/device fact from the old section responses and 
 })
 it('rejects superseded and closed responses before they can change shared records', async () => {
   const p = pool(),
-    request = new RecordRequest(p, 'account', (row) => row.id)
-  let finish!: (rows: AccountView[]) => void
+    request = new RecordRequest(p, 'credential', (row) => row.id)
+  let finish!: (rows: CredentialView[]) => void
   const old = request.read(
     () =>
       new Promise((resolve) => {
         finish = resolve
       }),
   )
-  await request.read(async () => [{ ...account, identity: 'new' }])
-  finish([account])
+  await request.read(async () => [{ ...credential, identity: { email: 'new' } }])
+  finish([credential])
   await old
-  expect(request.models[0]?.identity).toBe('new')
+  expect(request.models[0]?.identity.email).toBe('new')
   const closing = request.read(
     () =>
       new Promise((resolve) => {
@@ -133,9 +124,9 @@ it('rejects superseded and closed responses before they can change shared record
       }),
   )
   request.close()
-  finish([{ ...account, identity: 'closed' }])
+  finish([{ ...credential, identity: { email: 'closed' } }])
   await closing
-  expect(here(p.model('account', account.id))?.identity).toBe('new')
+  expect(here(p.model('credential', credential.id))?.identity.email).toBe('new')
   p.dispose()
 })
 it('matches the original repository grouping, pinned filtering and open order on the same fixtures', () => {

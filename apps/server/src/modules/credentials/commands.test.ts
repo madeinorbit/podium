@@ -151,7 +151,11 @@ function invoke(
     case 'login':
       return caller.credentials.login({ harness: 'codex', machineId: MACHINE })
     case 'useOnMyMachines':
-      return caller.credentials.useOnMyMachines({ harness: 'codex', fingerprint: 'not-observed', enabled: true })
+      return caller.credentials.useOnMyMachines({
+        harness: 'codex',
+        fingerprint: 'not-observed',
+        enabled: true,
+      })
     case 'add':
       return caller.credentials.add({
         type: 'openai.api-key',
@@ -237,16 +241,16 @@ describe('acceptance 1: who may run which command', () => {
         name === 'login' || name === 'useOnMyMachines'
           ? 'INTERNAL_SERVER_ERROR'
           : name === 'add' || name === 'chatgptSignInStart'
-          ? 'applied'
-          : name === 'chatgptSignInComplete'
-            ? 'BAD_REQUEST'
-            : name === 'signInStart'
-              ? who === 'no grant'
-                ? 'BAD_REQUEST'
-                : 'FORBIDDEN'
-              : name === 'signInCancel'
-                ? 'NOT_FOUND'
-                : WRITES_ON_TARGET[who],
+            ? 'applied'
+            : name === 'chatgptSignInComplete'
+              ? 'BAD_REQUEST'
+              : name === 'signInStart'
+                ? who === 'no grant'
+                  ? 'BAD_REQUEST'
+                  : 'FORBIDDEN'
+                : name === 'signInCancel'
+                  ? 'NOT_FOUND'
+                  : WRITES_ON_TARGET[who],
     })),
   )
 

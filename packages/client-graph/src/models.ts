@@ -40,7 +40,6 @@ import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
 import type {
-  AccountModel,
   CredentialModel,
   DeviceModel,
   MemberModel,
@@ -2053,7 +2052,6 @@ export type ModelOf = {
   issuePanelDeferred: IssuePanelDeferredModel
   issuePanelState: IssuePanelStateModel
 
-  account: AccountModel
   credential: CredentialModel
   member: MemberModel
   device: DeviceModel

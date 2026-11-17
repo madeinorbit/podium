@@ -120,7 +120,6 @@ export type ModelSchemaName =
   | 'WorkflowBindingWire'
   | 'WorkflowRunRecord'
   | 'SubscriptionWire'
-  | 'AccountView'
   | 'CredentialView'
   | 'MemberView'
   | 'DeviceSignInView'
@@ -172,7 +171,6 @@ export type RowArrival =
   | 'replica:subscriptions'
   | 'replica:instancePreferences'
   | 'request:messages.ledger'
-  | 'request:accounts.list'
   | 'request:credentials.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
@@ -237,7 +235,6 @@ export type EntityName =
   | 'issuePanelArtifact'
   | 'issuePanelDeferred'
   | 'issuePanelState'
-  | 'account'
   | 'credential'
   | 'member'
   | 'device'
@@ -626,7 +623,6 @@ export { isExcluded as issueExcluded } from './predicates'
 // ---------------------------------------------------------------------------
 
 const DECLARED = defineSchema({
-  account: syncedIdentity('AccountView', 'request:accounts.list'),
   credential: syncedIdentity('CredentialView', 'request:credentials.list'),
   member: syncedIdentity('MemberView', 'request:members.list'),
   device: {

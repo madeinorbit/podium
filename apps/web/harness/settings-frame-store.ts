@@ -177,8 +177,13 @@ function endpoint(path: string[] = []): unknown {
         }
       if (key === 'credentials.useOnMyMachines.mutate') {
         const input = args[0]
-        for (const view of answers['credentials.list.query'] as import('@podium/model').CredentialView[]) {
-          if (view.nativeLogin?.harness === input.harness && view.identity.fingerprint === input.fingerprint)
+        for (const view of answers[
+          'credentials.list.query'
+        ] as import('@podium/model').CredentialView[]) {
+          if (
+            view.nativeLogin?.harness === input.harness &&
+            view.identity.fingerprint === input.fingerprint
+          )
             view.nativeLogin.useOnMyMachines = input.enabled
         }
         return Promise.resolve({ ok: true, enabled: input.enabled })
