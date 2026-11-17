@@ -18,6 +18,7 @@
  */
 import type { HarnessTranscript, TranscriptSourceInput } from '../manifest.js'
 import { declaredValue } from '../transcript-types.js'
+import { fileByteSource } from './byte-source.js'
 import { fileIdFor } from './file-chain.js'
 import { fileChainSource, type TranscriptSource } from './source.js'
 import { sqliteTranscriptSource } from './sources/sqlite.js'
@@ -49,7 +50,7 @@ export async function transcriptSourceFromGrammar(
     return fileChainSource([], () => [])
   }
   const chain = (await chainPaths(input)).map((path) => ({
-    path,
+    source: fileByteSource(path),
     fileId: fileIdFor(sessionIdentity),
   }))
   return fileChainSource(chain, recordToItems)

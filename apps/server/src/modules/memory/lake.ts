@@ -1,6 +1,8 @@
 import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
 import { MirrorService } from '@podium/sync'
 import {
+  type ChainEntry,
+  fileByteSource,
   fileChainSource,
   fileIdFor,
   readIndexWindow,
@@ -219,7 +221,7 @@ export class TranscriptLake {
                 : this.mirror?.archivedLakePath(session.machineId, nativeId, incarnation.sequence)
               return path
                 ? {
-                    path,
+                    source: fileByteSource(path),
                     fileId: fileIdFor(
                       nativeId,
                       incarnation.active ? undefined : incarnation.sequence,
@@ -227,10 +229,10 @@ export class TranscriptLake {
                   }
                 : undefined
             })
-            .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
+            .filter((entry): entry is ChainEntry => entry !== undefined)
         : (await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId)) > 0
           ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
-              path,
+              source: fileByteSource(path),
               fileId: fileIdFor(nativeId),
             }))
           : []
@@ -277,7 +279,7 @@ export class TranscriptLake {
     const recordToItems = this.deps.parseForAgentKind(session.agentKind)
     if (!recordToItems) return undefined
     return readIndexWindow(
-      this.mirror.lakePath(machineId, nativeId),
+      fileByteSource(this.mirror.lakePath(machineId, nativeId)),
       fileIdFor(nativeId),
       recordToItems,
       from,

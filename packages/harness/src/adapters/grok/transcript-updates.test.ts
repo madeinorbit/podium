@@ -21,6 +21,7 @@ import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { testAccount } from '../../driver/testing/harness-context.js'
 import { declaredValue } from '../../manifest.js'
+import { fileByteSource } from '../../store/byte-source.js'
 import { decodeCursor } from '../../store/cursor-codec.js'
 import { fileIdFor } from '../../store/file-chain.js'
 import { readFileItems } from '../../store/slice.js'
@@ -38,7 +39,7 @@ const CHAT_HISTORY = join(RUN, 'chat_history.final.jsonl')
 const SESSION = '01a0edee-690d-73c0-bba4-6a60e8bc0ebb'
 
 async function read(path: string): Promise<TranscriptItem[]> {
-  return readFileItems(path, fileIdFor(SESSION), grokRecordToItems)
+  return readFileItems(fileByteSource(path), fileIdFor(SESSION), grokRecordToItems)
 }
 
 const users = (items: TranscriptItem[]) => items.filter((item) => item.role === 'user')
@@ -289,10 +290,15 @@ describe('which Grok reply is the answer (POD-4936)', () => {
     await writeFile(path, `${lines.join('\n')}\n`)
     const whole = await read(path)
     const replyOffset = decodeCursor(whole[1]?.cursor ?? '')?.offset ?? -1
-    const window = await readFileItems(path, fileIdFor(SESSION), grokRecordToItems, {
-      start: replyOffset - 1,
-      end: (await stat(path)).size,
-    })
+    const window = await readFileItems(
+      fileByteSource(path),
+      fileIdFor(SESSION),
+      grokRecordToItems,
+      {
+        start: replyOffset - 1,
+        end: (await stat(path)).size,
+      },
+    )
     expect(window.map((item) => [item.id, item.answer])).toEqual([[whole[1]?.id, true]])
   })
 })

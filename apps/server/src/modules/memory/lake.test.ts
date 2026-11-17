@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { forceFeature } from '../../test-support/features'
 import { openTestStore } from '../../test-support/open-test-store'
 import { DaemonRequestBroker } from '../daemon-request'
-import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { TranscriptLake } from './lake'
 import { TranscriptIndexer } from './transcript-indexer'
 
@@ -228,14 +228,21 @@ describe('the transcript indexer follows the search flag', () => {
 
     forceFeature('command-palette', true)
     const on = await openTestStore(dbPath)
-    const { fileIdFor, readIndexWindow } = await import('@podium/harness/store')
+    const { fileByteSource, fileIdFor, readIndexWindow } = await import('@podium/harness/store')
     const mapper = transcriptRecordMapperFor('claude-code')
     if (!mapper) throw new Error('claude-code grammar missing')
     const indexer = new TranscriptIndexer({
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,
       readItems: async (_machineId, nativeId, from, to, windowBytes) =>
-        await readIndexWindow(lakePath, fileIdFor(nativeId), mapper, from, to, windowBytes),
+        await readIndexWindow(
+          fileByteSource(lakePath),
+          fileIdFor(nativeId),
+          mapper,
+          from,
+          to,
+          windowBytes,
+        ),
     })
     await indexer.onBytes(machineId, 'native-a', lakePath)
     await indexer.settled()
@@ -256,7 +263,9 @@ it.each([
   'active',
   'archived',
 ] as const)('lake %s namespaces match live bytes only for the active incarnation', async (mode) => {
-  const { decodeCursor, fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { decodeCursor, fileByteSource, fileIdFor, readFileItems } = await import(
+    '@podium/harness/store'
+  )
   const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
   if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
   const store = await openTestStore(':memory:')
@@ -321,7 +330,11 @@ it.each([
     }
     const first = await lake.readWindow(session, { direction: 'before', limit: 10 })
     expect(first?.items).toHaveLength(mode === 'archived' ? 2 : 1)
-    const live = await readFileItems(livePath, fileIdFor(nativeId), claudeRecordToItems)
+    const live = await readFileItems(
+      fileByteSource(livePath),
+      fileIdFor(nativeId),
+      claudeRecordToItems,
+    )
     expect(first?.items.at(-1)).toEqual(live[0])
     expect(await lake.readWindow(session, { direction: 'before', limit: 10 })).toEqual(first)
     if (mode === 'archived') {

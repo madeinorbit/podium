@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
-import { fileIdFor, readIndexWindow } from '@podium/harness/store'
+import { fileByteSource, fileIdFor, readIndexWindow } from '@podium/harness/store'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { transcriptRecordMapperFor } from './harness-manifest'
@@ -74,7 +74,7 @@ describe('TranscriptIndexer', () => {
       index: store.conversations.transcriptIndex,
       readItems: async (machineId, nativeId, from, to, windowBytes) =>
         await readIndexWindow(
-          join(lakeDir, machineId, `${nativeId}.jsonl`),
+          fileByteSource(join(lakeDir, machineId, `${nativeId}.jsonl`)),
           fileIdFor(nativeId),
           mapper,
           from,
@@ -262,7 +262,7 @@ describe('TranscriptIndexer', () => {
           const mapper = transcriptRecordMapperFor('claude-code')
           if (!mapper) return undefined
           return await readIndexWindow(
-            join(lakeDir, 'm1', `${nativeId}.jsonl`),
+            fileByteSource(join(lakeDir, 'm1', `${nativeId}.jsonl`)),
             fileIdFor(nativeId),
             mapper,
             from,

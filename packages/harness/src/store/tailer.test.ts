@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
+import { fileByteSource } from './byte-source'
 import { fileIdFor } from './file-chain'
 import {
   claudeRecordColor,
@@ -767,12 +768,12 @@ it('tailer and repeated disk parses produce identical byte-offset cursors and sy
   const harness = makeTailHarness(path)
   try {
     await waitFor(() => itemsOf(harness.emissions).length === 2)
-    const disk = await readFileItems(path, fileIdFor('native-session'), claudeRecordToItems)
+    const readDisk = () =>
+      readFileItems(fileByteSource(path), fileIdFor('native-session'), claudeRecordToItems)
+    const disk = await readDisk()
     expect(disk).toHaveLength(2)
     expect(itemsOf(harness.emissions)).toEqual(disk)
-    expect(await readFileItems(path, fileIdFor('native-session'), claudeRecordToItems)).toEqual(
-      disk,
-    )
+    expect(await readDisk()).toEqual(disk)
     expect(disk.map((item) => item.id)).toEqual(disk.map((item) => item.cursor))
     expect(decodeCursor(disk[1]?.cursor ?? '')?.offset).toBe(
       Buffer.byteLength(bytes.split('\n')[0] ?? '') + 1,

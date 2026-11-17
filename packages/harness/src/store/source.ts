@@ -23,8 +23,8 @@ export interface TranscriptSource {
     direction: 'before' | 'after'
     limit: number
     /** Opt-in parsed-slice cache (POD-724): serve an unchanged file's prior parse
-     *  instead of re-reading. Byte-identical result, keyed on file size/mtime +
-     *  read shape. Only the hot on-switch legs (the daemon `transcriptRead` handler
+     *  instead of re-reading. Byte-identical result, keyed on each chain source's
+     *  id + version() (path + size/mtime for a file) and the read shape. Only the hot on-switch legs (the daemon `transcriptRead` handler
      *  and the server lake fallback) set this; the boot re-seed and indexer leave it
      *  false so they never retain memory. File-chain sources honor it; the opencode
      *  source is already in-memory and ignores it. */

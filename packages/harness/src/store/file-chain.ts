@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
+import type { ByteSource } from './byte-source'
 
+/** One segment of a session's transcript chain: its bytes and its cursor namespace. */
 export interface ChainEntry {
-  path: string
+  source: ByteSource
   fileId: string
 }
 

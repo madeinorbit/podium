@@ -1,7 +1,6 @@
-import { statSync } from 'node:fs'
-import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
 import type { TranscriptRecordMapper } from '../transcript-types'
+import type { ByteSource } from './byte-source'
 import { decodeCursor, recordUuid, stampCursors } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 // Self-import so the bounded reader routes its file reads through the module's
@@ -19,7 +18,7 @@ export interface SliceResult {
   hasMore: boolean
 }
 
-/** Parse a JSONL file into cursor-stamped items, in file order.
+/** Parse a JSONL source into cursor-stamped items, in source order.
  *  Each line's byte offset is tracked so its items anchor to a stable position.
  *
  *  @param window Optional byte window `[start, end)` to read instead of the whole
@@ -31,7 +30,7 @@ export interface SliceResult {
  *    record — the established TAIL_BYTES rule — because a `start` landing exactly on
  *    a record boundary would silently lose that record. */
 export async function readFileItems(
-  path: string,
+  source: ByteSource,
   fileId: string,
   recordToItems: TranscriptRecordMapper,
   window?: { start: number; end: number },
@@ -42,22 +41,15 @@ export async function readFileItems(
   // trailing newline a real (in-flight) record rather than a window-edge fragment.
   let atEof = true // a whole-file read always reaches EOF
   try {
-    const handle = await open(path, 'r')
-    try {
-      if (window) {
-        const { size } = await handle.stat()
-        const start = Math.max(0, window.start)
-        const len = Math.max(0, window.end - start)
-        const b = Buffer.alloc(len)
-        const { bytesRead } = await handle.read(b, 0, len, start)
-        buf = b.subarray(0, bytesRead)
-        base = start
-        atEof = base + buf.length >= size
-      } else {
-        buf = await handle.readFile()
-      }
-    } finally {
-      await handle.close()
+    const size = await source.size()
+    if (window) {
+      const start = Math.max(0, window.start)
+      const len = Math.max(0, window.end - start)
+      buf = asBuffer(await source.read(start, len))
+      base = start
+      atEof = base + buf.length >= size
+    } else {
+      buf = asBuffer(await source.read(0, size))
     }
   } catch {
     return []
@@ -94,6 +86,13 @@ export async function readFileItems(
     emit(buf.subarray(lineStart), base + lineStart)
   }
   return out
+}
+
+/** View a source's bytes as a Buffer without copying them. */
+function asBuffer(bytes: Uint8Array): Buffer {
+  return Buffer.isBuffer(bytes)
+    ? bytes
+    : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
 
 /** Parse one line's bytes into cursor-stamped items at an absolute file offset
@@ -156,7 +155,7 @@ export interface IndexWindowResult {
  * line yet" (`consumed: 0`) from "the file is gone".
  */
 export async function readIndexWindow(
-  path: string,
+  source: ByteSource,
   fileId: string,
   recordToItems: TranscriptRecordMapper,
   from: number,
@@ -168,7 +167,7 @@ export async function readIndexWindow(
   let buf: Buffer
   let lastNl: number
   for (;;) {
-    buf = await readByteRange(path, from, Math.min(to, from + win))
+    buf = asBuffer(await source.read(from, Math.min(to, from + win) - from))
     lastNl = buf.lastIndexOf(0x0a)
     if (lastNl >= 0 || from + win >= to) break
     win *= 2 // a single record wider than the window — widen until its newline shows
@@ -188,18 +187,6 @@ export async function readIndexWindow(
     stampRecordLine(items, lineBytes, recOffset, fileId, recordToItems, turnEnd, previous)
   }
   return { items, consumed: lastNl + 1 }
-}
-
-/** Read the byte window `[from, to)` of a file; throws when it cannot be read. */
-async function readByteRange(path: string, from: number, to: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const b = Buffer.alloc(Math.max(0, to - from))
-    const { bytesRead } = await handle.read(b, 0, b.length, from)
-    return b.subarray(0, bytesRead)
-  } finally {
-    await handle.close()
-  }
 }
 
 export interface SliceOptions {
@@ -277,7 +264,7 @@ export async function readTranscriptSlice(
     const idx = findAnchorIndex(seeded.items, opts.anchor, want)
     const seededAnchor = seeded.items[idx]
     if (!seededAnchor || offsetOf(seededAnchor) !== want.offset) {
-      anchorItems = await self.readFileItems(entry.path, entry.fileId, recordToItems)
+      anchorItems = await self.readFileItems(entry.source, entry.fileId, recordToItems)
       if (findAnchorIndex(anchorItems, opts.anchor, want) < 0) {
         anchorFileIdx = -1
         anchorItems = undefined
@@ -415,7 +402,7 @@ async function readFileWindowed(
 ): Promise<WindowedResult> {
   let size: number
   try {
-    size = (await stat(entry.path)).size
+    size = await entry.source.size()
   } catch {
     return { items: [], atBoundary: true }
   }
@@ -449,8 +436,8 @@ async function readFileWindowed(
       if (readEnd > start) {
         const fresh =
           start === 0 && readEnd === size
-            ? await self.readFileItems(entry.path, entry.fileId, recordToItems)
-            : await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+            ? await self.readFileItems(entry.source, entry.fileId, recordToItems)
+            : await self.readFileItems(entry.source, entry.fileId, recordToItems, {
                 start,
                 end: readEnd,
               })
@@ -480,7 +467,7 @@ async function readFileWindowed(
     const extend = held > 0
     const readStart = extend ? held : start
     if (end > readStart) {
-      const fresh = await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+      const fresh = await self.readFileItems(entry.source, entry.fileId, recordToItems, {
         start: readStart,
         end,
       })
@@ -559,12 +546,13 @@ function findAnchorIndex(
 // Every session switch re-runs `readTranscriptSlice`: it re-opens the JSONL,
 // re-reads a bounded doubling byte window, and re-`JSON.parse`s ~700-1000 items —
 // per switch, even when the file has not changed (measured p50 458ms / p90 1s in
-// POD-701). This cache stores the COMPLETED slice result keyed on the chain's
-// on-disk identity (path + size + mtime) plus the read shape (anchor, direction,
-// limit), so an unchanged file serves the prior parse instead of re-reading.
+// POD-701). This cache stores the COMPLETED slice result keyed on each chain
+// source's identity and `version()` (path + size + mtime for a file) plus the
+// read shape (anchor, direction, limit), so an unchanged source serves the prior
+// parse instead of re-reading.
 //
-// FRESHNESS is a per-hit `fs.stat` of each chain file (~10µs, vs ~500ms to
-// re-parse). An APPEND — the only mutation transcript files take by contract
+// FRESHNESS is a per-hit `version()` of each chain source (one `fs.stat` for a
+// file, ~10µs, vs ~500ms to re-parse). An APPEND — the only mutation transcript files take by contract
 // (append-only; the live tailer only ever grows them) — changes size and mtime,
 // so the key changes and the read naturally misses and re-parses. This covers the
 // hot "newest window" case (`direction: 'before'`, no anchor = tail): a grown file
@@ -651,16 +639,15 @@ function estimateSliceBytes(items: TranscriptItem[]): number {
   return bytes
 }
 
-/** Build the freshness-bearing cache key by stat-ing every chain file. Returns
- *  null when any file is missing/unstattable — the caller then serves uncached
- *  (we never cache against an absent file, whose read result is a degenerate
- *  empty/partial). */
+/** Build the freshness-bearing cache key from every chain source's version.
+ *  Returns null when any source is missing/unreadable — the caller then serves
+ *  uncached (we never cache against an absent source, whose read result is a
+ *  degenerate empty/partial). */
 async function sliceCacheKey(chain: ChainEntry[], opts: SliceOptions): Promise<string | null> {
   const parts: string[] = []
   for (const entry of chain) {
     try {
-      const st = await stat(entry.path)
-      parts.push(JSON.stringify([entry.path, entry.fileId, st.size, st.mtimeMs]))
+      parts.push(JSON.stringify([entry.source.id, entry.fileId, await entry.source.version()]))
     } catch {
       return null
     }
@@ -717,7 +704,7 @@ export async function readTranscriptSliceCached(
   const continued = await continueTailRead(chain, recordToItems, opts)
   if (continued) sliceTailContinuations++
   const result = continued ?? (await readTranscriptSlice(chain, recordToItems, opts))
-  rememberTail(chain, opts, result)
+  await rememberTail(chain, opts, result)
   const bytes = estimateSliceBytes(result.items)
   sliceCache.set(key, { result, bytes })
   sliceCacheBytes += bytes
@@ -728,7 +715,7 @@ export async function readTranscriptSliceCached(
 // ---------------------------------------------------------------------------
 // Append-incremental tail reads (POD-1623).
 //
-// The cache above is keyed on file size+mtime, so an APPEND — the only mutation a
+// The cache above is keyed on the source's version (size+mtime for a file), so an APPEND — the only mutation a
 // transcript takes under the append-only contract — always misses, and the miss
 // re-read and re-`JSON.parse`d the WHOLE file. Measured on the live lake, one
 // appended record on a 97.6MB transcript cost 837ms of straight-line CPU. That is
@@ -777,10 +764,14 @@ function tailKey(chain: ChainEntry[], opts: SliceOptions): string | null {
   if (chain.length !== 1 || opts.direction !== 'before' || opts.anchor !== undefined) return null
   const entry = chain[0]
   if (!entry) return null
-  return `${entry.path}|${entry.fileId}|${opts.limit}|${opts.initialWindowBytes ?? ''}`
+  return `${entry.source.id}|${entry.fileId}|${opts.limit}|${opts.initialWindowBytes ?? ''}`
 }
 
-function rememberTail(chain: ChainEntry[], opts: SliceOptions, result: SliceResult): void {
+async function rememberTail(
+  chain: ChainEntry[],
+  opts: SliceOptions,
+  result: SliceResult,
+): Promise<void> {
   const key = tailKey(chain, opts)
   const entry = chain[0]
   if (key === null || !entry) return
@@ -801,7 +792,7 @@ function rememberTail(chain: ChainEntry[], opts: SliceOptions, result: SliceResu
   }
   let size: number
   try {
-    size = statSync(entry.path).size
+    size = await entry.source.size()
   } catch {
     return
   }
@@ -836,7 +827,7 @@ async function continueTailRead(
 
   let size: number
   try {
-    size = (await stat(entry.path)).size
+    size = await entry.source.size()
   } catch {
     return null
   }
@@ -847,7 +838,7 @@ async function continueTailRead(
   // Start STRICTLY before the last record so `readFileItems`' leading-partial drop
   // consumes the previous record's terminating newline and not the record we want.
   const start = Math.max(0, prior.lastRecordOffset - 1)
-  const fresh = await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+  const fresh = await self.readFileItems(entry.source, entry.fileId, recordToItems, {
     start,
     end: size,
   })
