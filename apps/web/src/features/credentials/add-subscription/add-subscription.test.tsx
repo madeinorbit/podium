@@ -76,7 +76,9 @@ describe('Add a subscription', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Work ChatGPT' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in on Laptop' }))
     expect(
-      await screen.findByText(/Waiting for you to sign in to your ChatGPT subscription in the terminal on Laptop/),
+      await screen.findByText(
+        /Waiting for you to sign in to your ChatGPT subscription in the terminal on Laptop/,
+      ),
     ).toBeTruthy()
     expect(commands.signInStart.mutate).toHaveBeenCalledWith({
       type: 'openai.chatgpt-login',
@@ -132,9 +134,9 @@ describe('Add a subscription', () => {
     ])
     show(commands)
     fireEvent.click(screen.getByRole('button', { name: 'Sign in on Desk' }))
-    expect(
-      (await screen.findByRole('alert')).textContent,
-    ).toBe('The sign-in ended without signing in (exit 1).')
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'The sign-in ended without signing in (exit 1).',
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(screen.getByRole('button', { name: 'Sign in on Desk' })).toBeTruthy()
   })
@@ -154,7 +156,9 @@ describe('Add a subscription', () => {
   it('with no connected machine there is nothing to sign in on', () => {
     show(fakeServer(), [])
     expect(screen.getByRole('alert').textContent).toMatch(/None of your machines is connected/)
-    expect((screen.getByRole('button', { name: /Sign in on/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: /Sign in on/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
   })
 })
 
@@ -178,7 +182,12 @@ describe('who signed in, in words (review focus 5)', () => {
       'Signed in again as a@example.test.',
     )
     expect(
-      signedInSentence({ ...base, label: 'b@example.test', email: 'b@example.test', outcome: 'new' }),
+      signedInSentence({
+        ...base,
+        label: 'b@example.test',
+        email: 'b@example.test',
+        outcome: 'new',
+      }),
     ).toBe('Signed in as b@example.test.')
   })
 })
