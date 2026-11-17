@@ -6,10 +6,11 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Image,
+  Text as NativeText,
   ScrollView,
   type StyleProp,
   StyleSheet,
-  Text,
+  type TextProps,
   type TextStyle,
   View,
 } from 'react-native'
@@ -26,12 +27,20 @@ import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
 import { proseColor } from '../theme/syntax'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { useLiveInk } from '../theme/use-live-ink'
 import { HighlightedCode } from './HighlightedCode'
 import { Icon } from './Icon'
 import { ImageLightbox } from './ImageLightbox'
 import { Check, Copy } from './icons'
 import { PressableScale } from './PressableScale'
 import { RefChip } from './RefChip'
+
+/** Refresh cached attributed-text ink without remounting the reading surface. */
+function Text({ style, ...props }: TextProps) {
+  const declared = StyleSheet.flatten(style)?.color
+  const ink = useLiveInk((declared ?? color.body) as string)
+  return <NativeText {...props} style={[style, declared != null && { color: ink }]} />
+}
 
 interface RichMarkdownProps {
   text: string

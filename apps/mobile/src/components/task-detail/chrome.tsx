@@ -1,8 +1,17 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { Animated, StyleSheet, Text, TextInput, type TextProps, View } from 'react-native'
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextProps,
+  useColorScheme,
+  View,
+} from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../../theme/theme'
+import { useLiveInk } from '../../theme/use-live-ink'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -65,10 +74,15 @@ export function DetailSection({
   children: ReactNode
   testID?: string
 }) {
+  const scheme = useColorScheme()
   return (
     <View testID={testID}>
       <SectionHeading label={label} />
-      <View style={styles.contentGroup}>{children}</View>
+      <View style={styles.contentGroup}>
+        {/* Refresh the cached native layer while the editor and text stay mounted. */}
+        <View key={scheme} pointerEvents="none" style={styles.contentGround} />
+        {children}
+      </View>
     </View>
   )
 }
@@ -172,11 +186,14 @@ export function InlineEditable({
   multiline?: boolean
   onCommit: (value: string) => void
   render?: (text: string) => ReactNode
-  textStyle?: object
+  textStyle?: TextProps['style']
   dynamicTypeRamp?: TextProps['dynamicTypeRamp']
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
+  const ink = useLiveInk(
+    (StyleSheet.flatten([styles.editText, textStyle])?.color ?? color.body) as string,
+  )
 
   if (!editing) {
     const filled = value.trim().length > 0
@@ -199,7 +216,7 @@ export function InlineEditable({
           <Text
             dynamicTypeRamp={dynamicTypeRamp}
             lineBreakStrategyIOS="standard"
-            style={[styles.editText, textStyle, !filled && styles.editPlaceholder]}
+            style={[styles.editText, textStyle, { color: ink }, !filled && styles.editPlaceholder]}
           >
             {filled ? value : placeholder}
           </Text>
@@ -221,7 +238,7 @@ export function InlineEditable({
         lineBreakStrategyIOS="standard"
         autoFocus
         editable={!busy}
-        style={[styles.field, textStyle, multiline && styles.fieldMultiline]}
+        style={[styles.field, textStyle, { color: ink }, multiline && styles.fieldMultiline]}
       />
       <View style={styles.editorBar}>
         <PressableScale
@@ -304,6 +321,15 @@ const styles = StyleSheet.create({
   contentGroup: {
     padding: space.md,
     gap: space.lg,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  contentGround: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     borderRadius: radius.card,
     borderCurve: 'continuous',
     backgroundColor: color.groupedCard,
