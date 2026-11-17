@@ -202,7 +202,8 @@ non-ASCII, other punctuation) is stored under its `~` + base32 form. Members sto
 blob store under such names are renamed once by a blocking, idempotent boot step
 (`migrations/artifact-key-conversion.ts`), after the store migrations and only on the local
 backend: it walks `<state>/artifacts` deepest first (skipping `.uploads` and temp files),
-renames each non-plain segment, takes a present target with the same bytes as done, and writes a
+renames each non-plain segment, takes a present target with the same bytes as done, removes upload
+staging in the old layout (`meta.json` and `files/`, unpublished before the upgrade), and writes a
 done marker in the state directory so later boots skip the walk. A name that cannot be encoded
 (not plain and over 158 UTF-8 bytes) is refused for new uploads and snapshots with an error
 naming the member; an existing one is left in place, logged once, and reads of it answer not

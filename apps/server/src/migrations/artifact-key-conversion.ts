@@ -16,12 +16,15 @@
  *   Any other existing target is a conflict, logged, and both are left.
  * - A name that cannot be encoded (not plain and over 158 UTF-8 bytes) is logged once with its
  *   path and left in place; reads of it answer not found. It never fails the boot.
- * - The upload staging (`artifacts/.uploads`) and the local adapter's temp files are skipped.
+ * - The upload staging (`artifacts/.uploads`) is not renamed. Staging the code before the blob
+ *   store wrote (`<issue>/<upload>/meta.json` and `files/`) is removed: it holds uploads that
+ *   were never published before the upgrade, which the CLI sends again, and no row names them.
+ *   Staging in today's chunk layout is left alone. The local adapter's temp files are skipped.
  * - A done marker in the state directory (outside the transferred roots) makes later boots skip
  *   the walk. After a server transfer the target walks once more and finds nothing to do.
  */
 
-import { lstat, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isKeySegment, keySegment, type PortableStateWriteFence } from '@podium/blob-store'
 
@@ -40,6 +43,8 @@ export interface ArtifactKeyConversionResult {
   /** False when the marker said the conversion had already run. */
   ran: boolean
   renamed: number
+  /** Upload staging directories in the pre-blob-store layout that were removed. */
+  legacyUploadsRemoved: number
   /** Paths left in place because their name cannot be encoded. */
   unencodable: string[]
   /** Paths left in place because a different entry already holds the encoded name. */
@@ -51,6 +56,17 @@ async function sameFileBytes(a: string, b: string): Promise<boolean> {
   if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size) return false
   const [ba, bb] = await Promise.all([readFile(a), readFile(b)])
   return ba.equals(bb)
+}
+
+/** The entry names of a directory; none when it is missing or not a directory. */
+async function namesIn(dir: string): Promise<string[]> {
+  try {
+    return await readdir(dir)
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return []
+    throw error
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -76,6 +92,7 @@ export async function convertArtifactKeys(options: {
   const result: ArtifactKeyConversionResult = {
     ran: false,
     renamed: 0,
+    legacyUploadsRemoved: 0,
     unencodable: [],
     conflicts: [],
   }
@@ -128,7 +145,25 @@ export async function convertArtifactKeys(options: {
     }
   }
 
+  /** Remove `<root>/.uploads/<issue>/<upload>` directories that hold the old layout. */
+  const removeLegacyUploads = async (): Promise<void> => {
+    const uploads = join(root, '.uploads')
+    for (const issue of await namesIn(uploads)) {
+      const issueDir = join(uploads, issue)
+      for (const upload of await namesIn(issueDir)) {
+        const dir = join(issueDir, upload)
+        const entries = await namesIn(dir)
+        if (!entries.includes('meta.json') && !entries.includes('files')) continue
+        await rm(dir, { recursive: true, force: true })
+        result.legacyUploadsRemoved += 1
+      }
+      await rmdir(issueDir).catch(() => {})
+    }
+    await rmdir(uploads).catch(() => {})
+  }
+
   const run = async () => {
+    await removeLegacyUploads()
     await convert(root, true)
     await writeFile(
       marker,
@@ -137,9 +172,15 @@ export async function convertArtifactKeys(options: {
   }
   if (options.fence) await options.fence.runWriter(run)
   else await run()
-  if (result.renamed > 0 || result.unencodable.length > 0 || result.conflicts.length > 0) {
+  if (
+    result.renamed > 0 ||
+    result.legacyUploadsRemoved > 0 ||
+    result.unencodable.length > 0 ||
+    result.conflicts.length > 0
+  ) {
     options.log.info('converted artifact file names to blob keys', {
       renamed: result.renamed,
+      legacyUploadsRemoved: result.legacyUploadsRemoved,
       unencodable: result.unencodable.length,
       conflicts: result.conflicts.length,
     })

@@ -140,18 +140,30 @@ describe('convertArtifactKeys', () => {
     ).rejects.toThrow(`artifact member ${long} has a name too long to store`)
   })
 
-  it('skips the upload staging and the local adapter temp files', async () => {
-    const staging = join(state, 'artifacts', '.uploads', ISSUE, 'u1', 'files', 'a b.md')
-    mkdirSync(join(staging, '..'), { recursive: true })
-    writeFileSync(staging, 'x')
+  it('removes staging in the old layout, keeps chunk staging, and skips temp files', async () => {
+    const uploads = join(state, 'artifacts', '.uploads')
+    // An unpublished upload the old code staged: meta.json and files/ under the upload dir.
+    const legacy = join(uploads, ISSUE, 'u-old')
+    mkdirSync(join(legacy, 'files', 'sub dir'), { recursive: true })
+    writeFileSync(join(legacy, 'meta.json'), '{"action":"begin"}')
+    writeFileSync(join(legacy, 'files', 'sub dir', 'a b.md'), 'x')
+    // One with only its files/ left, under an issue that holds nothing else.
+    const lone = join(uploads, 'iss_2', 'u-lone')
+    mkdirSync(join(lone, 'files'), { recursive: true })
+    // An upload in the chunk layout, staged since the upgrade: untouched.
+    const chunk = join(uploads, ISSUE, 'u-new', '0000', '000000000000')
+    mkdirSync(join(chunk, '..'), { recursive: true })
+    writeFileSync(chunk, 'x')
     const temp = join(state, 'artifacts', ISSUE, ART, '.tmp-0a1b2c3d-0000-4000-8000-000000000000')
     mkdirSync(join(temp, '..'), { recursive: true })
     writeFileSync(temp, 'partial')
 
     const result = await convertArtifactKeys({ stateDir: state, log })
 
-    expect(result.renamed).toBe(0)
-    expect(existsSync(staging)).toBe(true)
+    expect(result).toMatchObject({ renamed: 0, legacyUploadsRemoved: 2 })
+    expect(existsSync(legacy)).toBe(false)
+    expect(existsSync(join(uploads, 'iss_2'))).toBe(false)
+    expect(existsSync(chunk)).toBe(true)
     expect(existsSync(temp)).toBe(true)
   })
 
