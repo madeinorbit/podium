@@ -56,6 +56,7 @@ import { importFingerprintKey } from './fingerprint-key-import'
 import { importInstallationIdentity } from './installation-identity-import'
 import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
+import { type SnapshotStamp, scrubLegacySnapshots } from './migrations/legacy-snapshot-scrub'
 import { SnapshotVerifier, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
 import {
   checkpointStore,
@@ -97,6 +98,7 @@ import {
   applyLegacyDestruction,
   compactDatabase,
   hasLegacyPlaintextRows,
+  LEGACY_PLAINTEXT_SNAPSHOTS_KEY,
   type LegacyPlaintextOptions,
   type LegacyPlaintextReport,
   readLegacyPlaintextState,
@@ -115,7 +117,7 @@ import { ObservationCheckpointsRepository } from './store/observation-checkpoint
 import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
-import { ServerSecretsRepository } from './store/server-secrets'
+import { ServerSecretsRepository, VAULT_SEALED_SECRET_KEYS } from './store/server-secrets'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
@@ -597,6 +599,31 @@ export class SessionStore {
     }
   }
 
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /** Scrub the retained upgrade snapshots; returns the problems, by path and reason. */
+  private scrubSnapshots(knownValues: readonly string[]): string[] {
+    const stored = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get(LEGACY_PLAINTEXT_SNAPSHOTS_KEY) as { value: string } | undefined
+    const done = stored ? (JSON.parse(stored.value) as SnapshotStamp[]) : []
+    const results = scrubLegacySnapshots(this.path, { knownValues, done })
+    const stamps = results.flatMap((result) => (result.stamp ? [result.stamp] : []))
+    this.db
+      .prepare(
+        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      )
+      .run(LEGACY_PLAINTEXT_SNAPSHOTS_KEY, JSON.stringify(stamps))
+    const problems = results.flatMap((result) =>
+      result.outcome === 'failed' ? [`${result.path}: ${result.reason}`] : [],
+    )
+    const scrubbed = results.filter((result) => result.outcome === 'scrubbed').length
+    if (scrubbed > 0) log.info('removed the old keys from the retained snapshots', { scrubbed })
+    if (problems.length > 0) {
+      log.warn('some retained snapshots still hold old keys or could not be read', { problems })
+    }
+    return problems
+  }
+
   /** What destroying the old plaintext keys did at this start (tests read it). */
   get legacyPlaintextReport(): LegacyPlaintextReport | undefined {
     return this.legacyPlaintextReportValue
@@ -622,13 +649,19 @@ export class SessionStore {
       grants: this.grants,
       vault,
     })
+    // What the snapshots are searched for once scrubbed, besides what each holds.
+    const knownValues = [...destroy.map((value) => value.value)]
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const value = await this.secrets.get(key)
+      if (value) knownValues.push(value)
+    }
     return await this.executor.exclusive(async () => {
       const destroyed = applyLegacyDestruction(this.db, destroy)
       const compaction =
         readLegacyPlaintextState(this.db) === 'compaction-pending'
           ? compactDatabase(this.db, options)
           : 'skipped'
-      const snapshotProblems: string[] = []
+      const snapshotProblems = this.path === ':memory:' ? [] : this.scrubSnapshots(knownValues)
       if (compaction !== 'busy' && leftInPlace.length === 0 && snapshotProblems.length === 0) {
         writeLegacyPlaintextState(this.db, 'done')
       }

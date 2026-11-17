@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { addSink, createRingBufferSink } from '@podium/logger'
@@ -216,6 +216,23 @@ describe('the old plaintext keys after the move into the vault', () => {
     ).toEqual({ n: 0 })
   })
 
+  it('the step removes the planted values from the retained snapshots too', async () => {
+    const { dbPath, keyPath } = place()
+    await plantOldDatabase(dbPath, keyPath)
+    // The snapshot a migration took before this release's schema change.
+    const snapshot = `${dbPath}.backup-vdrizzle-40-2026-11-01T00-00-00-000Z`
+    copyFileSync(dbPath, snapshot)
+    if (existsSync(`${dbPath}-wal`)) copyFileSync(`${dbPath}-wal`, `${snapshot}-wal`)
+    expect(heldIn(databaseBytes(snapshot))).toEqual(PLANTED)
+
+    const store = await openAt(dbPath, keyPath)
+    expect(store.legacyPlaintextReport).toMatchObject({ ran: true, snapshotProblems: [] })
+    expect(heldIn(databaseBytes(snapshot))).toEqual([])
+    expect(sql(snapshot, (db) => db.prepare('PRAGMA integrity_check').all())).toEqual([
+      { integrity_check: 'ok' },
+    ])
+  })
+
   it('every moved key still opens from the vault after the step', async () => {
     const { dbPath, keyPath } = place()
     const admin = await plantOldDatabase(dbPath, keyPath)
@@ -367,7 +384,9 @@ describe('the old plaintext keys after the move into the vault', () => {
 
     const store = await openAt(dbPath, keyPath)
     expect(accountRows(dbPath)).toEqual([])
-    expect(await credentialIdFromLegacy(store, 'managed:openrouter:team', READER)).toBe(memberKey.id)
+    expect(await credentialIdFromLegacy(store, 'managed:openrouter:team', READER)).toBe(
+      memberKey.id,
+    )
     expect((await store.credentials.get(memberKey.id))?.createdAt).toBe(
       new Date(8_000).toISOString(),
     )
