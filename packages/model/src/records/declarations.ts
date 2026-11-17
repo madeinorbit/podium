@@ -50,6 +50,7 @@ import {
   workflowBindingRowId,
 } from '../entities/workflow'
 import { IssueBriefWire, IssueDescriptionWire } from '../fields/issue-body'
+import { issueDepId } from '../ids/keys'
 import { SlimIssueProjection } from '../projections/issue-bodies'
 import { INSTANCE_PREFERENCES_ROW_ID, InstancePreferencesWire } from '../settings/instance-record'
 import { ShipLaneProjection, ShipOrderProjection } from '../shipping-projection'
@@ -166,6 +167,7 @@ export const ASKING_WHERE = [
 // ---------------------------------------------------------------------------
 
 const session = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'session',
   replicaKind: 'sessions',
   schema: SessionMeta,
@@ -245,6 +247,7 @@ const session = defineRecord({
 })
 
 const issueProjection = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issueProjection',
   replicaKind: 'issueProjections',
   schema: SlimIssueProjection,
@@ -344,10 +347,13 @@ const issueProjection = defineRecord({
 })
 
 const issueDep = defineRecord({
+  builderShape: 'row',
   kind: 'issueDep',
   replicaKind: 'issueDeps',
   schema: IssueDepProjection,
   key: 'id',
+  // Records already carry their id; captured table rows carry its components.
+  rowKey: (row) => row.id ?? issueDepId(row.fromId, row.toId, row.type),
   group: 'comesWithIssue',
   links: {
     fromId: { to: 'issueProjection', why: 'The issue that depends.' },
@@ -360,6 +366,7 @@ const issueDep = defineRecord({
 })
 
 const repo = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'repo',
   replicaKind: 'repos',
   schema: RepoProjection,
@@ -370,6 +377,7 @@ const repo = defineRecord({
 })
 
 const shipOrder = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'shipOrder',
   replicaKind: 'shipOrders',
   schema: ShipOrderProjection,
@@ -381,6 +389,7 @@ const shipOrder = defineRecord({
 })
 
 const shipLane = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'shipLane',
   replicaKind: 'shipLanes',
   schema: ShipLaneProjection,
@@ -392,6 +401,7 @@ const shipLane = defineRecord({
 })
 
 const conversation = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'conversation',
   replicaKind: 'conversations',
   schema: ConversationRecordWire,
@@ -402,6 +412,7 @@ const conversation = defineRecord({
 })
 
 const automation = defineRecord({
+  builderShape: 'row',
   kind: 'automation',
   replicaKind: 'automations',
   schema: AutomationWire,
@@ -413,6 +424,7 @@ const automation = defineRecord({
 })
 
 const automationRun = defineRecord({
+  builderShape: 'row',
   kind: 'automationRun',
   replicaKind: 'automationRuns',
   schema: AutomationRunWire,
@@ -424,6 +436,7 @@ const automationRun = defineRecord({
 })
 
 const userLayout = defineRecord({
+  builderShape: 'row',
   kind: 'userLayout',
   replicaKind: 'userLayouts',
   schema: LayoutWire,
@@ -434,6 +447,7 @@ const userLayout = defineRecord({
 })
 
 const userReadPosition = defineRecord({
+  builderShape: 'row',
   kind: 'userReadPosition',
   replicaKind: 'userReadPositions',
   schema: ReadPositionWire,
@@ -444,6 +458,7 @@ const userReadPosition = defineRecord({
 })
 
 const issueEvent = defineRecord({
+  builderShape: 'windowed',
   kind: 'issueEvent',
   replicaKind: 'issueEvents',
   schema: IssueEventWire,
@@ -455,6 +470,7 @@ const issueEvent = defineRecord({
 })
 
 const pendingInteraction = defineRecord({
+  builderShape: 'windowed',
   kind: 'pendingInteraction',
   replicaKind: 'pendingInteractions',
   schema: PendingInteractionWire,
@@ -473,6 +489,7 @@ const pendingInteraction = defineRecord({
 })
 
 const message = defineRecord({
+  builderShape: 'windowed',
   kind: 'message',
   replicaKind: 'messageRecords',
   schema: MessageRecordWire,
@@ -484,6 +501,7 @@ const message = defineRecord({
 })
 
 const issueUserState = defineRecord({
+  builderShape: 'row',
   kind: 'issueUserState',
   replicaKind: 'issueUserStates',
   schema: IssueUserStateWire,
@@ -497,6 +515,7 @@ const issueUserState = defineRecord({
 })
 
 const sessionUserState = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'sessionUserState',
   replicaKind: 'sessionUserStates',
   schema: SessionUserStateWire,
@@ -514,6 +533,7 @@ const sessionUserState = defineRecord({
 })
 
 const machine = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'machine',
   replicaKind: 'machines',
   schema: MachineProjection,
@@ -525,6 +545,7 @@ const machine = defineRecord({
 })
 
 const issueGitState = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issueGitState',
   replicaKind: 'issueGitStates',
   schema: IssueGitStateProjection,
@@ -538,6 +559,7 @@ const issueGitState = defineRecord({
 })
 
 const effect = defineRecord({
+  builderShape: 'row',
   kind: 'effect',
   replicaKind: 'effects',
   schema: EffectRecordWire,
@@ -548,6 +570,7 @@ const effect = defineRecord({
 })
 
 const pin = defineRecord({
+  builderShape: 'row',
   kind: 'pin',
   replicaKind: 'pins',
   schema: PinWire,
@@ -578,6 +601,7 @@ const pin = defineRecord({
 })
 
 const tabOrder = defineRecord({
+  builderShape: 'row',
   kind: 'tabOrder',
   replicaKind: 'tabOrders',
   schema: TabOrderWire,
@@ -588,6 +612,7 @@ const tabOrder = defineRecord({
 })
 
 const userPreferences = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'userPreferences',
   replicaKind: 'userPreferences',
   schema: UserPreferencesWire,
@@ -598,6 +623,7 @@ const userPreferences = defineRecord({
 })
 
 const superagentThread = defineRecord({
+  builderShape: 'row',
   kind: 'superagentThread',
   replicaKind: 'superagentThreads',
   schema: SuperagentThreadWire,
@@ -609,6 +635,7 @@ const superagentThread = defineRecord({
 })
 
 const agentProfile = defineRecord({
+  builderShape: 'row',
   kind: 'agentProfile',
   replicaKind: 'agentProfiles',
   schema: AgentProfileWire,
@@ -620,6 +647,7 @@ const agentProfile = defineRecord({
 })
 
 const workflow = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'workflow',
   replicaKind: 'workflows',
   schema: WorkflowWire,
@@ -631,6 +659,7 @@ const workflow = defineRecord({
 })
 
 const workflowRevision = defineRecord({
+  builderShape: 'row',
   kind: 'workflowRevision',
   replicaKind: 'workflowRevisions',
   schema: WorkflowRevisionWire,
@@ -642,6 +671,7 @@ const workflowRevision = defineRecord({
 })
 
 const workflowBinding = defineRecord({
+  builderShape: 'row',
   kind: 'workflowBinding',
   replicaKind: 'workflowBindings',
   schema: WorkflowBindingWire,
@@ -653,6 +683,7 @@ const workflowBinding = defineRecord({
 })
 
 const workflowRun = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'workflowRun',
   replicaKind: 'workflowRuns',
   schema: WorkflowRunRecord,
@@ -672,6 +703,7 @@ const workflowRun = defineRecord({
 })
 
 const subscription = defineRecord({
+  builderShape: 'row',
   kind: 'subscription',
   replicaKind: 'subscriptions',
   schema: SubscriptionWire,
@@ -683,6 +715,7 @@ const subscription = defineRecord({
 })
 
 const instancePreferences = defineRecord({
+  builderShape: 'row',
   kind: 'instancePreferences',
   replicaKind: 'instancePreferences',
   schema: InstancePreferencesWire,
@@ -693,6 +726,7 @@ const instancePreferences = defineRecord({
 })
 
 const machineAccess = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'machineAccess',
   replicaKind: 'machineAccess',
   schema: MachineAccessWire,
@@ -704,6 +738,7 @@ const machineAccess = defineRecord({
 })
 
 const checkout = defineRecord({
+  builderShape: 'row',
   kind: 'checkout',
   replicaKind: 'checkouts',
   schema: CheckoutWire,
@@ -722,6 +757,7 @@ const issueBody = <const K extends string, const R extends string>(
   what: string,
 ) =>
   defineRecord({
+    builderShape: 'row',
     kind,
     replicaKind,
     schema,
@@ -744,6 +780,7 @@ const issueDescription = issueBody(
 const panelItem = { issueId: { to: 'issueProjection' } } as const
 
 const issuePanelTodo = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issuePanelTodo',
   replicaKind: 'issuePanelTodos',
   schema: IssuePanelTodoWire,
@@ -756,6 +793,7 @@ const issuePanelTodo = defineRecord({
 })
 
 const issuePanelArtifact = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issuePanelArtifact',
   replicaKind: 'issuePanelArtifacts',
   schema: IssuePanelArtifactWire,
@@ -770,6 +808,7 @@ const issuePanelArtifact = defineRecord({
 })
 
 const issuePanelDeferred = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issuePanelDeferred',
   replicaKind: 'issuePanelDeferreds',
   schema: IssuePanelDeferredWire,
@@ -784,6 +823,7 @@ const issuePanelDeferred = defineRecord({
 })
 
 const issuePanelState = defineRecord({
+  builderShape: 'row-and-reads',
   kind: 'issuePanelState',
   replicaKind: 'issuePanelStates',
   schema: IssuePanelStateWire,

@@ -27,10 +27,16 @@ import {
   asThreadId,
   firstAdminMemberId,
   type IssueId,
+  RECORDS,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
+import {
+  collectRecords,
+  type RecordBuilder,
+  RecordBuilderRegistry,
+} from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableColumns, getTableName, is, sql } from 'drizzle-orm'
 import { SQLiteTable } from 'drizzle-orm/sqlite-core'
@@ -48,7 +54,11 @@ import { openTestStore } from '../test-support/open-test-store'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
-import { installChangeCapture } from './capture-triggers'
+import { beforeKindTokens } from './__fixtures__/kind-tokens.before'
+import { BEFORE_ROW_BUILDERS } from './__fixtures__/row-builders.before'
+import { BEFORE_ROW_SOURCES } from './__fixtures__/row-sources.before'
+import { captureTriggerStatements, installChangeCapture } from './capture-triggers'
+import { readKindTokens } from './kind-tokens'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
 import {
   RECORD_SOURCES,
@@ -56,6 +66,7 @@ import {
   sourceTableName,
   touchedRecords,
 } from './record-sources'
+import { ROW_RECORDS } from './row-records'
 
 // ---------------------------------------------------------------------------
 // The corpus
@@ -228,6 +239,16 @@ async function buildCorpus(): Promise<Corpus> {
   // own connect scan, which no device receives and the log never carries.
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
   await seedRows(store, async () => {
+    await db.run(sql`INSERT INTO automation_runs (id, on_behalf_of, automation_id, fired_at, session_id, outcome, detail)
+      SELECT 'run-row-1', ${owner}, id, ${AT}, ${sessionId}, 'spawned', NULL FROM automations LIMIT 1`)
+    await db.run(sql`INSERT INTO workflow_revisions (id, workflow_id, version, instructions, steps_json, created_by_kind, created_at)
+      VALUES ('rev-row-1', 'wf-6920', 1, 'Review', '[{"id":"review","title":"Review"}]', 'operator', ${AT})`)
+    await db.run(sql`INSERT INTO workflow_bindings (target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
+      VALUES ('global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
+    await db.run(sql`INSERT INTO checkouts (machine_id, path, root, kind, branch, updated_at)
+      VALUES (${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
+    await db.run(sql`INSERT INTO subscriptions (id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
+      VALUES ('sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, 1, 0, 'custom', 1, ${AT})`)
     for (const [id, createdBy] of [
       ['eff_person_scan', owner],
       ['eff_system_scan', null],
@@ -489,6 +510,111 @@ describe('record sources (POD-6920)', () => {
   }, 60_000)
   afterAll(async () => {
     await corpus?.store.close()
+  })
+
+  describe('one-row generation (POD-7091)', () => {
+    const before = new RecordBuilderRegistry(BEFORE_ROW_BUILDERS)
+    const after = serverRecordBuilders()
+    const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+
+    it('generates every row declaration and keeps genuinely joined kinds explicit', () => {
+      const rowKinds = RECORDS.filter((record) => record.builderShape === 'row').map(
+        (record) => record.kind,
+      )
+      expect(Object.keys(ROW_RECORDS).sort()).toEqual([...rowKinds].sort())
+      expect(before.kinds().sort()).toEqual([...rowKinds].sort())
+      for (const binding of Object.values(ROW_RECORDS)) {
+        expect(after.get(binding.declaration.kind)).toBe(binding.builder)
+        expect(RECORD_SOURCES[binding.declaration.kind]).toBe(binding.sources)
+      }
+      for (const kind of [
+        'workflow',
+        'issuePanelTodo',
+        'issuePanelArtifact',
+        'issuePanelDeferred',
+        'issuePanelState',
+      ] as const)
+        expect(after.get(kind).shape, kind).toBe('row-and-reads')
+    })
+
+    it('produces byte-equal builds and streams for every converted kind on SQLite', async () => {
+      for (const kind of before.kinds()) {
+        const expected = await collectRecords(before.streamAll(corpus.reads, kind))
+        expect(expected.length, `${kind}: the oracle must have records`).toBeGreaterThan(0)
+        expect(
+          bytes(await collectRecords(after.streamAll(corpus.reads, kind))),
+          `${kind}: stream`,
+        ).toBe(bytes(expected))
+        const ids = [...expected.map((row) => row.id).reverse(), 'no-such-record', expected[0]!.id]
+        expect(bytes(await after.build(corpus.reads, kind, ids)), `${kind}: build`).toBe(
+          bytes(await before.build(corpus.reads, kind, ids)),
+        )
+        expect(await after.build(corpus.reads, kind, [])).toEqual([])
+        expect(await after.build(corpus.reads, kind, ['no-such-record'])).toEqual(
+          await before.build(corpus.reads, kind, ['no-such-record']),
+        )
+      }
+    })
+
+    it('the byte comparison fails for a wrong generated answer', async () => {
+      for (const kind of before.kinds()) {
+        const expected = await collectRecords(before.streamAll(corpus.reads, kind))
+        const original = after.get(kind)
+        const wrong: RecordBuilder<RecordReads> = {
+          ...original,
+          build: async (reads, ids) =>
+            (await original.build(reads, ids)).map((row) => ({
+              ...row,
+              value: { ...(row.value as object), wrong: true },
+            })),
+        }
+        const mutated = new RecordBuilderRegistry([wrong])
+        const ids = expected.map((row) => row.id)
+        const correctBytes = bytes(await before.build(corpus.reads, kind, ids))
+        const wrongBytes = bytes(await mutated.build(corpus.reads, kind, ids))
+        expect(() => expect(wrongBytes, kind).toBe(correctBytes), kind).toThrow()
+      }
+    })
+
+    it('keeps every generated capture trigger textually equal to before', () => {
+      expect(captureTriggerStatements()).toEqual(
+        captureTriggerStatements({ ...RECORD_SOURCES, ...BEFORE_ROW_SOURCES }),
+      )
+    })
+
+    it('keeps captured record identities for inserts, moves and deletes', async () => {
+      const db = (corpus.store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+      for (const binding of Object.values(ROW_RECORDS)) {
+        const kind = binding.declaration.kind
+        const source = binding.sources[0]!
+        const rows = (await db.all(
+          sql`SELECT ${sql.join(
+            source.keys.map(
+              (column, i) => sql`${sql.identifier(column.name)} AS ${sql.identifier(`key${i}`)}`,
+            ),
+            sql`, `,
+          )} FROM ${source.table} LIMIT 2`,
+        )) as Record<string, unknown>[]
+        expect(rows.length, kind).toBeGreaterThan(0)
+        const key = (row: Record<string, unknown>) => source.keys.map((_, i) => row[`key${i}`])
+        const first = key(rows[0]!)
+        const second = key(rows[1] ?? rows[0]!)
+        const changes = [
+          { op: 'i', old: null, new: first },
+          { op: 'u', old: first, new: second },
+          { op: 'd', old: second, new: null },
+        ] as const
+        expect([...(await source.ids(changes, corpus.reads))], kind).toEqual([
+          ...(await BEFORE_ROW_SOURCES[kind][0]!.ids(changes, corpus.reads)),
+        ])
+      }
+    })
+
+    it('keeps all shape tokens unchanged', async () => {
+      expect(await readKindTokens(corpus.store.sync, ['machine.scan'])).toEqual(
+        await beforeKindTokens(corpus.store.sync, ['machine.scan']),
+      )
+    })
   })
 
   it('declares every kind the server builds, with at least one source', () => {

@@ -25,6 +25,8 @@
 import type { z } from 'zod'
 import type { Clause, Where } from './rule'
 
+export type RecordBuilderShape = 'row' | 'row-and-reads' | 'windowed'
+
 export type Part = 'stub' | 'main' | 'body' | 'live'
 
 /**
@@ -110,6 +112,8 @@ export interface RecordSpec<K extends string, R extends string, S extends z.ZodT
   readonly key?: FieldName<S>
   /** The client's row key, when it is not the `key` field (composite per-user keys). */
   readonly rowKey?: (row: z.infer<S>) => string
+  /** How the server builds this record; row kinds use a generated builder. */
+  readonly builderShape?: RecordBuilderShape
   readonly group: RecordGroup
   /** The stub part (issues only). Every other carried field is the main part. */
   readonly stub?: readonly FieldName<S>[]
@@ -145,6 +149,7 @@ export interface RecordDeclaration<
   /** The field holding the record's own id; `undefined` for a composite id. */
   readonly key: string | undefined
   readonly rowKey: (row: z.infer<S>) => string
+  readonly builderShape: RecordBuilderShape
   readonly group: RecordGroup
   /** Every field the record carries on the wire (stub, main and live), in schema order. */
   readonly fields: readonly string[]
@@ -285,6 +290,7 @@ export function defineRecord<
     key,
     rowKey,
     group: spec.group,
+    builderShape: spec.builderShape ?? 'row-and-reads',
     fields,
     stub,
     body: spec.body ?? {},

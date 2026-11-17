@@ -29,46 +29,28 @@
 import {
   asMachineId,
   canonicalShippingDestination,
-  checkoutRowId,
   FEED_EVENT_KINDS,
-  INSTANCE_PREFERENCES_ROW_ID,
   ISSUE_PANEL_KINDS,
   type IssueId,
   interactionRowId,
   isFeedEventKind,
-  issueDepId,
   issueEventRowId,
-  issueUserStateRowId,
-  layoutRowId,
-  type MachineId,
   machineAccessRowId,
   messageRecordRowId,
-  pinRowId,
-  readPositionRowId,
   type SessionId,
   sessionUserStateRowId,
   shipLaneId,
-  subscriptionRowId,
-  superagentThreadRowId,
-  tabOrderRowId,
   type UserId,
   userPreferencesRowId,
-  workflowBindingRowId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { CapturedRow } from '@podium/sync'
 import { type Column, getTableColumns, getTableName, type Table } from 'drizzle-orm'
 import {
-  agentProfiles,
-  automationRuns,
-  automations,
-  checkouts,
   conversationSegments,
   conversations,
   deliveryReceipts,
-  effects,
   grants,
-  issueDeps,
   issueGitStates,
   issueLabels,
   issuePanelArtifacts,
@@ -76,14 +58,12 @@ import {
   issuePanelStates,
   issuePanelTodos,
   issues,
-  issueUserState,
   labels,
   machines,
   messages,
   meta,
   offers,
   pendingInteractions,
-  pins,
   podiumEvents,
   queuedMessages,
   repoPrefixes,
@@ -97,24 +77,19 @@ import {
   shipOrderStackEdges,
   shipOrders,
   snoozes,
-  subscriptions,
-  superagentThreads,
-  tabOrder,
-  userLayout,
   userPreferences,
-  userReadPosition,
   users,
-  workflowBindings,
   workflowRevisions,
   workflowRunSteps,
   workflowRuns,
   workflows,
 } from '../migrations/schema'
-import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
+
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import type { RecordReads } from './record-builders'
+import { ROW_RECORDS } from './row-records'
 
 // ---------------------------------------------------------------------------
 // The declaration
@@ -579,13 +554,6 @@ const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.
 const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
 
 /**
- * An effect the server started for no one stays off the feed (`effectOnFeed`,
- * POD-6941): the connect scan's records reach no device, so their four moves
- * a scan are not captured. `created_by` and `kind` never change on a row.
- */
-const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${effects.kind.name} NOT IN (${SYSTEM_EFFECT_KINDS_OFF_FEED.map((kind) => `'${kind}'`).join(', ')}))`
-
-/**
  * WHAT A SESSION RECORD READS OF ITS OBSERVATION CHECKPOINT
  * (`applyObservationCheckpointTo`): the turn state, and whether the checkpoint
  * names a provider thread (which binds the conversation). Its `providerAt`
@@ -780,36 +748,12 @@ export const RECORD_SOURCES: RecordSources = {
   // An empty brief or description is no record (`issueBriefOf`,
   // `issueDescriptionOf`): a row whose body is empty before and after the
   // write (every new issue without one) reaches none.
-  issueBrief: [
-    byId(issues, issues.id, {
-      reads: [issues.brief],
-      rows: `coalesce({row}.${issues.brief.name}, '') <> ''`,
-    }),
-  ],
-  issueDescription: [
-    byId(issues, issues.id, {
-      reads: [issues.description],
-      rows: `coalesce({row}.${issues.description.name}, '') <> ''`,
-    }),
-  ],
+  issueBrief: ROW_RECORDS.issueBrief.sources,
+  issueDescription: ROW_RECORDS.issueDescription.sources,
   ...panelSources,
-  issueDep: [
-    own(issueDeps, [issueDeps.fromId, issueDeps.toId, issueDeps.type], (key) =>
-      issueDepId(str(key[0]), str(key[1]), str(key[2])),
-    ),
-  ],
-  issueUserState: [
-    own(issueUserState, [issueUserState.userId, issueUserState.issueId], (key) =>
-      issueUserStateRowId(key[0] as UserId, key[1] as IssueId),
-    ),
-  ],
-  subscription: [
-    own(
-      subscriptions,
-      [subscriptions.subscriberKind, subscriptions.subscriberId, subscriptions.id],
-      (key) => subscriptionRowId(key[0] as never, str(key[1]), str(key[2])),
-    ),
-  ],
+  issueDep: ROW_RECORDS.issueDep.sources,
+  issueUserState: ROW_RECORDS.issueUserState.sources,
+  subscription: ROW_RECORDS.subscription.sources,
   shipOrder: [
     byId(shipOrders, shipOrders.id),
     own(shipHolds, [shipHolds.orderId], (key) => str(key[0])),
@@ -829,39 +773,12 @@ export const RECORD_SOURCES: RecordSources = {
   ],
   // A run before its automation: a fire's commit finalizes the run, then
   // re-arms the automation, and one commit's rows come out in this order.
-  automationRun: [
-    byId(automationRuns, automationRuns.id, { rows: notTombstoned(automationRuns.deletedAt) }),
-  ],
-  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
-  userLayout: [
-    own(
-      userLayout,
-      [userLayout.userId, userLayout.key],
-      (key) => layoutRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userLayout.updatedAt] } },
-    ),
-  ],
-  userReadPosition: [
-    own(
-      userReadPosition,
-      [userReadPosition.userId, userReadPosition.streamId],
-      (key) => readPositionRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userReadPosition.updatedAt] } },
-    ),
-  ],
-  pin: [
-    own(pins, [pins.userId, pins.kind, pins.id], (key) =>
-      pinRowId(key[0] as UserId, key[1] as never, str(key[2])),
-    ),
-  ],
-  tabOrder: [
-    own(
-      tabOrder,
-      [tabOrder.userId, tabOrder.worktree],
-      (key) => tabOrderRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [tabOrder.updatedAt] } },
-    ),
-  ],
+  automationRun: ROW_RECORDS.automationRun.sources,
+  automation: ROW_RECORDS.automation.sources,
+  userLayout: ROW_RECORDS.userLayout.sources,
+  userReadPosition: ROW_RECORDS.userReadPosition.sources,
+  pin: ROW_RECORDS.pin.sources,
+  tabOrder: ROW_RECORDS.tabOrder.sources,
   // One record per person, folding all of the person's leaves.
   userPreferences: [
     own(userPreferences, [userPreferences.userId], (key) => userPreferencesRowId(key[0] as UserId)),
@@ -889,27 +806,8 @@ export const RECORD_SOURCES: RecordSources = {
         await reads.store.sessions.sessionUserStateIdsOf({ sessionIds: firstKeys(changes) }),
     ),
   ],
-  superagentThread: [
-    // Never on the record: the watermarks, the harness's own session id (the
-    // record says only whether there is one) and the terminal lock.
-    own(
-      superagentThreads,
-      [superagentThreads.ownerUserId, superagentThreads.id],
-      (key) => superagentThreadRowId(key[0] as UserId, str(key[1])),
-      {
-        reads: {
-          allBut: [
-            superagentThreads.watermarkItemId,
-            superagentThreads.watermarkTs,
-            superagentThreads.harnessSessionId,
-            superagentThreads.terminalSessionId,
-          ],
-        },
-        derived: [`{row}.${superagentThreads.harnessSessionId.name} IS NOT NULL`],
-      },
-    ),
-  ],
-  agentProfile: [byId(agentProfiles, agentProfiles.id)],
+  superagentThread: ROW_RECORDS.superagentThread.sources,
+  agentProfile: ROW_RECORDS.agentProfile.sources,
   workflow: [
     byId(workflows, workflows.id),
     // The workflow's record reads its revisions (its latest one).
@@ -917,12 +815,8 @@ export const RECORD_SOURCES: RecordSources = {
       key[0] == null ? null : str(key[0]),
     ),
   ],
-  workflowRevision: [byId(workflowRevisions, workflowRevisions.id)],
-  workflowBinding: [
-    own(workflowBindings, [workflowBindings.targetKind, workflowBindings.targetId], (key) =>
-      workflowBindingRowId(key[0] as never, str(key[1])),
-    ),
-  ],
+  workflowRevision: ROW_RECORDS.workflowRevision.sources,
+  workflowBinding: ROW_RECORDS.workflowBinding.sources,
   workflowRun: [
     byId(workflowRuns, workflowRuns.id),
     own(workflowRunSteps, [workflowRunSteps.runId], (key) => str(key[0])),
@@ -933,21 +827,9 @@ export const RECORD_SOURCES: RecordSources = {
       async (changes, reads) => await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
     ),
   ],
-  instancePreferences: [
-    own(meta, [meta.key], () => INSTANCE_PREFERENCES_ROW_ID, {
-      rows: `{row}.${meta.key.name} = 'settings'`,
-    }),
-  ],
-  effect: [
-    byId(effects, effects.id, {
-      rows: `${notTombstoned(effects.deletedAt)} AND ${EFFECT_ON_FEED}`,
-    }),
-  ],
-  checkout: [
-    own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
-      checkoutRowId(key[0] as MachineId, str(key[1])),
-    ),
-  ],
+  instancePreferences: ROW_RECORDS.instancePreferences.sources,
+  effect: ROW_RECORDS.effect.sources,
+  checkout: ROW_RECORDS.checkout.sources,
   issueEvent: [
     via(
       podiumEvents,

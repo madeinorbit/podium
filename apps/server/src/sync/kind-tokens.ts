@@ -7,12 +7,12 @@ import {
   FEED_EVENT_KINDS,
   instancePreferencesRecordOf,
   MAX_AGENT_PROFILE_CANDIDATES,
+  RECORDS,
   WorkflowStep,
   WorkflowStepEvidence,
 } from '@podium/model'
 import {
   FeedChange,
-  MetadataChange,
   type MetadataEntityKind,
   SERVER_MOVE_CAPABILITY,
   type SyncKindTokens,
@@ -21,6 +21,7 @@ import {
 } from '@podium/protocol'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { SyncRepository } from '@podium/sync'
+import type { z } from 'zod'
 import { driverFamilyForId, harnessCapabilitiesFor } from '../harness-manifest'
 import {
   EFFECT_PUBLISHED_INPUT,
@@ -89,11 +90,12 @@ const salts: Partial<Record<MetadataEntityKind, string>> = {}
 
 // The scoped feed has its own schema for some kinds. Other kinds use the
 // opaque arm of the feed envelope and publish the value from MetadataChange.
-const schemas = new Map(
-  [...MetadataChange.options, ...FeedChange.options].map(
-    (arm) => [arm.shape.entity.value, arm.shape.value] as const,
-  ),
-)
+// The value is optional on a change envelope. Keep that wrapper in the
+// fingerprint even for kinds whose records are generated from a declaration.
+const schemas = new Map<MetadataEntityKind, z.ZodTypeAny>([
+  ...RECORDS.map((record) => [record.kind, record.schema.optional()] as const),
+  ...FeedChange.options.map((arm) => [arm.shape.entity.value, arm.shape.value] as const),
+])
 const kinds = DATABASE_ONLY_BUILDERS.map(({ kind }) => kind)
 
 /** Object insertion order is not a policy change. Arrays retain their order. */
