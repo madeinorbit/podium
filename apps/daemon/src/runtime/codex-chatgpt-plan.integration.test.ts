@@ -56,7 +56,9 @@ import { stageRuntimeAttachment } from './attachment-staging'
 import { dialEngineSocket, engineEnvBuilder, engineSocketRoot } from './host'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 
-const facts = codexEngineFacts(manifestFor('codex')!)
+const codexManifest = manifestFor('codex')
+if (!codexManifest) throw new Error('no codex manifest')
+const facts = codexEngineFacts(codexManifest)
 const PLAN_BASE = 'https://api.openai.com/v1'
 const MIN = 60_000
 
@@ -125,8 +127,9 @@ class FakeProvider {
       })
       req.on('end', () => this.answer(req.method ?? 'GET', req.url ?? '', req.headers, body, res))
     })
-    await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve))
-    this.base = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}/v1`
+    const server = this.server
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    this.base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
   }
 
   stop(): void {
@@ -374,7 +377,9 @@ function rig(): Rig {
           if (Date.now() > deadline) throw new Error(`turn did not end: ${text}`)
           await new Promise((resolve) => setTimeout(resolve, 100))
         }
-        return ends[before]!
+        const end = ends[before]
+        if (!end) throw new Error(`turn ended without a verdict: ${text}`)
+        return end
       },
     }
   }
