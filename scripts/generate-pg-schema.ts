@@ -52,6 +52,8 @@ import {
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
   PG_INDEX_WHERE_OVERRIDES,
+  PG_ONLY_INDEXES,
+  PG_ONLY_TABLES,
   PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
 } from '../apps/server/src/migrations/pg/schema-overrides'
 import * as serverSchema from '../apps/server/src/migrations/schema'
@@ -273,6 +275,16 @@ function tableSource(
     }
     extras.push(source)
   }
+  // Indexes only the Postgres twin has (search's GIN index), in key order.
+  for (const [key, only] of Object.entries(PG_ONLY_INDEXES).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    const [table, index] = key.split('.') as [string, string]
+    if (table !== name) continue
+    uses.core.add('index')
+    uses.sql = true
+    extras.push(`index(${tsString(index)}).using('${only.using}', ${sqlTag(only.sql)})`)
+  }
   for (const fk of config.foreignKeys) {
     uses.core.add('foreignKey')
     const reference = fk.reference()
@@ -406,6 +418,16 @@ export const int8 = (name: string) => bigint(name, { mode: 'number' })
 
 `
 
+/** The re-export of the tables only the Postgres schema has (`PG_ONLY_TABLES`), or ''. */
+function pgOnlyTablesExport(): string {
+  const keys = Object.keys(PG_ONLY_TABLES).sort()
+  if (keys.length === 0) return ''
+  return (
+    '/** Tables only the Postgres schema has: see `PG_ONLY_TABLES` in `schema-overrides.ts`. */\n' +
+    `export { ${keys.join(', ')} } from './pg-only-tables'\n\n`
+  )
+}
+
 /** The whole generated file of one target. */
 export function generate(target: Target): string {
   const tables = generatedTables(target.module)
@@ -445,6 +467,7 @@ export function generate(target: Target): string {
     `  identityMembershipEvent,\n  identityOneTimeCode,\n  identityWorkspaceRevision,\n` +
     `  rateLimit as identityRateLimit,\n  session as identitySession,\n  user as identityUser,\n` +
     `  verification as identityVerification,\n} from '@podium/identity/schema/pg'\n\n` +
+    pgOnlyTablesExport() +
     sql +
     `import { ${core.join(', ')} } from 'drizzle-orm/pg-core'\n` +
     `import { ${columns.join(', ')} } from '../../../../../packages/sync/src/adapters/pg/schema'\n` +

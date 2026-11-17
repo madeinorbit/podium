@@ -63,7 +63,10 @@ import {
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
   PG_INDEX_WHERE_OVERRIDES,
+  PG_ONLY_INDEXES,
+  PG_ONLY_TABLES,
   PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
+  type PgOnlyIndex,
   type PgOverride,
 } from './schema-overrides'
 
@@ -102,6 +105,8 @@ interface Overrides {
   readonly defaults: Readonly<Record<string, PgOverride>>
   readonly keptAsText: Readonly<Record<string, string>>
   readonly foreignKeyNames: Readonly<Record<string, { readonly name: string }>>
+  /** Indexes only the Postgres twin has (search's GIN index), keyed `table.index`. */
+  readonly pgOnlyIndexes: Readonly<Record<string, PgOnlyIndex>>
   readonly classOf: (table: string, column: string) => TextColumnClass | undefined
 }
 
@@ -111,6 +116,7 @@ const REAL_OVERRIDES: Overrides = {
   defaults: PG_DEFAULT_OVERRIDES,
   keptAsText: PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
   foreignKeyNames: PG_FOREIGN_KEY_RENAMES,
+  pgOnlyIndexes: PG_ONLY_INDEXES,
   classOf: textColumnClass,
 }
 
@@ -296,8 +302,19 @@ function compareTable(
       find(`index ${config.name}: where ${sWhere} / ${pWhere}`)
     }
   }
-  for (const name of pIndexes.keys()) {
-    if (!sIndexNames.has(name ?? '')) find(`index ${name} exists only on Postgres`)
+  for (const [name, config] of pIndexes) {
+    if (sIndexNames.has(name ?? '')) continue
+    const only = overrides.pgOnlyIndexes[`${table}.${name}`]
+    if (only === undefined) {
+      find(`index ${name} exists only on Postgres`)
+      continue
+    }
+    parity.used.add(`pg-only index ${table}.${name}`)
+    const columns = config.columns.map((column) => part(column, pgSql)).join(',')
+    if (config.method !== only.using || columns !== `(${fold(only.sql)})`)
+      find(
+        `index ${name}: using ${config.method} on ${columns}, the override says ${only.using} on (${only.sql})`,
+      )
   }
 
   // Foreign keys, by name, with their actions.
@@ -392,8 +409,15 @@ const IDENTITY_KEYS = new Set(
 // The identity package's Postgres-only table, re-exported with the rest of its schema.
 const PG_ONLY_IDENTITY_KEYS = new Set(['identityRateLimit'])
 
+// The server's Postgres-only tables (search's `transcript_text`), listed with their reasons.
+const PG_ONLY_TABLE_KEYS = new Set(Object.keys(PG_ONLY_TABLES))
+
 const SERVER_SQLITE = sqliteTablesOf(sqliteServer)
-const SERVER_PG = pgTablesOf(pgServer, new Set([...IDENTITY_KEYS, ...PG_ONLY_IDENTITY_KEYS]))
+const SERVER_PG = pgTablesOf(
+  pgServer,
+  new Set([...IDENTITY_KEYS, ...PG_ONLY_IDENTITY_KEYS, ...PG_ONLY_TABLE_KEYS]),
+)
+const PG_ONLY_SERVER_TABLES = [...PG_ONLY_TABLE_KEYS].map((key) => (pgServer as Module)[key])
 const SYNC_SQLITE = sqliteTablesOf(sqliteSync)
 const SYNC_PG = pgTablesOf(pgSync, new Set())
 
@@ -403,12 +427,25 @@ const PARITY = {
 }
 
 const allSqliteTables = (): SQLiteTable[] => [...SERVER_SQLITE.values(), ...SYNC_SQLITE.values()]
-const allPgTables = (): PgTable[] => [...SERVER_PG.values(), ...SYNC_PG.values()]
+const allPgTables = (): PgTable[] => [
+  ...SERVER_PG.values(),
+  ...SYNC_PG.values(),
+  ...(PG_ONLY_SERVER_TABLES as PgTable[]),
+]
 
 describe('the Postgres twin of the server schema', () => {
   it('has every SQLite table, column, key, index, foreign key and check, in the Postgres types of its class', () => {
     expect(SERVER_SQLITE.size).toBeGreaterThan(100)
     expect(PARITY.server.findings).toEqual([])
+  })
+
+  it('has exactly the Postgres-only tables PG_ONLY_TABLES lists, none named as a SQLite table', () => {
+    expect(PG_ONLY_SERVER_TABLES.every((table) => is(table, PgTable))).toBe(true)
+    const sqliteNames = new Set([...SERVER_SQLITE.values()].map((t) => getTableConfig(t).name))
+    const clashes = (PG_ONLY_SERVER_TABLES as PgTable[])
+      .map((table) => getPgTableConfig(table).name)
+      .filter((name) => sqliteNames.has(name))
+    expect(clashes).toEqual([])
   })
 
   it("re-exports the identity package's Postgres schema under the server schema's names", () => {
@@ -449,6 +486,7 @@ describe('the class lists and the overrides', () => {
       ...Object.keys(PG_INDEX_WHERE_OVERRIDES).map((key) => `where ${key}`),
       ...Object.keys(PG_DEFAULT_OVERRIDES).map((key) => `default ${key}`),
       ...Object.keys(PG_FOREIGN_KEY_RENAMES).map((key) => `foreign key ${key}`),
+      ...Object.keys(PG_ONLY_INDEXES).map((key) => `pg-only index ${key}`),
     ]
     expect(listed.filter((key) => !used.has(key))).toEqual([])
     const classified = classifiedTextColumns()
@@ -490,9 +528,13 @@ describe('the Postgres DDL', () => {
     const snapshot = await generateDrizzleJson({ ...pgServer, ...pgSync })
     const statements = await generateMigration(empty, snapshot)
     const creates = statements.filter((statement) => statement.startsWith('CREATE TABLE'))
-    // The twins, the identity package's ten Postgres tables.
+    // The twins, the identity package's ten Postgres tables, the server's Postgres-only ones.
     expect(creates).toHaveLength(
-      SERVER_PG.size + SYNC_PG.size + IDENTITY_KEYS.size + PG_ONLY_IDENTITY_KEYS.size,
+      SERVER_PG.size +
+        SYNC_PG.size +
+        IDENTITY_KEYS.size +
+        PG_ONLY_IDENTITY_KEYS.size +
+        PG_ONLY_TABLE_KEYS.size,
     )
     const generatedNames = new Set(allPgTables().map((table) => getPgTableConfig(table).name))
     const plainText: string[] = []
@@ -529,7 +571,14 @@ describe('the checker finds planted drift', () => {
     classOf: (table, column) =>
       table !== 'planted' ? undefined : column === 'at' ? 'timestamp' : 'text',
   }
-  type Drift = { renamed?: boolean; plainText?: boolean; index?: boolean; check?: boolean }
+  type Drift = {
+    renamed?: boolean
+    plainText?: boolean
+    index?: boolean
+    check?: boolean
+    /** A GIN index only the twin has, over this expression. */
+    searchIndex?: string
+  }
   const twin = (drift: Drift = {}) =>
     pgTable(
       'planted',
@@ -546,10 +595,13 @@ describe('the checker finds planted drift', () => {
         ...(drift.index ? [] : [index('planted_name').on(table.name)]),
         index('planted_n').on(table.n).where(sql`"n" > 0`),
         ...(drift.check ? [] : [check('planted_n_check', sql`n >= 0`)]),
+        ...(drift.searchIndex === undefined
+          ? []
+          : [index('planted_search').using('gin', sql.raw(drift.searchIndex))]),
       ],
     )
-  const findingsOf = (pg: PgTable) =>
-    parityOf(new Map([['planted', planted]]), new Map([['planted', pg]]), classes).findings.join(
+  const findingsOf = (pg: PgTable, overrides: Overrides = classes) =>
+    parityOf(new Map([['planted', planted]]), new Map([['planted', pg]]), overrides).findings.join(
       '\n',
     )
 
@@ -570,6 +622,21 @@ describe('the checker finds planted drift', () => {
   it('finds a missing index and a missing check', () => {
     expect(findingsOf(twin({ index: true }))).toMatch(/index planted_name is missing/)
     expect(findingsOf(twin({ check: true }))).toMatch(/check planted_n_check is missing/)
+  })
+
+  it('finds an index only the twin has, unless the list names it with its expression', () => {
+    const vector = `to_tsvector('simple', "name")`
+    expect(findingsOf(twin({ searchIndex: vector }))).toMatch(
+      /index planted_search exists only on Postgres/,
+    )
+    const listed = (sql: string): Overrides => ({
+      ...classes,
+      pgOnlyIndexes: { 'planted.planted_search': { using: 'gin', sql, reason: 'planted' } },
+    })
+    expect(findingsOf(twin({ searchIndex: vector }), listed(vector))).toBe('')
+    expect(
+      findingsOf(twin({ searchIndex: vector }), listed(`to_tsvector('english', "name")`)),
+    ).toMatch(/index planted_search: using gin on/)
   })
 
   it('finds a timestamp column that is not timestamptz', () => {

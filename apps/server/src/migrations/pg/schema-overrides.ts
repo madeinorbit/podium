@@ -130,3 +130,121 @@ export const PG_DDL_NOTES: Readonly<Record<string, string>> = {
     'that leaves undrained rows, and must not refuse the statement that writes them ' +
     '(design 2.5). Drizzle has no deferrable foreign key.',
 }
+
+// ---------------------------------------------------------------------------
+// Search (POD-6990, design 2.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every ASCII punctuation character. Postgres's text search parser reads `/repo/wt` as one
+ * file path token, `a.b.com` as a host and `deploy-script` as a hyphenated word as well as
+ * its parts; SQLite's FTS5 `unicode61` tokenizer splits all of them into their words. Each
+ * of these becomes a space before Postgres parses the text, so both engines index the same
+ * words (design 2.6, "What differs": punctuation outside ASCII and non-Latin scripts still
+ * may).
+ */
+export const SEARCH_PUNCTUATION = `!"#$%&'()*+,-./:;<=>?@[\\]^_\`{|}~`
+
+/**
+ * THE LATIN LETTERS FTS5 READS AS ANOTHER LETTER, AND WHAT IT READS EACH AS. `unicode61`
+ * removes diacritics (`remove_diacritics 1`, the default) and folds case: `Café` is the
+ * word `cafe`, so `cafe` finds it. Postgres's `simple` configuration only lowercases, by
+ * the database's locale. So each of these letters becomes the letter FTS5 indexes before
+ * Postgres parses the text: a letter of Latin-1 Supplement and Latin Extended-A and -B
+ * (U+00C0 to U+024F) that decomposes into one ASCII letter and ONE combining mark becomes
+ * that letter in lower case (FTS5 keeps a letter with two marks, such as `ǖ`), `ſ` becomes
+ * `s`, and any other upper case letter there becomes its one lower case letter. Checked
+ * letter by letter against FTS5 (SQLite 3.53) when this was written; the search contract
+ * test (`store/conversations/search-contract.test.ts`) holds both engines to a corpus
+ * with such words.
+ */
+export const SEARCH_LETTER_FOLDS: readonly (readonly [string, string])[] = (() => {
+  const folds: [string, string][] = []
+  for (let point = 0xc0; point <= 0x24f; point += 1) {
+    const letter = String.fromCodePoint(point)
+    const parts = letter.normalize('NFD')
+    const lower = letter.toLowerCase()
+    if (/^[A-Za-z][\u0300-\u036f]$/.test(parts)) folds.push([letter, parts[0]!.toLowerCase()])
+    else if (letter === '\u017f') folds.push([letter, 's'])
+    else if (lower !== letter && [...lower].length === 1 && /\p{L}/u.test(letter))
+      folds.push([letter, lower])
+  }
+  return folds
+})()
+
+/** `translate()`'s two lists: the punctuation (to spaces) and the letters (to their folds). */
+const SEARCH_FROM = SEARCH_PUNCTUATION + SEARCH_LETTER_FOLDS.map(([from]) => from).join('')
+const SEARCH_TO =
+  ' '.repeat(SEARCH_PUNCTUATION.length) + SEARCH_LETTER_FOLDS.map(([, to]) => to).join('')
+
+/** A Postgres string literal. */
+const literal = (text: string): string => `'${text.replaceAll("'", "''")}'`
+
+/**
+ * A text expression as the words FTS5 would index: {@link SEARCH_PUNCTUATION} as spaces
+ * and {@link SEARCH_LETTER_FOLDS} folded. `translate()` is immutable and ignores
+ * collation, so it may stand in an index and a generated column.
+ */
+export const searchTextOf = (text: string): string =>
+  `translate(${text}, ${literal(SEARCH_FROM)}, ${literal(SEARCH_TO)})`
+
+/** The `tsvector` of a text expression: the `simple` configuration over {@link searchTextOf}. */
+export const searchVectorOf = (text: string): string =>
+  `to_tsvector('simple', ${searchTextOf(text)})`
+
+/**
+ * THE INDEXED TEXT OF ONE TRANSCRIPT ROW ON POSTGRES, AT MOST THIS MANY CHARACTERS. A
+ * `tsvector` is refused above 1 MB, and a refused row would stop its segment's indexing at
+ * that row; 250,000 characters of the shortest distinct words stay well under it. The
+ * row's whole content is still stored, read back and shown; only words past this point
+ * are not found on Postgres (design 2.6, "What differs").
+ */
+export const TRANSCRIPT_SEARCH_CHARACTERS = 250_000
+
+/**
+ * The `tsvector` a conversation's search reads, over the four columns `conversations_fts`
+ * indexes on SQLite, with `column` naming each (quoted, and qualified as the statement
+ * needs). The GIN index {@link PG_ONLY_INDEXES} names is over this expression with bare
+ * column names, and the search writes the same expression, which is what lets it use the
+ * index.
+ */
+export const conversationSearchVector = (column: (name: string) => string): string =>
+  searchVectorOf(
+    ['title', 'name', 'summary', 'project_path']
+      .map((name) => `coalesce(${column(name)}, '')`)
+      .join(` || ' ' || `),
+  )
+
+/** An index only the Postgres twin has: its method, the expression it is over, and why. */
+export interface PgOnlyIndex {
+  readonly using: 'gin'
+  /** The indexed expression, written as Postgres reads it, column names quoted. */
+  readonly sql: string
+  readonly reason: string
+}
+
+/** Indexes only the Postgres twin has, keyed `table.index_name`. */
+export const PG_ONLY_INDEXES: Readonly<Record<string, PgOnlyIndex>> = {
+  'conversations.idx_conversations_search': {
+    using: 'gin',
+    sql: conversationSearchVector((name) => `"${name}"`),
+    reason:
+      'SQLite searches conversations through the FTS5 table conversations_fts and its three ' +
+      'triggers, made at boot. Postgres searches the same four columns through this GIN ' +
+      'index over their tsvector, which Postgres keeps current itself (design 2.6). An ' +
+      'expression index rather than a generated column, so the twin keeps the SQLite ' +
+      'column set and the synced record.',
+  },
+}
+
+/**
+ * Tables only the Postgres schema has, keyed by export name, each defined in
+ * `pg-only-tables.ts` and re-exported by the generated twin, with why.
+ */
+export const PG_ONLY_TABLES: Readonly<Record<string, string>> = {
+  transcriptText:
+    'SQLite keeps transcript search rows in the FTS5 table transcript_fts and their workspace ' +
+    'and segment in transcript_fts_keys, both made at boot. Postgres keeps them in this one ' +
+    'plain table with a stored tsvector and a GIN index; its key columns are ordinary ' +
+    'indexed columns, so it needs no key table (design 2.6).',
+}

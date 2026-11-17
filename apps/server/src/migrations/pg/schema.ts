@@ -50,6 +50,9 @@ export {
   verification as identityVerification,
 } from '@podium/identity/schema/pg'
 
+/** Tables only the Postgres schema has: see `PG_ONLY_TABLES` in `schema-overrides.ts`. */
+export { transcriptText } from './pg-only-tables'
+
 import { sql } from 'drizzle-orm'
 import {
   boolean,
@@ -559,6 +562,10 @@ export const conversations = pgTable(
     index('idx_conversations_top_level_updated')
       .on(table.updatedAt, table.id)
       .where(sql`"parent_conversation_id" IS NULL`),
+    index('idx_conversations_search').using(
+      'gin',
+      sql`to_tsvector('simple', translate(coalesce("title", '') || ' ' || coalesce("name", '') || ' ' || coalesce("summary", '') || ' ' || coalesce("project_path", ''), '!"#$%&''()*+,-./:;<=>?@[\\]^_\`{|}~ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞàáâãäåçèéêëìíîïñòóôõöùúûüýÿĀāĂăĄąĆćĈĉĊċČčĎďĐĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦĨĩĪīĬĭĮįİĲĴĵĶķĹĺĻļĽľĿŁŃńŅņŇňŊŌōŎŏŐőŒŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƁƂƄƆƇƉƊƋƎƏƐƑƓƔƖƗƘƜƝƟƠơƢƤƦƧƩƬƮƯưƱƲƳƵƷƸƼǄǅǇǈǊǋǍǎǏǐǑǒǓǔǕǗǙǛǞǠǢǤǦǧǨǩǪǫǬǮǰǱǲǴǵǶǷǸǹǺǼǾȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȜȞȟȠȢȤȦȧȨȩȪȬȮȯȰȲȳȺȻȽȾɁɃɄɅɆɈɊɌɎ', '                                aaaaaaæceeeeiiiiðnoooooøuuuuyþaaaaaaceeeeiiiinooooouuuuyyaaaaaaccccccccddđeeeeeeeeeegggggggghhħiiiiiiiiiĳjjkkllllllŀłnnnnnnŋooooooœrrrrrrssssssssttttŧuuuuuuuuuuuuwwyyyzzzzzzsɓƃƅɔƈɖɗƌǝəɛƒɠɣɩɨƙɯɲɵooƣƥʀƨʃƭʈuuʊʋƴƶʒƹƽǆǆǉǉǌǌaaiioouuǖǘǚǜǟǡǣǥggkkooǭǯjǳǳggƕƿnnǻǽǿaaaaeeeeiiiioooorrrruuuussttȝhhƞȣȥaaeeȫȭooȱyyⱥȼƚⱦɂƀʉʌɇɉɋɍɏ'))`,
+    ),
   ],
 )
 
