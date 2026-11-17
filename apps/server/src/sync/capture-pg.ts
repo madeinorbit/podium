@@ -68,8 +68,11 @@
  * commit, and the drain (`SyncRepository.drainCapture`) is the same statement on both.
  *
  * This module imports no Postgres module: it reads a builder's dialect by its drizzle
- * entity kind and the column classes from the SQLite schema (`migrations/pg/schema-classes`),
- * so a SQLite store that loads a binding never loads drizzle's Postgres code.
+ * entity kind, the tables' structure (columns, primary keys, foreign keys) from the SQLite
+ * table binding (`store/executor/binding.ts`, the set every definition's `t` is, so it names
+ * no table outside a binding: POD-7014's rule) and the column classes from
+ * `migrations/pg/schema-classes`, so a SQLite store that loads a binding never loads
+ * drizzle's Postgres code.
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'
@@ -85,8 +88,9 @@ import {
 } from 'drizzle-orm'
 import { getTableConfig, SQLiteBoolean, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { textColumnClass } from '../migrations/pg/schema-classes'
-import * as schema from '../migrations/schema'
+import { CLEARED_ON_DELETE } from '../migrations/schema'
 import { type WriteGuardForm, writeGuard } from '../store/append-only'
+import { bindingFor } from '../store/executor/binding'
 import {
   RECORD_SOURCES,
   type RecordSource,
@@ -145,8 +149,12 @@ export interface CaptureCascade {
   readonly nulls: readonly string[]
 }
 
+/**
+ * Every table of the SQLite binding by its SQL name: the server schema's and the sync
+ * adapter's. The capture forms read only their structure, never a query on them.
+ */
 const SQLITE_TABLES: ReadonlyMap<string, SQLiteTable> = new Map(
-  (Object.values(schema) as unknown[]).flatMap((value) =>
+  (Object.values(bindingFor('sqlite')) as unknown[]).flatMap((value) =>
     is(value, SQLiteTable) ? [[getTableName(value), value] as const] : [],
   ),
 )
@@ -246,7 +254,7 @@ export function cascadesReachingSources(
       const onDelete = key.onDelete ?? 'no action'
       // A composite key whose delete clears its reference alone (POD-7024): it declares no
       // action, and each engine clears the column (CLEARED_ON_DELETE in the schema).
-      const cleared = schema.CLEARED_ON_DELETE.find(
+      const cleared = CLEARED_ON_DELETE.find(
         (entry) => entry.table === child && entry.key === key.getName(),
       )
       if (cleared !== undefined && onDelete === 'no action') {
