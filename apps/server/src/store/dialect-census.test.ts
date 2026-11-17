@@ -22,7 +22,9 @@
  *    SQLite's byte order (design 2.3, rule 13);
  *  - it compares a `json` column without `CAST(col AS TEXT)`: `json` has no equality, and
  *    SQLite compares the text (rule 7);
- *  - it compares a boolean column with an integer (`= 1`), which Postgres refuses.
+ *  - it compares a boolean column with an integer (`= 1`), which Postgres refuses;
+ *  - it orders by a nullable column without NULLS FIRST / NULLS LAST: SQLite sorts NULL
+ *    first ascending and Postgres last, so the rows come back in another order.
  *
  * Each such definition is on {@link NEEDS_PG_FORM} with what it needs, and the task that
  * adds its Postgres form is the one that owns its file ({@link TASK_OF_FILE}, from design
@@ -183,6 +185,14 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
   [
+    'apps/server/src/store/effects.ts:effectsInStatus',
+    'ORDER BY nullable column deadline_at without NULLS FIRST/LAST',
+  ],
+  [
+    'apps/server/src/store/effects.ts:expireDueEffects',
+    'ORDER BY nullable column deadline_at without NULLS FIRST/LAST',
+  ],
+  [
     'apps/server/src/store/effects.ts:liveOnTargetKeys',
     'SQLite-only INDEXED BY, SQLite-only rowid',
   ],
@@ -202,7 +212,7 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   [
     'apps/server/src/store/issue-listings.ts:issueListing',
-    'SQLite-only instr(), SQLite-only julianday()',
+    'ORDER BY nullable column repo_id without NULLS FIRST/LAST, SQLite-only instr(), SQLite-only julianday()',
   ],
   ['apps/server/src/store/issues.ts:issuesUnderPathOutsideRepo', 'SQLite-only rowid'],
   [
@@ -222,6 +232,14 @@ const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
   ['apps/server/src/store/maintenance.ts:pruneOldestCommands', 'SQLite-only rowid'],
   ['apps/server/src/store/messages.ts:latestPendingOperator', 'SQLite-only rowid'],
   ['apps/server/src/store/messages.ts:openChat', 'SQLite-only INDEXED BY, SQLite-only rowid'],
+  [
+    'apps/server/src/store/messages.ts:pendingSendersOf',
+    'ORDER BY nullable column from_issue without NULLS FIRST/LAST, ORDER BY nullable column from_session without NULLS FIRST/LAST',
+  ],
+  [
+    'apps/server/src/store/messages.ts:pendingSummaryOf',
+    'ORDER BY nullable column from_issue without NULLS FIRST/LAST, ORDER BY nullable column from_session without NULLS FIRST/LAST',
+  ],
   [
     'apps/server/src/store/messages.ts:swapHarnessRef',
     'json column harness_ref_json compared without CAST(… AS TEXT)',
@@ -664,12 +682,19 @@ function tablesNamed(tokens: Token[]): Set<string> {
 
 /** Per column name, the tables in which it is a column of the given SQL type. */
 function columnsOfType(type: (sqlType: string) => boolean): Map<string, Set<string>> {
+  return columnsWhere((column) => type(column.getSQLType()))
+}
+
+/** Per column name, the tables in which a column of that name satisfies `test`. */
+function columnsWhere(
+  test: (column: ReturnType<typeof getTableConfig>['columns'][number]) => boolean,
+): Map<string, Set<string>> {
   const byName = new Map<string, Set<string>>()
   for (const value of Object.values(PG_TABLES)) {
     if (!is(value, PgTable)) continue
     const config = getTableConfig(value)
     for (const column of config.columns) {
-      if (!type(column.getSQLType())) continue
+      if (!test(column)) continue
       byName.set(column.name, (byName.get(column.name) ?? new Set()).add(config.name))
     }
   }
@@ -753,6 +778,72 @@ function booleanComparisonFindings(tokens: Token[]): string[] {
   return found
 }
 
+/** Words that end an ORDER BY list at its own depth. */
+const ORDER_BY_END = new Set([
+  'LIMIT',
+  'OFFSET',
+  'FETCH',
+  'FOR',
+  'UNION',
+  'EXCEPT',
+  'INTERSECT',
+  'RETURNING',
+])
+
+/**
+ * An ORDER BY term that is a nullable column with no NULLS FIRST / NULLS LAST. SQLite
+ * sorts NULL first ascending and Postgres last, so such an order differs between the
+ * engines (design 2.3, "NULL order"). Window orders (`OVER (ORDER BY …)`) count too.
+ * Only a bare column reference is judged: an expression's nullability is not known here.
+ */
+function nullOrderFindings(tokens: Token[]): string[] {
+  const found: string[] = []
+  const tables = tablesNamed(tokens)
+  const judge = (start: number, end: number) => {
+    let last = end
+    for (let k = start; k <= end; k += 1) if (upper(tokenAt(tokens, k)) === 'NULLS') return
+    if (/^(ASC|DESC)$/.test(upper(tokenAt(tokens, last)))) last -= 1
+    let column: string | undefined
+    let qualifier: string | undefined
+    const at = (k: number) => tokenAt(tokens, k)
+    if (last === start && at(start).kind === 'name') column = at(start).text.slice(1, -1)
+    else if (last === start + 2 && at(start + 1).text === '.' && at(last).kind === 'name') {
+      column = at(last).text.slice(1, -1)
+      qualifier = at(start).kind === 'name' ? at(start).text.slice(1, -1) : at(start).text
+    }
+    if (column === undefined) return
+    const owners = NULLABLE_COLUMNS.get(column)
+    if (owners === undefined) return
+    const nullable =
+      qualifier !== undefined && owners.has(qualifier)
+        ? true
+        : qualifier !== undefined && tables.has(qualifier)
+          ? false
+          : [...tables].some((table) => owners.has(table))
+    if (nullable) found.push(`ORDER BY nullable column ${column} without NULLS FIRST/LAST`)
+  }
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    if (upper(tokenAt(tokens, i)) !== 'ORDER' || upper(tokenAt(tokens, i + 1)) !== 'BY') continue
+    let depth = 0
+    let start = i + 2
+    let j = start
+    for (; j < tokens.length; j += 1) {
+      const token = tokenAt(tokens, j)
+      if (token.text === '(') depth += 1
+      else if (token.text === ')') {
+        if (depth === 0) break
+        depth -= 1
+      } else if (depth === 0 && (token.text === ',' || ORDER_BY_END.has(upper(token)))) {
+        judge(start, j - 1)
+        if (token.text !== ',') break
+        start = j + 1
+      }
+    }
+    if (j >= tokens.length || tokenAt(tokens, j).text === ')') judge(start, j - 1)
+  }
+  return found
+}
+
 /** Every finding in one Postgres statement, deduplicated. */
 function findingsIn(sql: string): string[] {
   const tokens = tokenize(sql)
@@ -763,6 +854,7 @@ function findingsIn(sql: string): string[] {
   for (const finding of computedTextFindings(tokens)) found.add(finding)
   for (const finding of jsonComparisonFindings(tokens)) found.add(finding)
   for (const finding of booleanComparisonFindings(tokens)) found.add(finding)
+  for (const finding of nullOrderFindings(tokens)) found.add(finding)
   return [...found].sort()
 }
 
@@ -775,6 +867,7 @@ const PG_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
 
 const JSON_COLUMNS = columnsOfType((type) => type === 'json')
 const BOOLEAN_COLUMNS = columnsOfType((type) => type === 'boolean')
+const NULLABLE_COLUMNS = columnsWhere((column) => !column.notNull)
 
 /** A Postgres drizzle instance over the twins whose client refuses to run anything. */
 function pgRecordingDrizzle() {
@@ -983,5 +1076,23 @@ describe('the census reads Postgres SQL', () => {
       'boolean column archived compared with an integer',
     ])
     expect(findingsIn('select "id" from "sessions" where "sessions"."archived" = $1')).toEqual([])
+  })
+
+  it('finds an ORDER BY on a nullable column without NULLS FIRST/LAST', () => {
+    // `sessions.stopped_at` is nullable, `sessions.created_at` and `sessions.id` are not.
+    expect(
+      findingsIn(
+        'select "id" from "sessions" order by "sessions"."stopped_at" desc, "id" limit $1',
+      ),
+    ).toEqual(['ORDER BY nullable column stopped_at without NULLS FIRST/LAST'])
+    expect(findingsIn('select max("id") over (order by "stopped_at") from "sessions"')).toEqual([
+      'ORDER BY nullable column stopped_at without NULLS FIRST/LAST',
+    ])
+    expect(
+      findingsIn('select "id" from "sessions" order by "stopped_at" asc nulls first, "created_at"'),
+    ).toEqual([])
+    expect(findingsIn('select "id" from "sessions" order by coalesce("stopped_at", $1)')).toEqual(
+      [],
+    )
   })
 })
