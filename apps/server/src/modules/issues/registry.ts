@@ -34,6 +34,7 @@ import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
+import type { IssueMessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { artifactEffectCommitOf } from './artifact-effect-record'
@@ -1949,42 +1950,7 @@ const defs = {
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.
   mailInbox: def('mailInbox', {
     kind: 'mutation',
-    handler: async (ctx, input) => {
-      const id = ctx.mailOwnIssue(input?.id)
-      // Only the recipient consumes unread status: an agent reading its own
-      // mailbox (scope root = the issue). Operator/other-agent peeks must not
-      // mark mail read, or delivery to the real recipient is suppressed.
-      const markRead =
-        ctx.caller.capability.scope.kind === 'subtree' &&
-        (await ctx.reports.resolveRef(id)) === ctx.caller.capability.scope.rootId
-      // WHICH session is reading [POD-1379]: the mailbox is shared by every
-      // agent on the issue, so the read is consumed per reader. Server-stamped
-      // from the caller (mailIdentity pattern); client input never contributes.
-      const member = ctx.markerUser()
-      const rows = await ctx.commentsMail.mailInbox(asIssueId(id), {
-        markRead,
-        ...(ctx.caller.capability.actorSessionId
-          ? { sessionId: ctx.caller.capability.actorSessionId }
-          : {}),
-        // The reading agent's human (POD-6291): their read marker, nobody else's.
-        ...(member ? { member } : {}),
-      })
-      // MAIL IS PRIVATE (POD-6284, POD-6288). An agent reads its own subtree's
-      // boxes whole; anyone else, a person included, sees only the rows the mail
-      // read rule gives them, the same as show, status, the ledger and inbox.
-      const scope = ctx.caller.capability.scope
-      const resolved = await ctx.reports.resolveRef(id)
-      const inSubtree =
-        scope.kind === 'subtree' &&
-        (scope.rootId === resolved ||
-          (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
-      if (inSubtree || !ctx.deps.mailVisibleIds) return rows
-      const visible = await ctx.deps.mailVisibleIds(
-        ctx.caller.capability,
-        rows.map((row) => row.id),
-      )
-      return rows.filter((row) => visible.has(row.id))
-    },
+    handler: async (ctx, input) => await readMailInbox(ctx, input?.id, { consume: true }),
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
   // MESSAGE id, which a pure input extractor cannot resolve — `target` returns
@@ -2175,4 +2141,51 @@ export async function guardIssueCommand(
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
   await checkIssueAccess(caller, reports, name, def.action, targetId)
+}
+
+/**
+ * An issue mailbox as `issues.mailInbox` answers it. `consume` is the command's
+ * own read; without it the read writes nothing, which is how a replay rebuilds
+ * the answer from its receipt's digest (POD-7035, `receipt-digest.ts`).
+ */
+export async function readMailInbox(
+  ctx: IssueCommandCtx,
+  ref: string | undefined,
+  opts: { consume: boolean },
+): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
+  const id = ctx.mailOwnIssue(ref)
+  // Only the recipient consumes unread status: an agent reading its own
+  // mailbox (scope root = the issue). Operator/other-agent peeks must not
+  // mark mail read, or delivery to the real recipient is suppressed.
+  const markRead =
+    opts.consume &&
+    ctx.caller.capability.scope.kind === 'subtree' &&
+    (await ctx.reports.resolveRef(id)) === ctx.caller.capability.scope.rootId
+  // WHICH session is reading [POD-1379]: the mailbox is shared by every
+  // agent on the issue, so the read is consumed per reader. Server-stamped
+  // from the caller (mailIdentity pattern); client input never contributes.
+  const member = ctx.markerUser()
+  const rows = await ctx.commentsMail.mailInbox(asIssueId(id), {
+    markRead,
+    ...(ctx.caller.capability.actorSessionId
+      ? { sessionId: ctx.caller.capability.actorSessionId }
+      : {}),
+    // The reading agent's human (POD-6291): their read marker, nobody else's.
+    ...(member ? { member } : {}),
+  })
+  // MAIL IS PRIVATE (POD-6284, POD-6288). An agent reads its own subtree's
+  // boxes whole; anyone else, a person included, sees only the rows the mail
+  // read rule gives them, the same as show, status, the ledger and inbox.
+  const scope = ctx.caller.capability.scope
+  const resolved = await ctx.reports.resolveRef(id)
+  const inSubtree =
+    scope.kind === 'subtree' &&
+    (scope.rootId === resolved ||
+      (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
+  if (inSubtree || !ctx.deps.mailVisibleIds) return rows
+  const visible = await ctx.deps.mailVisibleIds(
+    ctx.caller.capability,
+    rows.map((row) => row.id),
+  )
+  return rows.filter((row) => visible.has(row.id))
 }

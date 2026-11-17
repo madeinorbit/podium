@@ -345,12 +345,22 @@ const insertAppliedMutation = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAppliedMutationsBefore = prepared((db: StoreDrizzle) =>
-  db
-    .delete(appliedMutations)
+/**
+ * ONE BATCH OF THE RECEIPT PRUNE (POD-7035): the oldest `batchSize` receipts
+ * applied before the cutoff, read off the front of
+ * `idx_applied_mutations_applied_at`. The janitor sends one batch per command;
+ * the boot path's single unbatched `DELETE … WHERE applied_at < ?` is gone, so a
+ * long uptime never turns into hundreds of megabytes deleted in one statement.
+ */
+const deleteAppliedMutationsBatch = prepared((db: StoreDrizzle) => {
+  const oldest = db
+    .select({ rowid: sql<number>`rowid` })
+    .from(appliedMutations)
     .where(lt(appliedMutations.appliedAt, param(appliedMutations.appliedAt, 'before')))
-    .prepare(),
-)
+    .orderBy(asc(appliedMutations.appliedAt))
+    .limit(sql.placeholder('batchSize'))
+  return db.delete(appliedMutations).where(inArray(sql`rowid`, oldest)).prepare()
+})
 
 const currentFeedIdentity = prepared((db: StoreDrizzle) =>
   db
@@ -545,6 +555,20 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .delete(queued)
         .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
+        .prepare(),
+    ),
+
+    // The expiry of one session's rows queued at or before a time (POD-7035):
+    // a range on `queued_messages_session (session_id, queued_at)`.
+    deleteQueuedOfSessionThrough: prepared((db: StoreDrizzle) =>
+      db
+        .delete(queued)
+        .where(
+          and(
+            eq(queued.sessionId, param(queued.sessionId, 'sessionId')),
+            lte(queued.queuedAt, sql.placeholder('through')),
+          ),
+        )
         .prepare(),
     ),
 
@@ -910,8 +934,14 @@ export class SyncRepository {
     await insertAppliedMutation(this.db).run({ mutationId, proc, result, appliedAt })
   }
 
-  async pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): Promise<void> {
-    await deleteAppliedMutationsBefore(this.db).run({ before: opts.now - opts.maxAgeMs })
+  /** Delete at most `batchSize` of the oldest receipts applied before `before`;
+   *  returns how many went. */
+  async pruneAppliedMutationsBatch(before: number, batchSize: number): Promise<number> {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new RangeError('batchSize must be a positive integer')
+    }
+    const result = await deleteAppliedMutationsBatch(this.db).run({ before, batchSize })
+    return Number(result.changes)
   }
 
   /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
@@ -1094,6 +1124,19 @@ export class SyncRepository {
   async deleteQueuedMessagesForSession(sessionId: SessionId): Promise<void> {
     await this.writeQueue(async () => {
       await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
+    })
+  }
+
+  /**
+   * Expire one session's queued rows queued at or before `through` (epoch ms),
+   * as the session record's queue write (POD-7035). Returns how many went.
+   */
+  async expireQueuedMessagesOfSession(sessionId: SessionId, through: number): Promise<number> {
+    return await this.writeQueue(async () => {
+      const result = await this.serverTables
+        .deleteQueuedOfSessionThrough(this.db)
+        .run({ sessionId, through })
+      return Number(result.changes)
     })
   }
 

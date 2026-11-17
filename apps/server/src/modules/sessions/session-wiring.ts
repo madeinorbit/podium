@@ -97,7 +97,7 @@ import { SessionKill, type SessionKillPorts } from './session-kill'
 import { SessionMetaOps } from './session-meta-ops'
 import { isRunningStatus } from './session-record'
 import { SessionRevival } from './session-revival'
-import { APPLIED_MUTATIONS_MAX_AGE_MS, DEFAULT_GEOMETRY } from './session-shared'
+import { DEFAULT_GEOMETRY } from './session-shared'
 import { SessionStart } from './session-start'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import { SessionStateService } from './session-state/service'
@@ -344,7 +344,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
     sessionLiveChanged: (sessionId) => bag.liveTopics.changed(sessionId),
     now: () => bag.now(),
-    appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     onRoutingChanged: (sessionId, previous) =>
       bag.bus.emit('session.routingChanged', { sessionId, previous }),
     records: bag.records,

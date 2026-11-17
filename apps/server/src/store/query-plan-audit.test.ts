@@ -370,7 +370,6 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['accounts', 'Provider accounts the operator configures by hand.'],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
-  ['maintenance_commands', 'The maintenance ledger, held to a fixed size by pruneOldestCommands.'],
   ['repos', 'One row per repository checkout per machine.'],
   ['repo_prefixes', 'One row per repository.'],
   ['server_secrets', 'A fixed set of server keys.'],
@@ -537,8 +536,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "The feed-window events of the issues in the IN list (POD-6766): read from the window's oldest id up, so bounded by the window, and sorted by id.",
   ],
   [
-    'apps/server/src/store/events.ts:eventIdBeyondCap',
-    'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
+    'apps/server/src/store/events.ts:eventsAboveId',
+    "Counts the events above the row cap's guess through idx_podium_events_kind, named with INDEXED BY: a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035).",
   ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',

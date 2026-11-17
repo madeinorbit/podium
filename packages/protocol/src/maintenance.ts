@@ -39,8 +39,13 @@ import { z } from 'zod'
 // handshake refuses the mismatch.
 // v6: change-log retention observations and replay keys name the tenant; the
 // planner reads sync_feed bounds and the covering tenant/time/seq index.
-export const MAINTENANCE_PROTOCOL_VERSION = 6
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v6'
+// v7 (POD-7035): the `applied-mutations-prune` and `queued-messages-expiry` job
+// kinds and the two lease fields that carry their horizons. The receipt prune
+// left the server's boot path for the janitor, so a v6 janitor facing a v7
+// server would leave `applied_mutations` unpruned; the handshake refuses it.
+// The planners also read `idx_maintenance_commands_applied_at` (same migration).
+export const MAINTENANCE_PROTOCOL_VERSION = 7
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v7'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */
@@ -55,6 +60,24 @@ export const MAINTENANCE_COMMAND_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 export const MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS = 500
 /** Read-gated completion decay window [spec:SP-6144]. */
 export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * Receipts deleted per `applied-mutations-prune` command (POD-7035). Small,
+ * because a receipt carries its command's result: 12.8 KB a row on average on
+ * the operator's database, and a few hundred KB for the largest. 100 rows keep
+ * one delete to about a megabyte in the common case.
+ */
+export const APPLIED_MUTATION_PRUNE_BATCH_ROWS = 100
+/**
+ * HOW LONG A QUEUED SESSION INPUT MAY WAIT (POD-7035): 14 days.
+ *
+ * A row waits in `queued_messages` until its session can take input. A parked
+ * session's queue used to wait forever, because only a queue whose session is
+ * gone was dropped. 14 days is the longest any producer of a row still waits on
+ * it: a client outbox entry lives 14 days (ADR 3 D10) and a durable message
+ * expires undelivered after 7 (`MESSAGE_WAIT_TTL_MS`). Older input is typing
+ * nobody is waiting for, into a session nobody has resumed in two weeks.
+ */
+export const QUEUED_MESSAGE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 
 const VersionClaim = {
   protocolVersion: z.number().int().positive(),
@@ -79,6 +102,9 @@ export const MaintenanceHandshakeReply = z.discriminatedUnion('status', [
     changeKeepRows: z.number().int().nonnegative(),
     changeMaxAgeMs: z.number().int().nonnegative(),
     maintenanceCommandMaxAgeMs: z.number().int().positive(),
+    /** The server's receipt horizon (`APPLIED_MUTATIONS_MAX_AGE_MS`, ADR 2 D11). */
+    appliedMutationMaxAgeMs: z.number().int().positive(),
+    queuedMessageMaxAgeMs: z.number().int().positive(),
     /**
      * The worktree-GC policy, as SETTINGS have it right now (POD-564) — not a
      * protocol constant like every field above it, which is why it rides the
@@ -213,6 +239,29 @@ export type MaintenanceCommandsPruneObservation = z.infer<
  * next sweep archives it. Self-healing, and the neighbouring hole — unarchived
  * WITHOUT a re-read — was already there when `readAt` was in the key.
  */
+export const AppliedMutationsPruneObservation = z.object({
+  maxAgeMs: z.number().int().positive(),
+  /** Epoch ms: receipts applied strictly before it are past the horizon. */
+  cutoffAppliedAt: z.number().int().nonnegative(),
+  batchSize: z.number().int().positive(),
+  /** Oldest eligible `applied_at` at plan time; it advances as batches land. */
+  fromAppliedAt: z.number().int().nonnegative(),
+  /** This batch's place in the plan, so two batches of one plan differ. */
+  batch: z.number().int().nonnegative(),
+})
+export type AppliedMutationsPruneObservation = z.infer<typeof AppliedMutationsPruneObservation>
+
+/** One session's rows queued too long ago (POD-7035). */
+export const QueuedMessagesExpiryObservation = z.object({
+  sessionId: z.string().min(1).max(256).pipe(SessionIdField),
+  maxAgeMs: z.number().int().positive(),
+  /** Epoch ms: the newest of the session's rows past the horizon, as observed. */
+  throughQueuedAt: z.number().int().nonnegative(),
+  /** How many rows the janitor saw at or before `throughQueuedAt`. */
+  rows: z.number().int().positive(),
+})
+export type QueuedMessagesExpiryObservation = z.infer<typeof QueuedMessagesExpiryObservation>
+
 export const IssueAutoArchiveObservation = z.object({
   issueId: z.string().min(1).max(256).pipe(IssueIdField),
   stage: z.string().min(1).max(64),
@@ -329,6 +378,22 @@ const MaintenanceCommandsPruneCommand = z.object({
   observed: MaintenanceCommandsPruneObservation,
 })
 
+const AppliedMutationsPruneCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('applied-mutations-prune'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: AppliedMutationsPruneObservation,
+})
+
+const QueuedMessagesExpiryCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('queued-messages-expiry'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: QueuedMessagesExpiryObservation,
+})
+
 const IssueAutoArchiveCommand = z.object({
   ...VersionClaim,
   jobKind: z.literal('issue-auto-archive'),
@@ -382,6 +447,8 @@ export const MaintenanceCommand = z.discriminatedUnion('jobKind', [
   EventLogPruneCommand,
   ChangeLogPruneCommand,
   MaintenanceCommandsPruneCommand,
+  AppliedMutationsPruneCommand,
+  QueuedMessagesExpiryCommand,
   IssueAutoArchiveCommand,
   SessionAutoArchiveCommand,
   AutomationFireCommand,
@@ -396,6 +463,8 @@ export const MaintenanceJobKind = z.enum([
   'event-log-prune',
   'change-log-prune',
   'maintenance-commands-prune',
+  'applied-mutations-prune',
+  'queued-messages-expiry',
   'issue-auto-archive',
   'session-auto-archive',
   'automation-fire',
@@ -480,6 +549,25 @@ export function maintenanceCommandsPruneRunKey(
     encode(observed.cutoffAppliedAt),
     String(observed.batchSize),
     String(observed.fromRowId),
+  ].join('/')
+}
+
+export function appliedMutationsPruneRunKey(observed: AppliedMutationsPruneObservation): string {
+  return [
+    'applied-mutations-prune',
+    String(observed.cutoffAppliedAt),
+    String(observed.batchSize),
+    String(observed.fromAppliedAt),
+    String(observed.batch),
+  ].join('/')
+}
+
+/** The session and the newest row it expires: rows queued later are a new key. */
+export function queuedMessagesExpiryRunKey(observed: QueuedMessagesExpiryObservation): string {
+  return [
+    'queued-messages-expiry',
+    encode(observed.sessionId),
+    String(observed.throughQueuedAt),
   ].join('/')
 }
 

@@ -128,7 +128,6 @@ export interface SessionRepositoryPorts {
   flushBroadcasts(): Promise<void>
   runScheduledBroadcast(): Promise<void>
   now(): number
-  appliedMutationMaxAgeMs: number
   /**
    * A committed write changed what delivery routing reads off the session —
    * its explicit issue or its cwd (POD-6160). `previous` is what the row said
@@ -1285,10 +1284,11 @@ export class SessionRepository {
       const owner = queueOwners.get(sessionId)
       if (!owner || owner.deletedAt) await this.store.sync.deleteQueuedMessagesForSession(sessionId)
     }
-    await this.store.sync.pruneAppliedMutations({
-      maxAgeMs: this.ports.appliedMutationMaxAgeMs,
-      now: this.now(),
-    })
+    // The mutation receipts are pruned by the janitor, in batches, while the
+    // server runs (POD-7035), not here: one unbatched delete at boot never ran
+    // on a server that stayed up, and after a long uptime it deleted hundreds of
+    // megabytes on the boot path. A parked session's queue rows past their
+    // horizon expire there too.
     bootStage('sessions queue sweep', queuesStarted)
   }
 

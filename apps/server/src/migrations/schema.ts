@@ -2826,6 +2826,15 @@ export const maintenanceCommands = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.jobKind, table.runKey], name: 'maintenance_commands_pk' }),
+    /**
+     * THE RECEIPT PRUNE'S ORDER (POD-7035). `pruneOldestCommands` deletes the
+     * oldest receipts by `(applied_at, job_kind, run_key)`, and the janitor's
+     * planner finds and counts them by `applied_at`. Without this index each was
+     * a scan of the whole ledger plus a temp B-tree: 216k rows, 627 ms a call, on
+     * every janitor tick. With it the prune reads its batch off the front of the
+     * index and stops.
+     */
+    index('idx_maintenance_commands_applied_at').on(table.appliedAt, table.jobKind, table.runKey),
   ],
 )
 

@@ -404,10 +404,42 @@ describe('the applied-mutation receipts', () => {
     await repo.recordAppliedMutation(asMutationId('old'), 'p', 'r', 100)
     await repo.recordAppliedMutation(asMutationId('edge'), 'p', 'r', 500)
     await repo.recordAppliedMutation(asMutationId('new'), 'p', 'r', 900)
-    await repo.pruneAppliedMutations({ maxAgeMs: 500, now: 1_000 })
+    expect(await repo.pruneAppliedMutationsBatch(500, 100)).toBe(1)
     expect(stored('SELECT mutation_id FROM applied_mutations ORDER BY mutation_id')).toEqual([
       { mutation_id: 'edge' },
       { mutation_id: 'new' },
+    ])
+  })
+
+  it('prunes one batch of the oldest receipts and stops at the batch size (POD-7035)', async () => {
+    for (const [id, at] of [
+      ['c', 300],
+      ['a', 100],
+      ['d', 400],
+      ['b', 200],
+    ] as const) {
+      await repo.recordAppliedMutation(asMutationId(id), 'p', 'r', at)
+    }
+    expect(await repo.pruneAppliedMutationsBatch(1_000, 2)).toBe(2)
+    expect(stored('SELECT mutation_id FROM applied_mutations ORDER BY mutation_id')).toEqual([
+      { mutation_id: 'c' },
+      { mutation_id: 'd' },
+    ])
+    expect(await repo.pruneAppliedMutationsBatch(1_000, 2)).toBe(2)
+    expect(await repo.pruneAppliedMutationsBatch(1_000, 2)).toBe(0)
+  })
+
+  it("expires one session's queued rows through a time and leaves later rows and other sessions (POD-7035)", async () => {
+    const enqueueAt = async (id: string, sessionId: string, queuedAt: number) =>
+      await repo.enqueueMessage({ id, sessionId: session(sessionId), text: id, queuedAt })
+    await enqueueAt('q1', 's1', 100)
+    await enqueueAt('q2', 's1', 200)
+    await enqueueAt('q3', 's1', 300)
+    await enqueueAt('q4', 's2', 100)
+    expect(await repo.expireQueuedMessagesOfSession(session('s1'), 200)).toBe(2)
+    expect(stored('SELECT id FROM queued_messages ORDER BY id')).toEqual([
+      { id: 'q3' },
+      { id: 'q4' },
     ])
   })
 })

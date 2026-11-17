@@ -11,6 +11,7 @@ import { RuntimeEvent } from '@podium/protocol/daemon'
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -527,13 +528,40 @@ const highestEventId = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const eventIdBeyondCap = prepared((db: StoreDrizzle) =>
+/**
+ * THE EVENT-LOG CAP AS A SEEK (POD-7035). The cap keeps the newest `maxRows`
+ * events; the cut is the id of the next one down. `ORDER BY id DESC OFFSET
+ * maxRows` found it by walking `maxRows` table rows, payloads and all: about
+ * 0.9 s per call on a 150 MB log, under the server's one event loop.
+ *
+ * Ids are AUTOINCREMENT, so the newest `maxRows` ids span at least `maxRows`
+ * values and the cut is never above `max(id) - maxRows`. It is below that only
+ * by the ids missing above it (an aged-out row the agent's clock dated old, a
+ * rolled-back insert). So: count the rows above the guess, then step down
+ * from the guess past exactly the missing number of rows.
+ *
+ * The count reads the narrowest index whole (a kind and a rowid per entry, about
+ * 1 MB at the 50k cap) and never a table page: a rowid range would walk the
+ * same leaf pages, payloads included, that the OFFSET did. The step-down walks
+ * only as many rows as ids are missing.
+ */
+const eventsAboveId = prepared((db: StoreDrizzle) =>
+  db
+    .select({ n: count() })
+    // Bare column name: the FROM is an INDEXED BY clause, not the table object.
+    .from(sql`${podiumEvents} INDEXED BY idx_podium_events_kind`)
+    .where(sql`id > ${sql.placeholder('guess')}`)
+    .prepare(),
+)
+
+const eventIdAtOrBelow = prepared((db: StoreDrizzle) =>
   db
     .select({ id: podiumEvents.id })
     .from(podiumEvents)
+    .where(lte(podiumEvents.id, param(podiumEvents.id, 'guess')))
     .orderBy(desc(podiumEvents.id))
     .limit(1)
-    .offset(sql.placeholder('maxRows'))
+    .offset(sql.placeholder('missing'))
     .prepare(),
 )
 
@@ -1064,41 +1092,41 @@ export class EventsRepository {
       logged ? this.logCommit : undefined,
       this.createOrJoinTransaction,
       async () => {
-      const r = await insertEvent(this.db).run({
-        ts: e.ts,
-        kind: e.kind,
-        subject: e.subject,
-        repoPath: e.repoPath ?? null,
-        payload: JSON.stringify(e.payload ?? {}),
-      })
-      const id = Number(r.lastInsertRowid)
-      // AFTER the insert, never before: the feed must not carry a row the log does
-      // not have. The listener is documented as non-throwing, and this call is not
-      // guarded here on purpose — a swallow at both ends hides a wiring fault
-      // behind a pane that simply never updates.
-      //
-      // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
-      // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
-      // not the same statement as "after the commit": a caller that appends inside
-      // a transaction was announcing a row that the enclosing span could still roll
-      // back, so a listener saw an event the log ended up not having — the exact
-      // direction this comment was written to prevent, one level up. The 22 call
-      // sites that reach this from a span body needed no change: the rule belongs
-      // at the one place the announcement happens, not on a list somebody has to
-      // keep complete. `persistManyWith` already did this by hand with
-      // `announce: false` plus `announceEvent`, and that convention still works
-      // unchanged — this makes it the default rather than the exception.
-      if (options.announce !== false) {
-        const announced = {
+        const r = await insertEvent(this.db).run({
           ts: e.ts,
           kind: e.kind,
           subject: e.subject,
           repoPath: e.repoPath ?? null,
-          payload: e.payload ?? {},
+          payload: JSON.stringify(e.payload ?? {}),
+        })
+        const id = Number(r.lastInsertRowid)
+        // AFTER the insert, never before: the feed must not carry a row the log does
+        // not have. The listener is documented as non-throwing, and this call is not
+        // guarded here on purpose — a swallow at both ends hides a wiring fault
+        // behind a pane that simply never updates.
+        //
+        // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
+        // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
+        // not the same statement as "after the commit": a caller that appends inside
+        // a transaction was announcing a row that the enclosing span could still roll
+        // back, so a listener saw an event the log ended up not having — the exact
+        // direction this comment was written to prevent, one level up. The 22 call
+        // sites that reach this from a span body needed no change: the rule belongs
+        // at the one place the announcement happens, not on a list somebody has to
+        // keep complete. `persistManyWith` already did this by hand with
+        // `announce: false` plus `announceEvent`, and that convention still works
+        // unchanged — this makes it the default rather than the exception.
+        if (options.announce !== false) {
+          const announced = {
+            ts: e.ts,
+            kind: e.kind,
+            subject: e.subject,
+            repoPath: e.repoPath ?? null,
+            payload: e.payload ?? {},
+          }
+          afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
         }
-        afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
-      }
-      return id
+        return id
       },
     )
   }
@@ -1398,8 +1426,21 @@ export class EventsRepository {
     // Compute the cap threshold once per job. Repeating this OFFSET scan before
     // every delete unit made a 50k-row retention pass itself monopolize the loop.
     // Rows appended after this snapshot are intentionally handled by the next pass.
-    const cap = await eventIdBeyondCap(this.db).get({ maxRows: opts.maxRows })
-    return { cutoff, capThroughId: cap?.id ?? 0 }
+    return { cutoff, capThroughId: await this.eventCapThroughId(opts.maxRows) }
+  }
+
+  /**
+   * The highest event id the row cap prunes: the id of the newest event beyond
+   * the newest `maxRows`, or 0 when the log holds no more than `maxRows`. Exact
+   * with gaps in the ids; see {@link eventsAboveId}.
+   */
+  async eventCapThroughId(maxRows: number): Promise<number> {
+    // `max(id)` alone, so SQLite reads it off the end of the primary key.
+    const guess = ((await highestEventId(this.db).get())?.m ?? 0) - maxRows
+    if (guess <= 0) return 0
+    const above = (await eventsAboveId(this.db).get({ guess }))?.n ?? 0
+    const missing = Math.max(0, maxRows - above)
+    return (await eventIdAtOrBelow(this.db).get({ guess, missing }))?.id ?? 0
   }
 
   /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */
