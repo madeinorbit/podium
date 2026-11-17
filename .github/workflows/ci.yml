@@ -371,6 +371,9 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         name: store shard on Postgres
         run: bun run test:lane -- server-store-pg
+      - if: steps.scope.outputs.run == 'true'
+        name: server started on a Postgres URL (POD-6994)
+        run: bun run test:file -- apps/server/src/server.postgres.bun.test.ts
 
   # The desktop shell's RUST tests — the native NDJSON log sink, its rotation
   # bound, the panic hook's payloads and the pending-crash queue. Nothing ran
