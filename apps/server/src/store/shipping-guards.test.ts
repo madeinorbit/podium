@@ -29,10 +29,12 @@ import {
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import {
   openShippingStoreSlice,
   type ShippingStoreSlice,
 } from '../test-support/shipping-store-slice'
+import { countStatements } from '../test-support/statement-count'
 import { GUARD_TEXT } from './append-only'
 
 const scope = fixtureWriteScope()
@@ -59,19 +61,34 @@ interface GuardedWrites {
   releaseActiveClaims(trainId: string): Promise<number>
 }
 
-/** The message at the bottom of a refusal: the trigger's on SQLite, the guard's on Postgres. */
+/** What a refusal looks like at the bottom of its error chain. */
+interface Refusal {
+  readonly name: unknown
+  readonly code: unknown
+  readonly errno: unknown
+}
+
+/**
+ * The message at the bottom of a refusal: the trigger's on SQLite, the in-statement
+ * guard's on Postgres. Every refusal is also held to SQLite's trigger error (bun's
+ * `SQLiteError`, code `SQLITE_CONSTRAINT_TRIGGER`), which the Postgres driver raises
+ * for a guard's refusal, so a caller sees one error on both engines.
+ */
 async function refusal(write: Promise<unknown>): Promise<string> {
   try {
     await write
   } catch (error) {
-    let cause = error as { message?: string; cause?: unknown }
+    let cause = error as Refusal & { message?: string; cause?: unknown }
     while (cause.cause !== undefined && cause.cause !== null) {
-      cause = cause.cause as { message?: string; cause?: unknown }
+      cause = cause.cause as Refusal & { message?: string; cause?: unknown }
     }
+    expect({ name: cause.name, code: cause.code, errno: cause.errno }).toEqual(TRIGGER_ERROR)
     return String(cause.message)
   }
   throw new Error('the write was not refused')
 }
+
+const TRIGGER_ERROR = { name: 'SQLiteError', code: 'SQLITE_CONSTRAINT_TRIGGER', errno: 1811 }
 
 const order = (name: string, overrides: Partial<ShipOrder> = {}): ShipOrder =>
   ({
@@ -229,5 +246,32 @@ describe('the train guards (design 2.5)', () => {
     expect(
       await refusal(s.shipping.releaseTrain(scope, claimed.id, null as never, 'no time')),
     ).toBe(GUARD_TEXT.ship_train_manifests_release_only)
+  })
+
+  it('adds no statement: a guarded release runs as many statements on either engine', async () => {
+    // The release is two guarded writes (the manifest's update, the claims' delete) and
+    // two reads; neither table is a source table, so nothing is captured or drained.
+    const { statements } = await countStatements(s.probeTarget, async () => {
+      await s.undrainedShipping.releaseTrain(scope, claimed.id, AT, 'pinned release')
+    })
+    expect(statements).toBe(RELEASE_STATEMENTS)
+  })
+})
+
+/** `releaseTrain`'s statements, the same number on both engines. */
+const RELEASE_STATEMENTS = 4
+
+describe.runIf(testStoreEngine() === 'pg')('the guard refusal on the Postgres driver', () => {
+  it('passes a genuine integer syntax error through untouched', async () => {
+    let failure: unknown
+    try {
+      await s.all(sql`SELECT CAST(${'ship-steps'} AS integer) AS n`)
+    } catch (error) {
+      failure = error
+    }
+    let cause = failure as { code?: unknown; name?: unknown; cause?: unknown }
+    while (cause.cause !== undefined && cause.cause !== null) cause = cause.cause as typeof cause
+    expect(cause.code).toBe('22P02')
+    expect(cause.name).not.toBe('SQLiteError')
   })
 })

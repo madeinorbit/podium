@@ -41,6 +41,7 @@ import * as schema from '../migrations/schema'
 import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
+import { GUARD_TEXTS } from '../store/append-only'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import { bindingFor } from '../store/executor/binding'
 import type { DriverSession, QueryClient } from '../store/executor/driver'
@@ -863,14 +864,6 @@ function refusal(error: unknown): string {
 }
 
 /**
- * The tables SQLite guards with immutability triggers (`RAISE(ABORT)`), which Postgres
- * replaces with write-path guards in the shipping bindings (design 2.5, POD-6986). Until
- * then a write SQLite refuses there runs on Postgres; such a write is counted, not
- * compared.
- */
-const GUARDED = /^(ship_[a-z_]+|delivery_receipts|root_integration_receipts)\[/
-
-/**
  * The differences the design accepts (2.3 rule 11): a derived value that drops volatile
  * fields compares semantically on Postgres, so a machine document whose keys only move
  * is captured on SQLite and not on Postgres.
@@ -973,12 +966,23 @@ describe.runIf(ENGINE === 'pg')('the cross-engine corpus (Postgres leg)', () => 
     const writes = await corpusWrites(store, ROWS_PER_TABLE)
     const differences: string[] = []
     const accepted: string[] = []
-    const guarded: string[] = []
+    let guarded = 0
     let compared = 0
     for (const write of writes) {
       const sqlite = await onSqlite(store, write)
       const pg = await onPostgres(executor, write, differences)
-      if ('refused' in sqlite && 'refused' in pg) continue
+      if ('refused' in sqlite && 'refused' in pg) {
+        // A shipping guard's refusal is the same rule on both, so the same message; a
+        // constraint's wording is each engine's own.
+        if (GUARD_TEXTS.has(sqlite.refused) || GUARD_TEXTS.has(pg.refused)) {
+          if (sqlite.refused !== pg.refused) {
+            differences.push(
+              `${write.label}: refused differently: SQLite (${sqlite.refused}), Postgres (${pg.refused})`,
+            )
+          } else guarded++
+        }
+        continue
+      }
       compared++
       let lines: string[]
       if ('refused' in sqlite || 'refused' in pg) {
@@ -991,14 +995,14 @@ describe.runIf(ENGINE === 'pg')('the cross-engine corpus (Postgres leg)', () => 
       if (lines.length === 0) continue
       const line = `${write.label}: ${lines.join('; ')}`
       if (ACCEPTED.test(line)) accepted.push(line)
-      else if (GUARDED.test(line) && 'refused' in sqlite && !('refused' in pg)) guarded.push(line)
       else differences.push(line)
     }
     console.log(
-      `corpus: ${writes.length} writes, ${compared} compared, ${accepted.length} accepted differences, ${guarded.length} refused by SQLite's shipping guards only`,
+      `corpus: ${writes.length} writes, ${compared} compared, ${accepted.length} accepted differences, ${guarded} refused by the shipping guards on both engines`,
     )
     expect(differences).toEqual([])
     expect(compared).toBeGreaterThan(500)
+    expect(guarded).toBeGreaterThan(0)
   }, 600_000)
 
   it('the oracle reports a write that bypassed its capture form', async () => {

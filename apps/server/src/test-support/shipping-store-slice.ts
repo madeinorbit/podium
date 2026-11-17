@@ -51,6 +51,11 @@ export interface ShippingStoreSlice {
   readonly shipping: ShippingRepository
   readonly issues: IssuesRepository
   readonly repos: ReposRepository
+  /**
+   * The shipping repository NOT drained, for a statement pin of a write that captures
+   * nothing: on Postgres the drain's own statements would be counted with the write's.
+   */
+  readonly undrainedShipping: ShippingRepository
   /** What `countStatements` attaches to: the store's driver, on either engine. */
   readonly probeTarget: { readonly db: object }
   /**
@@ -81,6 +86,7 @@ function sliceOver(slice: SliceStore): ShippingStoreSlice {
     shipping: drainedRepository(slice, new ShippingRepository(queries)),
     issues: drainedRepository(slice, issues),
     repos: drainedRepository(slice, repos),
+    undrainedShipping: new ShippingRepository(queries),
     probeTarget: slice.probeTarget,
     run: async (statement: SQL): Promise<void> => {
       await drainedWrite(slice, async () => {

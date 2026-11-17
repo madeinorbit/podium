@@ -55,6 +55,13 @@
  * stays the plain statement. The write census (`capture-pg.test.ts`) refuses any other
  * Postgres INSERT, UPDATE or DELETE on a source table.
  *
+ * THE SHIPPING GUARDS RIDE ON THE SAME CALL (POD-6986, design 2.5). The shipping and
+ * receipt tables' immutability rules, declared once in `store/append-only.ts`, are applied
+ * by {@link captureWrite} to every write it is handed ({@link guardedView}): an UPDATE or
+ * DELETE of an append-only table is refused when it is built, a conditional rule becomes
+ * an in-statement refusal. Because every write on a source table must be a capture form,
+ * a write that bypassed the guard would already fail the write census.
+ *
  * The fail-closed guard is unchanged: `sync_capture.undrained` references the always
  * empty `sync_capture_guard` through a DEFERRABLE INITIALLY DEFERRED foreign key in the
  * Postgres baseline (POD-6981), so a transaction that leaves capture rows undrained cannot
@@ -79,6 +86,7 @@ import {
 import { getTableConfig, SQLiteBoolean, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { textColumnClass } from '../migrations/pg/schema-classes'
 import * as schema from '../migrations/schema'
+import { type WriteGuardForm, writeGuard } from '../store/append-only'
 import {
   RECORD_SOURCES,
   type RecordSource,
@@ -764,9 +772,53 @@ export function captureWrite<B>(builder: B, sources: RecordSources = RECORD_SOUR
   const plain = Object.getPrototypeOf(write).getSQL as (this: PgWriteBuilder) => SQL
   Object.defineProperty(write, 'getSQL', {
     configurable: true,
-    value: () => captureForm(write, kind.op, sources) ?? plain.call(write),
+    value: () => {
+      const guarded = guardedView(write, kind.op)
+      return captureForm(guarded, kind.op, sources) ?? plain.call(guarded)
+    },
   })
   return builder
+}
+
+/** The columns an upsert's DO UPDATE assigns, read from its rendered ON CONFLICT. */
+function upsertSetColumns(builder: PgWriteBuilder): string[] {
+  const conflict = builder.config.onConflict
+  if (conflict === undefined) return []
+  const text = builder.dialect.sqlToQuery(conflict).sql
+  const at = text.indexOf(' do update set ')
+  if (at < 0) return []
+  const until = text.indexOf(' where ', at)
+  return [...text.slice(at, until < 0 ? undefined : until).matchAll(/"((?:[^"]|"")+)" = /g)].map(
+    (match) => (match[1] as string).replaceAll('""', '"'),
+  )
+}
+
+/**
+ * The builder as its shipping guard writes it (`store/append-only.ts`, `writeGuard`):
+ * itself for a table no rule guards; otherwise a view whose WHERE, or whose upsert's
+ * DO UPDATE, carries the in-statement refusal. Throws the trigger's refusal for a write
+ * no row of the table may take.
+ */
+function guardedView(builder: PgWriteBuilder, op: WriteOp): PgWriteBuilder {
+  const upsert = op === 'i' && isUpsert(builder)
+  const form: WriteGuardForm | undefined = writeGuard({
+    table: getTableName(builder.config.table),
+    op,
+    setColumns: op === 'u' ? setColumnsOf(builder) : upsert ? upsertSetColumns(builder) : [],
+    upsert,
+  })
+  if (form === undefined) return builder
+  const config = { ...builder.config }
+  if (form.where !== undefined && op !== 'i') config.where = form.where(builder.config.where)
+  if (form.conflict !== undefined && builder.config.onConflict !== undefined) {
+    const conflict = builder.config.onConflict
+    const text = builder.dialect.sqlToQuery(conflict).sql
+    const hasWhere = text.indexOf(' where ', text.indexOf(' do update set ')) >= 0
+    config.onConflict = hasWhere
+      ? sql`${conflict} and ${form.conflict}`
+      : sql`${conflict} where ${form.conflict}`
+  }
+  return Object.assign(Object.create(builder) as PgWriteBuilder, { config })
 }
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ import { and, eq, notInArray, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as pgSchema from '../migrations/pg/schema'
 import type { SessionStore } from '../store'
-import { renderedWrites } from '../sync/capture-pg'
+import { captureWrite, renderedWrites } from '../sync/capture-pg'
 import {
   FAMILY_SHAPES,
   isFragment,
@@ -45,10 +45,18 @@ import {
 } from '../test-support/definition-census'
 import { openTestStore } from '../test-support/open-test-store'
 import { queryDefinitionSites } from '../test-support/prepared-census'
-import { APPEND_ONLY, GUARD_TEXT, GUARDED_TABLES, immutabilityViolations } from './append-only'
+import {
+  APPEND_ONLY,
+  GUARD_TEXT,
+  GUARDED_TABLES,
+  guardRefusalOf,
+  immutabilityViolations,
+  ShippingGuardError,
+} from './append-only'
 import type { bindingFor } from './executor/binding'
 import type { QueryClient } from './executor/driver'
 import { buildPgStoreDrizzle } from './executor/pg-drizzle'
+import { translatePgError } from './executor/pg-types'
 import type { StoreDrizzle } from './executor/sync-drizzle'
 
 const PG_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
@@ -322,5 +330,133 @@ describe('the immutability census (design 2.5)', () => {
     ).toEqual([
       `delete from ship_train_active_claims without its fence: ${GUARD_TEXT.ship_train_active_claims_release_guard}`,
     ])
+  })
+
+  it('fails on a planted upsert that may update an append-only row', () => {
+    expect(
+      violationsOf(
+        planted('reReceipt', (db, t) =>
+          db
+            .insert(t.deliveryReceipts)
+            .values({ id: sql.placeholder('id') } as never)
+            .onConflictDoUpdate({
+              target: t.deliveryReceipts.id,
+              set: { destinationSha: sql.placeholder('sha') as never },
+            })
+            .prepare(),
+        ),
+      ),
+    ).toEqual([`upsert into delivery_receipts: ${GUARD_TEXT.delivery_receipts_immutable}`])
+  })
+})
+
+describe('the guards captureWrite applies on Postgres (design 2.5)', () => {
+  const db = pgRecordingDrizzle()
+  const t = PG_TABLES as unknown as Tables
+  const textOf = (build: () => { getSQL(): unknown }): string =>
+    (db as unknown as { dialect: { sqlToQuery(q: unknown): { sql: string } } }).dialect.sqlToQuery(
+      build().getSQL(),
+    ).sql
+  const refusedAtBuild = (build: () => { getSQL(): unknown }): unknown => {
+    try {
+      build().getSQL()
+    } catch (error) {
+      return error
+    }
+    return undefined
+  }
+
+  it('refuses an UPDATE, DELETE or upsert of an append-only table when it is built', () => {
+    const update = refusedAtBuild(() =>
+      captureWrite(
+        db
+          .update(t.deliveryReceipts)
+          .set({ destinationSha: sql.placeholder('sha') as never })
+          .where(eq(t.deliveryReceipts.id, sql.placeholder('id') as never)),
+      ),
+    )
+    expect(update).toBeInstanceOf(ShippingGuardError)
+    expect((update as Error).message).toBe(GUARD_TEXT.delivery_receipts_immutable)
+    const remove = refusedAtBuild(() =>
+      captureWrite(
+        db
+          .delete(t.shipOrderStackEdges)
+          .where(eq(t.shipOrderStackEdges.upperOrderId, sql.placeholder('id') as never)),
+      ),
+    )
+    expect((remove as Error).message).toBe(GUARD_TEXT.ship_order_stack_edges_immutable)
+    const upsert = refusedAtBuild(() =>
+      captureWrite(
+        db
+          .insert(t.deliveryReceipts)
+          .values({ id: sql.placeholder('id') } as never)
+          .onConflictDoUpdate({
+            target: t.deliveryReceipts.id,
+            set: { destinationSha: sql.placeholder('sha') as never },
+          }),
+      ),
+    )
+    expect((upsert as Error).message).toBe(GUARD_TEXT.delivery_receipts_immutable)
+  })
+
+  it('writes a conditional rule into the statement, over the rows the write touches', () => {
+    const order = textOf(() =>
+      captureWrite(
+        db
+          .update(t.shipOrders)
+          .set({ targetBranch: sql.placeholder('branch') as never })
+          .where(eq(t.shipOrders.id, sql.placeholder('id') as never)),
+      ),
+    )
+    expect(order).toContain(
+      `where ("ship_orders"."id" = $1) and CAST(CASE WHEN ("ship_orders"."id" = $2) IS NOT TRUE THEN NULL WHEN "ship_orders"."state" IN ('shipped', 'cancelled') THEN '${GUARD_TEXT.ship_orders_terminal_immutable}' WHEN "ship_orders"."workspace_id" IS NOT NULL THEN '${GUARD_TEXT.ship_orders_frozen_fields}' END AS integer) IS NULL for update`,
+    )
+    const hold = textOf(() =>
+      captureWrite(
+        db
+          .insert(t.shipHolds)
+          .values({ id: sql.placeholder('id') } as never)
+          .onConflictDoUpdate({
+            target: t.shipHolds.id,
+            set: { detail: sql.placeholder('detail') as never },
+          }),
+      ),
+    )
+    expect(hold).toContain(
+      ` where CAST(CASE WHEN "ship_holds"."resolved_at" IS NOT NULL THEN '${GUARD_TEXT.ship_holds_resolved_immutable}' END AS integer) IS NULL`,
+    )
+  })
+
+  it("maps a guard's 22P02 to SQLite's trigger error, and passes every other failure through", () => {
+    const guard = {
+      code: '22P02',
+      message: `invalid input syntax for type integer: "${GUARD_TEXT.ship_orders_terminal_immutable}"`,
+    }
+    const mapped = translatePgError(guard) as ShippingGuardError
+    expect(mapped).toBeInstanceOf(ShippingGuardError)
+    expect({
+      name: mapped.name,
+      message: mapped.message,
+      code: mapped.code,
+      errno: mapped.errno,
+      cause: (mapped as { cause?: unknown }).cause,
+    }).toEqual({
+      name: 'SQLiteError',
+      message: GUARD_TEXT.ship_orders_terminal_immutable,
+      code: 'SQLITE_CONSTRAINT_TRIGGER',
+      errno: 1811,
+      cause: undefined,
+    })
+    // A genuine integer syntax error, another code with a guard text, and a text that only
+    // contains one are not refusals.
+    const genuine = { code: '22P02', message: 'invalid input syntax for type integer: "abc"' }
+    expect(translatePgError(genuine)).toBe(genuine)
+    expect(guardRefusalOf({ ...guard, code: '23505' })).toBeUndefined()
+    expect(
+      guardRefusalOf({
+        code: '22P02',
+        message: `invalid input syntax for type integer: "x ${GUARD_TEXT.ship_orders_terminal_immutable}"`,
+      }),
+    ).toBeUndefined()
   })
 })

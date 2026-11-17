@@ -5,32 +5,44 @@
  * On SQLite, 32 triggers (`RAISE(ABORT, …)`) guard the 13 shipping and receipt tables:
  * append-only tables, rows a terminal state freezes, columns frozen at creation, and
  * insert guards that check other tables. Postgres gets no triggers (a trigger needs
- * PL/pgSQL, and the store uses no stored procedures), so the same rules live in the
- * write path, declared here once:
+ * PL/pgSQL, and the same Postgres SQL must later run on an engine without it), so the
+ * same rules live in the write path, each declared here once, with the trigger's text
+ * ({@link GUARD_TEXT}):
  *
- *  - {@link APPEND_ONLY}: a table, or one operation on it, that no write may touch. The
- *    immutability census (`immutability-census.test.ts`) renders every Postgres
- *    definition and refuses any UPDATE or DELETE of one.
- *  - {@link UPDATE_RULES}: the conditional rules of an update. Its frozen columns may not
- *    be assigned, and its fence (the WHERE term that keeps the update off the rows the
- *    rule freezes: a terminal order, a finished attempt, a resolved hold, a released
- *    manifest) must be in the statement. The census checks both on every update.
- *  - {@link DELETE_RULES}: a delete allowed only on rows a fence admits (an active
- *    claim, once its manifest is released).
- *  - Insert guards: the repository's insert is `INSERT … SELECT … WHERE <guard>` on
- *    Postgres ({@link insertWhere}), and when it inserts nothing the repository raises
- *    the trigger's text.
+ *  - {@link APPEND_ONLY}: a table, or one operation on it, that no write may touch.
+ *  - {@link UPDATE_RULES}: an update's frozen columns, and its fence (the rows the rule
+ *    freezes: a terminal order, a finished attempt, a resolved hold, a released manifest).
+ *  - {@link DELETE_RULES}: a delete allowed only on some rows (an active claim, once its
+ *    manifest is released).
  *
- * Each rule carries the SQLite trigger's own text ({@link GUARD_TEXT}), and a refusal
- * on Postgres raises that same text, so a caller (and a test) sees one refusal on
- * either engine. Every lookup a guard makes is held to the written row's workspace, as
- * the SQLite triggers match `workspace_id = NEW.workspace_id` (POD-7024).
+ * ONE DECLARATION, TWO REFUSALS. {@link writeGuard} turns a write's declarations into
+ * its Postgres form: an UPDATE or DELETE of an append-only table (or an upsert that
+ * would update one) is refused when the statement is built, and a conditional rule
+ * becomes an in-statement refusal ({@link refusalTerm}) over the rows the write
+ * touches. `captureWrite` (`sync/capture-pg.ts`) applies it to every write it is handed,
+ * and every Postgres write on a source table must go through `captureWrite` (the write
+ * census refuses any other), so a write that bypassed the guard there would already fail
+ * that census. The guarded tables that are not source tables are written only by
+ * `store/shipping.ts`, whose train inserts, claim release and manifest release carry the
+ * same refusals in their own statements; the immutability census
+ * (`immutability-census.test.ts`) renders every Postgres definition and refuses an
+ * UPDATE or DELETE of an append-only table, a frozen column assigned, or a guarded write
+ * with neither its fence nor its refusal.
+ *
+ * ONE ERROR ON BOTH ENGINES. An in-statement refusal fails with SQLSTATE 22P02 carrying
+ * the trigger's text; the Postgres driver (`executor/pg-types.ts`, `translatePgError`)
+ * turns exactly that into {@link ShippingGuardError}, which has the name, message, code
+ * and errno of the error SQLite's trigger raises. A refusal adds no statement.
+ *
+ * Every lookup a guard makes is held to the written row's workspace, as the SQLite
+ * triggers match `workspace_id = NEW.workspace_id` (POD-7024). `ship_orders`' insert
+ * guard (frozen lane custody) reads only the inserted values, which `createOrder` checks
+ * against the issue's custody before it inserts, so no insert reaches it.
  *
  * SQLite keeps its triggers; nothing here changes a SQLite statement.
  */
 
-import { type Column, getTableColumns, type SQL, sql, type Table } from 'drizzle-orm'
-import { param } from './executor/sync-drizzle'
+import { type SQL, sql } from 'drizzle-orm'
 
 /** The text each SQLite trigger raises, by trigger name. */
 export const GUARD_TEXT = {
@@ -141,7 +153,16 @@ export interface Fence {
   readonly text: string
   /** Whether the rendered statement carries the fence. */
   readonly holds: (statement: string) => boolean
+  /**
+   * When the rule refuses, as SQL over the written row's current values (`row(c)` names
+   * its column `c`): the condition of the SQLite trigger's WHEN, which the in-statement
+   * refusal ({@link writeGuard}) raises on.
+   */
+  readonly refuses: (row: RowRef) => string
 }
+
+/** A row's column, as SQL: `"table"."column"`. */
+export type RowRef = (column: string) => string
 
 /** The conditional rules of an update. */
 export interface UpdateRule {
@@ -165,6 +186,8 @@ const TERMINAL_ORDER_STATES = ['shipped', 'cancelled'] as const
  */
 const orderFence: Fence = {
   text: GUARD_TEXT.ship_orders_terminal_immutable,
+  refuses: (row) =>
+    `${row('state')} IN (${TERMINAL_ORDER_STATES.map((state) => `'${state}'`).join(', ')})`,
   holds: (statement) => {
     const notIn = new RegExp(`${column('state')} not in \\(([^)]*)\\)`, 'g')
     for (const match of statement.matchAll(notIn)) {
@@ -182,6 +205,7 @@ const orderFence: Fence = {
 const isNullFence = (name: string, text: string): Fence => ({
   text,
   holds: (statement) => new RegExp(`${column(name)} is null`).test(statement),
+  refuses: (row) => `${row(name)} IS NOT NULL`,
 })
 
 /** The order columns frozen when it is approved, as `ship_orders_frozen_fields` lists them. */
@@ -255,6 +279,9 @@ export const DELETE_RULES: ReadonlyMap<string, Fence> = new Map<string, Fence>([
       text: GUARD_TEXT.ship_train_active_claims_release_guard,
       // The claims' manifest is released: `EXISTS (SELECT … m.released_at IS NOT NULL)`.
       holds: (statement) => /exists \(select .*\breleased_at"? is not null/i.test(statement),
+      // Its manifest, in the claim's own workspace, is still open.
+      refuses: (row) =>
+        `EXISTS (SELECT 1 FROM "ship_train_manifests" m WHERE m.workspace_id = ${row('workspace_id')} AND m.id = ${row('train_id')} AND m.released_at IS NULL)`,
     },
   ],
 ])
@@ -265,7 +292,13 @@ export interface GuardedWrite {
   readonly table: string
   /** For an update: the columns its SET assigns. */
   readonly setColumns?: readonly string[]
+  /** For an insert: whether it is an upsert (ON CONFLICT … DO UPDATE). */
+  readonly upsert?: boolean
 }
+
+/** Whether a rendered statement carries the in-statement refusal of `text` ({@link refusalTerm}). */
+const refusesInStatement = (statement: string, text: string): boolean =>
+  statement.includes(`THEN '${text}'`)
 
 /**
  * Why a rendered Postgres statement breaks a rule of this module, one line per broken
@@ -293,8 +326,13 @@ export function immutabilityViolations(
           out.push(`update ${write.table} sets ${name}: ${rule.only.text}`)
         }
       }
-      if (rule.fence !== undefined && !rule.fence.holds(statement)) {
-        out.push(`update ${write.table} without its fence: ${rule.fence.text}`)
+      const fence = rule.fence
+      if (
+        fence !== undefined &&
+        !fence.holds(statement) &&
+        !refusesInStatement(statement, fence.text)
+      ) {
+        out.push(`update ${write.table} without its fence: ${fence.text}`)
       }
     } else if (write.op === 'd') {
       if (appendOnly?.delete !== undefined) {
@@ -302,9 +340,16 @@ export function immutabilityViolations(
         continue
       }
       const fence = DELETE_RULES.get(write.table)
-      if (fence !== undefined && !fence.holds(statement)) {
+      if (
+        fence !== undefined &&
+        !fence.holds(statement) &&
+        !refusesInStatement(statement, fence.text)
+      ) {
         out.push(`delete from ${write.table} without its fence: ${fence.text}`)
       }
+    } else if (write.upsert === true && appendOnly?.update !== undefined) {
+      // ON CONFLICT … DO UPDATE updates the row it meets.
+      out.push(`upsert into ${write.table}: ${appendOnly.update}`)
     }
   }
   return out
@@ -322,48 +367,158 @@ export const GUARDED_TABLES: ReadonlySet<string> = new Set([
 // ---------------------------------------------------------------------------
 
 /**
- * The row of `INSERT INTO table (…) SELECT <row> FROM … WHERE <guard>`: each named
- * column's placeholder, bound to the column's encoder and cast to its Postgres type. A
- * parameter in a select list has no type of its own (Postgres reads it as text, which
- * does not assign to an integer or a timestamp), so the cast gives it the column's.
- * `names` maps a column's key to its placeholder name; by default the key itself.
+ * A REFUSAL WRITTEN INTO THE STATEMENT. Postgres runs no trigger, and plain SQL has no
+ * RAISE, so a statement refuses a row by failing on it:
+ *
+ * ```sql
+ * CAST(CASE WHEN <the row is not written> THEN NULL
+ *           WHEN <rule 1 refuses> THEN '<trigger text 1>' … END AS integer) IS NULL
+ * ```
+ *
+ * A row no rule refuses casts NULL and passes; a row a rule refuses casts the trigger's
+ * text, which is not an integer, so the statement fails with SQLSTATE 22P02 carrying that
+ * text, atomically and in the one statement the write already is. The first arm keeps the
+ * term off rows the write does not touch: `scope` is the write's own WHERE, and a CASE
+ * evaluates its arms in order, wherever the planner places the term. The driver turns
+ * that failure into {@link ShippingGuardError} ({@link guardRefusalOf}).
+ *
+ * Each case's condition must read the row (a column, or a lookup keyed by one), so that
+ * the term is evaluated per row and never folded to a constant at planning.
  */
-export function insertedRow(
-  table: Table,
-  keys: readonly string[],
-  names: Readonly<Record<string, string>> = {},
-): Record<string, SQL.Aliased> {
-  const columns = getTableColumns(table) as Record<string, Column>
-  return Object.fromEntries(
-    keys.map((key) => {
-      const target = columns[key]
-      if (target === undefined) throw new Error(`insertedRow: no column ${key}`)
-      return [
-        key,
-        sql`CAST(${param(target, names[key] ?? key)} AS ${sql.raw(castType(target))})`.as(
-          target.name,
-        ),
-      ]
-    }),
-  )
+export function refusalTerm(
+  cases: readonly { readonly when: SQL; readonly text: string }[],
+  scope?: SQL,
+): SQL {
+  const arms = cases.map(({ when, text }) => sql` WHEN ${when} THEN ${sql.raw(literal(text))}`)
+  const skip = scope === undefined ? sql`` : sql` WHEN (${scope}) IS NOT TRUE THEN NULL`
+  return sql`CAST(CASE${skip}${sql.join(arms, sql``)} END AS integer) IS NULL`
+}
+
+/** A guard text as a SQL string literal. */
+function literal(text: string): string {
+  if (!(GUARD_TEXTS as ReadonlySet<string>).has(text)) {
+    throw new Error(`refusalTerm: ${JSON.stringify(text)} is not a declared guard text`)
+  }
+  return `'${text.replaceAll("'", "''")}'`
+}
+
+/** Every declared guard text. */
+export const GUARD_TEXTS: ReadonlySet<string> = new Set(Object.values(GUARD_TEXT))
+
+/** What a write is, as {@link writeGuard} reads it. */
+export interface WriteShape {
+  readonly table: string
+  readonly op: 'i' | 'u' | 'd'
+  /** An update's SET columns, or an upsert's DO UPDATE columns. */
+  readonly setColumns?: readonly string[]
+  /** For an insert: whether it is an upsert (ON CONFLICT … DO UPDATE). */
+  readonly upsert?: boolean
+}
+
+/** How a guarded write's statement changes on Postgres. */
+export interface WriteGuardForm {
+  /** The term to AND into the write's WHERE, given that WHERE. */
+  readonly where?: (where: SQL | undefined) => SQL
+  /** The term an upsert's DO UPDATE carries as its WHERE: refusing the row it would update. */
+  readonly conflict?: SQL
+}
+
+/** `"table"."column"`. */
+const rowOf =
+  (table: string): RowRef =>
+  (column) =>
+    `"${table}"."${column}"`
+
+/** The cases an update of `table` assigning `setColumns` refuses on, in SQLite's order. */
+function updateCases(
+  table: string,
+  rule: UpdateRule,
+  setColumns: readonly string[],
+): { when: SQL; text: string }[] {
+  const row = rowOf(table)
+  const cases: { when: SQL; text: string }[] = []
+  // A frozen column is refused for every row the update writes (`BEFORE UPDATE OF`), so
+  // its condition is the row being there: its first primary key column is never NULL.
+  const present = sql.raw(`${row('workspace_id')} IS NOT NULL`)
+  if (rule.fence !== undefined)
+    cases.push({ when: sql.raw(rule.fence.refuses(row)), text: rule.fence.text })
+  for (const name of setColumns) {
+    const frozen = rule.frozen.get(name)
+    if (frozen !== undefined) cases.push({ when: present, text: frozen })
+    else if (rule.only !== undefined && !rule.only.columns.includes(name)) {
+      cases.push({ when: present, text: rule.only.text })
+    }
+  }
+  return cases
 }
 
 /**
- * A column's Postgres type as a CAST names it: its SQL type without the collation the
- * twin gives a text column (`text COLLATE "C"`), which a type name in a CAST cannot carry
- * and an inserted value does not need.
+ * THE GUARD OF ONE POSTGRES WRITE (design 2.5), from the declarations above; undefined
+ * for a table no rule guards. `captureWrite` applies it to every write it is handed,
+ * which is every write on a source table (the write census refuses any other), so the
+ * guard cannot be bypassed there; a write on a guarded table that is not a source table
+ * is held by the immutability census to its fence.
+ *
+ *  - An UPDATE or DELETE of an append-only table, and an upsert that would update one,
+ *    is refused when the statement is built: it throws {@link ShippingGuardError} with
+ *    the trigger's text, so a definition that makes one fails when it is prepared.
+ *  - A conditional rule becomes an in-statement refusal ({@link refusalTerm}) over the
+ *    rows the write touches: their current values, as SQLite's `OLD`.
  */
-const castType = (column: Column): string => column.getSQLType().replace(/\s+COLLATE\s+.*$/i, '')
-
-/**
- * Raise `text` when a guarded write changed nothing: the Postgres half of an insert
- * guard or a fenced update, whose WHERE refused the row the SQLite trigger refuses.
- */
-export function refuseUnlessWritten(changes: number, text: string): void {
-  if (changes === 0) throw new GuardRefusal(text)
+export function writeGuard(shape: WriteShape): WriteGuardForm | undefined {
+  if (!GUARDED_TABLES.has(shape.table)) return undefined
+  const appendOnly = APPEND_ONLY.get(shape.table)
+  if (shape.op === 'u' || (shape.op === 'i' && shape.upsert === true)) {
+    if (appendOnly?.update !== undefined) throw new ShippingGuardError(appendOnly.update)
+    const rule = UPDATE_RULES.get(shape.table)
+    if (rule === undefined) return undefined
+    const cases = updateCases(shape.table, rule, shape.setColumns ?? [])
+    if (cases.length === 0) return undefined
+    if (shape.op === 'i') return { conflict: refusalTerm(cases) }
+    return {
+      where: (where) =>
+        where === undefined ? refusalTerm(cases) : sql`(${where}) and ${refusalTerm(cases, where)}`,
+    }
+  }
+  if (shape.op === 'd') {
+    if (appendOnly?.delete !== undefined) throw new ShippingGuardError(appendOnly.delete)
+    const fence = DELETE_RULES.get(shape.table)
+    if (fence === undefined) return undefined
+    const cases = [{ when: sql.raw(fence.refuses(rowOf(shape.table))), text: fence.text }]
+    return {
+      where: (where) =>
+        where === undefined ? refusalTerm(cases) : sql`(${where}) and ${refusalTerm(cases, where)}`,
+    }
+  }
+  return undefined
 }
 
-/** A write-path guard's refusal, carrying the SQLite trigger's text as its message. */
-export class GuardRefusal extends Error {
-  override readonly name = 'GuardRefusal'
+/**
+ * A SHIPPING GUARD'S REFUSAL, AS SQLITE'S TRIGGER RAISES IT. On SQLite a trigger's
+ * `RAISE(ABORT, '<text>')` throws bun's `SQLiteError` with that text as its message, code
+ * `SQLITE_CONSTRAINT_TRIGGER` and errno 1811. bun constructs that class only itself, so
+ * Postgres raises this one with the same name, message, code and errno, and a caller (or
+ * a test) reading any of them sees one error on both engines.
+ */
+export class ShippingGuardError extends Error {
+  override readonly name = 'SQLiteError'
+  readonly code = 'SQLITE_CONSTRAINT_TRIGGER'
+  readonly errno = 1811
+  readonly byteOffset = -1
+}
+
+/** What Postgres says when an in-statement refusal casts a guard text to an integer. */
+const REFUSED_CAST = /^invalid input syntax for type integer: "(.*)"$/s
+
+/**
+ * The guard refusal a Postgres failure is, or undefined: a `22P02` whose text is one of
+ * the declared guard texts (and nothing else) is {@link refusalTerm}'s, and becomes a
+ * {@link ShippingGuardError} with that text. Any other `22P02`, a genuine integer syntax
+ * error included, is not a refusal. The raw error is not kept: callers see the refusal.
+ */
+export function guardRefusalOf(error: unknown): ShippingGuardError | undefined {
+  const failure = error as { code?: unknown; message?: unknown } | null
+  if (failure?.code !== '22P02' || typeof failure.message !== 'string') return undefined
+  const text = REFUSED_CAST.exec(failure.message)?.[1]
+  return text !== undefined && GUARD_TEXTS.has(text) ? new ShippingGuardError(text) : undefined
 }

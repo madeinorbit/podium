@@ -34,6 +34,8 @@
  * normalise.
  */
 
+import { guardRefusalOf } from '../append-only'
+
 /** Type OIDs the driver converts. */
 export const PG_OID = Object.freeze({
   int8: 20,
@@ -168,8 +170,14 @@ function refusedParameter(kind: 'timestamp' | 'json', detail: string): string {
   return `podium-refused:${kind}:${encodeURIComponent(detail)}:end`
 }
 
-/** A Postgres failure caused by a refused parameter, as the refusal; anything else as it is. */
+/**
+ * A Postgres failure caused by a refused parameter, as the refusal; a shipping guard's
+ * in-statement refusal as the error SQLite's trigger raises (`store/append-only.ts`,
+ * `guardRefusalOf`: only a `22P02` carrying a declared guard text); anything else as it is.
+ */
 export function translatePgError(error: unknown): unknown {
+  const guard = guardRefusalOf(error)
+  if (guard !== undefined) return guard
   const message = (error as { message?: unknown } | null)?.message
   if (typeof message !== 'string') return error
   const match = REFUSED.exec(message)

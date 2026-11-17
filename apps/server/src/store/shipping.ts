@@ -49,6 +49,7 @@ import type { WriteScope } from '@podium/sync'
 import {
   and,
   asc,
+  type Column,
   desc,
   eq,
   getTableColumns,
@@ -61,6 +62,7 @@ import {
   or,
   type SQL,
   sql,
+  type Table,
 } from 'drizzle-orm'
 import type {
   deliveryReceipts,
@@ -72,7 +74,7 @@ import type {
   shipSteps,
 } from '../migrations/schema'
 import { captureWrite } from '../sync/capture-pg'
-import { GUARD_TEXT, GuardRefusal, insertedRow, refuseUnlessWritten } from './append-only'
+import { GUARD_TEXT, refusalTerm, writeGuard } from './append-only'
 import { dialectOf } from './executor/dialect-prepared'
 import type {
   StoreDrizzle,
@@ -121,14 +123,6 @@ const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
  */
 const activeClaimCount = (t: StoreTables) =>
   sql<number>`(SELECT COUNT(*) FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('workspace_id')} AND c.train_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('id')})`
-
-/**
- * `"table"."column"`, qualified by hand for a correlated subquery: drizzle renders a
- * column of a one-table statement unqualified, and inside the subquery a bare name
- * binds to the subquery's own table first (see {@link activeClaimCount}).
- */
-const outer = (table: string, column: string): SQL =>
-  sql`${sql.identifier(table)}.${sql.identifier(column)}`
 
 /**
  * THE SIX ROW SHAPES THE MAPPERS BELOW READ [POD-3396, spec rule 3].
@@ -1252,6 +1246,32 @@ const insertTrainManifest = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * The row of `INSERT INTO table (…) SELECT <row> FROM (VALUES (1)) … WHERE <refusal>`:
+ * each named column's placeholder, bound to the column's encoder and cast to its
+ * Postgres type. A parameter in a select list has no type of its own (Postgres reads it
+ * as text, which does not assign to an integer or a timestamp), so the cast gives it the
+ * column's. The twin's `text COLLATE "C"` is cast as `text`: a type name in a CAST
+ * carries no collation, and an inserted value needs none.
+ */
+function insertedRow(table: Table, keys: readonly string[]): Record<string, SQL.Aliased> {
+  const columns = getTableColumns(table) as Record<string, Column>
+  return Object.fromEntries(
+    keys.map((key) => {
+      const target = columns[key]
+      if (target === undefined) throw new Error(`insertedRow: no column ${key}`)
+      const type = target.getSQLType().replace(/\s+COLLATE\s+.*$/i, '')
+      return [key, sql`CAST(${param(target, key)} AS ${sql.raw(type)})`.as(target.name)]
+    }),
+  )
+}
+
+/**
+ * The one row an in-statement guarded insert selects from: the row it writes is its
+ * parameters, so the guard's lookups decide alone whether it is written or refused.
+ */
+const ONE_ROW = sql`(VALUES (1)) AS guarded(one)`
+
 /** The member row's columns, as `insertTrainMember` writes them. */
 const TRAIN_MEMBER_KEYS = [
   'workspaceId',
@@ -1270,12 +1290,12 @@ const TRAIN_MEMBER_KEYS = [
 
 /**
  * A train member's insert. SQLite's triggers guard it (`ship_train_members_insert_guard`,
- * `ship_train_members_final_leader`); on Postgres the guard is the insert's own WHERE
- * (design 2.5): the member is selected from its manifest, in the member's workspace,
- * only when its ordinal is below the manifest's member count, no member of the train
- * holds an active claim yet, and a final member is the manifest's leader. When it
- * inserts nothing, `trainMemberRefusal` says which rule refused it, in the trigger's
- * words.
+ * then `ship_train_members_final_leader`); on Postgres the insert carries the same three
+ * rules as its in-statement refusal (design 2.5, `refusalTerm`), in the triggers' order,
+ * every lookup in the member's own workspace: an ordinal at or past the manifest's member
+ * count, a train that already holds an active claim, a final member that is not the
+ * manifest's leader. A manifest that is not there refuses nothing, as on SQLite: the
+ * foreign key refuses the row.
  */
 const insertTrainMember = prepared((db, t) => {
   if (dialectOf(db) !== 'pg') {
@@ -1299,60 +1319,43 @@ const insertTrainMember = prepared((db, t) => {
   }
   const m = t.shipTrainManifests
   const member = t.shipTrainMembers
+  const workspace = param(m.workspaceId, 'workspaceId')
+  const train = param(m.id, 'trainId')
   const ordinal = sql`CAST(${param(member.ordinal, 'ordinal')} AS integer)`
+  const memberCount = sql`(SELECT m.member_count FROM ${m} m WHERE m.workspace_id = ${workspace} AND m.id = ${train})`
   return db
     .insert(member)
     .select(
       db
         .select(insertedRow(member, TRAIN_MEMBER_KEYS))
-        .from(m)
+        .from(ONE_ROW)
         .where(
-          inWorkspace(
-            m,
-            eq(m.id, param(m.id, 'trainId')),
-            sql`${ordinal} < ${m.memberCount}`,
-            sql`NOT EXISTS (SELECT 1 FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND c.train_id = ${outer('ship_train_manifests', 'id')})`,
-            or(
-              sql`${ordinal} + 1 <> ${m.memberCount}`,
-              and(
-                eq(m.leaderOrderId, param(m.leaderOrderId, 'orderId')),
-                eq(m.leaderAttemptId, param(m.leaderAttemptId, 'attemptId')),
-                eq(m.leaderGeneration, param(m.leaderGeneration, 'generation')),
-              ),
-            ),
-          ),
+          refusalTerm([
+            {
+              when: sql`${ordinal} >= ${memberCount}`,
+              text: GUARD_TEXT.ship_train_members_ordinal,
+            },
+            {
+              when: sql`EXISTS (SELECT 1 FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${workspace} AND c.train_id = ${train})`,
+              text: GUARD_TEXT.ship_train_members_sealed,
+            },
+            {
+              when: sql`${ordinal} + 1 = ${memberCount} AND NOT EXISTS (SELECT 1 FROM ${m} m WHERE m.workspace_id = ${workspace} AND m.id = ${train} AND m.leader_order_id = ${param(m.leaderOrderId, 'orderId')} AND m.leader_attempt_id = ${param(m.leaderAttemptId, 'attemptId')} AND m.leader_generation = ${param(m.leaderGeneration, 'generation')})`,
+              text: GUARD_TEXT.ship_train_members_final_leader,
+            },
+          ]),
         ),
     )
     .prepare()
 })
 
-/** What a train member's insert guard reads, to name the rule that refused it (Postgres). */
-const trainMemberGuardFacts = prepared((db, t) =>
-  db
-    .select({
-      memberCount: t.shipTrainManifests.memberCount,
-      leaderOrderId: t.shipTrainManifests.leaderOrderId,
-      leaderAttemptId: t.shipTrainManifests.leaderAttemptId,
-      leaderGeneration: t.shipTrainManifests.leaderGeneration,
-      claimCount: activeClaimCount(t),
-    })
-    .from(t.shipTrainManifests)
-    .where(
-      inWorkspace(
-        t.shipTrainManifests,
-        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
-      ),
-    )
-    .prepare(),
-)
-
 /**
  * An active claim's insert. SQLite's `ship_train_active_claims_insert_guard` refuses a
- * claim without complete, normalized leader authority; on Postgres that is the insert's
- * own WHERE (design 2.5): the claim is selected from its manifest and member, in the
- * claim's workspace, only when the manifest is open, the member is the claim's, every
- * member is recorded, the final one is the manifest's leader, and no member has a
- * generation below 1. When it inserts nothing, the repository raises the trigger's text.
+ * claim without complete, normalized leader authority; on Postgres the insert carries
+ * that rule as its in-statement refusal (design 2.5), every lookup in the claim's own
+ * workspace: the manifest is open, the claim's member is recorded with this attempt and
+ * generation, every member is recorded, the final one is the manifest's leader, and no
+ * member has a generation below 1.
  */
 const insertActiveClaim = prepared((db, t) => {
   if (dialectOf(db) !== 'pg') {
@@ -1370,6 +1373,7 @@ const insertActiveClaim = prepared((db, t) => {
   const m = t.shipTrainManifests
   const tm = t.shipTrainMembers
   const claim = t.shipTrainActiveClaims
+  const workspace = param(m.workspaceId, 'workspaceId')
   return db
     .insert(claim)
     .select(
@@ -1377,22 +1381,24 @@ const insertActiveClaim = prepared((db, t) => {
         .select(
           insertedRow(claim, ['workspaceId', 'trainId', 'orderId', 'attemptId', 'generation']),
         )
-        .from(m)
-        .innerJoin(tm, and(sameWorkspace(tm, m), eq(tm.trainId, m.id)))
+        .from(ONE_ROW)
         .where(
-          inWorkspace(
-            m,
-            eq(m.id, param(m.id, 'trainId')),
-            isNull(m.releasedAt),
-            eq(tm.orderId, param(tm.orderId, 'orderId')),
-            eq(tm.attemptId, param(tm.attemptId, 'attemptId')),
-            eq(tm.generation, param(tm.generation, 'generation')),
-            sql`(SELECT COUNT(*) FROM ${tm} all_members WHERE all_members.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND all_members.train_id = ${outer('ship_train_manifests', 'id')}) = ${m.memberCount}`,
-            sql`EXISTS (SELECT 1 FROM ${tm} leader WHERE leader.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND leader.train_id = ${outer('ship_train_manifests', 'id')} AND leader.ordinal = ${outer('ship_train_manifests', 'member_count')} - 1 AND leader.order_id = ${outer('ship_train_manifests', 'leader_order_id')} AND leader.attempt_id = ${outer('ship_train_manifests', 'leader_attempt_id')} AND leader.generation = ${outer('ship_train_manifests', 'leader_generation')})`,
-            sql`NOT EXISTS (SELECT 1 FROM ${tm} generation_member WHERE generation_member.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND generation_member.train_id = ${outer('ship_train_manifests', 'id')} AND generation_member.generation <= 0)`,
-          ),
-        )
-        .limit(1),
+          refusalTerm([
+            {
+              when: sql`NOT EXISTS (SELECT 1 FROM ${m} m JOIN ${tm} tm ON tm.workspace_id = m.workspace_id AND tm.train_id = m.id
+                WHERE m.workspace_id = ${workspace} AND m.id = ${param(m.id, 'trainId')} AND m.released_at IS NULL
+                  AND tm.order_id = ${param(tm.orderId, 'orderId')} AND tm.attempt_id = ${param(tm.attemptId, 'attemptId')}
+                  AND tm.generation = ${param(tm.generation, 'generation')}
+                  AND (SELECT COUNT(*) FROM ${tm} all_members WHERE all_members.workspace_id = m.workspace_id AND all_members.train_id = m.id) = m.member_count
+                  AND EXISTS (SELECT 1 FROM ${tm} leader WHERE leader.workspace_id = m.workspace_id AND leader.train_id = m.id
+                    AND leader.ordinal = m.member_count - 1 AND leader.order_id = m.leader_order_id
+                    AND leader.attempt_id = m.leader_attempt_id AND leader.generation = m.leader_generation)
+                  AND NOT EXISTS (SELECT 1 FROM ${tm} generation_member WHERE generation_member.workspace_id = m.workspace_id
+                    AND generation_member.train_id = m.id AND generation_member.generation <= 0))`,
+              text: GUARD_TEXT.ship_train_active_claims_insert_guard,
+            },
+          ]),
+        ),
     )
     .prepare()
 })
@@ -1526,64 +1532,54 @@ const trainReleaseState = prepared((db, t) =>
 
 /**
  * A train's one release. SQLite's `ship_train_manifests_release_only` refuses an update
- * of a released manifest or one that leaves `released_at` NULL; on Postgres both are the
- * WHERE (design 2.5), and `releaseTrain` raises the trigger's text when it moved nothing.
+ * of a released manifest (the WHERE never meets one) or one that leaves `released_at`
+ * NULL; on Postgres the latter is the update's in-statement refusal (design 2.5).
  */
-const releaseTrainFenced = prepared((db, t) =>
-  db
-    .update(t.shipTrainManifests)
+const releaseTrainFenced = prepared((db, t) => {
+  const m = t.shipTrainManifests
+  const fence = inWorkspace(m, eq(m.id, param(m.id, 'id')), isNull(m.releasedAt))
+  return db
+    .update(m)
     .set({
       releasedAt: sql.placeholder('releasedAt'),
       releaseReason: sql.placeholder('releaseReason'),
     })
     .where(
-      inWorkspace(
-        t.shipTrainManifests,
-        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
-        isNull(t.shipTrainManifests.releasedAt),
-        dialectOf(db) === 'pg'
-          ? sql`${param(t.shipTrainManifests.releasedAt, 'releasedAt')}::timestamptz IS NOT NULL`
-          : undefined,
-      ),
-    )
-    .prepare(),
-)
-
-/**
- * The release of a train's claims. SQLite's `ship_train_active_claims_release_guard`
- * refuses to delete a claim while its manifest is open; on Postgres the delete carries
- * that rule as its WHERE (design 2.5), and `releaseTrain` raises the trigger's text
- * when it releases nothing though claims remain.
- */
-const deleteActiveClaimsOfTrain = prepared((db, t) => {
-  const claims = t.shipTrainActiveClaims
-  return db
-    .delete(claims)
-    .where(
-      inWorkspace(
-        claims,
-        eq(claims.trainId, param(claims.trainId, 'trainId')),
-        dialectOf(db) === 'pg'
-          ? sql`EXISTS (SELECT 1 FROM ${t.shipTrainManifests} m WHERE m.workspace_id = ${outer('ship_train_active_claims', 'workspace_id')} AND m.id = ${outer('ship_train_active_claims', 'train_id')} AND m.released_at IS NOT NULL)`
-          : undefined,
-      ),
+      dialectOf(db) === 'pg'
+        ? and(
+            fence,
+            refusalTerm(
+              [
+                {
+                  // The row's own column keeps the term per row: a parameter alone would
+                  // be folded at planning, and refuse a release that meets no row.
+                  when: sql`${m.releasedAt} IS NULL AND ${param(m.releasedAt, 'releasedAt')}::timestamptz IS NULL`,
+                  text: GUARD_TEXT.ship_train_manifests_release_only,
+                },
+              ],
+              fence,
+            ),
+          )
+        : fence,
     )
     .prepare()
 })
 
-/** How many active claims a train still holds. */
-const activeClaimsOfTrain = prepared((db, t) =>
-  db
-    .select({ count: sql<number>`COUNT(*)`.mapWith(Number) })
-    .from(t.shipTrainActiveClaims)
-    .where(
-      inWorkspace(
-        t.shipTrainActiveClaims,
-        eq(t.shipTrainActiveClaims.trainId, param(t.shipTrainActiveClaims.trainId, 'trainId')),
-      ),
-    )
-    .prepare(),
-)
+/**
+ * The release of a train's claims. SQLite's `ship_train_active_claims_release_guard`
+ * refuses to delete a claim while its manifest is open; on Postgres the delete carries
+ * that rule (its declaration in `append-only.ts`) as its in-statement refusal.
+ */
+const deleteActiveClaimsOfTrain = prepared((db, t) => {
+  const claims = t.shipTrainActiveClaims
+  const scope = inWorkspace(claims, eq(claims.trainId, param(claims.trainId, 'trainId')))
+  const guard =
+    dialectOf(db) === 'pg' ? writeGuard({ table: 'ship_train_active_claims', op: 'd' }) : undefined
+  return db
+    .delete(claims)
+    .where(guard?.where?.(scope) ?? scope)
+    .prepare()
+})
 
 const trainMemberCountOf = prepared((db, t) =>
   db
@@ -3408,7 +3404,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   /**
    * THE GUARDED TRAIN WRITES (design 2.5). Each writes one row as SQLite's triggers allow
    * it: on SQLite the trigger refuses a row that breaks a rule, on Postgres the
-   * statement's WHERE writes nothing and the method raises the trigger's text. The
+   * statement's own refusal does, with the trigger's text and error (`append-only.ts`). The
    * claim path only writes rows that keep the rules; the guards are for the rows it must
    * never write, and `shipping-guards.test.ts` drives them with such rows on both engines.
    */
@@ -3417,7 +3413,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     ordinal: number,
     member: ShipTrainManifestValue['members'][number],
   ): Promise<void> {
-    const inserted = await insertTrainMember(this.db).run({
+    await insertTrainMember(this.db).run({
       trainId,
       ordinal,
       issueId: member.issueId,
@@ -3431,7 +3427,6 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       // `mode: 'json'`, so the array goes in unserialised. Same bytes.
       deliveryDependsOn: member.deliveryDependsOn,
     })
-    if (inserted.changes === 0) throw await this.trainMemberRefusal(trainId, ordinal, member)
   }
 
   /** See {@link recordTrainMember}. */
@@ -3439,49 +3434,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     trainId: ShipTrainManifestValue['id'],
     member: Pick<ShipTrainManifestValue['members'][number], 'orderId' | 'attemptId' | 'generation'>,
   ): Promise<void> {
-    const claimed = await insertActiveClaim(this.db).run({
+    await insertActiveClaim(this.db).run({
       trainId,
       orderId: member.orderId,
       attemptId: member.attemptId,
       generation: member.generation,
     })
-    refuseUnlessWritten(claimed.changes, GUARD_TEXT.ship_train_active_claims_insert_guard)
   }
 
   /** Delete a released train's claims and return how many; see {@link recordTrainMember}. */
   protected async releaseActiveClaims(trainId: ShipTrainManifestValue['id']): Promise<number> {
-    const claims = await deleteActiveClaimsOfTrain(this.db).run({ trainId })
-    if (
-      claims.changes === 0 &&
-      ((await activeClaimsOfTrain(this.db).get({ trainId }))?.count ?? 0) > 0
-    ) {
-      throw new GuardRefusal(GUARD_TEXT.ship_train_active_claims_release_guard)
-    }
-    return claims.changes
-  }
-
-  /**
-   * Which of the member insert guard's rules refused a member, in the order SQLite's
-   * triggers check them, as the trigger's text (Postgres; SQLite raises in the trigger).
-   */
-  private async trainMemberRefusal(
-    trainId: ShipTrainManifestValue['id'],
-    ordinal: number,
-    member: { orderId: string; attemptId: string; generation: number },
-  ): Promise<Error> {
-    const facts = await trainMemberGuardFacts(this.db).get({ id: trainId })
-    if (!facts) return new Error(`ship train ${trainId} has no manifest`)
-    if (ordinal >= facts.memberCount) return new GuardRefusal(GUARD_TEXT.ship_train_members_ordinal)
-    if (facts.claimCount > 0) return new GuardRefusal(GUARD_TEXT.ship_train_members_sealed)
-    if (
-      ordinal + 1 === facts.memberCount &&
-      (facts.leaderOrderId !== member.orderId ||
-        facts.leaderAttemptId !== member.attemptId ||
-        facts.leaderGeneration !== member.generation)
-    ) {
-      return new GuardRefusal(GUARD_TEXT.ship_train_members_final_leader)
-    }
-    return new Error(`ship train ${trainId} member ${ordinal} was not recorded`)
+    return (await deleteActiveClaimsOfTrain(this.db).run({ trainId })).changes
   }
 
   async releaseTrain(
@@ -3502,11 +3465,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         releaseReason: reason,
         id: trainId,
       })
-      if (changed.changes !== 1) {
-        // Postgres: a release must set `released_at` (SQLite's trigger raised).
-        if (!releasedAt) throw new GuardRefusal(GUARD_TEXT.ship_train_manifests_release_only)
-        throw new Error(`ship train ${trainId} release fence failed`)
-      }
+      if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
       const released = await this.releaseActiveClaims(trainId)
       const memberCount = await trainMemberCountOf(this.db).get({ id: trainId })
       if (released !== memberCount?.memberCount) {
