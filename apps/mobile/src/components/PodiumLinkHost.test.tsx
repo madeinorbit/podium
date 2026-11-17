@@ -148,8 +148,12 @@ describe('PodiumLinkHost mobile handoff integration', () => {
       markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
 
-    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith('/issue/iss-1710'))
-    expect(seams.router.push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(seams.router.push).toHaveBeenCalledExactlyOnceWith('/issue/iss-1710', {
+        withAnchor: true,
+      }),
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
   })
 
   it('waits for profile selection before opening from the authorized replica', async () => {
@@ -168,8 +172,12 @@ describe('PodiumLinkHost mobile handoff integration', () => {
     act(() => {
       markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
-    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith(`/session/${SESSION_ID}`))
-    expect(seams.router.push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(seams.router.push).toHaveBeenCalledExactlyOnceWith(`/session/${SESSION_ID}`, {
+        withAnchor: true,
+      }),
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('Opening the session.')
   })
 

@@ -49,7 +49,7 @@ import { startupTiming } from '../lib/startup-timing'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
-import { isGateOwnedAppLink } from './app-link-intent'
+import { nativeMissionHref } from './app-link-intent'
 import { clearInitialAppUrl, readInitialAppUrl, subscribeAppUrls } from './app-links'
 import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
@@ -393,21 +393,16 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
 
   const handleLink = useCallback((raw: string) => {
-    // Pairing and sign-in links never reach the router: +native-intent sends
-    // them to `/` before routing, so their secret is never in router state.
-    // Navigating here as well remounted the root layout under this gate and
-    // wiped the pairing state the link had just set (POD-2364). Other native
-    // links still drop the route the router opened for them before parsing.
-    // Best-effort: on a cold launch the router may not be mounted yet.
     if (Platform.OS !== 'web') {
-      if (!isGateOwnedAppLink(raw)) {
-        try {
-          router.replace('/')
-        } catch {
-          // not mounted yet
-        }
-      }
       setupOwnsStartup.current = false
+      // +native-intent opens mission URLs on the existing chat/deck screens.
+      // Resetting the router here used to discard that navigation. Retire an
+      // older handoff so its delayed result cannot supersede this newer link.
+      if (nativeMissionHref(raw)) {
+        startupLinkGeneration.current += 1
+        retirePendingMobileHandoff()
+        return
+      }
     }
     if (Platform.OS !== 'web' && isHostedReturn(raw)) {
       try {

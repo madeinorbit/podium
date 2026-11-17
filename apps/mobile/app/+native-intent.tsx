@@ -1,2 +1,2 @@
-// Pairing and sign-in links belong to the profile gate, never to the router.
+// Assign native links to the profile handoff host or the existing mission routes.
 export { redirectSystemPath } from '../src/client/app-link-intent'

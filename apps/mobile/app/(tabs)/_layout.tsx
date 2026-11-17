@@ -1,6 +1,8 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs'
 import { color } from '../../src/theme/theme'
 
+export const unstable_settings = { initialRouteName: 'work' }
+
 /** Android tab bar (iOS has `_layout.ios.tsx`). Work is home and mirrors the
  * desktop sidebar's issue-first navigation; Tasks is the full status board;
  * Super Agent is chat-only; Pulse answers whether there is room to start more

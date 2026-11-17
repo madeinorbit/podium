@@ -1,4 +1,7 @@
 import { cleanup, render } from '@testing-library/react'
+import { getReactNavigationConfig } from 'expo-router/build/getReactNavigationConfig'
+import { getRoutes } from 'expo-router/build/getRoutesCore'
+import type { RequireContext } from 'expo-router/build/types'
 import { Children, isValidElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,6 +15,7 @@ const native = vi.hoisted(() => ({
 
 vi.mock('../lib/crypto-polyfill', () => ({}))
 vi.mock('react-native-screens', () => ({ enableFreeze: vi.fn() }))
+vi.mock('expo-router/unstable-native-tabs', () => ({ NativeTabs: () => null }))
 vi.mock('../client/root-layout-shell', () => ({
   RootLayoutShell: ({
     Navigation,
@@ -61,8 +65,11 @@ vi.mock('expo-router', () => ({
 }))
 
 // This lane prefers .web.tsx; pin the native entry to exercise its actual stack.
-const { default: RootLayout } =
+const { default: RootLayout, unstable_settings: rootSettings } =
   await vi.importActual<typeof import('../../app/_layout')>('../../app/_layout.tsx')
+const { unstable_settings: tabsSettings } = await vi.importActual<
+  typeof import('../../app/(tabs)/_layout')
+>('../../app/(tabs)/_layout.ios.tsx')
 const { default: Home } = await import('../../app/index')
 const { default: SignedIn } = await import('../../app/signed-in')
 
@@ -72,6 +79,33 @@ afterEach(() => {
 })
 
 describe('native launch routes', () => {
+  it('declares the tabs and Work anchors in Expo Router linking config', () => {
+    const routes = {
+      './_layout.tsx': { default: () => null, unstable_settings: rootSettings },
+      './(tabs)/_layout.tsx': { default: () => null, unstable_settings: tabsSettings },
+      './(tabs)/work/_layout.tsx': { default: () => null },
+      './(tabs)/work/index.tsx': { default: () => null },
+      './(tabs)/issues/_layout.tsx': { default: () => null },
+      './(tabs)/issues/index.tsx': { default: () => null },
+      './issue/[issueId].tsx': { default: () => null },
+      './mission/[missionId].tsx': { default: () => null },
+      './mission/[missionId]/details.tsx': { default: () => null },
+    }
+    const context = Object.assign((key: string) => routes[key as keyof typeof routes], {
+      keys: () => Object.keys(routes),
+    }) as RequireContext
+    const tree = getRoutes(context, {
+      skipGenerated: true,
+      getSystemRoute: () => {
+        throw new Error('The fixture supplies every route')
+      },
+    })
+    if (!tree) throw new Error('Missing route tree')
+    const config = getReactNavigationConfig(tree, true)
+    expect(config.initialRouteName).toBe('(tabs)')
+    expect(config.screens['(tabs)']).toMatchObject({ initialRouteName: 'work' })
+  })
+
   it('fits Start Agent to its content while keeping its transparent native bar', () => {
     render(<RootLayout />)
     expect(native.screens['launch/[issueId]']).toMatchObject({

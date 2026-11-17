@@ -142,7 +142,9 @@ export function PodiumLinkHost() {
     setHandoffStatus(
       decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.',
     )
-    router.replace(route as never)
+    // Preserve the current tab or detail as the back destination. The root
+    // layout's anchor also supplies the tabs if this opens a fresh stack.
+    router.push(route as never, { withAnchor: true })
   }, [activation, authStatus, booting, data.route, pending, profile.id, profiles, router, sessions])
 
   return handoffStatus ? (

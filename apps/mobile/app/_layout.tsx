@@ -33,6 +33,10 @@ enableFreeze(true)
 // over the tab bar on every dev launch.
 LogBox.ignoreLogs([/Reduced motion setting is overwritten/])
 
+// Expo Router reads this export when constructing a cold deep-link stack.
+// The Stack prop alone does not put the tabs beneath a linked detail screen.
+export const unstable_settings = { initialRouteName: '(tabs)' }
+
 function NativeNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack

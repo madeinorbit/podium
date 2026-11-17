@@ -437,8 +437,11 @@ it('routes issue and permanent session references and preserves scoped handoff d
     markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
   })
   await waitFor(() =>
-    expect(state.router.replace).toHaveBeenCalledWith('/session/synthetic-session-7'),
+    expect(state.router.push).toHaveBeenCalledWith('/session/synthetic-session-7', {
+      withAnchor: true,
+    }),
   )
+  expect(state.router.replace).not.toHaveBeenCalled()
   expect(app.errors).toEqual([])
 })
 

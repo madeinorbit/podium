@@ -3,6 +3,8 @@ import { Easing } from 'react-native'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
 import { color } from '../src/theme/theme'
 
+export const unstable_settings = { initialRouteName: '(tabs)' }
+
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1)
 const webRouteTransition = {
   open: { animation: 'timing' as const, config: { duration: 120, easing: easeOut } },

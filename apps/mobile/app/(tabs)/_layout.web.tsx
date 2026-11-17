@@ -3,6 +3,8 @@ import type { ComponentProps } from 'react'
 import { TabBar } from '../../src/components/TabBar'
 import { MOBILE_TABS } from '../../src/lib/navigation'
 
+export const unstable_settings = { initialRouteName: 'work' }
+
 /** The unsupported-bound web build keeps its existing floating tab bar. */
 export default function TabsLayout() {
   return (

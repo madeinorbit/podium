@@ -1,6 +1,8 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs'
 import { color } from '../../src/theme/theme'
 
+export const unstable_settings = { initialRouteName: 'work' }
+
 /**
  * iOS tab bar: Work is home, Tasks the status board, Pulse the capacity read,
  * Settings a tab as in Apple's own apps. Work and Tasks search in their native

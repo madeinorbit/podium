@@ -419,6 +419,29 @@ describe('handoff profile selection', () => {
       target: { kind: 'issue', issue: 'POD-1710' },
     })
     expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'cold',
+    'warm',
+  ])('leaves a %s mission link on the native chat route', async (delivery) => {
+    const url = 'podium://mission/iss_one/session-one'
+    if (delivery === 'cold') {
+      seams.getInitialUrl.mockResolvedValue(url)
+      render(
+        <ServerProfileGate>
+          <ProfileProbe />
+        </ServerProfileGate>,
+      )
+    } else {
+      await mountActiveProfileA()
+      act(() => seams.linkListener?.({ url }))
+    }
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-a'))
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
   })
 
   it('handles a mixed-case Podium scheme on cold launch like a warm link', async () => {
@@ -533,7 +556,7 @@ describe('handoff profile selection', () => {
     })
     expect(pendingMobileHandoffSnapshot().request).toBeNull()
     expect(seams.router.replace).toHaveBeenCalledWith('/work')
-    expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/', '/work'])
+    expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/work'])
     expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual(['https://a.example'])
     expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
     await waitFor(() =>
