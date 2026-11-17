@@ -133,12 +133,20 @@ vi.mock('./override-lifecycle', () => ({
   clearLocalCredentialSurfaces: vi.fn(),
   preflightNativeOverride: vi.fn(),
 }))
-vi.mock('./trpc', () => ({
-  envServer: () => null,
-  setActiveServerRuntime: (config: { httpOrigin: string } | undefined, bearer: string | null) => {
-    seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
-  },
-}))
+vi.mock('./trpc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./trpc')>()
+  return {
+    ...actual,
+    envServer: () => null,
+    setActiveServerRuntime: (
+      config: Parameters<typeof actual.setActiveServerRuntime>[0],
+      bearer: string | null,
+    ) => {
+      actual.setActiveServerRuntime(config, bearer)
+      seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
+    },
+  }
+})
 vi.mock('./auth', () => ({
   logout: seams.logout,
   fetchAuthStatus: seams.authStatus,
@@ -172,11 +180,13 @@ import {
   pendingMobileHandoffSnapshot,
 } from './mobile-handoff'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { ReadinessGate } from './ReadinessGate'
 import {
   resetInitialNativeLinkConsumptionForTests,
   ServerProfileGate,
   useServerProfile,
 } from './ServerProfileGate'
+import * as trpc from './trpc'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -264,6 +274,7 @@ async function mountActiveProfileA() {
 }
 
 beforeEach(() => {
+  trpc.setActiveServerRuntime(undefined, null)
   // The gate retries durable removal intents before selecting a saved server.
   const metadata = new Map<string, string>()
   installMobileMetadataStorage({
@@ -348,7 +359,10 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  trpc.setActiveServerRuntime(undefined, null)
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 it('logs out on native without a browser location and returns to the saved server sign-in screen', async () => {
@@ -403,6 +417,88 @@ it('clears a failed manual server check when Back returns to Welcome', async () 
 })
 
 describe('handoff profile selection', () => {
+  it.each([
+    { url: 'podium://issue/POD-1710', navigation: true },
+    { url: 'podium://sessions/POD-1710-A', navigation: true },
+    { url: 'podium://inspect/private-id', navigation: false },
+    { url: handoffLink('https://missing.example', 'missing-instance'), navigation: false },
+  ])('withholds the cold $url anchor stack until saved-profile activation finishes', async ({
+    url,
+    navigation,
+  }) => {
+    // Native has neither a browser location nor a development server override.
+    vi.spyOn(window, 'location', 'get').mockReturnValue(undefined as unknown as Location)
+    vi.stubGlobal('__PODIUM_SERVER__', undefined)
+    vi.stubEnv('EXPO_PUBLIC_PODIUM_SERVER', '')
+    expect(() => trpc.readServerConfig()).toThrow('native server profile has not been selected')
+    const readConfig = vi.spyOn(trpc, 'readServerConfig')
+    const fetch = vi.fn(async () =>
+      Response.json({ state: 'ready', reason: null, dataPlane: 'available' }),
+    )
+    vi.stubGlobal('fetch', fetch)
+
+    let resolveInitialUrl = (_url: string | null) => {}
+    const initialUrl = new Promise<string | null>((resolve) => {
+      resolveInitialUrl = resolve
+    })
+    let resolvePreflight = (_result: ReturnType<typeof successfulPreflight>) => {}
+    const preflight = new Promise<ReturnType<typeof successfulPreflight>>((resolve) => {
+      resolvePreflight = resolve
+    })
+    let resolveCredential = (_bearer: string | null) => {}
+    const credential = new Promise<string | null>((resolve) => {
+      resolveCredential = resolve
+    })
+    seams.getInitialUrl.mockReturnValue(initialUrl)
+    seams.preflight.mockReturnValue(preflight)
+    seams.getCredential.mockReturnValue(credential)
+
+    // Expo Router requests the Work anchor before profile restoration resolves.
+    // Keep the real readiness/auth gates above that eagerly requested stack.
+    render(
+      <ServerProfileGate>
+        <ReadinessGate>
+          <AuthGate>
+            <ProfileProbe />
+            <div>WORK ANCHOR</div>
+          </AuthGate>
+        </ReadinessGate>
+      </ServerProfileGate>,
+    )
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+    expect(readConfig).not.toHaveBeenCalled()
+
+    await act(async () => resolveInitialUrl(url))
+    await waitFor(() => expect(seams.preflight).toHaveBeenCalledTimes(1))
+    expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined)
+    expect(readConfig).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+
+    await act(async () => resolvePreflight(successfulPreflight('https://a.example')))
+    await waitFor(() => expect(seams.getCredential).toHaveBeenCalledWith('profile-a'))
+    expect(readConfig).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(pendingMobileHandoffSnapshot().profileSelected).toBe(false)
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+
+    await act(async () => resolveCredential('token-a'))
+    expect(await screen.findByText('WORK ANCHOR')).toBeTruthy()
+    expect(fetch).toHaveBeenCalledWith('https://a.example/readiness', expect.anything())
+    expect(seams.renders.length).toBeGreaterThan(0)
+    expect(
+      seams.renders.every((row) => row.profileId === 'profile-a' && row.bearer === 'token-a'),
+    ).toBe(true)
+    if (navigation) {
+      expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+      expect(seams.router.replace).not.toHaveBeenCalled()
+    } else {
+      expect(pendingMobileHandoffSnapshot().request).toBeNull()
+      expect(seams.router.replace).toHaveBeenCalledExactlyOnceWith('/work')
+    }
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+
   it('captures a cold ordinary navigation link without invoking pairing', async () => {
     seams.getInitialUrl.mockResolvedValue(
       formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' }),

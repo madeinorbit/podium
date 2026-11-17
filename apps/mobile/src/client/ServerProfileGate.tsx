@@ -586,7 +586,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           setReady(true)
           return
         }
-        if (intent === 'handoff' && pending.request) {
+        // Ordinary issue/session links use the saved selection and must finish
+        // its activation before the router's cold-link anchor can mount.
+        if (intent === 'handoff' && pending.request && pending.request.kind !== 'navigation') {
           const selected =
             pending.request.kind === 'destination'
               ? matchingMobileHandoffProfile(
@@ -1444,7 +1446,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     }
     if (pendingHandoff.request.kind === 'navigation') {
       if (activationFailure) fallback('identity-unverified')
-      else {
+      else if (credentialReleased) {
         markPendingMobileHandoffProfileSelected(pendingHandoff.id)
         setHandoffStatus('')
       }
@@ -1484,7 +1486,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       return
     }
     if (activationFailure) fallback('identity-unverified')
-    else {
+    else if (credentialReleased) {
       markPendingMobileHandoffProfileSelected(pendingHandoff.id)
       setHandoffStatus('')
     }
@@ -1600,6 +1602,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       </LaunchReadyView>
     )
   }
+  // `ready` also lets gate-owned fallback effects run with a saved profile but
+  // no activated runtime. Keep readiness, auth and route readers unmounted
+  // until that runtime is available, including while switching profiles.
+  if (Platform.OS !== 'web' && !credentialReleased) return null
   return (
     <ServerProfileContext.Provider value={context}>
       <View style={styles.fill} key={context?.runtimeKey}>
