@@ -538,6 +538,19 @@ export class CredentialHealth {
       await this.run(sessionId, { kind: 'stop', credential: record })
   }
 
+  /**
+   * Restart one session with resume at its next turn boundary (now, when it is
+   * between turns), so that it starts again on freshly delivered access. A
+   * stop already waiting wins. Used to hand a running Codex engine a new
+   * ChatGPT plan token before the one it holds runs out (epic Task 15); the
+   * same path `afterRenew` takes for every session on a renewed credential.
+   */
+  async restartAtTurnBoundary(sessionId: SessionId): Promise<void> {
+    if (this.pending.get(sessionId)?.kind === 'stop') return
+    this.pending.set(sessionId, { kind: 'restart' })
+    await this.actIfBetweenTurns(sessionId)
+  }
+
   /** Whether a restart or stop is waiting for this session's turn boundary. */
   waitingFor(sessionId: SessionId): PendingAction['kind'] | undefined {
     return this.pending.get(sessionId)?.kind

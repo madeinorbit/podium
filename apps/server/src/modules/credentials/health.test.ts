@@ -412,6 +412,50 @@ describe('acceptance 5: renew', () => {
   })
 })
 
+describe('restartAtTurnBoundary: one session, before its token runs out (epic Task 15)', () => {
+  it('between turns: restarts now, once', async () => {
+    const f = await setup()
+    const idle = asSessionId('ses_plan_idle')
+    f.sessions.standing.set(idle, 'between-turns')
+    await f.health.restartAtTurnBoundary(idle)
+    expect(f.sessions.restarted).toEqual([idle])
+    expect(f.health.waitingFor(idle)).toBeUndefined()
+  })
+
+  it('in a turn: waits for the boundary, then restarts once', async () => {
+    const f = await setup()
+    const busy = asSessionId('ses_plan_busy')
+    f.sessions.standing.set(busy, 'in-turn')
+    await f.health.restartAtTurnBoundary(busy)
+    expect(f.sessions.restarted).toEqual([])
+    expect(f.health.waitingFor(busy)).toBe('restart')
+    f.sessions.standing.set(busy, 'between-turns')
+    await f.health.onTurnBoundary(busy, null)
+    await f.health.onTurnBoundary(busy, null)
+    expect(f.sessions.restarted).toEqual([busy])
+  })
+
+  it('a stop already waiting wins', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const busy = asSessionId('ses_plan_removed')
+    f.sessions.on[credentialId] = [busy]
+    f.sessions.standing.set(busy, 'in-turn')
+    await f.health.removeEverywhere(credentialId, OWNER)
+    await f.health.restartAtTurnBoundary(busy)
+    expect(f.health.waitingFor(busy)).toBe('stop')
+  })
+
+  it('a session that is not running is left for its next revival', async () => {
+    const f = await setup()
+    const parked = asSessionId('ses_plan_parked')
+    f.sessions.standing.set(parked, 'not-running')
+    await f.health.restartAtTurnBoundary(parked)
+    expect(f.sessions.restarted).toEqual([])
+    expect(f.health.waitingFor(parked)).toBeUndefined()
+  })
+})
+
 describe('acceptance 6: removal with running sessions (review focus 2)', () => {
   it('both sessions are flagged and stop at their next turn boundary; nothing crashes', async () => {
     const f = await setup()
