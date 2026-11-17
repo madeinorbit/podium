@@ -21,18 +21,19 @@
  * mark, panel items) plus direct seeds for the kinds no path writes cheaply.
  */
 
-import { writeFileSync } from 'node:fs'
 import {
   actorUser,
   asMutationId,
   asThreadId,
   firstAdminMemberId,
   type IssueId,
+  primeFirstAdminMember,
   RECORDS,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
+import type { SyncRepository } from '@podium/sync'
 import {
   collectRecords,
   type RecordBuilder,
@@ -44,6 +45,7 @@ import { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import * as schema from '../migrations/schema'
+import { effectPublication } from '../modules/effects/published-input'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import type { DriverSession } from '../store/executor/driver'
@@ -55,15 +57,14 @@ import { openTestStore } from '../test-support/open-test-store'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
-import { beforeKindTokens } from './__fixtures__/kind-tokens.before'
-import { BEFORE_ROW_BUILDERS } from './__fixtures__/row-builders.before'
-import { BEFORE_ROW_SOURCES } from './__fixtures__/row-sources.before'
+import frozen from './__fixtures__/one-row-oracles.json'
 import { captureTriggerStatements, installChangeCapture } from './capture-triggers'
 import { readKindTokens } from './kind-tokens'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
 import {
   RECORD_SOURCES,
   type RecordSources,
+  type SourceChange,
   sourceTableName,
   touchedRecords,
 } from './record-sources'
@@ -514,106 +515,59 @@ describe('record sources (POD-6920)', () => {
   })
 
   describe('one-row generation (POD-7091)', () => {
-    const before = new RecordBuilderRegistry(BEFORE_ROW_BUILDERS)
     const after = serverRecordBuilders()
+    const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+    let replay: Corpus
 
-    it('exports the frozen pre-generation oracle once', async () => {
-      const db = (corpus.store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
-      type Cell = string | number | null
-      const tables: Record<string, Record<string, Cell>[]> = {}
-      const visited = new Set<string>()
-      // Preserve source rows plus their foreign-key parents. Only settings are
-      // needed from meta; no server secrets or unrelated identity metadata.
-      const captureTable = async (name: string): Promise<void> => {
-        if (visited.has(name)) return
-        visited.add(name)
-        const parents = (await db.all(sql`PRAGMA foreign_key_list(${sql.identifier(name)})`)) as {
-          table: string
-        }[]
-        for (const parent of parents) await captureTable(parent.table)
-        tables[name] = (await db.all(
-          sql`SELECT * FROM ${sql.identifier(name)} ${name === 'meta' ? sql`WHERE key = 'settings'` : sql``} ORDER BY rowid`,
-        )) as Record<string, Cell>[]
-      }
-      for (const list of Object.values(BEFORE_ROW_SOURCES))
-        for (const source of list) await captureTable(sourceTableName(source))
-      const records: Record<string, unknown> = {}
-      const captures: Record<string, unknown> = {}
-      for (const kind of before.kinds()) {
-        const stream = await collectRecords(before.streamAll(corpus.reads, kind))
-        expect(stream.length, kind).toBeGreaterThan(0)
-        const ids = [...stream.map((row) => row.id).reverse(), 'no-such-record', stream[0]!.id]
-        const streamBytes = bytes(stream)
-        const buildBytes = bytes(await before.build(corpus.reads, kind, ids))
-        records[kind] = {
-          streamBytes,
-          ids,
-          buildBytes,
-          emptyBytes: bytes(await before.build(corpus.reads, kind, [])),
-          missingBytes: bytes(await before.build(corpus.reads, kind, ['no-such-record'])),
-        }
-        const actual = await after.build(corpus.reads, kind, ids)
-        expect(bytes(actual), kind).toBe(buildBytes)
-        expect(bytes(await collectRecords(after.streamAll(corpus.reads, kind))), kind).toBe(
-          streamBytes,
-        )
-        const wrong = bytes(
-          actual.map((row) => ({ ...row, value: { ...(row.value as object), wrong: true } })),
-        )
-        expect(() => expect(wrong, kind).toBe(buildBytes), kind).toThrow()
-      }
-      for (const [kind, list] of Object.entries(BEFORE_ROW_SOURCES)) {
-        const source = list[0]!
-        const rows = (await db.all(
-          sql`SELECT ${sql.join(
-            source.keys.map(
-              (column, i) => sql`${sql.identifier(column.name)} AS ${sql.identifier(`key${i}`)}`,
-            ),
-            sql`, `,
-          )} FROM ${source.table} LIMIT 2`,
-        )) as Record<string, unknown>[]
-        const key = (row: Record<string, unknown>) => source.keys.map((_, i) => row[`key${i}`])
-        const first = key(rows[0]!)
-        const second = key(rows[1] ?? rows[0]!)
-        const changes = [
-          { op: 'i', old: null, new: first },
-          { op: 'u', old: first, new: second },
-          { op: 'd', old: second, new: null },
-        ] as const
-        const ids = [...(await source.ids(changes, corpus.reads))]
-        captures[kind] = { changes, ids }
-        expect(
-          [...(await RECORD_SOURCES[kind as MetadataEntityKind][0]!.ids(changes, corpus.reads))],
-          kind,
-        ).toEqual(ids)
-      }
-      const triggers = captureTriggerStatements({ ...RECORD_SOURCES, ...BEFORE_ROW_SOURCES })
-      expect(captureTriggerStatements()).toEqual(triggers)
-      const effectKinds = ['machine.scan']
-      const tokens = await beforeKindTokens(corpus.store.sync, effectKinds)
-      expect(await readKindTokens(corpus.store.sync, effectKinds)).toEqual(tokens)
-      writeFileSync(
-        '/tmp/pod-7091-row-oracles.json',
-        `${JSON.stringify(
-          {
-            sourceCommit: '1d8ba77d9fe9a1c446c1736236d82218691f2dfd',
-            now: Date.parse(AT),
-            effectKinds,
-            generations: await corpus.store.sync.readKindGenerations(),
-            tables,
-            records,
-            captures,
-            triggers,
-            tokens,
+    beforeAll(async () => {
+      const store = await openTestStore(':memory:')
+      // openTestStore primes the ambient admin; the outer live corpus still
+      // belongs to its original store. These row readers need no principal.
+      primeFirstAdminMember(await firstAdminMemberId(corpus.store))
+      try {
+        const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+        const tables = Object.entries(frozen.tables) as [
+          string,
+          Record<string, string | number | null>[],
+        ][]
+        await seedRows(store, async () => {
+          // The captured inputs are in parent-first order. Deferral also
+          // allows self-referencing rows to be replayed in their stored order.
+          await db.run(sql`PRAGMA defer_foreign_keys = ON`)
+          for (const [table] of [...tables].reverse())
+            await db.run(sql`DELETE FROM ${sql.identifier(table)}`)
+          for (const [table, rows] of tables) {
+            for (const row of rows) {
+              const columns = Object.entries(row)
+              await db.run(
+                sql`INSERT INTO ${sql.identifier(table)} (${sql.join(
+                  columns.map(([name]) => sql.identifier(name)),
+                  sql`, `,
+                )}) VALUES (${sql.join(
+                  columns.map(([, value]) => sql`${value}`),
+                  sql`, `,
+                )})`,
+              )
+            }
+          }
+        })
+        expect(await db.all(sql`PRAGMA foreign_key_check`)).toEqual([])
+        replay = {
+          store,
+          reads: {
+            store,
+            effectExecutors: effectPublication(frozen.effectKinds),
+            now: () => frozen.now,
           },
-          null,
-          2,
-        )}\n`,
-      )
-      console.log(
-        `Frozen oracle: ${Object.keys(records).length} row kinds; old/new bytes equal; wrong-answer mutations rejected; ${triggers.length} trigger statements.`,
-      )
+        }
+      } catch (error) {
+        await store.close()
+        throw error
+      }
+    })
+    afterAll(async () => {
+      await replay?.store.close()
     })
 
     it('generates every row declaration and keeps genuinely joined kinds explicit', () => {
@@ -621,7 +575,7 @@ describe('record sources (POD-6920)', () => {
         (record) => record.kind,
       )
       expect(Object.keys(ROW_RECORDS).sort()).toEqual([...rowKinds].sort())
-      expect(before.kinds().sort()).toEqual([...rowKinds].sort())
+      expect([...kinds].sort()).toEqual([...rowKinds].sort())
       for (const binding of Object.values(ROW_RECORDS)) {
         expect(after.get(binding.declaration.kind)).toBe(binding.builder)
         expect(RECORD_SOURCES[binding.declaration.kind]).toBe(binding.sources)
@@ -637,27 +591,32 @@ describe('record sources (POD-6920)', () => {
     })
 
     it('produces byte-equal builds and streams for every converted kind on SQLite', async () => {
-      for (const kind of before.kinds()) {
-        const expected = await collectRecords(before.streamAll(corpus.reads, kind))
-        expect(expected.length, `${kind}: the oracle must have records`).toBeGreaterThan(0)
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
         expect(
-          bytes(await collectRecords(after.streamAll(corpus.reads, kind))),
+          JSON.parse(expected.streamBytes).length,
+          `${kind}: frozen records must be nonempty`,
+        ).toBeGreaterThan(0)
+        expect(
+          bytes(await collectRecords(after.streamAll(replay.reads, kind))),
           `${kind}: stream`,
-        ).toBe(bytes(expected))
-        const ids = [...expected.map((row) => row.id).reverse(), 'no-such-record', expected[0]!.id]
-        expect(bytes(await after.build(corpus.reads, kind, ids)), `${kind}: build`).toBe(
-          bytes(await before.build(corpus.reads, kind, ids)),
+        ).toBe(expected.streamBytes)
+        expect(bytes(await after.build(replay.reads, kind, expected.ids)), `${kind}: build`).toBe(
+          expected.buildBytes,
         )
-        expect(await after.build(corpus.reads, kind, [])).toEqual([])
-        expect(await after.build(corpus.reads, kind, ['no-such-record'])).toEqual(
-          await before.build(corpus.reads, kind, ['no-such-record']),
+        expect(bytes(await after.build(replay.reads, kind, [])), `${kind}: no ids`).toBe(
+          expected.emptyBytes,
         )
+        expect(
+          bytes(await after.build(replay.reads, kind, ['no-such-record'])),
+          `${kind}: missing`,
+        ).toBe(expected.missingBytes)
       }
     })
 
     it('the byte comparison fails for a wrong generated answer', async () => {
-      for (const kind of before.kinds()) {
-        const expected = await collectRecords(before.streamAll(corpus.reads, kind))
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
         const original = after.get(kind)
         const wrong: RecordBuilder<RecordReads> = {
           ...original,
@@ -668,51 +627,33 @@ describe('record sources (POD-6920)', () => {
             })),
         }
         const mutated = new RecordBuilderRegistry([wrong])
-        const ids = expected.map((row) => row.id)
-        const correctBytes = bytes(await before.build(corpus.reads, kind, ids))
-        const wrongBytes = bytes(await mutated.build(corpus.reads, kind, ids))
-        expect(() => expect(wrongBytes, kind).toBe(correctBytes), kind).toThrow()
+        const wrongBytes = bytes(await mutated.build(replay.reads, kind, expected.ids))
+        expect(() => expect(wrongBytes, kind).toBe(expected.buildBytes), kind).toThrow()
       }
     })
 
     it('keeps every generated capture trigger textually equal to before', () => {
-      expect(captureTriggerStatements()).toEqual(
-        captureTriggerStatements({ ...RECORD_SOURCES, ...BEFORE_ROW_SOURCES }),
-      )
+      expect(captureTriggerStatements()).toEqual(frozen.triggers)
     })
 
     it('keeps captured record identities for inserts, moves and deletes', async () => {
-      const db = (corpus.store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
-      for (const binding of Object.values(ROW_RECORDS)) {
-        const kind = binding.declaration.kind
-        const source = binding.sources[0]!
-        const rows = (await db.all(
-          sql`SELECT ${sql.join(
-            source.keys.map(
-              (column, i) => sql`${sql.identifier(column.name)} AS ${sql.identifier(`key${i}`)}`,
-            ),
-            sql`, `,
-          )} FROM ${source.table} LIMIT 2`,
-        )) as Record<string, unknown>[]
-        expect(rows.length, kind).toBeGreaterThan(0)
-        const key = (row: Record<string, unknown>) => source.keys.map((_, i) => row[`key${i}`])
-        const first = key(rows[0]!)
-        const second = key(rows[1] ?? rows[0]!)
-        const changes = [
-          { op: 'i', old: null, new: first },
-          { op: 'u', old: first, new: second },
-          { op: 'd', old: second, new: null },
-        ] as const
-        expect([...(await source.ids(changes, corpus.reads))], kind).toEqual([
-          ...(await BEFORE_ROW_SOURCES[kind][0]!.ids(changes, corpus.reads)),
-        ])
+      for (const kind of kinds) {
+        const source = ROW_RECORDS[kind].sources[0]
+        if (!source) throw new Error(`${kind}: missing capture source`)
+        const expected = frozen.captures[kind]
+        expect(
+          [...(await source.ids(expected.changes as SourceChange[], replay.reads))],
+          kind,
+        ).toEqual(expected.ids)
       }
     })
 
     it('keeps all shape tokens unchanged', async () => {
-      expect(await readKindTokens(corpus.store.sync, ['machine.scan'])).toEqual(
-        await beforeKindTokens(corpus.store.sync, ['machine.scan']),
-      )
+      const sync = { readKindGenerations: async () => frozen.generations } as Pick<
+        SyncRepository,
+        'readKindGenerations'
+      > as SyncRepository
+      expect(await readKindTokens(sync, frozen.effectKinds)).toEqual(frozen.tokens)
     })
   })
 
