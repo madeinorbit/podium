@@ -329,6 +329,8 @@
     "apps/server/src/store/statement-count.test.ts",
     "apps/server/src/store/sync-prepared-span.test.ts",
     "apps/server/src/store/terminal-answer-contract.test.ts",
+    "apps/server/src/store/workspace-caches.test.ts",
+    "apps/server/src/store/workspace-isolation.test.ts",
     "apps/server/src/store/workspace-manifest.test.ts",
     "apps/server/src/sync-worker/producer.test.ts",
     "apps/server/src/sync/bootstrap-routes.test.ts",
