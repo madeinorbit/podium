@@ -44,8 +44,24 @@ The server creates it the first time it stores a secret, readable only by its
 owner (mode `0600`, in a `0700` directory when it creates the directory). A copy
 of the database or of the state directory therefore opens nothing without it.
 Keys that were stored before the vault existed are moved into it automatically
-at start; their old plain copies stay in the database until a later release
-removes them.
+at start. Each old plain copy is then destroyed, but only once the key has been read
+back from the vault: it is overwritten, the database is compacted so no deleted copy
+stays in unused space, and the same keys are removed from the snapshots Podium keeps
+next to the database (`podium.db.backup-v*`). A key whose move could not be confirmed
+(for example because the vault key file was missing at that start) stays where it was,
+is named in the server log, and is tried again at the next start.
+
+What this does not reach:
+
+- **Backups made before the upgrade still hold the keys in plain text.** That includes
+  copies of the state directory you made yourself and any machine backups. Podium cannot
+  clean them.
+- **Restoring one of Podium's snapshots with the previous version means adding the keys
+  again** (provider keys, the Linear key and the Telegram bot token): the snapshots no
+  longer hold them, and the previous version cannot read the vault.
+- **If an old backup cannot be trusted** (lost, shared, kept somewhere others can read),
+  replace the key at its provider: revoke it there, create a new one, and add the new
+  one to Podium. Deleting the backup does not undo a copy someone already has.
 
 **Back the key file up separately from the state directory.** A backup that holds
 both is as sensitive as the keys themselves.

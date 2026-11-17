@@ -69,7 +69,7 @@ that believes it needs a fourth mails the coordinator first.
 |---|---|---|---|
 | Accepting a plain `ws` daemon connection from another computer | 23 | `2027-02` | `accepts a plain ws daemon connection from another computer so local-network installs survive the upgrade; removing it refuses such a daemon at connect` |
 | `credentialIdFromLegacy`, and reading the old `accountId` field on sessions, settings and the wire | 3, 12 | `2027-02` | `reads account ids written before credentials existed; removing it stops old spellings from resolving` |
-| The one-time move of old keys into the vault, the destruction of the old values, and the emptied `accounts` table | 2, 4, 21 | `2027-05` | `moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table` |
+| The one-time move of old keys into the vault, the destruction of the old values (in `podium.db` and in its retained snapshots), the sweep of old native-login-transfer rows (POD-7044), and the emptied `accounts` table | 2, 4, 21 | `2027-05` | `moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table` |
 
 Each marked piece is written so that removal is deleting it: the behaviour that remains
 afterwards exists and is tested now.
@@ -750,8 +750,11 @@ other rebases onto it.
 - `credentialIdFromLegacy(accountId, ownerUserId)` under the `2027-02` header: `''` and
   `native:<harness>` give no credential; `native:<harness>:<fingerprint>` gives the credential
   with that identity when one exists, otherwise none; any other value is looked up with
-  `findByLegacyKey(ownerUserId, value)`, then `findByLegacyId(value)`. The owner is the
-  session's owner or the person whose settings hold the value.
+  `findByLegacyKey(ownerUserId, value)`, then `findByLegacyId(value)` when the owner holds
+  it, then a key another member shared under that id (`legacySharedCandidates`: the oldest
+  old row first, taken when the person may use it now), then `findByLegacyId(value)` of
+  anyone (the resolver refuses it if it is not theirs). The owner is the session's owner or
+  the person whose settings hold the value.
 - `session.credentialId` on the record and the wire. A stored session or setting that still
   holds an old id is read through `credentialIdFromLegacy`; new writes store `credentialId`.
 - The personal setting `credentialDefaults`. Selection at launch: the credential the launch
