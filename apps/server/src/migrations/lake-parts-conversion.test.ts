@@ -34,9 +34,20 @@ interface Fixture {
   /** Write a legacy lake file at `transcripts/<machine>/<name>`. */
   legacy(name: string, bytes: Buffer, machine?: MachineId): string
   /** A segment row with `cursor` mirrored bytes. */
-  segment(nativeId: string, cursor: number, incarnation?: boolean): Promise<void>
+  segment(
+    nativeId: string,
+    cursor: number,
+    incarnation?: boolean,
+    machine?: MachineId,
+  ): Promise<void>
   /** Retire the active incarnation with `archived` bytes and start sequence + 1. */
-  rotate(nativeId: string, sequence: number, archived: number, cursor: number): Promise<void>
+  rotate(
+    nativeId: string,
+    sequence: number,
+    archived: number,
+    cursor: number,
+    machine?: MachineId,
+  ): Promise<void>
   /** Every stored byte of one incarnation. */
   stored(segment: LakeSegment): Promise<Buffer>
   run(overrides?: Partial<LakePartsConversionOptions>): ReturnType<typeof convertLakeToParts>
@@ -68,25 +79,25 @@ async function fixture(partBytes = P): Promise<Fixture> {
       writeFileSync(path, bytes)
       return path
     },
-    async segment(nativeId, cursor, incarnation = true) {
+    async segment(nativeId, cursor, incarnation = true, machine = machineId) {
       await store.conversations.registry.ensure({
-        machineId,
+        machineId: machine,
         nativeId,
         providerId: 'claude-code-jsonl',
         path: `/native/${nativeId}.jsonl`,
         sizeBytes: cursor,
       })
       if (incarnation) {
-        await mirror.startIncarnation(machineId, nativeId, { device: '1', inode: '1' }, AT)
+        await mirror.startIncarnation(machine, nativeId, { device: '1', inode: '1' }, AT)
       }
-      expect(await mirror.setMirrorCursor(machineId, nativeId, 0, cursor, AT)).toBe(true)
+      expect(await mirror.setMirrorCursor(machine, nativeId, 0, cursor, AT)).toBe(true)
     },
-    async rotate(nativeId, sequence, archived, cursor) {
-      const active = await mirror.activeIncarnation(machineId, nativeId)
+    async rotate(nativeId, sequence, archived, cursor, machine = machineId) {
+      const active = await mirror.activeIncarnation(machine, nativeId)
       if (!active) throw new Error('no active incarnation')
       expect(
         await mirror.rotateIncarnation(
-          machineId,
+          machine,
           nativeId,
           active,
           { device: '1', inode: String(sequence + 1) },
@@ -94,7 +105,9 @@ async function fixture(partBytes = P): Promise<Fixture> {
           AT,
         ),
       ).toBe(true)
-      expect(await mirror.setMirrorCursor(machineId, nativeId, 0, cursor, AT)).toBe(true)
+      const expected = await mirror.activeIncarnation(machine, nativeId)
+      expect(expected?.sequence).toBe(sequence + 1)
+      expect(await mirror.setMirrorCursor(machine, nativeId, 0, cursor, AT)).toBe(true)
     },
     async stored(segment) {
       const source = lake.source(segment, () => 2 ** 30)
@@ -370,5 +383,90 @@ describe('the lake parts conversion', () => {
       )?.items
     expect(await read('chain')).toEqual(beforeChain)
     expect(await read('legacy')).toEqual(beforeLegacy)
+  })
+
+  it('pages the work list in key order across many pages, skipping and repeating no row', async () => {
+    const f = await fixture()
+    const second = asMachineId('m2')
+    // Two machines, ids that sort differently from their insertion order, rows
+    // with no mirrored bytes between them (filtered out of the pages), segments
+    // rotated several times (their archived rows span page boundaries), and
+    // row-less segments (no active incarnation).
+    const segments: { machine: MachineId; nativeId: string; cursor: number }[] = []
+    const archived: { machine: MachineId; nativeId: string; sequence: number }[] = []
+    for (const machine of [second, machineId]) {
+      for (let n = 0; n < 9; n += 1) {
+        const nativeId = `s-${(n * 7) % 9}`
+        const cursor = n % 4 === 0 ? 0 : 100 + n
+        const rotations = n % 3
+        await f.segment(nativeId, cursor, n !== 5, machine)
+        for (let sequence = 1; sequence <= rotations && n !== 5; sequence += 1) {
+          // Every other rotation archives zero bytes: those rows are filtered.
+          const bytes = sequence % 2 === 0 ? 0 : 50 + sequence
+          await f.rotate(nativeId, sequence, bytes, cursor, machine)
+          if (bytes > 0) archived.push({ machine, nativeId, sequence })
+        }
+        if (cursor > 0) segments.push({ machine, nativeId, cursor })
+      }
+    }
+    const byKey = (a: readonly string[], b: readonly string[]) =>
+      a.join('\0') < b.join('\0') ? -1 : 1
+    segments.sort((a, b) => byKey([a.machine, a.nativeId], [b.machine, b.nativeId]))
+    archived.sort((a, b) =>
+      byKey(
+        [a.machine, a.nativeId, String(a.sequence).padStart(4, '0')],
+        [b.machine, b.nativeId, String(b.sequence).padStart(4, '0')],
+      ),
+    )
+    expect(segments.length).toBeGreaterThan(9)
+    expect(archived.length).toBeGreaterThan(3)
+
+    // The repository's pages, three rows each, walked by their last key.
+    const mirror = f.store.conversations.mirror
+    const pagedSegments: { machineId: MachineId; nativeId: string }[] = []
+    let pages = 0
+    for (let after: { machineId: MachineId; nativeId: string } | undefined; ; pages += 1) {
+      const page = await mirror.lakeConversionSegments(after, 3)
+      pagedSegments.push(...page)
+      const last = page.at(-1)
+      if (last === undefined || page.length < 3) break
+      after = { machineId: last.machineId, nativeId: last.nativeId }
+    }
+    expect(pages).toBeGreaterThan(3)
+    expect(pagedSegments.map((row) => `${row.machineId}/${row.nativeId}`)).toEqual(
+      segments.map((row) => `${row.machine}/${row.nativeId}`),
+    )
+    for (const row of await mirror.lakeConversionSegments(undefined, 100)) {
+      const active = await mirror.activeIncarnation(row.machineId, row.nativeId)
+      expect(row.activeSequence).toBe(active?.sequence)
+      expect(row.mirroredBytes).toBe(
+        segments.find((s) => s.machine === row.machineId && s.nativeId === row.nativeId)?.cursor,
+      )
+    }
+
+    const pagedArchived: { machineId: MachineId; nativeId: string; sequence: number }[] = []
+    for (let after: (typeof pagedArchived)[number] | undefined; ; ) {
+      const page = await mirror.lakeConversionArchived(after, 2)
+      pagedArchived.push(...page)
+      const last = page.at(-1)
+      if (last === undefined || page.length < 2) break
+      after = { machineId: last.machineId, nativeId: last.nativeId, sequence: last.sequence }
+    }
+    expect(pagedArchived.map((row) => `${row.machineId}/${row.nativeId}#${row.sequence}`)).toEqual(
+      archived.map((row) => `${row.machine}/${row.nativeId}#${row.sequence}`),
+    )
+
+    // The conversion over the same rows, at a page size that splits them.
+    for (const row of segments)
+      f.legacy(`${row.nativeId}.jsonl`, bytesOf(row.cursor, 1), row.machine)
+    for (const row of archived) {
+      f.legacy(`${row.nativeId}.incarnation-${row.sequence}.jsonl`, bytesOf(60, 2), row.machine)
+    }
+    expect(await f.run({ pageSize: 3 })).toMatchObject({
+      segments: segments.length,
+      archived: archived.length,
+      converted: segments.length + archived.length,
+      absent: 0,
+    })
   })
 })

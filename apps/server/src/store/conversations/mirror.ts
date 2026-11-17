@@ -1,5 +1,19 @@
 import type { MachineId } from '@podium/model'
-import { and, asc, desc, eq, gt, isNotNull, isNull, max, ne, or, type SQL, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  isNotNull,
+  isNull,
+  max,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import type {
   StoreDrizzle,
   StoreQueries,
@@ -209,32 +223,39 @@ const incarnationsOf = prepared((db, t) =>
 /**
  * The lake conversion's segment pages [POD-6963 design 2.3.1]: every segment
  * with mirrored bytes, in key order, with its active incarnation's sequence
- * (NULL when it has no row yet), after the `afterMachine` / `afterNative` key.
+ * (NULL when it has no row yet), from the `fromMachine` key (`start`, which the
+ * repository binds to the empty id) or after the `afterMachine` / `afterNative`
+ * key (`after`).
+ *
+ * A RANGE READ OF THE PRIMARY KEY PER PAGE [POD-7063]. The bound is a seek on
+ * the key's leading column (`start`) or a row-value comparison on the whole key
+ * (`after`), and the order is the key's own, so a page reads its rows from the
+ * key index and sorts none of them; `mirrored_bytes > 0` filters the rows read.
+ * The active incarnation is a correlated lookup by the incarnation key, not a
+ * grouped join: grouping made the planner sort the whole table once per page.
  */
 const lakeConversionSegments = preparedFamily((db, t, phase: 'start' | 'after') => {
   const s = t.conversationSegments
   const i = t.conversationSegmentIncarnations
-  const after =
-    phase === 'after'
-      ? or(
-          gt(s.machineId, param(s.machineId, 'afterMachine')),
-          and(
-            eq(s.machineId, param(s.machineId, 'afterMachine')),
-            gt(s.nativeId, param(s.nativeId, 'afterNative')),
-          ),
-        )
-      : undefined
+  const outer = sql.identifier('conversation_segments')
+  const from =
+    phase === 'start'
+      ? gte(s.machineId, param(s.machineId, 'fromMachine'))
+      : sql`(${s.machineId}, ${s.nativeId}) > (${param(s.machineId, 'afterMachine')}, ${param(s.nativeId, 'afterNative')})`
   return db
     .select({
       machineId: s.machineId,
       nativeId: s.nativeId,
       mirroredBytes: s.mirroredBytes,
-      activeSequence: max(i.sequence),
+      // The outer key is spelled with its table: drizzle prints a one-table
+      // select's columns bare, and a bare `machine_id` inside the subquery
+      // would name the incarnation's own column (a tautology).
+      activeSequence: sql<
+        number | null
+      >`(SELECT max(inc.sequence) FROM ${i} inc WHERE inc.machine_id = ${outer}.${sql.identifier('machine_id')} AND inc.native_id = ${outer}.${sql.identifier('native_id')} AND inc.retired_at IS NULL)`,
     })
     .from(s)
-    .leftJoin(i, and(eq(i.machineId, s.machineId), eq(i.nativeId, s.nativeId), isNull(i.retiredAt)))
-    .where(and(gt(s.mirroredBytes, 0), after))
-    .groupBy(s.machineId, s.nativeId, s.mirroredBytes)
+    .where(and(from, gt(s.mirroredBytes, 0)))
     .orderBy(asc(s.machineId), asc(s.nativeId))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -242,25 +263,16 @@ const lakeConversionSegments = preparedFamily((db, t, phase: 'start' | 'after') 
 
 /**
  * The lake conversion's archived pages: every retired incarnation with a
- * recorded byte count, in key order, after the given key.
+ * recorded byte count, in key order, from the `fromMachine` key (`start`) or
+ * after the given key (`after`). A range read of the incarnation key per page,
+ * as for the segment pages above [POD-7063].
  */
 const lakeConversionArchived = preparedFamily((db, t, phase: 'start' | 'after') => {
   const i = t.conversationSegmentIncarnations
-  const after =
-    phase === 'after'
-      ? or(
-          gt(i.machineId, param(i.machineId, 'afterMachine')),
-          and(
-            eq(i.machineId, param(i.machineId, 'afterMachine')),
-            gt(i.nativeId, param(i.nativeId, 'afterNative')),
-          ),
-          and(
-            eq(i.machineId, param(i.machineId, 'afterMachine')),
-            eq(i.nativeId, param(i.nativeId, 'afterNative')),
-            gt(i.sequence, param(i.sequence, 'afterSequence')),
-          ),
-        )
-      : undefined
+  const from =
+    phase === 'start'
+      ? gte(i.machineId, param(i.machineId, 'fromMachine'))
+      : sql`(${i.machineId}, ${i.nativeId}, ${i.sequence}) > (${param(i.machineId, 'afterMachine')}, ${param(i.nativeId, 'afterNative')}, ${param(i.sequence, 'afterSequence')})`
   return db
     .select({
       machineId: i.machineId,
@@ -269,7 +281,7 @@ const lakeConversionArchived = preparedFamily((db, t, phase: 'start' | 'after') 
       mirroredBytes: i.mirroredBytes,
     })
     .from(i)
-    .where(and(gt(i.mirroredBytes, 0), isNotNull(i.retiredAt), after))
+    .where(and(from, gt(i.mirroredBytes, 0), isNotNull(i.retiredAt)))
     .orderBy(asc(i.machineId), asc(i.nativeId), asc(i.sequence))
     .limit(sql.placeholder('limit'))
     .prepare()
@@ -476,7 +488,7 @@ export class TranscriptMirrorRepository {
   ): Promise<LakeConversionSegment[]> {
     const rows =
       after === undefined
-        ? await lakeConversionSegments(this.db, 'start').all({ limit })
+        ? await lakeConversionSegments(this.db, 'start').all({ fromMachine: '', limit })
         : await lakeConversionSegments(this.db, 'after').all({
             afterMachine: after.machineId,
             afterNative: after.nativeId,
@@ -499,7 +511,7 @@ export class TranscriptMirrorRepository {
     limit: number,
   ): Promise<LakeConversionArchived[]> {
     return after === undefined
-      ? await lakeConversionArchived(this.db, 'start').all({ limit })
+      ? await lakeConversionArchived(this.db, 'start').all({ fromMachine: '', limit })
       : await lakeConversionArchived(this.db, 'after').all({
           afterMachine: after.machineId,
           afterNative: after.nativeId,
