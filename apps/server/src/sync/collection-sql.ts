@@ -223,7 +223,13 @@ const TABLES = {
   }),
   conversation: table(conversations, [conversations.id], {
     id: plain(conversations.id),
-    createdAt: plain(conversations.createdAt),
+    // A missing time reads as the empty text, which no rule's time passes and
+    // which sorts oldest; `idx_conversations_created_at` is on this expression.
+    createdAt: () => ({
+      sql: `coalesce(${col(conversations.createdAt)}, '')`,
+      type: 'text',
+      notNull: true,
+    }),
   }),
   automationRun: table(
     automationRuns,
@@ -356,7 +362,12 @@ function sortSql(kind: CollectionKind, field: string): string {
   return sql.type === 'text' && sql.notNull !== true ? `coalesce(${sql.sql}, '')` : sql.sql
 }
 
-/** The rows strictly after `after` in the sort order: one arm per sort field. */
+/**
+ * The rows strictly after `after` in the sort order: one arm per sort field,
+ * behind a bound on the first field alone (`<=` descending, `>=` ascending).
+ * The bound adds no condition the arms lack, but it is the range an index on
+ * the first field seeks; the OR of the arms alone plans as a scan.
+ */
 function keysetSql(
   sorts: readonly string[],
   sort: PageSpec['sort'],
@@ -367,6 +378,7 @@ function keysetSql(
     params.push(value)
     return '?'
   }
+  const bound = `${sorts[0]} ${sort[0]!.direction === 'desc' ? '<=' : '>='} ${mark(after[0] ?? '')}`
   const arms: string[] = []
   for (let at = 0; at < sort.length; at++) {
     const tests: string[] = []
@@ -377,7 +389,7 @@ function keysetSql(
     )
     arms.push(`(${tests.join(' AND ')})`)
   }
-  return `(${arms.join(' OR ')})`
+  return `(${bound} AND (${arms.join(' OR ')}))`
 }
 
 /**

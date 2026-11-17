@@ -861,8 +861,10 @@ export const conversations = sqliteTable(
   (table) => [
     index('idx_conversations_project_path').on(table.projectPath),
     index('idx_conversations_updated_at').on(table.updatedAt),
-    // Recent conversations by their creation time (POD-7085).
-    index('idx_conversations_created_at').on(table.createdAt, table.id),
+    // Recent conversations by their creation time, and their history pages
+    // newest first (POD-7085). The time may be missing: the collection fetch
+    // reads it as the empty text, and this index is on that same expression.
+    index('idx_conversations_created_at').on(sql`coalesce(${table.createdAt}, '')`, table.id),
     // The recent top-level conversations, one keyset page at a time, newest
     // first, when memory search has no term (POD-6209).
     index('idx_conversations_top_level_updated')

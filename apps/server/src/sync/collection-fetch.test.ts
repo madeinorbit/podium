@@ -37,6 +37,7 @@ import {
   clausesOf,
   firstAdminMemberId,
   type IssueId,
+  interactionRowId,
   matchesWhere,
   RECORD_KINDS,
   type RuleArgs,
@@ -729,7 +730,8 @@ describe('a record arrives with what it comes with, each keyed instance marked',
   it('a pending ask comes with its session, and that session with its own', async () => {
     const lines = await fetchLines(viewers[0]!.user, [{ collection: 'pendingInteraction.all' }])
     const arrived = changesOf(lines).map((c) => `${c.entity}:${c.entityId}`)
-    expect(arrived).toContain('pendingInteraction:ask-1')
+    // A pending interaction's record id is its session and its own id (its declaration's key).
+    expect(arrived).toContain(`pendingInteraction:${interactionRowId('s-asking', 'ask-1')}`)
     expect(arrived).toContain('session:s-asking')
     expect(markersOf(lines).map((m) => m['collection'])).toContain('sessionUserState.ofSession')
   })

@@ -42,7 +42,7 @@ except "asking":
 | `session.recent` | `idx_sessions_published_active (published_last_active_at>?)` |
 | `workflowRun.recent` | `workflow_runs_started (started_at>?)` |
 | `automationRun.recent` | `idx_automation_runs_fired (fired_at>?)` |
-| `conversation.recent` | `idx_conversations_created_at (created_at>?)` |
+| `conversation.recent` | `idx_conversations_created_at (<expr>>?)` |
 | `issueProjection.sidebar` | `idx_issues_stage_updated (stage=?)` per open stage |
 | sidebar comes with `session.ofIssue` | `idx_sessions_issue_archived (issue_id=? AND archived=?)` |
 | `session.noIssue` | multi-index OR on `idx_sessions_issue_archived` |
@@ -55,7 +55,14 @@ except "asking":
 The indexes `idx_issues_stage_updated`, `idx_issues_updated`,
 `idx_sessions_published_active`, `idx_sessions_issue_archived`,
 `idx_conversations_created_at` and `idx_automation_runs_fired` are added by the
-migration `20261117195138_collection-fetch-indexes`.
+migration `20261117214033_collection-fetch-indexes`; the conversations index is on
+`coalesce(created_at, '')`, the expression the fetch reads the time as.
+
+A history collection's later pages seek below their position on the time
+index (the keyset condition leads with a bound on the time alone). Its first
+page reads the whole collection in order, for the viewer's total; it is fetched
+on demand, never in the first download, and listed as a whole-table read in the
+query-plan audit.
 
 ## Open
 

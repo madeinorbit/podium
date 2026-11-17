@@ -148,7 +148,9 @@ export function auditedCollectionShapes(sizes: readonly number[] = [1, 4]): stri
     if (collection.where === undefined && collection.page === undefined) continue
     const rule = resolveRule(collection.id)
     const args = argsOf(rule)
-    add(rule, 'ids', args)
+    // A paged collection is read in its order (`sorted`, `after`); it is read
+    // by ids only at stub level, and that only when it has a rule.
+    if (collection.where !== undefined) add(rule, 'ids', args)
     if (collection.page !== undefined) {
       add(rule, 'sorted', args)
       add(rule, 'after', args)

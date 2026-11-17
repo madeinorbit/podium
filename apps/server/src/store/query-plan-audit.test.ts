@@ -646,6 +646,18 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/collections.ts:collectionRows [|automationRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|conversation.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|workflowRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
     'apps/server/src/store/conversations/index.ts:recordPage',
     'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.',
   ],
@@ -896,7 +908,7 @@ const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/collections.ts:collectionRows [|session.asking#ids#]',
-    "Query shape: the sessions that ask (POD-7085) read the agent state each record carries, the runtime turn state over the observation checkpoint over the row, and the offer unless a later input made it stale; no index serves an expression over three tables. Stored as one derived column on the session row it would be an index seek; reported to POD-5910 as the follow-up.",
+    'Query shape: the sessions that ask (POD-7085) read the agent state each record carries, the runtime turn state over the observation checkpoint over the row, and the offer unless a later input made it stale; no index serves an expression over three tables. Stored as one derived column on the session row it would be an index seek; reported to POD-5910 as the follow-up.',
   ],
   [
     'apps/server/src/store/issues.ts:commentSearch',

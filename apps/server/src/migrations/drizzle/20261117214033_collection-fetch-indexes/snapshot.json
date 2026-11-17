@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "3f23af43-ae0f-4d17-bff9-786b0c70ee25",
+  "id": "561f2e99-7d60-4483-9cc2-5a51a4b54325",
   "prevIds": [
     "a55c2c98-a165-432d-9e5b-795b68b2a736"
   ],
@@ -14170,8 +14170,8 @@
     {
       "columns": [
         {
-          "value": "created_at",
-          "isExpression": false
+          "value": "coalesce(\"created_at\", '')",
+          "isExpression": true
         },
         {
           "value": "id",
