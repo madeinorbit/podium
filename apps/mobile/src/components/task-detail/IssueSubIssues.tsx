@@ -17,7 +17,7 @@ import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
-import { useDetailLayout, useDetailSize } from './detail-type'
+import { useDetailLayout } from './detail-type'
 
 /** FullDeck.buckets reads this same shared execution progress. */
 function useSubTaskCount(issue?: IssueViewModel) {
@@ -82,7 +82,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
 }) {
-  const size = useDetailSize()
+  const { accessorySize: size } = useDetailLayout()
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const count = useSubTaskCount(headless ? undefined : issue)
@@ -181,7 +181,7 @@ const SubTaskRow = observer(function SubTaskRow({
   muted?: boolean
 }) {
   const { size, accessorySize, accessibility } = useDetailLayout()
-  const statusWidth = Math.max(44, accessorySize(18) + space.lg)
+  const statusWidth = space.md + accessorySize(14) + space.sm
   const count =
     'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = taskStateWord(child, count)
@@ -201,7 +201,7 @@ const SubTaskRow = observer(function SubTaskRow({
         accessibilityLabel={`Change status for ${issueDisplayRef(child)}`}
         accessibilityHint="Opens the status picker"
         onPress={() => onStatus(child)}
-        hitSlop={4}
+        hitSlop={space.sm}
         style={({ pressed }) => [
           styles.statusButton,
           { width: statusWidth, height: size(leading(font.body)) + space.xl },
@@ -254,7 +254,13 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  statusButton: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  statusButton: {
+    width: 34,
+    minHeight: 44,
+    paddingLeft: space.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowBody: {
     minHeight: 44,
     flex: 1,
