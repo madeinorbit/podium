@@ -15,14 +15,14 @@ export {
  *
  * `credentials.add · rename · renew · remove · share · unshare · allowMachine ·
  * disallowMachine · chatgptSignInStart · chatgptSignInComplete · signInStart ·
- * signInCancel`. A credential belongs to the person who added it. Its owner,
+ * signInCancel · login · useOnMyMachines`. A credential belongs to the person who added it. Its owner,
  * or a person the owner gave `manage`, may change it; a person with `use` may run
  * on it and change nothing. Being an admin gives no access to another person's
  * credential. Every write is a person's: an agent session is refused, whoever it
  * acts for.
  *
- * Every contract is `secret`, so the lint forces `online-sensitive`: nothing here
- * is queued on a device or replayed later. `add` and `renew` carry the secret and
+ * Secret writes use `online-sensitive`; the interactive machine login uses
+ * `online-only`. Nothing here is queued on a device or replayed later. `add` and `renew` carry the secret and
  * redact it; the results never echo it. The read is the `credentials.list` query.
  */
 

@@ -148,6 +148,10 @@ function invoke(
   credentialId: CredentialId,
 ): Promise<unknown> {
   switch (name) {
+    case 'login':
+      return caller.credentials.login({ harness: 'codex', machineId: MACHINE })
+    case 'useOnMyMachines':
+      return caller.credentials.useOnMyMachines({ harness: 'codex', fingerprint: 'not-observed', enabled: true })
     case 'add':
       return caller.credentials.add({
         type: 'openai.api-key',
@@ -230,7 +234,9 @@ describe('acceptance 1: who may run which command', () => {
       // because it is not connected; cancelling a sign-in nobody started is
       // not found for all.
       expected:
-        name === 'add' || name === 'chatgptSignInStart'
+        name === 'login' || name === 'useOnMyMachines'
+          ? 'INTERNAL_SERVER_ERROR'
+          : name === 'add' || name === 'chatgptSignInStart'
           ? 'applied'
           : name === 'chatgptSignInComplete'
             ? 'BAD_REQUEST'
@@ -308,6 +314,8 @@ describe('acceptance 1: who may run which command', () => {
     // machine name none (their own tests).
     const onTarget = CREDENTIAL_CONTRACT_NAMES.filter(
       (n) =>
+        n !== 'login' &&
+        n !== 'useOnMyMachines' &&
         n !== 'remove' &&
         n !== 'chatgptSignInStart' &&
         n !== 'chatgptSignInComplete' &&

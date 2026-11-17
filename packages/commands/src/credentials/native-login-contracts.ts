@@ -1,14 +1,9 @@
 /**
  * THE MACHINE LOGIN CONTRACTS — `credentials.login · credentials.useOnMyMachines`.
  *
- * What is left of the Credentials page: a machine's own (native) logins. `login`
- * opens the harness's login terminal on a machine in the caller's custody;
- * `useOnMyMachines` is the D11 tick that copies a login to every machine the
- * caller holds custody of. The stored provider keys this family once held are
- * credentials (`credentials/contracts.ts`; credential management plan Task 21).
- *
- * CLASSIFICATION: `secret`, so a command is never queued and never replayed
- * (`classificationErrors` forces `online-sensitive` delivery for it).
+ * `login` opens the harness's default-home login terminal on a machine in the
+ * caller's custody. `useOnMyMachines` copies the caller's detected login to
+ * their other machines. Both require an online connection and are never queued.
  */
 
 import { HarnessAgent, MachineIdField } from '@podium/model'
@@ -23,7 +18,7 @@ import type {
   VisibilityClass,
 } from '../contract'
 
-/** `trpc` alone — the Credentials page is the only surface that writes these. */
+/** `trpc` alone — these controls are used by Credentials, setup and terminal login repair. */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
 /** ADR 1's `managedCredentials` row. */

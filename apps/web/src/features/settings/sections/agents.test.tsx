@@ -14,12 +14,13 @@ import { SettingsControlsContext } from './shared'
 
 const fixture = vi.hoisted(() => ({
   credentialViews: [] as CredentialView[],
+  serverAi: undefined as { machineName?: string; lastError?: string } | undefined,
   machines: [] as MachineModel[],
   catalog: {} as ModelCatalogState['catalog'],
   byMachine: {} as Record<string, ModelCatalogState>,
 }))
 vi.mock('@/features/credentials/use-server-ai-status', () => ({
-  useServerAiStatus: () => undefined,
+  useServerAiStatus: () => fixture.serverAi,
 }))
 vi.mock('../readers', () => ({
   useSettingsAuthorizedMachines: () =>
@@ -56,6 +57,7 @@ function reported(
 }
 afterEach(() => {
   cleanup()
+  fixture.serverAi = undefined
   fixture.machines = []
   fixture.catalog = {}
   fixture.byMachine = {}
@@ -195,28 +197,21 @@ describe('Agent role fields', () => {
 it('shows subagent model only when the harness accepts it', () => {
   const settings = normalizeSettings({ roles: { coding: { accountId: 'native:claude-code' } } })
   const { rerender } = render(
-    <AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />,
+    <AgentsSection settings={settings} patch={vi.fn()} />,
   )
   expect(screen.getByText('Subagent model')).toBeTruthy()
   const section = screen.getByRole('heading', { name: 'New sessions' }).closest('section')
   if (!section) throw new Error('Missing new sessions section')
   expect(within(section).getByText(/on your default credential for it/i)).toBeTruthy()
   const next = normalizeSettings({ roles: { coding: { accountId: 'native:codex' } } })
-  rerender(<AgentsSection settings={next} accounts={accounts} patch={vi.fn()} />)
+  rerender(<AgentsSection settings={next} patch={vi.fn()} />)
   expect(screen.queryByText('Subagent model')).toBeNull()
 })
 
 it('shows the background error with its machine', () => {
   const settings = normalizeSettings({ roles: { background: { accountId: 'native:codex' } } })
-  const withError = accounts.map((account) =>
-    account.id === 'native:codex'
-      ? {
-          ...account,
-          serverAi: { machineName: 'Workstation', lastError: 'Provider refused the request' },
-        }
-      : account,
-  )
-  render(<AgentsSection settings={settings} accounts={withError} patch={vi.fn()} />)
+  fixture.serverAi = { machineName: 'Workstation', lastError: 'Provider refused the request' }
+  render(<AgentsSection settings={settings} patch={vi.fn()} />)
   expect(screen.getByText('Last error: Provider refused the request')).toBeTruthy()
   expect(screen.getByText('Uses the login on Workstation.')).toBeTruthy()
 })
@@ -243,7 +238,7 @@ it('shows the native background Auto model resolved exactly as the one-shot call
   const settings = normalizeSettings({
     roles: { background: { accountId: 'native:codex', model: 'auto' } },
   })
-  render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
+  render(<AgentsSection settings={settings} patch={vi.fn()} />)
   const section = screen.getByRole('heading', { name: 'Background model' }).closest('section')
   if (!section) throw new Error('Missing background section')
   const head = bundledDescriptorFor('codex')?.catalog.models[0]?.label
@@ -253,7 +248,7 @@ it('shows the native background Auto model resolved exactly as the one-shot call
 
 it('offers no "Runs on" row; an unset background role lists concrete API models', () => {
   const settings = normalizeSettings({})
-  render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
+  render(<AgentsSection settings={settings} patch={vi.fn()} />)
   expect(screen.queryByRole('combobox', { name: 'Runs on' })).toBeNull()
   const model = screen.getByRole('combobox', { name: 'Model' })
   expect(model.textContent).toContain('Gemini 2.5 Flash')
