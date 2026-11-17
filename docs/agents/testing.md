@@ -219,11 +219,10 @@ tests the executor or driver directly gets the leg's engine from `openEngineHarn
 must also hold on Postgres (a boot-wiring file, a server started on a Postgres URL) is listed
 under `beyondStoreShard` with the reason.
 `src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
-a SQLite-only entry without a reason, and a file in both lists. Until POD-6994,
-`src/store/postgres-leg-store-opens.test.ts` (a source scan, so in the `boundary` shard) refuses
-a Postgres-leg file that calls a store opener (`openTestStore`, `SessionStore.open`, or a test
-helper whose body reaches one, such as `openWorkspaceStores` or `makeOracle`) and never reads
-the engine (`testStoreEngine()`): that file belongs on `pending` (POD-7098).
+a SQLite-only entry without a reason, a file in both lists, and a `beyondStoreShard` entry
+that is a store-shard file, is missing or has no reason. Every store-shard file is on the leg
+unless a list names it, so one that fails on Postgres fails the leg by name. To see which
+pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
 
 **How it gets Postgres.** The config's globalSetup (`src/test-support/pg-test-host.ts`):
 
