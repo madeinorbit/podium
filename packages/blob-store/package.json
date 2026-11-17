@@ -2,7 +2,7 @@
   "name": "@podium/blob-store",
   "version": "0.0.0",
   "private": true,
-  "description": "One small byte interface for user files (POD-6963 design 2.1): whole-object put with conditional writes, ranged get, head, delete, sorted list and copy, built for one workspace. A local-disk adapter that keeps today's paths under the state directory, an S3-compatible adapter (one bucket, a prefix per workspace) and an in-memory adapter with object-store semantics for tests. Depends on @podium/model and, for the S3 adapter's conditional puts and copy, @aws-sdk/client-s3; never apps/*.",
+  "description": "One small byte interface for user files (POD-6963 design 2.1): whole-object put with conditional writes, ranged get, head, delete, sorted list and copy, built for one workspace. A local-disk adapter that keeps today's paths under the state directory, an S3-compatible adapter (one bucket, a prefix per workspace) and an in-memory adapter with object-store semantics for tests. Depends on @podium/model and, for the S3 adapter only (loaded on first use), @aws-sdk/client-s3; never apps/*.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

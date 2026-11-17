@@ -512,7 +512,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // The blob store (POD-6963 design 2.1): one byte interface for user files
   // (artifacts, uploads, the transcript lake) with a local-disk adapter, an
   // S3-compatible one and an in-memory one. NODE-ONLY: the local adapter is
-  // node:fs, the S3 one Bun's S3 client. Layer 1 so the
+  // node:fs, the S3 one the AWS SDK. Layer 1 so the
   // sync kernel (L2) can write the lake through it; it reaches the model leaf
   // and nothing else, never an app.
   'packages/blob-store': {

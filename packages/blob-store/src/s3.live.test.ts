@@ -50,17 +50,45 @@ let next = 0
 const freshWorkspace = () => asWorkspaceId(`live-${run}-${next++}`)
 
 async function removeWorkspace(workspace: string): Promise<void> {
+  const { module, client } = await storage.sdk()
   let continuationToken: string | undefined
   do {
-    const page = await storage.bun.list({
-      prefix: `${workspace}/`,
-      maxKeys: 1000,
-      ...(continuationToken === undefined ? {} : { continuationToken }),
-    })
-    for (const entry of page.contents ?? []) await storage.bun.delete(entry.key)
-    continuationToken = page.isTruncated ? page.nextContinuationToken : undefined
+    const page = await client.send(
+      new module.ListObjectsV2Command({
+        Bucket: storage.bucket,
+        Prefix: `${workspace}/`,
+        ...(continuationToken === undefined ? {} : { ContinuationToken: continuationToken }),
+      }),
+    )
+    for (const entry of page.Contents ?? []) {
+      if (entry.Key !== undefined) {
+        await client.send(
+          new module.DeleteObjectCommand({ Bucket: storage.bucket, Key: entry.Key }),
+        )
+      }
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
   } while (continuationToken !== undefined)
 }
+
+/** What the provider answers a raw ranged GET with, before the adapter maps it. */
+async function rawRangeStatus(name: string, range: string): Promise<string> {
+  const { module, client } = await storage.sdk()
+  try {
+    const out = await client.send(
+      new module.GetObjectCommand({ Bucket: storage.bucket, Key: name, Range: range }),
+    )
+    await out.Body?.transformToWebStream().cancel()
+    return `${out.$metadata.httpStatusCode} (content-range ${out.ContentRange ?? 'none'})`
+  } catch (error) {
+    const e = error as { name?: string; $metadata?: { httpStatusCode?: number } }
+    return `${e.$metadata?.httpStatusCode ?? '?'} ${e.name ?? ''}`.trim()
+  }
+}
+
+/** The line a failed provider answer prints: what to configure instead. */
+const CONDITIONAL_HINT =
+  'construct S3BlobStorage with conditionalWrites: false for this provider (and expect the parted lake to fall back to the cursor compare-and-set alone)'
 
 describeBlobStoreContract('s3 (live bucket)', async () => {
   const workspace = freshWorkspace()
@@ -100,8 +128,10 @@ describe('s3 provider behaviour', () => {
           ? 'honoured (412)'
           : `IGNORED (body now ${JSON.stringify(kept)})`,
       )
-      expect(second).toBe(true)
-      expect(kept).toBe('first')
+      expect(
+        second && kept === 'first',
+        `the provider ignores If-None-Match on PUT: ${CONDITIONAL_HINT}`,
+      ).toBe(true)
     } finally {
       await removeWorkspace(workspace)
     }
@@ -124,7 +154,10 @@ describe('s3 provider behaviour', () => {
           ? 'honoured (stale etag refused, missing key refused)'
           : `NOT HONOURED (stale refused=${stale}, missing refused=${onMissing}, body ${JSON.stringify(kept)})`,
       )
-      expect([stale, onMissing, kept]).toEqual([true, true, 'v2'])
+      expect(
+        stale && onMissing && kept === 'v2',
+        `the provider does not honour If-Match on PUT: ${CONDITIONAL_HINT}`,
+      ).toBe(true)
     } finally {
       await removeWorkspace(workspace)
     }
@@ -135,18 +168,19 @@ describe('s3 provider behaviour', () => {
     const store = storage.forWorkspace(workspace)
     try {
       await store.put(blobKey('q/range'), bytes('0123456789'))
-      const url = storage.bun.presign(`${workspace}/q/range`, { method: 'GET', expiresIn: 60 })
-      const raw = await fetch(url, { headers: { range: 'bytes=10-19' } })
-      await raw.body?.cancel()
+      const raw = await rawRangeStatus(`${workspace}/q/range`, 'bytes=10-19')
       const past = await store.get(blobKey('q/range'), { offset: 10, length: 10 })
       const over = await store.get(blobKey('q/range'), { offset: 8, length: 10 })
       const pastText = await bodyText(past)
       const overText = await bodyText(over)
       report(
         'range past the end',
-        `raw status ${raw.status} (content-range ${raw.headers.get('content-range') ?? 'none'}); adapter: empty body, size ${past?.size}; overlapping range returns ${JSON.stringify(overText)}`,
+        `raw status ${raw}; adapter: empty body, size ${past?.size}; overlapping range returns ${JSON.stringify(overText)}`,
       )
-      expect([past?.size, pastText, over?.size, overText]).toEqual([10, '', 10, '89'])
+      expect(
+        [past?.size, pastText, over?.size, overText],
+        "ranges past the end are not clipped as design 2.1 requires; the 416 mapping in s3.ts get() needs this provider's answer",
+      ).toEqual([10, '', 10, '89'])
     } finally {
       await removeWorkspace(workspace)
     }
@@ -175,7 +209,10 @@ describe('s3 provider behaviour', () => {
           ? 'ascending byte order'
           : `NOT byte order: ${JSON.stringify(listed)}`,
       )
-      expect(listed).toEqual(expected)
+      expect(
+        listed,
+        'the provider does not list in ascending byte order; sweeps and the orphan audit cannot use it',
+      ).toEqual(expected)
     } finally {
       await removeWorkspace(workspace)
     }

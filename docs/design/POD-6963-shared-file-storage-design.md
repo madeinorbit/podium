@@ -415,10 +415,15 @@ found. The interface has no presign method; one is added when a measurement asks
   `{ backend: 's3', endpoint, bucket, region }` with the key pair from the environment
   (`PODIUM_FILE_STORAGE_*`). Hosted sets it through the environment. A self-hosted operator may
   choose `s3` as well; it is supported, not advertised, until hosted has run on it.
-- The adapter uses Bun's built-in S3 client (ranged reads, streamed multipart writes, no new
-  dependency). F2 verifies conditional writes (`If-None-Match`, `If-Match`), ranges past the
-  end and listing order on R2 through it, and falls back to the AWS SDK v3 S3 client for
-  anything it lacks.
+- The adapter uses the AWS SDK v3 S3 client (`@aws-sdk/client-s3`) for every call, loaded on
+  first use so a local-backend server never loads it: GetObject with `Range`, HeadObject,
+  DeleteObject, ListObjectsV2, PutObject with `If-None-Match`/`If-Match`, CopyObject, and a
+  streamed put as its own multipart loop with an abort on a failed source. Bun's built-in client
+  was dropped because F2 found it lacks conditional writes, the ETag of a write and copy, half the
+  interface; keeping it for the rest meant two clients with two credential paths, error mappings
+  and retry behaviours in one adapter. `conditionalWrites` is a constructor option, default true;
+  the opt-in live lane (`bun run test:live:s3`) checks `If-None-Match`, `If-Match`, ranges past
+  the end and listing order on R2.
 - The transfer fence becomes a property of the local adapter: owners stop calling `runWriter`
   themselves. Server transfer (self-hosted only; hosted has none, POD-6965) keeps walking the
   same four roots.
@@ -509,8 +514,9 @@ and F8; they are not task edges.
 
 ## 6. Risks and unknowns
 
-- **Bun's S3 client coverage.** Conditional writes, ranges past the end and listing order on
-  R2 are unverified; F2 decides between it and the AWS SDK. Low impact: the adapter is one file.
+- **R2 behaviour.** Conditional writes, ranges past the end and listing order on R2 are
+  documented, and the adapter is built on them, but stay unverified until the opt-in live lane
+  runs against a real bucket. Low impact: the adapter is one file.
 - **Part size.** 1 MiB is reasoned, not measured. F10 measures it on a real bucket.
 - **Lake read latency on hosted.** A transcript window read becomes one or two ranged GETs
   (tens of milliseconds) instead of a local read. The lake is the fallback when the machine is

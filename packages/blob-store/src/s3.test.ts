@@ -288,7 +288,7 @@ describe('s3 adapter', () => {
       const store = storageFor(fake, fake.endpoint, { bucket: 'no-such-bucket' }).forWorkspace(
         asWorkspaceId('ws'),
       )
-      await expect(store.get(blobKey('k/x'))).rejects.toThrow(/the bucket does not exist/)
+      await expect(store.get(blobKey('k/x'))).rejects.toMatchObject({ name: 'NoSuchBucket' })
     }))
 
   it('validates its options', () =>
