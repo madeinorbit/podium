@@ -60,14 +60,13 @@ export const PROVISION_WORKSPACE_FEED: CrossWorkspaceAllowlistEntry = Object.fre
 
 /**
  * The janitor's one fleet read: the workspaces with a feed, which is every provisioned workspace.
- * The janitor reads the database directly, so this is raw SQL; each of its readers is then built
- * for one listed workspace and reads only that workspace's rows (POD-7021).
+ * Each of its reads is then made for one listed workspace and reads only that workspace's rows
+ * (POD-7021). A definition in the janitor's reads since POD-6993, so it runs on either engine.
  */
 export const LIST_WORKSPACES_WITH_FEED: CrossWorkspaceAllowlistEntry = Object.freeze({
-  use: 'raw-read',
-  file: 'packages/janitor/src/janitor.ts',
+  use: 'read',
+  file: 'apps/server/src/store/janitor-reads.ts',
   name: 'listWorkspacesWithFeed',
-  sql: 'SELECT workspace_id FROM sync_feed ORDER BY workspace_id',
   reason:
     'The janitor finds the workspaces whose maintenance it observes: one row per provisioned ' +
     'workspace, ids only. Every observation it then makes reads one workspace, and nothing is ' +

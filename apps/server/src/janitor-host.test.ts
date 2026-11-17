@@ -86,4 +86,26 @@ describe('startJanitorHost', () => {
       else process.env.PODIUM_HOST = prior
     }
   })
+
+  /**
+   * POD-6993: the worker opens the store at the location the host names, which names
+   * its engine: a SQLite file path or a Postgres URL. By default it is the instance's
+   * own `podium.db`, the file the server's store opens.
+   */
+  it("hands the worker the store's location", async () => {
+    const seen: string[] = []
+    const start = async ({ dbPath }: { dbPath: string }) => {
+      seen.push(dbPath)
+      return {
+        progressVersion: () => 0,
+        state: () => 'running' as const,
+        reason: () => undefined,
+        close: async () => {},
+      }
+    }
+    await startJanitorHost({ port: 1, token: 't', start, dbPath: 'postgres://db.invalid/podium' })
+    await startJanitorHost({ port: 1, token: 't', start })
+    expect(seen[0]).toBe('postgres://db.invalid/podium')
+    expect(seen[1]).toMatch(/[\\/]podium\.db$/)
+  })
 })

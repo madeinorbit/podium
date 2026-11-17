@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { createLogger } from '@podium/logger'
 import { measureTask } from '@podium/runtime/task-attribution'
-import { isCompiledBunfsUrl, janitorWorkerEmbeddedTarget } from './janitor-worker-embed.js'
 
 const log = createLogger('server:janitor-worker')
 
@@ -17,9 +16,18 @@ export type JanitorWorkerState = 'running' | 'degraded' | 'stopped'
 export interface JanitorWorkerStartOptions {
   serverUrl: string
   token: string
-  dbPath?: string
+  /** The store's location, which names its engine: a SQLite file path or a Postgres URL. */
+  dbPath: string
   tickMs?: number
 }
+
+/**
+ * What `new Worker(...)` starts: the thread entry, which the HOST names [POD-6993]. The
+ * janitor reads through the store's query definitions, so its entry is the server's
+ * (`apps/server/src/janitor-worker.ts`), which runs this package's loop
+ * (`serveJanitorWorker`) with the server's database opener.
+ */
+export type JanitorWorkerTarget = URL | string
 
 export interface JanitorWorkerHandle {
   progressVersion(): number
@@ -46,17 +54,8 @@ interface ProbeWaiters {
   done: { resolve(): void; reject(error: Error): void }
 }
 
-function workerTarget(): URL | string {
-  if (isCompiledBunfsUrl(import.meta.url)) {
-    const target = janitorWorkerEmbeddedTarget()
-    // Bun 1.4 requires URL objects for file URLs; Windows embedded paths must stay strings.
-    return target.startsWith('file://') ? new URL(target) : target
-  }
-  return new URL('./janitor-worker.ts', import.meta.url)
-}
-
-function defaultSpawn(options: JanitorWorkerStartOptions): WorkerLike {
-  return new Worker(workerTarget(), {
+function spawnAt(target: JanitorWorkerTarget, options: JanitorWorkerStartOptions): WorkerLike {
+  return new Worker(target, {
     type: 'module',
     workerData: options,
   } as unknown as ConstructorParameters<typeof Worker>[1])
@@ -95,6 +94,8 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
   constructor(
     private readonly options: JanitorWorkerStartOptions,
     private readonly deps: {
+      /** The thread entry; `spawn` replaces the spawn altogether (tests). */
+      target?: JanitorWorkerTarget
       spawn?: (options: JanitorWorkerStartOptions) => WorkerLike
       now?: () => number
       monitorMs?: number
@@ -133,6 +134,12 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
     else log.warn(message)
   }
 
+  private spawnOne(): WorkerLike {
+    if (this.deps.spawn) return this.deps.spawn(this.options)
+    if (this.deps.target === undefined) throw new Error('janitor worker has no entry to start')
+    return spawnAt(this.deps.target, this.options)
+  }
+
   private spawnWorker(): void {
     if (this.closed || this.compatibilityRefused) return
     if (this.restartTimer) {
@@ -149,7 +156,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
     this.lastProgressAtMs = startedAt
     let worker: WorkerLike
     try {
-      worker = (this.deps.spawn ?? defaultSpawn)(this.options)
+      worker = this.spawnOne()
     } catch (error) {
       this.scheduleRestart(asError(error))
       return
@@ -336,6 +343,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
 
 export async function startJanitorWorker(
   options: JanitorWorkerStartOptions,
+  target: JanitorWorkerTarget,
 ): Promise<JanitorWorkerHandle> {
-  return new JanitorWorkerClient(options)
+  return new JanitorWorkerClient(options, { target })
 }

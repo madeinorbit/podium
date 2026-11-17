@@ -1,4 +1,5 @@
 import { writeFileSync } from 'node:fs'
+import { openJanitorDatabase } from '../../apps/server/src/janitor-database'
 import { startJanitor } from '../../packages/janitor/src/janitor'
 import { startWatchdog } from '../../packages/runtime/src/sd-notify'
 
@@ -11,7 +12,7 @@ function required(name: string): string {
 const handle = await startJanitor({
   serverUrl: required('PODIUM_ACCEPTANCE_SERVER_URL'),
   token: required('PODIUM_ACCEPTANCE_TOKEN'),
-  dbPath: required('PODIUM_ACCEPTANCE_DB_PATH'),
+  database: openJanitorDatabase(required('PODIUM_ACCEPTANCE_DB_PATH')),
   tickMs: Number(process.env.PODIUM_ACCEPTANCE_TICK_MS ?? 250),
 })
 const stopWatchdog = startWatchdog({
@@ -22,8 +23,7 @@ if (startedFile) writeFileSync(startedFile, String(process.pid))
 
 const shutdown = (): void => {
   stopWatchdog?.()
-  handle.close()
-  process.exit(0)
+  void handle.close().finally(() => process.exit(0))
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)

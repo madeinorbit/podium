@@ -38,7 +38,7 @@ describe('JanitorWorkerClient', () => {
     const workers: ReturnType<typeof fakeWorker>[] = []
     const logs: string[] = []
     const client = new JanitorWorkerClient(
-      { serverUrl: 'http://server', token: 'token' },
+      { serverUrl: 'http://server', token: 'token', dbPath: '/state/podium.db' },
       {
         spawn: () => {
           const worker = fakeWorker()
@@ -69,7 +69,7 @@ describe('JanitorWorkerClient', () => {
   it('parks compatibility refusal visibly without respawning', async () => {
     const workers: ReturnType<typeof fakeWorker>[] = []
     const client = new JanitorWorkerClient(
-      { serverUrl: 'http://server', token: 'token' },
+      { serverUrl: 'http://server', token: 'token', dbPath: '/state/podium.db' },
       {
         spawn: () => {
           const worker = fakeWorker()
@@ -107,7 +107,7 @@ describe('JanitorWorkerClient', () => {
       return termination
     }
     const client = new JanitorWorkerClient(
-      { serverUrl: 'http://server', token: 'token' },
+      { serverUrl: 'http://server', token: 'token', dbPath: '/state/podium.db' },
       { spawn: () => worker, log: () => {} },
     )
     worker.emit('message', { type: 'ready', progressVersion: 1 })

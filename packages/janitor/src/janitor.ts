@@ -1,18 +1,10 @@
 // workspace-scoped (POD-6959)
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-// A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
+// A ROW OUT OF THE STORE IS A TRUE SERIALIZATION EDGE: the column is text and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
-import {
-  asAutomationId,
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  asUserId,
-  type UserId,
-} from '@podium/model'
+import { asAutomationId, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationFireObservation,
@@ -51,9 +43,6 @@ import {
   type WorktreeGcObservation,
   worktreeGcRunKey,
 } from '@podium/protocol'
-import { stateDir } from '@podium/runtime/config'
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
 
 const log = createLogger('janitor')
@@ -70,40 +59,139 @@ const HOUSEKEEPING_EVERY_TICKS = 1
 type ReadyLease = Extract<MaintenanceHandshakeReply, { status: 'ready' }>
 
 /**
- * ONE WORKSPACE'S ROWS (POD-7021, POD-6959 design 2.4 "Fleet reads"). Each
- * reader below is built for one workspace and constrains every workspace table
- * it reads to it (joins and subqueries on the row's own workspace). The one
- * read across workspaces is {@link listWorkspacesWithFeed}, on the
- * cross-workspace allowlist (`apps/server/src/store/cross-workspace-allowlist.ts`).
+ * THE JANITOR'S READS, AS A PORT [POD-6993, POD-6958 design 2.9].
  *
- * `workspaceId` is undefined only for a fixture whose hand-made tables carry no
- * workspace column; the janitor itself always names it ({@link startJanitor}).
+ * The janitor observes durable facts; it holds no SQL. The server implements this port
+ * as query definitions on the store's binding (`apps/server/src/store/janitor-reads.ts`),
+ * so the same reads run on SQLite and on Postgres, and opens them over a read session of
+ * the store's own engine (`apps/server/src/janitor-database.ts`). Each implementation
+ * reads ONE workspace's rows (POD-7021, POD-6959 design 2.4): every table it reads is
+ * held to that workspace, joins included.
+ *
+ * The rows are the facts only; what an observation means (its paging, its run key, the
+ * reader it names) is decided here.
  */
-type ReaderWorkspace = string | undefined
+export interface JanitorReads {
+  /** The workspace's earliest active admin, the janitor's boot check. */
+  earliestAdminId(): Promise<string | undefined>
+  /** `stored` `wait` messages with no deadline, created at or before `cutoff`, by (created_at, id). */
+  implicitExpiryPage(input: {
+    cutoff: string
+    limit: number
+    after?: { createdAt: string; id: string }
+  }): Promise<ExpiryRow[]>
+  /** `stored` messages whose own deadline is at or before `now`, by (expires_at, id). */
+  explicitExpiryPage(input: {
+    now: string
+    limit: number
+    after?: { expiresAt: string; id: string }
+  }): Promise<ExpiryRow[]>
+  /** The event id `maxRows` rows below the newest, or undefined when there are no more rows. */
+  eventCapThroughId(maxRows: number): Promise<number | undefined>
+  /** The lowest prunable event id (older than `cutoff`, or at or below the cap), null with none. */
+  eventPruneHead(input: { cutoff: string; capThroughId: number }): Promise<number | null>
+  /** How many events are prunable, by the same terms. */
+  eventPruneCount(input: { cutoff: string; capThroughId: number }): Promise<number>
+  /** The feed's bounds and its highest sequence with an event time before `agedBeforeMs`. */
+  changeFeed(agedBeforeMs: number): Promise<FeedBounds | undefined>
+  /** The plan position of the receipts applied before `cutoffAppliedAt`, null with none. */
+  commandPruneHead(cutoffAppliedAt: string): Promise<number | null>
+  /** How many receipts were applied before `cutoffAppliedAt`. */
+  commandPruneCount(cutoffAppliedAt: string): Promise<number>
+  /** Stopped sessions their owner has read since, both at or before the cutoff, by (read_at, id). */
+  sessionArchivePage(input: { cutoffReadAt: string; limit: number }): Promise<SessionArchiveRow[]>
+  /** Finished top-level issues their assignee has read at or before the cutoff, by (read_at, id). */
+  issueArchivePage(input: {
+    cutoffReadAt: string
+    limit: number
+    after?: { readAt: string; id: string }
+  }): Promise<IssueArchiveRow[]>
+  /** Finished issues still holding a checkout no live session stands in, by (closed_at, id). */
+  worktreeGcPage(input: {
+    cutoffClosedAt: string
+    limit: number
+    after?: { closedAt: string; id: string }
+  }): Promise<WorktreeGcRow[]>
+  /** Enabled automations due at or before `now`, by (next_run_at, id). */
+  dueAutomations(input: { now: string; limit: number }): Promise<DueAutomationRow[]>
+  /** The steward's stored cursor, as stored. */
+  stewardCursor(): Promise<string | undefined>
+  /** The newest event id, 0 with none. */
+  maxEventId(): Promise<number>
+  /** Every machine but `localMachineId`, newest handshake first. */
+  remoteMachines(input: { localMachineId: string; limit: number }): Promise<MachineRow[]>
+}
 
-/** `<column> = ? AND ` when the reader has a workspace, else nothing. */
-const workspaceTerm = (workspace: ReaderWorkspace, column: string): string =>
-  workspace === undefined ? '' : `${column} = ? AND `
+export interface ExpiryRow {
+  id: string
+  lifecycle: string
+  createdAt: string
+  expiresAt: string | null
+}
 
-/** ` AND <a> = <b>` (a join on the row's own workspace) when the reader has one. */
-const sameWorkspaceTerm = (workspace: ReaderWorkspace, a: string, b: string): string =>
-  workspace === undefined ? '' : ` AND ${a} = ${b}`
+export interface FeedBounds {
+  headSeq: number
+  floorSeq: number
+  agedSeq: number | null
+}
 
-/** The workspace's bound value, first, when the reader has one. */
-const workspaceParams = (workspace: ReaderWorkspace): string[] =>
-  workspace === undefined ? [] : [workspace]
+export interface SessionArchiveRow {
+  id: string
+  issueId: string | null
+  stoppedAt: string
+  ownerUserId: string
+}
+
+export interface IssueArchiveRow {
+  id: string
+  stage: string
+  closedReason: string | null
+  ownerUserId: string
+  readAt: string
+}
+
+export interface WorktreeGcRow {
+  id: string
+  worktreePath: string
+  stage: string
+  closedReason: string | null
+  closedAt: string
+}
+
+export interface DueAutomationRow {
+  id: string
+  scheduleKind: 'cron' | 'once'
+  cron: string | null
+  nextRunAt: string
+}
+
+export interface MachineRow {
+  id: string
+  lastSeenAt: string
+}
 
 /**
- * THE ONE CROSS-WORKSPACE READ: every workspace with a feed, which is every
- * provisioned workspace (`StoreDatabase.provisionWorkspace` creates the row).
- * Allowlisted as `listWorkspacesWithFeed`; the SQL text is pinned there.
+ * Where the reads run: one scan at a time. Every read a scan makes inside `fn` sees one
+ * snapshot of the workspace's rows; the session ends when `fn` settles, so no snapshot is
+ * held across the commands the scan's observations become.
  */
-export const LIST_WORKSPACES_SQL = 'SELECT workspace_id FROM sync_feed ORDER BY workspace_id'
+export interface JanitorReadSource {
+  scan<T>(fn: (reads: JanitorReads) => Promise<T>): Promise<T>
+}
 
-export function listWorkspacesWithFeed(db: SqlDatabase): string[] {
-  return (db.prepare(LIST_WORKSPACES_SQL).all() as { workspace_id: string }[]).map(
-    (row) => row.workspace_id,
-  )
+/** One workspace of the database the janitor serves. */
+export interface JanitorWorkspace extends JanitorReadSource {
+  readonly id: string
+}
+
+/**
+ * The database the janitor serves, opened by its host on the store's engine. Its one
+ * cross-workspace read lists the workspaces with a feed (`listWorkspacesWithFeed` on the
+ * cross-workspace allowlist); everything else is a scan of one of them.
+ */
+export interface JanitorDatabase {
+  workspacesWithFeed(): Promise<JanitorWorkspace[]>
+  close(): Promise<void>
 }
 
 export interface ExpiryReadInput {
@@ -642,137 +730,88 @@ export class JanitorService {
   }
 }
 
-/** Read-only WAL candidate reader; never infers live session/runtime truth. */
+/** Message-expiry candidates from durable rows; never infers live session/runtime truth. */
 export class MessageExpiryReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   async read(input: ExpiryReadInput): Promise<ExpiryObservation[]> {
-    const candidates: ExpiryObservation[] = []
-    let implicitCursor: { createdAt: string; id: string } | undefined
-    let explicitCursor: { expiresAt: string; id: string } | undefined
-    let implicitDone = false
-    let explicitDone = false
-    let nextSource: 'implicit' | 'explicit' = 'implicit'
-    await runTimeBudgetedJob(() => {
-      const remaining = input.limit - candidates.length
-      if (remaining <= 0 || (implicitDone && explicitDone)) return 'done'
-      const pageSize = Math.min(CANDIDATE_PAGE_SIZE, remaining)
-      const source =
-        nextSource === 'implicit' && !implicitDone
-          ? 'implicit'
-          : nextSource === 'explicit' && !explicitDone
-            ? 'explicit'
-            : implicitDone
+    return await this.source.scan(async (reads) => {
+      const candidates: ExpiryObservation[] = []
+      let implicitCursor: { createdAt: string; id: string } | undefined
+      let explicitCursor: { expiresAt: string; id: string } | undefined
+      let implicitDone = false
+      let explicitDone = false
+      let nextSource: 'implicit' | 'explicit' = 'implicit'
+      await runTimeBudgetedJob(async () => {
+        const remaining = input.limit - candidates.length
+        if (remaining <= 0 || (implicitDone && explicitDone)) return 'done'
+        const pageSize = Math.min(CANDIDATE_PAGE_SIZE, remaining)
+        const source =
+          nextSource === 'implicit' && !implicitDone
+            ? 'implicit'
+            : nextSource === 'explicit' && !explicitDone
               ? 'explicit'
-              : 'implicit'
-      nextSource = source === 'implicit' ? 'explicit' : 'implicit'
-      const rows =
-        source === 'implicit'
-          ? this.readImplicitPage(input.waitImplicitCutoff, pageSize, implicitCursor)
-          : this.readExplicitPage(input.now, pageSize, explicitCursor)
-      for (const row of rows) {
-        candidates.push(
-          MessageExpiryObservation.parse({
-            messageId: row.id,
-            // The page read only `stored` rows: the one status that expires.
-            deliveryStatus: 'stored',
-            lifecycle: row.lifecycle,
-            createdAt: row.created_at,
-            expiresAt: row.expires_at,
-          }),
-        )
-      }
-      const last = rows.at(-1)
-      if (source === 'implicit') {
-        implicitDone = rows.length < pageSize
-        if (last) {
-          implicitCursor = { createdAt: last.created_at as string, id: last.id as string }
+              : implicitDone
+                ? 'explicit'
+                : 'implicit'
+        nextSource = source === 'implicit' ? 'explicit' : 'implicit'
+        const rows =
+          source === 'implicit'
+            ? await reads.implicitExpiryPage({
+                cutoff: input.waitImplicitCutoff,
+                limit: pageSize,
+                ...(implicitCursor ? { after: implicitCursor } : {}),
+              })
+            : await reads.explicitExpiryPage({
+                now: input.now,
+                limit: pageSize,
+                ...(explicitCursor ? { after: explicitCursor } : {}),
+              })
+        for (const row of rows) {
+          candidates.push(
+            MessageExpiryObservation.parse({
+              messageId: row.id,
+              // The page read only `stored` rows: the one status that expires.
+              deliveryStatus: 'stored',
+              lifecycle: row.lifecycle,
+              createdAt: row.createdAt,
+              expiresAt: row.expiresAt,
+            }),
+          )
         }
-      } else {
-        explicitDone = rows.length < pageSize
-        if (last) {
-          explicitCursor = { expiresAt: last.expires_at as string, id: last.id as string }
+        const last = rows.at(-1)
+        if (source === 'implicit') {
+          implicitDone = rows.length < pageSize
+          if (last) implicitCursor = { createdAt: last.createdAt, id: last.id }
+        } else {
+          explicitDone = rows.length < pageSize
+          if (last) explicitCursor = { expiresAt: last.expiresAt as string, id: last.id }
         }
-      }
-      if (candidates.length >= input.limit || (implicitDone && explicitDone)) return 'done'
-      return 'continue'
+        if (candidates.length >= input.limit || (implicitDone && explicitDone)) return 'done'
+        return 'continue'
+      })
+      return candidates
     })
-    return candidates
-  }
-
-  private readImplicitPage(
-    cutoff: string,
-    limit: number,
-    cursor?: { createdAt: string; id: string },
-  ): Record<string, unknown>[] {
-    const params: Array<string | number> = [...workspaceParams(this.workspace), cutoff]
-    const after = cursor ? 'AND (created_at, id) > (?, ?)' : ''
-    if (cursor) params.push(cursor.createdAt, cursor.id)
-    params.push(limit)
-    return this.db
-      .prepare(
-        `SELECT id, lifecycle, created_at, expires_at
-         FROM messages INDEXED BY idx_messages_delivery_expiry_implicit
-         WHERE ${workspaceTerm(this.workspace, 'workspace_id')}delivery_status = 'stored' AND lifecycle = 'wait' AND expires_at IS NULL
-           AND created_at <= ? ${after}
-         ORDER BY created_at ASC, id ASC
-         LIMIT ?`,
-      )
-      .all(...params) as Record<string, unknown>[]
-  }
-
-  private readExplicitPage(
-    now: string,
-    limit: number,
-    cursor?: { expiresAt: string; id: string },
-  ): Record<string, unknown>[] {
-    const params: Array<string | number> = [...workspaceParams(this.workspace), now]
-    const after = cursor ? 'AND (expires_at, id) > (?, ?)' : ''
-    if (cursor) params.push(cursor.expiresAt, cursor.id)
-    params.push(limit)
-    return this.db
-      .prepare(
-        `SELECT id, lifecycle, created_at, expires_at
-         FROM messages INDEXED BY idx_messages_delivery_expiry_explicit
-         WHERE ${workspaceTerm(this.workspace, 'workspace_id')}delivery_status = 'stored' AND expires_at IS NOT NULL AND expires_at <= ? ${after}
-         ORDER BY expires_at ASC, id ASC
-         LIMIT ?`,
-      )
-      .all(...params) as Record<string, unknown>[]
   }
 }
 
-/** Plan event-log prune batches from durable WAL facts under the time-budget helper. */
+/** Plan event-log prune batches from durable facts under the time-budget helper. */
 export class EventLogPrunePlanner {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   async plan(input: EventLogPrunePlanInput): Promise<EventLogPruneObservation[]> {
     const cutoff = new Date(input.nowMs - input.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
-    const ws = workspaceParams(this.workspace)
-    const inWorkspace = this.workspace === undefined ? '' : 'WHERE workspace_id = ? '
-    const cap = this.db
-      .prepare(`SELECT id FROM podium_events ${inWorkspace}ORDER BY id DESC LIMIT 1 OFFSET ?`)
-      .get(...ws, input.maxRows) as { id: number } | undefined
-    const capThroughId = cap?.id ?? 0
-    const head = this.db
-      .prepare(
-        `SELECT MIN(id) AS m FROM podium_events WHERE ${workspaceTerm(this.workspace, 'workspace_id')}(ts < ? OR id <= ?)`,
-      )
-      .get(...ws, cutoff, capThroughId) as { m: number | null }
-    if (head.m == null) return []
-    const eligible = this.db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM podium_events WHERE ${workspaceTerm(this.workspace, 'workspace_id')}(ts < ? OR id <= ?)`,
-      )
-      .get(...ws, cutoff, capThroughId) as { n: number }
-    if (eligible.n <= 0) return []
-    const batchCount = Math.ceil(eligible.n / input.batchSize)
+    // One snapshot, the same three reads as ever: the cap, the head, and the
+    // count only when there is a head.
+    const facts = await this.source.scan(async (reads) => {
+      const capThroughId = (await reads.eventCapThroughId(input.maxRows)) ?? 0
+      const head = await reads.eventPruneHead({ cutoff, capThroughId })
+      if (head == null) return undefined
+      return { capThroughId, head, eligible: await reads.eventPruneCount({ cutoff, capThroughId }) }
+    })
+    if (facts === undefined || facts.eligible <= 0) return []
+    const { head, eligible, capThroughId } = facts
+    const batchCount = Math.ceil(eligible / input.batchSize)
     const batches: EventLogPruneObservation[] = []
     // Bound planning work: at most CANDIDATE_LIMIT batches per tick.
     // fromId advances with the retained head so a later tick never reuses a
@@ -786,7 +825,7 @@ export class EventLogPrunePlanner {
         cutoff,
         capThroughId,
         batchSize: input.batchSize,
-        fromId: head.m! + batches.length * input.batchSize,
+        fromId: head + batches.length * input.batchSize,
       })
       return batches.length >= limit ? 'done' : 'continue'
     })
@@ -794,91 +833,59 @@ export class EventLogPrunePlanner {
   }
 }
 
-/** Plan each tenant's change-log prune batches from durable WAL facts. */
+/** Plan the workspace's change-log prune batches from durable facts. */
 export class ChangeLogPrunePlanner {
-  private readonly feeds: ReturnType<SqlDatabase['prepare']>
-
-  /** Every workspace's feeds when `workspace` is undefined (a fixture), else that one's. */
   constructor(
-    db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {
-    this.feeds = db.prepare(`
-      SELECT feed.workspace_id, feed.head_seq, feed.floor_seq,
-        (SELECT MAX(seq) FROM changes INDEXED BY changes_event_time
-         WHERE workspace_id = feed.workspace_id AND event_time < ?) AS aged_seq
-      FROM sync_feed AS feed
-      WHERE ${workspaceTerm(workspace, 'feed.workspace_id')}feed.workspace_id > ? AND feed.floor_seq <= feed.head_seq
-      ORDER BY feed.workspace_id
-      LIMIT ?
-    `)
-  }
+    private readonly source: JanitorReadSource,
+    /** The workspace whose feed this plans; it rides on every batch as its tenant. */
+    private readonly workspaceId: string,
+  ) {}
 
   async plan(input: ChangeLogPrunePlanInput): Promise<ChangeLogPruneObservation[]> {
+    // The feed's bounds and age threshold come from one snapshot.
+    const feed = await this.source.scan(
+      async (reads) => await reads.changeFeed(input.nowMs - input.maxAgeMs),
+    )
+    if (feed === undefined) return []
+    // Appends commit contiguous seqs with the head; retention removes only a
+    // prefix and advances the floor, so the eligible count is arithmetic.
+    const thresholdSeq = Math.max(feed.headSeq - input.keepRows, feed.agedSeq ?? 0)
+    const eligible = thresholdSeq - feed.floorSeq + 1
+    if (eligible <= 0) return []
+    const limit = Math.min(Math.ceil(eligible / input.batchSize), CANDIDATE_LIMIT)
     const batches: ChangeLogPruneObservation[] = []
-    let afterTenant = ''
-    for (;;) {
-      // A page reads tenant bounds and age thresholds in one SQLite snapshot.
-      // The correlated lookup seeks the covering age index for each tenant,
-      // without loading payloads or issuing a query per tenant from JavaScript.
-      const feeds = this.feeds.all(
-        input.nowMs - input.maxAgeMs,
-        ...workspaceParams(this.workspace),
-        afterTenant,
-        CANDIDATE_PAGE_SIZE,
-      ) as { workspace_id: string; head_seq: number; floor_seq: number; aged_seq: number | null }[]
-      for (const feed of feeds) {
-        // Appends commit contiguous seqs with the head; retention removes only
-        // a prefix and advances the floor, so the eligible count is arithmetic.
-        const thresholdSeq = Math.max(feed.head_seq - input.keepRows, feed.aged_seq ?? 0)
-        const eligible = thresholdSeq - feed.floor_seq + 1
-        if (eligible <= 0) continue
-        const limit = Math.min(Math.ceil(eligible / input.batchSize), CANDIDATE_LIMIT)
-        let batchIndex = 0
-        // Bound each tenant's plan to 100 batches. Its durable floor gives
-        // recovery new runKeys after a capped tick instead of starving the tail.
-        await runTimeBudgetedJob(() => {
-          batches.push({
-            tenantId: feed.workspace_id,
-            keepRows: input.keepRows,
-            maxAgeMs: input.maxAgeMs,
-            thresholdSeq,
-            batchSize: input.batchSize,
-            fromSeq: feed.floor_seq + batchIndex * input.batchSize,
-          })
-          batchIndex += 1
-          return batchIndex >= limit ? 'done' : 'continue'
-        })
-      }
-      if (feeds.length < CANDIDATE_PAGE_SIZE) return batches
-      afterTenant = feeds[feeds.length - 1]!.workspace_id
-    }
+    // Bound the plan to 100 batches. The durable floor gives recovery new
+    // runKeys after a capped tick instead of starving the tail.
+    await runTimeBudgetedJob(() => {
+      batches.push({
+        tenantId: this.workspaceId,
+        keepRows: input.keepRows,
+        maxAgeMs: input.maxAgeMs,
+        thresholdSeq,
+        batchSize: input.batchSize,
+        fromSeq: feed.floorSeq + batches.length * input.batchSize,
+      })
+      return batches.length >= limit ? 'done' : 'continue'
+    })
+    return batches
   }
 }
 
 /** Plan maintenance_commands retention batches. */
 export class MaintenanceCommandsPrunePlanner {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   async plan(
     input: MaintenanceCommandsPrunePlanInput,
   ): Promise<MaintenanceCommandsPruneObservation[]> {
     const cutoffAppliedAt = new Date(input.nowMs - input.maxAgeMs).toISOString()
-    const ws = workspaceParams(this.workspace)
-    const where = `WHERE ${workspaceTerm(this.workspace, 'workspace_id')}applied_at < ?`
-    const head = this.db
-      .prepare(`SELECT MIN(rowid) AS m FROM maintenance_commands ${where}`)
-      .get(...ws, cutoffAppliedAt) as { m: number | null }
-    if (head.m == null) return []
-    const eligible = (
-      this.db
-        .prepare(`SELECT COUNT(*) AS n FROM maintenance_commands ${where}`)
-        .get(...ws, cutoffAppliedAt) as { n: number }
-    ).n
-    if (eligible <= 0) return []
+    const facts = await this.source.scan(async (reads) => {
+      const head = await reads.commandPruneHead(cutoffAppliedAt)
+      if (head == null) return undefined
+      return { head, eligible: await reads.commandPruneCount(cutoffAppliedAt) }
+    })
+    if (facts === undefined || facts.eligible <= 0) return []
+    const { head, eligible } = facts
     const batchCount = Math.ceil(eligible / input.batchSize)
     const limit = Math.min(batchCount, CANDIDATE_LIMIT)
     const batches: MaintenanceCommandsPruneObservation[] = []
@@ -888,7 +895,7 @@ export class MaintenanceCommandsPrunePlanner {
         maxAgeMs: input.maxAgeMs,
         cutoffAppliedAt,
         batchSize: input.batchSize,
-        fromRowId: head.m! + batches.length * input.batchSize,
+        fromRowId: head + batches.length * input.batchSize,
       })
       return batches.length >= limit ? 'done' : 'continue'
     })
@@ -948,117 +955,70 @@ export class MaintenanceCommandsPrunePlanner {
  */
 /** Durable read + stopped session candidates [spec:SP-6144]. */
 export class SessionAutoArchiveReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   /** The reader is each session's OWNER (POD-6285): sessions are private, so
    *  only the owner's read can say they are done with it. */
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
-    return this.db
-      .prepare(
-        // INNER JOIN, not LEFT: no row in `session_user_state` for the owner
-        // means they have never read the session, which is exactly the case the
-        // old `s.read_at IS NOT NULL` excluded.
-        `SELECT s.id, s.issue_id, s.stopped_at, s.owner_user_id, sus.read_at, s.archived
-         FROM sessions s
-         JOIN session_user_state sus ON sus.session_id = s.id AND sus.user_id = s.owner_user_id${sameWorkspaceTerm(this.workspace, 'sus.workspace_id', 's.workspace_id')}
-         LEFT JOIN issues i ON i.id = s.issue_id${sameWorkspaceTerm(this.workspace, 'i.workspace_id', 's.workspace_id')}
-         WHERE ${workspaceTerm(this.workspace, 's.workspace_id')}s.archived = 0
-           AND s.stopped_at IS NOT NULL
-           AND sus.read_at IS NOT NULL
-           AND sus.read_at >= s.stopped_at
-           AND sus.read_at <= ?
-           AND s.stopped_at <= ?
-           AND (s.issue_id IS NULL OR i.parent_id IS NULL)
-         ORDER BY sus.read_at ASC, s.id ASC
-         LIMIT ?`,
-      )
-      .all(...workspaceParams(this.workspace), input.cutoffReadAt, input.cutoffReadAt, input.limit)
-      .map((row: any) => ({
-        sessionId: asSessionId(row.id),
-        issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
-        stoppedAt: row.stopped_at,
-        // The reader, not the timestamp (POD-1229): the server re-derives the
-        // owner's read state authoritatively and refuses an observation that
-        // names anyone else. `sus.read_at` still drives the candidate query and
-        // the ordering above — it just no longer rides the wire.
-        readerUserId: asUserId(row.owner_user_id),
-        archived: false as const,
-      }))
+    const rows = await this.source.scan(
+      async (reads) =>
+        await reads.sessionArchivePage({ cutoffReadAt: input.cutoffReadAt, limit: input.limit }),
+    )
+    return rows.map((row) => ({
+      sessionId: asSessionId(row.id),
+      issueId: row.issueId === null ? null : asIssueId(row.issueId),
+      stoppedAt: row.stoppedAt,
+      // The reader, not the timestamp (POD-1229): the server re-derives the
+      // owner's read state authoritatively and refuses an observation that
+      // names anyone else. The read time still drives the candidate query and
+      // its ordering; it just no longer rides the wire.
+      readerUserId: asUserId(row.ownerUserId),
+      archived: false as const,
+    }))
   }
 }
 
 export class IssueAutoArchiveReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   /** The reader is each task's ASSIGNEE (POD-6291). */
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {
-    const candidates: IssueAutoArchiveObservation[] = []
-    let cursor: { readAt: string; id: string } | undefined
-    let done = false
-    await runTimeBudgetedJob(() => {
-      if (done || candidates.length >= input.limit) return 'done'
-      const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
-      const params: Array<string | number> = [
-        ...workspaceParams(this.workspace),
-        input.cutoffReadAt,
-      ]
-      // The keyset key moves WITH the read timestamp: it names the assignee's
-      // `issue_user_state.read_at`, never `issues.read_at` (dropped). It stays a
-      // TOTAL order because the reader is pinned to ONE user per issue, so at
-      // most one row per issue survives the join and `i.id` (the issues PK)
-      // breaks every tie in `read_at` uniquely.
-      const after = cursor ? 'AND (ius.read_at, i.id) > (?, ?)' : ''
-      if (cursor) params.push(cursor.readAt, cursor.id)
-      params.push(pageSize)
-      const rows = this.db
-        .prepare(
-          `SELECT i.id, i.stage, i.closed_reason, i.owner_user_id, ius.read_at, i.archived, i.deleted_at
-           FROM issues i
-           JOIN issue_user_state ius ON ius.issue_id = i.id AND ius.user_id = i.owner_user_id${sameWorkspaceTerm(this.workspace, 'ius.workspace_id', 'i.workspace_id')}
-           WHERE ${workspaceTerm(this.workspace, 'i.workspace_id')}i.archived = 0
-             AND i.deleted_at IS NULL
-             AND ius.read_at IS NOT NULL
-             AND ius.read_at <= ?
-             AND (i.stage = 'done' OR i.closed_reason IS NOT NULL)
-             AND i.parent_id IS NULL
-             ${after}
-           ORDER BY ius.read_at ASC, i.id ASC
-           LIMIT ?`,
-        )
-        .all(...params) as Array<{
-        id: string
-        stage: string
-        closed_reason: string | null
-        owner_user_id: string
-        read_at: string
-        archived: number
-        deleted_at: string | null
-      }>
-      for (const row of rows) {
-        candidates.push({
-          issueId: asIssueId(row.id),
-          stage: row.stage,
-          closedReason: row.closed_reason,
-          // See the session reader: the wire carries WHOSE read gated this, not
-          // the timestamp. `ius.read_at` is still what the query filters and
-          // what the keyset cursor below orders by.
-          readerUserId: asUserId(row.owner_user_id),
-          archived: false,
-          deletedAt: null,
+    return await this.source.scan(async (reads) => {
+      const candidates: IssueAutoArchiveObservation[] = []
+      let cursor: { readAt: string; id: string } | undefined
+      let done = false
+      await runTimeBudgetedJob(async () => {
+        if (done || candidates.length >= input.limit) return 'done'
+        const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
+        // The keyset key moves WITH the assignee's read timestamp. It stays a
+        // TOTAL order because the reader is pinned to ONE user per issue, so at
+        // most one row per issue survives the join and the issue id breaks every
+        // tie in `read_at` uniquely.
+        const rows = await reads.issueArchivePage({
+          cutoffReadAt: input.cutoffReadAt,
+          limit: pageSize,
+          ...(cursor ? { after: cursor } : {}),
         })
-      }
-      const last = rows.at(-1)
-      done = rows.length < pageSize
-      if (last) cursor = { readAt: last.read_at, id: last.id }
-      return done || candidates.length >= input.limit ? 'done' : 'continue'
+        for (const row of rows) {
+          candidates.push({
+            issueId: asIssueId(row.id),
+            stage: row.stage,
+            closedReason: row.closedReason,
+            // See the session reader: the wire carries WHOSE read gated this,
+            // not the timestamp, which is what the query filters and the keyset
+            // cursor orders by.
+            readerUserId: asUserId(row.ownerUserId),
+            archived: false,
+            deletedAt: null,
+          })
+        }
+        const last = rows.at(-1)
+        done = rows.length < pageSize
+        if (last) cursor = { readAt: last.readAt, id: last.id }
+        return done || candidates.length >= input.limit ? 'done' : 'continue'
+      })
+      return candidates
     })
-    return candidates
   }
 }
 
@@ -1079,99 +1039,56 @@ export class IssueAutoArchiveReader {
  * the live registry at apply time, and that read is the one that decides.
  */
 export class WorktreeGcReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
   async read(input: WorktreeGcReadInput): Promise<WorktreeGcObservation[]> {
-    const candidates: WorktreeGcObservation[] = []
-    let cursor: { closedAt: string; id: string } | undefined
-    let done = false
-    await runTimeBudgetedJob(() => {
-      if (done || candidates.length >= input.limit) return 'done'
-      const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
-      const params: Array<string | number> = [
-        ...workspaceParams(this.workspace),
-        input.cutoffClosedAt,
-      ]
-      const after = cursor ? 'AND (i.closed_at, i.id) > (?, ?)' : ''
-      if (cursor) params.push(cursor.closedAt, cursor.id)
-      params.push(pageSize)
-      const rows = this.db
-        .prepare(
-          `SELECT i.id, i.worktree_path, i.stage, i.closed_reason, i.closed_at
-           FROM issues i
-           WHERE ${workspaceTerm(this.workspace, 'i.workspace_id')}i.worktree_path IS NOT NULL
-             AND i.deleted_at IS NULL
-             AND (i.stage = 'done' OR i.closed_reason IS NOT NULL)
-             AND i.closed_at IS NOT NULL
-             AND i.closed_at <= ?
-             AND NOT EXISTS (
-               SELECT 1 FROM sessions s
-               WHERE s.status IN ('live', 'starting')${sameWorkspaceTerm(this.workspace, 's.workspace_id', 'i.workspace_id')}
-                 AND (s.cwd = i.worktree_path OR s.cwd LIKE i.worktree_path || '/%')
-             )
-             ${after}
-           ORDER BY i.closed_at ASC, i.id ASC
-           LIMIT ?`,
-        )
-        .all(...params) as Array<{
-        id: string
-        worktree_path: string
-        stage: string
-        closed_reason: string | null
-        closed_at: string
-      }>
-      for (const row of rows) {
-        candidates.push({
-          issueId: asIssueId(row.id),
-          worktreePath: row.worktree_path,
-          stage: row.stage,
-          closedReason: row.closed_reason,
-          closedAt: row.closed_at,
-          deletedAt: null,
-          mode: input.mode,
-          afterDays: input.afterDays,
+    return await this.source.scan(async (reads) => {
+      const candidates: WorktreeGcObservation[] = []
+      let cursor: { closedAt: string; id: string } | undefined
+      let done = false
+      await runTimeBudgetedJob(async () => {
+        if (done || candidates.length >= input.limit) return 'done'
+        const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
+        const rows = await reads.worktreeGcPage({
+          cutoffClosedAt: input.cutoffClosedAt,
+          limit: pageSize,
+          ...(cursor ? { after: cursor } : {}),
         })
-      }
-      const last = rows.at(-1)
-      done = rows.length < pageSize
-      if (last) cursor = { closedAt: last.closed_at, id: last.id }
-      return done || candidates.length >= input.limit ? 'done' : 'continue'
+        for (const row of rows) {
+          candidates.push({
+            issueId: asIssueId(row.id),
+            worktreePath: row.worktreePath,
+            stage: row.stage,
+            closedReason: row.closedReason,
+            closedAt: row.closedAt,
+            deletedAt: null,
+            mode: input.mode,
+            afterDays: input.afterDays,
+          })
+        }
+        const last = rows.at(-1)
+        done = rows.length < pageSize
+        if (last) cursor = { closedAt: last.closedAt, id: last.id }
+        return done || candidates.length >= input.limit ? 'done' : 'continue'
+      })
+      return candidates
     })
-    return candidates
   }
 }
 
 /** Due automations from durable schedule state (overlap revalidated at apply). */
 export class AutomationDueReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
-  read(nowIso: string): AutomationFireObservation[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, enabled, schedule_kind, cron, next_run_at
-         FROM automations
-         WHERE ${workspaceTerm(this.workspace, 'workspace_id')}enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-         ORDER BY next_run_at ASC, id ASC
-         LIMIT ?`,
-      )
-      .all(...workspaceParams(this.workspace), nowIso, CANDIDATE_LIMIT) as Array<{
-      id: string
-      enabled: number
-      schedule_kind: 'cron' | 'once'
-      cron: string | null
-      next_run_at: string
-    }>
+  async read(nowIso: string): Promise<AutomationFireObservation[]> {
+    const rows = await this.source.scan(
+      async (reads) => await reads.dueAutomations({ now: nowIso, limit: CANDIDATE_LIMIT }),
+    )
     return rows.map((row) => ({
       automationId: asAutomationId(row.id),
       enabled: true as const,
-      nextRunAt: row.next_run_at,
-      scheduleKind: row.schedule_kind,
+      nextRunAt: row.nextRunAt,
+      scheduleKind: row.scheduleKind,
       cron: row.cron,
       lastSessionId: null,
     }))
@@ -1180,28 +1097,17 @@ export class AutomationDueReader {
 
 /** Steward poll window from durable cursor + event log head. */
 export class StewardPollReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
-  read(): StewardPollObservation | null {
-    const ws = workspaceParams(this.workspace)
-    const raw = this.db
-      .prepare(
-        `SELECT value FROM steward_state WHERE ${workspaceTerm(this.workspace, 'workspace_id')}key = 'cursor'`,
-      )
-      .get(...ws) as { value: string } | undefined
-    const max = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(id), 0) AS m FROM podium_events${this.workspace === undefined ? '' : ' WHERE workspace_id = ?'}`,
-      )
-      .get(...ws) as { m: number }
-    if (max.m <= 0) return null
-    const fromCursor =
-      raw !== undefined && Number.isFinite(Number(raw.value)) ? Number(raw.value) : 0
-    if (max.m <= fromCursor) return null
-    return { fromCursor, toEventId: max.m }
+  async read(): Promise<StewardPollObservation | null> {
+    const { raw, max } = await this.source.scan(async (reads) => ({
+      raw: await reads.stewardCursor(),
+      max: await reads.maxEventId(),
+    }))
+    if (max <= 0) return null
+    const fromCursor = raw !== undefined && Number.isFinite(Number(raw)) ? Number(raw) : 0
+    if (max <= fromCursor) return null
+    return { fromCursor, toEventId: max }
   }
 }
 
@@ -1216,26 +1122,15 @@ export class StewardPollReader {
  * Server revalidates that lastSeenAt still matches at apply.
  */
 export class ConnectScanReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly workspace?: ReaderWorkspace,
-  ) {}
+  constructor(private readonly source: JanitorReadSource) {}
 
-  read(_nowIso: string, localMachineId = 'local'): ConnectScanObservation[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, last_seen_at FROM machines
-         WHERE ${workspaceTerm(this.workspace, 'workspace_id')}id != ?
-         ORDER BY last_seen_at DESC, id ASC
-         LIMIT ?`,
-      )
-      .all(...workspaceParams(this.workspace), localMachineId, CANDIDATE_LIMIT) as Array<{
-      id: string
-      last_seen_at: string
-    }>
+  async read(_nowIso: string, localMachineId = 'local'): Promise<ConnectScanObservation[]> {
+    const rows = await this.source.scan(
+      async (reads) => await reads.remoteMachines({ localMachineId, limit: CANDIDATE_LIMIT }),
+    )
     return rows.map((row) => ({
       machineId: asMachineId(row.id),
-      lastSeenAt: row.last_seen_at,
+      lastSeenAt: row.lastSeenAt,
       deep: false as const,
     }))
   }
@@ -1282,7 +1177,7 @@ export function createMaintenanceHttpClient(
 
 export interface JanitorHandle {
   service: JanitorService
-  close(): void
+  close(): Promise<void>
 }
 
 /**
@@ -1325,7 +1220,12 @@ export function handleTickError(
 export async function startJanitor(options: {
   serverUrl: string
   token: string
-  dbPath?: string
+  /**
+   * The database the janitor serves, opened by its host on the store's engine
+   * (`apps/server/src/janitor-database.ts`). The janitor owns it from here: it
+   * closes it when it refuses to start and when it is closed.
+   */
+  database: JanitorDatabase
   tickMs?: number
   /**
    * What a MID-RUN compatibility refusal means for this host process.
@@ -1341,6 +1241,7 @@ export async function startJanitor(options: {
    */
   onCompatibilityRefusal?: (error: Error) => void
 }): Promise<JanitorHandle> {
+  const { database } = options
   const shutdown = new AbortController()
   const client = createMaintenanceHttpClient(
     options.serverUrl,
@@ -1349,40 +1250,23 @@ export async function startJanitor(options: {
     undefined,
     shutdown.signal,
   )
-  const db = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), { readOnly: true })
-  db.exec('PRAGMA query_only = ON')
-  db.exec('PRAGMA busy_timeout = 1000')
-  // Validate the worker database at boot; readers resolve again on each scan.
-  const viewer = earliestAdminMember(db)
-  if (!viewer) {
-    db.close()
-    throw new Error('janitor requires an active admin member')
+  let workspace: JanitorWorkspace
+  try {
+    workspace = await servedWorkspace(database)
+  } catch (error) {
+    await database.close()
+    throw error
   }
-  // THE WORKSPACE THE JANITOR SERVES (POD-7021). The one cross-workspace read
-  // lists the workspaces with a feed; every reader below reads that workspace's
-  // rows only. A command does not name its workspace yet, and the server applies
-  // it in its own store, so the janitor serves a database of one workspace (every
-  // self-hosted install) and refuses to start on one of several: observing a
-  // second workspace would hand its rows to the first's store. Commands that name
-  // their workspace (POD-6962) lift this and run each workspace's jobs in turn.
-  const workspaces = listWorkspacesWithFeed(db)
-  if (workspaces.length !== 1) {
-    db.close()
-    throw new Error(
-      `janitor serves a database of one workspace; this one has ${workspaces.length} with a feed`,
-    )
-  }
-  const [workspace] = workspaces as [string]
-  const expiryReader = new MessageExpiryReader(db, workspace)
-  const eventPlanner = new EventLogPrunePlanner(db, workspace)
-  const changePlanner = new ChangeLogPrunePlanner(db, workspace)
-  const commandPlanner = new MaintenanceCommandsPrunePlanner(db, workspace)
-  const archiveReader = new IssueAutoArchiveReader(db, workspace)
-  const sessionArchiveReader = new SessionAutoArchiveReader(db, workspace)
-  const worktreeGcReader = new WorktreeGcReader(db, workspace)
-  const automationReader = new AutomationDueReader(db, workspace)
-  const stewardReader = new StewardPollReader(db, workspace)
-  const connectScanReader = new ConnectScanReader(db, workspace)
+  const expiryReader = new MessageExpiryReader(workspace)
+  const eventPlanner = new EventLogPrunePlanner(workspace)
+  const changePlanner = new ChangeLogPrunePlanner(workspace, workspace.id)
+  const commandPlanner = new MaintenanceCommandsPrunePlanner(workspace)
+  const archiveReader = new IssueAutoArchiveReader(workspace)
+  const sessionArchiveReader = new SessionAutoArchiveReader(workspace)
+  const worktreeGcReader = new WorktreeGcReader(workspace)
+  const automationReader = new AutomationDueReader(workspace)
+  const stewardReader = new StewardPollReader(workspace)
+  const connectScanReader = new ConnectScanReader(workspace)
   const service = new JanitorService({
     handshake: client.handshake,
     apply: client.apply,
@@ -1401,7 +1285,7 @@ export async function startJanitor(options: {
     await service.tick()
   } catch (error) {
     if (error instanceof MaintenanceCompatibilityError) {
-      db.close()
+      await database.close()
       throw error
     }
     log.warn('initial tick delayed', { err: error })
@@ -1418,12 +1302,37 @@ export async function startJanitor(options: {
   }, options.tickMs ?? DEFAULT_TICK_MS)
   return {
     service,
-    close: () => {
+    close: async () => {
       clearInterval(timer)
       shutdown.abort(new Error('janitor shutting down'))
-      db.close()
+      await database.close()
     },
   }
+}
+
+/**
+ * THE WORKSPACE THE JANITOR SERVES (POD-7021), validated at boot.
+ *
+ * The one cross-workspace read lists the workspaces with a feed; every reader
+ * reads that workspace's rows only. A command does not name its workspace yet,
+ * and the server applies it in its own store, so the janitor serves a database
+ * of one workspace (every self-hosted install) and refuses to start on one of
+ * several: observing a second workspace would hand its rows to the first's
+ * store. Commands that name their workspace (POD-6962) lift this and run each
+ * workspace's jobs in turn. The workspace must also have an active admin, the
+ * member the server acts as.
+ */
+async function servedWorkspace(database: JanitorDatabase): Promise<JanitorWorkspace> {
+  const workspaces = await database.workspacesWithFeed()
+  if (workspaces.length !== 1) {
+    throw new Error(
+      `janitor serves a database of one workspace; this one has ${workspaces.length} with a feed`,
+    )
+  }
+  const [workspace] = workspaces as [JanitorWorkspace]
+  const admin = await workspace.scan(async (reads) => await reads.earliestAdminId())
+  if (admin === undefined) throw new Error('janitor requires an active admin member')
+  return workspace
 }
 
 // Re-export constants used by tests and planners for local defaults.

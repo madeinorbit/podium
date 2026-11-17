@@ -109,6 +109,7 @@ import { GrantsRepository } from './store/grants'
 import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
+import { JanitorReadsRepository } from './store/janitor-reads'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
@@ -743,6 +744,13 @@ export class SessionStore {
    * install table a workspace transaction may write.
    */
   readonly maintenance: MaintenanceRepository
+  /**
+   * The facts the janitor observes (POD-6993). The janitor's worker builds its
+   * own over a read session per scan (`janitor-database.ts`); the store's set
+   * holds one so the server reads the same facts the janitor does, and the
+   * query audits plan its definitions with every other repository's.
+   */
+  readonly janitorReads: JanitorReadsRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
   /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
@@ -848,6 +856,7 @@ export class SessionStore {
     this.artifactUploads = new ArtifactUploadsRepository(this.queries)
     this.pendingUploads = new PendingUploadsRepository(this.queries)
     this.maintenance = new MaintenanceRepository(this.queries)
+    this.janitorReads = new JanitorReadsRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
     this.effects = new EffectsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
