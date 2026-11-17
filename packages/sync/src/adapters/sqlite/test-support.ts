@@ -55,10 +55,11 @@ export const testQueuedMessages = sqliteTable(
     attachmentsJson: text('attachments_json'),
     retractRequestedAt: integer('retract_requested_at'),
     ...workspaceColumn(),
+    queueOrder: integer('queue_order').default(0).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.id], name: 'queued_messages_pk' }),
-    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queuedAt),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queueOrder),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
@@ -73,6 +74,7 @@ export const testUpstreamOutbox = sqliteTable(
     queuedAt: integer('queued_at').notNull(),
     attempts: integer().default(0).notNull(),
     ...workspaceColumn(),
+    queueOrder: integer('queue_order').default(0).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'upstream_outbox_pk' }),
@@ -277,13 +279,14 @@ export function createTestSyncDatabase(): SqlDatabase {
        attachments_json TEXT,
        retract_requested_at INTEGER,
        workspace_id  TEXT NOT NULL,
+       queue_order   INTEGER NOT NULL DEFAULT 0,
        PRIMARY KEY (workspace_id, id),
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
   )
   db.exec(
-    'CREATE INDEX queued_messages_session ON queued_messages(workspace_id, session_id, queued_at)',
+    'CREATE INDEX queued_messages_session ON queued_messages(workspace_id, session_id, queue_order)',
   )
   db.exec(
     `CREATE TABLE upstream_outbox (
@@ -293,6 +296,7 @@ export function createTestSyncDatabase(): SqlDatabase {
        queued_at   INTEGER NOT NULL,
        attempts    INTEGER NOT NULL DEFAULT 0,
        workspace_id TEXT NOT NULL,
+       queue_order INTEGER NOT NULL DEFAULT 0,
        PRIMARY KEY (workspace_id, mutation_id)
      )`,
   )

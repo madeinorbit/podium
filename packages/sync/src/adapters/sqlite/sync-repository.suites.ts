@@ -17,8 +17,8 @@
  *    first in every write). The bare fixture has no provisioning, so a workspace's
  *    first append or identity write creates the row. A test of the row's absence
  *    reads {@link SyncRepositoryFixture.provisioned}.
- *  - The statement texts: SQLite keeps its `INDEXED BY` hint and its `rowid`
- *    tiebreak, Postgres has neither ({@link SyncRepositoryFixture.engine}).
+ *  - The statement texts: SQLite keeps its `INDEXED BY` hint, Postgres has none
+ *    ({@link SyncRepositoryFixture.engine}).
  *
  * Raw SQL in these suites is written once and is valid on both engines: no
  * placeholders, literal values only.
@@ -308,7 +308,8 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
       // on the emitted SELECT list. The counts are the ones the hand-written
       // statements named: eight of nine on `changes` (POD-6272 added provenance),
-      // sixteen of seventeen on `queued_messages`, three of five on `upstream_outbox`.
+      // sixteen of eighteen on `queued_messages`, three of six on `upstream_outbox`
+      // (`queue_order` orders both and is no part of either answer, POD-7075).
       const sql = await fixture().record(async () => {
         await repo.changesSince(0)
         await repo.listQueuedMessages(session('s1'))
@@ -352,30 +353,23 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       expect(projection('upstream_outbox')).toEqual(['mutation_id', 'proc', 'queued_at'])
     })
 
-    it('keeps an insertion-order tiebreak on both FIFO reads', async () => {
-      // `queued_at` and `queued_at` again is a real tie, and the engine's own
-      // answer for it is not a promise — it is whatever the index the planner
-      // picked happens to yield. The original statements said `ORDER BY … , rowid
-      // ASC` and the SQLite form must keep saying it. Postgres has no rowid; its
-      // form breaks the tie by the primary key (`insertionOrder` in the
-      // repository). Asserted on the statement because a fixture cannot produce a
-      // tie the engine orders differently.
+    it('orders both FIFO reads by their queue_order column alone, on both engines', async () => {
+      // ONE RULE FOR BOTH ENGINES (POD-7075). The reads used to order by the clock
+      // and break a tie by SQLite's rowid or, on Postgres, by the random primary
+      // key. The order is now a column the enqueue numbers; neither the clock nor
+      // any engine row order may come back as a tiebreak.
       const sql = await fixture().record(async () => {
         await repo.listQueuedMessages(session('s1'))
         await repo.listParkedUpstreamMutations()
       })
       const ordered = sql.filter((s) => s.startsWith('select') && s.includes('order by'))
       expect(ordered).toHaveLength(2)
-      if (fixture().engine === 'sqlite') {
-        for (const statement of ordered) expect(statement).toMatch(/, rowid asc$/)
-      } else {
-        expect(ordered.find((s) => s.includes('"queued_messages"'))).toMatch(
-          /, "queued_messages"\."id" asc$/,
-        )
-        expect(ordered.find((s) => s.includes('"upstream_outbox"'))).toMatch(
-          /, "upstream_outbox"\."mutation_id" asc$/,
-        )
-      }
+      expect(ordered.find((s) => s.includes('"queued_messages"'))).toMatch(
+        /order by "queued_messages"\."queue_order" asc$/,
+      )
+      expect(ordered.find((s) => s.includes('"upstream_outbox"'))).toMatch(
+        /order by "upstream_outbox"\."queue_order" asc$/,
+      )
     })
 
     it('reads the age threshold through the changes_event_time index', async () => {
@@ -575,20 +569,50 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       expect(await stored('SELECT queued_at FROM queued_messages')).toEqual([{ queued_at: 10 }])
     })
 
-    it('lists one session FIFO, by queued_at then the tiebreak', async () => {
+    it('lists one session in the order it was queued, whatever the clock says', async () => {
+      // The queue order, not the clock: a clock can step back, and the inbox
+      // stamps `queued_at` itself. Another session's rows take no number of s1's.
       await enqueue('m2', 's1', 20)
       await enqueue('m1', 's1', 10)
-      await enqueue('m4', 's1', 20)
       await enqueue('other', 's2', 1)
-      // Same clock as m2 and m4, written after both, and before both by id.
       await enqueue('m3', 's1', 20)
-      const ids = (await repo.listQueuedMessages(session('s1'))).map((m) => m.id)
-      // SQLite breaks the tie by insertion order, the `rowid` half of the ORDER BY
-      // and the half a conversion drops silently. Postgres has no insertion order to
-      // read and breaks it by id (`insertionOrder` in the repository, POD-6989).
-      expect(ids).toEqual(
-        fixture().engine === 'sqlite' ? ['m1', 'm2', 'm4', 'm3'] : ['m1', 'm2', 'm3', 'm4'],
-      )
+      expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual([
+        'm2',
+        'm1',
+        'm3',
+      ])
+    })
+
+    it('delivers N messages queued within one millisecond in queue order', async () => {
+      // THE GOLDEN CASE, THE SAME ON BOTH ENGINES (POD-7075). The ids sort against
+      // the queue order, so a tiebreak by id (Postgres before) fails, and so would
+      // any engine row order that is not the order of the writes.
+      const ids = Array.from({ length: 12 }, (_, i) => `m-${String(99 - i)}`)
+      for (const id of ids) await enqueue(id, 's1', 1_000)
+      expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual(ids)
+    })
+
+    it('gives concurrent enqueues of one session distinct orders, after every row already there', async () => {
+      // Under the workspace's write slot two writers are serialised, so no two
+      // enqueues read the same maximum. Issued at once, the rows land in some
+      // order, but each one after the row queued before them, and never in a tie.
+      await enqueue('first', 's1', 1_000)
+      const ids = Array.from({ length: 8 }, (_, i) => `c-${i}`)
+      await Promise.all(ids.map((id) => enqueue(id, 's1', 1_000)))
+      const orders = (await stored(
+        "SELECT id, queue_order FROM queued_messages WHERE session_id = 's1' ORDER BY queue_order",
+      )) as { id: string; queue_order: number }[]
+      expect(orders.map((r) => Number(r.queue_order))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+      expect(orders[0]?.id).toBe('first')
+      expect(orders.map((r) => r.id).sort()).toEqual(['first', ...ids].sort())
+    })
+
+    it('numbers after the rows that stay when the head is delivered', async () => {
+      await enqueue('m1', 's1', 1)
+      await enqueue('m2', 's1', 1)
+      await repo.deleteQueuedMessage('m1')
+      await enqueue('m3', 's1', 1)
+      expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual(['m2', 'm3'])
     })
 
     it('counts per session', async () => {
@@ -669,14 +693,15 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
     it('reports the parked rows oldest first and reads none of the payload', async () => {
       await fixture().seed(
         // Rows of the repository's own workspace: the column has no default (POD-7024).
-        `INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at) VALUES ('${repo.workspaceId}', 'b', 'issues.update', '{"secret":1}', 20), ('${repo.workspaceId}', 'a', 'issues.create', '{"secret":2}', 10)`,
+        // Their order is the number the queue-order migration gave them (POD-7075).
+        `INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at, queue_order) VALUES ('${repo.workspaceId}', 'b', 'issues.update', '{"secret":1}', 20, 2), ('${repo.workspaceId}', 'a', 'issues.create', '{"secret":2}', 10, 1)`,
       )
       const parked = await repo.listParkedUpstreamMutations()
       expect(parked).toEqual([
         { mutationId: 'a', proc: 'issues.create', queuedAt: 10 },
         { mutationId: 'b', proc: 'issues.update', queuedAt: 20 },
       ])
-      // Three of the table's five columns, named [rule 39] — `input` is the parked
+      // Three of the table's six columns, named [rule 39] — `input` is the parked
       // payload this report deliberately does not read.
       expect(Object.keys(parked[0] as object).sort()).toEqual(['mutationId', 'proc', 'queuedAt'])
     })

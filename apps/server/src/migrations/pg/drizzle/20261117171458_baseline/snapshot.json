@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b1437c81-4cc6-464a-85f2-5daf316dd728",
+  "id": "a2b7abda-4223-43b6-8d54-44996fbfcdab",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -9729,6 +9729,19 @@
       "table": "queued_messages"
     },
     {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "queue_order",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "queued_messages"
+    },
+    {
       "type": "text COLLATE \"C\"",
       "typeSchema": null,
       "notNull": true,
@@ -15952,6 +15965,19 @@
       "table": "upstream_outbox"
     },
     {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "queue_order",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "upstream_outbox"
+    },
+    {
       "type": "text COLLATE \"C\"",
       "typeSchema": null,
       "notNull": true,
@@ -20754,7 +20780,7 @@
           "opclass": null
         },
         {
-          "value": "queued_at",
+          "value": "queue_order",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,

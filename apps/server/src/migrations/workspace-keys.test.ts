@@ -35,6 +35,8 @@ import { withMigrationForeignKeysDisabled } from './store-lifecycle'
 const KEYS = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name.endsWith('_workspace-keys'))
 const KEYS_NAME = DRIZZLE_MIGRATIONS[KEYS]!.name
 const BEFORE_KEYS = DRIZZLE_MIGRATIONS.slice(0, KEYS)
+/** The chain through the keys migration: a later migration is its own test's subject. */
+const THROUGH_KEYS = DRIZZLE_MIGRATIONS.slice(0, KEYS + 1)
 
 /** The seven tables whose integer id is a global surrogate (design 2.2). */
 const AUTOINCREMENT = [
@@ -272,14 +274,13 @@ function plantedDatabase(): { path: string; db: SqlDatabase } {
 /** The boot's upgrade: foreign keys off around the migrator, which backs up first. */
 function upgrade(db: SqlDatabase, path: string, freeBytes?: (dir: string) => number): string[] {
   return withMigrationForeignKeysDisabled(db, () =>
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath: path, freeBytes }),
+    runDrizzleMigrations(db, THROUGH_KEYS, { dbPath: path, freeBytes }),
   )
 }
 
 describe('POD-7024 — the workspace keys migration', () => {
-  it('is the newest migration of the manifest', () => {
+  it('is in the manifest', () => {
     expect(KEYS).toBeGreaterThan(0)
-    expect(KEYS).toBe(DRIZZLE_MIGRATIONS.length - 1)
   })
 
   it('keeps every row of every table, its rowid and every AUTOINCREMENT counter', () => {

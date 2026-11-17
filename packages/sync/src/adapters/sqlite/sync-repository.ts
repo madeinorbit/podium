@@ -40,27 +40,12 @@
 
 import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import {
-  type AnyColumn,
-  and,
-  asc,
-  count,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  lt,
-  lte,
-  max,
-  or,
-  type SQL,
-  sql,
-} from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import type { AppliedMutationFallback } from '../../mutation-ledger'
-import { type DialectForms, dialectOf, dialectPrepared as dialectPreparedOn } from '../pg/dialect'
+import { type DialectForms, dialectPrepared as dialectPreparedOn } from '../pg/dialect'
 import type { SyncTables } from './binding'
 import {
   inListOf,
@@ -454,16 +439,6 @@ const upsertFeedIdentity = prepared((db, t) =>
 )
 
 /**
- * The tiebreak of a FIFO read after its clock column: insertion order. SQLite keeps
- * the `rowid` the original statements named (two rows queued in one millisecond come
- * back in the order they were written). Postgres has no rowid and neither table an
- * insertion-order column, so its form breaks the tie by the primary key: a stable
- * order, but for a same-millisecond tie not the insertion order (POD-6989).
- */
-const insertionOrder = (db: StoreDrizzle, primaryKey: AnyColumn): SQL =>
-  dialectOf(db) === 'pg' ? asc(primaryKey) : asc(sql`rowid`)
-
-/**
  * The statements over the two INJECTED tables, prepared once per store like
  * the rest. They are built from the table objects the composition root hands
  * in, so they are defined per repository rather than at module level; each
@@ -493,16 +468,24 @@ function serverTableQueries(
           sourceMessageId: sql.placeholder('sourceMessageId'),
           delivery: sql.placeholder('delivery'),
           attachmentsJson: sql.placeholder('attachmentsJson'),
+          // THE QUEUE'S ORDER, TAKEN IN THIS STATEMENT (POD-7075): one more than the
+          // session's highest. One workspace's writers are serialised (SQLite's one
+          // writer; on Postgres the workspace lock every write takes first), so no two
+          // enqueues of a session read the same maximum, and the order is the order
+          // the rows were queued on both engines: no wall clock, no engine row order.
+          // A replay that inserts nothing takes no number.
+          queueOrder: sql`(select coalesce(max(${queued.queueOrder}), 0) + 1 from ${queued} where ${queued.workspaceId} = ${WORKSPACE} and ${queued.sessionId} = ${sql.placeholder('sessionId')})`,
         }),
       )
         .onConflictDoNothing()
         .prepare(),
     ),
 
-    // SIXTEEN COLUMNS OF SEVENTEEN, named [spec rule 39]: `session_id` is the
-    // predicate, not part of the answer. `queued_at` is the ordering AND an
-    // answer since POD-4360: the inbox compares it against the transcript to
-    // recognise a row a previous server process already delivered.
+    // SIXTEEN COLUMNS OF EIGHTEEN, named [spec rule 39]: `session_id` is the
+    // predicate and `queue_order` the ordering, not part of the answer. `queued_at`
+    // is an answer since POD-4360: the inbox compares it against the transcript to
+    // recognise a row a previous server process already delivered. It is no longer
+    // the order: a clock can step back, and two rows can share a millisecond.
     queuedOfSession: prepared((db) =>
       db
         .select({
@@ -525,7 +508,7 @@ function serverTableQueries(
         })
         .from(queued)
         .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
-        .orderBy(asc(queued.queuedAt), insertionOrder(db, queued.id))
+        .orderBy(asc(queued.queueOrder))
         .prepare(),
     ),
 
@@ -640,9 +623,9 @@ function serverTableQueries(
         .prepare(),
     ),
 
-    // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
-    // this report deliberately does not read, and `attempts` belongs to the
-    // retired forwarder.
+    // THREE COLUMNS OF SIX, named [spec rule 39]: `input` is the parked payload
+    // this report deliberately does not read, `attempts` belongs to the retired
+    // forwarder, and `queue_order` (numbered by its migration, POD-7075) is the order.
     parkedUpstream: prepared((db) =>
       db
         .select({
@@ -652,7 +635,7 @@ function serverTableQueries(
         })
         .from(upstream)
         .where(inWorkspace(upstream))
-        .orderBy(asc(upstream.queuedAt), insertionOrder(db, upstream.mutationId))
+        .orderBy(asc(upstream.queueOrder))
         .prepare(),
     ),
   }

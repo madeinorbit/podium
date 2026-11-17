@@ -1585,10 +1585,16 @@ export const queuedMessages = sqliteTable(
     // daemon's answer settles it. Null = no retract pending.
     retractRequestedAt: integer('retract_requested_at'),
     ...workspaceColumn(),
+    // THE QUEUE'S ORDER (POD-7075): one more than the highest of the session's rows,
+    // taken by the enqueue INSERT itself. One workspace's writers are serialised (the
+    // SQLite writer, the Postgres workspace lock), so it is the order rows were queued
+    // on both engines, with no wall clock and no engine row order in it. The DEFAULT
+    // exists only so the column could be added in place; every insert names it.
+    queueOrder: integer('queue_order').default(0).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.id], name: 'queued_messages_pk' }),
-    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queuedAt),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queueOrder),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
@@ -1842,6 +1848,9 @@ export const upstreamOutbox = sqliteTable(
     queuedAt: integer('queued_at').notNull(),
     attempts: integer().default(0).notNull(),
     ...workspaceColumn(),
+    // The parked rows' order (POD-7075): numbered by the migration from (queued_at,
+    // rowid). Nothing writes this table any more.
+    queueOrder: integer('queue_order').default(0).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'upstream_outbox_pk' }),

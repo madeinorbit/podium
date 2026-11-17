@@ -972,6 +972,7 @@ CREATE TABLE "queued_messages" (
 	"attachments_json" json,
 	"retract_requested_at" bigint,
 	"workspace_id" text COLLATE "C",
+	"queue_order" bigint DEFAULT 0 NOT NULL,
 	CONSTRAINT "queued_messages_pk" PRIMARY KEY("workspace_id","id"),
 	CONSTRAINT "queued_messages_principal_kind" CHECK (principal_kind IN ('user','agent','system')),
 	CONSTRAINT "queued_messages_actor_kind" CHECK (actor_kind IN ('user','agent','system'))
@@ -1681,6 +1682,7 @@ CREATE TABLE "upstream_outbox" (
 	"queued_at" bigint NOT NULL,
 	"attempts" bigint DEFAULT 0 NOT NULL,
 	"workspace_id" text COLLATE "C",
+	"queue_order" bigint DEFAULT 0 NOT NULL,
 	CONSTRAINT "upstream_outbox_pk" PRIMARY KEY("workspace_id","mutation_id")
 );
 --> statement-breakpoint
@@ -1963,7 +1965,7 @@ CREATE INDEX "idx_podium_events_kind" ON "podium_events" ("workspace_id","kind")
 CREATE INDEX "idx_podium_events_subject" ON "podium_events" ("workspace_id","subject");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_kind_subject_ts" ON "podium_events" ("workspace_id","kind","subject","ts");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_kind_subject_id" ON "podium_events" ("workspace_id","kind","subject","id");--> statement-breakpoint
-CREATE INDEX "queued_messages_session" ON "queued_messages" ("workspace_id","session_id","queued_at");--> statement-breakpoint
+CREATE INDEX "queued_messages_session" ON "queued_messages" ("workspace_id","session_id","queue_order");--> statement-breakpoint
 CREATE INDEX "idx_quota_windows_series" ON "quota_windows" ("workspace_id","account_key","window_key","resets_at_ms");--> statement-breakpoint
 CREATE INDEX "idx_quota_windows_owner" ON "quota_windows" ("workspace_id","owner_user_id","account_key","window_key","resets_at_ms");--> statement-breakpoint
 CREATE INDEX "idx_quota_windows_resets" ON "quota_windows" ("workspace_id","resets_at_ms");--> statement-breakpoint

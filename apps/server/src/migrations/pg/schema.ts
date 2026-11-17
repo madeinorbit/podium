@@ -1981,10 +1981,14 @@ export const queuedMessages = pgTable(
     workspaceId: textC('workspace_id')
       .notNull()
       .$type<SqliteRow<'queuedMessages'>['workspaceId']>(),
+    queueOrder: int8('queue_order')
+      .notNull()
+      .default(0)
+      .$type<SqliteRow<'queuedMessages'>['queueOrder']>(),
   },
   (table) => [
     primaryKey({ name: 'queued_messages_pk', columns: [table.workspaceId, table.id] }),
-    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queuedAt),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queueOrder),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
@@ -3709,6 +3713,10 @@ export const upstreamOutbox = pgTable(
     workspaceId: textC('workspace_id')
       .notNull()
       .$type<SqliteRow<'upstreamOutbox'>['workspaceId']>(),
+    queueOrder: int8('queue_order')
+      .notNull()
+      .default(0)
+      .$type<SqliteRow<'upstreamOutbox'>['queueOrder']>(),
   },
   (table) => [
     primaryKey({ name: 'upstream_outbox_pk', columns: [table.workspaceId, table.mutationId] }),

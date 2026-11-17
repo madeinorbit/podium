@@ -50,6 +50,7 @@ export type QueuedMessagesTable = SQLiteTable & {
   readonly delivery: SQLiteColumn
   readonly attachmentsJson: SQLiteColumn
   readonly retractRequestedAt: SQLiteColumn
+  readonly queueOrder: SQLiteColumn
 }
 
 /** `upstream_outbox` — ARCHIVED at POD-309; this adapter has the one surviving
@@ -59,6 +60,7 @@ export type UpstreamOutboxTable = SQLiteTable & {
   readonly mutationId: AnySQLiteColumn<{ data: MutationId; notNull: true }>
   readonly proc: SQLiteColumn
   readonly queuedAt: SQLiteColumn
+  readonly queueOrder: SQLiteColumn
 }
 
 /**

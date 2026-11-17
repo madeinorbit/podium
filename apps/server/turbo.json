@@ -470,6 +470,7 @@
         "src/migrations/proposed-backfill.test.ts",
         "src/migrations/provider-connection-owners.test.ts",
         "src/migrations/query-plan-indexes.test.ts",
+        "src/migrations/queue-order.test.ts",
         "src/migrations/quota-window-owners.test.ts",
         "src/migrations/remove-task-colors.test.ts",
         "src/migrations/repair.ts",
