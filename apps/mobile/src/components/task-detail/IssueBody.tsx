@@ -247,7 +247,7 @@ function LongFormDisclosure({ label, children }: { label: string; children: Reac
 }
 
 const styles = StyleSheet.create({
-  descriptionPreview: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  descriptionPreview: { paddingHorizontal: 20, paddingTop: 12, gap: 8 },
   previewLabel: { ...sans(400), fontSize: font.tiny, color: color.textDim },
   previewMore: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   previewMoreText: { ...sans(400), fontSize: font.body, color: color.accentTint },

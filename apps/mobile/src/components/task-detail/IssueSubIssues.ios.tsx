@@ -7,7 +7,6 @@ import {
   font,
   foregroundStyle,
   frame,
-  listRowInsets,
   opacity,
   padding,
 } from '@expo/ui/swift-ui/modifiers'
@@ -24,6 +23,7 @@ import { color } from '../../theme/theme'
 import { listRowPress } from '../list-row-press.ios'
 import { StageGlyph } from '../StageGlyph'
 import { DetailActionRow, DetailGroup } from './DetailList'
+import { detailRowInsets, useDetailSeparator } from './detail-row-geometry'
 import type { IssueSubIssues as WebSubIssues } from './IssueSubIssues'
 
 type Props = ComponentProps<typeof WebSubIssues>
@@ -61,19 +61,22 @@ const SubTaskRow = observer(function SubTaskRow({
   onOpen: (id: string) => void
 }) {
   const { fontScale } = useWindowDimensions()
+  const separator = useDetailSeparator()
   const title = 'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title
   return (
     <HStack
       alignment="top"
       spacing={12}
       modifiers={[
-        listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
         padding({ vertical: 12 }),
         frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
         accessibilityElement('ignore'),
         accessibilityLabel(`${issueDisplayRef(child)} ${title}`),
         accessibilityIdentifier('issue-sub-task'),
         listRowPress(() => onOpen(child.id)),
+        // After the press Button, or the List never sees the row's insets.
+        detailRowInsets,
+        separator,
         opacity(isFinished(child) || child.archived ? 0.7 : 1),
       ]}
     >

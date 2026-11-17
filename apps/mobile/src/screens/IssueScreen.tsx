@@ -378,7 +378,7 @@ const IssueContent = observer(function IssueContent({
           />
           <IssueStartAction issue={issue} onStart={launch} />
           <IssueCost issueId={issue.id} />
-          <DetailContent>
+          <DetailContent bleed>
             <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
             {issue.needsHuman ? (
               <View style={styles.question}>

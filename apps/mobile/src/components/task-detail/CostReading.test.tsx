@@ -9,6 +9,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
   Object.fromEntries(
     [
       'accessibilityHidden',
+      'alignmentGuide',
       'accessibilityIdentifier',
       'accessibilityLabel',
       'buttonStyle',

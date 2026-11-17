@@ -20,6 +20,7 @@ import {
 import type { ReactNode } from 'react'
 import { useWindowDimensions, View } from 'react-native'
 import { color } from '../../theme/theme'
+import { detailRowInsets, useDetailSeparator } from './detail-row-geometry'
 
 /** SwiftUI owns row measurement, separators, scrolling and accessibility sizing. */
 export function DetailList({ children }: { children: ReactNode }) {
@@ -42,12 +43,26 @@ export function DetailList({ children }: { children: ReactNode }) {
 }
 
 /** Reference forms stay mounted in a non-recycled section header. Their React
- * content measures vertically at the width proposed by the native List. */
-export function DetailContent({ children }: { children: ReactNode }) {
+ * content measures vertically at the width proposed by the native List.
+ * `bleed` drops the header's side insets so React-drawn cards span the same
+ * width as the native cards around them; headings inside then carry their own
+ * 20pt inset, matching the native section headers. */
+export function DetailContent({
+  children,
+  bleed = false,
+}: {
+  children: ReactNode
+  bleed?: boolean
+}) {
   return (
     <Section
       header={
-        <VStack modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+        <VStack
+          modifiers={[
+            frame({ maxWidth: Infinity, alignment: 'leading' }),
+            ...(bleed ? [listRowInsets({ top: 10, bottom: 10, leading: 0, trailing: 0 })] : []),
+          ]}
+        >
           <RNHostView matchContents={{ vertical: true }}>
             <View collapsable={false} style={{ width: '100%', gap: 16 }}>
               {children}
@@ -90,6 +105,7 @@ export function DetailActionRow({
   primary?: boolean
   disabled?: boolean
 }) {
+  const separator = useDetailSeparator()
   return (
     <Button
       onPress={onPress}
@@ -97,7 +113,8 @@ export function DetailActionRow({
         buttonStyle(primary ? 'borderedProminent' : 'plain'),
         ...(primary ? [tint(color.accent)] : []),
         nativeDisabled(disabled),
-        listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
+        detailRowInsets,
+        separator,
         accessibilityIdentifier(primary ? 'issue-start-agent' : 'issue-detail-action'),
       ]}
     >

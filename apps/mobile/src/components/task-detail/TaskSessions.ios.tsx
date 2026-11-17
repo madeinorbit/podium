@@ -9,7 +9,6 @@ import {
   frame,
   layoutPriority,
   lineLimit,
-  listRowInsets,
   padding,
 } from '@expo/ui/swift-ui/modifiers'
 import { issueAgentLabel, modelName } from '@podium/client-core/agent-models'
@@ -27,6 +26,7 @@ import { deckWordColor } from '../deck-colors'
 import { listRowPress } from '../list-row-press.ios'
 import { workingWordGlint } from '../working-word-glint.ios'
 import { DetailGroup } from './DetailList'
+import { detailRowInsets, useDetailSeparator } from './detail-row-geometry'
 import type { TaskSessionsProps } from './TaskSessions'
 
 export const TaskSessions = observer(function TaskSessions({
@@ -60,6 +60,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
 }) {
   const pool = useMobilePool()
   const { fontScale } = useWindowDimensions()
+  const separator = useDetailSeparator()
   const session = here(pool?.model('session', sessionId))
   if (!session) return null
   const view = here(session.row) as unknown as SessionView | undefined
@@ -74,13 +75,15 @@ const TaskSessionRow = observer(function TaskSessionRow({
       alignment="center"
       spacing={12}
       modifiers={[
-        listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
         padding({ vertical: 12 }),
         frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
         accessibilityElement('ignore'),
         accessibilityLabel(`${name}, ${agent}, ${model} · ${SESSION_WORD_LABEL[word]}`),
         accessibilityIdentifier('issue-active-session'),
         listRowPress(() => onOpenSession(sessionId)),
+        // After the press Button, or the List never sees the row's insets.
+        detailRowInsets,
+        separator,
       ]}
     >
       {/* The deck's SF ring/dot and native working-word glint, on the same clock. */}

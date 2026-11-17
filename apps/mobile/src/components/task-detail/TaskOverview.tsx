@@ -3,14 +3,14 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact, SessionId, SessionOffer } from '@podium/model'
 import { type ReactNode, useState } from 'react'
-import { Image, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
+import { Image, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
-import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
+import { adaptiveColor, color, font, leading, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
 import { Icon } from '../Icon'
 import { FileText, MessagesSquare, Play } from '../icons'
@@ -377,39 +377,42 @@ const Thumbnail = observer(function Thumbnail({
 export { TaskSessions } from './TaskSessions'
 
 /** Text on the accent fill: white on light bronze, ink on dark bisque. */
+const HEADING = Platform.OS === 'ios' ? font.body : font.tiny
 const ON_ACCENT = adaptiveColor('#ffffff', '#16171a', '#ffffff', '#16171a')
 
 const styles = StyleSheet.create({
-  more: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' },
+  more: { minHeight: 44, paddingHorizontal: 20, justifyContent: 'center' },
   heading: {
     minHeight: 20,
     marginBottom: space.sm,
-    paddingLeft: 16,
-    paddingRight: 16,
+    paddingLeft: 20,
+    paddingRight: 20,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
   },
-  headingLabel: { ...sans(600), color: color.textDim, fontSize: font.tiny, flexShrink: 1 },
+  // iOS: the native List's section header size, beside DetailGroup headers.
+  headingLabel: { ...sans(600), color: color.textDim, fontSize: HEADING, flexShrink: 1 },
   headingCount: {
     ...sans(400),
     color: color.textDim,
-    fontSize: font.tiny,
+    fontSize: HEADING,
     fontVariant: ['tabular-nums'],
   },
   headingAction: { minHeight: 44, justifyContent: 'center', marginVertical: -space.sm },
   headingActionText: { ...sans(400), color: color.accentTint, fontSize: font.small, flexShrink: 1 },
   spacer: { flex: 1 },
+  // The page's other cards: native inset-group radius, text 20pt in.
   card: {
-    borderRadius: 8,
+    borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
     overflow: 'hidden',
     backgroundColor: color.groupedCard,
   },
   summary: {
     ...sans(400),
-    paddingHorizontal: space.md,
+    paddingHorizontal: 20,
     paddingVertical: space.md,
     color: color.body,
     fontSize: font.small,
@@ -421,8 +424,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingBottom: space.md,
+    paddingHorizontal: space.lg,
+    paddingBottom: space.lg,
   },
   buttonsStacked: { flexDirection: 'column', alignItems: 'stretch' },
   button: {
@@ -454,7 +457,7 @@ const styles = StyleSheet.create({
   buttonPrimaryText: { color: ON_ACCENT },
   failed: {
     ...sans(400),
-    paddingHorizontal: space.md,
+    paddingHorizontal: 20,
     paddingBottom: space.md,
     color: color.dangerText,
     fontSize: font.small,

@@ -171,7 +171,11 @@ export function Disclosure({
         accessibilityLabel={label}
         onPress={onToggle}
         scaleTo={0.995}
-        style={({ pressed }) => [styles.discHead, pressed && styles.discHeadPressed]}
+        style={({ pressed }) => [
+          styles.discHead,
+          grouped && styles.groupedInset,
+          pressed && styles.discHeadPressed,
+        ]}
       >
         <View style={styles.discLabel}>
           <Text style={styles.discTitle}>{label}</Text>
@@ -187,7 +191,9 @@ export function Disclosure({
           <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
         </Animated.View>
       </PressableScale>
-      {open ? <View style={styles.discBody}>{children}</View> : null}
+      {open ? (
+        <View style={[styles.discBody, grouped && styles.groupedBody]}>{children}</View>
+      ) : null}
     </View>
   )
 }
@@ -318,8 +324,9 @@ export function ErrorNote({ message }: { message: string | null }) {
 }
 
 const styles = StyleSheet.create({
+  // Card-width, with the native inset-group radius and text column (20pt in).
   referenceGroup: {
-    borderRadius: 12,
+    borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
     overflow: 'hidden',
     backgroundColor: color.groupedCard,
@@ -334,10 +341,12 @@ const styles = StyleSheet.create({
   },
   referenceSeparator: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 16,
+    marginLeft: 20,
     backgroundColor: color.hairline,
   },
   groupedDisclosure: { borderRadius: 0, backgroundColor: 'transparent' },
+  groupedInset: { paddingLeft: 20, paddingRight: 16 },
+  groupedBody: { marginHorizontal: 20 },
   machine: {
     ...sans(400),
     fontSize: font.tiny,

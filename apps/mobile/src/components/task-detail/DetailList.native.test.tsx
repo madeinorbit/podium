@@ -44,6 +44,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => {
     'accessibilityHidden',
     'accessibilityIdentifier',
     'accessibilityLabel',
+    'alignmentGuide',
     'background',
     'buttonStyle',
     'disabled',
@@ -397,4 +398,39 @@ it('opens the existing Start Agent sheet only while the shared issue model has n
     }),
   )
   expect(screen.queryByRole('button', { name: 'Start with agent' })).toBeNull()
+})
+
+it('applies row insets outside the native row Button so the List honours them', () => {
+  const record = issue('task', { coordinatorSessionId: 'seat-0' })
+  const session = {
+    sessionId: 'seat-0',
+    issueId: record.id,
+    title: 'Coordinator',
+    agentKind: 'claude',
+    status: 'live',
+    createdAt: stamp,
+    lastActiveAt: stamp,
+    agentState: { phase: 'idle', since: stamp },
+  } as unknown as SessionView
+  attach(record, [session])
+  render(
+    <DetailList>
+      <TaskSessions issue={record} sessions={[session]} onOpenSession={() => {}} />
+      <IssueSubIssuesSection
+        issue={record}
+        subIssues={[issue('child', { seq: 2 })]}
+        busy={false}
+        commands={{} as never}
+        onOpen={() => {}}
+        onStatus={() => {}}
+      />
+    </DetailList>,
+  )
+  for (const id of ['issue-active-session', 'issue-sub-task']) {
+    const names = (
+      JSON.parse(screen.getByTestId(id).dataset.modifiers ?? '[]') as Array<Record<string, unknown>>
+    ).map((entry) => Object.keys(entry)[0])
+    expect(names.indexOf('listRowInsets'), id).toBeGreaterThan(names.indexOf('rowPress'))
+    expect(names, id).toContain('alignmentGuide')
+  }
 })

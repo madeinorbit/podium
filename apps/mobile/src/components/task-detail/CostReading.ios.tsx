@@ -8,7 +8,6 @@ import {
   font,
   foregroundStyle,
   frame,
-  listRowInsets,
   monospacedDigit,
   opacity,
   padding,
@@ -20,11 +19,13 @@ import { useWindowDimensions } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { color } from '../../theme/theme'
 import { DetailActionRow, DetailGroup } from './DetailList'
+import { detailRowInsets, useDetailSeparator } from './detail-row-geometry'
 
 export const CostReading = observer(function CostReading({ model }: { model: TaskCostModel }) {
   const view = model.view
   const [details, setDetails] = useState(false)
   const { fontScale } = useWindowDimensions()
+  const separator = useDetailSeparator()
   if (view?.state === 'no-sessions') return null
   const value =
     view?.state === 'costed'
@@ -73,13 +74,14 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
       )}
     </>
   )
-  const rowInsets = listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 })
+  // The outermost row element carries the shared insets and separator guide.
+  const row = [detailRowInsets, separator]
   const reading = (
     <VStack
       alignment="leading"
       spacing={4}
       modifiers={[
-        ...(view?.state === 'costed' ? [] : [rowInsets]),
+        ...(view?.state === 'costed' ? [] : row),
         padding({ vertical: 12 }),
         frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
         accessibilityIdentifier('issue-cost'),
@@ -119,7 +121,7 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
         <Button
           onPress={() => setDetails((value) => !value)}
           modifiers={[
-            rowInsets,
+            ...row,
             buttonStyle('automatic'),
             accessibilityLabel(
               `${view.provisional ? 'Estimated cost so far' : 'Estimated cost'}, ${value}. Estimate at list price${view.floor === 'partial' ? ', partial' : ''}. ${details ? 'Hide' : 'Show'} cost details`,

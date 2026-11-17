@@ -19,7 +19,8 @@ export function DetailList({ children }: { children: ReactNode }) {
   )
 }
 
-export function DetailContent({ children }: { children: ReactNode }) {
+/** `bleed` is the iOS native List's header inset opt-out; this ScrollView has none. */
+export function DetailContent({ children }: { children: ReactNode; bleed?: boolean }) {
   return <View style={styles.reference}>{children}</View>
 }
 
