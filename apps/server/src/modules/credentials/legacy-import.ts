@@ -30,9 +30,13 @@
  * A row with no credential type is skipped and logged by its id, provider and
  * kind, never its value.
  *
- * The old values are left where they are; epic Task 21 destroys them once every
- * moved secret has been read back. Nothing is imported while the vault cannot
- * seal (a locked vault, an unusable key file): the next start with the key does it.
+ * Nothing is imported while the vault cannot seal (a locked vault, an unusable
+ * key file): the next start with the key does it.
+ *
+ * THE OLD VALUES ARE THEN DESTROYED (Task 21): {@link legacyValuesToDestroy}
+ * names each old value whose credential opens from the vault to the same value,
+ * and the store deletes those and compacts the file
+ * (`store/legacy-plaintext.ts`). A value whose move failed stays and is logged.
  */
 
 import { createLogger } from '@podium/logger'
@@ -48,6 +52,7 @@ import {
   newCredentialId,
 } from '../../store/credentials'
 import type { GrantsRepository } from '../../store/grants'
+import type { LegacyValueToDestroy } from '../../store/legacy-plaintext'
 import type { ServerSecretsRepository } from '../../store/server-secrets'
 import type { UsersRepository } from '../../store/users'
 import { type Vault, VaultLockedError, withSecret } from './vault'
@@ -99,6 +104,8 @@ const LEGACY_API_KEY_SECRETS = [
 ] as const
 
 interface Candidate {
+  /** Where the old value is kept. */
+  kind: LegacyValueToDestroy['kind']
   legacyId: string
   /** The id sessions and settings recorded; null when another credential of the
    *  same owner already answers it. */
@@ -157,6 +164,7 @@ async function plan(deps: LegacyImportDeps): Promise<Plan> {
       const provider = key.slice('apiKeys.'.length)
       const type = API_KEY_TYPES[provider] as CredentialTypeId
       sources.push({
+        kind: 'api-key-secret',
         legacyId: key,
         legacyKey: `managed:${provider}`,
         ownerUserId: adminId,
@@ -202,6 +210,7 @@ function fromAccount(
   const legacyKey = row.accountKey ?? row.ref ?? row.id
   const earlier = legacyKey.endsWith(':earlier-workspace')
   return {
+    kind: 'account-row',
     legacyId: row.id,
     legacyKey,
     ownerUserId: owner,
@@ -340,4 +349,74 @@ export async function importLegacyCredentials(deps: LegacyImportDeps): Promise<L
     log.info('moved old keys into the vault', { created, machinesAllowed, grantsMade })
   }
   return { created, machinesAllowed, grantsMade, skipped, refused }
+}
+
+/** What {@link legacyValuesToDestroy} decided. */
+export interface LegacyDestroyPlan {
+  /** Old values the store may delete. */
+  destroy: LegacyValueToDestroy[]
+  /** Old values left in place, by id (and provider and kind when it has no type). */
+  leftInPlace: string[]
+}
+
+/**
+ * The old values that may be destroyed: each one whose credential (the one made
+ * from it, or the one it merged into) opens from the vault to the same value.
+ * Two more go: a value whose credential its owner has removed since the move,
+ * and one whose credential was renewed since (it holds a later version; earlier
+ * versions are not kept). Anything else (no credential, a vault that cannot open
+ * it, a different value) is left in place and logged by its id, never its value.
+ */
+export async function legacyValuesToDestroy(deps: LegacyImportDeps): Promise<LegacyDestroyPlan> {
+  const log = deps.log ?? moduleLog
+  const { sources, mergedInto, skipped } = await plan(deps)
+  const destroy: LegacyValueToDestroy[] = []
+  const leftInPlace = [...skipped]
+  const reasons: Record<string, string> = {}
+  for (const source of sources) {
+    const credential = await deps.credentials.findByLegacyId(
+      mergedInto.get(source.legacyId) ?? source.legacyId,
+    )
+    const verdict = await check(deps, credential, source.secret)
+    if (verdict === 'destroy') {
+      destroy.push({ kind: source.kind, legacyId: source.legacyId, value: source.secret })
+    } else {
+      leftInPlace.push(source.legacyId)
+      reasons[source.legacyId] = verdict
+    }
+  }
+  if (leftInPlace.length > 0) {
+    log.warn('old keys were left in plain text: their move into the vault is not confirmed', {
+      leftInPlace,
+      reasons,
+    })
+  }
+  return { destroy, leftInPlace }
+}
+
+async function check(
+  deps: LegacyImportDeps,
+  credential: Awaited<ReturnType<CredentialsRepository['findByLegacyId']>>,
+  value: string,
+): Promise<'destroy' | 'no credential' | 'no secret' | 'cannot open' | 'different value'> {
+  if (!credential) return 'no credential'
+  if (credential.status === 'revoked') return 'destroy'
+  const latest = await deps.credentials.latestSecret(credential.id)
+  if (!latest) return 'no secret'
+  if (!latest.openable) return 'cannot open'
+  let opened: Buffer
+  try {
+    opened = deps.vault.open(
+      { credentialId: credential.id, type: credential.type, version: latest.version },
+      latest.sealed,
+    )
+  } catch {
+    return 'cannot open'
+  }
+  try {
+    if (opened.toString('utf8') === value) return 'destroy'
+    return latest.version > 1 ? 'destroy' : 'different value'
+  } finally {
+    opened.fill(0)
+  }
 }

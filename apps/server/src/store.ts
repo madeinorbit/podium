@@ -69,7 +69,7 @@ import {
   withFileTempStore,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
-import { importLegacyCredentials } from './modules/credentials/legacy-import'
+import { importLegacyCredentials, legacyValuesToDestroy } from './modules/credentials/legacy-import'
 import { Vault } from './modules/credentials/vault'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
@@ -93,6 +93,15 @@ import { GrantsRepository } from './store/grants'
 import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
+import {
+  applyLegacyDestruction,
+  compactDatabase,
+  hasLegacyPlaintextRows,
+  type LegacyPlaintextOptions,
+  type LegacyPlaintextReport,
+  readLegacyPlaintextState,
+  writeLegacyPlaintextState,
+} from './store/legacy-plaintext'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
@@ -206,6 +215,7 @@ export class SessionStore {
   /** The vault as the credentials repository sees it; set once the store opens it. */
   private vaultKeyCheck: VaultKeyCheck | undefined
   private openedVault: Vault | undefined
+  private legacyPlaintextReportValue: LegacyPlaintextReport | undefined
   /** The credential vault (credential management design §7), opened at boot. */
   get vault(): Vault {
     if (!this.openedVault) throw new Error('the vault is opened by SessionStore.open')
@@ -305,6 +315,8 @@ export class SessionStore {
        * from the end of the boot (POD-6920).
        */
       changeCapture?: 'atBoot' | 'whenLogAttaches'
+      /** Test seams for destroying the old plaintext keys (`store/legacy-plaintext.ts`). */
+      legacyPlaintext?: LegacyPlaintextOptions
     } = {},
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
@@ -390,6 +402,7 @@ export class SessionStore {
       await store.openVault(
         options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
         options.queryOnly === true,
+        options.legacyPlaintext,
       )
       bootStage('vault', vaultStarted)
       // DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
@@ -527,7 +540,11 @@ export class SessionStore {
    * reports why (`podium vault status`) and the credentials it holds read
    * "needs attention". A read-only (recovery) boot writes nothing.
    */
-  private async openVault(keyPath: string, readOnly: boolean): Promise<void> {
+  private async openVault(
+    keyPath: string,
+    readOnly: boolean,
+    legacyPlaintext?: LegacyPlaintextOptions,
+  ): Promise<void> {
     const vault = await Vault.open({
       keyPath,
       provider: () => fileKeyProvider(keyPath),
@@ -572,6 +589,54 @@ export class SessionStore {
     } catch (error) {
       log.error('moving the old keys into the vault failed', { err: error })
     }
+    // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+    try {
+      this.legacyPlaintextReportValue = await this.destroyLegacyPlaintext(vault, legacyPlaintext)
+    } catch (error) {
+      log.error('destroying the old plaintext keys failed', { err: error })
+    }
+  }
+
+  /** What destroying the old plaintext keys did at this start (tests read it). */
+  get legacyPlaintextReport(): LegacyPlaintextReport | undefined {
+    return this.legacyPlaintextReportValue
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /**
+   * Destroy the old plaintext keys the import moved (`store/legacy-plaintext.ts`):
+   * check each against its credential, delete the confirmed ones, compact the
+   * file, scrub the retained snapshots. Nothing once a pass left nothing.
+   */
+  private async destroyLegacyPlaintext(
+    vault: Vault,
+    options: LegacyPlaintextOptions = {},
+  ): Promise<LegacyPlaintextReport> {
+    if (options.destroy === false) return { ran: false }
+    const state = readLegacyPlaintextState(this.db)
+    if (state === 'done' && !hasLegacyPlaintextRows(this.db)) return { ran: false }
+    const { destroy, leftInPlace } = await legacyValuesToDestroy({
+      secrets: this.secrets,
+      users: this.users,
+      credentials: this.credentials,
+      grants: this.grants,
+      vault,
+    })
+    return await this.executor.exclusive(async () => {
+      const destroyed = applyLegacyDestruction(this.db, destroy)
+      const compaction =
+        readLegacyPlaintextState(this.db) === 'compaction-pending'
+          ? compactDatabase(this.db, options)
+          : 'skipped'
+      const snapshotProblems: string[] = []
+      if (compaction !== 'busy' && leftInPlace.length === 0 && snapshotProblems.length === 0) {
+        writeLegacyPlaintextState(this.db, 'done')
+      }
+      if (destroyed > 0 || compaction !== 'skipped') {
+        log.info('destroyed the old plaintext keys', { destroyed, compaction })
+      }
+      return { ran: true, destroyed, leftInPlace, compaction, snapshotProblems }
+    })
   }
 
   private async initialize(): Promise<void> {
