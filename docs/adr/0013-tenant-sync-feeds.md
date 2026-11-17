@@ -150,7 +150,9 @@ store's workspace handle and has no default. A migration that rewrites model row
 **Change capture names the workspace.** Every capture source on a workspace table declares
 `workspace_id` as its first key (`apps/server/src/sync/record-sources.ts`). The drain refuses
 a captured row of another workspace (`ForeignCaptureError`, `apps/server/src/sync/record-source.ts`),
-so a change can never be appended to another workspace's feed (POD-7021).
+so a change can never be appended to another workspace's feed (POD-7021). On Postgres the
+capture runs in the write statement ([ADR 14](0014-postgres-store.md) D5), and the
+workspace's `sync_feed` row is also its write lock, one writer per workspace (ADR 14 D4).
 
 **The cross-tenant test this record required is the isolation suite** (POD-6959 task C2,
 POD-7025). It opens two workspaces over one database with the same ids and natural keys and
