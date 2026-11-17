@@ -51,7 +51,7 @@ function tablesHolding(store: SessionStore, needle: string): string[] {
 }
 
 describe('the plain path stores no result', () => {
-  it('server secret, account credential and password are found only in their homes', async () => {
+  it('a server secret and a password are found only in their homes', async () => {
     const store = await openTestStore(':memory:')
     opened.push(store)
     const adminId = firstAdminMemberId()
@@ -89,7 +89,9 @@ describe('the plain path stores no result', () => {
 
     // The positive control: each write landed, so a miss below is not a no-op.
     expect(await store.secrets.get('integrations.linearApiKey')).toBe(SERVER_SECRET)
-    expect(tablesHolding(store, SERVER_SECRET)).toEqual(['server_secrets'])
+    // The Linear key is sealed by the vault (credential management §7): its
+    // plaintext is in no table, only the envelope in `server_secrets`.
+    expect(tablesHolding(store, SERVER_SECRET)).toEqual([])
     // A password is kept only as a hash: the plaintext is nowhere.
     expect(tablesHolding(store, PASSWORD)).toEqual([])
   })

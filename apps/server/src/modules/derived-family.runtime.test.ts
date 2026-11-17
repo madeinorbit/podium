@@ -122,13 +122,15 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * against a pin of 33 already.)
    * 35 -> 43, twelve -> thirteen families: the eight `credentials.*` writes
    * (credential management Task 4, POD-6891).
-   * 43 -> 38: `accounts.connect`, `disconnect`, `share`, `send` and `unsend`
+   * 47 -> 42: `accounts.connect`, `disconnect`, `share`, `send` and `unsend`
    * went with the old stored keys (credential management Task 21, POD-6907).
+   * (The base served 47 against a pin of 43: the four sign-in writes of
+   * POD-6896 and POD-6901 had not moved it.)
    */
-  it('governs thirteen families and thirty-eight derived writes', () => {
+  it('governs thirteen families and forty-two derived writes', () => {
     expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(38)
+    expect(total).toBe(42)
   })
 
   it.each(

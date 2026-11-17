@@ -26,10 +26,7 @@ import { SuperagentService } from '../superagent'
 
 /** The census's non-synced commands (ADR 12 D8): no synced effect, online only. */
 const PLAIN_COMMANDS = [
-  'accounts.connect',
-  'accounts.disconnect',
   'accounts.login',
-  'accounts.share',
   'auth.setDisplayName',
   'auth.setEmail',
   'auth.setLoginRequired',
@@ -143,8 +140,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 33', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(33)
+  it('a system principal with garbage input is refused as unauthorized by all 35', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(35)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
