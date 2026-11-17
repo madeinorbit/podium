@@ -8,6 +8,7 @@ export type WorkMenuSymbol =
   | 'envelope.open'
   | 'envelope.badge'
   | 'sun.max'
+  | 'arrow.down.to.line'
   | 'arrow.uturn.backward'
   | 'arrow.up.left.square'
   | 'arrow.down.right.square'
@@ -32,6 +33,8 @@ export function workMenuItem(
         : { label: 'Mark as Unread', symbol: 'envelope.badge' }
     case 'undefer':
       return { label: 'Unsnooze', symbol: 'sun.max' }
+    case 'tuck':
+      return { label: 'Tuck', symbol: 'arrow.down.to.line' }
     case 'bringBack':
       return { label: 'Bring Back from Closed', symbol: 'arrow.uturn.backward' }
     case 'placement':

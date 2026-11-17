@@ -459,6 +459,7 @@ const TaskRow = taskObserver(function TaskRow({
   if (!here(issue.row)) return null
   const finished = isFinished(issue)
   const task = board.task(issue.id)
+  const workRow = pool?.worklistRow(issue.id)
   const mark = task.mark
   const childHit = task.childHit
   const child = childHit ? board.issue(childHit) : null
@@ -589,12 +590,29 @@ const TaskRow = taskObserver(function TaskRow({
           <IssueRowMenuItems
             issue={nav}
             lane="live"
+            canTuck={workRow?.canTuck}
+            canBringBack={workRow?.canBringBack ?? false}
             onAction={(action) => props.onAction(issue.id, action)}
             onStatus={(value) => props.onStatus(issue.id, value)}
           />
         </ContextMenu.Items>
       </ContextMenu>
       <RevealSwipeActions edge="trailing">
+        {workRow?.canTuck ? (
+          <Button
+            label="Tuck"
+            systemImage="arrow.down.to.line"
+            onPress={() => props.onAction(issue.id, 'tuck')}
+            modifiers={[tint(color.workingText)]}
+          />
+        ) : workRow?.canBringBack ? (
+          <Button
+            label="Bring Back"
+            systemImage="arrow.uturn.backward"
+            onPress={() => props.onAction(issue.id, 'bringBack')}
+            modifiers={[tint(color.workingText)]}
+          />
+        ) : null}
         {finished ? null : (
           <Button
             label="Close"

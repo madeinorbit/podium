@@ -35,8 +35,11 @@ export function useIssueRowActions({
       const issue = pool.issueObject(id) as unknown as IssueNavigationModel
       if (action === 'read') run(issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
       else if (action === 'undefer') run(store.undeferIssue(id))
-      else if (action === 'bringBack') run(store.setIssueTucked(id, false))
-      else if (action === 'placement') {
+      else if (action === 'tuck') {
+        if (pool.worklistRow(id)?.canTuck) run(store.setIssueTucked(id, true))
+      } else if (action === 'bringBack') {
+        if (pool.worklistRow(id)?.canBringBack) run(store.setIssueTucked(id, false))
+      } else if (action === 'placement') {
         const placement = discoveredPlacement(issue)
         if (placement?.originId)
           run(

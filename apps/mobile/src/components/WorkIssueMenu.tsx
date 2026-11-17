@@ -79,6 +79,8 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
   const sessionCount = target.sessionCount
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,
+    canTuck: target.canTuck,
+    canBringBack: target.canBringBack,
   })
 
   const finish = (result?: Promise<unknown>): void => {
@@ -195,6 +197,8 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
             ),
         }
       }
+      case 'tuck':
+        return { label: 'Tuck', onPress: () => finish(store.setIssueTucked(issue.id, true)) }
       case 'bringBack':
         return {
           label: 'Bring back from Closed',

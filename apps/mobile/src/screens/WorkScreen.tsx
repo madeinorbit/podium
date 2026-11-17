@@ -169,8 +169,11 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
       if (action === 'read')
         void (issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
       else if (action === 'undefer') void store.undeferIssue(id)
-      else if (action === 'bringBack') void store.setIssueTucked(id, false)
-      else if (action === 'placement') {
+      else if (action === 'tuck') {
+        if (row.canTuck) void store.setIssueTucked(id, true)
+      } else if (action === 'bringBack') {
+        if (row.canBringBack) void store.setIssueTucked(id, false)
+      } else if (action === 'placement') {
         const placement = discoveredPlacement(issue)
         if (placement?.originId)
           void store.setIssuePlacement(

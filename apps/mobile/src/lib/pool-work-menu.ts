@@ -1,9 +1,9 @@
-import { here, omitGone } from '@podium/client-graph/lookup'
-import { allowImperativeRead, lazy } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING } from '@podium/client-graph/loading'
+import { here, omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { allowImperativeRead, lazy } from '@podium/mobx-helpers'
 import type { WorkIssueMenuTarget } from './work-menu'
 
 export interface PoolWorkMenuData {
@@ -18,10 +18,11 @@ class SharedMenuTarget implements WorkIssueMenuTarget {
     readonly issue: WorkIssueMenuTarget['issue'],
     readonly lane: WorkIssueMenuTarget['lane'],
   ) {}
+  @lazy get canTuck() {
+    return this.pool.worklistRow(this.issue.id)?.canTuck
+  }
   @lazy get canBringBack() {
-    return this.lane === 'closed'
-      ? this.pool.worklistRow(this.issue.id)?.canBringBack
-      : undefined
+    return this.pool.worklistRow(this.issue.id)?.canBringBack
   }
   @lazy get sessionCount() {
     return this.pool.issueObject(this.issue.id).memberCount

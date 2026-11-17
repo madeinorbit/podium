@@ -36,8 +36,23 @@ vi.mock('@expo/ui/swift-ui', () => ({
       {label}
     </button>
   ),
-  Button: ({ label, onPress }: { label: string; onPress: () => void }) => (
-    <button type="button" onClick={onPress}>
+  Button: ({
+    label,
+    onPress,
+    systemImage,
+    modifiers,
+  }: {
+    label: string
+    onPress: () => void
+    systemImage?: string
+    modifiers?: { disabled: boolean }[]
+  }) => (
+    <button
+      type="button"
+      onClick={onPress}
+      data-system-image={systemImage}
+      disabled={modifiers?.some((m) => m.disabled)}
+    >
       {label}
     </button>
   ),
@@ -55,6 +70,40 @@ const issue = (patch: Partial<IssueNavigationModel> = {}): IssueNavigationModel 
   }) as IssueNavigationModel
 
 afterEach(cleanup)
+
+it('offers a native Tuck item with its SF Symbol and follows the shared eligibility', () => {
+  const onAction = vi.fn()
+  const props = {
+    issue: issue({ stage: 'done', closedReason: 'done' }),
+    lane: 'live' as const,
+    onAction,
+    onStatus: vi.fn(),
+  }
+  const view = render(<IssueRowMenuItems {...props} canTuck />)
+  const button = screen.getByRole('button', { name: 'Tuck' })
+  expect(button.dataset.systemImage).toBe('arrow.down.to.line')
+  fireEvent.click(button)
+  expect(onAction).toHaveBeenCalledExactlyOnceWith('tuck')
+  view.rerender(<IssueRowMenuItems {...props} canTuck={false} />)
+  expect(screen.queryByRole('button', { name: 'Tuck' })).toBeNull()
+})
+
+it('offers Bring Back in Tasks only when eligible and disables an ineligible Closed menu item', () => {
+  const props = {
+    issue: issue({ stage: 'done', closedReason: 'done' }),
+    onAction: vi.fn(),
+    onStatus: vi.fn(),
+  }
+  const view = render(<IssueRowMenuItems {...props} lane="live" canBringBack />)
+  fireEvent.click(screen.getByRole('button', { name: 'Bring Back from Closed' }))
+  expect(props.onAction).toHaveBeenCalledExactlyOnceWith('bringBack')
+  view.rerender(<IssueRowMenuItems {...props} lane="live" canBringBack={false} />)
+  expect(screen.queryByRole('button', { name: 'Bring Back from Closed' })).toBeNull()
+  view.rerender(<IssueRowMenuItems {...props} lane="closed" canBringBack={false} />)
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'Bring Back from Closed' }).disabled,
+  ).toBe(true)
+})
 
 it.each([
   ['backlog', undefined, 'Backlog'],

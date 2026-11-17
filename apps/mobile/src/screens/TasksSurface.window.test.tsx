@@ -3,11 +3,12 @@ import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-sch
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { MobxPool } from '@podium/client-graph/pool'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import { type ReactNode, useEffect, useImperativeHandle } from 'react'
 import type { SearchBarCommands, SearchBarProps } from 'react-native-screens'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ScreenAction, ScreenMenuItem } from '../components/screen-actions'
+import { useIssueRowActions } from '../lib/issue-row-actions'
 import { ROW_PRIME_MS } from '../lib/use-row-prime'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
@@ -27,7 +28,13 @@ const state = vi.hoisted(() => ({
   toggleFold: vi.fn(),
   work: null as Worklist | null,
   age: vi.fn(() => Date.parse('2026-10-03T12:00:00Z')),
+  showActions: false,
+  setIssueTucked: vi.fn(async (_id: string, _tucked: boolean) => {}),
 }))
+vi.mock('../client/hooks', () => ({
+  useStoreActions: () => ({ setIssueTucked: state.setIssueTucked }),
+}))
+vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('react-native', async (original) => ({
   ...(await original<object>()),
   useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: state.fontScale }),
@@ -208,17 +215,33 @@ vi.mock('@expo/ui/swift-ui', () => {
     )
   }
   return {
-    Button: ({ children, modifiers, onPress }: Props & { onPress?: () => void }) => (
+    Button: ({
+      children,
+      modifiers,
+      onPress,
+      label,
+      systemImage,
+    }: Props & {
+      onPress?: () => void
+      label?: string
+      systemImage?: string
+    }) => (
       <button
         type="button"
         aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
         data-modifiers={JSON.stringify(modifiers)}
         onClick={onPress}
+        data-system-image={systemImage}
+        disabled={modifiers?.some((m) => m.name === 'disabled' && m.value === true)}
       >
-        {children}
+        {children ?? label}
       </button>
     ),
-    ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null }),
+    ContextMenu: Object.assign(Box, {
+      Trigger: Box,
+      Items: ({ children }: Props) =>
+        state.showActions ? <div data-testid="context-menu">{children}</div> : null,
+    }),
     HStack: Box,
     Image: () => null,
     List: ({ children }: Props) => {
@@ -229,6 +252,8 @@ vi.mock('@expo/ui/swift-ui', () => {
       return <Box>{children}</Box>
     },
     Picker: Box,
+    Menu: Box,
+    Toggle: () => null,
     ProgressView: () => <div data-testid="native-progress" />,
     Section: ({ children }: Props) => <section>{children}</section>,
     Spacer: ({ modifiers }: Props) => {
@@ -242,7 +267,14 @@ vi.mock('@expo/ui/swift-ui', () => {
         />
       )
     },
-    SwipeActions: Object.assign(Box, { Actions: () => null }),
+    SwipeActions: Object.assign(Box, {
+      Actions: ({ children, allowsFullSwipe }: Props & { allowsFullSwipe: boolean }) =>
+        state.showActions ? (
+          <div data-testid="swipe-actions" data-full-swipe={String(allowsFullSwipe)}>
+            {children}
+          </div>
+        ) : null,
+    }),
     Text: Box,
     VStack,
   }
@@ -309,6 +341,199 @@ afterEach(() => {
   state.toggleFold.mockClear()
   state.folded = false
   state.work = null
+  state.showActions = false
+  state.setIssueTucked.mockReset()
+})
+
+const TUCK_STAMP = '2026-10-03T12:00:00Z'
+const tuckIssue = (patch: Record<string, unknown> = {}) => ({
+  id: 'tuckable',
+  seq: 1,
+  title: 'Finished task',
+  stage: 'done',
+  closedReason: 'done',
+  closedAt: TUCK_STAMP,
+  audience: 'human',
+  repoId: 'repo',
+  repoPath: '/fixture',
+  createdAt: TUCK_STAMP,
+  updatedAt: TUCK_STAMP,
+  tuckedAt: null,
+  ...patch,
+})
+
+async function tuckFixture(patch: Record<string, unknown> = {}) {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(TUCK_STAMP) })
+  state.pool = pool
+  const issue = tuckIssue(patch)
+  pool.apply({
+    type: 'replace',
+    rows: [
+      { kind: 'repo', id: 'repo', value: { id: 'repo', repoPath: '/fixture', prefix: 'POD' } },
+      {
+        kind: 'issue',
+        id: 'parent',
+        value: tuckIssue({
+          id: 'parent',
+          seq: 2,
+          title: 'Parent',
+          stage: 'in_progress',
+          closedReason: null,
+        }),
+      },
+      { kind: 'issue', id: issue.id, value: issue },
+    ],
+  })
+  await attachMobileScreens(pool)
+  state.work = worklistView(pool)
+  const board = new MobileTasksBoard(pool, {
+    showDone: true,
+    expanded: ['parent'],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: true,
+  })
+  return { pool, issue, board }
+}
+
+function TuckSurface({
+  tab,
+  board,
+  onError = () => {},
+}: {
+  tab: 'Work' | 'Tasks'
+  board: MobileTasksBoard
+  onError?: (message: string) => void
+}) {
+  const actions = useIssueRowActions({ openMenu: () => {}, onError })
+  const common = { ...actions, refresh: { onRefresh: () => {} }, bottomInset: 0 }
+  return tab === 'Work' ? (
+    <WorkSurface
+      {...({
+        ...common,
+        phone: state.work?.phone,
+        collapsed: new Set(),
+        loading: false,
+        pendingNav: null,
+      } as unknown as WorkSurfaceProps)}
+    />
+  ) : (
+    <TasksSurface
+      {...({ ...common, board, chips: [], booting: false } as unknown as TasksSurfaceProps)}
+    />
+  )
+}
+
+function actionHost(kind: 'swipe-actions' | 'context-menu', label: string) {
+  const host = screen
+    .getAllByTestId(kind)
+    .find((element) => within(element).queryByRole('button', { name: label }))
+  if (!host) throw new Error(`Expected ${label} in ${kind}`)
+  return host
+}
+
+for (const tab of ['Work', 'Tasks'] as const) {
+  it.each([
+    'swipe',
+    'menu',
+  ] as const)(`${tab} Tuck %s calls the shared command and follows its fold`, async (gesture) => {
+    const { pool, issue, board } = await tuckFixture()
+    state.showActions = true
+    render(<TuckSurface tab={tab} board={board} />)
+    const row = pool.worklistRow(issue.id)
+    if (!row) throw new Error('Expected the shared worklist row')
+    expect(row.canTuck).toBe(true)
+    const host = actionHost(gesture === 'swipe' ? 'swipe-actions' : 'context-menu', 'Tuck')
+    const tuck = within(host).getByRole('button', { name: 'Tuck' })
+    expect(tuck.dataset.systemImage).toBe('arrow.down.to.line')
+    if (gesture === 'swipe') expect(host.dataset.fullSwipe).toBe('false')
+    await act(async () => fireEvent.click(tuck))
+    expect(state.setIssueTucked).toHaveBeenCalledExactlyOnceWith(issue.id, true)
+    // The command's replicated result drives the existing shared fold, with no
+    // local hidden-row list in either mobile surface.
+    act(() =>
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id: issue.id, value: { ...issue, tuckedAt: TUCK_STAMP } }],
+      }),
+    )
+    expect(row.canTuck).toBe(false)
+    expect(screen.queryByRole('button', { name: 'Tuck' })).toBeNull()
+    if (tab === 'Work') {
+      expect(screen.queryByText(issue.title)).toBeNull()
+      act(() => state.work?.phone.setLane('closed'))
+    }
+    // Tasks keeps explicit Show Done membership, just like the desktop board.
+    expect(screen.getByText(issue.title)).toBeTruthy()
+    const bringBack = within(actionHost('swipe-actions', 'Bring Back')).getByRole('button', {
+      name: 'Bring Back',
+    })
+    await act(async () => fireEvent.click(bringBack))
+    expect(state.setIssueTucked).toHaveBeenLastCalledWith(issue.id, false)
+    act(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issue.id, value: issue }] }))
+    if (tab === 'Work') act(() => state.work?.phone.setLane('open'))
+    expect(screen.getByText(issue.title)).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Tuck' })).toHaveLength(2)
+  })
+}
+
+it.each([
+  ['open', { stage: 'in_progress', closedReason: null }],
+  ['cancelled', { closedReason: 'cancelled' }],
+  ['duplicate', { closedReason: 'duplicate' }],
+  ['superseded', { closedReason: 'superseded' }],
+  ['subtask', { parentId: 'parent' }],
+  ['agent-only root', { audience: 'agent' }],
+  ['needs attention', { needsHuman: true }],
+  ['past grace', { closedAt: '2026-10-01T12:00:00Z' }],
+  ['already tucked', { tuckedAt: TUCK_STAMP }],
+] as const)('Tasks Tuck eligibility excludes %s using the desktop companion', async (_label, patch) => {
+  const { pool, board } = await tuckFixture(patch)
+  state.showActions = true
+  render(<TuckSurface tab="Tasks" board={board} />)
+  expect(screen.getByText('Finished task')).toBeTruthy()
+  expect(pool.worklistRow('tuckable')?.canTuck).toBe(false)
+  expect(screen.queryByRole('button', { name: 'Tuck' })).toBeNull()
+  expect(state.setIssueTucked).not.toHaveBeenCalled()
+})
+
+it('Work Tuck never offers Bring Back past the desktop grace window', async () => {
+  const { board } = await tuckFixture({ closedAt: '2026-10-01T12:00:00Z', tuckedAt: TUCK_STAMP })
+  state.showActions = true
+  state.work?.phone.setLane('closed')
+  render(<TuckSurface tab="Work" board={board} />)
+  expect(screen.queryByRole('button', { name: 'Bring Back' })).toBeNull()
+  const menu = screen.getByRole<HTMLButtonElement>('button', { name: 'Bring Back from Closed' })
+  expect(menu.disabled).toBe(true)
+  fireEvent.click(menu)
+  expect(state.setIssueTucked).not.toHaveBeenCalled()
+})
+
+it('Tuck dispatch rechecks the shared verdict for stale native menu callbacks', async () => {
+  const { pool, issue } = await tuckFixture()
+  const openMenu = vi.fn()
+  const { result } = renderHook(() => useIssueRowActions({ openMenu, onError: vi.fn() }))
+  act(() => result.current.onAction(issue.id, 'bringBack'))
+  expect(state.setIssueTucked).not.toHaveBeenCalled()
+  act(() =>
+    pool.apply({
+      type: 'update',
+      rows: [{ kind: 'issue', id: issue.id, value: { ...issue, tuckedAt: TUCK_STAMP } }],
+    }),
+  )
+  act(() => result.current.onAction(issue.id, 'tuck'))
+  expect(state.setIssueTucked).not.toHaveBeenCalled()
+  expect(openMenu).not.toHaveBeenCalled()
+})
+
+it('Tuck dispatch reports a refused shared command', async () => {
+  const { issue } = await tuckFixture()
+  const onError = vi.fn()
+  state.setIssueTucked.mockRejectedValueOnce(new Error('Tuck refused'))
+  const { result } = renderHook(() => useIssueRowActions({ openMenu: vi.fn(), onError }))
+  await act(async () => result.current.onAction(issue.id, 'tuck'))
+  expect(state.setIssueTucked).toHaveBeenCalledExactlyOnceWith(issue.id, true)
+  expect(onError).toHaveBeenCalledExactlyOnceWith('Tuck refused')
 })
 
 /** Freshly mounted rows draw themselves for ROW_PRIME_MS, then the viewport window rules. */

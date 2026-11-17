@@ -542,7 +542,7 @@ const readNeedYouCount = (pool: MobxPool) => mobileWorkView(pool).mobileSections
 const readWorkingCount = (pool: MobxPool) => headerView(pool).workingCount()
 
 /** Swipe actions reuse the menu's handlers; only the gesture is new. */
-export type WorkSwipeAction = 'close' | 'status' | 'undefer' | 'bringBack'
+export type WorkSwipeAction = 'close' | 'status' | 'undefer' | 'tuck' | 'bringBack'
 
 type RowProps = Pick<
   WorkSurfaceProps,
@@ -712,21 +712,22 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
           />
         </ContextMenu.Items>
       </ContextMenu>
-      <NativeSwipeActions id={row.id} lane={props.lane} onSwipe={props.onSwipe} />
+      <NativeSwipeActions row={row} lane={props.lane} onSwipe={props.onSwipe} />
     </SwipeActions>
   )
 })
 
 /** Trailing swipe reveals Close and Status on open rows (the fold's inverse elsewhere); only a tap acts. */
-function NativeSwipeActions({
-  id,
+const NativeSwipeActions = observer(function NativeSwipeActions({
+  row,
   lane,
   onSwipe,
 }: {
-  id: string
+  row: WorklistIssue
   lane: PhoneWorkLane
   onSwipe: RowProps['onSwipe']
 }) {
+  const id = row.id
   if (lane === 'snoozed')
     return (
       <RevealSwipeActions edge="trailing">
@@ -739,7 +740,7 @@ function NativeSwipeActions({
       </RevealSwipeActions>
     )
   if (lane === 'closed')
-    return (
+    return row.canBringBack ? (
       <RevealSwipeActions edge="trailing">
         <Button
           label="Bring Back"
@@ -748,15 +749,24 @@ function NativeSwipeActions({
           modifiers={[tint(color.workingText)]}
         />
       </RevealSwipeActions>
-    )
+    ) : null
   return (
     <RevealSwipeActions edge="trailing">
-      <Button
-        label="Close"
-        systemImage="checkmark.circle"
-        onPress={() => onSwipe(id, 'close')}
-        modifiers={[tint(SWIPE_CLOSE)]}
-      />
+      {row.canTuck ? (
+        <Button
+          label="Tuck"
+          systemImage="arrow.down.to.line"
+          onPress={() => onSwipe(id, 'tuck')}
+          modifiers={[tint(color.workingText)]}
+        />
+      ) : row.finished ? null : (
+        <Button
+          label="Close"
+          systemImage="checkmark.circle"
+          onPress={() => onSwipe(id, 'close')}
+          modifiers={[tint(SWIPE_CLOSE)]}
+        />
+      )}
       <Button
         label="Status"
         systemImage="circle.dashed"
@@ -765,7 +775,7 @@ function NativeSwipeActions({
       />
     </RevealSwipeActions>
   )
-}
+})
 
 type SFSymbol = NonNullable<ComponentProps<typeof Image>['systemName']>
 const SWIPE_CLOSE = '#8e8e93'
@@ -829,6 +839,7 @@ const NativeRowActions = observer(function NativeRowActions({
     <IssueRowMenuItems
       issue={row.issue as unknown as IssueNavigationModel}
       lane={lane === 'open' ? 'live' : lane}
+      canTuck={row.canTuck}
       canBringBack={row.canBringBack}
       onAction={(action) => onAction(row.id, action)}
       onStatus={(value) => onStatus(row.id, value)}

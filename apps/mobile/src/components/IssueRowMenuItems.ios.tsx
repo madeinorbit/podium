@@ -15,18 +15,24 @@ import { workMenuItem } from '../lib/work-row-copy'
 export const IssueRowMenuItems = observer(function IssueRowMenuItems({
   issue,
   lane,
-  canBringBack = true,
+  canTuck = false,
+  canBringBack = false,
   onAction,
   onStatus,
 }: {
   issue: IssueNavigationModel
   lane: WorkMenuLane
+  canTuck?: boolean
   canBringBack?: boolean
   onAction: (action: WorkMenuActionId) => void
   onStatus: (value: string) => void
 }) {
   const placement = discoveredPlacement(issue)
-  const actions = workMenuActionIds(issue, lane, { placement: Boolean(placement?.originId) })
+  const actions = workMenuActionIds(issue, lane, {
+    placement: Boolean(placement?.originId),
+    canTuck,
+    canBringBack: lane === 'live' && canBringBack,
+  })
   return (
     <>
       {actions.map((action) => {
