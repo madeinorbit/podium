@@ -3,6 +3,7 @@ import { TopicWatchMessage } from '../planes/topics'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { CodexCompleteRequestMessage } from './codex'
+import { ConversationPrepareRequestMessage } from './conversation'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
@@ -224,6 +225,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HomeEnsureRequestMessage,
   HomeRemoveRequestMessage,
   CredentialRemoveRequestMessage,
+  /** Placing a conversation for another credential (credential management
+   *  §9, epic Task 11). Appended at the END for index stability; sent only to
+   *  a daemon that accepted `CAP_CONVERSATION_PREPARE`. */
+  ConversationPrepareRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

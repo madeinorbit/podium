@@ -17,6 +17,7 @@ import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
   CAP_CHECKOUT_CHANGED_V1,
+  CAP_CONVERSATION_PREPARE,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
@@ -128,6 +129,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // Credential management §10: this server asks for homes and for a
       // propagated login's removal only from a daemon that accepted this.
       CAP_HARNESS_HOMES,
+      // Credential management §9: this server asks for a conversation to be
+      // placed before a switched session resumes, only from a daemon that accepted this.
+      CAP_CONVERSATION_PREPARE,
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,

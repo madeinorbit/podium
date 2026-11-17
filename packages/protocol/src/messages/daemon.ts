@@ -4,6 +4,7 @@ import { TopicPublishMessage } from '../planes/topics'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { CodexCompleteResultMessage } from './codex'
+import { ConversationPrepareResultMessage } from './conversation'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
   BrowseDirsResultMessage,
@@ -301,6 +302,9 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HomeEnsureResultMessage,
   HomeRemoveResultMessage,
   CredentialRemoveResultMessage,
+  /** Reply to `conversationPrepareRequest` (credential management §9, epic
+   *  Task 11), appended at the END for index stability. */
+  ConversationPrepareResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

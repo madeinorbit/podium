@@ -26,6 +26,8 @@ import type {
   CodexCompleteResultMessage,
   CodexLlmMessageWire,
   CodexLlmToolWire,
+  ConversationPrepareRequestMessage,
+  ConversationPrepareResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
   CredentialRemoveResultMessage,
@@ -302,6 +304,9 @@ const OAUTH_LOOPBACK_GRACE_MS = 30_000
 const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
 const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
 const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
+// A conversation placed for another credential's home (§9), on a daemon that
+// offered conversation.prepare.v1.
+const CONVERSATION_PREPARE = daemonRequestKind<Payload<ConversationPrepareResultMessage>>('cp')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -460,6 +465,8 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(HOME_REMOVE, msg.requestId, machineId, payloadOf(msg)),
   credentialRemoveResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  conversationPrepareResult: (broker, machineId, msg) =>
+    void broker.settle(CONVERSATION_PREPARE, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -1349,6 +1356,23 @@ export class DaemonRpcService {
       15_000,
       () => ({ outcome: 'failed', error: 'The machine did not answer in time.' }),
       (requestId) => ({ type: 'credentialRemoveRequest', requestId, harness, fingerprint }),
+      machineId,
+    )
+  }
+
+  /**
+   * Put a session's conversation where a resume in `toHomeId` finds it
+   * (credential management §9). Generous: a Codex rollout can be large.
+   */
+  async conversationPrepare(
+    input: Omit<ConversationPrepareRequestMessage, 'type' | 'requestId'>,
+    machineId: MachineId,
+  ): Promise<Payload<ConversationPrepareResultMessage>> {
+    return await this.request(
+      CONVERSATION_PREPARE,
+      60_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'conversationPrepareRequest', requestId, ...input }),
       machineId,
     )
   }

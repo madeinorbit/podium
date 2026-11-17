@@ -33,6 +33,7 @@ import * as browserOpen from '../messages/browser-open'
 import * as client from '../messages/client'
 import * as codex from '../messages/codex'
 import * as control from '../messages/control'
+import * as conversation from '../messages/conversation'
 import * as credentials from '../messages/credentials'
 import * as daemon from '../messages/daemon'
 import * as daemonHandshake from '../messages/daemon-handshake'
@@ -94,6 +95,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['harness', harness],
   ['headless', headless],
   ['homes', homes],
+  ['conversation', conversation],
   ['host', host],
   ['inventory', inventory],
   ['issues', issues],

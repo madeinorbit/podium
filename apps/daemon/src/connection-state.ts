@@ -6,6 +6,7 @@ import { isNotInConversationCause } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import {
   CAP_CHECKOUT_CHANGED_V1,
+  CAP_CONVERSATION_PREPARE,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
@@ -1082,6 +1083,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // Credential management §10: this daemon keeps harness homes, runs
         // sessions in them and answers the home and credential-removal requests.
         CAP_HARNESS_HOMES,
+        // Credential management §9: this daemon places a conversation for
+        // another credential's home before a resume (`conversationPrepareRequest`).
+        CAP_CONVERSATION_PREPARE,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,

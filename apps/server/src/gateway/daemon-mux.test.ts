@@ -323,9 +323,10 @@ describe('machine scope and the writer class', () => {
         'homeEnsureResult',
         'homeRemoveResult',
         'credentialRemoveResult',
+        'conversationPrepareResult',
       ]),
     )
-    expect(rpcFrames.length).toBe(47)
+    expect(rpcFrames.length).toBe(48)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

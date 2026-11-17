@@ -181,6 +181,7 @@ export const CONTROL_PLANE_CLASS = {
   credentialRemoveRequest: 'control.command',
   homeEnsureRequest: 'control.command',
   homeRemoveRequest: 'control.command',
+  conversationPrepareRequest: 'control.command',
   repoOpRequest: 'control.command',
   // Handoff family (ADR 7 D7): bulk MECHANICS on the chunk frames, command
   // CLASS throughout — one correlated export/import state machine.
@@ -324,6 +325,7 @@ export const DAEMON_PLANE_CLASS = {
   credentialRemoveResult: 'control.command',
   homeEnsureResult: 'control.command',
   homeRemoveResult: 'control.command',
+  conversationPrepareResult: 'control.command',
   repoOpResult: 'control.command',
   handoffExportResult: 'control.command',
   handoffChunkReadResult: 'control.command',

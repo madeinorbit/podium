@@ -235,6 +235,7 @@ const DISPATCH: Dispatcher = {
   oauthLoopbackResult: toRpc,
   oauthLoopbackCallback: toRpc,
   homeEnsureResult: toRpc,
+  conversationPrepareResult: toRpc,
   homeRemoveResult: toRpc,
   credentialRemoveResult: toRpc,
 
