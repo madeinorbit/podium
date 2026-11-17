@@ -206,7 +206,9 @@ describe('shipping: the order-to-issue lookups', () => {
     expect(mapped.get('order-chunk-499')).toBe('iss_chunk_499')
     expect(mapped.has('order-chunk-absent')).toBe(false)
     await s.close()
-  })
+    // 501 issues and orders, each written in its own transaction: about 15 s on the
+    // Postgres leg, past the 20 s default when the host is busy.
+  }, 120_000)
 })
 
 /**
