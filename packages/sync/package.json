@@ -51,6 +51,11 @@
       "types": "./src/adapters/sqlite/sync-repository.ts",
       "import": "./src/adapters/sqlite/sync-repository.ts"
     },
+    "./adapters/pg/schema": {
+      "@podium/source": "./src/adapters/pg/schema.ts",
+      "types": "./src/adapters/pg/schema.ts",
+      "import": "./src/adapters/pg/schema.ts"
+    },
     "./bootstrap-worker": {
       "@podium/source": "./src/bootstrap-worker.ts",
       "types": "./src/bootstrap-worker.ts",
