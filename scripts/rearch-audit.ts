@@ -870,9 +870,13 @@ export const CHECKS: AuditCheck[] = [
     // Read the zero with its LIMIT: this item is name-matched over declarations
     // that clear ENTITY_SHAPE_THRESHOLD, so a shape can fall out of the
     // population by shedding unrelated keys rather than by shedding per-user
-    // state. Both sites were checked against exactly that — re-adding `readAt`
-    // to either observation makes the detector report it again — but the limit
-    // is general and the next zero deserves the same check.
+    // state. Both sites were checked against exactly that at POD-1229, when
+    // re-adding `readAt` to either observation made the detector report it
+    // again. That no longer holds (POD-7061): the issue vocabulary has since
+    // lost `issueId` and `readAt`, so IssueAutoArchiveObservation counts one
+    // key and is out of the population, and a `readAt` re-added there would
+    // go unreported. The limit is general and the next zero deserves the
+    // same check.
     id: 'per-user-singletons',
     title: 'Per-user state surviving as a singleton field on a representation',
     phase: 'POD-1229',

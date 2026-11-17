@@ -1010,8 +1010,8 @@ function collectPerUserSingletons(ctx: AuditContext): AuditSite[] {
 }
 
 /**
- * The CONTROL this detector anchors on, at POD-1229 — the shape it counted right
- * up until the change that drove it to zero, copied verbatim from that diff.
+ * The CONTROL this detector anchors on: an issue representation in the zod form
+ * the auto-archive observations use, carrying `readAt` as a singleton.
  *
  * From zero, "no sites" and "the detector broke" are the same output
  * (`docs/rearch-deletion-audit.md`: a detector that stops matching is not a
@@ -1021,19 +1021,38 @@ function collectPerUserSingletons(ctx: AuditContext): AuditSite[] {
  *
  * It is deliberately a CONTROL rather than a check that the live tree is
  * non-empty: an emptied `PER_USER_STATE_KEYS`, a `GENERIC_KEYS` that swallowed
- * `readAt`, a threshold raised out from under it, or a declaration parser that
- * stopped seeing zod object bodies all report a serene zero, and only running
- * the matcher end-to-end on a known-positive catches every one of them.
+ * the control's keys, a threshold raised out from under it, or a declaration
+ * parser that stopped seeing zod object bodies all report a serene zero, and only
+ * running the matcher end-to-end on a known-positive catches every one of them.
+ *
+ * Until POD-7061 the control was the pre-POD-1229 `IssueAutoArchiveObservation`,
+ * copied from the diff that deleted its `readAt`. The issue vocabulary later lost
+ * `readAt` and `issueId`, so that shape counted one key (`closedReason`), fell
+ * under ENTITY_SHAPE_THRESHOLD and left the population: the CONTROL went stale,
+ * not the detector. This one is entity-shaped on keys of today's issue model,
+ * EXACTLY at the threshold on every measure: three issue keys and no other
+ * vocabulary key (no `issueId`, which counts through the session vocabulary),
+ * so one key that stops counting, or a threshold raised by one, fails it.
+ *
+ * Its keys are LITERAL on purpose. Picking them from ISSUE_VOCABULARY minus
+ * GENERIC_KEYS, ENTITY_SHAPE_THRESHOLD of them, would follow along with the
+ * changes the control exists to catch (a raised threshold, a wider GENERIC_KEYS,
+ * a shrunk vocabulary) and could never fail on them. Instead the refusal below
+ * names any control key that stopped counting, so a later rename reads as "the
+ * control went stale" and not as "the detector broke".
  */
 const PER_USER_ANCHOR_FILE = 'packages/protocol/src/maintenance.ts'
+const PER_USER_ANCHOR_SYMBOL = 'PlantedIssueReadState'
+/** The control's issue keys: the ones that make it entity-shaped. */
+const PER_USER_ANCHOR_ISSUE_KEYS = ['closedReason', 'closedAt', 'parentId'] as const
 const PER_USER_ANCHOR_SOURCE = [
-  'export const IssueAutoArchiveObservation = z.object({',
-  '  issueId: z.string().min(1).max(256).pipe(IssueIdField),',
+  `export const ${PER_USER_ANCHOR_SYMBOL} = z.object({`,
   '  stage: z.string().min(1).max(64),',
   '  closedReason: z.string().nullable(),',
+  '  closedAt: z.string().datetime().nullable(),',
+  '  parentId: z.string().nullable(),',
   '  readAt: z.string().datetime(),',
   '  archived: z.literal(false),',
-  '  deletedAt: z.null(),',
   '})',
 ].join('\n')
 
@@ -1062,13 +1081,25 @@ function assertPerUserAnchor(): void {
     ],
     listDir: () => [],
   })
-  if (found.length !== 1 || found[0]?.text !== 'IssueAutoArchiveObservation.readAt') {
+  const expected = `${PER_USER_ANCHOR_SYMBOL}.readAt`
+  if (found.length !== 1 || found[0]?.text !== expected) {
+    // Name the control keys that no longer count, so a stale control and a broken
+    // detector do not read alike.
+    const uncounted = PER_USER_ANCHOR_ISSUE_KEYS.filter(
+      (key) => !ISSUE_VOCABULARY.has(key) || GENERIC_KEYS.has(key),
+    )
+    const why =
+      uncounted.length > 0
+        ? ` Its issue keys ${JSON.stringify(uncounted)} no longer count (left ISSUE_VOCABULARY, ` +
+          'or joined GENERIC_KEYS). If the model renamed them, the CONTROL went stale: put ' +
+          'live keys in PER_USER_ANCHOR_ISSUE_KEYS and the source, and say why in the commit.'
+        : ' Every control key still counts, so the detector broke: fix it; do not rebaseline.'
     throw new Error(
-      'representation-audit: per-user-singletons no longer matches its CONTROL — the ' +
-        'pre-POD-1229 auto-archive observation, which carried `readAt` as a singleton. It ' +
-        `reported ${JSON.stringify(found.map((s) => s.text))} instead of one ` +
-        '`IssueAutoArchiveObservation.readAt`. Its live zero therefore means "detector broken", ' +
-        'not "nothing found". Fix the detector; do not rebaseline.',
+      'representation-audit: per-user-singletons no longer matches its CONTROL, an issue ' +
+        'representation carrying `readAt` as a singleton. It ' +
+        `reported ${JSON.stringify(found.map((s) => s.text))} instead of one \`${expected}\`. ` +
+        'Its live zero therefore means "detector broken", not "nothing found".' +
+        why,
     )
   }
 }

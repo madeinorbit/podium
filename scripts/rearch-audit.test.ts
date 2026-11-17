@@ -38,6 +38,7 @@ import {
 } from './rearch-audit'
 import {
   entityShapedDeclarations,
+  GENERIC_KEYS,
   ISSUE_VOCABULARY,
   physicalTableColumns,
   physicalTables,
@@ -525,23 +526,42 @@ describe('inventory checks', () => {
     ).not.toThrow()
   })
 
-  it('per-user-singletons still COUNTS the shape POD-1229 deleted', () => {
+  it('per-user-singletons still COUNTS a per-user singleton on an issue representation', () => {
     // The live zero means "this shape is gone", so the detector has to be shown
-    // finding it. This is the observation exactly as it read before POD-1229.
+    // finding it. Until POD-7061 this was the pre-POD-1229 auto-archive
+    // observation; the issue vocabulary has since lost `readAt` and `issueId`, so
+    // that shape no longer clears ENTITY_SHAPE_THRESHOLD. This one is entity-shaped
+    // on keys of today's issue model, in the same zod form.
     const ctx = ctxOf({
       'packages/protocol/src/maintenance.ts': [
-        'export const IssueAutoArchiveObservation = z.object({',
+        'export const IssueReadObservation = z.object({',
         '  issueId: z.string().min(1).max(256).pipe(IssueIdField),',
-        '  stage: z.string().min(1).max(64),',
         '  closedReason: z.string().nullable(),',
+        '  landedAt: z.string().datetime().nullable(),',
+        '  dueAt: z.string().datetime().nullable(),',
         '  readAt: z.string().datetime(),',
-        '  archived: z.literal(false),',
-        '  deletedAt: z.null(),',
         '})',
       ].join('\n'),
     })
     const sites = CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctx) ?? []
-    expect(sites.map((s) => s.text)).toEqual(['IssueAutoArchiveObservation.readAt'])
+    expect(sites.map((s) => s.text)).toEqual(['IssueReadObservation.readAt'])
+  })
+
+  it('per-user-singletons names the control keys that stopped counting', () => {
+    // A control key the model renamed must read as a stale CONTROL, not as a
+    // broken detector. Swallowing one into GENERIC_KEYS stands in for the rename.
+    const generic = GENERIC_KEYS as Set<string>
+    generic.add('closedAt')
+    try {
+      expect(() => CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctxOf({}))).toThrow(
+        /issue keys \["closedAt"\] no longer count/,
+      )
+    } finally {
+      generic.delete('closedAt')
+    }
+    expect(() =>
+      CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctxOf({})),
+    ).not.toThrow()
   })
 
   it('capability-tables counts a module-private table but not the web icon map', () => {
@@ -1136,8 +1156,8 @@ describe('against the live repo', () => {
       // `readAt` with `readerUserId`, so no representation carries a per-user
       // key as a singleton any more. Exempt on the SAME terms as the three
       // above and no looser — `perUserSingletons` runs its own matcher
-      // end-to-end over a CONTROL (the pre-POD-1229 observation, copied from
-      // the diff that deleted it) and THROWS when that stops producing exactly
+      // end-to-end over a CONTROL (an issue representation carrying `readAt`,
+      // entity-shaped on today's issue keys since POD-7061) and THROWS when that stops producing exactly
       // one site, so an emptied key list, a widened GENERIC_KEYS, a raised
       // threshold or a broken parser reds loudly instead of reading as a
       // deletion. Asserted in 'per-user-singletons ERRORS when its control
