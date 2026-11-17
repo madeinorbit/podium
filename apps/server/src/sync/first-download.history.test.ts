@@ -44,11 +44,7 @@ import type { SyncJob } from '../sync-worker/types'
 import { type CorpusIssue, foldedDeps, prefixOf, rowOf } from '../test-support/issue-corpus'
 import { openTestStore } from '../test-support/open-test-store'
 import type { CorpusSession } from '../test-support/session-corpus'
-import {
-  measureAtSizes,
-  type StatementPin,
-  tallyOf,
-} from '../test-support/statement-count'
+import { measureAtSizes, type StatementPin, tallyOf } from '../test-support/statement-count'
 import { resolveRule, ruleStatement } from './collection-shapes'
 import { ancestorsStatement } from './collection-sql'
 import { firstDownload, policyFor } from './policy'
@@ -263,14 +259,10 @@ const POLICY_SET = firstDownload(policyFor('browser'), []).filter(
 
 /**
  * Statements that read rows beyond the policy set, and why each is accepted.
- * Nothing else may scan a table that grows with history.
+ * Nothing else may scan a table that grows with history. Empty since POD-7104:
+ * "asking" seeks the saved `asks_user` column.
  */
-const SCANS_ACCEPTED: ReadonlyMap<string, string> = new Map([
-  [
-    'session.asking',
-    'reads every session: its rule reads the agent state through the runtime and checkpoint satellites, which no index serves (finding for the coordinator)',
-  ],
-])
+const SCANS_ACCEPTED: ReadonlyMap<string, string> = new Map()
 
 /** A plan step that reads a whole table or index; the recursive walk's own queue excepted. */
 const HISTORY_TABLES = /^SCAN (?!walk\b|up\b|\()/
@@ -310,7 +302,12 @@ describe('the policy set loads without reading history (acceptance 5)', () => {
 
   it('runs the same statements at history x1 and x10', async () => {
     const counts = await measureAtSizes(pin)
-    console.log('policy set statements, x1:', counts.small.statements, 'x10:', counts.large.statements)
+    console.log(
+      'policy set statements, x1:',
+      counts.small.statements,
+      'x10:',
+      counts.large.statements,
+    )
     expect(counts.small.statements).toBeGreaterThan(20)
     expect(counts.large.statements, 'the same statements at history x1 and x10').toBe(
       counts.small.statements,
@@ -328,10 +325,17 @@ describe('the policy set loads without reading history (acceptance 5)', () => {
       const detail = rows.map((row) => row.detail)
       plans.push(`${name}\n  ${detail.join('\n  ')}`)
       // Scanning a subquery's own rows (a co-routine) reads no table.
-      const coroutines = new Set(detail.flatMap((line) => /^CO-ROUTINE (\S+)/.exec(line)?.[1] ?? []))
+      const coroutines = new Set(
+        detail.flatMap((line) => /^CO-ROUTINE (\S+)/.exec(line)?.[1] ?? []),
+      )
       const scans = detail.filter(
         (line) => HISTORY_TABLES.test(line) && !coroutines.has(line.split(' ')[1] ?? ''),
       )
+      if (name === 'session.asking') {
+        expect(detail.join(' | '), 'asking seeks the asks_user index (POD-7104)').toContain(
+          'idx_sessions_asking',
+        )
+      }
       if (SCANS_ACCEPTED.has(name)) return
       expect(scans, `${name}: ${detail.join(' | ')}`).toEqual([])
     }

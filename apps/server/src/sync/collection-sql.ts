@@ -16,6 +16,13 @@
  *    synced record carries;
  *  - a deleted session has no record.
  *
+ * Those three-table reads serve no index, so a rule that asks whether a
+ * session waits for the user reads one saved column instead:
+ * `sessions.asks_user` holds exactly the "asking" clauses above, and the
+ * triggers of migration `20261117220206_session-asks-user` write it whenever
+ * an input changes (POD-7104). Every clause set a column answers is replaced
+ * by one test of that column (see {@link DerivedColumn}).
+ *
  * The rules compile with `@podium/sync/collections`. `collection-sql.test.ts`
  * holds the SQL to the builder: on rows written through the store, every
  * declared rule answers in SQL exactly what it answers in JavaScript over the
@@ -113,6 +120,35 @@ const SESSION_FIELDS: Fields = {
   agentState: () => ({ sql: sessionAgentState(), type: 'json' }),
 }
 
+/**
+ * A saved column that holds whether a record matches any of `clauses`, kept
+ * by the store as the record's builder would read them (POD-7104). Wherever
+ * a rule holds every one of these clauses, each with the same further tests,
+ * those clauses compile to one arm: `sql` and the further tests. `sql` keeps
+ * its literal, so the column's partial index proves it and is sought.
+ */
+interface DerivedColumn {
+  readonly clauses: readonly Clause[]
+  readonly sql: string
+}
+
+/**
+ * "Asking" as `sessions.asks_user` holds it, frozen as the migration that
+ * writes the column computes it (its view `session_asks_user`), not read from
+ * `ASKING_WHERE`: when the declared rule changes, its clauses stop matching
+ * these and read the satellites again until a migration rewrites the column.
+ * `session-asks-user.test.ts` holds the two equal.
+ */
+export const ASKS_USER_CLAUSES: readonly Clause[] = [
+  { archived: false, offer: { not: { empty: true } } },
+  { archived: false, 'agentState.phase': { in: ['needs_user', 'errored'] } },
+  {
+    archived: false,
+    'agentState.phase': 'idle',
+    'agentState.idle.kind': { in: ['question', 'approval'] },
+  },
+]
+
 const ISSUE_FIELDS: Fields = {
   id: plain(issues.id),
   repoId: plain(issues.repoId),
@@ -143,6 +179,8 @@ interface CollectionTable {
   readonly parent?: { name: string }
   /** What every record of the type satisfies, whatever the rule. */
   readonly base?: string
+  /** A saved column that answers a set of clauses. */
+  readonly derived?: DerivedColumn
 }
 
 const str = (value: unknown): string | null =>
@@ -154,7 +192,7 @@ const table = (
   of: Parameters<typeof getTableName>[0],
   keys: readonly { name: string }[],
   fields: Fields,
-  more: Partial<Pick<CollectionTable, 'idOf' | 'parent' | 'base'>> = {},
+  more: Partial<Pick<CollectionTable, 'idOf' | 'parent' | 'base' | 'derived'>> = {},
 ): CollectionTable => ({
   from: `${getTableName(of)} AS ${ROW}`,
   table: getTableName(of),
@@ -186,6 +224,8 @@ const SESSION_USER_STATE_FROM = `(SELECT ${sessionUserState.userId.name} AS user
 const TABLES = {
   session: table(sessions, [sessions.id], SESSION_FIELDS, {
     base: `${col(sessions.deletedAt)} IS NULL`,
+    // `idx_sessions_asking` is partial on `asks_user = 1`.
+    derived: { clauses: ASKS_USER_CLAUSES, sql: `${col(sessions.asksUser)} = 1` },
   }),
   issueProjection: table(issues, [issues.id], ISSUE_FIELDS, { parent: issues.parentId }),
   issueDep: table(
@@ -292,6 +332,84 @@ export function collectionTarget(kind: CollectionKind): RuleSqlTarget {
   }
 }
 
+/** A rule's value, or a clause's, as one comparable text: keys sorted, arrays in order. */
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
+    .join(',')}}`
+}
+
+/** What `clause` tests beyond `part`, when it tests everything `part` tests; else undefined. */
+function beyond(clause: Clause, part: Clause): Clause | undefined {
+  for (const [path, test] of Object.entries(part)) {
+    if (!(path in clause) || canonical(clause[path]) !== canonical(test)) return undefined
+  }
+  return Object.fromEntries(Object.entries(clause).filter(([path]) => !(path in part)))
+}
+
+/** One arm of a rule as it compiles: a declared clause, or a derived column with further tests. */
+type Arm = { readonly clause: Clause } | { readonly derived: string; readonly also: Clause }
+
+/**
+ * The rule's clauses with every complete set a derived column answers folded
+ * into one arm, at the place of the set's first clause. A set is complete
+ * when, for one choice of further tests, the rule holds each of the column's
+ * clauses with exactly those tests added.
+ */
+function armsOf(clauses: readonly Clause[], derived: DerivedColumn | undefined): Arm[] {
+  if (derived === undefined) return clauses.map((clause) => ({ clause }))
+  const sets = new Map<string, { also: Clause; members: Map<number, number> }>()
+  clauses.forEach((clause, at) => {
+    for (const [which, part] of derived.clauses.entries()) {
+      const also = beyond(clause, part)
+      if (also === undefined) continue
+      const key = canonical(also)
+      const set = sets.get(key) ?? { also, members: new Map<number, number>() }
+      if (!set.members.has(which)) set.members.set(which, at)
+      sets.set(key, set)
+      break
+    }
+  })
+  const folded = new Map<number, Clause>()
+  const consumed = new Set<number>()
+  for (const { also, members } of sets.values()) {
+    if (members.size !== derived.clauses.length) continue
+    const at = [...members.values()]
+    folded.set(Math.min(...at), also)
+    for (const index of at) consumed.add(index)
+  }
+  const arms: Arm[] = []
+  clauses.forEach((clause, at) => {
+    const also = folded.get(at)
+    if (also !== undefined) arms.push({ derived: derived.sql, also })
+    else if (!consumed.has(at)) arms.push({ clause })
+  })
+  return arms
+}
+
+/** A rule over `kind` as a WHERE fragment, reading a derived column wherever one answers. */
+function kindRuleSql(kind: CollectionKind, where: Where, args: RuleArgs, now: number): RuleSql {
+  const target = collectionTarget(kind)
+  const arms = armsOf(clausesOf(where), (TABLES[kind] as CollectionTable).derived)
+  if (arms.every((arm) => 'clause' in arm)) return ruleSql(where, target, args, now)
+  const params: SqlValue[] = []
+  const parts = arms.map((arm) => {
+    if ('clause' in arm) {
+      const compiled = ruleSql(arm.clause, target, args, now)
+      params.push(...compiled.params)
+      return compiled.sql
+    }
+    if (Object.keys(arm.also).length === 0) return `(${arm.derived})`
+    const also = ruleSql(arm.also, target, args, now)
+    params.push(...also.params)
+    return `(${arm.derived} AND ${also.sql})`
+  })
+  return { sql: parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`, params }
+}
+
 /** The ids of the records of `kind` the rule selects, as one statement (session and issue). */
 export function collectionQuery(
   kind: CollectionKind,
@@ -300,7 +418,7 @@ export function collectionQuery(
   now: number,
 ): RuleSql {
   const { from, keys, base } = TABLES[kind] as CollectionTable
-  const rule = ruleSql(where, collectionTarget(kind), args, now)
+  const rule = kindRuleSql(kind, where, args, now)
   return {
     sql: `SELECT ${col(keys[0]!)} AS id FROM ${from} WHERE ${base === undefined ? '' : `${base} AND `}${rule.sql}`,
     params: rule.params,
@@ -409,8 +527,8 @@ export function collectionStatement(
   const { from, keys, base } = TABLES[kind] as CollectionTable
   const rule =
     where === undefined
-      ? { sql: '(1 = 1)', params: [] as SqlValue[] }
-      : ruleSql(where, collectionTarget(kind), args, now)
+      ? { sql: '(1 = 1)', params: [] as readonly SqlValue[] }
+      : kindRuleSql(kind, where, args, now)
   const params: SqlValue[] = [...rule.params]
   const select = keys.map((key) => col(key))
   const conditions = [...(base === undefined ? [] : [base]), rule.sql]

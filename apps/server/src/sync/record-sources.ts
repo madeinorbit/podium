@@ -876,9 +876,12 @@ export const RECORD_SOURCES: RecordSources = {
     // Not the activity and terminal counters and times, the unpublished
     // activity time or the terminal size: the record carries the published
     // activity time, and these are live topics, not record fields (POD-6764).
+    // Nor `asks_user`, which the record does not carry: its triggers derive it
+    // from the agent state, the offer and the checkpoints (POD-7104).
     byId(sessions, sessions.id, {
       reads: {
         allBut: [
+          sessions.asksUser,
           sessions.lastActiveAt,
           sessions.lastActivePublishAfter,
           sessions.terminalCols,

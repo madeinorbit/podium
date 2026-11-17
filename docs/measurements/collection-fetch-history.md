@@ -23,19 +23,20 @@ issue had no age bound (see Open).
 | Issue stubs step: statements | 52 | 282 |
 
 Every count is equal at both sizes, and so is the number of statements: the
-policy set builds and sends no history record. One statement still reads history
-rows: `session.asking` scans the sessions table (see Open). The stubs step grows with history by design (one
+policy set builds and sends no history record, and since POD-7104 no statement of
+it reads history rows. The stubs step grows with history by design (one
 page of 500 per read).
 
 ## Query plans at history x10
 
-Every statement of the policy set and of what it comes with seeks an index,
-except "asking":
+Every statement of the policy set and of what it comes with seeks an index
+(asking since POD-7104: re-measured on the polaris agents VM, 2026-11-17, 252
+statements at x1 and x10):
 
 | Statement | Plan |
 | --- | --- |
 | `session.live` | `idx_sessions_status (status=?)` |
-| `session.asking` | **SCAN sessions**, each row's offer, runtime turn state and checkpoint by primary key |
+| `session.asking` | `idx_sessions_asking (asks_user=?)` |
 | `issueProjection.recent` | `idx_issues_stage_updated (ANY(stage) AND updated_at>?)` |
 | `session.recent` | `idx_sessions_published_active (published_last_active_at>?)` |
 | `workflowRun.recent` | `workflow_runs_started (started_at>?)` |
@@ -63,12 +64,13 @@ query-plan audit.
 
 ## Open
 
-- **Asking reads every session.** Its rule reads the agent state each record
-  carries: the runtime turn state over the observation checkpoint over the
-  row, and the offer unless a later input made it stale. No index serves an
-  expression over three tables. Proposed fix: keep the derived "asks the user"
-  state as one column on the session row, written where the agent state and
-  the offer are written, and index it.
+- **Asking read every session** (resolved 2026-11-17, POD-7104). Its rule reads
+  the agent state each record carries: the runtime turn state over the
+  observation checkpoint over the row, and the offer unless a later input made
+  it stale, which no index serves. `sessions.asks_user` now holds that answer
+  (not archived, not deleted), written by triggers of migration
+  `20261117220206_session-asks-user` on every write of an input and sought
+  through the partial index `idx_sessions_asking`; the rule's SQL reads it.
 - **Sessions with no issue grew with history** (resolved 2026-11-17, coordinator
   decision A): the rule now holds only those live, asking or active in the policy's
   days, a subset of Live, Asking and Recent, so the policy holds no separate

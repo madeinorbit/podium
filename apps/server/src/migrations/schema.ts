@@ -363,6 +363,20 @@ export const sessions = sqliteTable(
      *  re-checks that writer's machine `use` before it STARTS anything. */
     desiredByUser: text('desired_by_user').$type<UserId>(),
     desiredByAgent: text('desired_by_agent').$type<SessionId>(),
+    /**
+     * WHETHER THE SESSION WAITS FOR THE USER (POD-7104), derived and never
+     * written by the application: 1 when the session is neither archived nor
+     * deleted and the agent state its record carries asks (a phase of
+     * `needs_user` or `errored`, or `idle` on a question or an approval), or
+     * it holds an offer no later input made stale. The agent state is the
+     * runtime turn state over the observation checkpoint over
+     * `agent_state_json`. The view `session_asks_user` computes it, and the
+     * triggers of migration `20261117220206_session-asks-user` write it in the
+     * same statement as every write of an input: this row's agent state, last
+     * input, archived and deleted columns, its offer, and both checkpoints.
+     * `session.asking` seeks it (`collection-sql.ts`).
+     */
+    asksUser: integer('asks_user', { mode: 'boolean' }).default(sql`0`).notNull(),
   },
   (table) => [
     index('idx_sessions_pending_activity')
@@ -438,6 +452,9 @@ export const sessions = sqliteTable(
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
     index('idx_sessions_headless').on(table.headless).where(sql`${table.headless} = 1`),
+    // The sessions that wait for the user (POD-7104): what the first download's
+    // "asking" reads. Partial, so it holds the work that asks, never history.
+    index('idx_sessions_asking').on(table.asksUser).where(sql`${table.asksUser} = 1`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
