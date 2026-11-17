@@ -21,6 +21,7 @@
  * mark, panel items) plus direct seeds for the kinds no path writes cheaply.
  */
 
+import { writeFileSync } from 'node:fs'
 import {
   actorUser,
   asMutationId,
@@ -516,6 +517,104 @@ describe('record sources (POD-6920)', () => {
     const before = new RecordBuilderRegistry(BEFORE_ROW_BUILDERS)
     const after = serverRecordBuilders()
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+
+    it('exports the frozen pre-generation oracle once', async () => {
+      const db = (corpus.store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+      type Cell = string | number | null
+      const tables: Record<string, Record<string, Cell>[]> = {}
+      const visited = new Set<string>()
+      // Preserve source rows plus their foreign-key parents. Only settings are
+      // needed from meta; no server secrets or unrelated identity metadata.
+      const captureTable = async (name: string): Promise<void> => {
+        if (visited.has(name)) return
+        visited.add(name)
+        const parents = (await db.all(sql`PRAGMA foreign_key_list(${sql.identifier(name)})`)) as {
+          table: string
+        }[]
+        for (const parent of parents) await captureTable(parent.table)
+        tables[name] = (await db.all(
+          sql`SELECT * FROM ${sql.identifier(name)} ${name === 'meta' ? sql`WHERE key = 'settings'` : sql``} ORDER BY rowid`,
+        )) as Record<string, Cell>[]
+      }
+      for (const list of Object.values(BEFORE_ROW_SOURCES))
+        for (const source of list) await captureTable(sourceTableName(source))
+      const records: Record<string, unknown> = {}
+      const captures: Record<string, unknown> = {}
+      for (const kind of before.kinds()) {
+        const stream = await collectRecords(before.streamAll(corpus.reads, kind))
+        expect(stream.length, kind).toBeGreaterThan(0)
+        const ids = [...stream.map((row) => row.id).reverse(), 'no-such-record', stream[0]!.id]
+        const streamBytes = bytes(stream)
+        const buildBytes = bytes(await before.build(corpus.reads, kind, ids))
+        records[kind] = {
+          streamBytes,
+          ids,
+          buildBytes,
+          emptyBytes: bytes(await before.build(corpus.reads, kind, [])),
+          missingBytes: bytes(await before.build(corpus.reads, kind, ['no-such-record'])),
+        }
+        const actual = await after.build(corpus.reads, kind, ids)
+        expect(bytes(actual), kind).toBe(buildBytes)
+        expect(bytes(await collectRecords(after.streamAll(corpus.reads, kind))), kind).toBe(
+          streamBytes,
+        )
+        const wrong = bytes(
+          actual.map((row) => ({ ...row, value: { ...(row.value as object), wrong: true } })),
+        )
+        expect(() => expect(wrong, kind).toBe(buildBytes), kind).toThrow()
+      }
+      for (const [kind, list] of Object.entries(BEFORE_ROW_SOURCES)) {
+        const source = list[0]!
+        const rows = (await db.all(
+          sql`SELECT ${sql.join(
+            source.keys.map(
+              (column, i) => sql`${sql.identifier(column.name)} AS ${sql.identifier(`key${i}`)}`,
+            ),
+            sql`, `,
+          )} FROM ${source.table} LIMIT 2`,
+        )) as Record<string, unknown>[]
+        const key = (row: Record<string, unknown>) => source.keys.map((_, i) => row[`key${i}`])
+        const first = key(rows[0]!)
+        const second = key(rows[1] ?? rows[0]!)
+        const changes = [
+          { op: 'i', old: null, new: first },
+          { op: 'u', old: first, new: second },
+          { op: 'd', old: second, new: null },
+        ] as const
+        const ids = [...(await source.ids(changes, corpus.reads))]
+        captures[kind] = { changes, ids }
+        expect(
+          [...(await RECORD_SOURCES[kind as MetadataEntityKind][0]!.ids(changes, corpus.reads))],
+          kind,
+        ).toEqual(ids)
+      }
+      const triggers = captureTriggerStatements({ ...RECORD_SOURCES, ...BEFORE_ROW_SOURCES })
+      expect(captureTriggerStatements()).toEqual(triggers)
+      const effectKinds = ['machine.scan']
+      const tokens = await beforeKindTokens(corpus.store.sync, effectKinds)
+      expect(await readKindTokens(corpus.store.sync, effectKinds)).toEqual(tokens)
+      writeFileSync(
+        '/tmp/pod-7091-row-oracles.json',
+        `${JSON.stringify(
+          {
+            sourceCommit: '1d8ba77d9fe9a1c446c1736236d82218691f2dfd',
+            now: Date.parse(AT),
+            effectKinds,
+            generations: await corpus.store.sync.readKindGenerations(),
+            tables,
+            records,
+            captures,
+            triggers,
+            tokens,
+          },
+          null,
+          2,
+        )}\n`,
+      )
+      console.log(
+        `Frozen oracle: ${Object.keys(records).length} row kinds; old/new bytes equal; wrong-answer mutations rejected; ${triggers.length} trigger statements.`,
+      )
+    })
 
     it('generates every row declaration and keeps genuinely joined kinds explicit', () => {
       const rowKinds = RECORDS.filter((record) => record.builderShape === 'row').map(
