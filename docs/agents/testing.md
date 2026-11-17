@@ -207,9 +207,11 @@ no database). Name files to run a few; with no files it runs the whole Postgres 
 gives the reason) and `pending` (meant for both engines, not yet passing on Postgres). Making
 a file pass on Postgres means deleting it from `pending`; the list is empty when the Postgres
 store is complete (POD-6994). A new store test file runs on both engines by default, so
-until the Postgres store driver lands (POD-6979), add it to `pending`: on the Postgres leg
-any SQLite store open fails with "`<file>` opened a SQLite store … Add it to "pending" in
-apps/server/test-store-engines.json …".
+until a Postgres store can boot (the migration chain, POD-6981, and the lifecycle port,
+POD-6994), add it to `pending`: on the Postgres leg a store open fails with
+`PostgresStoreBootError`. A file that tests the executor or driver directly can run on both
+now: `openEngineHarness()` (`store/executor/harness.ts`) and `createPgStoreExecutor` give it
+the leg's engine.
 `src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
 a SQLite-only entry without a reason, and a file in both lists.
 
@@ -241,6 +243,20 @@ then opens its store from the clone's URL (and refuses a file path: that test is
 the pre-migrated SQLite image is not installed, and `expectConstantStatements(pin, n)` pins
 `n` on both engines. A count that differs by design is written
 `{ sqlite, pg, reason }`; failure messages on Postgres name the engine.
+
+**Writing a test that runs on Postgres** [POD-6979]:
+
+- *A failed statement ends the transaction.* Postgres aborts the whole transaction on any
+  statement error (later statements fail with `25P02`), where SQLite carries on, and the
+  driver refuses the commit with `PgTransactionAbortedError`. A test or repository that
+  expects a statement to fail inside a transaction catches it inside a nested transaction
+  (a savepoint) or a batch.
+- *Fake timers after the pool connects.* postgres.js opens a connection through
+  `setTimeout(connect, 0)` and flushes its socket writes on `setImmediate`. Install fake
+  timers only after the store has connected (the harness warms its pool), and leave
+  `setImmediate` real (`toFake` without it).
+- *Placeholders are `$n`.* Raw SQL in a two-engine test is written once per engine; no
+  SQL is translated at runtime.
 
 **Two workers.** Focused lanes default to one worker. The isolation pair
 (`src/store/pg-test-isolation-{1,2}.test.ts`, which proves two workers of one run see

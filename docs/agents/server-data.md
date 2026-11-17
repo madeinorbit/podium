@@ -103,6 +103,9 @@ Each rule has the reason for it and an example from this repository.
 2. **No new worker machinery.** On bun:sqlite a query still runs on the server's main thread (one connection, `readConcurrency: 0` in `store/executor/bun-driver.ts:58`), so rules 5 and 7 keep each query short. On Postgres the driver is truly async and this works with no further change.
 3. **Writes stay one at a time**, as today.
 4. **The driver interface stays.** `apps/server/src/store/executor/driver.ts` is the seam where another engine plugs in.
+5. **On Postgres** (`store/executor/pg-driver.ts`, `pg-types.ts`; POD-6958 design 2.3, 2.4), two engine differences reach query code:
+   - A failed statement aborts the whole transaction, and its commit is refused (`PgTransactionAbortedError`). Code that catches an expected failure, such as a unique violation, inside a transaction catches it inside a nested transaction (`createOrJoinTransaction` opens a savepoint when nested) or a batch.
+   - Only `int8` is converted to a number. A `numeric` result comes back as a string: `sum()` over a bigint column and `avg()`, for example. A Postgres arm casts it (`::bigint`, `::float8`) or the fragment declares `.mapWith(Number)`.
 
 ## What a change must show
 
