@@ -5,16 +5,15 @@
  */
 
 import { asSessionId, asUserId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
 import { expectConstantStatements } from '../test-support/statement-count'
-import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
-import {
-  type MessagingSessionAttachmentRow,
+import type {
+  MessagingSessionAttachmentRow,
   MessagingSessionAttachmentsRepository,
 } from './messaging-session-attachments'
 
+let slice: MessageStoreSlice
 let attachments: MessagingSessionAttachmentsRepository
 
 const SESSION_A = asSessionId('11111111-1111-4111-8111-111111111111')
@@ -30,10 +29,13 @@ const row = (over: Partial<MessagingSessionAttachmentRow> = {}): MessagingSessio
   ...over,
 })
 
-beforeEach(() => {
-  attachments = new MessagingSessionAttachmentsRepository(
-    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
-  )
+beforeEach(async () => {
+  slice = await openMessageStoreSlice()
+  attachments = slice.messagingSessionAttachments
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('MessagingSessionAttachmentsRepository', () => {
@@ -89,18 +91,21 @@ describe('MessagingSessionAttachmentsRepository', () => {
       {
         name: 'messaging session attachment reads',
         setup: async (size) => {
-          const db = openMigratedTestDatabase()
-          const repo = new MessagingSessionAttachmentsRepository(
-            legacyWorkspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
-          )
+          const store = await openMessageStoreSlice()
+          const repo = store.messagingSessionAttachments
           for (let i = 0; i < size; i += 1) {
             await repo.upsert(row({ chatId: `chat-${i}`, sessionId: asSessionId(`other-${i}`) }))
           }
           await repo.upsert(row({ chatId: 'mine' }))
-          return { db, repo }
+          return { store, repo }
         },
-        target: (f) => ({ db: f.db }),
-        run: async (f) => [await f.repo.get('mine', ''), await f.repo.listForSession(SESSION_A)],
+        target: (f) => f.store.probeTarget,
+        teardown: async (f) => await f.store.close(),
+        run: async (f) => {
+          // The undrained repository: a read needs no drain (see the slice).
+          const reads = f.store.undrained.messagingSessionAttachments
+          return [await reads.get('mine', ''), await reads.listForSession(SESSION_A)]
+        },
         check: (result) => {
           expect(result).toEqual([row({ chatId: 'mine' }), [row({ chatId: 'mine' })]])
         },

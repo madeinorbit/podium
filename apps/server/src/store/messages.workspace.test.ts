@@ -1,7 +1,7 @@
 /**
  * MAIL AND MESSAGING ARE A WORKSPACE'S (POD-6959 design 2.4, 2.5; task POD-7017).
  *
- * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
+ * Two workspaces over one database of the run's engine (`openMessageStoreSlices`), each seeded through its own
  * repositories with its own sessions, messages, read receipts, wake cooldowns, chat topics,
  * chat attachments, Telegram bindings and notification facts. The ids and names differ between
  * the workspaces: until the key migration (C1, POD-7024) no unique constraint includes
@@ -26,9 +26,12 @@ import {
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import {
+  openMessageStoreSlices,
+  type WorkspaceMessageSlice,
+} from '../test-support/message-store-slice'
 import type { MessageRow, SessionRow } from './types'
 
 type Tag = 'a' | 'b'
@@ -50,20 +53,12 @@ const cooldown = (tag: Tag): string => `${tag}-key`
 const fact = (tag: Tag, n: number): string => `fact:${tag}:${n}`
 const target = (tag: Tag): string => `${tag}-target`
 
-let opened: SessionStore | undefined
+let opened: WorkspaceMessageSlice | undefined
 
 afterEach(async () => {
   await opened?.close()
   opened = undefined
 })
-
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    run(...params: unknown[]): unknown
-  }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
 
 /** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
 const TABLES = [
@@ -76,14 +71,22 @@ const TABLES = [
   'notification_facts',
 ] as const
 
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/**
+ * One workspace's rows of every table, each table's rows as a set (sorted by their
+ * text): Postgres has no rowid to read them in insertion order by.
+ */
+async function rowsOf(store: WorkspaceMessageSlice, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) {
+    const rows = await store.all<Record<string, unknown>>(
+      sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${WS[tag]}`,
+    )
+    out[table] = rows
+      .map((row) => ({ row, text: JSON.stringify(row) }))
+      .sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))
+      .map(({ row }) => row)
+  }
+  return out
 }
 
 function session(tag: Tag, n: number): SessionRow {
@@ -169,7 +172,7 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
  * Plus s1's receipt of m1, a wake cooldown, a chat topic, a chat attachment, a Telegram binding,
  * and two notification facts (one live, one expired).
  */
-async function seed(store: SessionStore, tag: Tag): Promise<void> {
+async function seed(store: WorkspaceMessageSlice, tag: Tag): Promise<void> {
   await store.sessions.upsertSessions(scope, [session(tag, 1), session(tag, 2)])
   const m = store.messages
   await m.addMessage(
@@ -226,16 +229,15 @@ async function seed(store: SessionStore, tag: Tag): Promise<void> {
   )
   // Statuses and stamps the reads need, set directly: these tests are about which workspace a
   // read or write reaches, not how a row got where it is.
-  const db = rawDb(store)
-  db.prepare(
-    `UPDATE messages SET attachments_json = '[]', transcript_item_id = ? WHERE workspace_id = ? AND id = ?`,
-  ).run(item(tag), WS[tag], mid(tag, 2))
-  db.prepare(
-    `UPDATE messages SET delivery_status = 'confirmed', delivered_to = ?, delivered_at = ? WHERE workspace_id = ? AND id = ?`,
-  ).run(sid(tag, 1), AT, WS[tag], mid(tag, 3))
-  db.prepare(
-    `UPDATE messages SET delivery_status = 'dispatched', delivered_to = ?, injected_at = ? WHERE workspace_id = ? AND id = ?`,
-  ).run(sid(tag, 2), AT, WS[tag], mid(tag, 4))
+  await store.run(
+    sql`UPDATE messages SET attachments_json = '[]', transcript_item_id = ${item(tag)} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 2)}`,
+  )
+  await store.run(
+    sql`UPDATE messages SET delivery_status = 'confirmed', delivered_to = ${sid(tag, 1)}, delivered_at = ${AT} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 3)}`,
+  )
+  await store.run(
+    sql`UPDATE messages SET delivery_status = 'dispatched', delivered_to = ${sid(tag, 2)}, injected_at = ${AT} WHERE workspace_id = ${WS[tag]} AND id = ${mid(tag, 4)}`,
+  )
   await m.recordRead(mid(tag, 1), sid(tag, 1), AT)
   await m.recordWakeCooldown(cooldown(tag), AT)
 
@@ -279,8 +281,8 @@ async function seed(store: SessionStore, tag: Tag): Promise<void> {
   })
 }
 
-async function twoSeeded(): Promise<readonly [SessionStore, SessionStore]> {
-  const stores = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+async function twoSeeded(): Promise<readonly [WorkspaceMessageSlice, WorkspaceMessageSlice]> {
+  const stores = await openMessageStoreSlices([WS.a, WS.b])
   opened = stores[0]
   await seed(stores[0], 'a')
   await seed(stores[1], 'b')
@@ -306,7 +308,7 @@ describe('the group writes every row under its own workspace', () => {
   it('seeds each table in both workspaces, each with only its own names', async () => {
     const [a] = await twoSeeded()
     for (const tag of ['a', 'b'] as const) {
-      const rows = rowsOf(a, tag)
+      const rows = await rowsOf(a, tag)
       for (const table of TABLES) {
         expect({ table, rows: rows[table]!.length > 0 }).toEqual({ table, rows: true })
         onlyOwn(rows[table], tag)
@@ -505,7 +507,7 @@ describe('the messaging repositories read only their own workspace', () => {
 describe("a write in one workspace leaves the other's rows unchanged", () => {
   it('message writes, including writes addressed at the other workspace’s ids', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     const m = a.messages
     const B = (n: number) => mid('b', n)
 
@@ -549,7 +551,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(await m.markAcked(scope, mid('a', 3), 'a-ack')).toBe(true)
     expect(await m.markReminded(scope, mid('a', 3), AT)).toBe(true)
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
     expect((await m.getMessage(mid('a', 1)))?.deliveryStatus).toBe('cancelled')
     expect((await m.getMessage(mid('a', 6)))?.id).toBe(mid('a', 6))
@@ -562,7 +564,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
   it('messaging writes, including writes addressed at the other workspace’s ids', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     // Deletes and updates aimed at B's keys: nothing in A matches them.
     await a.messagingSessionAttachments.markRelayed(chat('b'), '', sid('b', 1), 'b-relayed')
@@ -612,7 +614,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(await facts.retireFactKeyPrefix('fact:', NOW)).toBe(3)
     await facts.retireExpired(LATER)
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
     expect((await a.messagingTopics.getByIssue(chat('a'), iss('a', 1)))?.threadRef).toBe(
       'a-thread-2',
@@ -620,7 +622,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect((await a.messagingSessionAttachments.get(chat('a'), ''))?.sessionId).toBe(sid('a', 2))
     expect((await a.telegramBindings.list()).map((row) => row.boundAt)).toEqual([NOW])
     // A's live claims are retired, and its sweep deleted its expired one.
-    const ownFacts = rowsOf(a, 'a').notification_facts as {
+    const ownFacts = (await rowsOf(a, 'a')).notification_facts as {
       fact_key: string
       consumed_at: string | null
     }[]
@@ -636,7 +638,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
   it('A’s own deletes take A’s rows and no others', async () => {
     const [a] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     await a.messagingSessionAttachments.markRelayed(chat('a'), '', sid('a', 1), 'a-relayed')
     expect((await a.messagingSessionAttachments.get(chat('a'), ''))?.relayedItemId).toBe(
       'a-relayed',
@@ -649,10 +651,10 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     await facts.retireByIssue(iss('a', 1))
     await facts.retireExpired(NOW)
 
-    const own = rowsOf(a, 'a')
+    const own = await rowsOf(a, 'a')
     expect(own.messaging_session_attachments).toEqual([])
     expect(own.telegram_chat_bindings).toEqual([])
     expect(own.notification_facts).toEqual([])
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
   })
 })

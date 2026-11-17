@@ -22,12 +22,11 @@
  */
 
 import type { IssueId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
-import { NotificationFactsRepository } from './notification-facts'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
+import type { NotificationFactsRepository } from './notification-facts'
 
+let slice: MessageStoreSlice
 let facts: NotificationFactsRepository
 
 const T0 = '2026-01-01T00:00:00.000Z'
@@ -45,10 +44,13 @@ const claim = async (over: Partial<Parameters<NotificationFactsRepository['claim
     ...over,
   })
 
-beforeEach(() => {
-  facts = new NotificationFactsRepository(
-    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
-  )
+beforeEach(async () => {
+  slice = await openMessageStoreSlice()
+  facts = slice.notificationFacts
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('NotificationFactsRepository.claim', () => {

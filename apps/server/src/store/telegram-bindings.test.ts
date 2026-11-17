@@ -13,29 +13,28 @@
 
 import type { TelegramChatBinding } from '@podium/model'
 import { asUserId, resolveTelegramPrincipal } from '@podium/model'
-import type { openDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { stageASeam } from '../test-support/stage-a-seam'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
-import { TelegramBindingsRepository } from './telegram-bindings'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
+import type { TelegramBindingsRepository } from './telegram-bindings'
 
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
 
-let db: ReturnType<typeof openDatabase>
+let slice: MessageStoreSlice
 let bindings: TelegramBindingsRepository
 
-beforeEach(() => {
-  // The REAL migrated schema — the primary-key claim below is a claim about
-  // what the shipped migration created, so a fake would prove nothing. Opened
-  // directly rather than through `SessionStore` because these tests must plant
-  // rows the repository would never write.
-  db = openMigratedTestDatabase()
-  bindings = new TelegramBindingsRepository(
-    legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
-  )
+beforeEach(async () => {
+  // The REAL migrated schema of the run's engine — the primary-key claim below
+  // is a claim about what the shipped migration created, so a fake would prove
+  // nothing. Opened directly rather than through `SessionStore` because these
+  // tests must plant rows the repository would never write.
+  slice = await openMessageStoreSlice()
+  bindings = slice.telegramBindings
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 const binding = (
@@ -49,13 +48,23 @@ const binding = (
   boundBy: { actor: { kind: 'user', id: userId }, onBehalfOf: userId },
 })
 
-/** Write a row the repository would never write, to exercise the reader. */
-const rawInsert = (cols: Record<string, string | null>): void => {
+/** Insert a row with exactly these columns, through the run's engine. */
+const insertRow = async (cols: Record<string, string | null>): Promise<void> => {
   const keys = Object.keys(cols)
-  db.prepare(
-    `INSERT OR REPLACE INTO telegram_chat_bindings (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
-  ).run(...keys.map((k) => cols[k] ?? null))
+  await slice.run(
+    sql`INSERT INTO telegram_chat_bindings (${sql.join(
+      keys.map((k) => sql.identifier(k)),
+      sql`, `,
+    )}) VALUES (${sql.join(
+      keys.map((k) => sql`${cols[k] ?? null}`),
+      sql`, `,
+    )})`,
+  )
 }
+
+/** Write a row the repository would never write, to exercise the reader. */
+const rawInsert = async (cols: Record<string, string | null>): Promise<void> =>
+  await insertRow(cols)
 
 describe('the table round-trips a binding', () => {
   it('stores and reads back the user, the timestamp and the attribution pair', async () => {
@@ -103,17 +112,20 @@ describe('ONE ROW PER CHAT is enforced by the database, not by convention', () =
   })
 
   it('a raw INSERT cannot create a second row for one chat either', async () => {
-    // Asserted against SQLite rather than against the repository, because the
-    // repository's `OR REPLACE` would satisfy the test above even with no
+    // Asserted against the database rather than against the repository, because
+    // the repository's upsert would satisfy the test above even with no
     // constraint at all.
     await bindings.upsert(binding(ALICE, '-1001'))
-    expect(() =>
-      db
-        .prepare(
-          'INSERT INTO telegram_chat_bindings (chat_id, user_id, bound_at, actor_kind, actor_id, on_behalf_of) VALUES (?, ?, ?, ?, ?, ?)',
-        )
-        .run('-1001', BOB, '2026-07-31T00:05:00.000Z', 'user', BOB, BOB),
-    ).toThrow()
+    await expect(
+      insertRow({
+        chat_id: '-1001',
+        user_id: BOB,
+        bound_at: '2026-07-31T00:05:00.000Z',
+        actor_kind: 'user',
+        actor_id: BOB,
+        on_behalf_of: BOB,
+      }),
+    ).rejects.toThrow()
     // …and the incumbent is untouched.
     expect((await bindings.list())[0]?.userId).toBe(ALICE)
   })
@@ -138,7 +150,7 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
 
   it('drops a row whose actor kind this build has never heard of', async () => {
     await good()
-    rawInsert({
+    await rawInsert({
       chat_id: '-2002',
       user_id: BOB,
       bound_at: '2026-07-31T00:00:00.000Z',
@@ -155,7 +167,7 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
 
   it('drops a row with an empty user id', async () => {
     await good()
-    rawInsert({
+    await rawInsert({
       chat_id: '-2002',
       user_id: '',
       bound_at: '2026-07-31T00:00:00.000Z',
@@ -168,7 +180,7 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
 
   it('drops a `user` row with no actor id, rather than inventing one', async () => {
     await good()
-    rawInsert({
+    await rawInsert({
       chat_id: '-2002',
       user_id: BOB,
       bound_at: '2026-07-31T00:00:00.000Z',
@@ -183,7 +195,7 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
     // The positive control for the three refusals above. Without it, a reader
     // that dropped every row it did not itself write would pass all of them.
     await good()
-    rawInsert({
+    await rawInsert({
       chat_id: '-2002',
       user_id: BOB,
       bound_at: '2026-07-31T00:00:00.000Z',

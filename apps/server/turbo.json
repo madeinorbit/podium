@@ -1335,6 +1335,7 @@
         "src/test-support/lake-backends.ts",
         "src/test-support/legacy-client-session.ts",
         "src/test-support/logged-rows.ts",
+        "src/test-support/message-store-slice.ts",
         "src/test-support/message-writer.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/model-ledger.ts",

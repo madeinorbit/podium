@@ -10,27 +10,31 @@
  */
 
 import { asSessionId, asThreadId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
-import { MessagesRepository } from './messages'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
+import type { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 const S1 = asSessionId('ses_one')
 const S2 = asSessionId('ses_two')
 
-let db: SqlDatabase
+/** Instants, as Postgres's `timestamptz` columns need them on both engines. */
+const T0 = '2026-01-01T00:00:00.000Z'
+const T1 = '2026-01-01T00:00:01.000Z'
+const T2 = '2026-01-01T00:00:02.000Z'
+
+let slice: MessageStoreSlice
 let messages: MessagesRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the synchronous query capability is absent on this handle')
-  messages = new MessagesRepository(legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
+beforeEach(async () => {
+  slice = await openMessageStoreSlice()
+  messages = slice.messages
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 function row(id: string): MessageRow {
@@ -48,7 +52,7 @@ function row(id: string): MessageRow {
     lifecycle: 'wait',
     body: id,
     expiresAt: null,
-    createdAt: 't0',
+    createdAt: T0,
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -63,7 +67,7 @@ function row(id: string): MessageRow {
 describe('naming the entry a message became', () => {
   it('is read back on the record, beside a status it leaves alone', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_a'))
-    await messages.markDelivered(fixtureWriteScope(), 'msg_a', S1, 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'msg_a', S1, T1)
     expect(
       await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_a', S1, {
         id: 'entry-1',
@@ -77,7 +81,7 @@ describe('naming the entry a message became', () => {
 
   it('lands before the confirmation too: a stamp, not a move', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_b'))
-    await messages.markDispatched(fixtureWriteScope(), 'msg_b', S1, 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'msg_b', S1, T1)
     expect(
       await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_b', S1, { id: 'entry-2' }),
     ).toBe(true)
@@ -88,7 +92,7 @@ describe('naming the entry a message became', () => {
 
   it('keeps the first naming; a repeat or a different entry changes nothing', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_c'))
-    await messages.markDelivered(fixtureWriteScope(), 'msg_c', S1, 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'msg_c', S1, T1)
     await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_c', S1, { id: 'entry-3' })
     expect(
       await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_c', S1, { id: 'entry-3' }),
@@ -101,7 +105,7 @@ describe('naming the entry a message became', () => {
 
   it('is refused for a session the row was not handed to', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_d'))
-    await messages.markDelivered(fixtureWriteScope(), 'msg_d', S1, 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'msg_d', S1, T1)
     expect(
       await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_d', S2, { id: 'entry-4' }),
     ).toBe(false)
@@ -110,8 +114,8 @@ describe('naming the entry a message became', () => {
 
   it('is refused for a message that ended without being typed (POD-4840)', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_failed'))
-    await messages.markDispatched(fixtureWriteScope(), 'msg_failed', S1, 't1')
-    await messages.markDeadLetter(fixtureWriteScope(), 'msg_failed', 't2', 'never-live')
+    await messages.markDispatched(fixtureWriteScope(), 'msg_failed', S1, T1)
+    await messages.markDeadLetter(fixtureWriteScope(), 'msg_failed', T2, 'never-live')
     await messages.addMessage(fixtureWriteScope(), row('msg_cancelled'))
     await messages.markCancelled(fixtureWriteScope(), 'msg_cancelled')
     for (const id of ['msg_failed', 'msg_cancelled']) {
@@ -146,7 +150,7 @@ describe("keeping the agent program's own ids for a message", () => {
 
   it('reads back the ids, beside a status they leave alone', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_h'))
-    await messages.markDispatched(fixtureWriteScope(), 'msg_h', S1, 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'msg_h', S1, T1)
     expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn])).toBe(true)
     const record = await messages.getMessage('msg_h')
     expect(record?.harnessRef).toEqual([turn])
@@ -155,7 +159,7 @@ describe("keeping the agent program's own ids for a message", () => {
 
   it('adds ids learned later, each once, in the order learned', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_h'))
-    await messages.markDelivered(fixtureWriteScope(), 'msg_h', S1, 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'msg_h', S1, T1)
     await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn])
     expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn, echo])).toBe(
       true,
@@ -166,15 +170,15 @@ describe("keeping the agent program's own ids for a message", () => {
 
   it('keeps the ids of an unconfirmed or failed message: a later look-up needs them most', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_u'))
-    await messages.markDispatched(fixtureWriteScope(), 'msg_u', S1, 't1')
-    await messages.markDeadLetter(fixtureWriteScope(), 'msg_u', 't2', 'delivery-failed')
+    await messages.markDispatched(fixtureWriteScope(), 'msg_u', S1, T1)
+    await messages.markDeadLetter(fixtureWriteScope(), 'msg_u', T2, 'delivery-failed')
     expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_u', S1, [turn])).toBe(true)
     expect((await messages.getMessage('msg_u'))?.harnessRef).toEqual([turn])
   })
 
   it('is refused for another session, and for a message that was never typed', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_other'))
-    await messages.markDelivered(fixtureWriteScope(), 'msg_other', S1, 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'msg_other', S1, T1)
     expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_other', S2, [turn])).toBe(
       false,
     )
@@ -199,7 +203,10 @@ describe("keeping the agent program's own ids for a message", () => {
 
   it('reads a stored list it cannot parse as none, never as a failed read', async () => {
     await messages.addMessage(fixtureWriteScope(), row('msg_bad'))
-    db.exec(`UPDATE messages SET harness_ref_json = 'not json' WHERE id = 'msg_bad'`)
+    // Postgres's `json` refuses text that is not JSON, so there the unreadable list
+    // is JSON of another shape; SQLite stores either.
+    const unreadable = slice.engine === 'pg' ? '{"not":"a list"}' : 'not json'
+    await slice.run(sql`UPDATE messages SET harness_ref_json = ${unreadable} WHERE id = 'msg_bad'`)
     expect(await messages.getMessage('msg_bad')).not.toHaveProperty('harnessRef')
     // And a later id still lands, replacing what could not be read.
     expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_bad', S1, [turn])).toBe(true)
