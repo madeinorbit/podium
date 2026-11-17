@@ -33,7 +33,8 @@ repository) and `docs/design/POD-6958-postgres-store-design.md` (branches
   existing lake file into parts, one segment at a time, and removes a source file only after
   its parts are verified. Artifacts keep their paths only where every path segment is a plain
   key segment; a second one-time boot step renames each other segment under
-  `<state>/artifacts` to its encoded form (2.2). Uploads need no conversion.
+  `<state>/artifacts` to its encoded form (2.2). Composer uploads keep their bytes in place;
+  a third one-time step turns each `meta.json` into a row (2.5).
 - **Readers take a byte source, not a path.** The shared transcript slice and index readers in
   `packages/harness` open files by path today. They change to read through a small
   random-access source; the daemon keeps a file-backed one, the server gets the lake's.
@@ -384,6 +385,14 @@ artifact) replaces `meta.json`. `claimedBy` becomes a query instead of a directo
 the sweep a query plus deletes. The claim order stays today's: record the claim in the row,
 copy, delete the source. A crash after the copy re-runs to the same artifact key; the sweep
 deletes a claimed upload's leftover source.
+
+As built (POD-7055): the claim is a conditional update on an unclaimed row, so two processes
+claiming one upload agree on one artifact; a discard deletes only the owner's unclaimed row,
+then the bytes. A file name outside the key alphabet is stored under its encoded segment, and
+one too long to encode is refused. On a self-hosted disk a one-time boot step
+(`convertPendingUploadRecords`, beside the artifact key conversion, with its own marker) turns
+each existing `meta.json` into a row, claim included, renames a file whose name is not a key
+segment, and removes upload directories with no record that can be kept.
 
 ### 2.6 Readers
 
