@@ -16,12 +16,11 @@
  */
 
 import type { CostModelTotalWire, MachineId, SessionId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
-import { type TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type EventStoreSlice, openEventStoreSlice } from '../test-support/event-store-slice'
+import type { TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
 
+let store: EventStoreSlice
 let costs: TranscriptCostsRepository
 
 const model = (messages: number): CostModelTotalWire => ({
@@ -50,10 +49,14 @@ const record = (over: Partial<TranscriptCostRecord> = {}): TranscriptCostRecord 
   ...over,
 })
 
-beforeEach(() => {
-  costs = new TranscriptCostsRepository(
-    legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
-  )
+// On both engines (`openEventStoreSlice`).
+beforeEach(async () => {
+  store = await openEventStoreSlice()
+  costs = store.transcriptCosts
+})
+
+afterEach(async () => {
+  await store.close()
 })
 
 describe('TranscriptCostsRepository.costedSessionIds', () => {

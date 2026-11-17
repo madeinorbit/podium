@@ -2,7 +2,8 @@
  * EVENTS, EFFECTS, WORKFLOWS, AUTOMATIONS AND LOCKS ARE A WORKSPACE'S (POD-6959 design 2.4,
  * 2.5; task POD-7020).
  *
- * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
+ * Two workspaces over one database (`openEventStoreSlices`, on the test run's engine: SQLite on
+ * the store shard, Postgres on the `server-store-pg` lane), each seeded through its own
  * repositories: the event log and its runtime checkpoints, projection cursors, steward state,
  * subscriptions and deliveries; effects; workflows with revisions, bindings, runs, steps and
  * events; automations and their runs; pending interactions; superagent threads, messages, queued
@@ -42,9 +43,9 @@ import {
 import type { MaintenanceCommandReply, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import { openEventStoreSlices, type WorkspaceEventSlice } from '../test-support/event-store-slice'
 import type { AutomationRow, AutomationRunRow } from './automations'
 import { RUNTIME_EVENT_LOG_KIND } from './events'
 import type { SessionRow, Subscription, TerminalCandidateFacts } from './types'
@@ -75,21 +76,12 @@ const thread = (tag: Tag): ThreadId => asThreadId(`${tag}-thread`)
 const sub = (tag: Tag, n: number) => `${tag}-sub-${n}`
 const lockName = (tag: Tag) => `${tag}-lock`
 
-let opened: SessionStore | undefined
+let opened: WorkspaceEventSlice | undefined
 
 afterEach(async () => {
   await opened?.close()
   opened = undefined
 })
-
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    get(...params: unknown[]): unknown
-    run(...params: unknown[]): unknown
-  }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
 
 /** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
 const TABLES = [
@@ -122,14 +114,22 @@ const TABLES = [
   'lock_waiters',
 ] as const
 
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/**
+ * Every row of each table in `tag`'s workspace, as a set: sorted by its text, so the
+ * order is the same on both engines (Postgres has no rowid to read them back by).
+ */
+async function rowsOf(store: WorkspaceEventSlice, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) {
+    const rows = await store.all<Record<string, unknown>>(
+      sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${WS[tag]}`,
+    )
+    out[table] = rows
+      .map((row) => [JSON.stringify(row), row] as const)
+      .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+      .map(([, row]) => row)
+  }
+  return out
 }
 
 function session(tag: Tag, n: number): SessionRow {
@@ -176,34 +176,21 @@ function session(tag: Tag, n: number): SessionRow {
 }
 
 /** An issue row, raw: the issues repository is another task's (B2). */
-function insertIssue(store: SessionStore, tag: Tag, n: number): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq, title,
+async function insertIssue(store: WorkspaceEventSlice, tag: Tag, n: number): Promise<void> {
+  await store.run(
+    sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq, title,
          stage, default_agent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'codex', ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      iss(tag, n),
-      alice(tag),
-      alice(tag),
-      `/repo-${tag}`,
-      repo(tag),
-      n,
-      `${tag} ${n}`,
-      AT,
-      AT,
-    )
+       VALUES (${WS[tag]}, ${iss(tag, n)}, ${alice(tag)}, ${alice(tag)}, ${`/repo-${tag}`}, ${repo(tag)},
+         ${n}, ${`${tag} ${n}`}, 'backlog', 'codex', ${AT}, ${AT})`,
+  )
 }
 
 /** A member row, raw: the users repository is another task's. */
-function insertMember(store: SessionStore, tag: Tag): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO users (workspace_id, id, display_name, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
-    )
-    .run(WS[tag], alice(tag), `${tag} alice`, AT)
+async function insertMember(store: WorkspaceEventSlice, tag: Tag): Promise<void> {
+  await store.run(
+    sql`INSERT INTO users (workspace_id, id, display_name, role, created_at)
+       VALUES (${WS[tag]}, ${alice(tag)}, ${`${tag} alice`}, 'member', ${AT})`,
+  )
 }
 
 const runtimeState = (tag: Tag, seq: number): RuntimeEvent =>
@@ -387,11 +374,14 @@ interface Seeded {
  * One workspace's rows, written through its own repositories (sessions, issues and members are
  * planted only as the subjects the reads join to).
  */
-async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
-  await store.sessions.upsertSessions(scope, [session(tag, 1), session(tag, 2), session(tag, 3)])
-  insertIssue(store, tag, 1)
-  insertIssue(store, tag, 2)
-  insertMember(store, tag)
+async function seed(store: WorkspaceEventSlice, tag: Tag): Promise<Seeded> {
+  // One session per call: a three-row upsert pads its batch to four by repeating the last
+  // row, which Postgres refuses ("ON CONFLICT DO UPDATE command cannot affect row a second
+  // time"); the sessions repository is another task's (POD-6983).
+  for (const n of [1, 2, 3]) await store.sessions.upsertSessions(scope, [session(tag, n)])
+  await insertIssue(store, tag, 1)
+  await insertIssue(store, tag, 2)
+  await insertMember(store, tag)
 
   // --- events -----------------------------------------------------------------
   const ev = store.events
@@ -473,9 +463,9 @@ async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
   await fx.settle(scope, eff(tag, 6), 'failed', { error: { code: 'x', message: 'x' } }, NOW_MS)
   await fx.tombstone(scope, eff(tag, 6), NOW_MS)
   // An imported copy not yet published (revision 0), set directly.
-  rawDb(store)
-    .prepare('UPDATE effects SET revision = 0 WHERE workspace_id = ? AND id = ?')
-    .run(WS[tag], eff(tag, 1))
+  await store.run(
+    sql`UPDATE effects SET revision = 0 WHERE workspace_id = ${WS[tag]} AND id = ${eff(tag, 1)}`,
+  )
 
   // --- workflows --------------------------------------------------------------
   const w = store.workflows
@@ -653,17 +643,17 @@ async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
 }
 
 async function twoSeeded(): Promise<{
-  readonly stores: readonly [SessionStore, SessionStore]
+  readonly stores: readonly [WorkspaceEventSlice, WorkspaceEventSlice]
   readonly seeded: Record<Tag, Seeded>
 }> {
-  const stores = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+  const stores = await openEventStoreSlices([WS.a, WS.b])
   opened = stores[0]
   const a = await seed(stores[0], 'a')
   const b = await seed(stores[1], 'b')
   return { stores, seeded: { a, b } }
 }
 
-const both = (stores: readonly [SessionStore, SessionStore]) =>
+const both = (stores: readonly [WorkspaceEventSlice, WorkspaceEventSlice]) =>
   [
     [stores[0], 'a'],
     [stores[1], 'b'],
@@ -681,7 +671,7 @@ describe('the group writes every row under its own workspace', () => {
   it('seeds each table in both workspaces, each with only its own names', async () => {
     const { stores } = await twoSeeded()
     for (const tag of ['a', 'b'] as const) {
-      const rows = rowsOf(stores[0], tag)
+      const rows = await rowsOf(stores[0], tag)
       for (const table of TABLES) {
         expect({ table, rows: rows[table]!.length > 0 }).toEqual({ table, rows: true })
         // The third subscription names the other workspace's session on purpose (the probe case).
@@ -800,7 +790,7 @@ describe('the events repository writes only its own workspace', () => {
     const { stores, seeded } = await twoSeeded()
     for (const [store, tag] of both(stores)) {
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       const ev = store.events
       await ev.removeSubscription(sub(other, 1))
       expect(await ev.setSubscriptionEnabled(sub(other, 2), false)).toBe(false)
@@ -819,7 +809,7 @@ describe('the events repository writes only its own workspace', () => {
       expect(
         await ev.appendEventOnce({ ts: AT, kind: `${tag}.once`, subject: iss(tag, 1) }),
       ).toEqual(expect.any(Number))
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 
@@ -828,11 +818,11 @@ describe('the events repository writes only its own workspace', () => {
     // until C1 the old key would make the second claim's upsert hit the first one's row.
     const { stores, seeded } = await twoSeeded()
     const [a, b] = stores
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     expect(await a.events.activateJanitorSteward()).toBe(Math.max(...seeded.a.events))
     expect(await a.events.getStewardState('cursor')).toBe(String(Math.max(...seeded.a.events)))
     expect(await b.events.getStewardState('cursor')).toBeUndefined()
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
   })
 
   it('reads its own grouped appends and announces its own events only', async () => {
@@ -842,14 +832,14 @@ describe('the events repository writes only its own workspace', () => {
     await a.events.onAppend((id) => {
       announced.push(id)
     })
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     const id = await a.events.appendEventGrouped({
       ts: AT,
       kind: 'a.grouped',
       subject: iss('a', 1),
     })
     await a.events.settleGroupedAppends()
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect((await a.events.listEventsSince(id - 1, { limit: 1 }))[0]?.kind).toBe('a.grouped')
     await a.events.announceEvent(id)
     expect(announced).toContain(id)
@@ -863,7 +853,7 @@ describe('the events repository writes only its own workspace', () => {
     const { stores } = await twoSeeded()
     for (const [store, tag] of both(stores)) {
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       const ev = store.events
       // A far-future cutoff and a zero cap: every row of this workspace is a candidate.
       const plan = await ev.planEventPrune({ maxAgeDays: -36_500, maxRows: 0 })
@@ -871,7 +861,7 @@ describe('the events repository writes only its own workspace', () => {
         Math.max(...(await ev.listEventsSince(0, { limit: 100 })).map((e) => e.id)),
       )
       while ((await ev.pruneEventBatch(plan, 500)) > 0) {}
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
       // The runtime rows beyond the board projector's head stay (it never ran here).
       expect(
         (await ev.listEventsSince(0, { limit: 100 })).every(
@@ -926,7 +916,7 @@ describe('the effects repository reads and writes only its own workspace', () =>
     for (const [store, tag] of both(stores)) {
       const fx = store.effects
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       expect(await fx.claim(scope, eff(other, 3), NOW_MS)).toBeUndefined()
       expect(await fx.settle(scope, eff(other, 4), 'succeeded', {}, NOW_MS)).toBeUndefined()
       expect(await fx.setStage(scope, eff(other, 4), 'stage', NOW_MS)).toBeUndefined()
@@ -941,7 +931,7 @@ describe('the effects repository reads and writes only its own workspace', () =>
         eff(tag, 5),
       ])
       expect(await fx.purgeTombstones(scope, NOW_MS + 1, 10)).toBe(3)
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1025,7 +1015,7 @@ describe('the workflows repository reads and writes only its own workspace', () 
     for (const [store, tag] of both(stores)) {
       const w = store.workflows
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       await w.publishRevision(rev(other), LATER)
       await w.updateRunStatus(run(other), 'complete', LATER)
       await w.updateStep({
@@ -1055,7 +1045,7 @@ describe('the workflows repository reads and writes only its own workspace', () 
       await w.updateRunStatus(run(tag), 'complete', LATER)
       await w.resetStep(run(tag), 'step-1')
       await w.appendEvent({ runId: run(tag), kind: `${tag}.done`, actor: OPERATOR, now: LATER })
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1103,7 +1093,7 @@ describe('the automations repository reads and writes only its own workspace', (
     for (const [store, tag] of both(stores)) {
       const au = store.automations
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       await au.update(scope, { ...automation(other, 1), name: 'changed' })
       expect(await au.remove(scope, auto(other, 2), LATER)).toBe(false)
       await au.updateRun(scope, autoRun(other, 1), {
@@ -1114,7 +1104,7 @@ describe('the automations repository reads and writes only its own workspace', (
       // Own writes: an update and a removal, which take its runs with it.
       await au.update(scope, { ...automation(tag, 1), name: `${tag} renamed` })
       expect(await au.remove(scope, auto(tag, 1), LATER)).toBe(true)
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1143,7 +1133,7 @@ describe('the interactions repository reads and writes only its own workspace', 
     for (const [store, tag] of both(stores)) {
       const ix = store.interactions
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       expect(await ix.enrich(ixn(other, 1), { changed: true })).toBe(false)
       expect(
         await ix.answer({
@@ -1161,7 +1151,7 @@ describe('the interactions repository reads and writes only its own workspace', 
       expect(await ix.closeSession(sid(other, 1), 'expired', LATER)).toEqual([])
       // The prune, which no id narrows: it takes this workspace's resolved rows only.
       expect(await ix.pruneResolvedBefore(LATER)).toBe(2)
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1201,17 +1191,17 @@ describe('the superagent repository reads and writes only its own workspace', ()
   it('seeds a member thread only for a member of its own workspace', async () => {
     const { stores } = await twoSeeded()
     const [a, b] = stores
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     // The users read is held to this workspace: B's member is nobody here.
     await a.superagent.seedMemberGlobalThread(alice('b'))
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await a.superagent.getSuperagentThread(`global:${alice('b')}`)).toBeUndefined()
     await a.superagent.seedMemberGlobalThread(alice('a'))
     expect((await a.superagent.getSuperagentThread(`global:${alice('a')}`))?.ownerUserId).toBe(
       alice('a'),
     )
     expect(await b.superagent.getSuperagentThread(`global:${alice('a')}`)).toBeUndefined()
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
   })
 
   it('leaves the other workspace unchanged by writes aimed at its ids and by the turn sync', async () => {
@@ -1219,7 +1209,7 @@ describe('the superagent repository reads and writes only its own workspace', ()
     for (const [store, tag] of both(stores)) {
       const sa = store.superagent
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       await sa.setTurnRunning(thread(other), false)
       await sa.setTurnFailure(thread(other), null)
       await sa.clearSuperagentMessages(thread(other))
@@ -1242,7 +1232,7 @@ describe('the superagent repository reads and writes only its own workspace', ()
         firstTurn: false,
       })
       await sa.clearSuperagentMessages(thread(tag))
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1269,7 +1259,7 @@ describe('the observation checkpoints repository reads and writes only its own w
     for (const [store, tag] of both(stores)) {
       const oc = store.observationCheckpoints
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       await expect(oc.save(checkpoint(other, 1))).rejects.toThrow(/lease changed/)
       await expect(
         oc.rebindExact({
@@ -1292,7 +1282,7 @@ describe('the observation checkpoints repository reads and writes only its own w
       await oc.advanceGeneration(sid(tag, 1), 'codex', `${tag}-thread-1`)
       await oc.cancelTerminalCandidate(sid(tag, 3))
       await oc.purge(sid(tag, 2))
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })
@@ -1318,7 +1308,7 @@ describe('the transcript costs repository reads and writes only its own workspac
   it('records under its own workspace, and a fold naming the other workspace’s issue joins nothing', async () => {
     const { stores } = await twoSeeded()
     const [a] = stores
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     await a.transcriptCosts.record(
       [
         {
@@ -1338,7 +1328,7 @@ describe('the transcript costs repository reads and writes only its own workspac
       ],
       LATER,
     )
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await a.transcriptCosts.countAll()).toBe(2)
     // The issue join holds `issues` to this workspace: B's issue is no surviving issue here.
     expect(await a.transcriptCosts.ownCohortTotals(0)).toHaveLength(1)
@@ -1353,10 +1343,10 @@ describe('the maintenance repository: the ledger is per workspace, the lease is 
       const other = otherOf(tag)
       expect((await m.getCommand('message-expiry', `${tag}-run-1`))?.runKey).toBe(`${tag}-run-1`)
       expect(await m.getCommand('message-expiry', `${other}-run-1`)).toBeUndefined()
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       expect(await m.pruneCommandsBatch(LATER, 100)).toBe(2)
       await m.recordCommand(applied(tag, 3), 8, AT)
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 
@@ -1413,7 +1403,7 @@ describe('the locks repository reads and writes only its own workspace', () => {
     for (const [store, tag] of both(stores)) {
       const l = store.locks
       const other = otherOf(tag)
-      const before = rowsOf(store, other)
+      const before = await rowsOf(store, other)
       expect(await l.renewLock(repo(other), lockName(other), sid(other, 1), LATER)).toBe(false)
       await l.deleteLock(repo(other), lockName(other))
       await l.removeWaiter(seeded[other].waiters[0]!)
@@ -1422,7 +1412,7 @@ describe('the locks repository reads and writes only its own workspace', () => {
       expect(await l.renewLock(repo(tag), lockName(tag), sid(tag, 1), LATER)).toBe(true)
       await l.removeWaiter(seeded[tag].waiters[0]!)
       await l.deleteLock(repo(tag), lockName(tag))
-      expect(rowsOf(store, other)).toEqual(before)
+      expect(await rowsOf(store, other)).toEqual(before)
     }
   })
 })

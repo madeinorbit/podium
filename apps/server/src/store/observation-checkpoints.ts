@@ -245,10 +245,12 @@ const rebindLease = prepared((db, t) =>
             t.sessionObservationCheckpoints.observationGeneration,
             param(t.sessionObservationCheckpoints.observationGeneration, 'observationGeneration'),
           ),
-          // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
-          // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
-          // session id be rebound at all, and `= NULL` would match no row.
-          sql`(${t.sessionObservationCheckpoints.providerSessionId} = ${P('providerSessionId')} OR (${t.sessionObservationCheckpoints.providerSessionId} IS NULL AND ${P('providerSessionId')} IS NULL))`,
+          // THE FULL COMPARE-AND-SWAP: equal, or both NULL, which is what lets a
+          // lease with no provider session id be rebound at all (`= NULL` would
+          // match no row). `IS NOT DISTINCT FROM` says exactly that on both
+          // engines; the long form `= ? OR (… IS NULL AND ? IS NULL)` gives
+          // Postgres a bare parameter it cannot type.
+          sql`${t.sessionObservationCheckpoints.providerSessionId} IS NOT DISTINCT FROM ${P('providerSessionId')}`,
         ),
       ),
   ).prepare(),
