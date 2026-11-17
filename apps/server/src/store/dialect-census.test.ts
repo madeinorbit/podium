@@ -22,7 +22,12 @@
  *    SQLite's byte order (design 2.3, rule 13);
  *  - it compares a `json` column without `CAST(col AS TEXT)`: `json` has no equality, and
  *    SQLite compares the text (rule 7);
- *  - it compares a boolean column with an integer (`= 1`), which Postgres refuses;
+ *  - it compares a boolean column with an integer (`= 1`), which Postgres refuses, in a
+ *    builder's SQL or in raw SQL inside a fragment (`s.archived = 0`);
+ *  - it puts a unary `+` on a text column, SQLite's index-choice hint, which Postgres has
+ *    only for numbers;
+ *  - it takes a `UNION` (not `UNION ALL`) of selects that return a `json` column: the
+ *    duplicate removal compares rows, and `json` has no equality;
  *  - it orders by a nullable column without NULLS FIRST / NULLS LAST: SQLite sorts NULL
  *    first ascending and Postgres last, so the rows come back in another order.
  *
@@ -670,6 +675,86 @@ function booleanComparisonFindings(tokens: Token[]): string[] {
       found.push(`boolean column ${column} compared with an integer`)
     }
   }
+  // Raw SQL inside a fragment names columns unquoted (`s.archived = 0`, a table aliased
+  // `${t.sessions} s`), which {@link columnReferences} does not read.
+  for (const { start, end, column } of rawColumnReferences(tokens, BOOLEAN_COLUMNS)) {
+    const after = tokens[end + 1]
+    const before = tokens[start - 1]
+    if (
+      (after && COMPARISON.has(after.text) && integer(tokens[end + 2])) ||
+      (before && COMPARISON.has(before.text) && integer(tokens[start - 2]))
+    ) {
+      found.push(`boolean column ${column} compared with an integer`)
+    }
+  }
+  return found
+}
+
+/**
+ * Each unquoted reference to a column of the given kind, as raw SQL in a fragment writes
+ * it: `archived` or `s.archived`, of one of the statement's tables. Keywords are never
+ * column names of a twin, so a word is a column only when a named table has it.
+ */
+function* rawColumnReferences(tokens: Token[], byName: ReadonlyMap<string, ReadonlySet<string>>) {
+  const tables = tablesNamed(tokens)
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokenAt(tokens, i)
+    if (token.kind !== 'word') continue
+    const owners = byName.get(token.text.toLowerCase())
+    if (owners === undefined || ![...tables].some((t) => owners.has(t))) continue
+    if (tokens[i + 1]?.text === '.' || tokens[i + 1]?.text === '(') continue
+    const qualified = tokens[i - 1]?.text === '.' && tokenAt(tokens, i - 2).kind === 'word'
+    yield { start: qualified ? i - 2 : i, end: i, column: token.text.toLowerCase() }
+  }
+}
+
+/** Tokens after which a `+` is unary: nothing ends an operand there. */
+const ENDS_OPERAND = (token: Token | undefined): boolean =>
+  token !== undefined &&
+  (token.kind === 'name' ||
+    token.kind === 'string' ||
+    token.kind === 'number' ||
+    token.kind === 'param' ||
+    token.text === ')' ||
+    upper(token) === 'END' ||
+    upper(token) === 'NULL')
+
+/**
+ * A unary `+` on a text column (`+"messages"."delivery_status"`), SQLite's way of keeping
+ * a column out of index choice. Postgres has unary `+` only on numbers, so it refuses the
+ * statement (POD-6985).
+ */
+function unaryPlusFindings(tokens: Token[]): string[] {
+  const found: string[] = []
+  const references = [
+    ...columnReferences(tokens, TEXT_COLUMNS),
+    ...rawColumnReferences(tokens, TEXT_COLUMNS),
+  ]
+  for (const { start, column } of references) {
+    if (tokens[start - 1]?.text === '+' && !ENDS_OPERAND(tokens[start - 2])) {
+      found.push(`unary + on text column ${column}`)
+    }
+  }
+  return found
+}
+
+/**
+ * A `UNION` (not `UNION ALL`) whose arms select a `json` column. `UNION` removes duplicate
+ * rows by comparing them, and `json` has no equality, so Postgres refuses it (POD-6985).
+ */
+function unionOverJsonFindings(tokens: Token[]): string[] {
+  const unions = tokens.some(
+    (token, i) => upper(token) === 'UNION' && upper(tokens[i + 1]) !== 'ALL',
+  )
+  if (!unions) return []
+  const found: string[] = []
+  const references = [
+    ...columnReferences(tokens, JSON_COLUMNS),
+    ...rawColumnReferences(tokens, JSON_COLUMNS),
+  ]
+  for (const { start, column } of references) {
+    if (clauseAt(tokens, start) === 'SELECT') found.push(`UNION over json column ${column}`)
+  }
   return found
 }
 
@@ -749,6 +834,8 @@ function findingsIn(sql: string): string[] {
   for (const finding of computedTextFindings(tokens)) found.add(finding)
   for (const finding of jsonComparisonFindings(tokens)) found.add(finding)
   for (const finding of booleanComparisonFindings(tokens)) found.add(finding)
+  for (const finding of unaryPlusFindings(tokens)) found.add(finding)
+  for (const finding of unionOverJsonFindings(tokens)) found.add(finding)
   for (const finding of nullOrderFindings(tokens)) found.add(finding)
   return [...found].sort()
 }
@@ -762,6 +849,7 @@ const PG_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
 
 const JSON_COLUMNS = columnsOfType((type) => type === 'json')
 const BOOLEAN_COLUMNS = columnsOfType((type) => type === 'boolean')
+const TEXT_COLUMNS = columnsOfType((type) => type.startsWith('text'))
 const NULLABLE_COLUMNS = columnsWhere((column) => !column.notNull)
 
 /** A Postgres drizzle instance over the twins whose client refuses to run anything. */
@@ -971,6 +1059,50 @@ describe('the census reads Postgres SQL', () => {
       'boolean column archived compared with an integer',
     ])
     expect(findingsIn('select "id" from "sessions" where "sessions"."archived" = $1')).toEqual([])
+  })
+
+  it('finds a boolean column compared with an integer in raw SQL', () => {
+    expect(
+      findingsIn(
+        'select "id" from "messages" where "to_id" in (select s.id from "sessions" s where s.archived = 0)',
+      ),
+    ).toEqual(['boolean column archived compared with an integer'])
+    expect(findingsIn('select s.id from "sessions" s where archived = 1')).toEqual([
+      'boolean column archived compared with an integer',
+    ])
+    expect(findingsIn('select s.id from "sessions" s where s.archived = false')).toEqual([])
+  })
+
+  it('finds a unary + on a text column', () => {
+    expect(
+      findingsIn('select "id" from "messages" where +"messages"."delivery_status" = $1'),
+    ).toEqual(['unary + on text column delivery_status'])
+    expect(findingsIn('select m.id from "messages" m where +m.delivery_status = $1')).toEqual([
+      'unary + on text column delivery_status',
+    ])
+    expect(
+      findingsIn('select "id" from "messages" where "messages"."delivery_status" = $1'),
+    ).toEqual([])
+    expect(findingsIn('select "seq" + "seq" from "messages"')).toEqual([])
+  })
+
+  it('finds a UNION over a json column', () => {
+    // `podium_events.payload` is a json column of the twin.
+    expect(
+      findingsIn(
+        'select "id", "payload" from "podium_events" where "id" = $1 union select "id", "payload" from "podium_events" where "id" = $2',
+      ),
+    ).toEqual(['UNION over json column payload'])
+    expect(
+      findingsIn(
+        'select "id", "payload" from "podium_events" where "id" = $1 union all select "id", "payload" from "podium_events" where "id" = $2',
+      ),
+    ).toEqual([])
+    expect(
+      findingsIn(
+        'select "id" from "podium_events" where "payload" is null union select "id" from "podium_events"',
+      ),
+    ).toEqual([])
   })
 
   it('finds an ORDER BY on a nullable column without NULLS FIRST/LAST', () => {
