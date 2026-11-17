@@ -38,17 +38,18 @@
  * than implying coverage it does not have.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
+import { cookieOf } from '../../apps/server/src/test-support/test-identity'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local 9923).
@@ -68,14 +69,20 @@ const fixtureLaunch: NonNullable<DaemonOptions['launch']> = () => ({
 
 const hostMachineId = (): string => readOrCreateLocalMachineId()
 
-/** The enrolled transport fixture registers the host as a server only; agent
- *  sessions need it assigned to run them too (as resume-send-delivery does). */
+/** The enrolled transport fixture registers the host as a server only, with no
+ *  owner; agent sessions need it assigned to run them too (as
+ *  resume-send-delivery does), and a person needs it owned, as setup enrollment
+ *  leaves it, to start one on it through the API. */
 async function startAgentServer() {
   const srv = await startServer()
   await srv.registry.modules.machines.changeAssignment(
     asMachineId(hostMachineId()),
     { server: true, agentExecution: true },
     'runtime-contract-lane',
+  )
+  await srv.registry.sessionStore.machines.setMachineOwner(
+    hostMachineId(),
+    await firstAdminMemberId(srv.registry.sessionStore),
   )
   return srv
 }
@@ -137,10 +144,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // declares a terminal runtime, and `terminalProfileFor` returns undefined
       // for a shell by design — there are no turns to be honest about.
       const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
-      await waitFor(
-        async () =>
-          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
-      )
+      await waitFor(() => sessions.sessions.get(sessionId)?.status === 'live')
 
       // ---- 0. hibernate REFUSES before the harness has minted a resume ref -
       //
@@ -186,12 +190,45 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
         cwd: tmp,
         prompt: 'first turn through the contract',
       })
+      // What proves it is the program's own history (POD-4819): Claude records
+      // the prompt in its transcript. The hook above only lends its prompt id.
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'user',
+          uuid: 'u-first-turn',
+          sessionId: 'native-runtime-contract',
+          timestamp: new Date().toISOString(),
+          message: { role: 'user', content: 'first turn through the contract' },
+        })}\n`,
+      )
       const accepted = await first
       expect(accepted.outcome).toBe('accepted')
       if (accepted.outcome !== 'accepted') return
-      // Anchored to the hook, not to an echo that happened to arrive.
-      expect(accepted.provenBy).toBe('hook')
+      // Anchored to the transcript's record of it, not to the hook.
+      expect(accepted.provenBy).toBe('transcript-echo')
       expect(accepted.deliveredAs).toBe('when-ready')
+
+      // End that turn the way Claude does: its answer in the transcript, then
+      // Stop. A when-ready send to a session still working is refused `busy`,
+      // so step 2 starts from an idle session.
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant',
+          uuid: 'a-first-turn',
+          sessionId: 'native-runtime-contract',
+          timestamp: new Date().toISOString(),
+          message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+        })}\n`,
+      )
+      await postHook(sessionId, {
+        hook_event_name: 'Stop',
+        session_id: 'native-runtime-contract',
+        transcript_path: transcriptPath,
+        cwd: tmp,
+      })
+      await waitFor(() => sessions.sessions.get(sessionId)?.agentState?.phase === 'idle')
 
       // ---- 2. no proof inside the window is `unverified`, not a guess -------
       const unverified = await gateway.send({
@@ -200,14 +237,18 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
         origin: 'steward',
         delivery: 'when-ready',
       })
-      expect(unverified.outcome).toBe('unverified')
+      expect(unverified.outcome, JSON.stringify(unverified)).toBe('unverified')
       if (unverified.outcome !== 'unverified') return
       // The window the driver actually waited — the derived 4.8s ladder, not an
       // RPC timeout standing in for it.
-      expect(unverified.verificationWindowMs).toBe(4800)
+      // Measured on the driver's clock since typing, so a timer's overshoot
+      // shows; an RPC timeout would be seconds longer.
+      expect(unverified.verificationWindowMs).toBeGreaterThanOrEqual(4800)
+      expect(unverified.verificationWindowMs).toBeLessThan(6000)
 
       // ---- 3. `queue` completes on the server and never crosses the wire ----
       const queued = await gateway.send({
+        writer: sessions.serverWriter,
         sessionId,
         text: 'later, durably',
         origin: 'mail',
@@ -220,8 +261,10 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // delivery is answered here: the row survives a daemon restart, a machine
       // going offline and a parked session, none of which a machine-local queue
       // could promise.
+      // Counted from the durable queue: the session holds no mirror of it
+      // (POD-6155).
       expect(
-        (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.queuedMessageCount,
+        (await srv.registry.sessionStore.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
       ).toBeGreaterThan(0)
 
       // ---- 4. interrupt REQUESTS a fence, over the same path ---------------
@@ -233,7 +276,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // captured as early as the harness allows, which is what
       // `resumeRefTiming: 'first-turn'` declares — so the same verb that refused
       // at step 0 now parks the session.
-      expect(await gateway.lifecycle(sessionId, 'hibernate')).toEqual({ ok: true })
+      expect(await gateway.lifecycle(sessionId, 'hibernate')).toMatchObject({ ok: true })
 
       // ---- 6. a parked session refuses, and says why ------------------------
       //
@@ -292,20 +335,13 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
             ?.online === true,
       )
       const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
-      await waitFor(
-        async () =>
-          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status === 'live',
-      )
+      await waitFor(() => sessions.sessions.get(sessionId)?.status === 'live')
 
-      // No flag anywhere, yet the session is behind the contract: the row
-      // records the bind-reported handle fact.
-      await waitFor(async () => {
-        const row = (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
-        return row?.runtimeContract === true
-      })
-      expect((await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
-        'live',
-      )
+      // No flag anywhere, yet the session is behind the contract: the session
+      // records the bind-reported handle fact (`hasBoundDriver`, renamed from
+      // the deleted `runtimeContract` switch in POD-4440).
+      await waitFor(() => sessions.sessions.get(sessionId)?.hasBoundDriver === true)
+      expect(sessions.sessions.get(sessionId)?.status).toBe('live')
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
@@ -336,6 +372,23 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     // machine-wide contract switch is gone), and this lane would quietly stop
     // testing the per-spawn field if it set one.
 
+    // THE REFUSAL HALF NEEDS ONLY AN OPENCODE THE MACHINE REPORTS INSTALLED, and
+    // the test hosts have none: a stub on PATH answers the version probe with
+    // the verified release. Nothing runs it beyond that — `fixtureLaunch` is
+    // what spawns. The live half below needs the real one, so it keeps the box.
+    const live = process.env.PODIUM_OPENCODE_LIVE === '1'
+    const priorPath = process.env.PATH
+    // The API serves a configured server only; an unconfigured one answers
+    // `setup_required` to every client call.
+    const priorMode = process.env.PODIUM_MODE
+    process.env.PODIUM_MODE = 'server'
+    if (!live) {
+      const stubBin = join(tmp, 'bin')
+      mkdirSync(stubBin, { recursive: true })
+      writeFileSync(join(stubBin, 'opencode'), '#!/bin/sh\necho 1.18.16\n', { mode: 0o755 })
+      process.env.PATH = `${stubBin}:${priorPath ?? ''}`
+    }
+
     const srv = await startAgentServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
@@ -345,22 +398,37 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       launch: fixtureLaunch,
       // A durable process is required for every spawn (POD-4617); `none` is refused.
       backend: 'host',
-      // THE REAL HOME, UNLIKE EVERY OTHER LANE HERE, because this one spawns
-      // through the door that checks. `sessions.create` refuses a harness the
-      // MACHINE does not report installed, and that inventory comes from
-      // discovery — pointed at an empty tmp home it finds nothing, and the
-      // refusal arrives at the server before the daemon is ever asked. The lanes
-      // above call `createSession` on an already-warm machine record and never
-      // meet the check. Nothing is executed either way: `fixtureLaunch` is still
-      // what runs, so this reads the box's harness list without trusting its
-      // binaries.
-      discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: homedir() },
+      // A REPORTED OPENCODE, UNLIKE EVERY OTHER LANE HERE, because this one
+      // spawns through the door that checks. `sessions.create` refuses a harness
+      // the MACHINE does not report installed, and that inventory comes from
+      // discovery. The lanes above call `createSession` on an already-warm
+      // machine record and never meet the check. The stub above supplies it; the
+      // live half reads the box's own home. Nothing is executed either way:
+      // `fixtureLaunch` is still what runs.
+      discovery: {
+        background: false,
+        cachePath: join(tmp, 'discovery.db'),
+        homeDir: live ? homedir() : tmp,
+      },
       metrics: { background: false },
       hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
       agentRelay: { port: 0 },
     })
+    // The API answers a signed-in person only: sign in as the instance's
+    // first admin, as a browser would, and send that cookie.
+    const admin = await srv.registry.sessionStore.users.get(
+      await firstAdminMemberId(srv.registry.sessionStore),
+    )
+    if (!admin?.accountId) throw new Error('the first admin has no account')
+    const cookie = cookieOf(
+      await srv.identity.core.deviceSignIns.create(admin.accountId, { kind: 'browser' }, 'cookie', {
+        scheme: 'http',
+        sameMachine: true,
+        clientAddress: '127.0.0.1',
+      }),
+    )
     const trpc = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: `http://127.0.0.1:${srv.port}/trpc` })],
+      links: [httpBatchLink({ url: `http://127.0.0.1:${srv.port}/trpc`, headers: { cookie } })],
     })
     const sessions = srv.registry.modules.sessions
 
@@ -387,18 +455,13 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       const { sessionId } = await trpc.sessions.create.mutate({
         agentKind: 'opencode',
         cwd: tmp,
-        runtimeContract: 'not-a-real-driver',
+        requestedDriverId: 'not-a-real-driver',
       })
       // GENEROUS, BECAUSE THE SPAWN PATH PROBES BEFORE IT REFUSES. The daemon
       // asks `opencode --version` on the way to resolution, and POD-2056
       // measured that at 11–15s on the build host (budget 60s). A tighter
       // deadline here would fail on a loaded box and read as a broken refusal.
-      await waitFor(
-        async () =>
-          (await sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status ===
-          'exited',
-        90_000,
-      )
+      await waitFor(() => sessions.sessions.get(sessionId)?.status === 'exited', 90_000)
       // Read back through the wire projection too, because that is where an
       // operator would look: a spawn refusal an operator cannot see is barely
       // better than the silent degrade it replaced.
@@ -426,18 +489,13 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // the fixture launcher above is a PTY, and a PTY is precisely the thing
       // this assertion has to rule out. The refusal half above needs no such
       // gate and always runs.
-      if (process.env.PODIUM_OPENCODE_LIVE === '1') {
-        const live = await trpc.sessions.create.mutate({
+      if (live) {
+        const liveSession = await trpc.sessions.create.mutate({
           agentKind: 'opencode',
           cwd: tmp,
-          runtimeContract: 'opencode-server',
+          requestedDriverId: 'opencode-server',
         })
-        await waitFor(
-          async () =>
-            (await sessions.listSessions()).find((s) => s.sessionId === live.sessionId)?.status ===
-            'live',
-          90_000,
-        )
+        await waitFor(() => sessions.sessions.get(liveSession.sessionId)?.status === 'live', 90_000)
         // THE JOURNAL IS THE FAMILY TEST, not `runtimeContract: true` — the
         // terminal driver sets that too, so a spawn that asked for
         // `opencode-server` and silently got a PTY passes the boolean and fails
@@ -447,7 +505,11 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
         // which says it cost a run.)
         expect(
           existsSync(
-            join(stateDir(), 'opencode-servers', `${encodeURIComponent(live.sessionId)}.json`),
+            join(
+              stateDir(),
+              'opencode-servers',
+              `${encodeURIComponent(liveSession.sessionId)}.json`,
+            ),
           ),
           'the session is live but has no opencode binding journal, so the driver named through tRPC did NOT take',
         ).toBe(true)
@@ -455,6 +517,9 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
+      process.env.PATH = priorPath
+      if (priorMode === undefined) delete process.env.PODIUM_MODE
+      else process.env.PODIUM_MODE = priorMode
       rmSync(tmp, { recursive: true, force: true })
     }
   }, 150_000)
