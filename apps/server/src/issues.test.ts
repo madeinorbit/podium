@@ -3619,13 +3619,17 @@ describe('IssueService assistant', () => {
         'not-a-real-hash',
       )
     })
+    // Activity notes are the panel state record, not a field of the issue wire,
+    // so the digest's outcome is read there (as the test above does).
+    const notes = async () => (await store.issues.panel.state(c.id))?.text
     await upgradeWith(other, 'sk-FAKE-other-member-key')
-    expect((await svc.gitWorkflow.refreshAssistant(c.id)).activityNotes).toBeUndefined()
+    await svc.gitWorkflow.refreshAssistant(c.id)
+    expect(await notes()).toBeUndefined()
     expect(received).toEqual([])
 
     await upgradeWith(await firstAdminMemberId(store), 'sk-FAKE-admin-managed-key')
-    const wire = await svc.gitWorkflow.refreshAssistant(c.id)
-    expect(wire.activityNotes).toBe('imported key answered')
+    await svc.gitWorkflow.refreshAssistant(c.id)
+    expect(await notes()).toBe('imported key answered')
     expect(received).toEqual(['Bearer sk-FAKE-admin-managed-key'])
   })
 
