@@ -5,7 +5,7 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PG_MIGRATIONS } from '../migrations/pg/index'
-import { openStoreDatabase, PostgresLocationError, PostgresStoreBootError } from '../store-database'
+import { openStoreDatabase, PostgresLocationError } from '../store-database'
 import {
   clonePgTestDatabase,
   connectPgTest,
@@ -91,13 +91,10 @@ describe.skipIf(testStoreEngine() !== 'pg')('postgres test databases', () => {
   })
 
   it('refuses a Postgres URL at the SQLite opener before any test opener runs', async () => {
-    // A URL is refused as a URL on every leg; a store opened on one fails in
-    // StoreDatabase.open instead, with a message naming the same list.
+    // A URL is refused as a URL on every leg; a store on one opens through
+    // StoreDatabase.open, which chooses the engine from the location.
     await expect(openStoreDatabase((await pgWorkerDatabase()).url)).rejects.toBeInstanceOf(
       PostgresLocationError,
-    )
-    expect(new PostgresStoreBootError().message).toMatch(
-      /"pending" in apps\/server\/test-store-engines\.json/,
     )
   })
 

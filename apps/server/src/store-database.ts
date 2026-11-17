@@ -25,7 +25,9 @@
  * SQLite file path, `:memory:` included. {@link storeEngineFor} is the one test;
  * nothing below the store asks again. A Postgres location never reaches the SQLite
  * opener: {@link openStoreDatabase} refuses it rather than create a file named after
- * the URL, and {@link openPgStoreDriver} opens its pool.
+ * the URL. A store on a Postgres URL opens through the store-lifecycle port
+ * (`migrations/store-lifecycle.ts`, POD-6994); {@link openPgStoreDriver} opens the
+ * driver alone.
  */
 
 import { refuseLiveStateDir } from '@podium/runtime/live-state-guard'
@@ -45,30 +47,10 @@ export class PostgresLocationError extends Error {
   constructor() {
     super(
       'openStoreDatabase opens SQLite files; this store location is a Postgres URL. ' +
-        'Open it with openPgStoreDriver (the server boots on Postgres from POD-6994).',
+        'A store opens it through SessionStore.open / StoreDatabase.open, which choose the ' +
+        'engine from the location (POD-6994).',
     )
     this.name = 'PostgresLocationError'
-  }
-}
-
-/**
- * A Postgres store was asked to boot. The engine is chosen, the driver exists and so
- * does the migration chain (`migrations/pg/index.ts`, POD-6981), but a Postgres store
- * has no store-lifecycle port for its boot steps (POD-6994) yet, so the open refuses
- * before it touches anything: no pool, no directory named after the URL.
- *
- * On the `server-store-pg` lane this is what a store test file that has not been
- * converted hits through `openTestStore()`, so the message names the list it belongs on.
- */
-export class PostgresStoreBootError extends Error {
-  constructor() {
-    super(
-      'this store location is a Postgres URL, and a Postgres store cannot boot yet: it needs ' +
-        'the store-lifecycle port (POD-6994). Open the driver alone with openPgStoreDriver. ' +
-        'On the server-store-pg lane, a test file that opens a store belongs on "pending" in ' +
-        'apps/server/test-store-engines.json until then.',
-    )
-    this.name = 'PostgresStoreBootError'
   }
 }
 

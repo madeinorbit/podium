@@ -4,7 +4,8 @@
     "The leg runs every file of the store shard (test-shards.json) except the two lists below.",
     "sqliteOnly: the file's subject is SQLite itself. Each entry says why. It never runs on Postgres.",
     "pending: the file is meant to run on both engines but has not been converted yet. A task that makes a file pass on Postgres removes it here; the list is empty when the Postgres store is complete (POD-6994).",
-    "Paths are relative to the repository root. src/store/test-store-engines.test.ts checks that every entry is a store-shard file and that no file is in both lists."
+    "Paths are relative to the repository root. src/store/test-store-engines.test.ts checks that every entry is a store-shard file and that no file is in both lists.",
+    "beyondStoreShard: a file outside the store shard that also runs on the Postgres leg (a boot-wiring file, a server started on a Postgres URL). Each entry says why [POD-6994]."
   ],
   "sqliteOnly": {
     "apps/server/src/identity/identity-suite.sqlite.test.ts": "Runs the identity suite on its SQLite schema; the identity package tests its Postgres twin itself.",
@@ -343,5 +344,8 @@
     "apps/server/src/telemetry.test.ts",
     "apps/server/src/transcript-indexer.test.ts",
     "apps/server/src/write-contexts.test.ts"
-  ]
+  ],
+  "beyondStoreShard": {
+    "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store."
+  }
 }

@@ -212,11 +212,12 @@ no database). Name files to run a few; with no files it runs the whole Postgres 
 `apps/server/test-store-engines.json`: `sqliteOnly` (the file tests SQLite itself; each entry
 gives the reason) and `pending` (meant for both engines, not yet passing on Postgres). Making
 a file pass on Postgres means deleting it from `pending`; the list is empty when the Postgres
-store is complete (POD-6994). A new store test file runs on both engines by default, so
-until a Postgres store can boot (the lifecycle port, POD-6994), add it to `pending`: on the Postgres leg a store open fails with
-`PostgresStoreBootError`. A file that tests the executor or driver directly can run on both
-now: `openEngineHarness()` (`store/executor/harness.ts`) and `createPgStoreExecutor` give it
-the leg's engine.
+store is complete (POD-6994). A new store test file runs on both engines by default:
+`openTestStore()` opens a whole store on a fresh clone of the run's template, and a file that
+tests the executor or driver directly gets the leg's engine from `openEngineHarness()`
+(`store/executor/harness.ts`) or `createPgStoreExecutor`. A file outside the store shard that
+must also hold on Postgres (a boot-wiring file, a server started on a Postgres URL) is listed
+under `beyondStoreShard` with the reason.
 `src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
 a SQLite-only entry without a reason, and a file in both lists. Until POD-6994,
 `src/store/postgres-leg-store-opens.test.ts` (a source scan, so in the `boundary` shard) refuses

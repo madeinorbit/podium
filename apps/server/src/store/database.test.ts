@@ -12,7 +12,6 @@ import { asMachineId, asWorkspaceId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { type SessionStore, StoreDatabase } from '../store'
-import { PostgresStoreBootError } from '../store-database'
 import { openTestStore } from '../test-support/open-test-store'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import {
@@ -164,14 +163,15 @@ describe('a workspace store opens its own workspace transactions', () => {
   })
 })
 
-describe('StoreDatabase.open on a Postgres URL [POD-6979]', () => {
-  it('chooses the engine from the location and refuses before it touches the disk', async () => {
+describe('StoreDatabase.open on a Postgres URL [POD-6979, POD-6994]', () => {
+  it('opens Postgres from the location and makes no directory named after it', async () => {
+    // Nothing listens on port 9: the open fails at its first connection, the ledger
+    // check, and never reaches the SQLite opener, which would make the directory.
     await expect(
       StoreDatabase.open('postgres://podium@127.0.0.1:9/nowhere', asMachineId('m_test'), {
         bootWorkspace: asWorkspaceId('local'),
       }),
-    ).rejects.toBeInstanceOf(PostgresStoreBootError)
-    // A path would have had its directory made; a URL's "directory" must not exist.
+    ).rejects.toThrow(/ECONNREFUSED|connect/i)
     expect(existsSync('postgres:')).toBe(false)
   })
 })

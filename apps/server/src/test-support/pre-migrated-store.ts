@@ -150,8 +150,7 @@ function primeFirstAdminFromImage(): void {
  * The opener a Postgres run installs: any SQLite store open fails, naming the test
  * file and the list it belongs on. Only SQLite locations reach it: `openStoreDatabase`
  * refuses a Postgres URL itself (`PostgresLocationError`) before any opener runs, and a
- * store opened on a URL fails in `StoreDatabase.open` with `PostgresStoreBootError`,
- * which names the same list until the Postgres store can boot (POD-6994).
+ * store opened on a URL opens on Postgres through the store-lifecycle port (POD-6994).
  */
 export function refuseSqliteStore(testPath: string): (path: string) => never {
   const at = testPath.replaceAll('\\', '/').lastIndexOf('/apps/server/')
