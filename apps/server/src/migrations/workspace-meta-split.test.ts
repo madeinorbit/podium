@@ -23,6 +23,11 @@
  * added to a list and not to the SQL (or the reverse) fails here.
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { instancePreferencesRecordOf } from '@podium/model'
+import { normalizeSettings } from '@podium/runtime'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -32,6 +37,8 @@ import {
   WORKSPACE_META_KEYS,
   WORKSPACE_SECRET_KEYS,
 } from '../store/workspace-manifest'
+import { serverRecordBuilders } from '../sync/record-builders'
+import { openTestStore } from '../test-support/open-test-store'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -169,6 +176,58 @@ describe('meta and secrets split', () => {
           .all(table) as { name: string }[]
       ).map((column) => column.name)
       expect(key, table).toEqual(['workspace_id', 'key'])
+    }
+  })
+})
+
+/**
+ * The split changes no record value, so it bumps no kind generation
+ * (`sync-generation-audit.test.ts` lists it with that reason, POD-7061). Its
+ * DELETE FROM meta touches the inputs of two kinds:
+ *
+ *   - `instancePreferences`: the settings blob. Before the split the builder was
+ *     `instancePreferencesRecordOf(normalizeSettings(JSON.parse(meta['settings'])))`;
+ *     after it the same functions read `workspace_meta`. The case below builds
+ *     the record through the real builder over a migrated store and holds it
+ *     equal to that value of the pre-split bytes.
+ *   - `machine`: it reads the fleet keys, which are install keys, and the
+ *     `machines` rows. "keeps the install keys ... in the install tables" and
+ *     "changes no other table" above hold both byte for byte, so its inputs
+ *     do not change.
+ */
+describe('meta and secrets split: the records it touches', () => {
+  it('builds the same instance preferences record after the split as before it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-7061-meta-split-'))
+    try {
+      const path = join(dir, 'podium.db')
+      const db = openDatabase(path)
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, SPLIT))
+      const defaults = normalizeSettings(undefined)
+      // A non-default instance leaf, so the equality below is not two defaults.
+      const blob = JSON.stringify({
+        ...defaults,
+        worktreeGc: { ...defaults.worktreeGc, afterDays: 47 },
+      })
+      db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('settings', blob)
+      const before = instancePreferencesRecordOf(normalizeSettings(JSON.parse(blob)))
+      expect(before).not.toEqual(instancePreferencesRecordOf(defaults))
+      db.close()
+
+      // The rest of the chain, the split included, runs at open.
+      const store = await openTestStore(path)
+      try {
+        const records: unknown[] = []
+        for await (const page of serverRecordBuilders().streamAll(
+          { store, now: Date.now, effectExecutors: { get: () => undefined } },
+          'instancePreferences',
+        ))
+          records.push(...page.map((record) => record.value))
+        expect(records).toEqual([before])
+      } finally {
+        await store.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

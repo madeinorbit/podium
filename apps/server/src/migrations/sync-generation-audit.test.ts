@@ -45,6 +45,8 @@ const kindsByTable: Record<string, readonly string[]> = {
   tab_order: ['tabOrder'],
   user_preferences: ['userPreferences'],
   meta: ['instancePreferences', 'machine'],
+  // The settings blob moved here with the meta split (POD-7013).
+  workspace_meta: ['instancePreferences'],
   agent_profiles: ['agentProfile'],
   superagent_threads: ['superagentThread'],
   effects: ['effect'],
@@ -62,6 +64,24 @@ const kindsByTable: Record<string, readonly string[]> = {
   ship_holds: ['shipOrder', 'shipLane'],
   delivery_receipts: ['shipOrder', 'shipLane'],
   ship_order_stack_edges: ['shipLane'],
+}
+
+/**
+ * Migrations that rewrite a record-bearing table and change NO record value, each
+ * with the reason. One entry per migration, never a rule over a statement form: a
+ * later migration of the same shape is checked like any other until it is listed
+ * here with its own reason. A listed migration that does not exist fails the test.
+ */
+const NO_RECORD_CHANGE: Readonly<Record<string, string>> = {
+  '20261117050304_workspace-column':
+    "adds the workspace_id partition column and renames the sync tables' tenant_id; " +
+    'the column is part of no record value or wire payload (POD-7012), and capture ' +
+    'keys are held by their own manifest test (POD-7021)',
+  '20261117060140_workspace-meta-split':
+    'moves the workspace keys from meta to workspace_meta; the instance preferences ' +
+    'blob is moved unchanged and the fleet keys the machine record reads stay in meta ' +
+    '(workspace-meta-split.test.ts: "builds the same instance preferences record after ' +
+    'the split as before it", and its install-key and other-table cases)',
 }
 
 function missingBumps(sql: string): string[] {
@@ -90,7 +110,17 @@ describe('synced data migration generations', () => {
   it('every later model rewrite invalidates the affected record kinds', () => {
     expect(foundation).toBeGreaterThan(0)
     for (const migration of DRIZZLE_MIGRATIONS.slice(foundation + 1)) {
+      if (NO_RECORD_CHANGE[migration.name]) continue
       expect(missingBumps(migration.sql), migration.name).toEqual([])
+    }
+  })
+
+  it('lists only migrations that exist and do rewrite a record-bearing table', () => {
+    for (const name of Object.keys(NO_RECORD_CHANGE)) {
+      const migration = DRIZZLE_MIGRATIONS.find((m) => m.name === name)
+      expect(migration, name).toBeDefined()
+      // An entry for a migration the audit would pass anyway is dead weight.
+      expect(missingBumps(migration?.sql ?? ''), name).not.toEqual([])
     }
   })
 
