@@ -267,23 +267,31 @@ const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
  * restored session (`transcriptAvailable`), asked for a set of durable records
  * without replaying their items. One statement per 500 ids.
  *
- * The newest reset and whether it carried items are one aggregate: its id
- * doubled, plus one when its `items` are not empty.
+ * The NEWEST reset-or-complete-item decides it: a complete item is newer than
+ * every reset, so there are items; a reset is available exactly when it carried
+ * items. Each session reads that one row newest-first through
+ * `idx_podium_events_kind_subject_id` and stops. It used to aggregate EVERY
+ * runtime event of the session, parsing each payload, and the session record
+ * build runs this on every transcript item the capture sees: a busy session
+ * paid for its whole history (11 MB, about 70 ms) on each new item.
  */
 const runtimeTranscriptSubjectsOfIds = preparedFamily((db: StoreDrizzle, size: number) => {
   const type = sql`json_extract(${podiumEvents.payload}, '$.t')`
-  const newestReset = sql`coalesce(max(CASE WHEN ${type} = 'transcript-reset'
-    THEN ${podiumEvents.id} * 2 + (coalesce(json_array_length(${podiumEvents.payload}, '$.items'), 0) > 0) END), 0)`
+  const newestDecides = sql`(SELECT CASE
+      WHEN ${type} = 'item' THEN 1
+      WHEN coalesce(json_array_length(${podiumEvents.payload}, '$.items'), 0) > 0 THEN 1
+      ELSE 0 END
+    FROM ${podiumEvents}
+    WHERE ${podiumEvents.kind} = ${RUNTIME_EVENT_LOG_KIND}
+      AND ${podiumEvents.subject} = ${sessionsTable.id}
+      AND (${type} = 'transcript-reset'
+        OR (${type} = 'item' AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'))
+    ORDER BY ${podiumEvents.id} DESC
+    LIMIT 1)`
   return db
-    .select({ subject: podiumEvents.subject })
-    .from(podiumEvents)
-    .where(and(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), inListOf(podiumEvents.subject, size)))
-    .groupBy(podiumEvents.subject)
-    .having(
-      sql`max(CASE WHEN ${type} = 'item' AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'
-          THEN ${podiumEvents.id} * 2 END) > ${newestReset}
-        OR ${newestReset} % 2 = 1`,
-    )
+    .select({ subject: sessionsTable.id })
+    .from(sessionsTable)
+    .where(and(inListOf(sessionsTable.id, size), sql`${newestDecides} = 1`))
     .prepare()
 })
 

@@ -229,3 +229,44 @@ describe('session source writes compare before they write', () => {
     expect(ended[0]?.value).toMatchObject({ agentState: { phase: 'idle' } })
   })
 })
+
+describe('runtime transcript availability (the newest reset or complete item decides)', () => {
+  it('follows resets and complete items, and ignores every other runtime event', async () => {
+    const f = await fixture()
+    const id = f.session.sessionId
+    let at = 0
+    const append = async (payload: unknown) =>
+      await f.store.events.appendEvent({
+        ts: new Date(Date.parse('2026-11-11T00:00:00Z') + at++ * 1000).toISOString(),
+        kind: RUNTIME_EVENT_LOG_KIND,
+        subject: id,
+        payload,
+      })
+    const available = async () => (await f.store.events.runtimeTranscriptAvailableOf([id])).has(id)
+
+    expect(await available()).toBe(false)
+    await append({ t: 'state', change: { kind: 'activity' } })
+    expect(await available()).toBe(false)
+    await append({ t: 'item', item: { kind: 'complete' } })
+    expect(await available()).toBe(true)
+    // Events that are neither a reset nor a complete item change nothing.
+    await append({ t: 'state', change: { kind: 'activity' } })
+    await append({ t: 'item', item: { kind: 'delta' } })
+    expect(await available()).toBe(true)
+    // An empty reset clears it; a later complete item restores it.
+    await append({ t: 'transcript-reset', items: [] })
+    expect(await available()).toBe(false)
+    await append({ t: 'state', change: { kind: 'activity' } })
+    expect(await available()).toBe(false)
+    await append({ t: 'item', item: { kind: 'complete' } })
+    expect(await available()).toBe(true)
+    // A reset that carries items is a transcript by itself.
+    await append({ t: 'transcript-reset', items: [{ kind: 'complete' }] })
+    expect(await available()).toBe(true)
+    await append({ t: 'transcript-reset' })
+    expect(await available()).toBe(false)
+    // A session with no runtime events, and an unknown id, have none.
+    const unknown = asSessionId('unknown')
+    expect(await f.store.events.runtimeTranscriptAvailableOf([unknown])).toEqual(new Set())
+  })
+})
