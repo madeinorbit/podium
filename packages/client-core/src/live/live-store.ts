@@ -353,7 +353,11 @@ export class LiveStore extends RecordLiveStore<typeof RECORDS> {
   // ---------------------------------------------------------------------------
 
   /** One topic reading (the live feed, once per frame). Undefined forgets the key. */
-  @action applyTopic(kind: LiveTopicKind, id: string, reading: Reading<unknown> | undefined): void {
+  @action override applyTopic(
+    kind: LiveTopicKind,
+    id: string,
+    reading: Reading<unknown> | undefined,
+  ): void {
     if (this.disposed) return
     if (this.applyRecordTopic(kind, id, reading)) return
     switch (kind) {
@@ -384,7 +388,7 @@ export class LiveStore extends RecordLiveStore<typeof RECORDS> {
   }
 
   /** Sign-out: forget every reading and stop reporting demand. */
-  @action dispose(): void {
+  @action override dispose(): void {
     if (this.disposed) return
     super.dispose()
     this.usageDemand.clear()

@@ -14,7 +14,6 @@ import {
 import {
   collectGarbage,
   fullPool,
-  hydrateAll,
   lazyPool,
   openStartupFeed,
   type StartupFeed,
@@ -112,12 +111,35 @@ describe('declared live parts against the old full-load control', () => {
       handle.pool.bindLive(live)
       seed(live, feed)
       try {
-        compare(handle.pool, `${label} before loading`, control)
-        hydrateAll(handle.pool, questions)
+        // This static feed only installs previously cold rows. Bound the drain
+        // by its records, not a fixed number of windows: a question can discover
+        // another dependency on each window. Check every intermediate answer.
+        let loaded = 0
+        let windows = 0
+        const drain = (expected: Map<string, unknown>, phase: string) => {
+          for (;;) {
+            compare(handle.pool, `${label} ${phase} window ${windows}`, expected)
+            const installed = handle.pool.hydrate()
+            if (installed === 0) return
+            windows += 1
+            loaded += installed
+            expect(loaded, 'a static fixture must never load a row twice').toBeLessThanOrEqual(
+              feed.rows.length,
+            )
+          }
+        }
+        expect(
+          compare(handle.pool, `${label} before loading`, control).loading.length,
+        ).toBeGreaterThan(0)
+        drain(control, 'online')
         expect(compare(handle.pool, `${label} loaded`, control).loading).toEqual([])
         lose(live)
+        drain(disconnected, 'disconnected')
         expect(compare(handle.pool, `${label} loaded disconnected`, disconnected).loading).toEqual(
           [],
+        )
+        console.info(
+          `[live-store no-wrong-number] ${label}: ${questions.length} questions, ${windows} windows, ${loaded} rows; full, lazy and disconnected answers agree`,
         )
       } finally {
         handle.dispose()
