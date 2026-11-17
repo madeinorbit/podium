@@ -1,6 +1,7 @@
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { observer } from 'mobx-react-lite'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { useLiveInk } from '../theme/use-live-ink'
 import { Icon } from './Icon'
@@ -41,6 +42,7 @@ export const MissionBar = observer(function MissionBar({
 }) {
   const loadingInk = useLiveInk(color.textDim)
   const { fontScale } = useWindowDimensions()
+  const layoutMargin = useLayoutMargin()
   const vitals = deckVitals(full)
   const reading = vitals ? deckVitalsLabel(vitals) : 'Task counts are loading'
   return (
@@ -52,7 +54,11 @@ export const MissionBar = observer(function MissionBar({
       onPress={onOpen}
       scaleTo={1}
       haptic={false}
-      style={({ pressed }) => [styles.bar, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.bar,
+        { paddingHorizontal: layoutMargin },
+        pressed && styles.pressed,
+      ]}
     >
       <View style={styles.counts}>
         {vitals ? (
@@ -105,7 +111,6 @@ const styles = StyleSheet.create({
     height: 40,
     // Override the native press target floor so the scroll edge stays at 40pt.
     minHeight: 40,
-    paddingHorizontal: space.lg,
   },
   pressed: { opacity: 0.6 },
   counts: { flex: 1, minWidth: 0 },

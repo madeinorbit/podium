@@ -2,7 +2,14 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { segmentOfferText } from '@podium/client-core/values'
 import type { SessionOffer } from '@podium/model'
 import { useState } from 'react'
-import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  AccessibilityInfo,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import { followPodiumLink } from '../lib/podium-link'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { decisionTile } from './decision-tile'
@@ -41,6 +48,7 @@ export function SessionActionCard({
   /** Open the task's full artifact list — reached from the strip's "+N" only. */
   onOpenEvidence?: () => void
 }) {
+  const { fontScale } = useWindowDimensions()
   const [inputAction, setInputAction] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
   const [sending, setSending] = useState(false)
@@ -88,24 +96,27 @@ export function SessionActionCard({
           on the card colour, no eyebrow. Sending and the decline share its row:
           the decline is the control that says the question needs no answer,
           so it sits apart from the answers, faint and without the accent. */}
-      <View style={styles.titleRow}>
+      <View style={[styles.titleRow, onDismiss && styles.titleWithDismiss]}>
         <Text style={styles.headline}>{headline}</Text>
         {sending ? <Text style={styles.meta}>sending…</Text> : null}
-        {onDismiss ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss offer"
-            accessibilityHint="Takes this offer off every surface without answering it"
-            testID="offer-dismiss"
-            disabled={dismissing || sending}
-            hitSlop={10}
-            onPress={() => void dismiss()}
-            style={[styles.dismiss, (dismissing || sending) && styles.muted]}
-          >
-            <Icon as={X} size={14} color={color.textFaint} />
-          </PressableScale>
-        ) : null}
       </View>
+      {onDismiss ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss offer"
+          accessibilityHint="Takes this offer off every surface without answering it"
+          testID="offer-dismiss"
+          disabled={dismissing || sending}
+          onPress={() => void dismiss()}
+          style={[
+            styles.dismiss,
+            { top: space.md + (20 * fontScale - 44) / 2 },
+            (dismissing || sending) && styles.muted,
+          ]}
+        >
+          <Icon as={X} size={14} color={color.textFaint} />
+        </PressableScale>
+      ) : null}
       {body ? (
         <Text style={styles.body} numberOfLines={2}>
           {/* The URLs an agent wrote are the same links the desktop bar makes
@@ -244,9 +255,14 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
   },
+  titleWithDismiss: { paddingRight: 32 },
   dismiss: {
-    width: 20,
-    height: 20,
+    // The 44pt target overlaps the tile padding; it adds no title-row height.
+    position: 'absolute',
+    zIndex: 1,
+    right: 0,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

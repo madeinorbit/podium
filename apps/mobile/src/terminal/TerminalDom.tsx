@@ -189,6 +189,8 @@ export default function TerminalDom({
           overscrollBehavior: 'contain',
           WebkitOverflowScrolling: 'touch',
           background: TERMINAL_BG,
+          // The shared fit/crop policy subtracts the viewport's padding.
+          padding: '0 12px',
         }}
       >
         <div

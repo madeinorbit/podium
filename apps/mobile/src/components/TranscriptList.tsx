@@ -49,6 +49,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import type { RefreshAccessibilityProps } from '../hooks/useRefreshableTab'
 import { useAgeNow, useClock } from '../lib/clock-hooks'
@@ -1636,6 +1637,7 @@ export const TranscriptList = observer(function TranscriptList({
   /** Reply to an agent's question from the composer (POD-2380). */
   mailReply?: MailReply
 }) {
+  const layoutMargin = useLayoutMargin()
   // Order is the list's subscription. Message versions belong to row observers.
   const order = !presentation && transcript ? JSON.stringify(transcript.ids.slice()) : undefined
   // biome-ignore lint/correctness/useExhaustiveDependencies: order is the subscription to transcript membership; the snapshot is read untracked.
@@ -2032,7 +2034,11 @@ export const TranscriptList = observer(function TranscriptList({
         }
         contentContainerStyle={[
           styles.content,
-          { paddingTop: space.xl + topInset, paddingBottom: space.md + bottomInset },
+          {
+            paddingHorizontal: layoutMargin,
+            paddingTop: space.xl + topInset,
+            paddingBottom: space.md + bottomInset,
+          },
         ]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}

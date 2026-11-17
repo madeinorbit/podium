@@ -27,7 +27,7 @@ vi.mock('react-native', async (original) => {
 afterEach(cleanup)
 
 describe('AttachmentStrip accessibility', () => {
-  it('keeps the native corner badge small and expands only its touch area to 44 points', () => {
+  it('keeps the corner badge inside a clear 44 point target, as in New Task', () => {
     render(
       <AttachmentStrip
         attachments={[
@@ -36,14 +36,16 @@ describe('AttachmentStrip accessibility', () => {
         onRemove={vi.fn()}
       />,
     )
-    const badge = screen.getByRole('button', { name: 'Remove photo.png' })
-    const style = getComputedStyle(badge)
-    expect(style.width).toBe('18px')
-    expect(style.height).toBe('18px')
-    expect(style.minWidth).toBe('18px')
-    expect(style.minHeight).toBe('18px')
-    expect(native.remove?.hitSlop).toBe(13)
-    expect(18 + 2 * Number(native.remove?.hitSlop)).toBe(44)
+    const remove = screen.getByRole('button', { name: 'Remove photo.png' })
+    const style = getComputedStyle(remove)
+    expect(style.width).toBe('44px')
+    expect(style.height).toBe('44px')
+    expect(style.backgroundColor).toMatch(/, 0(?:\.0+)?\)$/)
+    const badge = remove.firstElementChild
+    if (!badge) throw new Error('Missing corner badge')
+    expect(getComputedStyle(badge).width).toBe('20px')
+    expect(getComputedStyle(badge).height).toBe('20px')
+    expect(native.remove?.hitSlop).toBe(8)
   })
 
   it('keeps a failed-file error and its Remove button as separate accessible controls', () => {

@@ -89,9 +89,10 @@ const styles = StyleSheet.create({
   text: { color: color.body, fontSize: font.tiny, lineHeight: leading(font.tiny, 'prose') },
   link: {
     flexShrink: 0,
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     color: color.needsYouText,
     ...sans(600),
     fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
   },
 })

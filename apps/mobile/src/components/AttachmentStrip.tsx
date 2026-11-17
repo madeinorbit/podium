@@ -67,10 +67,12 @@ export function AttachmentStrip({
               accessibilityRole="button"
               accessibilityLabel={`Remove ${attachment.name}`}
               onPress={() => onRemove(attachment.id)}
-              hitSlop={13}
+              hitSlop={8}
               style={styles.remove}
             >
-              <Icon as={X} size={11} color={color.bg} />
+              <View pointerEvents="none" style={styles.removeBadge}>
+                <Icon as={X} size={11} color={color.bg} />
+              </View>
             </PressableScale>
           </View>
         )
@@ -91,9 +93,9 @@ const styles = StyleSheet.create({
   strip: {
     flexDirection: 'row',
     gap: space.sm,
-    // Room at the top-right for the remove target, which overhangs the chip.
-    paddingTop: 5,
-    paddingRight: 5,
+    // Match the composer's text column, 16pt inside the surface.
+    paddingHorizontal: space.xs,
+    paddingTop: space.xs,
   },
   chip: {
     height: CHIP,
@@ -151,14 +153,17 @@ const styles = StyleSheet.create({
   },
   remove: {
     position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 18,
-    height: 18,
-    // PressableScale's default 44pt minimum belongs to the touch area here.
-    // Keep the badge small; hitSlop expands the 18pt control to 44pt.
-    minWidth: 18,
-    minHeight: 18,
+    top: 0,
+    right: 0,
+    width: 44,
+    height: 44,
+    paddingTop: space.xs,
+    paddingRight: space.xs,
+    alignItems: 'flex-end',
+  },
+  removeBadge: {
+    width: 20,
+    height: 20,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
