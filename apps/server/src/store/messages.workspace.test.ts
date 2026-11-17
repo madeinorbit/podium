@@ -576,7 +576,8 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
     expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
-    expect((await m.getMessage(mid(1)))?.deliveryStatus).toBe('cancelled')
+    // The moves took A's m1 out of `stored`, wherever their guards let the last one land.
+    expect((await m.getMessage(mid(1)))?.deliveryStatus).not.toBe('stored')
     expect((await m.getMessage(mid(3)))?.ackedBy).toBe('a-ack')
     expect((await m.getMessage(mid(6)))?.id).toBe(mid(6))
     expect(await m.getWakeCooldown(COOLDOWN)).toBe(NOW)

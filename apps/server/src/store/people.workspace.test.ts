@@ -496,7 +496,10 @@ describe('reads answer only their own workspace', () => {
       expect(await machines.credentialIncarnation(only(other))).toBeUndefined()
       expect(await machines.custodian(machine())).toBe(user())
       expect(await machines.custodian(only(other))).toBeNull()
-      expect(await machines.custodyMachineIds(user())).toEqual([machine()])
+      // Alice keeps machine 1 and the box only this workspace holds.
+      expect((await machines.custodyMachineIds(user())).sort()).toEqual(
+        [machine(), only(tag)].sort(),
+      )
       expect(await machines.legacyMachineSentinelSites()).toEqual([])
     }
   })
@@ -606,14 +609,14 @@ describe('reads answer only their own workspace', () => {
       onlyOwn(ofMachines, tag)
       const pathsOf = await checkouts.pathsOfMachines([machine()])
       expect([...pathsOf.keys()]).toEqual([machine()])
-      expect([...(pathsOf.get(machine()) ?? [])].sort()).toEqual(paths)
+      expect([...(pathsOf.get(machine()) ?? [])].map((row) => row.path).sort()).toEqual(paths)
       expect([...(await checkouts.rootPathsOfMachines([machine()])).keys()]).toEqual([machine()])
       // The same people on the same machine, each workspace's own reach.
       const reach = await checkouts.reachOfMachines([machine()])
       expect([...reach.keys()]).toEqual([machine()])
       expect(Object.fromEntries(reach.get(machine()) ?? [])).toEqual({
-        [user()]: tag === 'a' ? 'all' : 'roots',
-        [user('bob')]: tag === 'a' ? 'roots' : 'all',
+        [user()]: { reach: tag === 'a' ? 'all' : 'roots' },
+        [user('bob')]: { reach: tag === 'a' ? 'roots' : 'all' },
       })
       const lost = await checkouts.lostOfMachines([machine()])
       expect([...lost.keys()]).toEqual([machine()])

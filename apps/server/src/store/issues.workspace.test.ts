@@ -284,11 +284,15 @@ async function plantOnly(store: SessionStore, tag: Tag): Promise<void> {
   )
 }
 
-/** The sorted ids of `rows`, each held to its own workspace's title: the ids are the same in
- *  both workspaces, so the title is what tells a crossed-over row. */
-function ids(rows: Iterable<{ id: string; title: string }>, tag: Tag): string[] {
+/** The sorted ids of `rows`, each held to its own workspace's title (or, for a row that
+ *  carries none, to no content of the other's): the ids are the same in both workspaces, so
+ *  the content is what tells a crossed-over row. */
+function ids(rows: Iterable<{ id: string; title?: string }>, tag: Tag): string[] {
   const list = [...rows]
-  for (const row of list) expect(row.title.startsWith(`${tag} `), row.id).toBe(true)
+  for (const row of list) {
+    if (typeof row.title === 'string') expect(row.title.startsWith(`${tag} `), row.id).toBe(true)
+    else onlyOwn(row, tag)
+  }
   return list.map((row) => row.id).sort()
 }
 /** The sorted ids of rows that carry no title, held to no other workspace's content. */
@@ -504,9 +508,10 @@ describe('the issues repository reads only its own workspace', () => {
       const states = await s.loadIssueUserStates(ALICE, [iss(1), only(other(tag))])
       expect(states.get(iss(1))?.readAt).toBe(atOf)
       expect(states.get(only(other(tag)))).toBeUndefined()
+      // The answer is keyed by issue: one pair per issue.
       const ofPairs = await s.loadIssueUserStatesOfPairs([
         { userId: BOB, issueId: iss(2) },
-        { userId: ALICE, issueId: iss(2) },
+        { userId: ALICE, issueId: only(other(tag)) },
       ])
       expect([...ofPairs.values()].filter(Boolean).map((v) => v?.tuckedAt)).toEqual([atOf])
     }

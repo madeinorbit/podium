@@ -872,6 +872,7 @@ describe('the events repository writes only its own workspace', () => {
     for (const [store, tag] of both(stores)) {
       const other = otherOf(tag)
       const before = await rowsOf(store, other)
+      const otherSteward = await stores[tag === 'a' ? 1 : 0].events.getStewardState(STEWARD_KEY)
       const ev = store.events
       await ev.removeSubscription(sub(1))
       expect(await ev.setSubscriptionEnabled(sub(2), false)).toBe(true)
@@ -891,7 +892,7 @@ describe('the events repository writes only its own workspace', () => {
       )
       expect(await rowsOf(store, other)).toEqual(before)
       expect(await stores[tag === 'a' ? 1 : 0].events.getStewardState(STEWARD_KEY)).toBe(
-        `${other}-value`,
+        otherSteward,
       )
     }
   })
@@ -1065,10 +1066,9 @@ describe('the workflows repository reads and writes only its own workspace', () 
       expect((await w.getWorkflow(WF))?.name).toBe(`${tag} flow`)
       expect(ids(await w.listRevisions(WF), tag)).toEqual([REV])
       expect((await w.getRevision(REV))?.instructions).toBe(tag)
-      expect((await w.getBinding('issue', iss(1)))?.ownerUserId).toBe(owner(tag))
-      expect((await w.listBindings()).map((b) => [b.targetId, b.ownerUserId])).toEqual([
-        [iss(1), owner(tag)],
-      ])
+      // A binding carries no owner on the wire: `ownerOf` above holds it to its own.
+      expect((await w.getBinding('issue', iss(1)))?.revisionId).toBe(REV)
+      expect((await w.listBindings()).map((b) => b.targetId)).toEqual([iss(1)])
       expect(ids(await w.listRuns(), tag)).toEqual([RUN])
       expect(ids(await w.listRunsPage({ limit: 10 }), tag)).toEqual([RUN])
       expect((await w.getRun(RUN))?.ownerUserId).toBe(owner(tag))
@@ -1151,6 +1151,7 @@ describe('the automations repository reads and writes only its own workspace', (
       const au = store.automations
       const other = otherOf(tag)
       const before = await rowsOf(store, other)
+      const otherAuto = await stores[tag === 'a' ? 1 : 0].automations.get(auto(1))
       await au.updateRun(scope, autoRun(1), {
         sessionId: null,
         outcome: 'error',
@@ -1161,9 +1162,7 @@ describe('the automations repository reads and writes only its own workspace', (
       await au.update(scope, { ...automation(tag, 1), name: `${tag} renamed` })
       expect(await au.remove(scope, auto(1), LATER)).toBe(true)
       expect(await rowsOf(store, other)).toEqual(before)
-      expect((await stores[tag === 'a' ? 1 : 0].automations.get(auto(1)))?.name).toBe(
-        `${other} nightly 1`,
-      )
+      expect(await stores[tag === 'a' ? 1 : 0].automations.get(auto(1))).toEqual(otherAuto)
     }
   })
 })
@@ -1266,6 +1265,7 @@ describe('the superagent repository reads and writes only its own workspace', ()
       const sa = store.superagent
       const other = otherOf(tag)
       const before = await rowsOf(store, other)
+      const otherThread = await stores[tag === 'a' ? 1 : 0].superagent.getSuperagentThread(THREAD)
       await sa.setTurnFailure(THREAD, null)
       await sa.setThreadWatermark(THREAD, 'item', AT)
       await sa.updateSuperagentThreadBinding(THREAD, { agentKind: 'changed' })
@@ -1289,9 +1289,9 @@ describe('the superagent repository reads and writes only its own workspace', ()
       await sa.setTurnRunning(THREAD, false)
       await sa.archiveSuperagentThread(THREAD)
       expect(await rowsOf(store, other)).toEqual(before)
-      expect(
-        (await stores[tag === 'a' ? 1 : 0].superagent.getSuperagentThread(THREAD))?.turnRunning,
-      ).toBe(true)
+      expect(await stores[tag === 'a' ? 1 : 0].superagent.getSuperagentThread(THREAD)).toEqual(
+        otherThread,
+      )
     }
   })
 })
@@ -1464,6 +1464,7 @@ describe('the locks repository reads and writes only its own workspace', () => {
       const l = store.locks
       const other = otherOf(tag)
       const before = await rowsOf(store, other)
+      const otherLock = await stores[tag === 'a' ? 1 : 0].locks.getLock(REPO, LOCK)
       // A waiter id is the table's own number: the other workspace's is an id only it holds.
       await l.removeWaiter(seeded[other].waiters[0]!)
       expect(await rowsOf(store, other)).toEqual(before)
@@ -1472,7 +1473,7 @@ describe('the locks repository reads and writes only its own workspace', () => {
       await l.removeWaiter(seeded[tag].waiters[0]!)
       await l.deleteLock(REPO, LOCK)
       expect(await rowsOf(store, other)).toEqual(before)
-      expect((await stores[tag === 'a' ? 1 : 0].locks.getLock(REPO, LOCK))?.holderLabel).toBe(other)
+      expect(await stores[tag === 'a' ? 1 : 0].locks.getLock(REPO, LOCK)).toEqual(otherLock)
     }
   })
 })

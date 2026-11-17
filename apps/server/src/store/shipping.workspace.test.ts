@@ -258,7 +258,7 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag, ids: Ids = SHARED):
     sql`INSERT INTO ship_repair_candidates (workspace_id, order_id, attempt_id, generation, sequence,
          round, context_digest, repair_ref, candidate_head_sha, result_token, recorded_at)
        VALUES (${WS[tag]}, ${one.id}, ${attempt.id}, 1, 1, 1, ${'c'.repeat(64)},
-         ${`refs/repair/${tag}`}, ${`${tag}-candidate`}, ${ids.token}, ${AT})`,
+         ${`refs/repair/${ids.token}/${tag}`}, ${`${tag}-candidate`}, ${ids.token}, ${AT})`,
   )
 
   // The queued order: depends on `one` and stacks on it, so the dependents and stack reads

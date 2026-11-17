@@ -284,22 +284,26 @@ describe('quota windows (store/quota-history.ts)', () => {
   })
 })
 
+/** The id of an operation row's first step: the workspace's own content (in its payload). */
+const stepOf = (row: { payload: string } | undefined): string | undefined =>
+  row && (JSON.parse(row.payload) as PersistedOperation).steps[0]?.id
+
 describe('operations (modules/operations/store.ts)', () => {
   it.each(TAGS)('get, active, activeByGroup and history in %s read only its own', async (tag) => {
     const ops = stores[tag].operations
     const own = `${tag}-first`
     // The same id in both: each reads its own row, told by its step.
-    expect((await ops.get(opId('live')))?.steps).toEqual([{ id: own, state: 'running' }])
+    expect(stepOf(await ops.get(opId('live')))).toBe(own)
     // An id only the other workspace holds is not there.
     await stores[other(tag)].operations.insert(operation(other(tag), 'only-other'))
     expect(await ops.get(opId('only-other'))).toBeUndefined()
-    expect((await ops.active()).map((r) => [r.id, r.steps[0]?.id])).toEqual([[opId('live'), own]])
-    expect((await ops.activeByGroup('lifecycle'))?.steps[0]?.id).toBe(own)
-    expect((await ops.history()).map((r) => [r.id, r.steps[0]?.id])).toEqual(
+    expect((await ops.active()).map((r) => [r.id, stepOf(r)])).toEqual([[opId('live'), own]])
+    expect(stepOf(await ops.activeByGroup('lifecycle'))).toBe(own)
+    expect((await ops.history()).map((r) => [r.id, stepOf(r)])).toEqual(
       ['live', 'finished', 'cleanup', 'approved-new', 'approved-old'].map((n) => [opId(n), own]),
     )
     expect((await ops.history('update', 1)).map((r) => r.id)).toEqual([opId('approved-new')])
-    expect((await ops.pendingCleanup()).map((r) => [r.id, r.steps[0]?.id])).toEqual([
+    expect((await ops.pendingCleanup()).map((r) => [r.id, stepOf(r)])).toEqual([
       [opId('cleanup'), own],
     ])
     expect((await ops.approvedTarget('dev'))?.version).toBe(`${tag}-2`)
