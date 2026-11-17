@@ -1,3 +1,6 @@
+// MANUAL FIXTURE: no XCTest target compiles or runs this file (PodiumPager.podspec
+// globs only ios/). Run it by adding it to an app-hosted iOS 26+ test target in Xcode.
+// It is not regression coverage in CI.
 import UIKit
 import XCTest
 @testable import PodiumPager
