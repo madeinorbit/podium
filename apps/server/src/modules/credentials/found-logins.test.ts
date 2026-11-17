@@ -27,18 +27,20 @@ async function setup(): Promise<{ store: SessionStore; deps: FoundLoginsDeps }> 
   const store = await openTestStore(':memory:')
   for (const id of [OWNER, OTHER]) {
     await memberFacts(store).create(
-      { id, displayName: id, role: 'member', createdAt: new Date().toISOString(), disabledAt: null },
+      {
+        id,
+        displayName: id,
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
       'not-a-real-hash',
     )
   }
-  const machine = async (id: MachineId, owner?: UserId) =>
-    await store.machines.upsertMachine({
-      id,
-      name: id,
-      hostname: `${id}.invalid`,
-      tokenHash: `hash-${id}`,
-      ...(owner ? { ownerUserId: owner } : {}),
-    })
+  const machine = async (id: MachineId, owner?: UserId) => {
+    const row = { id, name: id, hostname: `${id}.invalid`, tokenHash: `hash-${id}` }
+    await store.machines.upsertMachine(owner ? { ...row, ownerUserId: owner } : row)
+  }
   await machine(ONE, OWNER)
   await machine(TWO, OWNER)
   await machine(NOBODYS)
@@ -151,7 +153,11 @@ describe('a login in a default home (acceptance 4)', () => {
 
 describe('a Podium home signed in with no sign-in waiting (server restart)', () => {
   const HOME_ID = 'cred_00000000-0000-4000-8000-0000000000f1:claude-code'
-  const HOME = { homeId: HOME_ID, state: 'in' as const, identity: { fingerprint: 'fp-FAKE-home', email: 'home@example.invalid' } }
+  const HOME = {
+    homeId: HOME_ID,
+    state: 'in' as const,
+    identity: { fingerprint: 'fp-FAKE-home', email: 'home@example.invalid' },
+  }
 
   it('binds it once for the custodian, under the id the home is named for', async () => {
     const { store, deps } = await setup()
@@ -166,7 +172,11 @@ describe('a Podium home signed in with no sign-in waiting (server restart)', () 
 
   it('leaves a home a waiting sign-in will bind', async () => {
     const { store, deps } = await setup()
-    await recordFoundLogins({ ...deps, isWaitingFor: () => true }, ONE, report({ state: 'out' }, [HOME]))
+    await recordFoundLogins(
+      { ...deps, isWaitingFor: () => true },
+      ONE,
+      report({ state: 'out' }, [HOME]),
+    )
     expect(await store.credentials.listVisibleTo(OWNER)).toEqual([])
   })
 })

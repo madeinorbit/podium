@@ -3,7 +3,15 @@
 // that records the arguments and the directory variable it was started with.
 // No real sign-out runs here, and the server keeps the switch off.
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DaemonMessage } from '@podium/protocol/daemon'

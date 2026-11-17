@@ -74,7 +74,13 @@ export async function recordFoundLogins(
       if (fingerprint) {
         const email = own.identity?.email
         const id = await deps.serial.run(identityKey(custodian, type, fingerprint), async () => {
-          if (await deps.store.credentials.findByIdentity({ ownerUserId: custodian, type, fingerprint })) {
+          if (
+            await deps.store.credentials.findByIdentity({
+              ownerUserId: custodian,
+              type,
+              fingerprint,
+            })
+          ) {
             return undefined
           }
           const record = await deps.store.credentials.insert({
@@ -100,7 +106,8 @@ export async function recordFoundLogins(
         const named = parseHomeId(login.homeId)
         if (!homeFingerprint || !named || named.harness !== harness) continue
         if (deps.isWaitingFor(login.homeId)) continue
-        if (await alreadyBound(deps, custodian, type, homeFingerprint, machineId, login.homeId)) continue
+        if (await alreadyBound(deps, custodian, type, homeFingerprint, machineId, login.homeId))
+          continue
         const bound = await bindHomeLogin(deps, {
           ownerUserId: custodian,
           actorUserId: custodian,

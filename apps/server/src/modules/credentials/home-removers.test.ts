@@ -66,7 +66,10 @@ describe('placementRemovers', () => {
     for (const outcome of ['removed', 'absent', 'changed']) {
       const { removers, calls } = fakes({ outcome })
       expect(
-        await removers['propagated-file']?.(MACHINE, record('openai.chatgpt-login', 'fp-1'), { ...REF(record('openai.chatgpt-login', 'fp-1')), kind: 'propagated-file' }),
+        await removers['propagated-file']?.(MACHINE, record('openai.chatgpt-login', 'fp-1'), {
+          ...REF(record('openai.chatgpt-login', 'fp-1')),
+          kind: 'propagated-file',
+        }),
       ).toBe(true)
       expect(calls).toEqual(['credentialRemove:codex:fp-1'])
     }
@@ -74,38 +77,62 @@ describe('placementRemovers', () => {
 
   it('keeps the placement pending when the daemon failed, is too old, or there is no fingerprint', async () => {
     expect(
-      await fakes({ outcome: 'failed' }).removers['propagated-file']?.(MACHINE, record('anthropic.claude-login', 'fp'), { ...REF(record('anthropic.claude-login', 'fp')), kind: 'propagated-file' }),
+      await fakes({ outcome: 'failed' }).removers['propagated-file']?.(
+        MACHINE,
+        record('anthropic.claude-login', 'fp'),
+        { ...REF(record('anthropic.claude-login', 'fp')), kind: 'propagated-file' },
+      ),
     ).toBe(false)
     const old = fakes({ supports: false })
     expect(
-      await old.removers['propagated-file']?.(MACHINE, record('anthropic.claude-login', 'fp'), { ...REF(record('anthropic.claude-login', 'fp')), kind: 'propagated-file' }),
+      await old.removers['propagated-file']?.(MACHINE, record('anthropic.claude-login', 'fp'), {
+        ...REF(record('anthropic.claude-login', 'fp')),
+        kind: 'propagated-file',
+      }),
     ).toBe(false)
     expect(old.calls).toEqual([])
     const blind = fakes()
     expect(
-      await blind.removers['propagated-file']?.(MACHINE, record('anthropic.claude-login'), { ...REF(record('anthropic.claude-login')), kind: 'propagated-file' }),
+      await blind.removers['propagated-file']?.(MACHINE, record('anthropic.claude-login'), {
+        ...REF(record('anthropic.claude-login')),
+        kind: 'propagated-file',
+      }),
     ).toBe(false)
     expect(blind.calls).toEqual([])
   })
 
   it('removes the credential’s home on the machine', async () => {
     const { removers, calls } = fakes()
-    expect(await removers.home?.(MACHINE, record('anthropic.claude-login', 'fp'), REF(record('anthropic.claude-login', 'fp')))).toBe(true)
+    expect(
+      await removers.home?.(
+        MACHINE,
+        record('anthropic.claude-login', 'fp'),
+        REF(record('anthropic.claude-login', 'fp')),
+      ),
+    ).toBe(true)
     expect(calls).toEqual(['homeRemove:cred_ffffffff-0000-4000-8000-000000000006:claude-code'])
     expect(
-      await fakes({ homeOk: false }).removers.home?.(MACHINE, record('anthropic.claude-login'), REF(record('anthropic.claude-login'))),
+      await fakes({ homeOk: false }).removers.home?.(
+        MACHINE,
+        record('anthropic.claude-login'),
+        REF(record('anthropic.claude-login')),
+      ),
     ).toBe(false)
     expect(
-      await fakes({ supports: false }).removers.home?.(MACHINE, record('anthropic.claude-login'), REF(record('anthropic.claude-login'))),
+      await fakes({ supports: false }).removers.home?.(
+        MACHINE,
+        record('anthropic.claude-login'),
+        REF(record('anthropic.claude-login')),
+      ),
     ).toBe(false)
   })
 
   it('removes the home its placement recorded, which a sign-in for another credential made (Task 9)', async () => {
     const { removers, calls } = fakes()
     const credential = record('anthropic.claude-login', 'fp')
-    expect(await removers.home?.(MACHINE, credential, REF(credential, 'cred_other:claude-code'))).toBe(
-      true,
-    )
+    expect(
+      await removers.home?.(MACHINE, credential, REF(credential, 'cred_other:claude-code')),
+    ).toBe(true)
     expect(calls).toEqual(['homeRemove:cred_other:claude-code'])
   })
 
@@ -122,10 +149,19 @@ describe('placementRemovers', () => {
 
   it('has nothing to remove for a credential no home holds', async () => {
     const { removers, calls } = fakes()
-    expect(await removers.home?.(MACHINE, record('anthropic.api-key', 'fp'), REF(record('anthropic.api-key', 'fp')))).toBe(false)
-    expect(await removers['propagated-file']?.(MACHINE, record('anthropic.api-key', 'fp'), { ...REF(record('anthropic.api-key', 'fp')), kind: 'propagated-file' })).toBe(
-      false,
-    )
+    expect(
+      await removers.home?.(
+        MACHINE,
+        record('anthropic.api-key', 'fp'),
+        REF(record('anthropic.api-key', 'fp')),
+      ),
+    ).toBe(false)
+    expect(
+      await removers['propagated-file']?.(MACHINE, record('anthropic.api-key', 'fp'), {
+        ...REF(record('anthropic.api-key', 'fp')),
+        kind: 'propagated-file',
+      }),
+    ).toBe(false)
     expect(calls).toEqual([])
   })
 })

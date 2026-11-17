@@ -18,8 +18,8 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeAuthStatus } from '../../manifests/claude-auth-status.js'
+import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'

@@ -344,7 +344,8 @@ export class SessionStart {
     input: SessionStartInput,
     onDraft: (issueId: IssueId) => void,
   ): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
     // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
     // binding's on-behalf-of human, else the authenticated starter. The task it
     // sits on does not change that: Bob's agent on Alice's task is Bob's. The
@@ -370,7 +371,8 @@ export class SessionStart {
     }
     // Read only when a default is needed, as the old per-site reads were.
     let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
-    const ownerSettings = () => (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
+    const ownerSettings = () =>
+      (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
     // vetted a launchSelection (issue start / add-session) resolved it itself;
@@ -435,16 +437,18 @@ export class SessionStart {
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      // The profile's values are INHERITED, like an issue's stored picks: one the
-      // catalog does not know falls back to `auto` instead of refusing the start.
-      ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
-      settings: await ownerSettings(),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-      force: input.forceUnknownModel,
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        // The profile's values are INHERITED, like an issue's stored picks: one the
+        // catalog does not know falls back to `auto` instead of refusing the start.
+        ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
+        settings: await ownerSettings(),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+        force: input.forceUnknownModel,
+      })
     const { forced } = selection
     // Spawner name is validated before any side effect so a bad title never
     // leaves a half-spawned session.
@@ -640,21 +644,26 @@ export class SessionStart {
     // The owner's preferences, never the first admin's (POD-6285); read only
     // when a default is needed, as the old per-site reads were.
     let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
-    const ownerSettings = () => (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
+    const ownerSettings = () =>
+      (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind: input.agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      settings: await ownerSettings(),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind: input.agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        settings: await ownerSettings(),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+      })
     const launch = {
-      ...await this.ports.launchConfig.modelDefaults(input.agentKind, ownerUserId),
-      ...(selection.model !== 'auto' && input.agentKind !== 'shell' ? { model: selection.model } : {}),
+      ...(await this.ports.launchConfig.modelDefaults(input.agentKind, ownerUserId)),
+      ...(selection.model !== 'auto' && input.agentKind !== 'shell'
+        ? { model: selection.model }
+        : {}),
       ...(selection.effort !== 'auto' && harnessSupportsEffort(input.agentKind)
         ? { effort: selection.effort }
         : {}),

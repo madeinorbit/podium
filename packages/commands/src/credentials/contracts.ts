@@ -440,7 +440,8 @@ export const credentialsSignInStartContract = {
       'A credential the caller does not own or a machine that does not exist answers as one ' +
       'that does not exist; a machine the credential was not sent to is `machine-not-allowed`.',
   },
-  conflictRule: 'A second start for a credential already waiting on that machine returns that attempt',
+  conflictRule:
+    'A second start for a credential already waiting on that machine returns that attempt',
 } as const satisfies CommandContract<typeof credentialsSignInStartInput>
 
 export const credentialsSignInCancelContract = {

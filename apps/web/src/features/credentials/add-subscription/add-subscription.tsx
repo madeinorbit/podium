@@ -270,8 +270,8 @@ export function AddSubscription({
   return (
     <form className="settings-measure flex flex-col gap-4" onSubmit={(e) => void start(e)}>
       <p className="settings-prose">
-        Sign in to a subscription in {kind.program} on one of your machines. The login stays on
-        that machine, next to any you already have there.
+        Sign in to a subscription in {kind.program} on one of your machines. The login stays on that
+        machine, next to any you already have there.
       </p>
       {!initialType && (
         <fieldset className="flex flex-col gap-2">

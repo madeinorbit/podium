@@ -304,9 +304,15 @@ describe('acceptance 1: who may run which command', () => {
   it('the owner can do everything in turn, and the credential ends removed', async () => {
     const { store, as, credentialId } = await harness()
     const owner = as(member(OWNER))
-    // Every write on this credential; a ChatGPT sign-in names none (its own tests).
+    // Every write on this credential; a ChatGPT sign-in and a sign-in on a
+    // machine name none (their own tests).
     const onTarget = CREDENTIAL_CONTRACT_NAMES.filter(
-      (n) => n !== 'remove' && n !== 'chatgptSignInStart' && n !== 'chatgptSignInComplete',
+      (n) =>
+        n !== 'remove' &&
+        n !== 'chatgptSignInStart' &&
+        n !== 'chatgptSignInComplete' &&
+        n !== 'signInStart' &&
+        n !== 'signInCancel',
     )
     for (const name of onTarget) {
       await invoke(owner, name, credentialId)

@@ -191,12 +191,13 @@
       "wire": {
         "type": "homeRemoveRequest",
         "requestId": "requestId",
-        "homeId": "homeId"
+        "homeId": "homeId",
+        "signOut": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"homeRemoveRequest\",\"requestId\":\"requestId\",\"homeId\":\"homeId\"}"
+      "encoded": "{\"type\":\"homeRemoveRequest\",\"requestId\":\"requestId\",\"homeId\":\"homeId\",\"signOut\":true}"
     },
     {
       "schema": "HomeRemoveResultMessage",

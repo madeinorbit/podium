@@ -112,7 +112,6 @@ import {
 } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
-import { NativeLoginService } from './modules/credentials/native-login'
 import { AgentProfileService } from './modules/agent-profiles/service'
 import { ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
@@ -124,6 +123,7 @@ import {
   type ChatgptPlanService,
   composeChatgptPlan,
 } from './modules/credentials/chatgpt-plan/service'
+import { recordFoundLogins } from './modules/credentials/found-logins'
 import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,
@@ -132,9 +132,9 @@ import {
   classifyCredentialFailure,
 } from './modules/credentials/health'
 import { placementRemovers } from './modules/credentials/home-removers'
-import { recordFoundLogins } from './modules/credentials/found-logins'
-import { HomeSignInService } from './modules/credentials/sign-in'
+import { NativeLoginService } from './modules/credentials/native-login'
 import { Placements } from './modules/credentials/placements'
+import { HomeSignInService } from './modules/credentials/sign-in'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
 import { makeEffectFeedCapture } from './modules/effects/feed'

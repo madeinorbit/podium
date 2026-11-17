@@ -44,7 +44,7 @@ import { type CredentialEvent, recordCredentialEvent } from './events'
 import { pastedIdentity } from './fingerprint'
 import type { CredentialHealth } from './health'
 import { CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel, mayUse } from './may-use'
-import { type HomeSignInService, SignInRefused as HomeSignInRefused } from './sign-in'
+import { SignInRefused as HomeSignInRefused, type HomeSignInService } from './sign-in'
 import { sealCredentialSecret, VaultLockedError } from './vault'
 
 /** The store tables the credential family reaches. A SessionStore satisfies it. */
@@ -135,7 +135,8 @@ function signInOf(state: CredentialsState): HomeSignInService {
 
 const homeSignInRefusal = (error: unknown): never => {
   if (error instanceof HomeSignInRefused) {
-    if (error.code === 'not-found') throw new TRPCError({ code: 'NOT_FOUND', message: error.message })
+    if (error.code === 'not-found')
+      throw new TRPCError({ code: 'NOT_FOUND', message: error.message })
     throw new TRPCError({
       code: error.refusal === 'machine-not-allowed' ? 'FORBIDDEN' : 'BAD_REQUEST',
       message: error.message,

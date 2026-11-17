@@ -253,7 +253,9 @@ export async function bindHomeLogin(
     const before = (await store.credentials.listPlacements(credential.id)).find(
       (p) => p.kind === 'home' && p.machineId === i.machineId && p.state === 'present',
     )
-    const beforeHome = before ? (before.homeId ?? (harness ? homeIdFor(credential.id, harness) : undefined)) : undefined
+    const beforeHome = before
+      ? (before.homeId ?? (harness ? homeIdFor(credential.id, harness) : undefined))
+      : undefined
     const replacedHomeId = beforeHome && beforeHome !== i.login.homeId ? beforeHome : undefined
     await store.credentials.recordPlacement({
       credentialId: credential.id,
@@ -350,19 +352,24 @@ export class HomeSignInService {
     const custodian = await store.machines.custodian(i.machineId)
     const allowed =
       custodian === i.ownerUserId ||
-      (existing !== undefined && (await store.credentials.isMachineAllowed(existing.id, i.machineId)))
+      (existing !== undefined &&
+        (await store.credentials.isMachineAllowed(existing.id, i.machineId)))
     if (!allowed) throw refused('machine-not-allowed')
     if (!this.deps.daemon.isOnline(i.machineId)) throw refused('machine-offline')
     if (!this.deps.daemon.supports(i.machineId, CAP_HARNESS_HOMES)) throw refused('daemon-too-old')
     const agent = machine.inventory?.agents.find((a) => a.kind === harness)
     if (agent && agent.installed === false) {
-      throw new SignInRefused(`${spec.title} needs ${harness} on ${machine.name}; it is not installed there.`)
+      throw new SignInRefused(
+        `${spec.title} needs ${harness} on ${machine.name}; it is not installed there.`,
+      )
     }
 
     const attemptId = existing?.id ?? newCredentialId()
     const ensured = await this.deps.rpc.homeEnsure(attemptId, harness, i.machineId)
     if (!ensured.ok) {
-      throw new SignInRefused(ensured.error ?? `${machine.name} could not make a home for the login.`)
+      throw new SignInRefused(
+        ensured.error ?? `${machine.name} could not make a home for the login.`,
+      )
     }
     const homeId = ensured.homeId ?? homeIdFor(attemptId, harness)
     const created = ensured.created === true
@@ -502,7 +509,12 @@ export class HomeSignInService {
   private async removeHome(homeId: string, machineId: MachineId): Promise<void> {
     try {
       const result = await this.deps.rpc.homeRemove(homeId, machineId)
-      if (!result.ok) log.warn('an unused sign-in home was not removed', { homeId, machineId, error: result.error })
+      if (!result.ok)
+        log.warn('an unused sign-in home was not removed', {
+          homeId,
+          machineId,
+          error: result.error,
+        })
     } catch (error) {
       log.warn('an unused sign-in home was not removed', { err: error, homeId, machineId })
     }

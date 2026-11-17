@@ -43,10 +43,10 @@ import {
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
-import { NativeLoginService } from '../credentials/native-login'
 import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
+import { NativeLoginService } from '../credentials/native-login'
 import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import {
   AUTH_COMMANDS_TRPC,

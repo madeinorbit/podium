@@ -330,7 +330,11 @@ describe('resolveSessionAccess', () => {
             login: { state: 'out' },
             logins: [
               { homeId: 'default', state: 'out' },
-              { homeId: `${id}:claude-code`, state: 'out', identity: { fingerprint: 'fp-claude-out' } },
+              {
+                homeId: `${id}:claude-code`,
+                state: 'out',
+                identity: { fingerprint: 'fp-claude-out' },
+              },
             ],
           },
         ],

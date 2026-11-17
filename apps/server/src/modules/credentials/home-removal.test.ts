@@ -24,7 +24,13 @@ const MACHINE = asMachineId('machine:removal')
 async function setup() {
   const store = await openTestStore(':memory:')
   await memberFacts(store).create(
-    { id: OWNER, displayName: 'o', role: 'member', createdAt: new Date().toISOString(), disabledAt: null },
+    {
+      id: OWNER,
+      displayName: 'o',
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    },
     'not-a-real-hash',
   )
   await store.machines.upsertMachine({
@@ -69,11 +75,21 @@ describe('removing a subscription login (acceptance 6)', () => {
     })
     // The home a sign-in for another credential made, attached to this one.
     const homeId = 'cred_00000000-0000-4000-8000-0000000000e1:claude-code'
-    await store.credentials.recordPlacement({ credentialId: record.id, machineId: MACHINE, kind: 'home', homeId })
+    await store.credentials.recordPlacement({
+      credentialId: record.id,
+      machineId: MACHINE,
+      kind: 'home',
+      homeId,
+    })
     await health.removeEverywhere(record.id, OWNER)
     expect(toMachine).toEqual([`homeRemove ${homeId}`])
     expect(await store.credentials.listPlacements(record.id)).toEqual([
-      expect.objectContaining({ kind: 'home', homeId, state: 'removed', removedAt: expect.any(String) }),
+      expect.objectContaining({
+        kind: 'home',
+        homeId,
+        state: 'removed',
+        removedAt: expect.any(String),
+      }),
     ])
   })
 

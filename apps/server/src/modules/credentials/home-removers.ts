@@ -92,7 +92,11 @@ export function placementRemovers(deps: PlacementRemoverDeps): PlacementTranspor
       }
       return outcome !== 'failed'
     },
-    home: async (machineId: MachineId, credential: CredentialRecord, placement: PlacementRecord) => {
+    home: async (
+      machineId: MachineId,
+      credential: CredentialRecord,
+      placement: PlacementRecord,
+    ) => {
       const harness = homeHarnessFor(credential.type)
       if (!harness || !deps.daemonSupports(machineId, CAP_HARNESS_HOMES)) return false
       const homeId = placement.homeId ?? homeIdFor(credential.id, harness)

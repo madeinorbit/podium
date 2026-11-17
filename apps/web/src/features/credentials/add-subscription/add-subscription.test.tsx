@@ -94,6 +94,15 @@ describe('Add a subscription', () => {
     expect(openTerminal).toHaveBeenCalledTimes(2)
   })
 
+  it('waiting for a Claude sign-in names the paste-code step', async () => {
+    show(fakeServer())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in on Desk' }))
+    expect(
+      await screen.findByText(/Waiting for you to sign in to your Claude subscription/),
+    ).toBeTruthy()
+    expect(screen.getByText(/paste the code/)).toBeTruthy()
+  })
+
   it('cancel gives the sign-in up on the server', async () => {
     const commands = fakeServer()
     const { onDone } = show(commands)
@@ -106,7 +115,6 @@ describe('Add a subscription', () => {
   it('signed in as a named account: the account that signed in is named, and the list reloads', async () => {
     const commands = fakeServer([WAITING, SIGNED_IN])
     const { reload } = show(commands)
-    expect(screen.getByText(/paste the code/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sign in on Desk' }))
     expect(
       await screen.findByText('Signed in as second@example.test. Added as “Second Max”.'),

@@ -7,7 +7,14 @@
  * the test hands in. Identities are obviously fake.
  */
 
-import { asMachineId, asSessionId, asUserId, type CredentialId, type Inventory, type MachineId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type CredentialId,
+  type Inventory,
+  type MachineId,
+} from '@podium/model'
 import { CAP_HARNESS_HOMES } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
@@ -33,7 +40,13 @@ async function setup(opts: { online?: boolean; homes?: boolean; created?: boolea
   const store: SessionStore = await openTestStore(':memory:')
   for (const id of [OWNER, OTHER]) {
     await memberFacts(store).create(
-      { id, displayName: id, role: 'member', createdAt: new Date().toISOString(), disabledAt: null },
+      {
+        id,
+        displayName: id,
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
       'not-a-real-hash',
     )
   }
@@ -135,7 +148,11 @@ describe('signInStart (acceptance 1)', () => {
       terminalSessionId: started.terminalSessionId,
     })
     // Codex's home is its own harness's.
-    const codex = await service.start({ ownerUserId: OWNER, type: 'openai.chatgpt-login', machineId: MINE })
+    const codex = await service.start({
+      ownerUserId: OWNER,
+      type: 'openai.chatgpt-login',
+      machineId: MINE,
+    })
     expect(calls.at(-1)).toBe(`open codex sign-in in ${codex.credentialId}:codex on ${MINE}`)
   })
 
@@ -158,7 +175,12 @@ describe('signInStart (acceptance 1)', () => {
       identity: { fingerprint: FP_A, email: A },
     })
     await refusalOf(
-      service.start({ ownerUserId: OWNER, type: existing.type, machineId: THEIRS, credentialId: existing.id }),
+      service.start({
+        ownerUserId: OWNER,
+        type: existing.type,
+        machineId: THEIRS,
+        credentialId: existing.id,
+      }),
     )
     await store.credentials.allowMachine(existing.id, THEIRS, OWNER)
     const started = await service.start({
@@ -173,24 +195,48 @@ describe('signInStart (acceptance 1)', () => {
 
   it('refuses a type that is not signed in on a machine, an offline machine and an old daemon', async () => {
     expect(
-      (await refusalOf((await setup()).service.start({ ownerUserId: OWNER, type: 'anthropic.api-key', machineId: MINE })))
-        .message,
+      (
+        await refusalOf(
+          (
+            await setup()
+          ).service.start({ ownerUserId: OWNER, type: 'anthropic.api-key', machineId: MINE }),
+        )
+      ).message,
     ).toMatch(/not added by signing in/)
     expect(
-      (await refusalOf((await setup({ online: false })).service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE })))
-        .refusal,
+      (
+        await refusalOf(
+          (
+            await setup({ online: false })
+          ).service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE }),
+        )
+      ).refusal,
     ).toBe('machine-offline')
     expect(
-      (await refusalOf((await setup({ homes: false })).service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE })))
-        .refusal,
+      (
+        await refusalOf(
+          (
+            await setup({ homes: false })
+          ).service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE }),
+        )
+      ).refusal,
     ).toBe('daemon-too-old')
   })
 
   it("answers another person's credential as one that does not exist", async () => {
     const { store, service } = await setup()
-    const theirs = await store.credentials.insert({ ownerUserId: OTHER, label: 'x', type: 'anthropic.claude-login' })
+    const theirs = await store.credentials.insert({
+      ownerUserId: OTHER,
+      label: 'x',
+      type: 'anthropic.claude-login',
+    })
     const refusal = await refusalOf(
-      service.start({ ownerUserId: OWNER, type: theirs.type, machineId: MINE, credentialId: theirs.id }),
+      service.start({
+        ownerUserId: OWNER,
+        type: theirs.type,
+        machineId: MINE,
+        credentialId: theirs.id,
+      }),
     )
     expect(refusal.code).toBe('not-found')
   })
@@ -237,7 +283,11 @@ describe('the home reports a login (acceptance 2)', () => {
 
   it('names the credential after the account when the person gave no name', async () => {
     const { store, service } = await setup()
-    const started = await service.start({ ownerUserId: OWNER, type: 'openai.chatgpt-login', machineId: MINE })
+    const started = await service.start({
+      ownerUserId: OWNER,
+      type: 'openai.chatgpt-login',
+      machineId: MINE,
+    })
     await service.onInventory(
       MINE,
       reporting('codex', `${started.credentialId}:codex`, { fingerprint: FP_B, email: B }),
@@ -262,7 +312,10 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
       identity: { fingerprint: FP_B, email: B },
     })
     await service.start({ ownerUserId: OWNER, type: a.type, machineId: MINE, credentialId: a.id })
-    await service.onInventory(MINE, reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_B, email: B }))
+    await service.onInventory(
+      MINE,
+      reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_B, email: B }),
+    )
     expect(service.status(a.id, OWNER)).toEqual({
       state: 'signed-in',
       credentialId: b.id,
@@ -271,7 +324,12 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
       outcome: 'attached',
     })
     expect(await store.credentials.listPlacements(b.id)).toEqual([
-      expect.objectContaining({ machineId: MINE, kind: 'home', homeId: `${a.id}:claude-code`, state: 'present' }),
+      expect.objectContaining({
+        machineId: MINE,
+        kind: 'home',
+        homeId: `${a.id}:claude-code`,
+        state: 'present',
+      }),
     ])
     expect((await store.credentials.get(a.id))?.identity).toEqual({ fingerprint: FP_A, email: A })
     expect(await store.credentials.listPlacements(a.id)).toEqual([])
@@ -288,9 +346,15 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
     const started = await service.start({ ownerUserId: OWNER, type: b.type, machineId: MINE })
     await service.onInventory(
       MINE,
-      reporting('claude-code', `${started.credentialId}:claude-code`, { fingerprint: FP_B, email: B }),
+      reporting('claude-code', `${started.credentialId}:claude-code`, {
+        fingerprint: FP_B,
+        email: B,
+      }),
     )
-    expect(service.status(started.credentialId, OWNER)).toMatchObject({ credentialId: b.id, outcome: 'attached' })
+    expect(service.status(started.credentialId, OWNER)).toMatchObject({
+      credentialId: b.id,
+      outcome: 'attached',
+    })
     expect(await store.credentials.get(started.credentialId)).toBeUndefined()
     expect(await store.credentials.listVisibleTo(OWNER)).toHaveLength(1)
   })
@@ -304,7 +368,10 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
       identity: { fingerprint: FP_A, email: A },
     })
     await service.start({ ownerUserId: OWNER, type: a.type, machineId: MINE, credentialId: a.id })
-    await service.onInventory(MINE, reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_B, email: B }))
+    await service.onInventory(
+      MINE,
+      reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_B, email: B }),
+    )
     expect(service.status(a.id, OWNER)).toEqual({
       state: 'signed-in',
       credentialId: a.id,
@@ -326,7 +393,10 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
     })
     await store.credentials.markAttention(a.id, 'signed out')
     await service.start({ ownerUserId: OWNER, type: a.type, machineId: MINE, credentialId: a.id })
-    await service.onInventory(MINE, reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_A, email: A }))
+    await service.onInventory(
+      MINE,
+      reporting('claude-code', `${a.id}:claude-code`, { fingerprint: FP_A, email: A }),
+    )
     expect(service.status(a.id, OWNER)).toMatchObject({ outcome: 'same', credentialId: a.id })
     expect((await store.credentials.get(a.id))?.status).toBe('ok')
   })
@@ -335,7 +405,11 @@ describe('signed in as another account (acceptance 3, review focus 5)', () => {
 describe('cancelled or abandoned (acceptance 5)', () => {
   async function started() {
     const s = await setup()
-    const attempt = await s.service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE })
+    const attempt = await s.service.start({
+      ownerUserId: OWNER,
+      type: 'anthropic.claude-login',
+      machineId: MINE,
+    })
     s.calls.length = 0
     return { ...s, attempt, home: `${attempt.credentialId}:claude-code` }
   }
@@ -375,9 +449,21 @@ describe('cancelled or abandoned (acceptance 5)', () => {
 
   it('an abandoned sign-in times out, closes the terminal and removes the home', async () => {
     const store = await openTestStore(':memory:')
-    await store.machines.upsertMachine({ id: MINE, name: 'm', hostname: 'm.invalid', tokenHash: 'h', ownerUserId: OWNER })
+    await store.machines.upsertMachine({
+      id: MINE,
+      name: 'm',
+      hostname: 'm.invalid',
+      tokenHash: 'h',
+      ownerUserId: OWNER,
+    })
     await memberFacts(store).create(
-      { id: OWNER, displayName: 'o', role: 'member', createdAt: new Date().toISOString(), disabledAt: null },
+      {
+        id: OWNER,
+        displayName: 'o',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
       'not-a-real-hash',
     )
     const calls: string[] = []
@@ -396,16 +482,26 @@ describe('cancelled or abandoned (acceptance 5)', () => {
       ttlMs: 20,
     })
     services.push(service)
-    const attempt = await service.start({ ownerUserId: OWNER, type: 'anthropic.claude-login', machineId: MINE })
+    const attempt = await service.start({
+      ownerUserId: OWNER,
+      type: 'anthropic.claude-login',
+      machineId: MINE,
+    })
     const deadline = Date.now() + 5_000
-    while (service.status(attempt.credentialId, OWNER).state === 'waiting' && Date.now() < deadline) {
+    while (
+      service.status(attempt.credentialId, OWNER).state === 'waiting' &&
+      Date.now() < deadline
+    ) {
       await new Promise((r) => setTimeout(r, 10))
     }
     expect(service.status(attempt.credentialId, OWNER)).toEqual({
       state: 'failed',
       reason: 'The sign-in was not finished in time.',
     })
-    expect(calls).toEqual(['close abandoned-terminal', `remove ${attempt.credentialId}:claude-code`])
+    expect(calls).toEqual([
+      'close abandoned-terminal',
+      `remove ${attempt.credentialId}:claude-code`,
+    ])
     expect(await store.credentials.listVisibleTo(OWNER)).toEqual([])
   })
 
@@ -417,7 +513,12 @@ describe('cancelled or abandoned (acceptance 5)', () => {
       type: 'anthropic.claude-login',
       identity: { fingerprint: FP_A, email: A },
     })
-    const attempt = await service.start({ ownerUserId: OWNER, type: a.type, machineId: MINE, credentialId: a.id })
+    const attempt = await service.start({
+      ownerUserId: OWNER,
+      type: a.type,
+      machineId: MINE,
+      credentialId: a.id,
+    })
     await service.cancel(attempt.credentialId, OWNER)
     expect(calls.filter((c) => c.startsWith('remove'))).toEqual([])
     expect((await store.credentials.get(a.id))?.status).toBe('ok')

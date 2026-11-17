@@ -18,6 +18,7 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
+import { classifyCodexLoginStatus } from '../../manifests/codex-login-status.js'
 import { scheduleStatPoll } from '../../transcript-types.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
@@ -40,7 +41,6 @@ import {
 } from './state-provider.js'
 import { codexPromptTextMatches, codexTranscript } from './transcript.js'
 import { codexUsage } from './usage.js'
-import { classifyCodexLoginStatus } from '../../manifests/codex-login-status.js'
 
 const log = createLogger('harness:codex')
 

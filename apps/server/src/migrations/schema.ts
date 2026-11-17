@@ -3690,9 +3690,7 @@ export const credentials = sqliteTable(
     uniqueIndex('credentials_legacy_id').on(table.legacyId),
     uniqueIndex('credentials_owner_legacy_key').on(table.ownerUserId, table.legacyKey),
     // The expiry sweep (credential management §7): the few credentials with an expiry.
-    index('idx_credentials_expiry')
-      .on(table.expiresAt)
-      .where(sql`${table.expiresAt} IS NOT NULL`),
+    index('idx_credentials_expiry').on(table.expiresAt).where(sql`${table.expiresAt} IS NOT NULL`),
     check('credentials_status', sql`status IN ('ok', 'attention', 'revoked')`),
   ],
 )
@@ -3784,7 +3782,6 @@ export const vaultKey = sqliteTable(
   },
   (table) => [check('vault_key_one_row', sql`id = 1`)],
 )
-
 
 /**
  * THE NOTICE INBOX (POD-6881, credential management spec §13): one row per
