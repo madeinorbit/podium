@@ -52,7 +52,7 @@ function append(writer: SqlDatabase, name: string, text = 'x') {
   try {
     writer
       .prepare(
-        "INSERT INTO agent_profiles(id,name,instructions,created_at,updated_at) VALUES (?,?,?,'t0','t0')",
+        "INSERT INTO agent_profiles(workspace_id,id,name,instructions,created_at,updated_at) VALUES ('local',?,?,?,'t0','t0')",
       )
       .run(id, `profile ${id}`, text)
     const { head_seq: seq } = writer
