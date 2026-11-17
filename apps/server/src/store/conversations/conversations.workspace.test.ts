@@ -1,7 +1,9 @@
 /**
- * CONVERSATIONS AND SEARCH ARE A WORKSPACE'S (POD-6959 design 2.4, 2.5; task POD-7022).
+ * CONVERSATIONS AND SEARCH ARE A WORKSPACE'S (POD-6959 design 2.4, 2.5; task POD-7022), ON
+ * BOTH ENGINES (POD-6990).
  *
- * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
+ * Two workspaces over one database (`openConversationStoreSlices`: SQLite on the store
+ * shard, Postgres on the `server-store-pg` lane), each seeded through its own
  * repositories with its own conversations, registry identities and segments, mirror cursors and
  * incarnations, and transcript search rows. The ids differ between the workspaces: until the key
  * migration (C1, POD-7024) no unique constraint includes `workspace_id`, so the same id in both
@@ -13,21 +15,31 @@
  *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
  *     a write in A addressed at B's own ids, which must find nothing to change.
  *
- * A transcript row whose segment no workspace holds is the self-hosted workspace's: only its
- * search finds it.
+ * On SQLite the transcript search rows are `transcript_fts`, held to a workspace through the key
+ * table `transcript_fts_keys`; on Postgres they are `transcript_text`, held to it by the row's own
+ * `workspace_id` (`store/conversations/search-pg.ts`). The same cases hold both.
  *
- * And the search key table's open path: a `transcript_fts_keys` from before the workspace column
- * is made again with it, and its rows are keyed again to the workspace whose segment they
- * belong to.
+ * SQLite only, because Postgres has no key table and every row carries its workspace: a
+ * transcript row whose segment no workspace holds is the self-hosted workspace's (only its
+ * search finds it), and the key table's open path (a `transcript_fts_keys` from before the
+ * workspace column is made again with it, and its rows are keyed again to the workspace whose
+ * segment they belong to).
  */
 
 import { asMachineId, type ConversationId, type MachineId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
-import type { SessionStore } from '../../store'
-import { openWorkspaceStores } from '../../test-support/workspace-stores'
+import {
+  type ConversationStoreSlice,
+  openConversationStoreSlices,
+} from '../../test-support/conversation-store-slice'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import type { ConversationIndexRow } from '../types'
+
+const ON_PG = testStoreEngine() === 'pg'
+type SessionStore = ConversationStoreSlice
 
 type Tag = 'a' | 'b'
 const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
@@ -40,40 +52,45 @@ const nat = (tag: Tag, n: number) => `${tag}-native-${n}`
 const lakePath = (tag: Tag, n: number) => `/lake/${tag}/${n}.jsonl`
 const project = (tag: Tag) => `/repo-${tag}`
 
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    get(...params: unknown[]): unknown
-    run(...params: unknown[]): unknown
+/**
+ * The tables this group owns, read raw per workspace in key order, for "unchanged"
+ * comparisons. `transcript_rows` is the search rows' workspace record: SQLite's key table,
+ * Postgres's `transcript_text`.
+ */
+const TABLES = {
+  conversations: 'SELECT * FROM conversations WHERE workspace_id = $ws ORDER BY id',
+  conversation_identities:
+    'SELECT * FROM conversation_identities WHERE workspace_id = $ws ORDER BY podium_id',
+  conversation_segments:
+    'SELECT * FROM conversation_segments WHERE workspace_id = $ws ORDER BY machine_id, native_id',
+  conversation_segment_incarnations:
+    'SELECT * FROM conversation_segment_incarnations WHERE workspace_id = $ws ORDER BY machine_id, native_id, sequence',
+  transcript_rows: ON_PG
+    ? 'SELECT id, workspace_id, machine_id, native_id, content FROM transcript_text WHERE workspace_id = $ws ORDER BY id'
+    : 'SELECT * FROM transcript_fts_keys WHERE workspace_id = $ws ORDER BY fts_rowid',
+} as const
+
+/** `text` with its one `$ws` bound to `value`. */
+const bound = (text: string, value: string) => {
+  const [before, after] = text.split('$ws') as [string, string]
+  return sql`${sql.raw(before)}${value}${sql.raw(after)}`
+}
+
+async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const [table, text] of Object.entries(TABLES)) {
+    out[table] = await store.all(bound(text, WS[tag]))
   }
-  exec(sql: string): void
+  return out
 }
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
 
-/** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
-const TABLES = [
-  'conversations',
-  'conversation_identities',
-  'conversation_segments',
-  'conversation_segment_incarnations',
-  'transcript_fts_keys',
-] as const
-
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
+/** Every search row of `tag`'s machine, keyed or not: a delete in the other workspace keeps them. */
+const ftsRowsOf = async (store: SessionStore, tag: Tag) =>
+  await store.all(
+    ON_PG
+      ? sql`SELECT id, content FROM transcript_text WHERE machine_id = ${machine(tag)} ORDER BY id`
+      : sql`SELECT rowid, content FROM transcript_fts WHERE machine_id = ${machine(tag)} ORDER BY rowid`,
   )
-}
-
-/** Every FTS row of `tag`'s machine, keyed or not: a delete in the other workspace keeps them. */
-const ftsRowsOf = (store: SessionStore, tag: Tag) =>
-  rawDb(store)
-    .prepare('SELECT rowid, content FROM transcript_fts WHERE machine_id = ? ORDER BY rowid')
-    .all(machine(tag))
 
 function conversation(tag: Tag, n: number, patch: Partial<ConversationIndexRow> = {}) {
   return {
@@ -154,7 +171,7 @@ let stores: { a: SessionStore; b: SessionStore }
 let seeded: Record<Tag, Seeded>
 
 beforeEach(async () => {
-  const [a, b] = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+  const [a, b] = await openConversationStoreSlices([WS.a, WS.b])
   stores = { a, b }
   for (const store of [a, b]) await store.conversations.ensureFts(true)
   seeded = { a: await seed(a, 'a'), b: await seed(b, 'b') }
@@ -165,14 +182,14 @@ afterEach(async () => {
 })
 
 describe('POD-7022 — conversations and search are a workspace’s', () => {
-  it('seeds both workspaces with their own rows', () => {
+  it('seeds both workspaces with their own rows', async () => {
     for (const tag of ['a', 'b'] as const) {
-      const rows = rowsOf(stores[tag], tag)
+      const rows = await rowsOf(stores[tag], tag)
       expect(rows.conversations).toHaveLength(2)
       expect(rows.conversation_identities).toHaveLength(2)
       expect(rows.conversation_segments).toHaveLength(3)
       expect(rows.conversation_segment_incarnations).toHaveLength(2)
-      expect(rows.transcript_fts_keys).toHaveLength(2)
+      expect(rows.transcript_rows).toHaveLength(2)
     }
   })
 
@@ -233,7 +250,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
 
     it('an upsert, a delete and a meta write in A leave B unchanged', async () => {
       const { index } = stores.a.conversations
-      const before = rowsOf(stores.b, 'b')
+      const before = await rowsOf(stores.b, 'b')
 
       await index.upsert(scope, [conversation('a', 1, { title: 'retitled' }), conversation('a', 4)])
       await index.setMeta(scope, nat('a', 2), { name: 'a renamed' })
@@ -244,7 +261,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
       )
       expect(await index.delete(scope, machine('a'), [nat('a', 4)])).toEqual([nat('a', 4)])
 
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
       expect((await index.records([nat('a', 1)]))[0]?.title).toBe('retitled')
       expect((await index.curatedMetaOf([nat('a', 2)])).get(nat('a', 2))).toEqual({
         name: 'a renamed',
@@ -312,7 +329,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
     it('ensure, ensureMany and linkSegment in A leave B unchanged', async () => {
       const { registry } = stores.a.conversations
       const m = machine('a')
-      const before = rowsOf(stores.b, 'b')
+      const before = await rowsOf(stores.b, 'b')
 
       // Existing rows: adopt a parent and refresh a file, one at a time and many at once.
       const third = await registry.ensure({ machineId: m, nativeId: nat('a', 5), providerId: 'p' })
@@ -337,7 +354,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
         providerId: 'p',
       })
 
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
       expect(await registry.segmentPath(m, nat('a', 2))).toBe('/lake/a/2b.jsonl')
       expect((await registry.parentPodiumIds([third])).get(third)).toBe(seeded.a.root)
       expect(await registry.siblingSegments(m, nat('a', 7))).toEqual([
@@ -402,7 +419,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
 
     it('cursor writes and rotations in A leave B unchanged, even aimed at B’s segments', async () => {
       const { mirror } = stores.a.conversations
-      const before = rowsOf(stores.b, 'b')
+      const before = await rowsOf(stores.b, 'b')
       const mb = machine('b')
 
       await mirror.setReportedBytes(mb, nat('b', 2), 999)
@@ -417,7 +434,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
           AT,
         ),
       ).toBe(false)
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
 
       // A's own writes land, and B still holds what it held.
       const m = machine('a')
@@ -435,7 +452,7 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
         ),
       ).toBe(true)
       expect(await mirror.reportedBytes(m, nat('a', 2))).toBe(250)
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
     })
   })
 
@@ -473,8 +490,8 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
 
     it('an append, a drop and a reset in A leave B unchanged, even aimed at B’s segments', async () => {
       const { transcriptIndex } = stores.a.conversations
-      const before = rowsOf(stores.b, 'b')
-      const bFts = ftsRowsOf(stores.b, 'b')
+      const before = await rowsOf(stores.b, 'b')
+      const bFts = await ftsRowsOf(stores.b, 'b')
       const mb = machine('b')
 
       await transcriptIndex.drop(mb, nat('b', 1))
@@ -484,8 +501,8 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
           indexedBytes: 20,
         }),
       ).toBe(false)
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
-      expect(ftsRowsOf(stores.b, 'b')).toEqual(bFts)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await ftsRowsOf(stores.b, 'b')).toEqual(bFts)
 
       const m = machine('a')
       await transcriptIndex.append(m, nat('a', 2), [{ content: 'needle three' }], 5)
@@ -500,108 +517,116 @@ describe('POD-7022 — conversations and search are a workspace’s', () => {
       expect(await transcriptIndex.rows(m, nat('a', 2))).toEqual([])
       expect(await stores.a.conversations.transcriptIndex.searchCandidates('needle')).toEqual([])
 
-      expect(rowsOf(stores.b, 'b')).toEqual(before)
-      expect(ftsRowsOf(stores.b, 'b')).toEqual(bFts)
+      expect(await rowsOf(stores.b, 'b')).toEqual(before)
+      expect(await ftsRowsOf(stores.b, 'b')).toEqual(bFts)
       expect(await stores.b.conversations.transcriptIndex.searchCandidates('needle')).toHaveLength(
         2,
       )
     })
   })
 
-  describe('the search key table’s workspace column', () => {
-    /** Put the key table back in its shape from before the column, keeping its rows. */
-    function oldKeyTable(store: SessionStore): void {
-      rawDb(store).exec(`
-        CREATE TABLE keys_before AS SELECT fts_rowid, machine_id, native_id FROM transcript_fts_keys;
-        DROP TABLE transcript_fts_keys;
-        CREATE TABLE transcript_fts_keys (
-          fts_rowid INTEGER PRIMARY KEY, machine_id TEXT NOT NULL, native_id TEXT NOT NULL);
-        INSERT INTO transcript_fts_keys SELECT * FROM keys_before;
-        DROP TABLE keys_before;
-        CREATE INDEX idx_transcript_fts_keys_segment ON transcript_fts_keys (machine_id, native_id);`)
-    }
-
-    const workspaceColumn = (store: SessionStore) =>
-      rawDb(store)
-        .prepare(
-          `SELECT "notnull" AS not_null FROM pragma_table_info('transcript_fts_keys') WHERE name = 'workspace_id'`,
-        )
-        .all()
-
-    it('is made with the table, non-null', () => {
-      expect(workspaceColumn(stores.a)).toEqual([{ not_null: 1 }])
-    })
-
-    it('is made again with it when the index opens, and each workspace keys its own segments’ rows', async () => {
-      oldKeyTable(stores.a)
-      expect(workspaceColumn(stores.a)).toEqual([])
-      const contents = async (tag: Tag) =>
-        (await stores[tag].conversations.transcriptIndex.rows(machine(tag), nat(tag, 1))).map(
-          (row) => row.content,
-        )
-
-      await stores.a.conversations.transcriptIndex.enableFts()
-      expect(workspaceColumn(stores.a)).toEqual([{ not_null: 1 }])
-      expect(await contents('a')).toEqual(['needle shared a one', 'needle two'])
-      // B's rows are not A's: they wait, unkeyed, for B's own open.
-      expect(await contents('b')).toEqual([])
-      expect(
-        rawDb(stores.a)
-          .prepare('SELECT DISTINCT workspace_id AS ws FROM transcript_fts_keys')
-          .all(),
-      ).toEqual([{ ws: WS.a }])
-
-      await stores.b.conversations.transcriptIndex.enableFts()
-      expect(await contents('b')).toEqual(['needle shared b one', 'needle two'])
-      expect(await contents('a')).toEqual(['needle shared a one', 'needle two'])
-      expect(rowsOf(stores.a, 'a').transcript_fts_keys).toHaveLength(2)
-      expect(rowsOf(stores.b, 'b').transcript_fts_keys).toHaveLength(2)
-      expect(await stores.b.conversations.transcriptIndex.searchCandidates('shared')).toHaveLength(
-        1,
-      )
-    })
-  })
-
-  describe('a transcript row whose segment no workspace holds', () => {
-    it('is the self-hosted workspace’s: its search finds it, no other workspace’s does', async () => {
-      const [local, other] = await openWorkspaceStores([SELF_HOSTED_WORKSPACE_ID, 'ws_other'], {
-        path: ':memory:',
-      })
-      try {
-        for (const store of [local, other]) await store.conversations.ensureFts(true)
-        // A row with no segment row anywhere, as an older build left it: no key.
-        rawDb(local)
-          .prepare('INSERT INTO transcript_fts (content, machine_id, native_id) VALUES (?, ?, ?)')
-          .run('orphan needle', 'gone-machine', 'gone-native')
-
-        // The other workspace opens first and keys nothing it does not own.
-        await other.conversations.transcriptIndex.enableFts()
-        expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
-        await local.conversations.transcriptIndex.enableFts()
-
-        const found = await local.conversations.transcriptIndex.searchCandidates('orphan')
-        expect(found.map((match) => [match.machineId, match.nativeId, match.podiumId])).toEqual([
-          ['gone-machine', 'gone-native', undefined],
-        ])
-        expect(
-          await local.conversations.transcriptIndex.rows(
-            asMachineId('gone-machine'),
-            'gone-native',
-          ),
-        ).toEqual([{ content: 'orphan needle' }])
-        expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
-        expect(
-          await other.conversations.transcriptIndex.rows(
-            asMachineId('gone-machine'),
-            'gone-native',
-          ),
-        ).toEqual([])
-        expect(
-          rawDb(local).prepare('SELECT DISTINCT workspace_id AS ws FROM transcript_fts_keys').all(),
-        ).toEqual([{ ws: SELF_HOSTED_WORKSPACE_ID }])
-      } finally {
-        await local.close()
+  describe.skipIf(ON_PG)(
+    'the search key table’s workspace column (SQLite: Postgres has no key table)',
+    () => {
+      /** Put the key table back in its shape from before the column, keeping its rows. */
+      async function oldKeyTable(store: SessionStore): Promise<void> {
+        for (const statement of [
+          'CREATE TABLE keys_before AS SELECT fts_rowid, machine_id, native_id FROM transcript_fts_keys',
+          'DROP TABLE transcript_fts_keys',
+          `CREATE TABLE transcript_fts_keys (
+          fts_rowid INTEGER PRIMARY KEY, machine_id TEXT NOT NULL, native_id TEXT NOT NULL)`,
+          'INSERT INTO transcript_fts_keys SELECT * FROM keys_before',
+          'DROP TABLE keys_before',
+          'CREATE INDEX idx_transcript_fts_keys_segment ON transcript_fts_keys (machine_id, native_id)',
+        ]) {
+          await store.run(sql.raw(statement))
+        }
       }
-    })
-  })
+
+      const workspaceColumn = async (store: SessionStore) =>
+        await store.all(
+          sql.raw(
+            `SELECT "notnull" AS not_null FROM pragma_table_info('transcript_fts_keys') WHERE name = 'workspace_id'`,
+          ),
+        )
+
+      it('is made with the table, non-null', async () => {
+        expect(await workspaceColumn(stores.a)).toEqual([{ not_null: 1 }])
+      })
+
+      it('is made again with it when the index opens, and each workspace keys its own segments’ rows', async () => {
+        await oldKeyTable(stores.a)
+        expect(await workspaceColumn(stores.a)).toEqual([])
+        const contents = async (tag: Tag) =>
+          (await stores[tag].conversations.transcriptIndex.rows(machine(tag), nat(tag, 1))).map(
+            (row) => row.content,
+          )
+
+        await stores.a.conversations.transcriptIndex.enableFts()
+        expect(await workspaceColumn(stores.a)).toEqual([{ not_null: 1 }])
+        expect(await contents('a')).toEqual(['needle shared a one', 'needle two'])
+        // B's rows are not A's: they wait, unkeyed, for B's own open.
+        expect(await contents('b')).toEqual([])
+        expect(
+          await stores.a.all(sql`SELECT DISTINCT workspace_id AS ws FROM transcript_fts_keys`),
+        ).toEqual([{ ws: WS.a }])
+
+        await stores.b.conversations.transcriptIndex.enableFts()
+        expect(await contents('b')).toEqual(['needle shared b one', 'needle two'])
+        expect(await contents('a')).toEqual(['needle shared a one', 'needle two'])
+        expect((await rowsOf(stores.a, 'a')).transcript_rows).toHaveLength(2)
+        expect((await rowsOf(stores.b, 'b')).transcript_rows).toHaveLength(2)
+        expect(
+          await stores.b.conversations.transcriptIndex.searchCandidates('shared'),
+        ).toHaveLength(1)
+      })
+    },
+  )
+
+  describe.skipIf(ON_PG)(
+    'a transcript row whose segment no workspace holds (SQLite: a Postgres row carries its workspace)',
+    () => {
+      it('is the self-hosted workspace’s: its search finds it, no other workspace’s does', async () => {
+        const [local, other] = await openConversationStoreSlices([
+          SELF_HOSTED_WORKSPACE_ID,
+          'ws_other',
+        ])
+        try {
+          for (const store of [local, other]) await store.conversations.ensureFts(true)
+          // A row with no segment row anywhere, as an older build left it: no key.
+          await local.run(
+            sql`INSERT INTO transcript_fts (content, machine_id, native_id) VALUES (${'orphan needle'}, ${'gone-machine'}, ${'gone-native'})`,
+          )
+
+          // The other workspace opens first and keys nothing it does not own.
+          await other.conversations.transcriptIndex.enableFts()
+          expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
+          await local.conversations.transcriptIndex.enableFts()
+
+          const found = await local.conversations.transcriptIndex.searchCandidates('orphan')
+          expect(found.map((match) => [match.machineId, match.nativeId, match.podiumId])).toEqual([
+            ['gone-machine', 'gone-native', undefined],
+          ])
+          expect(
+            await local.conversations.transcriptIndex.rows(
+              asMachineId('gone-machine'),
+              'gone-native',
+            ),
+          ).toEqual([{ content: 'orphan needle' }])
+          expect(await other.conversations.transcriptIndex.searchCandidates('orphan')).toEqual([])
+          expect(
+            await other.conversations.transcriptIndex.rows(
+              asMachineId('gone-machine'),
+              'gone-native',
+            ),
+          ).toEqual([])
+          expect(
+            await local.all(sql`SELECT DISTINCT workspace_id AS ws FROM transcript_fts_keys`),
+          ).toEqual([{ ws: SELF_HOSTED_WORKSPACE_ID }])
+        } finally {
+          await local.close()
+        }
+      })
+    },
+  )
 })

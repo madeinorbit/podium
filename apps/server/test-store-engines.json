@@ -289,8 +289,6 @@
     "apps/server/src/store.test.ts",
     "apps/server/src/store/artifact-uploads.test.ts",
     "apps/server/src/store/claude-sdk-state-publication.test.ts",
-    "apps/server/src/store/conversations-recent-page.test.ts",
-    "apps/server/src/store/conversations/conversations.workspace.test.ts",
     "apps/server/src/store/database.test.ts",
     "apps/server/src/store/executor/caller-attribution.test.ts",
     "apps/server/src/store/executor/intent-audit.test.ts",
