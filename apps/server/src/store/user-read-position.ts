@@ -35,6 +35,7 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { asc, eq, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 
@@ -113,14 +114,21 @@ const positionPlaceholders = {
 }
 
 const upsertPosition = prepared((db, t) =>
-  db
-    .insert(t.userReadPosition)
-    .values({ workspaceId: WORKSPACE, ...positionPlaceholders })
-    .onConflictDoUpdate({
-      target: [t.userReadPosition.userId, t.userReadPosition.streamId],
-      set: positionPlaceholders,
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.userReadPosition)
+      .values({ workspaceId: WORKSPACE, ...positionPlaceholders })
+      .onConflictDoUpdate({
+        target: [t.userReadPosition.userId, t.userReadPosition.streamId],
+        // The key columns equal the conflict target's, so the set names only the rest:
+        // Postgres change capture refuses an upsert that assigns its key (POD-6983).
+        set: {
+          lastEventId: positionPlaceholders.lastEventId,
+          seenAt: positionPlaceholders.seenAt,
+          updatedAt: positionPlaceholders.updatedAt,
+        },
+      }),
+  ).prepare(),
 )
 
 export class UserReadPositionRepository {

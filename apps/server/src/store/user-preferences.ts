@@ -53,6 +53,7 @@ import {
   type UserPreferencesWire,
 } from '@podium/model'
 import { asc, eq, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import type {
   StoreTables,
   TransactionRunner,
@@ -111,18 +112,21 @@ const preferencePlaceholders = {
 }
 
 const upsertPreference = prepared((db, t) =>
-  db
-    .insert(t.userPreferences)
-    .values({ workspaceId: WORKSPACE, ...preferencePlaceholders })
-    .onConflictDoUpdate({
-      target: [t.userPreferences.userId, t.userPreferences.key],
-      set: preferencePlaceholders,
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.userPreferences)
+      .values({ workspaceId: WORKSPACE, ...preferencePlaceholders })
+      .onConflictDoUpdate({
+        target: [t.userPreferences.userId, t.userPreferences.key],
+        // The key columns equal the conflict target's, so the set names only the rest:
+        // Postgres change capture refuses an upsert that assigns its key (POD-6983).
+        set: { value: preferencePlaceholders.value, updatedAt: preferencePlaceholders.updatedAt },
+      }),
+  ).prepare(),
 )
 
 const deletePreference = prepared((db, t) =>
-  db.delete(t.userPreferences).where(onePreference(t)).prepare(),
+  captureWrite(db.delete(t.userPreferences).where(onePreference(t))).prepare(),
 )
 
 const preferenceKeysOfUser = prepared((db, t) =>

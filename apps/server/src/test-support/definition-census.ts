@@ -158,6 +158,7 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/effects.ts:newestOnTargetIn', ['active', 'succeeded']],
   ['apps/server/src/store/effects.ts:liveOnTargetKeys', ['1x1', '2x4', '2x512', '4x512']],
   ['apps/server/src/store/user-layout.ts:layoutRowsPage', ['start', 'after']],
+  ['apps/server/src/store/user-layout.ts:worktreesOfSessions', SIZES],
   ['apps/server/src/store/users.ts:insertInvite', ['id']],
   ['apps/server/src/store/conversations/registry.ts:segmentsWithPaths', SIZES],
   ['apps/server/src/store/conversations/registry.ts:parentsOf', SIZES],

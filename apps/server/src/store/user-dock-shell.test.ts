@@ -6,21 +6,14 @@
  * worktree at once must not create two shells.
  */
 
-import {
-  asSessionId,
-  asUserId,
-  firstAdminMemberId,
-  type SessionId,
-  type UserId,
-} from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { workspaceQueries } from './executor/sync-drizzle'
+import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { UserDockShellRepository } from './user-layout'
 
-const ALICE: UserId = firstAdminMemberId()
+// A person's id; these tables name no member row, and a Postgres clone seeds none.
+const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
 const AT = '2026-09-22T00:00:00.000Z'
 
@@ -29,11 +22,16 @@ const SHELL_B = asSessionId('22222222-2222-4222-8222-222222222222')
 
 let shells: UserDockShellRepository
 
-beforeEach(() => {
-  const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).queries
-  if (!stage) throw new Error('the test database is not bun-backed')
-  shells = new UserDockShellRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
+let slice: SliceStore
+
+// On the run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  shells = drainedRepository(slice, new UserDockShellRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('UserDockShellRepository', () => {

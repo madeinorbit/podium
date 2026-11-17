@@ -47,7 +47,9 @@ import type {
   sessionDrafts,
   sessions as sessionsTable,
 } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { dialectOf, dialectPrepared } from './executor/dialect-prepared'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type {
@@ -112,40 +114,53 @@ type SessionSelect = typeof sessionsTable.$inferSelect
 const pendingActivityPublication = (t: StoreTables) =>
   sql`${t.sessions.publishedLastActiveAt} < ${t.sessions.lastActiveAt} AND ${t.sessions.deletedAt} IS NULL`
 
+const activityPublicationsDueWhere = (t: StoreTables) =>
+  inWorkspace(
+    t.sessions,
+    pendingActivityPublication(t),
+    lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
+  )
+
 // The partial index contains only sessions with an unpublished activity stamp,
 // including stopped sessions left by a restart. History never enters the tick.
-const activityPublicationsDue = prepared((db, t) =>
-  db
-    .select({ id: sql<SessionId>`id` })
-    .from(sql`${t.sessions} INDEXED BY idx_sessions_pending_activity`)
-    .where(
-      inWorkspace(
-        t.sessions,
-        pendingActivityPublication(t),
-        lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
-      ),
-    )
-    .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
-    .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
-    .prepare(),
-)
+// SQLite is told the index (INDEXED BY, so the columns are bare identifiers);
+// Postgres has no such clause and its planner matches the partial index itself.
+const activityPublicationsDue = dialectPrepared<{ readonly now: number }, { id: SessionId }>()({
+  sqlite: (db, t) =>
+    db
+      .select({ id: sql<SessionId>`id` })
+      .from(sql`${t.sessions} INDEXED BY idx_sessions_pending_activity`)
+      .where(activityPublicationsDueWhere(t))
+      .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
+      .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .select({ id: t.sessions.id })
+      .from(t.sessions)
+      .where(activityPublicationsDueWhere(t))
+      .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
+      .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
+      .prepare(),
+})
 
 const publishSessionActivity = preparedFamily((db, t, size: number) =>
-  db
-    .update(t.sessions)
-    .set({
-      publishedLastActiveAt: t.sessions.lastActiveAt,
-      lastActivePublishAfter: sql.placeholder('next'),
-    })
-    .where(
-      inWorkspace(
-        t.sessions,
-        inListOf(t.sessions.id, size),
-        pendingActivityPublication(t),
-        lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        publishedLastActiveAt: t.sessions.lastActiveAt,
+        lastActivePublishAfter: sql.placeholder('next'),
+      })
+      .where(
+        inWorkspace(
+          t.sessions,
+          inListOf(t.sessions.id, size),
+          pendingActivityPublication(t),
+          lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -185,14 +200,16 @@ const bindingFactsOfIds = preparedFamily((db, t, size: number) =>
 /**
  * THE ONE SESSION READ. Every reader supplies a predicate and inherits this
  * ordering; three of them depend on it meaning the same thing, so it is
- * declared once (see `findSessionByResumeValue`).
+ * declared once (see `findSessionByResumeValue`). Ties on `created_at` break by
+ * the primary key, which both engines have (POD-6983; it was SQLite's `rowid`,
+ * insertion order, which Postgres has no counterpart of).
  */
 function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
   return db
     .select()
     .from(t.sessions)
     .where(inWorkspace(t.sessions, where))
-    .orderBy(asc(t.sessions.createdAt), asc(sql`rowid`))
+    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare()
 }
 
@@ -264,28 +281,54 @@ const liveSessionsInCwdRange = prepared((db, t) =>
   ),
 )
 
-/** The same over the folded cwd, for Windows-style roots (POD-6160). */
-const liveSessionsInFoldedCwdRange = prepared((db, t) =>
-  sessionsMatching(
-    db,
-    t,
-    and(
-      sql`${foldedCwd(t)} >= ${sql.placeholder('lo')}`,
-      sql`${foldedCwd(t)} < ${sql.placeholder('hi')}`,
-      isNull(t.sessions.deletedAt),
+/**
+ * The same over the folded cwd, for Windows-style roots (POD-6160). On Postgres
+ * the folded text is compared in byte order, as SQLite compares it: `COLLATE "C"`,
+ * which is also the collation `idx_sessions_cwd_folded` holds there (design 2.3,
+ * rule 13).
+ */
+const liveSessionsInFoldedCwdRange = dialectPrepared<
+  { readonly lo: string; readonly hi: string },
+  SessionSelect
+>()({
+  sqlite: (db, t) =>
+    sessionsMatching(
+      db,
+      t,
+      and(
+        sql`${foldedCwd(t)} >= ${sql.placeholder('lo')}`,
+        sql`${foldedCwd(t)} < ${sql.placeholder('hi')}`,
+        isNull(t.sessions.deletedAt),
+      ),
     ),
-  ),
-)
+  pg: (db, t) =>
+    sessionsMatching(
+      db,
+      t,
+      and(
+        sql`${foldedCwd(t)} COLLATE "C" >= ${sql.placeholder('lo')}`,
+        sql`${foldedCwd(t)} COLLATE "C" < ${sql.placeholder('hi')}`,
+        isNull(t.sessions.deletedAt),
+      ),
+    ),
+})
 
 /** Live sessions in one of these statuses (POD-6160). */
 const liveSessionsOfStatuses = preparedFamily((db, t, size: number) =>
   sessionsMatching(db, t, and(inListOf(t.sessions.status, size), isNull(t.sessions.deletedAt))),
 )
 
-/** Live headless sessions (POD-6160): resident while their row exists. */
-const liveHeadlessSessions = prepared((db, t) =>
-  sessionsMatching(db, t, and(sql`${t.sessions.headless} = 1`, isNull(t.sessions.deletedAt))),
-)
+/**
+ * Live headless sessions (POD-6160): resident while their row exists. The flag is a
+ * literal, as `idx_sessions_headless`'s partial WHERE spells it on each engine (an
+ * integer on SQLite, a boolean on Postgres), so the planner can prove the index.
+ */
+const liveHeadlessSessions = dialectPrepared<Record<string, never>, SessionSelect>()({
+  sqlite: (db, t) =>
+    sessionsMatching(db, t, and(sql`${t.sessions.headless} = 1`, isNull(t.sessions.deletedAt))),
+  pg: (db, t) =>
+    sessionsMatching(db, t, and(sql`${t.sessions.headless} = true`, isNull(t.sessions.deletedAt))),
+})
 
 /** Live sessions whose id lies in the key range [lo, hi): a short-id prefix (POD-6160). */
 const liveSessionsInIdRange = prepared((db, t) =>
@@ -372,17 +415,24 @@ const liveSessions = prepared((db, t) => sessionsWhere(db, t, isNull(t.sessions.
  * named (server-data rule 3); the FROM is an INDEXED BY clause, so the columns
  * are bare identifiers.
  */
-const lifecyclePendingOnMachine = prepared((db, t) =>
-  db
-    .select({ id: sql<string>`id` })
-    .from(sql`${t.sessions} INDEXED BY idx_sessions_lifecycle_pending`)
-    .where(
-      inWorkspace(
-        t.sessions,
-        sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
-      ),
-    )
-    .prepare(),
+const lifecyclePendingWhere = (t: StoreTables) =>
+  inWorkspace(
+    t.sessions,
+    sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+  )
+
+/** Postgres has no INDEXED BY: its planner proves the partial index from the same terms. */
+const lifecyclePendingOnMachine = dialectPrepared<{ readonly machineId: string }, { id: string }>()(
+  {
+    sqlite: (db, t) =>
+      db
+        .select({ id: sql<string>`id` })
+        .from(sql`${t.sessions} INDEXED BY idx_sessions_lifecycle_pending`)
+        .where(lifecyclePendingWhere(t))
+        .prepare(),
+    pg: (db, t) =>
+      db.select({ id: sql<string>`id` }).from(t.sessions).where(lifecyclePendingWhere(t)).prepare(),
+  },
 )
 
 /**
@@ -440,14 +490,18 @@ const S_IN_WORKSPACE = sql`s.workspace_id = ${WORKSPACE}`
  * `idx_sessions_ref_draft`, which holds every session. So the statement touches
  * the rows that can still get a ref, not every ref-less session in history.
  */
-const refBackfillCandidates = prepared((db, t) =>
-  db
-    .select()
-    .from(t.sessions)
-    .where(
-      inWorkspace(
-        t.sessions,
-        sql`${t.sessions}.rowid IN (
+const refBackfillCandidates = dialectPrepared<
+  { readonly bounded: string; readonly open: string },
+  SessionSelect
+>()({
+  sqlite: (db, t) =>
+    db
+      .select()
+      .from(t.sessions)
+      .where(
+        inWorkspace(
+          t.sessions,
+          sql`${t.sessions}.rowid IN (
       SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${t.sessions} AS s
         WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
           AND s.cwd >= json_extract(b.value, '$[1]') AND s.cwd < json_extract(b.value, '$[2]')
@@ -459,11 +513,38 @@ const refBackfillCandidates = prepared((db, t) =>
         WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.issue_id IS NOT NULL
           AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.workspace_id = s.workspace_id AND i.id = s.issue_id)
     )`,
-      ),
-    )
-    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
-    .prepare(),
-)
+        ),
+      )
+      .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
+      .prepare(),
+  // The same three arms on Postgres: each range comes from `json_array_elements`
+  // over the same JSON parameter, its bounds compared in byte order (`COLLATE "C"`,
+  // design 2.3 rule 13), the rows matched by primary key instead of `rowid`, and
+  // no INDEXED BY (the planner reads statistics, which SQLite's lacks).
+  pg: (db, t) =>
+    db
+      .select()
+      .from(t.sessions)
+      .where(
+        inWorkspace(
+          t.sessions,
+          sql`${t.sessions.id} IN (
+      SELECT s.id FROM json_array_elements(CAST(${sql.placeholder('bounded')} AS json)) AS b(value) CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = (b.value->>0) COLLATE "C"
+          AND s.cwd >= (b.value->>1) COLLATE "C" AND s.cwd < (b.value->>2) COLLATE "C"
+      UNION ALL
+      SELECT s.id FROM json_array_elements(CAST(${sql.placeholder('open')} AS json)) AS o(value) CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = (o.value->>0) COLLATE "C" AND s.cwd >= (o.value->>1) COLLATE "C"
+      UNION ALL
+      SELECT s.id FROM ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.issue_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.workspace_id = s.workspace_id AND i.id = s.issue_id)
+    )`,
+        ),
+      )
+      .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
+      .prepare(),
+})
 
 const deletedSessions = prepared((db, t) => sessionsWhere(db, t, isNotNull(t.sessions.deletedAt)))
 
@@ -571,7 +652,10 @@ function fullSessionUpsertSet(
   value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
 ) {
   const nextPublication = value('lastActivePublishAfter')
-  const publishActivity = sql`${t.sessions.lastActivePublishAfter} <= ${nextPublication} - ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS}
+  // The interval is added to the column, not taken from the incoming value: in the
+  // one-row form that value is a bare parameter, and Postgres cannot type
+  // `$n - $m` from two parameters (POD-6983). For integers the two are one test.
+  const publishActivity = sql`${t.sessions.lastActivePublishAfter} + ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS} <= ${nextPublication}
     AND excluded."last_active_at" > ${t.sessions.publishedLastActiveAt}`
   return {
     cwd: value('cwd'),
@@ -674,14 +758,15 @@ const upsertSessionOfShape = preparedFamily((db, t, key: string) => {
   const bar = key.indexOf('|')
   const groups = Number(key.slice(0, bar))
   const p = placeholdersFor(key.slice(bar + 1)) as SessionPlaceholders
-  return db
-    .insert(t.sessions)
-    .values({ ...p, workspaceId: WORKSPACE } as unknown as SessionInsert)
-    .onConflictDoUpdate({
-      target: t.sessions.id,
-      set: sessionUpsertSet(t, (name) => p[name], groups),
-    })
-    .prepare()
+  return captureWrite(
+    db
+      .insert(t.sessions)
+      .values({ ...p, workspaceId: WORKSPACE } as unknown as SessionInsert)
+      .onConflictDoUpdate({
+        target: t.sessions.id,
+        set: sessionUpsertSet(t, (name) => p[name], groups),
+      }),
+  ).prepare()
 })
 
 /**
@@ -701,7 +786,8 @@ const rowParam = (index: number, key: string): string => `r${index}_${key}`
  * last row, and an upsert of the same row twice leaves it as once (the set is
  * the incoming values, and every COALESCE and CASE in it keeps a value it
  * already wrote). `groups` is {@link manyRowGroups} of the rows' changed groups,
- * so three per size.
+ * so three per size. On Postgres, which refuses a row twice in one upsert, `size`
+ * is the batch's own length instead (`padsUpsertRows`).
  */
 const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
   const [sizeKey, groupsKey] = key.split('|', 2) as [string, string]
@@ -715,19 +801,20 @@ const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
     ...Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
     workspaceId: WORKSPACE,
   }))
-  return db
-    .insert(t.sessions)
-    .values(rows as unknown as SessionInsert[])
-    .onConflictDoUpdate({
-      target: t.sessions.id,
-      set: sessionUpsertSet(
-        t,
-        (name) =>
-          present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
-        groups,
-      ),
-    })
-    .prepare()
+  return captureWrite(
+    db
+      .insert(t.sessions)
+      .values(rows as unknown as SessionInsert[])
+      .onConflictDoUpdate({
+        target: t.sessions.id,
+        set: sessionUpsertSet(
+          t,
+          (name) =>
+            present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
+          groups,
+        ),
+      }),
+  ).prepare()
 })
 
 /**
@@ -853,59 +940,63 @@ const untombstonedById = (t: StoreTables): SQL | undefined =>
   )
 
 const stopRunningForTombstone = prepared((db, t) =>
-  db
-    .update(t.sessions)
-    .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
-    .where(and(untombstonedById(t), inArray(t.sessions.status, ['starting', 'live'])))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
+      .where(and(untombstonedById(t), inArray(t.sessions.status, ['starting', 'live']))),
+  ).prepare(),
 )
 
 const tombstoneSession = prepared((db, t) =>
-  db
-    .update(t.sessions)
-    .set({
-      deletedAt: sql.placeholder('deletedAt'),
-      deletionSource: sql.placeholder('source'),
-      deletedByIssueId: sql.placeholder('deletedByIssueId'),
-    })
-    .where(untombstonedById(t))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        deletedAt: sql.placeholder('deletedAt'),
+        deletionSource: sql.placeholder('source'),
+        deletedByIssueId: sql.placeholder('deletedByIssueId'),
+      })
+      .where(untombstonedById(t)),
+  ).prepare(),
 )
 
 const restoreSessionsOfIssue = prepared((db, t) =>
-  db
-    .update(t.sessions)
-    .set({
-      deletedAt: null,
-      deletionSource: null,
-      deletedByIssueId: null,
-      status: 'exited',
-      exitCode: null,
-    })
-    .where(inWorkspace(t.sessions, deletedByIssue(t)))
-    .prepare(),
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        deletedAt: null,
+        deletionSource: null,
+        deletedByIssueId: null,
+        status: 'exited',
+        exitCode: null,
+      })
+      .where(inWorkspace(t.sessions, deletedByIssue(t))),
+  ).prepare(),
 )
 
 const detachTombstones = prepared((db, t) => {
   const issueId = sql.placeholder('issueId')
-  return db
-    .update(t.sessions)
-    .set({
-      issueId: sql`CASE WHEN ${t.sessions.issueId} = ${issueId} THEN NULL ELSE ${t.sessions.issueId} END`,
-      refIssueId: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refIssueId} END`,
-      refLetter: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refLetter} END`,
-    })
-    .where(
-      inWorkspace(
-        t.sessions,
-        isNotNull(t.sessions.deletedAt),
-        or(
-          eq(t.sessions.issueId, param(t.sessions.issueId, 'issueId')),
-          eq(t.sessions.refIssueId, param(t.sessions.refIssueId, 'issueId')),
+  return captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        issueId: sql`CASE WHEN ${t.sessions.issueId} = ${issueId} THEN NULL ELSE ${t.sessions.issueId} END`,
+        refIssueId: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refIssueId} END`,
+        refLetter: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refLetter} END`,
+      })
+      .where(
+        inWorkspace(
+          t.sessions,
+          isNotNull(t.sessions.deletedAt),
+          or(
+            eq(t.sessions.issueId, param(t.sessions.issueId, 'issueId')),
+            eq(t.sessions.refIssueId, param(t.sessions.refIssueId, 'issueId')),
+          ),
         ),
       ),
-    )
-    .prepare()
+  ).prepare()
 })
 
 const detachDanglingReferences = prepared((db, t) => {
@@ -917,93 +1008,102 @@ const detachDanglingReferences = prepared((db, t) => {
   const workspaceIssueIds = sql`SELECT ${t.issues.id} FROM ${t.issues} WHERE ${t.issues.workspaceId} = ${WORKSPACE}`
   const danglingIssue = sql`${t.sessions.issueId} IS NOT NULL AND ${t.sessions.issueId} NOT IN (${workspaceIssueIds})`
   const danglingRef = sql`${t.sessions.refIssueId} IS NOT NULL AND ${t.sessions.refIssueId} NOT IN (${workspaceIssueIds})`
-  return db
-    .update(t.sessions)
-    .set({
-      issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${t.sessions.issueId} END`,
-      refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refLetter} END`,
-      refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refIssueId} END`,
-    })
-    .where(inWorkspace(t.sessions, or(danglingIssue, danglingRef)))
-    .prepare()
+  return captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${t.sessions.issueId} END`,
+        refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refLetter} END`,
+        refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refIssueId} END`,
+      })
+      .where(inWorkspace(t.sessions, or(danglingIssue, danglingRef))),
+  ).prepare()
 })
 
 const deleteCheckpointsOfSession = prepared((db, t) =>
-  db
-    .delete(t.runtimeEventCheckpoints)
-    .where(
-      inWorkspace(
-        t.runtimeEventCheckpoints,
-        eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+  captureWrite(
+    db
+      .delete(t.runtimeEventCheckpoints)
+      .where(
+        inWorkspace(
+          t.runtimeEventCheckpoints,
+          eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteSessionRow = prepared((db, t) =>
-  db
-    .delete(t.sessions)
-    .where(inWorkspace(t.sessions, eq(t.sessions.id, param(t.sessions.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.sessions)
+      .where(inWorkspace(t.sessions, eq(t.sessions.id, param(t.sessions.id, 'id')))),
+  ).prepare(),
 )
 
 const deletePanelPinsOf = prepared((db, t) =>
-  db
-    .delete(t.pins)
-    .where(inWorkspace(t.pins, eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.pins)
+      .where(inWorkspace(t.pins, eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id')))),
+  ).prepare(),
 )
 
 const deleteDraftOf = prepared((db, t) =>
-  db
-    .delete(t.sessionDrafts)
-    .where(
-      inWorkspace(
-        t.sessionDrafts,
-        eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')),
+  captureWrite(
+    db
+      .delete(t.sessionDrafts)
+      .where(
+        inWorkspace(
+          t.sessionDrafts,
+          eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteSnoozesOf = prepared((db, t) =>
-  db
-    .delete(t.snoozes)
-    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id')))),
+  ).prepare(),
 )
 
 const deleteUserStateOf = prepared((db, t) =>
-  db
-    .delete(t.sessionUserState)
-    .where(
-      inWorkspace(
-        t.sessionUserState,
-        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')),
+  captureWrite(
+    db
+      .delete(t.sessionUserState)
+      .where(
+        inWorkspace(
+          t.sessionUserState,
+          eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const deleteOfferOf = prepared((db, t) =>
-  db
-    .delete(t.offers)
-    .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'id'))))
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.offers)
+      .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'id')))),
+  ).prepare(),
 )
 
 const insertPin = prepared((db, t) =>
-  db
-    .insert(t.pins)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: sql.placeholder('userId'),
-      kind: sql.placeholder('kind'),
-      id: sql.placeholder('id'),
-      pinnedAt: sql.placeholder('pinnedAt'),
-    })
-    .onConflictDoNothing()
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.pins)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        kind: sql.placeholder('kind'),
+        id: sql.placeholder('id'),
+        pinnedAt: sql.placeholder('pinnedAt'),
+      })
+      .onConflictDoNothing(),
+  ).prepare(),
 )
 
 const onePin = (t: StoreTables) =>
@@ -1014,21 +1114,22 @@ const onePin = (t: StoreTables) =>
     eq(t.pins.id, param(t.pins.id, 'id')),
   )
 
-const deletePin = prepared((db, t) => db.delete(t.pins).where(onePin(t)).prepare())
+const deletePin = prepared((db, t) => captureWrite(db.delete(t.pins).where(onePin(t))).prepare())
 
 // Every person's pin of one thing, removed with it (POD-6692: a purged issue).
 const deletePinsOfTarget = prepared((db, t) =>
-  db
-    .delete(t.pins)
-    .where(
-      inWorkspace(
-        t.pins,
-        eq(t.pins.kind, param(t.pins.kind, 'kind')),
-        eq(t.pins.id, param(t.pins.id, 'id')),
-      ),
-    )
-    .returning({ userId: t.pins.userId })
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.pins)
+      .where(
+        inWorkspace(
+          t.pins,
+          eq(t.pins.kind, param(t.pins.kind, 'kind')),
+          eq(t.pins.id, param(t.pins.id, 'id')),
+        ),
+      )
+      .returning({ userId: t.pins.userId }),
+  ).prepare(),
 )
 
 /** Who pins one thing, through `idx_pins_target`. */
@@ -1165,36 +1266,38 @@ const readAtOfUserSession = prepared((db, t) =>
 )
 
 const upsertReadAt = prepared((db, t) =>
-  db
-    .insert(t.sessionUserState)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: sql.placeholder('userId'),
-      sessionId: sql.placeholder('sessionId'),
-      readAt: sql.placeholder('readAt'),
-    })
-    .onConflictDoUpdate({
-      target: [t.sessionUserState.userId, t.sessionUserState.sessionId],
-      set: { readAt: sql.placeholder('readAt') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.sessionUserState)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        sessionId: sql.placeholder('sessionId'),
+        readAt: sql.placeholder('readAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.sessionUserState.userId, t.sessionUserState.sessionId],
+        set: { readAt: sql.placeholder('readAt') },
+      }),
+  ).prepare(),
 )
 
 const deleteReadAt = prepared((db, t) =>
-  db.delete(t.sessionUserState).where(userSessionState(t)).prepare(),
+  captureWrite(db.delete(t.sessionUserState).where(userSessionState(t))).prepare(),
 )
 
 const deleteAllReadAtOf = prepared((db, t) =>
-  db
-    .delete(t.sessionUserState)
-    .where(
-      inWorkspace(
-        t.sessionUserState,
-        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
-      ),
-    )
-    .returning({ userId: t.sessionUserState.userId })
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.sessionUserState)
+      .where(
+        inWorkspace(
+          t.sessionUserState,
+          eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+        ),
+      )
+      .returning({ userId: t.sessionUserState.userId }),
+  ).prepare(),
 )
 
 /** One user's read markers for a set of sessions (POD-6160). */
@@ -1236,33 +1339,35 @@ const snoozesOfUser = prepared((db, t) =>
 )
 
 const deleteUserSnooze = prepared((db, t) =>
-  db
-    .delete(t.snoozes)
-    .where(
-      inWorkspace(
-        t.snoozes,
-        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
-        eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(
+        inWorkspace(
+          t.snoozes,
+          eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+          eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const upsertSnooze = prepared((db, t) =>
-  db
-    .insert(t.snoozes)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: sql.placeholder('userId'),
-      sessionId: sql.placeholder('sessionId'),
-      snoozedUntil: sql.placeholder('snoozedUntil'),
-      createdAt: sql.placeholder('createdAt'),
-    })
-    .onConflictDoUpdate({
-      target: [t.snoozes.userId, t.snoozes.sessionId],
-      set: { snoozedUntil: sql.placeholder('snoozedUntil') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.snoozes)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        sessionId: sql.placeholder('sessionId'),
+        snoozedUntil: sql.placeholder('snoozedUntil'),
+        createdAt: sql.placeholder('createdAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.snoozes.userId, t.snoozes.sessionId],
+        set: { snoozedUntil: sql.placeholder('snoozedUntil') },
+      }),
+  ).prepare(),
 )
 
 const anySnoozeOf = prepared((db, t) =>
@@ -1275,11 +1380,14 @@ const anySnoozeOf = prepared((db, t) =>
 )
 
 const deleteAllSnoozesOf = prepared((db, t) =>
-  db
-    .delete(t.snoozes)
-    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
-    .returning({ userId: t.snoozes.userId })
-    .prepare(),
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(
+        inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))),
+      )
+      .returning({ userId: t.snoozes.userId }),
+  ).prepare(),
 )
 
 const allOffers = prepared((db, t) =>
@@ -1295,26 +1403,27 @@ const offersOfIds = preparedFamily((db, t, size: number) =>
 )
 
 const upsertOffer = prepared((db, t) =>
-  db
-    .insert(t.offers)
-    .values({
-      workspaceId: WORKSPACE,
-      sessionId: sql.placeholder('sessionId'),
-      message: sql.placeholder('message'),
-      actions: sql.placeholder('actions'),
-      artifacts: sql.placeholder('artifacts'),
-      createdAt: sql.placeholder('createdAt'),
-    })
-    .onConflictDoUpdate({
-      target: t.offers.sessionId,
-      set: {
+  captureWrite(
+    db
+      .insert(t.offers)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         message: sql.placeholder('message'),
         actions: sql.placeholder('actions'),
         artifacts: sql.placeholder('artifacts'),
         createdAt: sql.placeholder('createdAt'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: t.offers.sessionId,
+        set: {
+          message: sql.placeholder('message'),
+          actions: sql.placeholder('actions'),
+          artifacts: sql.placeholder('artifacts'),
+          createdAt: sql.placeholder('createdAt'),
+        },
+      }),
+  ).prepare(),
 )
 
 const offerCreatedAtOf = prepared((db, t) =>
@@ -1340,33 +1449,35 @@ const tabOrderOf = prepared((db, t) =>
 )
 
 const deleteTabOrder = prepared((db, t) =>
-  db
-    .delete(t.tabOrder)
-    .where(
-      inWorkspace(
-        t.tabOrder,
-        eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
-        eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
+  captureWrite(
+    db
+      .delete(t.tabOrder)
+      .where(
+        inWorkspace(
+          t.tabOrder,
+          eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
+          eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const upsertTabOrder = prepared((db, t) =>
-  db
-    .insert(t.tabOrder)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: sql.placeholder('userId'),
-      worktree: sql.placeholder('worktree'),
-      ids: sql.placeholder('ids'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: [t.tabOrder.userId, t.tabOrder.worktree],
-      set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.tabOrder)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        worktree: sql.placeholder('worktree'),
+        ids: sql.placeholder('ids'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.tabOrder.userId, t.tabOrder.worktree],
+        set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
+      }),
+  ).prepare(),
 )
 
 // THREE COLUMNS, NAMED, because the statement this replaces named three
@@ -1431,19 +1542,20 @@ const draftTimesOfIds = preparedFamily((db, t, size: number) =>
 )
 
 const upsertDraftText = prepared((db, t) =>
-  db
-    .insert(t.sessionDrafts)
-    .values({
-      workspaceId: WORKSPACE,
-      sessionId: sql.placeholder('sessionId'),
-      text: sql.placeholder('text'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: t.sessionDrafts.sessionId,
-      set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.sessionDrafts)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
+        text: sql.placeholder('text'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: t.sessionDrafts.sessionId,
+        set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
+      }),
+  ).prepare(),
 )
 
 const allDraftRows = prepared((db, t) =>
@@ -1465,28 +1577,29 @@ const draftRowOf = prepared((db, t) =>
 )
 
 const upsertDraftDoc = prepared((db, t) =>
-  db
-    .insert(t.sessionDrafts)
-    .values({
-      workspaceId: WORKSPACE,
-      sessionId: sql.placeholder('sessionId'),
-      text: sql.placeholder('text'),
-      updatedAt: sql.placeholder('updatedAt'),
-      rev: sql.placeholder('rev'),
-      origin: sql.placeholder('origin'),
-      history: sql.placeholder('history'),
-    })
-    .onConflictDoUpdate({
-      target: t.sessionDrafts.sessionId,
-      set: {
+  captureWrite(
+    db
+      .insert(t.sessionDrafts)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         text: sql.placeholder('text'),
         updatedAt: sql.placeholder('updatedAt'),
         rev: sql.placeholder('rev'),
         origin: sql.placeholder('origin'),
         history: sql.placeholder('history'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: t.sessionDrafts.sessionId,
+        set: {
+          text: sql.placeholder('text'),
+          updatedAt: sql.placeholder('updatedAt'),
+          rev: sql.placeholder('rev'),
+          origin: sql.placeholder('origin'),
+          history: sql.placeholder('history'),
+        },
+      }),
+  ).prepare(),
 )
 
 /** Run a session-row write as a change-log commit: a liveness change moves
@@ -1527,6 +1640,10 @@ export class SessionsRepository {
   ) {
     this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+    const dialect = dialectOf(queries.db.drizzle)
+    // Off on Postgres, where more than one process writes `sessions` (written-columns.ts).
+    this.writtenColumns = WrittenColumns.forDialect(dialect, 'sessions:written-columns')
+    this.padsUpsertRows = dialect === 'sqlite'
   }
 
   /**
@@ -1947,7 +2064,16 @@ export class SessionsRepository {
 
   /** The indexed columns each session row holds as this store last wrote or
    *  read them [POD-6234], so an upsert sets only those that changed. */
-  private readonly writtenColumns = new WrittenColumns<IndexedColumns>('sessions:written-columns')
+  private readonly writtenColumns: WrittenColumns<IndexedColumns>
+
+  /**
+   * Whether a many-row upsert pads its batch to an `inListSize` by repeating its
+   * last row. SQLite applies the repeat as a second, identical update; Postgres
+   * refuses an `ON CONFLICT DO UPDATE` that reaches one row twice, so there the
+   * statement carries exactly the batch's rows (one statement still, of a size
+   * the batch has).
+   */
+  private readonly padsUpsertRows: boolean
 
   /**
    * {@link upsertSession} for many rows in one statement per 256 rows of one
@@ -1971,7 +2097,7 @@ export class SessionsRepository {
         const keys = shape === '' ? [] : shape.split(',')
         for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
           const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
-          const size = inListSize(chunk.length)
+          const size = this.padsUpsertRows ? inListSize(chunk.length) : chunk.length
           let changed = 0
           for (const values of chunk)
             changed |= changedGroups(this.writtenColumns.get(values.id), values)

@@ -34,11 +34,11 @@ import {
 } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository, seedSliceRow } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -70,23 +70,35 @@ async function tabOrdersOf(
   return out
 }
 
-/** Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it. */
-const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
-  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
-}
+/** Instants in order: Postgres stores these columns as `timestamptz`, so a fixture
+ *  stamp is a real one (POD-6983). */
+const T0 = '2026-09-01T00:00:00.000Z'
+const T1 = '2026-09-01T00:00:01.000Z'
+const T2 = '2026-09-01T00:00:02.000Z'
+const T5 = '2026-09-01T00:00:05.000Z'
 
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
 
-let db: ReturnType<typeof openDatabase>
+/**
+ * On Postgres a `json` column refuses malformed text, so a corrupt JSON value in one
+ * cannot be stored and its quarantine cannot be reached there; those cases run on
+ * SQLite only. A valid value of the wrong shape runs on both.
+ */
+const ON_PG = testStoreEngine() === 'pg'
+
+let slice: SliceStore
 let sessions: SessionsRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageQueries(db))
+// The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015), on the
+// run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  sessions = drainedRepository(slice, new SessionsRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRow {
@@ -105,8 +117,8 @@ function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRo
     exitCode: null,
     spawnFailure: null,
     durableLabel: 'label',
-    createdAt: 't0',
-    lastActiveAt: 't0',
+    createdAt: T0,
+    lastActiveAt: T0,
     geometry: { cols: 80, rows: 24 },
     archived: false,
     workState: null,
@@ -121,6 +133,37 @@ function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRo
 
 const put = async (input: Omit<Partial<SessionRow>, 'id'> & { id: string }): Promise<void> => {
   await sessions.upsertSession(fixtureWriteScope(), row(input))
+}
+
+/** A stored draft history no write path produces, on `sess-1`. */
+async function setDraftHistory(history: string): Promise<void> {
+  await seedSliceRow(slice, (db, t) =>
+    db
+      .update(t.sessionDrafts)
+      .set({ history })
+      .where(eq(t.sessionDrafts.sessionId, asSessionId('sess-1')))
+      .prepare(),
+  )
+}
+
+/** A stored offer column no write path produces. */
+async function setOfferColumn(
+  sessionId: string,
+  set: { actions?: string; artifacts?: string },
+): Promise<void> {
+  await seedSliceRow(slice, (db, t) =>
+    db
+      .update(t.offers)
+      .set(set)
+      .where(eq(t.offers.sessionId, asSessionId(sessionId)))
+      .prepare(),
+  )
+}
+
+/** The slice's bun:sqlite database, for the SQLite-only cases. */
+function sqliteOf(store: SliceStore): ReturnType<typeof openDatabase> {
+  if (store.engine !== 'sqlite') throw new Error('a SQLite-only case reached the Postgres leg')
+  return store.probeTarget.db as ReturnType<typeof openDatabase>
 }
 
 // ---------------------------------------------------------------------------
@@ -162,9 +205,12 @@ describe('last bound driver capabilities', () => {
       row({ id: 'driver-report', boundDriverId: 'claude-sdk' }),
     )
     for (const corrupt of ['{bad', '{"attachKinds":["invalid"]}', '{"configureFields":false}']) {
-      db.prepare('UPDATE sessions SET bound_driver_capabilities = ? WHERE id = ?').run(
-        corrupt,
-        'driver-report',
+      await seedSliceRow(slice, (db, t) =>
+        db
+          .update(t.sessions)
+          .set({ boundDriverCapabilities: corrupt })
+          .where(eq(t.sessions.id, asSessionId('driver-report')))
+          .prepare(),
       )
       expect(await sessions.getSession(asSessionId('driver-report'))).toMatchObject({
         boundDriverId: 'claude-sdk',
@@ -219,7 +265,7 @@ describe('getSessions — the batched form of getSession', () => {
   it('INCLUDES tombstones, because feed visibility needs the delete-audience answer', async () => {
     await put({ id: 'live-1' })
     await put({ id: 'dead-1' })
-    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], 't5', 'standalone')
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], T5, 'standalone')
 
     const got = await sessions.getSessions(['live-1', 'dead-1', 'absent'])
 
@@ -227,7 +273,7 @@ describe('getSessions — the batched form of getSession', () => {
     // The tombstone is not merely present, it is RECOGNISABLE — an implementation
     // that returned it while dropping the deletion columns would still pass a
     // key-set assertion.
-    expect(got.get('dead-1')?.deletedAt).toBe('t5')
+    expect(got.get('dead-1')?.deletedAt).toBe(T5)
     expect(got.get('live-1')?.deletedAt).toBeNull()
     // The pair with the denial: an id nobody has is simply absent, not a null.
     expect(got.has('absent')).toBe(false)
@@ -251,17 +297,17 @@ describe('the three resume-value readers answer three different questions', () =
    * attribution needs and the reason the plural reader exists.
    */
   const seedDuplicatePair = async (): Promise<void> => {
-    await put({ id: 'first', resumeValue: 'conv-1', createdAt: 't1' })
+    await put({ id: 'first', resumeValue: 'conv-1', createdAt: T1 })
     await put({
       id: 'second',
       resumeValue: 'conv-1',
-      createdAt: 't2',
+      createdAt: T2,
       issueId: asIssueId('iss_a') as IssueId,
     })
     // A tombstone on the same value: every one of the three readers restates
     // `deleted_at IS NULL`, so none of them may see it.
-    await put({ id: 'buried', resumeValue: 'conv-1', createdAt: 't0' })
-    await sessions.softDeleteSessions(fixtureWriteScope(), ['buried'], 't5', 'standalone')
+    await put({ id: 'buried', resumeValue: 'conv-1', createdAt: T0 })
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['buried'], T5, 'standalone')
   }
 
   it('findSessionByResumeValue picks the FIRST live row in the scan order', async () => {
@@ -311,7 +357,7 @@ describe('findSessionsByIssueIds', () => {
     const issue = asIssueId('iss_a') as IssueId
     await put({ id: 'live-1', issueId: issue })
     await put({ id: 'dead-1', issueId: issue })
-    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], 't5', 'standalone')
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], T5, 'standalone')
     await put({ id: 'elsewhere', issueId: asIssueId('iss_b') as IssueId })
 
     const got = await sessions.findSessionsByIssueIds([issue])
@@ -338,9 +384,9 @@ describe('clearAllReadAt — the one write here that legitimately crosses owners
   it('removes EVERY reader marker for one session and no other session', async () => {
     await put({ id: 'sess-1' })
     await put({ id: 'sess-2' })
-    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), 't1')
-    await sessions.markSessionRead(fixtureWriteScope(), BOB, asSessionId('sess-1'), 't1')
-    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-2'), 't1')
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), T1)
+    await sessions.markSessionRead(fixtureWriteScope(), BOB, asSessionId('sess-1'), T1)
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-2'), T1)
 
     await sessions.clearAllReadAt(fixtureWriteScope(), asSessionId('sess-1'))
 
@@ -348,12 +394,12 @@ describe('clearAllReadAt — the one write here that legitimately crosses owners
     expect(await sessions.getReadAt(ALICE, asSessionId('sess-1'))).toBeNull()
     expect(await sessions.getReadAt(BOB, asSessionId('sess-1'))).toBeNull()
     // It is not a widening: the neighbouring session's markers survive.
-    expect(await sessions.getReadAt(ALICE, asSessionId('sess-2'))).toBe('t1')
+    expect(await sessions.getReadAt(ALICE, asSessionId('sess-2'))).toBe(T1)
   })
 
   it('leaves ABSENCE as the only spelling of never-opened', async () => {
     await put({ id: 'sess-1' })
-    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), 't1')
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), T1)
     await sessions.clearAllReadAt(fixtureWriteScope(), asSessionId('sess-1'))
     // A table with two spellings of one fact acquires a second meaning nobody
     // documented, so the row must be GONE rather than holding a null.
@@ -421,7 +467,7 @@ describe('setDraftDoc', () => {
     await put({ id: 'sess-1' })
     await sessions.setDraftDoc(asSessionId('sess-1'), {
       text: 'hello',
-      updatedAt: 't1',
+      updatedAt: T1,
       rev: 7,
       origin: 'web',
       history: ['a', 'b'],
@@ -430,7 +476,7 @@ describe('setDraftDoc', () => {
     const docs = await sessions.loadDraftDocs()
     expect(docs[asSessionId('sess-1')]).toEqual({
       text: 'hello',
-      updatedAt: 't1',
+      updatedAt: T1,
       rev: 7,
       origin: 'web',
       history: ['a', 'b'],
@@ -439,7 +485,7 @@ describe('setDraftDoc', () => {
 
   it('upserts in place rather than accumulating rows', async () => {
     await put({ id: 'sess-1' })
-    const doc = { text: 'one', updatedAt: 't1', rev: 1, origin: null, history: [] }
+    const doc = { text: 'one', updatedAt: T1, rev: 1, origin: null, history: [] }
     await sessions.setDraftDoc(asSessionId('sess-1'), doc)
     await sessions.setDraftDoc(asSessionId('sess-1'), { ...doc, text: 'two', rev: 2 })
 
@@ -453,14 +499,14 @@ describe('setDraftDoc', () => {
     await put({ id: 'sess-1' })
     await sessions.setDraftDoc(asSessionId('sess-1'), {
       text: 'hello',
-      updatedAt: 't1',
+      updatedAt: T1,
       rev: 1,
       origin: null,
       history: [],
     })
     await sessions.setDraftDoc(asSessionId('sess-1'), {
       text: '',
-      updatedAt: 't2',
+      updatedAt: T2,
       rev: 2,
       origin: null,
       history: [],
@@ -470,43 +516,40 @@ describe('setDraftDoc', () => {
     expect(await sessions.loadDrafts()).toEqual({})
   })
 
-  it('quarantines a corrupt history into an empty list rather than failing the load', async () => {
-    // `history` is a plain text column, not `mode: 'json'`, and `parseHistory`
-    // is its quarantine — a rule 6 mapper DECISION that survives the conversion.
-    // The row still loads; only the history is empty.
-    await put({ id: 'sess-1' })
-    await sessions.setDraftDoc(asSessionId('sess-1'), {
-      text: 'hello',
-      updatedAt: 't1',
-      rev: 1,
-      origin: null,
-      history: ['a'],
-    })
-    db.prepare('UPDATE session_drafts SET history = ? WHERE session_id = ?').run(
-      '{not json',
-      'sess-1',
-    )
+  it.skipIf(ON_PG)(
+    'quarantines a corrupt history into an empty list rather than failing the load',
+    async () => {
+      // `history` is a plain text column, not `mode: 'json'`, and `parseHistory`
+      // is its quarantine — a rule 6 mapper DECISION that survives the conversion.
+      // The row still loads; only the history is empty.
+      await put({ id: 'sess-1' })
+      await sessions.setDraftDoc(asSessionId('sess-1'), {
+        text: 'hello',
+        updatedAt: T1,
+        rev: 1,
+        origin: null,
+        history: ['a'],
+      })
+      await setDraftHistory('{not json')
 
-    const docs = await sessions.loadDraftDocs()
-    expect(docs[asSessionId('sess-1')]?.history).toEqual([])
-    // The admission beside the denial: the rest of the doc is intact, so the
-    // quarantine is scoped to the column and does not drop the row.
-    expect(docs[asSessionId('sess-1')]?.text).toBe('hello')
-  })
+      const docs = await sessions.loadDraftDocs()
+      expect(docs[asSessionId('sess-1')]?.history).toEqual([])
+      // The admission beside the denial: the rest of the doc is intact, so the
+      // quarantine is scoped to the column and does not drop the row.
+      expect(docs[asSessionId('sess-1')]?.text).toBe('hello')
+    },
+  )
 
   it('drops non-string history members rather than passing them through', async () => {
     await put({ id: 'sess-1' })
     await sessions.setDraftDoc(asSessionId('sess-1'), {
       text: 'hello',
-      updatedAt: 't1',
+      updatedAt: T1,
       rev: 1,
       origin: null,
       history: ['a'],
     })
-    db.prepare('UPDATE session_drafts SET history = ? WHERE session_id = ?').run(
-      '["a", 7, null]',
-      'sess-1',
-    )
+    await setDraftHistory('["a", 7, null]')
     expect((await sessions.loadDraftDocs())[asSessionId('sess-1')]?.history).toEqual(['a'])
   })
 })
@@ -518,52 +561,64 @@ describe('setDraftDoc', () => {
 describe('offers and tab order keep their quarantines', () => {
   const owner: UserId = ALICE
 
-  it('a corrupt actions column drops the OFFER; a corrupt artifacts column drops only the artifacts', async () => {
-    await put({ id: 'sess-1' })
-    await put({ id: 'sess-2' })
-    await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-1'), {
-      message: 'm1',
-      actions: [{ label: 'a', prompt: 'b' }],
-      artifacts: ['x'],
-      createdAt: 't1',
-    })
-    await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-2'), {
-      message: 'm2',
-      actions: [{ label: 'a', prompt: 'b' }],
-      createdAt: 't1',
-    })
+  it.skipIf(ON_PG)(
+    'a corrupt actions column drops the OFFER; a corrupt artifacts column drops only the artifacts',
+    async () => {
+      await put({ id: 'sess-1' })
+      await put({ id: 'sess-2' })
+      await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-1'), {
+        message: 'm1',
+        actions: [{ label: 'a', prompt: 'b' }],
+        artifacts: ['x'],
+        createdAt: T1,
+      })
+      await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-2'), {
+        message: 'm2',
+        actions: [{ label: 'a', prompt: 'b' }],
+        createdAt: T1,
+      })
 
-    db.prepare('UPDATE offers SET artifacts = ? WHERE session_id = ?').run('{bad', 'sess-1')
-    db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{bad', 'sess-2')
+      await setOfferColumn('sess-1', { artifacts: '{bad' })
+      await setOfferColumn('sess-2', { actions: '{bad' })
 
-    const offers = await sessions.listOffers()
-    // The two quarantines are DIFFERENT WIDTHS and the nesting is what makes
-    // them so. Flattening them into one `try` loses the narrower one.
-    expect(offers['sess-1']?.message).toBe('m1')
-    expect(offers['sess-1']?.artifacts).toBeUndefined()
-    expect(offers['sess-2']).toBeUndefined()
-  })
+      const offers = await sessions.listOffers()
+      // The two quarantines are DIFFERENT WIDTHS and the nesting is what makes
+      // them so. Flattening them into one `try` loses the narrower one.
+      expect(offers['sess-1']?.message).toBe('m1')
+      expect(offers['sess-1']?.artifacts).toBeUndefined()
+      expect(offers['sess-2']).toBeUndefined()
+    },
+  )
 
   it('a non-array actions value drops the offer even though the JSON parses', async () => {
     await put({ id: 'sess-1' })
     await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-1'), {
       message: 'm1',
       actions: [{ label: 'a', prompt: 'b' }],
-      createdAt: 't1',
+      createdAt: T1,
     })
     // Valid JSON, wrong shape: the `Array.isArray` guard is a second check and
     // not a restatement of the `try`.
-    db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{"a":1}', 'sess-1')
+    await setOfferColumn('sess-1', { actions: '{"a":1}' })
     expect(await sessions.listOffers()).toEqual({})
   })
 
-  it('a corrupt tab order reads as no saved order for that worktree only', async () => {
-    await sessions.setTabOrder(owner, '/w/one', ['a', 'b'])
-    await sessions.setTabOrder(owner, '/w/two', ['c'])
-    db.prepare('UPDATE tab_order SET ids = ? WHERE worktree = ?').run('{bad', '/w/one')
+  it.skipIf(ON_PG)(
+    'a corrupt tab order reads as no saved order for that worktree only',
+    async () => {
+      await sessions.setTabOrder(owner, '/w/one', ['a', 'b'])
+      await sessions.setTabOrder(owner, '/w/two', ['c'])
+      await seedSliceRow(slice, (db, t) =>
+        db
+          .update(t.tabOrder)
+          .set({ ids: '{bad' })
+          .where(eq(t.tabOrder.worktree, '/w/one'))
+          .prepare(),
+      )
 
-    expect(await tabOrdersOf(sessions, owner)).toEqual({ '/w/two': ['c'] })
-  })
+      expect(await tabOrdersOf(sessions, owner)).toEqual({ '/w/two': ['c'] })
+    },
+  )
 
   it('setTabOrder with an empty list deletes the row rather than storing []', async () => {
     await sessions.setTabOrder(owner, '/w/one', ['a'])
@@ -573,44 +628,52 @@ describe('offers and tab order keep their quarantines', () => {
 })
 
 describe('binding inventory facts', () => {
-  it.each([
-    1, 2,
-  ])('backfills pre-attribution records only with exactly one member (%s members)', async (memberCount) => {
-    const member = asUserId((db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id)
-    if (memberCount === 2)
-      db.prepare(
-        "INSERT INTO users (id, display_name, role, created_at) VALUES ('second-member', 'Second', 'member', 'now')",
-      ).run()
-    await put({ id: 'legacy', ownerUserId: member })
-    await put({
-      id: 'attributed',
-      ownerUserId: member,
-      createdBy: {
-        actor: { kind: 'agent', id: asAgentIdentityId('parent') },
+  // Runs a SQLite migration's own statements: the Postgres chain starts from a baseline
+  // that already has the column (design 2.7).
+  it.skipIf(ON_PG).each([1, 2])(
+    'backfills pre-attribution records only with exactly one member (%s members)',
+    async (memberCount) => {
+      const db = sqliteOf(slice)
+      const member = asUserId(
+        (db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id,
+      )
+      if (memberCount === 2)
+        db.prepare(
+          "INSERT INTO users (id, display_name, role, created_at) VALUES ('second-member', 'Second', 'member', 'now')",
+        ).run()
+      await put({ id: 'legacy', ownerUserId: member })
+      await put({
+        id: 'attributed',
+        ownerUserId: member,
+        createdBy: {
+          actor: { kind: 'agent', id: asAgentIdentityId('parent') },
+          onBehalfOf: BOB,
+        },
+      })
+      const migration = DRIZZLE_MIGRATIONS.find((m) =>
+        m.name.endsWith('_session-delegation-record'),
+      )!
+      for (const statement of migration.sql.split('--> statement-breakpoint').slice(1))
+        db.exec(statement)
+      const legacy = (await sessions.getSession(asSessionId('legacy')))?.delegation
+      if (memberCount === 1)
+        expect(legacy).toEqual({
+          actor: 'legacy',
+          onBehalfOf: member,
+          grantedScope: { kind: 'none' },
+          parentBindingId: null,
+          revision: 1,
+        })
+      else expect(legacy).toBeUndefined()
+      expect((await sessions.getSession(asSessionId('attributed')))?.delegation).toEqual({
+        actor: 'attributed',
         onBehalfOf: BOB,
-      },
-    })
-    const migration = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_session-delegation-record'))!
-    for (const statement of migration.sql.split('--> statement-breakpoint').slice(1))
-      db.exec(statement)
-    const legacy = (await sessions.getSession(asSessionId('legacy')))?.delegation
-    if (memberCount === 1)
-      expect(legacy).toEqual({
-        actor: 'legacy',
-        onBehalfOf: member,
         grantedScope: { kind: 'none' },
-        parentBindingId: null,
+        parentBindingId: 'parent',
         revision: 1,
       })
-    else expect(legacy).toBeUndefined()
-    expect((await sessions.getSession(asSessionId('attributed')))?.delegation).toEqual({
-      actor: 'attributed',
-      onBehalfOf: BOB,
-      grantedScope: { kind: 'none' },
-      parentBindingId: 'parent',
-      revision: 1,
-    })
-  })
+    },
+  )
 
   it('persists the complete delegation and returns it independently of the session owner', async () => {
     const delegation: import('@podium/model').SessionDelegation = {
@@ -643,7 +706,7 @@ describe('binding inventory facts', () => {
     await put({
       id: 'closed',
       machineId: asMachineId('machine-b'),
-      deletedAt: '2026-09-17T00:00:00Z',
+      deletedAt: '2026-09-17T00:00:00.000Z',
     })
     expect(await sessions.bindingConfirmations(['here', 'moved', 'closed', 'unknown'])).toEqual({
       here: { owner: ALICE, machineId: 'machine-a', closed: false },

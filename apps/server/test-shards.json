@@ -1813,6 +1813,7 @@
         "src/test-support/client-principal.ts",
         "src/test-support/client-transport.ts",
         "src/test-support/customer-upgrade-database.ts",
+        "src/test-support/drained-repository.ts",
         "src/test-support/features.ts",
         "src/test-support/host-daemon.ts",
         "src/test-support/issue-corpus.ts",

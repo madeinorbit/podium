@@ -34,39 +34,29 @@
  */
 
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
-import type { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
-
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
- * executor occupied. Local to this file on purpose: hoisting it into
- * `test-support` would put six parallel conversion waves in one shared file.
- */
-const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
-  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
-}
 
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
 const SHARED = 'resume-shared'
 
-let db: ReturnType<typeof openDatabase>
+let slice: SliceStore
 let sessions: SessionsRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageQueries(db))
+// The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015), on the
+// run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  sessions = drainedRepository(slice, new SessionsRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 const row = (

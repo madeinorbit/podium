@@ -34,13 +34,23 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import type {
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
   WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from './executor/sync-drizzle'
 
 // Every query these repositories run, prepared once per store [POD-6147].
 
@@ -63,23 +73,26 @@ const layoutValue = prepared((db, t) =>
 )
 
 const upsertLayout = prepared((db, t) =>
-  db
-    .insert(t.userLayout)
-    .values({
-      workspaceId: WORKSPACE,
-      userId: P('userId'),
-      key: P('key'),
-      value: P('value'),
-      updatedAt: P('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: [t.userLayout.userId, t.userLayout.key],
-      set: { value: P('value'), updatedAt: P('updatedAt') },
-    })
-    .prepare(),
+  captureWrite(
+    db
+      .insert(t.userLayout)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: P('userId'),
+        key: P('key'),
+        value: P('value'),
+        updatedAt: P('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.userLayout.userId, t.userLayout.key],
+        set: { value: P('value'), updatedAt: P('updatedAt') },
+      }),
+  ).prepare(),
 )
 
-const deleteLayoutKey = prepared((db, t) => db.delete(t.userLayout).where(layoutKeyIs(t)).prepare())
+const deleteLayoutKey = prepared((db, t) =>
+  captureWrite(db.delete(t.userLayout).where(layoutKeyIs(t))).prepare(),
+)
 
 /** Every user's layout rows in primary-key order, one page after a cursor:
  *  the boot reconcile's full truth, read a page at a time through the key. */
@@ -192,16 +205,15 @@ const deleteDockShellsOfSession = prepared((db, t) =>
   db.delete(t.userDockShell).where(shellSessionIs(t)).prepare(),
 )
 
-const worktreesOfSession = prepared((db, t) =>
-  db
-    .select({ userId: t.userDockShell.userId, worktreeKey: t.userDockShell.worktreeKey })
-    .from(t.userDockShell)
-    .where(shellSessionIs(t))
-    .prepare(),
-)
+/** A session's rows in primary-key order, the order both shell readers share. */
+const shellKeyOrder = (t: StoreTables) => [
+  asc(t.userDockShell.userId),
+  asc(t.userDockShell.worktreeKey),
+]
 
-/** One JSON parameter, not an IN list: see `worktreesForSessions`. */
-const worktreesOfSessions = prepared((db, t) =>
+/** An IN list sized by `inListSize`: see `worktreesForSessions`. The one-session
+ *  read is its size-1 shape, so the two return a session's rows in one order. */
+const worktreesOfSessions = preparedFamily((db, t, size: number) =>
   db
     .select({
       sessionId: t.userDockShell.sessionId,
@@ -209,15 +221,14 @@ const worktreesOfSessions = prepared((db, t) =>
       worktreeKey: t.userDockShell.worktreeKey,
     })
     .from(t.userDockShell)
-    .where(
-      inWorkspace(
-        t.userDockShell,
-        sql`${t.userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`,
-      ),
-    )
-    .orderBy(sql`rowid`)
+    .where(inWorkspace(t.userDockShell, inListOf(t.userDockShell.sessionId, size)))
+    .orderBy(...shellKeyOrder(t))
     .prepare(),
 )
+
+/** At most this many session ids in one shell read: a power of two, far under
+ *  SQLite's 32766 bound parameters. */
+const SHELL_IDS_PER_STATEMENT = 4096
 
 export class UserLayoutRepository {
   private readonly scope: WorkspaceDb
@@ -514,7 +525,7 @@ export class UserDockShellRepository {
   async worktreeForSession(
     sessionId: SessionId,
   ): Promise<Array<{ userId: UserId; worktreeKey: string }>> {
-    const rows = await worktreesOfSession(this.db).all({ sessionId })
+    const rows = await worktreesOfSessions(this.db, 1).all(inListValues([sessionId], 1))
     return rows.map((r) => ({ userId: r.userId, worktreeKey: r.worktreeKey }))
   }
 
@@ -523,28 +534,32 @@ export class UserDockShellRepository {
    * The host sample asks this four to six times a sample; per-shell reads were
    * ~5,000 statements a sample on a real 1,000-shell database.
    *
-   * The ids travel as one JSON parameter, not an `IN (?, ?, …)` list: the
-   * driver caches one prepared statement per SQL text, and a list sized by the
-   * live-shell count would mint a new text for every count it ever sees. One
-   * parameter also has no `SQLITE_MAX_VARIABLE_NUMBER` ceiling to chunk under.
+   * The ids travel as an `IN (?, ?, …)` list sized by `inListSize`, so the
+   * driver's per-text statement cache holds one statement per power of two,
+   * not one per live-shell count; a list past {@link SHELL_IDS_PER_STATEMENT}
+   * is read in chunks of that size, under SQLite's bound-parameter ceiling
+   * (POD-6983: the JSON parameter this replaced read `json_each`, which
+   * Postgres has not).
    *
-   * Each session's rows come back in rowid order, the order the single-session
-   * read walks `idx_user_dock_shell_session` in, so `rows[0]` is the same row
-   * either way. A session with no mapping is absent from the map.
+   * Each session's rows come back in primary-key order, the order the
+   * single-session read returns them in, so `rows[0]` is the same row either
+   * way, on both engines. A session with no mapping is absent from the map.
    */
   async worktreesForSessions(
     sessionIds: readonly SessionId[],
   ): Promise<Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>> {
     const out = new Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>()
     if (sessionIds.length === 0) return out
-    const rows = await worktreesOfSessions(this.db).all({
-      sessionIdsJson: JSON.stringify([...new Set(sessionIds)]),
-    })
-    for (const r of rows) {
-      const bucket = out.get(r.sessionId)
-      const row = { userId: r.userId, worktreeKey: r.worktreeKey }
-      if (bucket) bucket.push(row)
-      else out.set(r.sessionId, [row])
+    const ids = [...new Set(sessionIds)]
+    for (let start = 0; start < ids.length; start += SHELL_IDS_PER_STATEMENT) {
+      const chunk = ids.slice(start, start + SHELL_IDS_PER_STATEMENT)
+      const size = inListSize(chunk.length)
+      for (const r of await worktreesOfSessions(this.db, size).all(inListValues(chunk, size))) {
+        const bucket = out.get(r.sessionId)
+        const row = { userId: r.userId, worktreeKey: r.worktreeKey }
+        if (bucket) bucket.push(row)
+        else out.set(r.sessionId, [row])
+      }
     }
     return out
   }

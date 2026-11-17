@@ -29,38 +29,29 @@ import {
   asSessionId,
   asUserId,
 } from '@podium/model'
-import type { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository, seedSliceRow } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
-
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
- * executor occupied. Local to this file on purpose: hoisting it into
- * `test-support` would put six parallel conversion waves in one shared file.
- */
-const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
-  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
-}
 
 const ALICE = asUserId('user:alice')
 const AGENT = asAgentIdentityId('sess-agent-7')
 
-let db: ReturnType<typeof openDatabase>
+let slice: SliceStore
 let sessions: SessionsRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageQueries(db))
+// The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015), on the
+// run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  sessions = drainedRepository(slice, new SessionsRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 const row = (id: string, createdBy: Attribution | undefined): SessionRow => ({
@@ -146,24 +137,29 @@ describe('session attribution pair — durable round trip', () => {
     // a merely unusual one.
     await sessions.upsertSession(fixtureWriteScope(), row('sess-1', DELEGATED))
     const setActor = (kind: string, human: UserId | null, id: SessionId) =>
-      db
-        .prepare(
-          `UPDATE sessions SET created_by_actor_kind = ?, created_by_actor_id = 'steward',
-             created_by_on_behalf_of = ? WHERE id = ?`,
-        )
-        .run(kind, human, id)
+      seedSliceRow(slice, (db, t) =>
+        db
+          .update(t.sessions)
+          .set({
+            createdByActorKind: kind,
+            createdByActorId: 'steward',
+            createdByOnBehalfOf: human,
+          })
+          .where(eq(t.sessions.id, id))
+          .prepare(),
+      )
 
     // FIRST, PROVE THE STATEMENT REACHES A ROW AT ALL. Without this the denial
     // below passes just as well against an UPDATE that matched nothing — which
     // is exactly how this test failed on its first run.
-    setActor('system', null, asSessionId('sess-1'))
+    await setActor('system', null, asSessionId('sess-1'))
     expect((await reread('sess-1'))?.createdBy?.actor).toEqual({ kind: 'system', job: 'steward' })
 
     // Same statement, same row, one value changed: now it must be refused.
-    expect(() => setActor('system', ALICE, asSessionId('sess-1'))).toThrow()
+    await expect(setActor('system', ALICE, asSessionId('sess-1'))).rejects.toThrow()
     // And the closed kind set is enforced too — a fifth principal kind is an
     // ADR 9 D1 amendment, not something a writer can introduce.
-    expect(() => setActor('superagent', null, asSessionId('sess-1'))).toThrow()
+    await expect(setActor('superagent', null, asSessionId('sess-1'))).rejects.toThrow()
   })
 
   it('reads a pre-attribution row as NO PAIR, and invents nothing', async () => {

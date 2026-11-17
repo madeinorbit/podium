@@ -3,26 +3,30 @@
  */
 
 import { layoutSetInput } from '@podium/commands'
-import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asUserId, type UserId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { workspaceQueries } from './executor/sync-drizzle'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { UserLayoutRepository } from './user-layout'
 
-const ALICE: UserId = firstAdminMemberId()
+// A person's id; these tables name no member row, and a Postgres clone seeds none.
+const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
 const AT = '2026-08-02T09:00:00.000Z'
 
 let layout: UserLayoutRepository
 
-beforeEach(() => {
-  const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).queries
-  if (!stage) throw new Error('the test database is not bun-backed')
-  layout = new UserLayoutRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
+let slice: SliceStore
+
+// On the run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  layout = drainedRepository(slice, new UserLayoutRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('UserLayoutRepository', () => {
@@ -84,10 +88,10 @@ describe('UserLayoutRepository', () => {
   })
 
   it('clear deletes the row so absence means never set', async () => {
-    await layout.set(fixtureWriteScope(), firstAdminMemberId(), 'panelMode', { s1: 'chat' }, AT)
-    await layout.clear(fixtureWriteScope(), firstAdminMemberId(), 'panelMode')
-    expect(await layout.get(firstAdminMemberId(), 'panelMode')).toBeUndefined()
-    expect(await layout.keysFor(firstAdminMemberId())).toEqual([])
+    await layout.set(fixtureWriteScope(), ALICE, 'panelMode', { s1: 'chat' }, AT)
+    await layout.clear(fixtureWriteScope(), ALICE, 'panelMode')
+    expect(await layout.get(ALICE, 'panelMode')).toBeUndefined()
+    expect(await layout.keysFor(ALICE)).toEqual([])
   })
 
   it('refuses device-local keys that must stay on the client', async () => {
