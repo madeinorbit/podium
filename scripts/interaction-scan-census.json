@@ -40327,6 +40327,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/live/live-store.ts",
+      "holder": "RecordLiveStore/callback",
+      "rule": "loop:for-of",
+      "tokens": "2803d82bfb0d1c56af404e1c2ec4808a6fed82cee934b8480d300af617c14084",
+      "gate": [],
+      "origin": [
+        "0a7949e0c261e475fff86a35d1c5e3996bb9bec1b6508cfde9af39ffbc71a6a5"
+      ],
+      "fingerprint": "bef61992cb982ebd48b1531af7ccd7879575d3abf93e085d74908e31805121c0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7090",
+      "trigger": "Creating one signed-in runtime's record live store.",
+      "bound": "One initialization pass over the declared live parts: four compiled topic schemas today, independent of record count, history and watchers.",
+      "reason": "The records argument contains record declarations, not record instances. The loop creates one map and demand atom family per declared live part; it never enumerates stored rows or a screen's records.",
+      "guard": "packages/client-core/src/live/live-store.declaration.test.ts checks declaration-only additions, schema coverage, first/last demand and the single generic map factory; live.test.ts preserves topic lifetimes."
     }
   ]
 }
