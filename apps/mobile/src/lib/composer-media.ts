@@ -152,8 +152,8 @@ export function onMediaPaste(
   handler: (files: PickedFile[]) => void,
   fromSource?: (source: () => Promise<PickedFile[]>) => void,
 ): () => void {
-  return onImagePaste(node, (sources) => {
-    const read = () => readPicked(sources)
+  return onImagePaste(node, (source) => {
+    const read = async () => readPicked(await source())
     if (fromSource) fromSource(read)
     else void read().then(handler)
   })

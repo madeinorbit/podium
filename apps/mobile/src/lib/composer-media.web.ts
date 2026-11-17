@@ -107,18 +107,23 @@ function filesOf(transfer: DataTransfer | null): File[] {
 export function onMediaPaste(
   node: unknown,
   handler: (files: PickedFile[]) => void,
-  _fromSource?: (source: () => Promise<PickedFile[]>) => void,
+  fromSource?: (source: () => Promise<PickedFile[]>) => void,
 ): () => void {
   const el = node as HTMLElement | null
   if (!el || typeof el.addEventListener !== 'function') return () => {}
+
+  const acceptTransfer = (transfer: DataTransfer | null) => {
+    const files = filesOf(transfer)
+    const read = () => readAll(files)
+    if (fromSource) fromSource(read)
+    else void read().then(handler)
+  }
 
   const onPaste = (event: Event) => {
     const clipboard = (event as ClipboardEvent).clipboardData
     if (!hasFiles(clipboard?.items)) return
     event.preventDefault()
-    void readAll(filesOf(clipboard)).then((files) => {
-      if (files.length > 0) handler(files)
-    })
+    acceptTransfer(clipboard)
   }
   const onDragOver = (event: Event) => {
     if (hasFiles((event as DragEvent).dataTransfer?.items)) event.preventDefault()
@@ -127,9 +132,7 @@ export function onMediaPaste(
     const transfer = (event as DragEvent).dataTransfer
     if (!hasFiles(transfer?.items)) return
     event.preventDefault()
-    void readAll(filesOf(transfer)).then((files) => {
-      if (files.length > 0) handler(files)
-    })
+    acceptTransfer(transfer)
   }
 
   el.addEventListener('paste', onPaste)

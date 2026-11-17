@@ -905,6 +905,51 @@ describe('native New Task sheet logic', () => {
     )
   })
 
+  it('blocks Start during attachment preparation and sends the completed ref with the same prompt', async () => {
+    const ref = {
+      id: 'slow-upload',
+      filename: 'slow.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const upload = vi.fn(async () => ({ path: '', attachment: ref }))
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    let finishRead: ((files: Parameters<ComposerAttachmentsApi['accept']>[0]) => void) | undefined
+    await mount({
+      api: { sessions: { uploadImage: { mutate: upload }, create: { mutate: create } } },
+    })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Fix the image' } })
+    act(() => {
+      seams.attachments?.fromSource(
+        () =>
+          new Promise((resolve) => {
+            finishRead = resolve
+          }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(seams.attachments?.uploading).toBe(true)
+    expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    await waitFor(() => expect(finishRead).toBeTypeOf('function'))
+    await act(async () =>
+      finishRead?.([
+        {
+          name: 'slow.png',
+          mimeType: 'image/png',
+          dataBase64: 'cG5n',
+          previewUri: 'file:///slow.png',
+        },
+      ]),
+    )
+    await waitFor(() => expect(seams.attachments?.attachments[0]?.state).toBe('ready'))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create.mock.calls[0]?.[0]).toMatchObject({ attachments: [ref] }))
+  })
+
   it('holds attachments with pending:true and passes their refs through Start', async () => {
     const ref = {
       id: 'held-upload',

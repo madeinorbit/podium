@@ -319,7 +319,7 @@ export function Composer({
   }, [disabled, voice.listening, voice.starting, voice.stop])
 
   const send = () => {
-    if (!canSend) return
+    if (!canSend || attachments?.uploading) return
     const trimmed = committedText.trim()
     const files = attachments?.ready() ?? []
     if (!trimmed && files.length === 0) return

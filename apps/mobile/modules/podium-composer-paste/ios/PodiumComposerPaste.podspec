@@ -14,4 +14,6 @@ Pod::Spec.new do |s|
   s.frameworks = 'UniformTypeIdentifiers'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.source_files = '**/*.{h,m,mm,swift,hpp,cpp}'
+  # Manual app-hosted fixtures are not part of the module or CI coverage.
+  s.exclude_files = 'Tests/**/*'
 end

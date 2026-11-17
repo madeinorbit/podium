@@ -1,11 +1,13 @@
 import { asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { useEffect } from 'react'
+import { type ComponentProps, type ReactNode, useEffect, useState } from 'react'
+import type { View } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { AttachmentReadSource } from '../lib/composer-media-limits'
 import { MAX_ATTACHMENT_BYTES } from '../lib/composer-media-limits'
-import { AttachmentStrip } from './AttachmentStrip'
+import type { PickedFile } from '../lib/composer-media-types'
+import { Composer } from './Composer'
 import { type ComposerAttachmentsApi, useComposerAttachments } from './useComposerAttachments'
 
 const native = vi.hoisted(() => ({
@@ -13,7 +15,7 @@ const native = vi.hoisted(() => ({
   readAsStringAsync: vi.fn(async (_uri: string, _options: unknown) => 'cG5n'),
   getInfoAsync: vi.fn(),
   stop: vi.fn(),
-  pasted: undefined as ((files: AttachmentReadSource[]) => void) | undefined,
+  pasted: undefined as ((source: () => Promise<AttachmentReadSource[]>) => void) | undefined,
 }))
 vi.mock('../lib/composer-image-paste', () => ({ onImagePaste: native.onImagePaste }))
 vi.mock('expo-clipboard', () => ({}))
@@ -28,16 +30,41 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(async () => {}),
 }))
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
+}))
+vi.mock('expo-blur', async () => {
+  const { View } = await import('react-native')
+  return { BlurView: (props: ComponentProps<typeof View>) => <View {...props} /> }
+})
+vi.mock('expo-linear-gradient', () => ({
+  LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
+}))
 
 // The .js specifier resolves the native .ts entry instead of the lane's .web.ts.
 const { onMediaPaste } = await import('../lib/composer-media.js')
 
 let attachments: ComposerAttachmentsApi
-function Harness() {
-  const api = useComposerAttachments(asSessionId('paste-session'))
+function Harness({
+  onSend = () => {},
+  pickMedia,
+}: {
+  onSend?: ComponentProps<typeof Composer>['onSend']
+  pickMedia?: () => Promise<PickedFile[]>
+}) {
+  const api = useComposerAttachments(asSessionId('paste-session'), { pickMedia })
+  const [text, setText] = useState('Describe this')
   attachments = api
   useEffect(() => onMediaPaste(null, api.accept, api.fromSource), [api.accept, api.fromSource])
-  return <AttachmentStrip attachments={api.attachments} onRemove={api.remove} />
+  return (
+    <Composer
+      placeholder="Message"
+      value={text}
+      onChangeText={setText}
+      onSend={onSend}
+      attachments={api}
+    />
+  )
 }
 
 beforeEach(() => {
@@ -49,7 +76,11 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-const image = (name: string, mimeType = 'image/png', size = 3): AttachmentReadSource => ({
+const image = (
+  name: string,
+  mimeType = 'image/png',
+  size = 3,
+): Omit<AttachmentReadSource, 'error'> => ({
   name,
   mimeType,
   size,
@@ -57,7 +88,148 @@ const image = (name: string, mimeType = 'image/png', size = 3): AttachmentReadSo
   previewUri: `file:///${name}`,
 })
 
+function paste(files: AttachmentReadSource[]) {
+  native.pasted?.(async () => files)
+}
+
 describe('pasted image attachment intake', () => {
+  it('blocks Send before native image preparation has even produced file sources', async () => {
+    let finishPreparation: ((files: AttachmentReadSource[]) => void) | undefined
+    const onSend = vi.fn()
+    const uploadImage = vi.fn(async () => ({ path: '/uploads/prepared.png' }))
+    await renderWithMobileStore(<Harness onSend={onSend} />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    const beforeRender = attachments
+    act(() => {
+      native.pasted?.(
+        () =>
+          new Promise((resolve) => {
+            finishPreparation = resolve
+          }),
+      )
+      expect(beforeRender.uploading).toBe(true)
+      fireEvent.keyDown(screen.getByLabelText('Message'), { key: 'Enter', metaKey: true })
+    })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(native.readAsStringAsync).not.toHaveBeenCalled()
+    await waitFor(() => expect(finishPreparation).toBeTypeOf('function'))
+    await act(async () => finishPreparation?.([image('prepared.png')]))
+    await waitFor(() => expect(attachments.ready()).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a removed preparation result instead of attaching it to the next message', async () => {
+    let finishPreparation: ((files: AttachmentReadSource[]) => void) | undefined
+    const onSend = vi.fn()
+    const uploadImage = vi.fn(async () => ({ path: '/uploads/fresh.png' }))
+    await renderWithMobileStore(<Harness onSend={onSend} />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    act(() =>
+      native.pasted?.(
+        () =>
+          new Promise((resolve) => {
+            finishPreparation = resolve
+          }),
+      ),
+    )
+    await waitFor(() => expect(finishPreparation).toBeTypeOf('function'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Attachment' }))
+    expect(attachments.uploading).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('Describe this', undefined)
+    await act(async () => finishPreparation?.([image('cancelled.png')]))
+    await waitFor(() => expect(native.readAsStringAsync).toHaveBeenCalledTimes(1))
+    expect(attachments.attachments).toEqual([])
+    expect(uploadImage).not.toHaveBeenCalled()
+    act(() => paste([image('fresh.png')]))
+    await waitFor(() => expect(attachments.ready()).toHaveLength(1))
+    expect(attachments.ready()[0]?.name).toBe('fresh.png')
+  })
+
+  it('keeps queued reservations in place and skips a cancelled picker before it opens', async () => {
+    let finishFirst: ((files: PickedFile[]) => void) | undefined
+    const cancelledPicker = vi.fn(async () => [])
+    const nextPicker = vi.fn(async () => [])
+    const uploadImage = vi.fn(async () => ({ path: '/uploads/first.png' }))
+    await renderWithMobileStore(<Harness />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    act(() => {
+      attachments.fromSource(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = resolve
+          }),
+      )
+      attachments.fromSource(cancelledPicker)
+    })
+    expect(attachments.attachments).toHaveLength(2)
+    const cancelled = attachments.attachments[1]
+    if (!cancelled) throw new Error('Missing queued reservation')
+    act(() => attachments.remove(cancelled.id))
+    act(() => attachments.fromSource(nextPicker))
+    await waitFor(() => expect(finishFirst).toBeTypeOf('function'))
+    await act(async () => finishFirst?.([{ ...image('first.png'), dataBase64: 'cG5n' }]))
+    await waitFor(() => expect(attachments.ready()).toHaveLength(1))
+    await waitFor(() => expect(nextPicker).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(attachments.uploading).toBe(false))
+    expect(cancelledPicker).not.toHaveBeenCalled()
+    expect(attachments.attachments.map((file) => file.name)).toEqual(['first.png'])
+    expect(attachments.uploading).toBe(false)
+  })
+
+  it.each([
+    'paste',
+    'picker',
+  ] as const)('reserves %s intake before a slow filesystem read and guards a send in the same turn', async (intake) => {
+    let finishRead: ((data: string) => void) | undefined
+    native.readAsStringAsync.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finishRead = resolve
+        }),
+    )
+    const file = image('delayed.png')
+    const pickMedia = async (): Promise<PickedFile[]> => [
+      {
+        ...file,
+        dataBase64: await native.readAsStringAsync(file.uri, { encoding: 'base64' }),
+      },
+    ]
+    const onSend = vi.fn()
+    const uploadImage = vi.fn(async () => ({ path: '/uploads/delayed.png' }))
+    await renderWithMobileStore(<Harness onSend={onSend} pickMedia={pickMedia} />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    const input = screen.getByLabelText('Message')
+    act(() => {
+      if (intake === 'paste') paste([file])
+      else attachments.pick?.()
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+    })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(attachments.uploading).toBe(true)
+    expect(attachments.attachments).toMatchObject([{ state: 'uploading' }])
+    expect(screen.getByRole('button', { name: 'Send' }).getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).not.toHaveBeenCalled()
+    await waitFor(() => expect(finishRead).toBeTypeOf('function'))
+    expect(uploadImage).not.toHaveBeenCalled()
+    await act(async () => finishRead?.('cG5n'))
+    await waitFor(() => expect(attachments.ready()).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('Describe this', [
+      {
+        name: 'delayed.png',
+        previewUri: 'file:///delayed.png',
+        path: '/uploads/delayed.png',
+      },
+    ])
+  })
+
   it('uploads PNG and HEIC through sessions.uploadImage and keeps the strip previews and send refs', async () => {
     const uploadImage = vi.fn(
       async ({ filename, mimeType }: { filename: string; mimeType: string }) => ({
@@ -69,7 +241,7 @@ describe('pasted image attachment intake', () => {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
 
-    act(() => native.pasted?.([image('pasted.png'), image('pasted.heic', 'image/heic')]))
+    act(() => paste([image('pasted.png'), image('pasted.heic', 'image/heic')]))
     await waitFor(() => expect(attachments.ready()).toHaveLength(2))
     expect(uploadImage.mock.calls.map(([input]) => input)).toEqual([
       {
@@ -111,7 +283,7 @@ describe('pasted image attachment intake', () => {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() =>
-      native.pasted?.([
+      paste([
         image('large.png', 'image/png', MAX_ATTACHMENT_BYTES + 1),
         { ...image('unreadable.heic', 'image/heic'), error: 'Could not read the clipboard image.' },
         image('third.png'),
@@ -146,8 +318,8 @@ describe('pasted image attachment intake', () => {
       api: { sessions: { uploadImage: { mutate: uploadImage } } },
     })
     act(() => {
-      native.pasted?.([image('first.png')])
-      native.pasted?.([image('second.png')])
+      paste([image('first.png')])
+      paste([image('second.png')])
     })
     await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1))
     expect(native.readAsStringAsync).toHaveBeenCalledTimes(1)

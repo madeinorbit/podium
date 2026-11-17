@@ -55,7 +55,7 @@ export interface ComposerAttachment {
 
 export interface ComposerAttachmentsApi {
   attachments: ComposerAttachment[]
-  /** True while any chip is still uploading — the send control waits for it. */
+  /** True from intake through upload, including before React paints the chip. */
   uploading: boolean
   /** Present only where the platform has a route for it; the composer hides the
    *  control rather than offering one that does nothing. */
@@ -65,7 +65,7 @@ export interface ComposerAttachmentsApi {
   paste?: () => void
   /** Wired by the composer to its own text node: a browser paste or drop. */
   accept: (files: PickedFile[]) => void
-  /** Explicit Photos/Camera/Files intake uses the same serialized upload queue. */
+  /** Reserve a chip now; serialize preparation, reads and upload for every source. */
   fromSource: (source: () => Promise<PickedFile[]>) => void
   remove: (id: string) => void
   clear: () => void
@@ -110,7 +110,14 @@ export function useComposerAttachments(
   // The send reads paths at the instant of the press, and `ready()` must not be
   // a stale closure over the render that created the callback.
   const latest = useRef(attachments)
-  latest.current = attachments
+  const changeAttachments = useCallback(
+    (change: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
+      const next = change(latest.current)
+      latest.current = next
+      setAttachments(next)
+    },
+    [],
+  )
   const sessionRef = useRef(sessionId)
   sessionRef.current = sessionId
   const prepareRef = useRef(options.prepareSession)
@@ -162,24 +169,26 @@ export function useComposerAttachments(
         if (!result.path && !ref) {
           throw new Error(('error' in result ? result.error : undefined) ?? 'upload refused')
         }
-        setAttachments((prev) =>
+        changeAttachments((prev) =>
           prev.map((a) =>
             a.id === id ? { ...a, path: result.path || undefined, ref, state: 'ready' } : a,
           ),
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        setAttachments((prev) =>
+        changeAttachments((prev) =>
           prev.map((a) => (a.id === id ? { ...a, state: 'failed', error: message } : a)),
         )
       }
     },
-    [trpc, options.destination],
+    [trpc, options.destination, changeAttachments],
   )
 
   const accept = useCallback(
-    (files: PickedFile[]) => {
-      if (files.length === 0) return
+    (files: PickedFile[], reservationId?: string) => {
+      // Removing or clearing a pending chip cancels its eventual result too.
+      if (reservationId && !latest.current.some((file) => file.id === reservationId)) return
+      if (files.length === 0 && !reservationId) return
       const added = files.map((file) => ({
         chip: {
           id: `att-${++seq}`,
@@ -191,7 +200,12 @@ export function useComposerAttachments(
         },
         file,
       }))
-      setAttachments((prev) => [...prev, ...added.map((entry) => entry.chip)])
+      const chips = added.map((entry) => entry.chip)
+      changeAttachments((prev) =>
+        reservationId
+          ? prev.flatMap((file) => (file.id === reservationId ? chips : [file]))
+          : [...prev, ...chips],
+      )
       const ready = added.flatMap((entry) =>
         pickedFileReady(entry.file) ? [{ chip: entry.chip, file: entry.file }] : [],
       )
@@ -206,7 +220,7 @@ export function useComposerAttachments(
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
           const ids = new Set(ready.map((entry) => entry.chip.id))
-          setAttachments((prev) =>
+          changeAttachments((prev) =>
             prev.map((attachment) =>
               ids.has(attachment.id)
                 ? { ...attachment, state: 'failed', error: message }
@@ -215,44 +229,60 @@ export function useComposerAttachments(
           )
         })
     },
-    [upload],
+    [upload, changeAttachments],
   )
 
   const fromSource = useCallback(
     (source: () => Promise<PickedFile[]>) => {
+      const reservationId = `att-${++seq}`
+      changeAttachments((prev) => [
+        ...prev,
+        {
+          id: reservationId,
+          name: 'Attachment',
+          previewUri: '',
+          state: 'uploading',
+        },
+      ])
       intakeQueueRef.current = intakeQueueRef.current.then(async () => {
+        if (!latest.current.some((file) => file.id === reservationId)) return
         try {
-          accept(await source())
+          accept(await source(), reservationId)
         } catch (error) {
-          accept([
-            {
-              name: 'Attachment',
-              mimeType: 'application/octet-stream',
-              previewUri: '',
-              error: error instanceof Error ? error.message : String(error),
-            },
-          ])
+          accept(
+            [
+              {
+                name: 'Attachment',
+                mimeType: 'application/octet-stream',
+                previewUri: '',
+                error: error instanceof Error ? error.message : String(error),
+              },
+            ],
+            reservationId,
+          )
         }
         // `accept` updates the ref synchronously. Waiting here keeps the next
         // picker read behind this batch's upload and its retained base64 bytes.
         await uploadQueueRef.current
       })
     },
-    [accept],
+    [accept, changeAttachments],
   )
 
   return {
     attachments,
-    uploading: attachments.some((a) => a.state === 'uploading'),
+    get uploading() {
+      return latest.current.some((a) => a.state === 'uploading')
+    },
     ...(canPickFiles ? { pick: () => fromSource(pickMediaRef.current) } : {}),
     ...(canPasteMedia ? { paste: () => fromSource(pasteMedia) } : {}),
     accept,
     fromSource,
     remove: useCallback(
-      (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
-      [],
+      (id: string) => changeAttachments((prev) => prev.filter((a) => a.id !== id)),
+      [changeAttachments],
     ),
-    clear: useCallback(() => setAttachments([]), []),
+    clear: useCallback(() => changeAttachments(() => []), [changeAttachments]),
     ready: useCallback(
       () =>
         latest.current

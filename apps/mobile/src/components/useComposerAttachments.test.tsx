@@ -227,7 +227,7 @@ describe('composer attachment session boundary', () => {
 
     act(() => api?.pick?.())
     await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(api?.attachments).toHaveLength(1))
+    await waitFor(() => expect(api?.attachments[0]?.state).toBe('failed'))
     expect(api?.attachments[0]).toMatchObject({
       state: 'failed',
       error: 'Photos access was denied. Allow access in Settings, then try again.',

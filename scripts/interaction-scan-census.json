@@ -386,18 +386,18 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversationBody/SessionConversationBody/attachments",
       "rule": "reader-summary",
-      "tokens": "b104c6c46d3046a3bfdec0806eb074fa21d1bf64b80bd75527db7fe435c65e79",
+      "tokens": "28fac69357ff1ea0590c99ed07488776d1a5412a98772214eb8f1152e6fa0645",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "13c3494bfee2c20c01eed0a9aeb67d34429c50582037517e3e599ae0c246047f",
+      "fingerprint": "8603cff01279f864f16f23a32ff95e337f591abc51b98d37657f09f7f3fec50c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SessionConversationBody/SessionConversationBody/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: 13c3494bfee2c20c01eed0a9aeb67d34429c50582037517e3e599ae0c246047f.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1225,18 +1225,18 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen/attachments",
       "rule": "reader-summary",
-      "tokens": "971b2d2a42b86111e5e5ea859ee8cda3875607c5a63d2dca1ec027cf189f2657",
+      "tokens": "33c9c2f4ed83c53a20a550348d5ebd0f4f6cbbec3f7b06cceb97c31d0bdeae1a",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "a30fe2cc4820779b03e2eebd4e85b5ab7b3e7fe715abe0ab416ea27f178a6647",
+      "fingerprint": "26ab3e6b2650b5c9a163022a3517964fb69a05c5334fe19606e806c26f994f37",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SuperagentScreen/SuperagentScreen/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: a30fe2cc4820779b03e2eebd4e85b5ab7b3e7fe715abe0ab416ea27f178a6647.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36622,18 +36622,18 @@
       "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
       "holder": "NewIssueScreen/NewIssueScreen/attachments",
       "rule": "reader-summary",
-      "tokens": "7aaa964ec06c0794e700024458441add0ea68368afa85382d83bf71c943e883b",
+      "tokens": "60c464578662e737e173a62cf9cae134d98d7f3a22554fe83c26d563d60d32d7",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "c6ea3e5b7bca90bf7c66917385c10edfe01b2c83e5cf22702b9ea85c7bf90767",
+      "fingerprint": "c278116e74e6563293664fe4ce55bb45cee6d464dd76df13b264443b07afa8b9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The visible New Task compose sheet reads its existing shared catalog and local attachment intake.",
       "bound": "Current compose attachment chips and the existing upload procedure; no new global attachment enumeration is introduced.",
-      "reason": "The pending upload option reuses useComposerAttachments and its existing reader-summary taint. It adds no record store or new global read, and no repair of inherited collection debt is claimed.",
+      "reason": "The pending upload option reuses useComposerAttachments and its existing reader-summary taint. It adds no record store or new global read, and no repair of inherited collection debt is claimed. POD-2577: synchronous local intake reservations and live Send guards change the shared hook summary; existing origins, multiplicity, classification, owners and inherited collection debt are retained. Predecessor: c6ea3e5b7bca90bf7c66917385c10edfe01b2c83e5cf22702b9ea85c7bf90767.",
       "guard": "NewIssueScreen.selectors.test.tsx covers dismissal, submit paths and held attachment refs; useComposerAttachments.test.tsx compares issue and unchanged chat payloads."
     },
     {

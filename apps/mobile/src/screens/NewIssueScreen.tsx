@@ -204,7 +204,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     uiState,
   ])
 
-  useEffect(() => onMediaPaste(promptRef.current, attachments.accept), [attachments.accept])
+  useEffect(
+    () => onMediaPaste(promptRef.current, attachments.accept, attachments.fromSource),
+    [attachments.accept, attachments.fromSource],
+  )
 
   const write = (patch: Partial<FirstTaskDraft>) => {
     setError(null)
@@ -271,7 +274,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const start = () => {
     // A second tap at the opening control's old position must not launch work
     // while UIKit is still presenting the sheet.
-    if (!promptReady) return
+    if (!promptReady || attachments.uploading) return
     const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
     if (!status.canStart || starting.current || !selectedRepo || !checkout || !machine) return
     starting.current = true
