@@ -24,9 +24,13 @@ import {
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId, type UserId } from '@podium/model'
 import { SyncSubmitRefusedError } from '@podium/protocol'
-import type { MutationLedgerPort } from '@podium/sync'
+import type { MutationLedgerPort, ReceiptCompaction } from '@podium/sync'
 import { z } from 'zod'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
+import {
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { SyncWriteEntry } from '../sync-write/entry'
 import { ARTIFACT_TRANSPORT, type ArtifactCall } from './artifact-effect-record'
@@ -37,6 +41,7 @@ import {
   type IssueCommandDeps,
 } from './command-ctx'
 import { withoutHiddenTaskFields } from './execution-visibility'
+import { issueReceiptCompaction } from './receipt-digest'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
 import { isIssueWorkCommand } from './work-effects'
@@ -54,7 +59,6 @@ const RUN_EVERY_TIME: MutationLedgerPort = {
   once: async <T>(_id: unknown, _proc: string, body: () => T | Promise<T>): Promise<Awaited<T>> =>
     await body(),
 }
-
 
 /** Whose eyes a command's result is for: the person, or an agent's human. A
  *  system job reads for the server itself (`null`). A bare in-process caller
@@ -170,6 +174,19 @@ export class IssueCommandDispatcher {
       },
       execute,
     )
+  }
+
+  /**
+   * How one call's receipt stores a large answer and how a replay rebuilds it
+   * (POD-7035, `receipt-digest.ts`): as `caller`, with this dispatcher's
+   * services and private-field rule.
+   */
+  receiptCompaction(caller: IssueCaller, name: string, input: unknown): ReceiptCompaction {
+    const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[name]
+    return issueReceiptCompaction(name, input, {
+      context: () => new IssueCommandCtx(this.deps, caller, name, def?.target),
+      visible: async (value) => await this.visibleResult(caller, value),
+    })
   }
 
   /** Every transport and effect answer obeys the caller's private-field rule. */

@@ -225,11 +225,14 @@ export class SyncWriteEntry {
     const ctx = this.contextFor(principal, mutationId, envelope.expectedRevision, confirmed)
     let application: { outcome: 'applied' | 'replayed'; value: unknown }
     try {
+      // A command whose answer can be large stores a digest of it (POD-7035).
+      const compaction = command.compaction?.(ctx, input)
       application = await this.deps.mutations.apply(
         dedupId,
         command.name,
         async () => await command.handle(ctx, input),
         {
+          ...(compaction === undefined ? {} : { compaction }),
           fallback: human === null ? undefined : this.deps.legacyFallback(mutationId, human),
           unit: async (fn) =>
             await withWriteProvenance(provenance, async () => await this.deps.unitOfWork(fn)),

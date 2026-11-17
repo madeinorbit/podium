@@ -440,7 +440,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
       await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId(id))),
     ).toBeDefined()
     // The crash: the receipt the framework would have replayed is gone.
-    await o.store.sync.pruneAppliedMutations({ maxAgeMs: 0, now: Date.now() + 60_000 })
+    await o.store.sync.pruneAppliedMutationsBatch(Date.now() + 60_000, 1_000)
     expect(
       await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId(id))),
     ).toBeUndefined()

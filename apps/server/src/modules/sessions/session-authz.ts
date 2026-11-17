@@ -1,3 +1,4 @@
+import { LogRate } from '../../log-rate'
 import { spanOpen } from '../../store/executor/executor'
 /**
  * Session apply-time authorization and ownership (POD-1396).
@@ -35,6 +36,9 @@ import type { Session } from './session'
 import type { SessionOwnerFacts, SessionOwnerMemo } from './session-state/service'
 
 const log = createLogger('server:session-authz')
+/** One line per miss, rate-limited (POD-7036): a pass over many parked
+ *  sessions wrote one per session, 200k lines in six days on the live server. */
+const registryMissLog = new LogRate()
 
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
@@ -387,7 +391,8 @@ export class SessionAuthz {
   /** Through the operation's session loader (POD-6210): the lease that restores
    *  a parked session for the write this check admits reuses the row. */
   private async storedOwnershipRecord(sessionId: SessionId) {
-    log.debug('session ownership registry miss; reading durable row', { sessionId })
+    const fields = registryMissLog.take()
+    if (fields) log.debug('session ownership registry miss; reading durable row', { sessionId, ...fields })
     return this.ports.store.sessions.loadSession(sessionId)
   }
 

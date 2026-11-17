@@ -13,7 +13,7 @@
  * same window and lifetime maps.
  */
 
-import { recordQuery } from '../query-attribution'
+import { readBytesSince, recordQuery, sampleStatementRead } from '../query-attribution'
 import type { SqlDatabase, SqlParam } from './types'
 
 export {
@@ -55,6 +55,9 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
     prepare(sql) {
       const st = db.prepare(sql)
       const timed = <T>(fn: () => T, rowsOf: (result: T) => number): T => {
+        // Bytes read are measured only for a statement that ran slow before
+        // (POD-7037); for every other one this is a set lookup.
+        const readBefore = sampleStatementRead(sql)
         const startedAt = performance.now()
         // `finally` would attribute a throwing statement too, but it cannot know the
         // row count; a failed statement contributes its wall time and zero rows.
@@ -64,7 +67,8 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
           rows = rowsOf(result)
           return result
         } finally {
-          recordQuery(sql, performance.now() - startedAt, rows)
+          const wallMs = performance.now() - startedAt
+          recordQuery(sql, wallMs, rows, undefined, readBytesSince(readBefore))
         }
       }
       return {

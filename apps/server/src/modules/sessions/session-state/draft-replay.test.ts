@@ -1,4 +1,4 @@
-import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../../test-support/capabilities'
@@ -73,6 +73,60 @@ describe('draft replay ordering', () => {
       release()
       state.removeSession(sessionId)
     }
+  })
+})
+
+describe('draft replay authorization (POD-7036)', () => {
+  it('reads the owners of every stored draft together, not one session at a time', async () => {
+    // A client connect replays every stored draft. Each draft's session was
+    // checked on its own: for a parked session, a registry miss and a read of
+    // its row, ~330 of them per connect on the live server.
+    const admin = firstAdminMemberId()
+    const ids = ['a', 'b', 'c', 'd', 'e'].map((id) => asSessionId(`parked-${id}`))
+    const stored = Object.fromEntries(
+      ids.map((id) => [id, { text: `draft of ${id}`, updatedAt: 't1', rev: 1, origin: 'seed', history: [] }]),
+    )
+    const primed: SessionId[][] = []
+    const durableReads: SessionId[] = []
+    const received: LiveServerMessage[] = []
+    const state = new SessionStateService({
+      store: {
+        sessions: { setDraftDoc: vi.fn(), draftDocOf: async () => undefined, loadDraftDocs: async () => stored },
+      } as unknown as SessionStatePorts['store'],
+      now: Date.now,
+      getSession: () => undefined,
+      liveWriter: undefined as never,
+      sessionIds: () => [],
+      clients: () => [],
+      primeOwnerMemo: async (memo, sessionIds) => {
+        primed.push([...sessionIds])
+        memo.sessions ??= new Map()
+        for (const id of sessionIds) memo.sessions.set(id, { ownerUserId: admin, issueId: null })
+      },
+      sessionOwner: async ({ sessionId, memo }) => {
+        const known = memo?.sessions?.get(sessionId)
+        if (known === undefined) durableReads.push(sessionId)
+        return { owner: known?.ownerUserId ?? admin }
+      },
+      persistSession: vi.fn(),
+      writeSession: vi.fn(),
+      mutateSession: vi.fn(),
+      broadcastSessions: vi.fn(),
+      broadcastToClients: vi.fn(),
+      deliverToClient: vi.fn(),
+      toMachine: vi.fn(),
+      onArchived: vi.fn(),
+    })
+
+    await state.replayDrafts({ userId: admin, capability: OPERATOR, humanDirect: true }, (message) =>
+      received.push(message),
+    )
+
+    expect(received.map((message) => (message as { sessionId?: string }).sessionId).sort()).toEqual(
+      [...ids].sort(),
+    )
+    expect(primed).toEqual([ids])
+    expect(durableReads).toEqual([])
   })
 })
 

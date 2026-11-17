@@ -167,6 +167,10 @@ export interface IssueDeps {
     worktreePath: string | null,
     issueId: IssueId | undefined,
   ): Promise<SessionFacts[]>
+  /** {@link readSessionFactsByIssue} for a set of issues, read together (POD-7036). */
+  readSessionFactsByIssues(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+  ): Promise<Map<IssueId, SessionFacts[]>>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads

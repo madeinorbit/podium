@@ -42,6 +42,7 @@ const issues = await IssueService.create({
   readSessionFacts: async () => [],
   readSessionFactsById: async () => undefined,
   readSessionFactsByIssue: async () => [],
+  readSessionFactsByIssues: async () => new Map(),
   sessionById: async () => undefined,
   listSessionsForIssue: async () => [],
   sessionsById: async () => [],

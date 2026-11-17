@@ -85,6 +85,13 @@ export interface MachineReconcilerPorts {
    * Absent (unit fixtures): the resident sessions are all there is.
    */
   parkedOn?(machineId: MachineId): Promise<readonly ParkedOnMachine[]>
+  /** Hold a set of sessions resident, the parked ones restored together (POD-7036). */
+  acquireMany?(
+    sessionIds: readonly Session['sessionId'][],
+    reason: string,
+  ): Promise<ReadonlyMap<Session['sessionId'], Session>>
+  /** Let go of one session {@link acquireMany} held. */
+  release?(sessionId: Session['sessionId']): void
   /** Run one step with this session resident, restored from its row when parked. */
   withSession?<T>(sessionId: Session['sessionId'], reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
   toMachine(machineId: MachineId, message: ControlMessage): void
@@ -173,8 +180,9 @@ export class SessionMachineReconciler {
     // reverse lexical sort is newest-first.
     //
     // An exited row out of memory is restored for its probe and let go after it
-    // (POD-6160 D2g): the daemon's answer (a bind, or reattachFailed) restores
-    // it again if it needs it.
+    // (POD-6160 D2g), all of a machine's together (POD-7036). A bind answering it
+    // restores it again; a reattachFailed for a row still exited with nothing
+    // queued restores nothing (SessionLifecycle.onSessionDaemonFrame).
     const probe = (s: ParkedOnMachine) =>
       s.machineId === machineId &&
       !s.headless &&
@@ -186,14 +194,20 @@ export class SessionMachineReconciler {
         (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
-    for (const candidate of probes) {
-      await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
-        if (!s) return
-        const message = await this.ports.reattachMessage(s, machineId)
-        if (s.machineId !== machineId || s.archived ||
-            (!awaitsRebind(s) && s.status !== 'exited')) return
-        this.ports.toMachine(machineId, message)
-      })
+    // THE PARKED PROBES ARE RESTORED TOGETHER (POD-7036): their rows and
+    // satellites in one read per table, held for the loop below, which then
+    // finds each resident. One at a time, each was its own row read and five
+    // single-id satellite reads.
+    const resident = new Set([...this.ports.sessions()].map((s) => s.sessionId))
+    const parkedProbes = probes.filter((s) => !resident.has(s.sessionId)).map((s) => s.sessionId)
+    const heldProbes =
+      parkedProbes.length > 1 && this.ports.acquireMany && this.ports.release
+        ? await this.ports.acquireMany(parkedProbes, 'reattachProbe')
+        : new Map<Session['sessionId'], Session>()
+    try {
+      await this.probeEach(probes, machineId)
+    } finally {
+      for (const sessionId of heldProbes.keys()) this.ports.release?.(sessionId)
     }
 
     // Headless sessions have no PTY to reattach. Bound ones (the harness
@@ -263,6 +277,19 @@ export class SessionMachineReconciler {
     for (const candidate of archivedButAlive) {
       await this.withSession(candidate.sessionId, 'archivedSurvivor', async (s) => {
         if (s) await this.ports.retireArchivedSurvivor(s.sessionId)
+      })
+    }
+  }
+
+  /** Send each probe its reattach frame, in the order given. */
+  private async probeEach(probes: readonly ParkedOnMachine[], machineId: MachineId): Promise<void> {
+    for (const candidate of probes) {
+      await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
+        if (!s) return
+        const message = await this.ports.reattachMessage(s, machineId)
+        if (s.machineId !== machineId || s.archived ||
+            (!awaitsRebind(s) && s.status !== 'exited')) return
+        this.ports.toMachine(machineId, message)
       })
     }
   }

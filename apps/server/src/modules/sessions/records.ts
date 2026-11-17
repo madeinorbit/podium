@@ -80,6 +80,7 @@ export type SessionRecordReads = Pick<
   SessionRecords,
   | 'all'
   | 'issueMembers'
+  | 'issueMembersMany'
   | 'underPath'
   | 'onMachine'
   | 'resolve'
@@ -220,6 +221,38 @@ export class SessionRecords {
     return await this.select(rows, (s) =>
       isIssueMember(worktreePath, issueId, s),
     )
+  }
+
+  /**
+   * {@link issueMembers} for a set of issues, read together (POD-7036): one
+   * sessions query for every explicit attachment, one range query per distinct
+   * worktree, and one restore of the satellites for the union, where one
+   * {@link issueMembers} per issue restored each issue's sessions on their own
+   * (the hourly auto-archive sweep did that for every closed issue). Each
+   * issue's members are the ones {@link issueMembers} gives it, in its order.
+   */
+  async issueMembersMany(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+    reader: string,
+  ): Promise<Map<IssueId, SessionSubject[]>> {
+    const out = new Map<IssueId, SessionSubject[]>(issues.map((issue) => [issue.issueId, []]))
+    if (issues.length === 0) return out
+    const member = (s: SelectionFields) =>
+      issues.some((issue) => isIssueMember(issue.worktreePath, issue.issueId, s))
+    const store = this.ports.store.sessions
+    const subjects = await this.select(async () => {
+      const rows = await store.findSessionsByIssueIds([...new Set(issues.map((issue) => issue.issueId))])
+      const paths = new Set(issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])))
+      for (const path of paths) rows.push(...(await store.sessionsUnderPath(path)))
+      return rows
+    }, member)
+    for (const issue of issues) {
+      out.set(
+        issue.issueId,
+        subjects.filter((s) => isIssueMember(issue.worktreePath, issue.issueId, s)),
+      )
+    }
+    return out
   }
 
   /** Every session whose cwd sits inside `worktreePath`, whatever issue it is

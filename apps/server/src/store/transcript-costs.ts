@@ -18,7 +18,19 @@
 
 import { foldModelTotals } from '@podium/model'
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
-import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
+import {
+  and,
+  count,
+  eq,
+  getTableColumns,
+  gt,
+  isNotNull,
+  isNull,
+  max,
+  type SQL,
+  sql,
+  sum,
+} from 'drizzle-orm'
 import { issues, transcriptCosts } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, prepared, preparedFamily } from './executor/sync-drizzle'
@@ -148,8 +160,27 @@ const recordCost = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+type CostSelect = typeof transcriptCosts.$inferSelect
+
+/** Every column by its bare name, mapped as the table maps it: for a FROM that
+ *  is an INDEXED BY clause rather than the table object. */
+const COST_COLUMNS = Object.fromEntries(
+  Object.entries(getTableColumns(transcriptCosts)).map(([key, column]) => [
+    key,
+    sql`${sql.identifier(column.name)}`.mapWith(column),
+  ]),
+) as { [K in keyof CostSelect]: SQL<CostSelect[K]> }
+
+// Through `idx_transcript_costs_issue` by name (POD-7034): an issue has one or
+// two cost rows, but at a few hundred issues the planner prices the seeks above
+// a scan of every cost row, a table that grows with every costed session. The
+// caller passes an issue with all its descendants, unchunked.
 const costsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(transcriptCosts).where(inListOf(transcriptCosts.issueId, size)).prepare(),
+  db
+    .select(COST_COLUMNS)
+    .from(sql`${transcriptCosts} INDEXED BY idx_transcript_costs_issue`)
+    .where(inListOf(transcriptCosts.issueId, size))
+    .prepare(),
 )
 
 const attributedCosts = prepared((db: StoreDrizzle) =>

@@ -34,6 +34,10 @@
  */
 
 import {
+  nameQueryDefinition,
+  queryDefinitionNamingEnabled,
+} from '@podium/runtime/query-attribution'
+import {
   type Column,
   inArray,
   notInArray,
@@ -70,9 +74,37 @@ export interface PreparedDefinition {
 const DEFINITION_LIMIT = 20_000
 const definitions: PreparedDefinition[] = []
 
-function register(kind: PreparedDefinition['kind'], build: PreparedDefinition['build']): void {
-  if (definitions.length >= DEFINITION_LIMIT) return
-  definitions.push({ kind, build, site: new Error('query definition') })
+function register(kind: PreparedDefinition['kind'], build: PreparedDefinition['build']): Error {
+  const site = new Error('query definition')
+  if (definitions.length < DEFINITION_LIMIT) definitions.push({ kind, build, site })
+  return site
+}
+
+/**
+ * Tell the query profiler which definition built these statements, so a stall
+ * digest can print `store/effects.ts:292 active` instead of a hash [POD-7037].
+ * Runs on a cache miss only (once per shape per drizzle instance), and only
+ * when the profiler is installed at all.
+ */
+function nameBuilt(built: unknown, site: Error, shape?: string | number, depth = 0): void {
+  if (depth === 0 && !queryDefinitionNamingEnabled()) return
+  if (built !== null && typeof built === 'object' && 'getQuery' in built) {
+    const getQuery = (built as { getQuery: unknown }).getQuery
+    if (typeof getQuery === 'function') {
+      try {
+        const query = getQuery.call(built) as { sql?: unknown }
+        if (typeof query.sql === 'string') nameQueryDefinition(query.sql, site, shape)
+      } catch {
+        // A built value that cannot say its SQL is simply left unnamed.
+      }
+      return
+    }
+  }
+  // A definition may return a small bundle of queries (the audit reads the same
+  // two levels, `statementsOf` in apps/server/src/test-support/query-plan-audit.ts).
+  if (depth < 2 && built !== null && typeof built === 'object') {
+    for (const value of Object.values(built)) nameBuilt(value, site, shape, depth + 1)
+  }
 }
 
 /** Every definition made in this process so far, oldest first (audit only). */
@@ -85,12 +117,13 @@ export const PREPARED_DEFINITION_LIMIT = DEFINITION_LIMIT
 
 /** One query, prepared on first use and reused for the drizzle instance's life. */
 export function prepared<D extends object, P>(build: (db: D) => P): (db: D) => P {
-  register('prepared', build as PreparedDefinition['build'])
+  const site = register('prepared', build as PreparedDefinition['build'])
   const cache = new WeakMap<D, P>()
   return (db) => {
     const hit = cache.get(db)
     if (hit !== undefined) return hit
     const made = build(db)
+    nameBuilt(made, site)
     cache.set(db, made)
     return made
   }
@@ -122,7 +155,7 @@ export function preparedFamilyOverflows(): number {
 export function preparedFamily<D extends object, K extends string | number, P>(
   build: (db: D, key: K) => P,
 ): (db: D, key: K) => P {
-  register('family', build as PreparedDefinition['build'])
+  const site = register('family', build as PreparedDefinition['build'])
   const cache = new WeakMap<D, Map<K, P>>()
   return (db, key) => {
     let family = cache.get(db)
@@ -138,6 +171,7 @@ export function preparedFamily<D extends object, K extends string | number, P>(
       family.delete(oldest)
     }
     const made = build(db, key)
+    nameBuilt(made, site, key)
     family.set(key, made)
     return made
   }

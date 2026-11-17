@@ -109,8 +109,13 @@ function harness(input: {
       throw new Error('no shell should reach the kill verb in these tests')
     },
     hasScheduledWakeup: async () => false,
-    hasValidTerminalProof: async (sessionId) => input.proven?.has(sessionId) ?? false,
-    terminalProofMissing: async (sessionId) => !(input.proven?.has(sessionId) ?? false),
+    terminalProofs: async (sessionIds) =>
+      new Map(
+        sessionIds.map((sessionId) => {
+          const ok = input.proven?.has(sessionId) ?? false
+          return [sessionId, { ok, missing: !ok }]
+        }),
+      ),
     daemonRequest: {
       request: vi.fn(),
       settle: vi.fn(),

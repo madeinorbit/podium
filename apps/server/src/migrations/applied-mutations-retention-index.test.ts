@@ -1,7 +1,8 @@
 /**
  * THE RETENTION SWEEP SEARCHES, IT DOES NOT SCAN (POD-1638).
  *
- * `pruneAppliedMutations` deletes by `applied_at < cutoff`. Without an index on
+ * The receipt prune (`pruneAppliedMutationsBatch`, the janitor's since POD-7035)
+ * deletes by `applied_at < cutoff`. Without an index on
  * that column SQLite walks the whole table — and a table walk reads the ROWS, so
  * the cost is the `result` payloads (~21MB on the live database), not the row
  * count. Live attribution caught ONE such call burning 1529ms and deleting

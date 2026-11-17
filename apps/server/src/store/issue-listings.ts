@@ -401,18 +401,26 @@ export const commentCountsOfIssues = preparedFamily((db: StoreDrizzle, size: num
     .prepare(),
 )
 
+/** A column by its bare name, mapped as the table maps it: for a FROM that is
+ *  an INDEXED BY clause, over which drizzle refuses a table column. */
+const bare = <T extends Column>(column: T) => sql`${sql.identifier(column.name)}`.mapWith(column)
+
 /** Live children of a set of parents, with the columns a report counts them by;
- *  in the boot map's order (repository path, then sequence). */
+ *  in the boot map's order (repository path, then sequence). Through
+ *  `idx_issues_children` by name (POD-7034): the statistics average the children
+ *  over the parents that have any, so at a few hundred parents the planner
+ *  prices the seeks above a scan of every issue, while most parents a report
+ *  asks about have none. */
 export const liveChildrenOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({
-      id: issues.id,
-      parentId: issues.parentId,
-      stage: issues.stage,
-      closedReason: issues.closedReason,
-      deletedAt: issues.deletedAt,
+      id: bare(issues.id),
+      parentId: bare(issues.parentId),
+      stage: bare(issues.stage),
+      closedReason: bare(issues.closedReason),
+      deletedAt: bare(issues.deletedAt),
     })
-    .from(issues)
+    .from(sql`${issues} INDEXED BY idx_issues_children`)
     .where(and(inListOf(issues.parentId, size, 'ids'), isNull(issues.deletedAt)))
     .orderBy(asc(issues.repoPath), asc(issues.seq), asc(issues.id))
     .prepare(),

@@ -91,6 +91,50 @@ export interface AppliedMutationStore {
   ): void | Promise<void>
 }
 
+/**
+ * THE LARGEST RESULT A RECEIPT STORES WHOLE (POD-7035), in characters of its JSON.
+ *
+ * A receipt holds its command's answer so that a replay can return it. Some
+ * answers are bulky: an issue command answers with the whole issue report, and
+ * one task's panel made that 235 KB; `issues.mailInbox` answered with the whole
+ * mailbox, 344 KB a call. Stored whole, they made `applied_mutations` the
+ * largest table on the operator's database (760 MB, up to 150 MB a day). A
+ * result above this size is stored as its command's DIGEST instead, when the
+ * command can rebuild its answer from one ({@link ReceiptCompaction}); a command
+ * that cannot still stores it whole.
+ */
+export const RECEIPT_RESULT_INLINE_MAX = 4096
+
+/**
+ * How a command whose answer can be large keeps its receipt small (POD-7035).
+ *
+ * EXACTLY ONCE IS UNCHANGED: a replay still never runs the body, so the write
+ * still applies once. What a digest gives up is the byte-identical answer: the
+ * replay rebuilds it from the digest and the current rows (an issue report as it
+ * is now, a mailbox's messages as they are now with the original's unread
+ * markers), which is what a caller that lost the first answer would read next.
+ */
+export interface ReceiptCompaction<T = unknown> {
+  /**
+   * The stand-in stored for `value`, a few hundred bytes of JSON; `undefined`
+   * when this answer has none, and the result is stored whole.
+   */
+  digest(value: T): unknown
+  /** The replay's answer, rebuilt from the stored digest. Runs no write. */
+  replay(digest: unknown): Promise<T>
+}
+
+/** The one key of a stored digest, so a replay can tell it from a result. */
+const DIGEST_KEY = '$receiptDigest'
+
+/** The digest a stored receipt holds, or `undefined` when it holds a whole result. */
+function storedDigest(stored: unknown): { digest: unknown } | undefined {
+  if (stored === null || typeof stored !== 'object' || Array.isArray(stored)) return undefined
+  const keys = Object.keys(stored)
+  if (keys.length !== 1 || keys[0] !== DIGEST_KEY) return undefined
+  return { digest: (stored as Record<string, unknown>)[DIGEST_KEY] }
+}
+
 /** Whether a call APPLIED its body or REPLAYED a recorded result. */
 export type MutationOutcome = 'applied' | 'replayed'
 
@@ -123,6 +167,12 @@ export interface MutationApplyOptions {
    * With no `mutationId` the body still runs inside the unit; nothing is recorded.
    */
   readonly unit?: MutationUnitOfWork
+  /**
+   * How this command's large answers are stored and replayed
+   * ({@link RECEIPT_RESULT_INLINE_MAX}). Without one, every result is stored
+   * whole, and a stored digest cannot be replayed.
+   */
+  readonly compaction?: ReceiptCompaction
 }
 
 export class MutationLedger {
@@ -169,11 +219,21 @@ export class MutationLedger {
     const owner = (async (): Promise<MutationApplication<Awaited<T>>> => {
       const prior = await this.store.getAppliedMutation(mutationId, options.fallback)
       if (prior !== undefined) {
-        return { outcome: 'replayed', value: JSON.parse(prior) as Awaited<T> }
+        const stored: unknown = JSON.parse(prior)
+        const compacted = storedDigest(stored)
+        if (compacted === undefined) return { outcome: 'replayed', value: stored as Awaited<T> }
+        if (options.compaction === undefined) {
+          // A receipt holds a digest only when a call with a compaction stored
+          // it. A replay through a door without one cannot rebuild the answer,
+          // and returning the digest as if it were the answer would be a lie.
+          throw new Error(`the receipt of ${proc} holds a digest this call cannot replay`)
+        }
+        const value = (await options.compaction.replay(compacted.digest)) as Awaited<T>
+        return { outcome: 'replayed', value }
       }
       const run = async (): Promise<Awaited<T>> => {
         const value = await body()
-        await this.record(mutationId, proc, value)
+        await this.record(mutationId, proc, value, options.compaction)
         return value
       }
       const value = unit ? await unit(run) : await run()
@@ -199,14 +259,28 @@ export class MutationLedger {
     return (await this.apply(mutationId, proc, body, options)).value
   }
 
-  private async record(mutationId: MutationId, proc: string, value: unknown): Promise<void> {
+  private async record(
+    mutationId: MutationId,
+    proc: string,
+    value: unknown,
+    compaction: ReceiptCompaction | undefined,
+  ): Promise<void> {
     await this.store.recordAppliedMutation(
       mutationId,
       proc,
-      JSON.stringify(value ?? null),
+      storedResult(value, compaction),
       this.now(),
     )
   }
+}
+
+/** What a receipt stores for `value`: the result, or its digest when the result is large. */
+export function storedResult(value: unknown, compaction: ReceiptCompaction | undefined): string {
+  const whole = JSON.stringify(value ?? null)
+  if (compaction === undefined || whole.length <= RECEIPT_RESULT_INLINE_MAX) return whole
+  const digest = compaction.digest(value)
+  if (digest === undefined) return whole
+  return JSON.stringify({ [DIGEST_KEY]: digest })
 }
 
 /**

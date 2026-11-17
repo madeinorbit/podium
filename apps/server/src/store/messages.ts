@@ -427,6 +427,52 @@ const pendingForSessionProof = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * {@link pendingForSessionProof} for a known set of sessions (POD-7036): the
+ * host sample checks the terminal proof of every idle candidate at once, and
+ * asked per session it was the audit's burst `#3d3edfd1` (up to 909 statements
+ * in one stall window). One SELECT per way a row names its session, each on its
+ * own index (`idx_messages_recipient_time`, `idx_messages_delivered_to_time`),
+ * joined by `UNION ALL`: a `UNION` would deduplicate in a temporary B-tree, and
+ * the caller attributes and deduplicates by id anyway. The ids are the `ids`
+ * list in both arms.
+ */
+const pendingForSessionsProof = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(messagesTable)
+    .where(
+      and(
+        eq(messagesTable.toKind, 'session'),
+        inListOf(messagesTable.toId, size, 'ids'),
+        pending(),
+      ),
+    )
+    .unionAll(
+      db
+        .select()
+        .from(messagesTable)
+        .where(
+          and(
+            inListOf(messagesTable.deliveredTo, size, 'ids'),
+            or(
+              pending(),
+              and(
+                sql`+${messagesTable.deliveryStatus} = ${'confirmed'}`,
+                isNull(messagesTable.ackedBy),
+                eq(messagesTable.expectsResponse, true),
+                or(
+                  isNull(messagesTable.expiresAt),
+                  gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now')),
+                ),
+              ),
+            ),
+          ),
+        ),
+    )
+    .prepare(),
+)
+
 /** Which principals a ledger read names: an issue, a session, or both. */
 type LedgerShape = 'issue' | 'session' | 'both'
 
@@ -1542,6 +1588,51 @@ export class MessagesRepository {
   /** Exact, unbounded safety projection of work still pending for one session. */
   async pendingForSessionProof(sessionId: SessionId, now: string): Promise<MessageRow[]> {
     return (await pendingForSessionProof(this.db).all({ sessionId, now })).map(mapMessage)
+  }
+
+  /**
+   * {@link pendingForSessionProof} for each of a known set of sessions, one
+   * statement per 500 ids (POD-7036). A row reaches every session of the set it
+   * names the way the one-session read does: addressed to it while pending, or
+   * handed to it while pending or owed a reply. Each session's rows keep the
+   * one-session read's order.
+   */
+  async pendingForSessionsProof(
+    sessionIds: readonly SessionId[],
+    now: string,
+  ): Promise<Map<SessionId, MessageRow[]>> {
+    const unique = [...new Set(sessionIds)]
+    const out = new Map<SessionId, MessageRow[]>(unique.map((id) => [id, []]))
+    const pendingStatuses = new Set<string>(MESSAGE_PENDING)
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await pendingForSessionsProof(this.db, size).all({
+        ...inListValues(chunk, size, 'ids'),
+        now,
+      })
+      const seen = new Set<string>()
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        const message = mapMessage(row)
+        const isPending = pendingStatuses.has(message.deliveryStatus)
+        const owesReply =
+          message.deliveryStatus === 'confirmed' &&
+          message.ackedBy == null &&
+          message.expectsResponse === true &&
+          (message.expiresAt == null || message.expiresAt > now)
+        const names = new Set<SessionId>()
+        if (isPending && message.toKind === 'session') names.add(message.toId as SessionId)
+        if ((isPending || owesReply) && message.deliveredTo)
+          names.add(message.deliveredTo as SessionId)
+        for (const id of names) out.get(id)?.push(message)
+      }
+    }
+    for (const list of out.values()) {
+      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    }
+    return out
   }
 
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
