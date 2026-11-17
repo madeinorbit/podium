@@ -21,7 +21,7 @@ struct ComposerPasteImageSnapshot {
     for item in 0..<pasteboard.numberOfItems {
       autoreleasepool {
         let indexes = IndexSet(integer: item)
-        let types = pasteboard.pasteboardTypes(forItemSet: indexes) ?? []
+        let types = pasteboard.types(forItemSet: indexes)?.first ?? []
         guard let identifier = types.first(where: {
           $0 == "com.apple.uikit.image" || UTType($0)?.conforms(to: .image) == true
         }) else { return }
