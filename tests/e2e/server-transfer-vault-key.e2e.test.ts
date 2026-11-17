@@ -5,9 +5,10 @@
  * Two state directories with real files, two vault key files, one process: the
  * source is a real store with a credential sealed in its vault, driven by the
  * real transfer service, wire builders and adapter; the target is the real daemon
- * transfer handlers on their own state directory and key file. Only the socket
- * between them is replaced, by a broker that parses every control message the way
- * the wire does and hands it to the daemon.
+ * transfer handlers on their own state directory and key file, with the
+ * production promotion of the server assignment. Only the socket between them is
+ * replaced, by a broker that parses every control message the way the wire does
+ * and hands it to the daemon.
  *
  * After the move the credential opens on the target, the target's `vault_key`
  * row names its own key file, that file is 0600, and the source's key file is
@@ -43,6 +44,8 @@ import { serverTransferRpcAdapter } from '../../apps/server/src/modules/server-t
 import { ServerTransferService } from '../../apps/server/src/modules/server-transfer/service'
 import { SERVER_TRANSFER_CONFIRMATION } from '../../apps/server/src/modules/server-transfer/types'
 import { SessionStore } from '../../apps/server/src/store'
+import { seedRows } from '../../apps/server/src/test-support/seed-rows'
+import { promoteMachineAssignment } from '../../apps/server/src/transfer-machine-assignment'
 
 const SOURCE = asMachineId('source-machine')
 const TARGET = asMachineId('target-machine')
@@ -107,7 +110,9 @@ function inProcessBroker(
       return await new Promise((resolve) => {
         const ctx = {
           machineId: TARGET,
-          promoteMachineAssignment: async () => {},
+          // The production promotion, on the installed database: it moves the
+          // server bit on a store that captures changes with no server running.
+          promoteMachineAssignment,
           restartAfterTransfer: async (expected: unknown) => expected,
           retireAfterTransfer: () => {},
           send: (reply: DaemonMessage) => {
@@ -140,19 +145,34 @@ function useFreshMachines(): void {
   saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example.com' })
 }
 
-/** The source store, with the target enrolled in it. */
+/** The source store, serving, with the target enrolled in it. */
 async function openSource(): Promise<{ source: SessionStore; owner: UserId }> {
   const source = await SessionStore.open(join(sourceRoot, 'podium.db'), SOURCE, {
     vaultKeyFile: sourceKeyPath,
   })
   primeFirstAdminMember(await firstAdminMemberId(source))
   const owner = await firstAdminMemberId(source)
-  await source.machines.upsertMachine({
-    id: TARGET,
-    name: 'target',
-    hostname: 'target',
-    tokenHash: 'target-token-hash',
-    ownerUserId: owner,
+  // The enrolments are setup, not the write under test. The store opens as a
+  // server does, capturing changes from the end of the boot, but no registry
+  // drains them into a machine-record commit here, so the machine rows are
+  // seeded below the commit layer. The capture stays on for the move itself.
+  await seedRows(source, async () => {
+    await source.machines.upsertMachine({
+      id: SOURCE,
+      name: 'source',
+      hostname: 'source',
+      tokenHash: 'source-token-hash',
+      ownerUserId: owner,
+      assignment: { server: true, agentExecution: true },
+    })
+    await source.machines.upsertMachine({
+      id: TARGET,
+      name: 'target',
+      hostname: 'target',
+      tokenHash: 'target-token-hash',
+      ownerUserId: owner,
+      assignment: { server: false, agentExecution: true },
+    })
   })
   return { source, owner }
 }
@@ -278,6 +298,9 @@ describe('server transfer moves the vault key', () => {
     try {
       expect(target.vault.state()).toBe('ready')
       expect(await withSecret(target, credential.id, async (secret) => secret)).toBe(SECRET)
+      // The promotion moved the server bit to the target.
+      expect((await target.machines.getMachine(SOURCE))?.serviceAssignment?.server).toBe(false)
+      expect((await target.machines.getMachine(TARGET))?.serviceAssignment?.server).toBe(true)
     } finally {
       await target.close()
     }
