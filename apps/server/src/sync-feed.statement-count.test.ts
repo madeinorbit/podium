@@ -31,6 +31,7 @@ import type { OpenOptions, SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { describe, expect, it, vi } from 'vitest'
+import type { ControlSend } from './gateway/daemon-ports'
 import type { FeedServing } from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -83,7 +84,11 @@ async function world(size: number, delta = false): Promise<World> {
   const path = join(dir, 'podium.db')
   const store = await openTestStore(path)
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
+  await attachHostDaemon(reg, answeringRepoScans(reg), { repos: ['/repo'] })
+  // The attach scans the machine's checkouts. Finish that scan here, before the
+  // world's head is read: left to its timeout it wrote a checkout change 10 s
+  // later, inside the delta's window on a slow enough run (POD-7061).
+  await reg.modules.checkouts.rescan(store.hostMachineId)
   await quietShipping(reg)
   const owner = await firstAdminMemberId(store)
   const issues: IssueId[] = []
@@ -111,6 +116,23 @@ async function world(size: number, delta = false): Promise<World> {
   // The feed identity is minted on first use and cached; mint it here.
   await (reg.syncDelta.serving as FeedServing).identity()
   return { dir, path, store, reg, owner, issues, from }
+}
+
+/**
+ * A fake daemon that answers a repo scan the way a real one does: each root it
+ * was asked about is a repository. Without an answer the scan waits out its
+ * timeout and writes its checkouts then, at a time no pin controls.
+ */
+function answeringRepoScans(reg: SessionRegistry): ControlSend {
+  return (message) => {
+    if (message.type !== 'scanReposRequest') return
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'scanReposResult',
+      requestId: message.requestId,
+      repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
+      diagnostics: [],
+    })
+  }
 }
 
 async function settle(reg: SessionRegistry): Promise<void> {
@@ -283,12 +305,16 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // page pays its reads once per page. Before, it was two passes over
   // `change_latest` and one prefetch for the whole world.
   // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
+  // RE-PINNED 64 -> 67 FOR POD-7061: the world's checkout is now written before it is
+  // counted (its daemon answers the attach scan). 64 counted an empty checkout kind only
+  // because the unanswered scan wrote that row 10 s later; the row's sharing reads
+  // (admin users, checkout paths, grants) are the three, once per page.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 64)
+    await expectConstantStatements(bootstrap, 67)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 64, plantPerSessionRead)
+    await expectArmed(bootstrap, 67, plantPerSessionRead)
   })
 
   it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
