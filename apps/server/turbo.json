@@ -3162,6 +3162,7 @@
         "src/sync/record-builders.parity.test.ts",
         "src/sync/record-builders.ts",
         "src/sync/record-parity.ts",
+        "src/sync/record-payloads.pg.test.ts",
         "src/sync/record-source.ts",
         "src/sync/record-sources.test.ts",
         "src/sync/record-sources.ts",
