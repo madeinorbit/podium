@@ -23,7 +23,11 @@ import type { WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { MACHINE_UPDATE_GRANT_ENV, readMachineUpdateJournal } from '@podium/runtime/machine-update'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import {
+  importUpdateSigningKey,
+  readOrCreateUpdateSigningKey,
+  type UpdateSigningKey,
+} from '@podium/runtime/update-signing-key'
 import { importEnrollmentLedger } from '../enrollment-ledger-import'
 import { importFingerprintKey } from '../fingerprint-key-import'
 import { importInstallationIdentity } from '../installation-identity-import'
@@ -111,6 +115,11 @@ export interface StoreLifecycle {
   discoverDatabaseSnapshots(): boolean
   /** Stop the snapshot verifier; resolves when its child has exited. */
   closeSnapshots(): Promise<void>
+  /**
+   * The installation's update signing key, read or (when `allowCreate`) minted, in the
+   * store's `server_secrets` (`@podium/runtime/update-signing-key`).
+   */
+  updateSigningKey(opts: { allowCreate: boolean }): Promise<UpdateSigningKey>
 }
 
 /**
@@ -235,6 +244,9 @@ export async function openSqliteStoreLifecycle(
     async closeSnapshots() {
       await snapshotVerifier.close()
     },
+    // The state directory's database, on its own short connection, as the server
+    // always read it.
+    updateSigningKey: async (opts) => readOrCreateUpdateSigningKey(stateDir(), opts),
   }
 }
 

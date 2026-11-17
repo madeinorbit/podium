@@ -57,6 +57,7 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import type { UpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import type { BackupPreflight } from './migrations/backup'
@@ -509,6 +510,11 @@ export class StoreDatabase {
    */
   discoverDatabaseSnapshots(): boolean {
     return this.lifecycle.discoverDatabaseSnapshots()
+  }
+
+  /** The installation's update signing key, read or (when `allowCreate`) minted. */
+  async updateSigningKey(opts: { allowCreate: boolean }): Promise<UpdateSigningKey> {
+    return await this.lifecycle.updateSigningKey(opts)
   }
 
   private transferFenceHeld = false

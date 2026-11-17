@@ -171,10 +171,7 @@ import { startLocalUpdateParticipant } from './modules/updates/local-participant
 import type { UpdateReality } from './modules/updates/operation'
 import type { ChannelFeed } from './modules/updates/release-target'
 import type { ServerPlacement } from './modules/updates/service'
-import {
-  readOrCreateDevArtifactToken,
-  readOrCreateUpdateSigningKey,
-} from './modules/updates/signing-key'
+import { readOrCreateDevArtifactToken } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import {
   refreshTargetsOnBoot,
@@ -780,7 +777,8 @@ export async function startServer(
     log: createLogger('server:connect'),
     baseUrl: resolveConnectBaseUrl(config, process.env),
   })
-  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+  // In the store's server_secrets, read through its lifecycle port (POD-6994).
+  const updateSigningKey = await database.updateSigningKey({
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
   })
   const activeServerMove = (await store.operations.active()).find(

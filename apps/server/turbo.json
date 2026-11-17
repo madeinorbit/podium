@@ -1100,6 +1100,7 @@
         "src/store.issues.test.ts",
         "src/store.legacy-worktree-machine.test.ts",
         "src/store.lifecycle.test.ts",
+        "src/store.location.test.ts",
         "src/store.machines.test.ts",
         "src/store.mirror.test.ts",
         "src/store.outbox.test.ts",

@@ -465,6 +465,39 @@ async function templateFirstAdmin(
   }
 }
 
+/**
+ * ONE DATABASE FOR A `bun test` FILE [POD-6994]. Such a file runs outside vitest, so no
+ * globalSetup has started the server or built the template: this does both (under the
+ * host lock, as a lane does), then clones the template once. `drop()` removes the clone;
+ * one a killed run leaves is swept by the next lane, by its run prefix.
+ */
+export async function bunPgTestDatabase(): Promise<{
+  readonly url: string
+  drop(): Promise<void>
+}> {
+  const { adminUrl, template } = await preparePgTestServer()
+  const name = `${pgRunPrefix(newRunId())}bun_${process.pid}`
+  const admin = connectPgTest(adminUrl)
+  try {
+    await admin.unsafe(
+      `CREATE DATABASE ${quotePgIdentifier(name)} TEMPLATE ${quotePgIdentifier(template)} STRATEGY FILE_COPY`,
+    )
+  } finally {
+    await admin.close({ timeout: 5 })
+  }
+  return {
+    url: pgUrlForDatabase(adminUrl, name),
+    async drop() {
+      const client = connectPgTest(adminUrl)
+      try {
+        await client.unsafe(`DROP DATABASE IF EXISTS ${quotePgIdentifier(name)} WITH (FORCE)`)
+      } finally {
+        await client.close({ timeout: 5 })
+      }
+    },
+  }
+}
+
 export default async function setup(): Promise<() => Promise<void>> {
   const { adminUrl, template } = await preparePgTestServer()
   const runId = newRunId()
