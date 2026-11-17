@@ -3603,17 +3603,22 @@ describe('IssueService assistant', () => {
       stage: 'planning',
     })
 
+    // The other member is setup, not the write under test. This harness wires
+    // a change log over the store but no machine-record commit (a registry
+    // does that), so the join's captured rows are seeded, not logged.
     const other = asUserId('user:other-member')
-    await memberFacts(store).create(
-      {
-        id: other,
-        displayName: 'other',
-        role: 'member',
-        createdAt: new Date().toISOString(),
-        disabledAt: null,
-      },
-      'not-a-real-hash',
-    )
+    await seedRows(store, async () => {
+      await memberFacts(store).create(
+        {
+          id: other,
+          displayName: 'other',
+          role: 'member',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'not-a-real-hash',
+      )
+    })
     await upgradeWith(other, 'sk-FAKE-other-member-key')
     expect((await svc.gitWorkflow.refreshAssistant(c.id)).activityNotes).toBeUndefined()
     expect(received).toEqual([])
