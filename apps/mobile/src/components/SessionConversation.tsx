@@ -24,9 +24,8 @@ import {
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Platform, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useMobilePool } from '../client/mobile-pool'
@@ -236,15 +235,9 @@ export function useSessionConversation(props: {
     () => (pool ? mobileConversationPorts(pool, sessionId) : readiness),
     [pool, sessionId],
   )
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one readiness signal per session, updated by the layout effect below.
-  const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
-  useLayoutEffect(
-    () => action(() => recognized.set(!props.deferInitialTranscript))(),
-    [recognized, props.deferInitialTranscript],
-  )
   const model = useConversation(
     sessionId,
-    (drafts) =>
+    () =>
       new MobileConversation(
         {
           sessionId,
@@ -267,25 +260,9 @@ export function useSessionConversation(props: {
             initialLimit: 80,
             pageLimit: 80,
             source: {
-              read: (request) =>
-                when(() => recognized.get()).then(() =>
-                  owner.access.trpc.sessions.transcriptRead.query(request),
-                ),
-              subscribe: (id, since, listener) => {
-                let off = () => {}
-                const stop = reaction(
-                  () => recognized.get(),
-                  (ready) => {
-                    off()
-                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
-                  },
-                  { fireImmediately: true },
-                )
-                return () => {
-                  stop()
-                  off()
-                }
-              },
+              read: (request) => owner.access.trpc.sessions.transcriptRead.query(request),
+              subscribe: (id, since, listener) =>
+                owner.hub.subscribeTranscript(id, since, listener),
             },
             cache: {
               maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
@@ -397,7 +374,9 @@ export function useSessionConversation(props: {
     {
       warmLimit: PHONE_WARM_CONVERSATIONS,
       enabled: props.enabled !== false && pool !== null && readiness.ready,
-      activateTranscript: props.activateTranscript,
+      // A failed draft can unmount before recognition and retry with the same
+      // warm service. Defer its activation, never its source on a screen's flag.
+      activateTranscript: !props.deferInitialTranscript && props.activateTranscript !== false,
     },
   )
   // The reply to an agent's question goes to the asker over the existing
@@ -842,7 +821,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
         <BootstrapCrossfade
           // Cached history is ready before the composer reports its height.
           // Keep that layout gate on the list alone, never on the skeleton.
-          resolved={loaded || itemCount > 0}
+          resolved={loaded || itemCount > 0 || pendingTurns.length > 0}
           placeholder={
             <TranscriptSkeleton
               topInset={transcriptTopInset}
