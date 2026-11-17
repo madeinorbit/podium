@@ -233,7 +233,8 @@ async function buildCorpus(): Promise<Corpus> {
       ['eff_system_scan', null],
     ] as const) {
       await db.run(
-        sql`INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES (${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
+        // The workspace has no default since the keys migration (POD-7024).
+        sql`INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES ('local', ${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
       )
     }
   })
