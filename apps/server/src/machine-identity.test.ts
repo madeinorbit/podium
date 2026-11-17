@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory, createResolvedMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
 import { deriveRepoId } from './repo-id'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { openTestStore } from './test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
@@ -42,6 +43,8 @@ afterEach(() => {
 })
 
 const HOST = asMachineId('7a0f1b64-2c33-4a5d-9e10-0b1c2d3e4f50')
+/** The workspace the test store is for; raw inserts name it, as every workspace row must. */
+const WS = SELF_HOSTED_WORKSPACE_ID
 
 /**
  * A database as a pre-POD-318 build left it: the `machines` row literally named
@@ -55,21 +58,21 @@ async function seedLegacyDb(path: string): Promise<void> {
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
-    INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-      VALUES ('local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't');
-    INSERT INTO grants (resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, custody)
-      VALUES ('machine', 'local', '${firstAdminMemberId()}', 'manage', '${firstAdminMemberId()}', 'owned-compute', 't', 'user', 1);
+    INSERT INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
+      VALUES ('${WS}', 'local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't');
+    INSERT INTO grants (workspace_id, resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, custody)
+      VALUES ('${WS}', 'machine', 'local', '${firstAdminMemberId()}', 'manage', '${firstAdminMemberId()}', 'owned-compute', 't', 'user', 1);
     INSERT INTO sessions
-      (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
+      (workspace_id, id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
        created_at, last_active_at, machine_id)
-      VALUES ('s-local', '${firstAdminMemberId()}', 'shell', '/w', 'a', 'spawn', 'live', 'podium-s-local',
+      VALUES ('${WS}', 's-local', '${firstAdminMemberId()}', 'shell', '/w', 'a', 'spawn', 'live', 'podium-s-local',
               't', 't', 'local'),
-             ('s-placeholder', '${firstAdminMemberId()}', 'shell', '/w', 'b', 'spawn', 'live',
+             ('${WS}', 's-placeholder', '${firstAdminMemberId()}', 'shell', '/w', 'b', 'spawn', 'live',
               'podium-s-placeholder', 't', 't', '__local__');
-    INSERT INTO repos (machine_id, path, repo_name, added_at)
-      VALUES ('__local__', '/legacy/repo', 'repo', 't');
-    INSERT INTO conversations (id, agent_kind, provider_id, machine_id)
-      VALUES ('c-legacy', 'claude-code', 'claude-jsonl', '__local__');
+    INSERT INTO repos (workspace_id, machine_id, path, repo_name, added_at)
+      VALUES ('${WS}', '__local__', '/legacy/repo', 'repo', 't');
+    INSERT INTO conversations (workspace_id, id, agent_kind, provider_id, machine_id)
+      VALUES ('${WS}', 'c-legacy', 'claude-code', 'claude-jsonl', '__local__');
   `)
   db.close()
 }
@@ -99,10 +102,10 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     await (await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
-      INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+      INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, created_by_on_behalf_of,
                           repo_path, seq, title, stage, parent_branch,
                           default_agent, created_at, updated_at, machine_id)
-        VALUES ('iss_1', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+        VALUES ('${WS}', 'iss_1', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
                 '${firstAdminMemberId()}', '/r', 1, 'pinned', 'backlog', 'main',
                 'claude-code', 't', 't', 'local');
     `)
@@ -152,7 +155,7 @@ describe('a database that already ran the retired upgrades', () => {
       UPDATE OR REPLACE conversations SET machine_id = '${HOST}'
         WHERE machine_id IN ('local', '__local__');
       UPDATE repos SET repo_id = '${repoId}' WHERE repo_id IS NULL;
-      INSERT INTO repo_prefixes (repo_id, prefix) VALUES ('${repoId}', 'LEG');
+      INSERT INTO repo_prefixes (workspace_id, repo_id, prefix) VALUES ('${WS}', '${repoId}', 'LEG');
       INSERT INTO meta (key, value) VALUES ('repo-identity-upgrade', 't');
     `)
     db.close()

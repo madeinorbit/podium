@@ -12,6 +12,7 @@ import type { WorkspaceIdentity } from '@podium/identity'
 import { CLIENT_WIRE_VERSION, SECURE_DEVICE_SIGN_IN_COOKIE } from '@podium/protocol'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { countStatements } from './test-support/statement-count'
 import {
   ALICE,
@@ -78,7 +79,8 @@ describe('on the upgraded two-member fixture, nothing below is ever carried', ()
         [],
       )
       i.write(
-        "INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, '2026-11-01T09:00:00.000Z', '2036-08-01T00:00:00.000Z', ?)",
+        "INSERT INTO client_sessions (workspace_id, token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, '2026-11-01T09:00:00.000Z', '2036-08-01T00:00:00.000Z', ?)",
+        SELF_HOSTED_WORKSPACE_ID,
         hashOf(token),
         ALICE,
         label,
