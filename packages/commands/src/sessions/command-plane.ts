@@ -66,6 +66,7 @@ import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
+import { sessionSwitchCredentialInput, switchCredential } from './switch-credential'
 
 /**
  * `mutationId` — the client Outbox stamps a stable one per entry and replays it
@@ -645,6 +646,7 @@ export const sessionCommandPlane = defineCommands('sessions', {
   resurrect,
   sendText,
   stop,
+  switchCredential,
   uploadImage,
 })
 
@@ -684,5 +686,6 @@ export const sessionCommandPlaneInputs = {
   resurrect: targetInput,
   sendText: sendInput,
   stop: stopInput,
+  switchCredential: sessionSwitchCredentialInput,
   uploadImage: uploadImageInput,
 } as const

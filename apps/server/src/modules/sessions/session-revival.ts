@@ -36,6 +36,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
 import { type AgentKind, asSessionId } from '@podium/model'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
@@ -59,8 +60,11 @@ import type { Session } from './session'
 import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
+import { homeIdOfDelivery, type Placement, placeConversation } from './switch-credential'
 import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionWorkspace } from './workspace'
+
+const log = createLogger('server:session-revival')
 
 /** The explicit choices a wake may carry (`--model`, `--effort`, `--force-unknown-model`). */
 export interface ExplicitWake {
@@ -574,6 +578,39 @@ export class SessionRevival {
       sessionId,
     })
     if (!access.ok) return { ok: false, reason: access.message }
+    // THE CONVERSATION WHERE THIS RESUME LOOKS (credential management §9): a
+    // session switched while it was stopped wakes in its new credential's
+    // home, so the daemon first places the newest copy there. Before the row
+    // is marked starting; a failure is logged and the wake goes on, and the
+    // harness then says what it cannot find.
+    if (session.resume) {
+      const placed = await placeConversation(
+        {
+          daemonSupports: (machineId, cap) => this.ports.machines.daemonSupports(machineId, cap),
+          conversationPrepare: async (request, machineId) =>
+            await this.ports.rpc.conversationPrepare(request, machineId),
+        },
+        {
+          sessionId,
+          agentKind: session.agentKind,
+          machineId: session.machineId,
+          cwd,
+          resume: session.resume,
+        },
+        { credentialId: access.credentialId, homeId: homeIdOfDelivery(access.access?.delivery) },
+      ).catch(
+        (err: unknown): Placement => ({
+          kind: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+      if (placed.kind === 'failed') {
+        log.warn('the conversation was not placed before a wake', {
+          sessionId,
+          error: placed.error,
+        })
+      }
+    }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
     const { subagentModel, seedCliTheme } =

@@ -14,9 +14,10 @@ import { sessionCommandPlane } from '@podium/commands'
 import type { SessionId } from '@podium/model'
 import { type PlainDefRegistration, trpcRequest } from '../plain-command/registry'
 import { sessionCommandCtx } from './command-ctx'
-import { SESSION_COMMAND_HANDLERS } from './command-plane'
+import { dispatchSessionCommand, SESSION_COMMAND_HANDLERS } from './command-plane'
 
 const UPLOAD = 'sessions.uploadImage'
+const SWITCH = 'sessions.switchCredential'
 
 export const SESSION_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] = [
   {
@@ -37,6 +38,23 @@ export const SESSION_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] = [
       return residency
         ? await residency.withSession(input.sessionId as SessionId, UPLOAD, run)
         : await run()
+    },
+  },
+  // Another credential for a session's conversation (credential management §9):
+  // a record write, a `switch` event and a restart through revival, none of
+  // them a synced write the caller makes; the switch's session writes are the
+  // server's (relay.ts).
+  {
+    name: SWITCH,
+    def: sessionCommandPlane.defs.switchCredential,
+    handle: async (ctx, raw, source) => {
+      const request = trpcRequest(ctx, source)
+      const plane = await sessionCommandCtx(
+        source.modules,
+        request.capability,
+        request.overrideScope,
+      )
+      return await dispatchSessionCommand(plane, 'switchCredential', raw)
     },
   },
 ]

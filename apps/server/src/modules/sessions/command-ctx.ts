@@ -199,6 +199,7 @@ export async function sessionCommandCtx(
       issues: asyncSessionIssueAccess(issues),
     },
     rpc: () => modules.rpc,
+    credentialSwitch: modules.credentialSwitch,
     ownership: await ownershipSnapshotFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other

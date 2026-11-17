@@ -3,7 +3,6 @@ import {
   AgentKind,
   type AgentRuntimeState,
   type Attribution,
-  type CredentialId,
   type HarnessAgent,
   type SessionDelegation,
   type SessionDesired,
@@ -57,7 +56,6 @@ export interface SessionIdentity {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
-  readonly credentialId: CredentialId | undefined
   readonly loginHarness: HarnessAgent | undefined
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -99,7 +97,6 @@ export function identityFromInit(init: StoredSessionInit): SessionIdentity {
     model: init.model,
     effort: init.effort,
     accountId: init.accountId,
-    credentialId: init.credentialId,
     loginHarness: init.loginHarness,
     workflowRunId: init.workflowRunId,
     workflowStepId: init.workflowStepId,
@@ -196,6 +193,7 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     requestedEffort: init.requestedEffort,
     effectiveAuth: init.effectiveAuth,
     credentialMismatch: init.credentialMismatch,
+    credentialId: init.credentialId,
     draftSyncEngine: init.draftSyncEngine === true,
     handoffTargetMachineId: init.handoffTargetMachineId,
     conversationPodiumId: undefined,
@@ -428,7 +426,7 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(s.model ? { model: s.model } : {}),
     ...(s.effort ? { effort: s.effort } : {}),
     ...(s.accountId ? { accountId: s.accountId } : {}),
-    ...(s.credentialId ? { credentialId: s.credentialId } : {}),
+    ...(d.credentialId ? { credentialId: d.credentialId } : {}),
     title: d.title,
     ...(d.name ? { name: d.name } : {}),
     ...(d.name && d.nameSource ? { nameSource: d.nameSource } : {}),

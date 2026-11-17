@@ -249,6 +249,8 @@ export interface SessionDurableState {
   requestedEffort: string | undefined
   effectiveAuth: EffectiveAuth | undefined
   credentialMismatch: CredentialMismatch | undefined
+  /** The credential the session runs on; a switch changes it (credential management §9). */
+  credentialId: CredentialId | undefined
   /** Whether the daemon runs the composer engine for this session, as its last
    *  bind reported (POD-859). Stored with the binding (POD-6764). */
   draftSyncEngine: boolean
@@ -281,8 +283,9 @@ export class Session {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
-  /** The credential the session runs on; absent: none (the harness login), or a legacy `accountId`. */
-  readonly credentialId: CredentialId | undefined
+  /** The credential the session runs on; absent: none (the harness login), or a legacy `accountId`.
+   *  Durable, not identity: `sessions.switchCredential` changes it (§9). */
+  credentialId: CredentialId | undefined
   /** Durable purpose marker: login shells must outlive ordinary idle-shell reaping. */
   readonly loginHarness: HarnessAgent | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
@@ -565,7 +568,6 @@ export class Session {
     this.model = identity.model
     this.effort = identity.effort
     this.accountId = identity.accountId
-    this.credentialId = identity.credentialId
     this.loginHarness = identity.loginHarness
     this.workflowRunId = identity.workflowRunId
     this.workflowStepId = identity.workflowStepId
@@ -641,6 +643,7 @@ export class Session {
     this.handoffTargetMachineId = d.handoffTargetMachineId
     this.effectiveAuth = d.effectiveAuth
     this.credentialMismatch = d.credentialMismatch
+    this.credentialId = d.credentialId
     this.onUnreadRearm = init.onUnreadRearm
   }
 
@@ -1030,6 +1033,7 @@ export class Session {
       credentialMismatch: this.credentialMismatch
         ? structuredClone(this.credentialMismatch)
         : undefined,
+      credentialId: this.credentialId,
       handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
@@ -1112,6 +1116,7 @@ export class Session {
     this.credentialMismatch = state.credentialMismatch
       ? structuredClone(state.credentialMismatch)
       : undefined
+    this.credentialId = state.credentialId
     if (!preserve.has('handoffTargetMachineId')) {
       this.handoffTargetMachineId = state.handoffTargetMachineId
     }
@@ -1139,7 +1144,7 @@ export class Session {
       effectiveAuth: d.effectiveAuth ?? null,
       credentialMismatch: d.credentialMismatch ?? null,
       accountId: this.accountId ?? null,
-      credentialId: this.credentialId ?? null,
+      credentialId: d.credentialId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: d.cwd,
       title: d.title,

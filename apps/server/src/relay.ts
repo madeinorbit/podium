@@ -260,6 +260,7 @@ import {
   SESSION_LAUNCH_KIND,
   settledSpawnLaunch,
 } from './modules/sessions/session-launch-effect'
+import { CredentialSwitcher, type SwitchSession } from './modules/sessions/switch-credential'
 import { makeInstancePreferencesFeedCapture } from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
@@ -527,6 +528,8 @@ export interface RegistryModules {
   rpc: DaemonRpcService
   /** Credential verification, attention, expiry, renewal and removal (§7, §8; Task 13). */
   credentialHealth: CredentialHealth
+  /** `sessions.switchCredential` (§9; Task 11). */
+  credentialSwitch: CredentialSwitcher
   /** Sign in with ChatGPT, and the keeper of those sign-ins (§11; Task 14). */
   chatgptPlan: ChatgptPlanService
   serverTransfer: ServerTransferService
@@ -2959,13 +2962,10 @@ export class SessionRegistry {
         // credential afresh and so delivers the renewed secret. These are the
         // server's own session writes, which a renew or remove (plain commands)
         // set off: `asSystemWrite` is the sanctioned way out of that scope.
-        restartWithResume: async (sessionId) =>
-          await asSystemWrite(async () => {
-            const parked = await sessionsSvc.hibernateSession({ sessionId })
-            if (!parked.ok) return parked
-            const revived = await issueSessionLifecycle.resurrectSession({ sessionId })
-            return revived.ok ? { ok: true } : { ok: false, reason: revived.reason }
-          }),
+        // ONE restart path, the switch's (§9, epic Task 11): park, then revive;
+        // for a switch the conversation is placed for its new home first. Each
+        // session write inside is the server's (`asSystemWrite`, below).
+        restartWithResume: async (sessionId) => await credentialSwitch.restartWithResume(sessionId),
         stop: async (sessionId) => {
           await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
         },
@@ -2993,6 +2993,99 @@ export class SessionRegistry {
               }),
           )
         },
+      },
+    })
+    // SWITCHING A SESSION TO ANOTHER CREDENTIAL (§9, epic Task 11). The
+    // switch's own session writes run inside the `sessions.switchCredential`
+    // plain command, so each is the server's write (`asSystemWrite`), as the
+    // credential health restarts above are.
+    const switchView = (session: Session): SwitchSession => {
+      const driverId = session.lifecycleDriverRequest()
+      return {
+        sessionId: session.sessionId,
+        agentKind: session.agentKind,
+        machineId: session.machineId,
+        ownerUserId: session.ownerUserId,
+        credentialId: session.credentialId ?? null,
+        cwd: session.cwd,
+        status: session.status,
+        ...(session.resume ? { resume: session.resume } : {}),
+        ...(driverId ? { driverId } : {}),
+        ...(session.issueId ? { issueId: session.issueId } : {}),
+        ...(session.title ? { title: session.title } : {}),
+      }
+    }
+    const credentialSwitch = new CredentialSwitcher({
+      store: this.store,
+      restarts: credentialHealth,
+      placement: {
+        daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+        conversationPrepare: async (request, machineId) =>
+          await rpc.conversationPrepare(request, machineId),
+      },
+      sessions: {
+        read: async (sessionId) =>
+          await sessionsSvc.residency.withSession(sessionId, 'sessions.switchCredential', (s) =>
+            s ? switchView(s) : undefined,
+          ),
+        standing: async (sessionId) => await credentialHealth.sessions.standing(sessionId),
+        record: async (sessionId, credentialId) =>
+          await asSystemWrite(
+            async () =>
+              await sessionsSvc.residency.withSession(
+                sessionId,
+                'sessions.switchCredential',
+                async (session) => {
+                  if (!session) return
+                  await sessionsSvc.repository.write(
+                    writes.system('sessions.lifecycle'),
+                    session,
+                    (draft) => {
+                      draft.credentialId = credentialId ?? undefined
+                    },
+                  )
+                },
+              ),
+          ),
+        hibernate: async (sessionId) =>
+          await asSystemWrite(async () => await sessionsSvc.hibernateSession({ sessionId })),
+        resurrect: async (sessionId) =>
+          await asSystemWrite(async () => {
+            const revived = await issueSessionLifecycle.resurrectSession({ sessionId })
+            return revived.ok ? { ok: true } : { ok: false, reason: revived.reason }
+          }),
+        interrupt: async (sessionId) =>
+          await asSystemWrite(async () => await sessionsSvc.interruptTurn({ sessionId })),
+        stop: async (sessionId) => {
+          await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
+        },
+        transcriptTail: async (sessionId, limit) =>
+          (
+            await rpc.readTranscript(
+              { sessionId, direction: 'before', limit },
+              { kind: 'system', id: 'credential-switch' },
+            )
+          ).items.flatMap((item) =>
+            (item.role === 'user' || item.role === 'assistant') && item.text
+              ? [{ role: item.role, text: item.text }]
+              : [],
+          ),
+        startHandoff: async ({ from, credentialId, prompt }) =>
+          await asSystemWrite(
+            async () =>
+              (
+                await sessionsSvc.createSession({
+                  ownerUserId: from.ownerUserId,
+                  agentKind: from.agentKind,
+                  cwd: from.cwd,
+                  machineId: from.machineId,
+                  ...(from.issueId ? { issueId: from.issueId } : {}),
+                  ...(from.title ? { title: from.title } : {}),
+                  initialPrompt: prompt,
+                  credentialId,
+                })
+              ).sessionId,
+          ),
       },
     })
     this.bus.on('machine.connected', ({ machineId }) =>
@@ -4962,6 +5055,7 @@ export class SessionRegistry {
       updateFleetBridge,
       rpc,
       credentialHealth,
+      credentialSwitch,
       chatgptPlan,
       serverTransfer,
       loginPropagation,

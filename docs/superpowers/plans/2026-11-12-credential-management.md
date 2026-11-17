@@ -399,7 +399,21 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   scope?, error?, errorDescription? } (strict); oauthLoopbackCancel { requestId }
 // packages/commands/src/sessions
 //   sessions.switchCredential({ sessionId, credentialId | null, whenBusy: 'wait' | 'interrupt' })
-//     → { continuedAs: 'resume' | 'handoff' | 'next-wake' }
+//     → { continuedAs: 'resume' | 'handoff' | 'next-wake'; waitingForTurnEnd?: true
+//         handoffSessionId?: SessionId }   (a plain trpc command in the session plane)
+//   apps/server/src/modules/sessions/switch-credential.ts — CredentialSwitcher at
+//     registry.modules.credentialSwitch; placeConversation(port, session, to, from?, provider?)
+//     CredentialSwitcher.restartWithResume is what CredentialSessionPort.restartWithResume is
+//     bound to (one restart path); a switch is scheduled by CredentialHealth.restartAtTurnBoundary
+//     (also run by every revival of a claude-code/codex session with a resume ref)
+//   Session.credentialId is durable state (a switch writes it), no longer identity
+// packages/protocol conversation.ts — CAP_CONVERSATION_PREPARE = 'conversation.prepare.v1';
+//   conversationPrepareRequest { requestId, sessionId, agentKind, cwd, resume, toHomeId,
+//     account, fromAccount?, modelProvider? } (accounts: credential id or 'none')
+//   → conversationPrepareResult { ok, placed?: 'in-place' | 'copied' | 'rewritten',
+//     droppedReasoning?, error? }   (daemon: apps/daemon/src/homes/conversation.ts)
+// packages/harness HarnessHandoffTranscript: locateInHome?, companions?, carryRecord?, afterPlace?
+//   (where a conversation is in one home; what may not cross accounts)
 // session record: credentialId, effectiveAuth { method: 'api-key' | 'subscription' | 'token'
 //   | 'unknown'; fingerprint?; email? }, credentialMismatch? { chosen: { credentialId; method?;
 //   fingerprint?; email? }; reported: EffectiveAuth } (packages/model/src/credentials/effective-auth.ts;

@@ -533,6 +533,13 @@ export {
 } from './sessions/rename'
 export * from './sessions/session-state-commands'
 export {
+  type SessionSwitchCredentialInput,
+  type SessionSwitchCredentialOutput,
+  SwitchContinuation,
+  sessionSwitchCredentialInput,
+  sessionSwitchCredentialOutput,
+} from './sessions/switch-credential'
+export {
   CONTRACT_TIER,
   contractMatrixRow,
   ONLINE_ONLY_SETTINGS_COMMANDS,

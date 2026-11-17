@@ -92,6 +92,7 @@ import {
 } from './session-access'
 import type { ExplicitWake } from './session-revival'
 import type { SessionSpawnResult } from './session-start'
+import type { CredentialSwitcher } from './switch-credential'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -286,6 +287,9 @@ export interface SessionCommandDeps {
    * hand-built contexts of the plane's unit tests, which call the services.
    */
   lifecycleEdits?: LifecycleEditsPort
+  /** `sessions.switchCredential` (credential management §9). Absent in the
+   *  plane's hand-built test contexts. */
+  credentialSwitch?: Pick<CredentialSwitcher, 'switchCredential'>
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
   /**
@@ -513,6 +517,7 @@ export function createdOwnership(principal: CommandPrincipal): CreatedOwnership 
  * as debt, and it counted these two before they were derived.
  */
 export type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
+export type SwitchCredentialInput = z.infer<typeof sessionCommandPlaneInputs.switchCredential>
 export type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
@@ -986,6 +991,29 @@ export const SESSION_COMMAND_HANDLERS = {
     return (await edits.desire(input.sessionId, 'running', false)) as Awaited<
       ReturnType<SessionCommandServices['resurrectSession']>
     >
+  },
+
+  /**
+   * ANOTHER CREDENTIAL FOR THE SAME CONVERSATION (credential management §9).
+   * The session gate first; the credential is then resolved for the person the
+   * session runs for, and the switch is recorded with the caller's person as
+   * the one who switched.
+   */
+  switchCredential: async (ctx: SessionCommandCtx, input: SwitchCredentialInput) => {
+    const target = await ctx.target(input.sessionId, 'sessions.switchCredential')
+    if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown session' })
+    const switcher = ctx.deps.credentialSwitch
+    const actor = createdOwnership(ctx.principal).owner
+    if (!switcher || !actor) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'switching is not available here',
+      })
+    }
+    return await switcher.switchCredential(
+      { ...input, sessionId: target.sessionId },
+      asUserId(actor),
+    )
   },
 
   sendText: sendHandler('wait', 'sessions.sendText'),

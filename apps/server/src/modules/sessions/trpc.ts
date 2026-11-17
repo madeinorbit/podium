@@ -291,7 +291,7 @@ const PLANE_ROUTE_WRITES = {
 } as const satisfies Partial<Record<SessionCommandKey, string>>
 
 /** The plane's writes on the plain path (`plain-family.ts`). */
-const PLAIN_PLANE_COMMANDS: ReadonlySet<string> = new Set(['uploadImage'])
+const PLAIN_PLANE_COMMANDS: ReadonlySet<string> = new Set(['uploadImage', 'switchCredential'])
 
 /**
  * The precise procedure type one command-plane contract derives to — what keeps
