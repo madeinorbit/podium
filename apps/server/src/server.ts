@@ -210,6 +210,7 @@ import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
+import { logProcedureFailure } from './trpc'
 import { TunnelHealthStore } from './tunnel-health'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
@@ -1900,20 +1901,8 @@ export async function startServer(
     '/trpc/*',
     trpcServer({
       router: appRouter,
-      // Error funnel: every failed /trpc call leaves a server-side trace (proc +
-      // code + the error and its cause chain — no payloads). Without this, 500s
-      // (INTERNAL_SERVER_ERROR) were completely invisible in the server log.
-      onError: ({ error, path, type }) => {
-        log.warn('tRPC procedure failed', {
-          callType: type,
-          path: path ?? '<unknown>',
-          code: error.code,
-          // `err`, not `error.message`: a TRPCError keeps the real failure in
-          // `cause`, the logger walks it recursively, and a message-only line is
-          // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
-          err: error,
-        })
-      },
+      // Error funnel: every failed /trpc call leaves a server-side trace.
+      onError: ({ error, path, type }) => logProcedureFailure(log, { error, path, type }),
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are

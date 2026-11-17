@@ -19,8 +19,10 @@ import {
   type UserId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
+import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
 import { sealCredentialSecret } from './modules/credentials/vault'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
@@ -30,6 +32,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { seedRows } from './test-support/seed-rows'
+import { errorShapeWithCause } from './trpc'
 
 const AT = '2026-11-13T00:00:00.000Z'
 const FAKE_WORK = 'sk-FAKE-work-key-0001'
@@ -279,6 +282,59 @@ describe('acceptance 2: a reference that names nothing creates nothing', () => {
     await expect(refusal).rejects.toThrow(`"Claude" (${one})`)
     await expect(refusal).rejects.toThrow(`"claude" (${two})`)
     expect(f.spawns()).toHaveLength(spawned)
+  })
+})
+
+/** What a refused call answers: the tRPC error, and the code its shape carries. */
+async function refusalOf(call: Promise<unknown>) {
+  const error = await call.then(
+    () => undefined,
+    (thrown: unknown) => thrown,
+  )
+  expect(error).toBeInstanceOf(TRPCError)
+  const trpc = error as TRPCError
+  const shape = errorShapeWithCause({ message: trpc.message, data: {} }, trpc)
+  return { code: trpc.code, message: trpc.message, data: shape.data }
+}
+
+describe('a credential refusal answers as a refusal, not a 500 (POD-7066)', () => {
+  it('a named credential the vault cannot hand over: PRECONDITION_FAILED with its code', async () => {
+    const f = await fixture()
+    // Healthy by its record, but no secret was ever stored: the start refuses
+    // it (`CredentialRefusal`) after the reference resolved.
+    const record = await f.store.credentials.insert({
+      ownerUserId: f.admin,
+      label: 'Empty key',
+      type: 'anthropic.api-key',
+    })
+    const before = (await f.store.sessions.loadSessions()).length
+    const refused = await refusalOf(
+      f.caller().sessions.create({ agentKind: 'claude-code', cwd: '/r', credentialId: record.id }),
+    )
+    expect(refused).toEqual({
+      code: 'PRECONDITION_FAILED',
+      message: ACCESS_REFUSAL_MESSAGES['needs-attention'],
+      data: { refusalCode: 'credential:needs-attention' },
+    })
+    expect((await f.store.sessions.loadSessions()).length).toBe(before)
+    expect(f.spawns()).toEqual([])
+  })
+
+  it('an id that names nothing: PRECONDITION_FAILED with not-found', async () => {
+    const f = await fixture()
+    // Refused while the reference resolves (`CredentialRefError`).
+    const refused = await refusalOf(
+      f.caller().sessions.create({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        credentialId: 'cred_00000000-0000-4000-8000-000000000000' as CredentialId,
+      }),
+    )
+    expect(refused).toEqual({
+      code: 'PRECONDITION_FAILED',
+      message: ACCESS_REFUSAL_MESSAGES['not-found'],
+      data: { refusalCode: 'credential:not-found' },
+    })
   })
 })
 

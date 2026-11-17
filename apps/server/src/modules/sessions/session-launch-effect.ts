@@ -39,14 +39,12 @@ import {
   sessionCommandPlaneInputs,
 } from '@podium/commands'
 import {
-  type AccessRefusal,
   type AgentKind,
   asMutationId,
   asUserId,
   CredentialIdField,
   credentialRefusalCode,
   type EffectTarget,
-  isAccessRefusal,
   type MachineId,
   machineRejectionMessage,
   mintDeviceId,
@@ -70,7 +68,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
-import { CredentialRefError } from '../credentials/credential-ref'
+import { credentialRefusalIn } from '../credentials/refusal-error'
 import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
@@ -82,7 +80,6 @@ import {
   type ResumeInput,
   resumeSessionNow,
 } from './command-plane'
-import { CredentialRefusal } from './launch-config'
 import type { SessionWriter } from './lifecycle'
 import { NO_LONGER_ALLOWED } from './lifecycle-controller'
 import type { SessionSpawnResult } from './session-start'
@@ -451,20 +448,10 @@ const refused = (message: string): EffectOutcome => ({
  */
 function launchFailed(error: unknown): EffectOutcome {
   const message = error instanceof Error ? error.message : String(error)
-  const refusal = credentialRefusalIn(error)
+  const refusal = credentialRefusalIn(error)?.refusal
   return refusal
     ? { status: 'failed', error: { code: credentialRefusalCode(refusal), message } }
     : refused(message)
-}
-
-function credentialRefusalIn(error: unknown): AccessRefusal | undefined {
-  for (let at = error, depth = 0; at instanceof Error && depth < 4; depth++) {
-    if (at instanceof CredentialRefusal || at instanceof CredentialRefError) {
-      return isAccessRefusal(at.refusal) ? at.refusal : undefined
-    }
-    at = at.cause
-  }
-  return undefined
 }
 
 /**

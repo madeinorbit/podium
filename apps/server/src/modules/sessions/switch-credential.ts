@@ -44,6 +44,7 @@ import { TRPCError } from '@trpc/server'
 import { type AccessDeps, resolveSessionAccess } from '../credentials/access'
 import { recordCredentialEvent } from '../credentials/events'
 import type { SessionStanding } from '../credentials/health'
+import { credentialRefusedError } from '../credentials/refusal-error'
 
 const log = createLogger('server:credential-switch')
 
@@ -228,7 +229,7 @@ export class CredentialSwitcher {
       machineId: session.machineId,
       sessionId: session.sessionId,
     })
-    if (!plan.ok) throw refused(plan.message)
+    if (!plan.ok) throw credentialRefusedError(plan.refusal, plan.message)
     const from = session.credentialId
     const to = plan.credentialId
     const toHomeId = homeIdOfDelivery(plan.delivery)
