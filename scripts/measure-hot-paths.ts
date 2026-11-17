@@ -72,10 +72,31 @@
  * It refuses outright to compare two runs measured at different FIXTURE SCALE:
  * a smaller fixture is a smaller number and is not a win.
  *
+ * ---------------------------------------------------------------------------
+ * THE POSTGRES MODE: ROUND TRIPS AT HOSTED LATENCY [POD-6992, POD-6958 design 2.11]
+ * ---------------------------------------------------------------------------
+ *
+ * `--suite round-trips` measures what hosted Postgres would cost the hot operations: per
+ * operation its statements, its ROUND TRIPS (the driver calls that wait for the server,
+ * counted by the Postgres driver's pipelining: `RoundTripObservation` in
+ * `apps/server/src/store/executor/statement-probe.ts`), and its wall time twice, as the
+ * store runs it and with `--latency-ms` (default 2.6, hosted Postgres from the app region)
+ * held before every round trip. The difference is the database time a hosted user waits.
+ *
+ * The store under it is the SQLite one: a whole `SessionStore` does not boot on Postgres
+ * until POD-6994. Round trips are a property of the executor's calls, which are the same on
+ * both engines, and `round-trip-probe.pg.test.ts` holds the count equal to what crosses the
+ * wire on a real Postgres. Not gated: a report for the round-trip budget (operator decision
+ * OD2) and its reductions (POD-7030).
+ *
  * Usage:
  *   bun scripts/measure-hot-paths.ts --suite queries --out baseline-queries.json
  *   bun scripts/measure-hot-paths.ts --suite frames  --out baseline-frames.json
  *   bun scripts/measure-hot-paths.ts --suite queries --baseline baseline-queries.json
+ *   bun scripts/measure-hot-paths.ts --suite round-trips [--latency-ms 2.6] [--repeat 5]
+ *
+ * Run it with `bun --conditions=@podium/source`: the workspace packages export their
+ * source only under that condition, and nothing here is built.
  *
  * With no --out it prints the report as JSON on stdout.
  *
@@ -87,13 +108,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import {
-  asMachineId,
-  asUserId,
-  firstAdminMemberId,
-  type IssueId,
-  type SessionId,
-} from '@podium/model'
+import type { IssueId, SessionId, UserId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 // TYPE-ONLY, and erased at runtime — the values are imported dynamically inside
 // {@link buildFixture} and {@link executionSeamQueryProbe} so `--baseline` can
@@ -101,6 +116,16 @@ import type { ServerMessage } from '@podium/protocol'
 import type { SessionRegistry } from '../apps/server/src/relay'
 import type { SessionStore } from '../apps/server/src/store'
 import type { StatementProbeHolder } from '../apps/server/src/store/executor'
+
+/**
+ * `@podium/model`, resolved as the server resolves it: from `scripts/` the workspace
+ * package does not resolve, and a copy loaded by another path would be a second module
+ * (its primed first admin among it). Values only; its types are imported above.
+ */
+async function model(): Promise<typeof import('@podium/model')> {
+  const { join } = await import('node:path')
+  return await import(Bun.resolveSync('@podium/model', join(import.meta.dir, '../apps/server/src')))
+}
 
 const SESSION_COUNT = Number(process.env.HOTPATH_SESSIONS ?? 50)
 const ISSUE_COUNT = Number(process.env.HOTPATH_ISSUES ?? 30)
@@ -202,7 +227,7 @@ interface Report {
 interface Fixture {
   registry: SessionRegistry
   store: SessionStore
-  ownerUserId: import('@podium/model').UserId
+  ownerUserId: UserId
   /** The seeded issues, so a driver can age the change-log baseline out from
    *  under them the way retention does. */
   issueIds: IssueId[]
@@ -234,9 +259,12 @@ const bindFrame = (sessionId: SessionId, cwd: string) => ({
  * necessarily being able to construct the tree that produced it.
  */
 async function buildFixture(): Promise<Fixture> {
+  const { asMachineId, asUserId, firstAdminMemberId } = await model()
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { SessionStore } = await import('../apps/server/src/store')
-  const store = await SessionStore.open(':memory:')
+  // No change capture until the registry attaches its change log, as the test fixtures
+  // open a store (`test-support/open-test-store.ts`): the machines below are written first.
+  const store = await SessionStore.open(':memory:', undefined, { changeCapture: 'whenLogAttaches' })
   for (const [id, name] of [
     ['m1', 'one'],
     ['m2', 'two'],
@@ -250,6 +278,25 @@ async function buildFixture(): Promise<Fixture> {
     })
   }
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  // The host's daemon reports `/repo`, as the pin fixtures attach it: an issue is created
+  // only in a repository a machine reports. It answers the connect scan; the Shipping
+  // scheduler is stopped, so its tick never lands inside a measured window.
+  const { attachHostDaemon } = await import('../apps/server/src/test-support/host-daemon')
+  const { quietShipping } = await import('../apps/server/src/test-support/statement-count')
+  await attachHostDaemon(
+    registry,
+    (message) => {
+      if (message.type !== 'scanReposRequest') return
+      void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'scanReposResult',
+        requestId: message.requestId,
+        repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
+        diagnostics: [],
+      })
+    },
+    { repos: ['/repo'] },
+  )
+  await quietShipping(registry)
   registry.gateway.attachDaemon('m1', () => {})
   registry.gateway.attachDaemon('m2', () => {})
   const issueIds: IssueId[] = []
@@ -260,13 +307,17 @@ async function buildFixture(): Promise<Fixture> {
           repoPath: '/repo',
           title: `issue ${index}`,
           startNow: false,
+          // An explicit parent: create would otherwise ask the daemon for the base branch.
+          parentBranch: 'main',
         })
       ).id,
     )
   }
   const bound: { sessionId: SessionId; cwd: string; machineId: string }[] = []
   for (let index = 0; index < SESSION_COUNT; index += 1) {
-    const machineId = index % 2 ? 'm2' : 'm1'
+    // On the host, whose daemon is attached: a bare attach of m1/m2 no longer counts as a
+    // daemon that can run an agent. The two machines stay in the fleet the reads walk.
+    const machineId = store.hostMachineId
     const cwd = `/repo/w${index}`
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -459,6 +510,177 @@ async function measureFrames(): Promise<Report> {
 }
 
 // ---------------------------------------------------------------------------
+// Suite 3 — round trips at hosted latency (the Postgres mode)
+// ---------------------------------------------------------------------------
+
+/** One operation at hosted latency. */
+interface RoundTripMeasurement {
+  /** Statements per run: the statement pins' number. */
+  statements: number
+  /** Round trips per run, by the Postgres driver's pipelining. */
+  roundTrips: number
+  /** Round trips by kind of call: begin, statement, batch, commit, savepoint, … */
+  byCall: Record<string, number>
+  /** Round trips at the root (outside any transaction), within `roundTrips`. */
+  rootRoundTrips: number
+  /** Median wall time of a run as the store runs it, in ms. */
+  wallMs: number
+  /** Median wall time of a run with `latencyMs` held before every round trip, in ms. */
+  wallAtLatencyMs: number
+  /** `roundTrips × latencyMs`: the database time the round trips alone cost. */
+  roundTripMs: number
+}
+
+interface RoundTripReport {
+  suite: 'round-trips'
+  at: string
+  latencyMs: number
+  repeat: number
+  scale: { sessions: number; issues: number }
+  operations: Record<string, RoundTripMeasurement>
+}
+
+const median = (values: readonly number[]): number => {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)] ?? 0
+}
+
+async function measureRoundTrips(latencyMs: number, repeat: number): Promise<RoundTripReport> {
+  const { probeRoundTrips, probeStatements, injectRoundTripLatency } = await import(
+    '../apps/server/src/store/executor/statement-probe'
+  )
+  const { appRouter } = await import('../apps/server/src/router')
+  const { RepoRegistry } = await import('../apps/server/src/repo-registry')
+  const { SuperagentService } = await import('../apps/server/src/modules/superagent')
+  const { userCommandPrincipal } = await import('../apps/server/src/command-principal')
+  const fixture = await buildFixture()
+  const holder = fixture.store as unknown as StatementProbeHolder
+  const owner = fixture.ownerUserId
+  const repos = new RepoRegistry(fixture.registry, fixture.store)
+  const superagent = await SuperagentService.create(fixture.registry.modules, repos, fixture.store)
+  const call = appRouter.createCaller({
+    registry: fixture.registry,
+    repos,
+    superagent,
+    capability: {
+      role: 'admin',
+      scope: { kind: 'owned', userId: owner },
+      actorUser: owner,
+      onBehalfOf: owner,
+    },
+    principal: userCommandPrincipal(owner, 'admin'),
+  } as never)
+  // A running session to send mail to: its daemon has bound it.
+  const target = fixture.bound[0]
+  if (target === undefined) throw new Error('the fixture has no session')
+  await fixture.registry.gateway.routeDaemonFrame(
+    target.machineId,
+    bindFrame(target.sessionId, target.cwd),
+  )
+  await settle(fixture)
+  let made = 0
+  const operations: Record<string, () => Promise<unknown>> = {
+    'sessions.createSession (in process, a draft in a repo)': async () =>
+      await fixture.registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: `/repo/new${made++}`,
+      }),
+    'tRPC sessions.create': async () =>
+      await call.sessions.create({ agentKind: 'shell', cwd: `/repo/trpc${made++}` } as never),
+    'tRPC messages.send to a running session': async () =>
+      await call.messages.send({ to: target.sessionId, body: `measured ${made++}` } as never),
+    'issues.crud.create': async () =>
+      await fixture.registry.issues.crud.create(
+        fixture.registry.issues.reports.store.serverWriter,
+        {
+          repoPath: '/repo',
+          title: `measured ${made++}`,
+          startNow: false,
+          parentBranch: 'main',
+        } as never,
+      ),
+    'issue frame reads (readyList + one get per session)': async () => {
+      await fixture.registry.issues.reports.readyList('/repo')
+      for (let index = 0; index < SESSION_COUNT; index += 1) {
+        const owner = fixture.issueIds[index % fixture.issueIds.length]
+        if (owner !== undefined) await fixture.registry.issues.reports.get(owner)
+      }
+    },
+  }
+  const measured: Record<string, RoundTripMeasurement> = {}
+  try {
+    for (const [name, run] of Object.entries(operations)) {
+      // Once to warm every cache the operation fills, then counted and timed.
+      await run()
+      await settle(fixture)
+      const plain: number[] = []
+      const held: number[] = []
+      let roundTrips = 0
+      let rootRoundTrips = 0
+      let statements = 0
+      const byCall: Record<string, number> = {}
+      for (let round = 0; round < repeat; round += 1) {
+        const trips: { call: string; root: boolean }[] = []
+        let ran = 0
+        const detachTrips = probeRoundTrips(holder, (trip) => {
+          trips.push({ call: trip.call, root: trip.root })
+        })
+        const detachStatements = probeStatements(holder, () => {
+          ran += 1
+        })
+        let startedAt = performance.now()
+        try {
+          await run()
+          plain.push(performance.now() - startedAt)
+        } finally {
+          detachTrips()
+          detachStatements()
+        }
+        await settle(fixture)
+        const stopLatency = injectRoundTripLatency(holder, latencyMs)
+        startedAt = performance.now()
+        try {
+          await run()
+          held.push(performance.now() - startedAt)
+        } finally {
+          stopLatency()
+        }
+        await settle(fixture)
+        if (round === 0) {
+          roundTrips = trips.length
+          rootRoundTrips = trips.filter((trip) => trip.root).length
+          statements = ran
+          for (const trip of trips) byCall[trip.call] = (byCall[trip.call] ?? 0) + 1
+        }
+      }
+      measured[name] = {
+        statements,
+        roundTrips,
+        byCall,
+        rootRoundTrips,
+        wallMs: Number(median(plain).toFixed(2)),
+        wallAtLatencyMs: Number(median(held).toFixed(2)),
+        roundTripMs: Number((roundTrips * latencyMs).toFixed(1)),
+      }
+      process.stderr.write(
+        `round trips: ${name}: ${roundTrips} round trips, ${statements} statements\n`,
+      )
+    }
+  } finally {
+    await fixture.registry.dispose()
+    await fixture.store.close()
+  }
+  return {
+    suite: 'round-trips',
+    at: new Date().toISOString(),
+    latencyMs,
+    repeat,
+    scale: { sessions: SESSION_COUNT, issues: ISSUE_COUNT },
+    operations: measured,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------
 
@@ -534,8 +756,18 @@ function flag(name: string): string | undefined {
 
 async function main(): Promise<void> {
   const suite = flag('suite') ?? 'queries'
+  if (suite === 'round-trips') {
+    const latencyMs = Number(flag('latency-ms') ?? 2.6)
+    const repeat = Math.max(1, Math.floor(Number(flag('repeat') ?? 5)))
+    if (!(latencyMs >= 0)) throw new Error('--latency-ms must be a non-negative number')
+    const report = await measureRoundTrips(latencyMs, repeat)
+    const out = flag('out')
+    if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+    return
+  }
   if (suite !== 'queries' && suite !== 'frames') {
-    throw new Error(`--suite must be 'queries' or 'frames', got '${suite}'`)
+    throw new Error(`--suite must be 'queries', 'frames' or 'round-trips', got '${suite}'`)
   }
   const report =
     suite === 'queries' ? await measureQueries(executionSeamQueryProbe) : await measureFrames()
