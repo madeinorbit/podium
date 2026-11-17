@@ -15,6 +15,12 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
+  openPgStoreDriver,
+  openStoreDatabase,
+  PostgresLocationError,
+  storeEngineFor,
+} from '../../store-database'
+import {
   clonePgTestDatabase,
   connectPgTest,
   type PgTestClient,
@@ -113,6 +119,47 @@ async function eventually(condition: () => boolean, ms = 2_000): Promise<boolean
   }
   return condition()
 }
+
+describe('Postgres store driver, without a database', () => {
+  // Nothing connects: a postgres.js pool opens connections on first use.
+  const nowhere = 'postgres://podium@127.0.0.1:9/nowhere'
+
+  it('reads beside one writer: readConcurrency is the pool size minus one unless lowered', async () => {
+    const drivers = [
+      createPgStoreDriver({ url: nowhere, poolSize: 4 }),
+      createPgStoreDriver({ url: nowhere, poolSize: 4, readConcurrency: 0 }),
+      createPgStoreDriver({ url: nowhere, poolSize: 4, readConcurrency: 9 }),
+      createPgStoreDriver({ url: nowhere, poolSize: 1 }),
+    ]
+    expect(drivers.map((driver) => driver.lanes.readConcurrency)).toEqual([3, 0, 3, 0])
+    expect(drivers.every((driver) => driver.dialect === 'pg' && driver.openReader)).toBe(true)
+    for (const driver of drivers) await driver.close()
+  })
+
+  it('classifies as busy only what it marked busy while acquiring', async () => {
+    const driver = createPgStoreDriver({ url: nowhere })
+    expect(driver.classify(new PgPoolTimeoutError(5))).toBe('fatal')
+    expect(driver.classify(Object.assign(new Error('lock'), { code: '55P03' }))).toBe('fatal')
+    expect(driver.classify('not an error')).toBe('fatal')
+    await driver.close()
+  })
+
+  it('chooses the engine from the store location', async () => {
+    expect(storeEngineFor('postgres://u@h/db')).toBe('pg')
+    expect(storeEngineFor('postgresql://u@h:6432/db?sslmode=require')).toBe('pg')
+    expect(storeEngineFor('POSTGRES://u@h/db')).toBe('pg')
+    expect(storeEngineFor(':memory:')).toBe('sqlite')
+    expect(storeEngineFor('/var/lib/podium/podium.db')).toBe('sqlite')
+    expect(storeEngineFor('postgres.db')).toBe('sqlite')
+    await expect(openStoreDatabase('postgres://u@h/db')).rejects.toBeInstanceOf(
+      PostgresLocationError,
+    )
+    await expect(openPgStoreDriver('/tmp/podium.db')).rejects.toThrow(/postgres:\/\/ URL/)
+    const driver = await openPgStoreDriver(nowhere)
+    expect(driver.dialect).toBe('pg')
+    await driver.close()
+  })
+})
 
 describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
   let url: string

@@ -31,7 +31,15 @@ import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './dri
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 import type { IntentAudit } from './intent-audit'
 import { attachLaneIntentAudit } from './lane-intent-audit'
+
 export { laneIntentAudit } from './lane-intent-audit'
+
+import {
+  clonePgTestDatabase,
+  connectPgTest,
+  testStoreEngine,
+} from '../../test-support/pg-test-database'
+import { createPgStoreDriver } from './pg-driver'
 import { instrumentDriver, StatementProbeHub } from './statement-probe'
 
 export interface Barrier {
@@ -298,13 +306,17 @@ export interface Harness {
   executor: RootStoreExecutor<QueryClient>
   db: QueryClient
   log: StatementLog
-  /** The raw handle, for setup and for assertions about committed rows. */
+  /**
+   * The raw bun:sqlite handle, for setup and for assertions about committed rows.
+   * SQLite only: a Postgres harness throws when a test reaches for it.
+   */
   raw: SqlDatabase
+  /** The committed rows `sql` reads, on a connection of the test's own, on either engine. */
+  committed(sql: string): Promise<unknown[]>
   close(): Promise<void>
 }
 
-export interface HarnessOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
+export interface HarnessOptions extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
   /** Extra DDL run before the executor is built. */
   schema?: string
   /** Leave the reader connection out, to test what a driver without one does. */
@@ -398,6 +410,87 @@ export function openHarness(options: HarnessOptions = {}): Harness {
     db: executor.drizzle,
     log,
     raw,
+    committed: async (sql) => raw.prepare(sql).all(),
     close: async () => await executor.close(),
+  }
+}
+
+/** The default schema in Postgres's form. */
+const PG_DEFAULT_SCHEMA = [
+  'CREATE TABLE notes (id bigserial PRIMARY KEY, body text NOT NULL)',
+  'CREATE TABLE counters (name text COLLATE "C" PRIMARY KEY, value bigint NOT NULL)',
+]
+
+/**
+ * The harness on the leg's engine [POD-6979]: {@link openHarness} on the store shard,
+ * and on the `server-store-pg` lane the same harness over the Postgres driver on a
+ * fresh database. The Postgres driver runs with two connections and
+ * `readConcurrency: 0`, so the scheduler behaves exactly as it does over bun:sqlite
+ * (reads take the write slot) and the committed-view reader has its own connection.
+ * `schema` and `onPrepare` are SQLite-only options; `raw` is the bun:sqlite handle.
+ */
+export async function openEngineHarness(options: HarnessOptions = {}): Promise<Harness> {
+  if (testStoreEngine() !== 'pg') return openHarness(options)
+  if (options.schema !== undefined || options.onPrepare !== undefined) {
+    throw new Error('openEngineHarness: schema and onPrepare are bun:sqlite options')
+  }
+  const { url } = await clonePgTestDatabase()
+  const admin = connectPgTest(url, 1)
+  for (const statement of PG_DEFAULT_SCHEMA) await admin.unsafe(statement)
+  const entries: string[] = []
+  const auditHub = new StatementProbeHub()
+  if (options.intentAudit) {
+    auditHub.attach(options.intentAudit.probe, { wantsIssueSite: true })
+  } else {
+    attachLaneIntentAudit(auditHub)
+  }
+  const pg = createPgStoreDriver({ url, poolSize: 2, readConcurrency: 0 })
+  // Connect both pooled connections now. postgres.js opens a connection through
+  // `setTimeout(connect, 0)`, so one first used under a test's fake timers would never
+  // connect; after this nothing of the pool needs a timer to run a statement.
+  const warm = [await pg.open('write'), await pg.openReader()]
+  for (const session of warm) {
+    await session.execute({ sql: 'SELECT 1', params: [], method: 'get', intent: 'read' })
+    await session.close()
+  }
+  const { openReader: _reader, ...withoutReader } = pg
+  const driver = recordingDriver(
+    instrumentDriver(options.withoutReader ? withoutReader : pg, auditHub),
+    entries,
+  )
+  const executor = createStoreExecutor<QueryClient>({
+    driver,
+    ...(options.watchdog ? { watchdog: options.watchdog } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.effectSink ? { effectSink: options.effectSink } : {}),
+    ...(options.onRefusal ? { onRefusal: options.onRefusal } : {}),
+    ...(options.onUnhealthy ? { onUnhealthy: options.onUnhealthy } : {}),
+    ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
+  })
+  const log: StatementLog = {
+    entries,
+    boundaries: () =>
+      entries.filter((entry) =>
+        /:(BEGIN IMMEDIATE|COMMIT|ROLLBACK|SAVEPOINT |RELEASE |ROLLBACK TO )/.test(entry),
+      ),
+    clear: () => {
+      entries.length = 0
+    },
+  }
+  return {
+    executor,
+    db: executor.drizzle,
+    log,
+    get raw(): SqlDatabase {
+      throw new Error('harness.raw is the bun:sqlite handle; this test runs on Postgres')
+    },
+    committed: async (sql) => await admin.unsafe(sql),
+    close: async () => {
+      try {
+        await executor.close()
+      } finally {
+        await admin.close({ timeout: 5 })
+      }
+    },
   }
 }

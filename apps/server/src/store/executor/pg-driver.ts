@@ -86,6 +86,12 @@ export interface PgDriverOptions {
   readonly url: string
   /** Connections in the pool. Reads may use all but one at once. Default 10. */
   readonly poolSize?: number
+  /**
+   * Read bodies run at once, at most the pool size minus one (the default). `0` makes
+   * reads take the write slot, as on bun:sqlite; the committed-view reader still gets
+   * a connection of its own.
+   */
+  readonly readConcurrency?: number
   /** How long a write waits for its workspace's lock before it is busy. Default 5 s. */
   readonly lockTimeoutMs?: number
   /** How long opening a lease waits for a pooled connection before it is busy. Default 5 s. */
@@ -516,7 +522,12 @@ export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
     }) as unknown as Record<string, postgres.PostgresType>,
     onnotice: () => undefined,
   })
-  const lanes: LanePolicy = { readConcurrency: poolSize - 1 }
+  const lanes: LanePolicy = {
+    readConcurrency: Math.max(
+      0,
+      Math.min(poolSize - 1, Math.floor(options.readConcurrency ?? poolSize - 1)),
+    ),
+  }
   const limits: DriverLimits = {
     writeBudgetMs: options.writeBudgetMs ?? DEFAULT_WRITE_BUDGET_MS,
     busyRetry: options.busyRetry ?? PG_BUSY_RETRY,
@@ -593,6 +604,7 @@ export function createPgStoreExecutor(
   const {
     url,
     poolSize,
+    readConcurrency,
     lockTimeoutMs,
     acquireTimeoutMs,
     connectTimeoutSeconds,
@@ -605,6 +617,7 @@ export function createPgStoreExecutor(
   const driverOptions: PgDriverOptions = {
     url,
     ...(poolSize !== undefined ? { poolSize } : {}),
+    ...(readConcurrency !== undefined ? { readConcurrency } : {}),
     ...(lockTimeoutMs !== undefined ? { lockTimeoutMs } : {}),
     ...(acquireTimeoutMs !== undefined ? { acquireTimeoutMs } : {}),
     ...(connectTimeoutSeconds !== undefined ? { connectTimeoutSeconds } : {}),
