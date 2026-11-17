@@ -384,6 +384,15 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   clientInfo.name (Task 15)
 //   the sealed secret is the token set as JSON (ChatgptTokenSet: seq = its vault version,
 //   clientId, accessToken, refreshToken, idToken, expiresAt, scopes, savedAt)
+// Codex on the plan (Task 15): keeper.issue(credentialId, { minLeftMs }) → { token, expiresAt };
+//   AttachAccessDeps.issueToken?(credentialId, to) → { secret, expiresAt } for a type with
+//   renewal 'podium' (never the sealed set); AttachTarget.refresh?: true (a reconnect refresh);
+//   chatgpt-plan/session-renewal.ts PlanSessionRenewal.delivered(sessionId, expiresAt,
+//   'start' | 'refresh'), SESSION_TOKEN_MIN_LEFT_MS = 40 min, RESTART_WHEN_LEFT_MS = 25 min;
+//   CredentialHealth.restartAtTurnBoundary(sessionId); LaunchConfig.requiredDriver(harness,
+//   credentialId) (the plan → 'codex-app-server' when a launch names no driver);
+//   @podium/harness adapters/codex/plan-provider.ts CODEX_PLAN_PROVIDER_ID = 'podium_chatgpt_plan',
+//   codexPlanProviderArgs(baseUrl?)
 // packages/protocol oauth-loopback.ts — CAP_OAUTH_LOOPBACK = 'oauth.loopback.v1';
 //   oauthLoopbackRequest { requestId, port, path, state, ttlMs } → oauthLoopbackResult
 //   { requestId, listening, error? }; oauthLoopbackCallback { requestId, code?, state?, clientId?,
