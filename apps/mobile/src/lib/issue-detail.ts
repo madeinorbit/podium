@@ -1,5 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
+import { startIssueWork } from '@podium/client-core/values'
+import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueCloseReason,
@@ -9,7 +11,6 @@ import {
   type StoredIssueDepType,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
-import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -290,7 +291,7 @@ export function issueCommands({
 
     // ---- sessions / agent start ----
     startWork: (): void => {
-      void run(() => trpc.issues.start.mutate({ id }))
+      void run(() => startIssueWork(trpc.issues, { id }))
     },
     addSession: (): void => {
       void run(() => api.addSession.mutate({ id }))

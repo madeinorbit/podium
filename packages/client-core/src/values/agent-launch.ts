@@ -9,6 +9,14 @@
 
 export type IssueAgentSpawnInput = { id: string; agentKind?: string }
 
+/** The issue launch command used by LaunchBox and the native Start Agent sheet. */
+export function startIssueWork<I extends IssueAgentSpawnInput>(
+  issues: { start: { mutate: (input: I) => Promise<unknown> } },
+  input: I,
+): Promise<unknown> {
+  return issues.start.mutate(input)
+}
+
 /** True when addSession refused because the issue has never been started. */
 export function isIssueNotStartedError(error: unknown): boolean {
   const parts = [String(error)]
@@ -31,6 +39,6 @@ export async function spawnIssueAgent<I extends IssueAgentSpawnInput>(
     return await issues.addSession.mutate(input)
   } catch (error) {
     if (!isIssueNotStartedError(error)) throw error
-    return await issues.start.mutate(input)
+    return await startIssueWork(issues, input)
   }
 }

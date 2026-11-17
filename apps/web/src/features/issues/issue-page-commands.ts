@@ -13,6 +13,7 @@
  */
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
+import { startIssueWork } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
@@ -70,8 +71,7 @@ export function issuePageCommands({
      *  queued, not when the server settles it: the picker awaits it so a failed
      *  enqueue shows inline, and a later server refusal reaches the user as the
      *  outbox's "Couldn't save issue branch" notice like every other edit. */
-    setParentBranch: (parentBranch: string): Promise<unknown> =>
-      updateIssue(id, { parentBranch }),
+    setParentBranch: (parentBranch: string): Promise<unknown> => updateIssue(id, { parentBranch }),
 
     // ---- banners ----
     applySuggestion: (): void => {
@@ -216,7 +216,7 @@ export function issuePageCommands({
 
     // ---- sessions / agent start ----
     startWork: (agentKind?: IssueAgentKind): void => {
-      void run(() => trpc.issues.start.mutate(agentKind ? { id, agentKind } : { id }))
+      void run(() => startIssueWork(trpc.issues, agentKind ? { id, agentKind } : { id }))
     },
 
     // ---- git workflow ----
