@@ -109,6 +109,7 @@ import {
   workflowRunSteps,
   workflowRuns,
   workflows,
+  workspaceMeta,
 } from '../migrations/schema'
 import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import { FEED_WINDOW } from '../modules/issue-events/feed'
@@ -915,9 +916,11 @@ export const RECORD_SOURCES: RecordSources = {
       async (changes, reads) => await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
     ),
   ],
+  // The settings blob is a workspace key: it moved from `meta` to `workspace_meta`
+  // with the meta split (POD-7013), and the fleet keys above stayed in `meta`.
   instancePreferences: [
-    own(meta, [meta.key], () => INSTANCE_PREFERENCES_ROW_ID, {
-      rows: `{row}.${meta.key.name} = 'settings'`,
+    own(workspaceMeta, [workspaceMeta.key], () => INSTANCE_PREFERENCES_ROW_ID, {
+      rows: `{row}.${workspaceMeta.key.name} = 'settings'`,
     }),
   ],
   effect: [
