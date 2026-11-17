@@ -224,10 +224,6 @@ type RepoWrite = (db: WorkspaceDb) => { run(values: Record<string, unknown>): Pr
 type RepoReturningWrite = (db: WorkspaceDb) => {
   all(values: Record<string, unknown>): Promise<unknown[]>
 }
-/** A prepared write whose caller reads how many rows it changed. */
-type RepoCountedWrite = (db: WorkspaceDb) => {
-  run(values: Record<string, unknown>): Promise<{ changes: number }>
-}
 
 /** The four columns the held registry read materializes, as drizzle returns them. */
 interface RegistryRow {
@@ -313,7 +309,7 @@ export class ReposRepository {
     insertPrefixIfAbsent?: RepoWrite
     upsertPrefix?: RepoWrite
     insertRepoIfAbsent?: RepoWrite
-    renamePath?: RepoCountedWrite
+    renamePath?: RepoWrite
     deleteRow?: RepoWrite
     setOrigin?: RepoWrite
     rekeyPrefix?: RepoWrite
@@ -819,12 +815,13 @@ export class ReposRepository {
             ),
         ).prepare()
       }))
-      const result = await renamePath(this.db).run({
+      // The run result counts the rows written, on both engines.
+      const result = (await renamePath(this.db).run({
         toPath: normalizedPath,
         machineId,
         fromPath: row.path,
-      })
-      if (result.changes > 0) {
+      })) as { changes: number | bigint }
+      if (Number(result.changes) > 0) {
         targetPath = normalizedPath
       } else {
         await deleteRow(this.db).run({ machineId, path: row.path })
