@@ -1,5 +1,6 @@
 import type {
   AgentKind,
+  CredentialId,
   IssueBoardStage,
   IssueId,
   MachineId,
@@ -42,6 +43,9 @@ export type SpawnDraftAgentArgs = DraftSpawnReservation & {
   /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
    *  in `api.ts`. Absent changes nothing, which is every caller today. */
   requestedDriverId?: string
+  /** The credential it runs on (credential management §9): an id, or `null`
+   *  for the harness's own login. Absent: the person's default, then none. */
+  credentialId?: CredentialId | null
 }
 
 /** A named task with its first agent, as the `issue.start` it is (POD-6410). */
@@ -149,6 +153,7 @@ export function draftLaunchEffect(args: {
   model?: string
   effort?: string
   requestedDriverId?: string
+  credentialId?: CredentialId | null
 }): EffectCreateInput {
   assertSpawnPlacement(args.target)
   const text = args.firstPrompt?.trim()
@@ -168,6 +173,7 @@ export function draftLaunchEffect(args: {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     },
   }
 }
@@ -183,6 +189,9 @@ export interface LaunchSessionArgs {
   issueId?: IssueId
   /** The per-spawn driver override, forwarded verbatim (`sessions.create`). */
   requestedDriverId?: string
+  /** The credential it runs on (credential management §9): an id, or `null`
+   *  for the harness's own login. Absent: the person's default, then none. */
+  credentialId?: CredentialId | null
 }
 
 /**
@@ -198,6 +207,7 @@ export function sessionLaunchEffect(args: {
   agentKind: AgentKind
   issueId?: IssueId
   requestedDriverId?: string
+  credentialId?: CredentialId | null
 }): EffectCreateInput {
   assertSpawnPlacement(args.target)
   return {
@@ -212,6 +222,7 @@ export function sessionLaunchEffect(args: {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     },
   }
 }

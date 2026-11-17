@@ -186,10 +186,19 @@ it("an issue's own work is its latest issue action record, pending while it runs
 
     const seen: (string | undefined)[] = []
     const stop = autorun(() => seen.push(task.workPending))
-    f.publish('eff_assist', effect('eff_assist', 'pending', { ...onTask, kind: 'issue.assistant', createdAt: later }))
+    f.publish(
+      'eff_assist',
+      effect('eff_assist', 'pending', { ...onTask, kind: 'issue.assistant', createdAt: later }),
+    )
     expect(task.workPending).toBe('issue.assistant')
-    f.publish('eff_assist', effect('eff_assist', 'running', { ...onTask, kind: 'issue.assistant', createdAt: later }))
-    f.publish('eff_assist', effect('eff_assist', 'failed', { ...onTask, kind: 'issue.assistant', createdAt: later }))
+    f.publish(
+      'eff_assist',
+      effect('eff_assist', 'running', { ...onTask, kind: 'issue.assistant', createdAt: later }),
+    )
+    f.publish(
+      'eff_assist',
+      effect('eff_assist', 'failed', { ...onTask, kind: 'issue.assistant', createdAt: later }),
+    )
     expect(task.workPending).toBeUndefined()
     expect(task.workAction?.unsuccessful).toBe(true)
     stop()
@@ -285,6 +294,41 @@ it('lists the approvals waiting for the viewer, oldest first, and drops one once
       ['apr_first', 'apr_later', 'apr_routed'],
       ['apr_later', 'apr_routed'],
     ])
+  } finally {
+    f.dispose()
+  }
+})
+
+it('a start refused for its credential names the refusal by its code, never by its sentence', () => {
+  const refusedLaunch = (code: string, message: string) => ({
+    ...effect('eff_launch', 'failed', { kind: 'session.launch' }),
+    effect: { status: 'failed', attempts: 1, error: { code, message } },
+  })
+  const f = fixture([
+    refusedLaunch(
+      'credential:needs-attention',
+      'This credential needs attention before it can be used. Renew it or pick another.',
+    ),
+  ])
+  try {
+    const seat = requireHere(f.pool.model('session', 'seat')) as SessionModel
+    expect(seat.launch?.id).toBe('eff_launch')
+    expect(seat.launchRefusal).toBe('needs-attention')
+    // Reworded sentence, same code: the same refusal.
+    f.publish('eff_launch', refusedLaunch('credential:needs-attention', 'Reworded entirely.'))
+    expect(seat.launchRefusal).toBe('needs-attention')
+    // The sentence of a refusal under another code: not a credential refusal.
+    f.publish(
+      'eff_launch',
+      refusedLaunch(
+        'refused',
+        'This credential needs attention before it can be used. Renew it or pick another.',
+      ),
+    )
+    expect(seat.launchRefusal).toBeUndefined()
+    // An unknown refusal code from a newer server is not guessed at.
+    f.publish('eff_launch', refusedLaunch('credential:from-the-future', 'Something.'))
+    expect(seat.launchRefusal).toBeUndefined()
   } finally {
     f.dispose()
   }

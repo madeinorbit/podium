@@ -76,7 +76,13 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import { draftIssueRow, type LaunchIssueRow, startedIssueRow, starterUserState, startingSessionRow } from './launch-rows'
+import {
+  draftIssueRow,
+  type LaunchIssueRow,
+  startedIssueRow,
+  starterUserState,
+  startingSessionRow,
+} from './launch-rows'
 
 export interface PoolLaunchPorts {
   readonly userId: UserId
@@ -319,6 +325,7 @@ export class PoolLaunches {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     })
     this.local.set(sessionId, {
       target: args.target,
@@ -343,6 +350,7 @@ export class PoolLaunches {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     })
     this.local.set(sessionId, { target: args.target })
     const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
