@@ -309,13 +309,16 @@ export function describeTurnError(
   const message = isRecord(error) ? (str(error.message) ?? '') : ''
   const lower = message.toLowerCase()
   const text = message ? truncate(message, 500) : undefined
-  if (lower.includes('rate limit') || lower.includes('429')) {
+  // Status codes as whole numbers: Codex's text carries the URL (with its
+  // port) and request ids, where "429" or "401" can appear inside another
+  // number.
+  if (lower.includes('rate limit') || /\b429\b/.test(lower)) {
     return { reason: 'rate-limit', disposition: 'retryable', ...(text ? { text } : {}) }
   }
   if (lower.includes(TOKEN_REVOKED)) {
     return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
   }
-  if (lower.includes('unauthor') || lower.includes('auth') || lower.includes('401')) {
+  if (lower.includes('unauthor') || lower.includes('auth') || /\b401\b/.test(lower)) {
     if (context.planProvider) {
       return {
         reason: 'provider-error',

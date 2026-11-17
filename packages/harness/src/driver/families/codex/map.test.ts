@@ -228,6 +228,16 @@ describe('turn errors → the failure vocabulary', () => {
     expect(described.text).toContain('token_expired')
   })
 
+  it('a port or id that contains 429 is no rate limit', () => {
+    const onPort = EXPIRED.replace('https://api.openai.com/v1', 'http://127.0.0.1:42913/v1')
+    expect(describeTurnError({ message: onPort }, { planProvider: true })).toMatchObject({
+      reason: 'provider-error',
+    })
+    expect(describeTurnError({ message: 'unexpected status 429 Too Many Requests' })).toMatchObject({
+      reason: 'rate-limit',
+    })
+  })
+
   it('the same 401 off a plan stays a sign-in ask', () => {
     expect(describeTurnError({ message: EXPIRED })).toMatchObject({
       reason: 'auth-expired',
