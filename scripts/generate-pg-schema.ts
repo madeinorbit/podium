@@ -289,7 +289,9 @@ function tableSource(
     const foreign = reference.foreignColumns.map((column) => {
       const key = foreignKeyOf.get(column as Column)
       if (key === undefined) throw new Error(`${name}: a foreign key to an unknown column`)
-      return `${target}.${key}`
+      // A reference to this same table goes through `table`: naming the table being
+      // defined in its own initializer makes TypeScript type it `any`.
+      return `${reference.foreignTable === table ? 'table' : target}.${key}`
     })
     const fkName = PG_FOREIGN_KEY_RENAMES[`${name}.${fk.getName()}`]?.name ?? fk.getName()
     let source =

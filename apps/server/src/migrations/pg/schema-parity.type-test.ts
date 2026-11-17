@@ -36,6 +36,11 @@ function assertTrue<T extends true>(): T | undefined {
   return undefined
 }
 
+/** Compiles only when `T` is `never`; otherwise the error names what `T` holds. */
+function assertNone<T extends never>(): T | undefined {
+  return undefined
+}
+
 /** The export names of a module that are drizzle tables. */
 type TableKeys<M> = {
   [K in keyof M]: M[K] extends { readonly $inferSelect: unknown } ? K : never
@@ -69,12 +74,12 @@ type Sync = typeof sqliteSync
 type SyncPg = typeof pgSync
 
 // Every SQLite table has a twin. A failure names the missing export names.
-assertTrue<Exact<Missing<Server, ServerPg>, never>>()
-assertTrue<Exact<Missing<Sync, SyncPg>, never>>()
+assertNone<Missing<Server, ServerPg>>()
+assertNone<Missing<Sync, SyncPg>>()
 
 // Every twin has its SQLite table's row types. A failure names the tables that differ.
-assertTrue<Exact<Mismatched<Server, ServerPg, IdentityKeys>, never>>()
-assertTrue<Exact<Mismatched<Sync, SyncPg>, never>>()
+assertNone<Mismatched<Server, ServerPg, IdentityKeys>>()
+assertNone<Mismatched<Sync, SyncPg>>()
 
 // The check is not vacuous: two different tables are found to differ, and so is a
 // module that lacks a table.

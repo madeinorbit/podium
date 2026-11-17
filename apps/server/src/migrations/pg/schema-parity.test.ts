@@ -263,8 +263,8 @@ function compareTable(
   // Table-level unique constraints.
   const uniques = (list: { getName(): string; columns: { name: string }[] }[]) =>
     list.map((u) => pk(u.columns, u.getName())).sort()
-  const sU = uniques(s.uniqueConstraints)
-  const pU = uniques(p.uniqueConstraints)
+  const sU = uniques(s.uniqueConstraints as never)
+  const pU = uniques(p.uniqueConstraints as never)
   if (sU.join() !== pU.join()) find(`unique constraints ${sU.join()} / ${pU.join()}`)
 
   // Indexes, by name.
@@ -297,7 +297,7 @@ function compareTable(
     }
   }
   for (const name of pIndexes.keys()) {
-    if (!sIndexNames.has(name)) find(`index ${name} exists only on Postgres`)
+    if (!sIndexNames.has(name ?? '')) find(`index ${name} exists only on Postgres`)
   }
 
   // Foreign keys, by name, with their actions.
@@ -478,7 +478,7 @@ describe('the Postgres DDL', () => {
       names.push(config.name, ...config.columns.map((column) => column.name))
       names.push(...config.indexes.map((i) => i.config.name ?? ''))
       names.push(...config.primaryKeys.map((key) => key.getName()))
-      names.push(...config.uniqueConstraints.map((u) => u.getName()))
+      names.push(...config.uniqueConstraints.map((u) => u.getName() ?? ''))
       names.push(...config.foreignKeys.map((fk) => fk.getName()))
       names.push(...config.checks.map((c) => c.name))
     }

@@ -1148,17 +1148,17 @@ export const issues = pgTable(
     foreignKey({
       name: 'issues_parent_id_issues_id_fk',
       columns: [table.parentId],
-      foreignColumns: [issues.id],
+      foreignColumns: [table.id],
     }).onDelete('set null'),
     foreignKey({
       name: 'issues_superseded_by_issues_id_fk',
       columns: [table.supersededBy],
-      foreignColumns: [issues.id],
+      foreignColumns: [table.id],
     }).onDelete('set null'),
     foreignKey({
       name: 'issues_duplicate_of_issues_id_fk',
       columns: [table.duplicateOf],
-      foreignColumns: [issues.id],
+      foreignColumns: [table.id],
     }).onDelete('set null'),
     check(
       'issues_check_1',
@@ -3744,7 +3744,7 @@ export const workflowRuns = pgTable(
     foreignKey({
       name: 'workflow_runs_supersedes_run_id_workflow_runs_id_fk',
       columns: [table.supersedesRunId],
-      foreignColumns: [workflowRuns.id],
+      foreignColumns: [table.id],
     }).onDelete('set null'),
     check('workflow_runs_check_23', sql`subject_kind IN ('issue', 'session')`),
     check('workflow_runs_check_24', sql`status IN ('active', 'blocked', 'complete', 'superseded')`),
