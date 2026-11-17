@@ -31,7 +31,11 @@ function useSubTaskCount(issue?: IssueViewModel) {
 export const IssueSubIssuesSection = observer(function IssueSubIssuesSection(
   props: ComponentProps<typeof IssueSubIssues>,
 ) {
+  const views = useIssueOpening()
   const count = useSubTaskCount(props.issue)
+  const rows = props.subIssues ?? views?.row(props.issue.id).children ?? []
+  if (typeof rows === 'symbol') throw rows
+  if (rows.length === 0) return null
   return (
     <View testID="issue-subtasks-section">
       <SectionHeading label="Sub-tasks" count={count} />
@@ -69,6 +73,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   now,
   onOpen,
   onStatus,
+  onAdd,
   headless = false,
 }: {
   issue: IssueViewModel
@@ -81,10 +86,12 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   now?: number
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
+  onAdd?: () => void
 }) {
   const { accessorySize: size } = useDetailLayout()
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const [all, setAll] = useState(false)
   const count = useSubTaskCount(headless ? undefined : issue)
   const views = useIssueOpening()
   const rows = suppliedChildren ?? (views ? views.row(issue.id).children : [])
@@ -105,7 +112,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
     <View style={headless ? undefined : styles.section} testID="sub-issues">
       {headless ? null : <SectionHeading label="Sub-tasks" count={count} />}
       <View style={styles.card} testID="sub-issues-card">
-        {subIssues.map((child, index) => (
+        {(all ? subIssues : subIssues.slice(0, 4)).map((child, index) => (
           <SubTaskRow
             key={child.id}
             child={child}
@@ -116,6 +123,16 @@ export const IssueSubIssues = observer(function IssueSubIssues({
             muted={isFinished(child)}
           />
         ))}
+        {!all && subIssues.length > 4 ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="See all sub-tasks"
+            onPress={() => setAll(true)}
+            style={styles.addChip}
+          >
+            <Text style={styles.addChipText}>See all {subIssues.length} sub-tasks</Text>
+          </PressableScale>
+        ) : null}
         {subIssues.length === 0 ? <Text style={styles.empty}>No sub-tasks yet.</Text> : null}
 
         {adding ? (
@@ -152,7 +169,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Add a sub-task"
-            onPress={() => setAdding(true)}
+            onPress={() => (onAdd ? onAdd() : setAdding(true))}
             style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
           >
             <Icon as={Plus} size={size(14)} color={color.textDim} />

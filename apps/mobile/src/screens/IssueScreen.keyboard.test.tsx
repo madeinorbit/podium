@@ -10,11 +10,20 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * composer is docked beside it.
  */
 import { asIssueId } from '@podium/model'
-import { cleanup, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-afterEach(cleanup)
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  back: vi.fn(),
+  replace: vi.fn(),
+  canGoBack: () => false,
+}))
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -25,7 +34,7 @@ vi.mock('expo-haptics', () => ({
 }))
 vi.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ issueId: 'root' }),
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
+  useRouter: () => navigation,
   usePathname: () => '/issue/root',
 }))
 vi.mock('react-native-safe-area-context', () => ({
@@ -133,6 +142,43 @@ const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   }) as IssueViewModel
 
 describe('task page keyboard avoidance', () => {
+  it('opens the existing native Start Agent route without launching before configuration', async () => {
+    const start = vi.fn(async () => {})
+    const addSession = vi.fn(async () => {})
+    await renderWithMobileStore(<IssueScreen />, {
+      issues: [issue({ stage: 'backlog' })],
+      api: { issues: { start: { mutate: start }, addSession: { mutate: addSession } } },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Start with agent' }))
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith('/launch/root')
+    expect(start).not.toHaveBeenCalled()
+    expect(addSession).not.toHaveBeenCalled()
+  })
+
+  it('opens a live session in chat with this detail as its return route', async () => {
+    const stamp = new Date().toISOString()
+    await renderWithMobileStore(<IssueScreen />, {
+      issues: [issue()],
+      sessions: [
+        {
+          sessionId: 'live-seat',
+          issueId: 'root',
+          title: 'Fix worker',
+          agentKind: 'codex',
+          status: 'live',
+          cwd: '/src/podium',
+          createdAt: stamp,
+          lastActiveAt: stamp,
+          agentState: { phase: 'idle', since: stamp },
+        } as never,
+      ],
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /^Fix worker,/ }))
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/session/[sessionId]',
+      params: { sessionId: 'live-seat', backTo: '/issue/root' },
+    })
+  })
   it('keeps the task header and back button outside the loading overlay', async () => {
     await renderWithMobileStore(<IssueScreen />, { issues: [] })
 
@@ -149,14 +195,16 @@ describe('task page keyboard avoidance', () => {
     expect(avoider.contains(await screen.findByText('A task'))).toBe(true)
     expect(screen.queryByTestId('composer-stub')).toBeNull()
     const description = screen.getByTestId('issue-description-section')
-    const subtasks = screen.getByTestId('sub-issues-card')
-    const activity = screen.getByTestId('issue-activity')
+    const cost = screen.getByTestId('issue-cost')
+    const activity = screen.getByTestId('issue-activity-fold')
     expect(
-      description.compareDocumentPosition(subtasks) & Node.DOCUMENT_POSITION_FOLLOWING,
+      cost.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(
-      subtasks.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
+      description.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Description' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Description' })).toBeTruthy()
+    expect(screen.queryByTestId('sub-issues-card')).toBeNull()
+    expect(screen.queryByTestId('issue-activity')).toBeNull()
   })
 })

@@ -11,7 +11,7 @@ import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space, tracking } from '../../theme/theme'
 import { RichMarkdown } from '../RichMarkdown'
-import { DetailSection, Disclosure, InlineEditable } from './chrome'
+import { Disclosure, InlineEditable } from './chrome'
 
 /**
  * The task's own text [POD-724]: the inline-editable title, the status strip, the
@@ -192,7 +192,7 @@ export const LongFormFields = observer(function LongFormFields({
   return (
     <View testID="long-form-fields">
       {filled.map(({ field, label }) => (
-        <DetailSection key={field} label={label}>
+        <LongFormDisclosure key={field} label={label}>
           <InlineEditable
             value={issue[field] ?? ''}
             placeholder={`Add ${label.toLowerCase()}…`}
@@ -201,11 +201,20 @@ export const LongFormFields = observer(function LongFormFields({
             onCommit={(value) => commands.commitLongForm(field, value)}
             render={(text) => <RichMarkdown text={text} />}
           />
-        </DetailSection>
+        </LongFormDisclosure>
       ))}
     </View>
   )
 })
+
+function LongFormDisclosure({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Disclosure label={label} open={open} onToggle={() => setOpen((value) => !value)}>
+      {children}
+    </Disclosure>
+  )
+}
 
 const styles = StyleSheet.create({
   title: {

@@ -15,7 +15,7 @@ import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
@@ -40,6 +40,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Plus,
   Replace,
   RotateCcw,
   SquareTerminal,
@@ -49,9 +50,9 @@ import {
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
-import { DetailSection, ErrorNote } from '../components/task-detail/chrome'
+import { ErrorNote } from '../components/task-detail/chrome'
+import { DetailContent, DetailList } from '../components/task-detail/DetailList'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
-import { IssueAge } from '../components/task-detail/IssueAge'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
 import {
@@ -59,18 +60,20 @@ import {
   IssueDescription,
   IssueTitle,
   LongFormFields,
-  StatusStrip,
 } from '../components/task-detail/IssueBody'
+import { IssueCost } from '../components/task-detail/IssueCost'
 import {
   PhoneMail,
   PhoneProperties,
   PhoneTimeline,
 } from '../components/task-detail/IssueModelSections'
 import { PropertyBar } from '../components/task-detail/IssueProperties'
+import { IssueStartAction } from '../components/task-detail/IssueStartAction'
 import { IssueSubIssuesSection } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { TaskOfferSummary } from '../components/task-detail/TaskOfferSummary'
-import { ArtifactStrip, FoldedSection, TaskSessions } from '../components/task-detail/TaskOverview'
+import { ArtifactStrip, FoldedSection } from '../components/task-detail/TaskOverview'
+import { TaskSessions } from '../components/task-detail/TaskSessions'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -165,6 +168,7 @@ type OpenSheet =
   | { kind: 'child-status'; child: IssueViewModel }
   | { kind: 'confirm-child-close'; child: IssueViewModel; reason: IssueCloseReason }
   | { kind: 'flag' }
+  | { kind: 'add-child' }
 
 /** The relation kinds the phone offers. `supersedes` and `duplicates` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
@@ -261,7 +265,7 @@ const IssueContent = observer(function IssueContent({
   // The shared page view orders open seats as desktop does: wanting attention
   // (an open offer), then the coordinator, then most recent. Its first seat
   // leads the page; a task with none open falls back to its roster.
-  const active = detail?.activeSessions ?? EMPTY_SESSIONS
+  const active = detail?.dockActiveSessions ?? EMPTY_SESSIONS
   if (typeof active === 'symbol') throw active
   // Archived seats leave the open lists; the shared member roster keeps them,
   // so a finished task still shows (and opens) the session that did it.
@@ -344,103 +348,116 @@ const IssueContent = observer(function IssueContent({
           keyboard's own overlap (see useKeyboardHeight). The sheets stay
           outside: they are modal layers and place themselves. */}
       <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          <View style={styles.header} testID="issue-detail-header">
-            <IssueTitle issue={issue} busy={busy} commands={commands} />
-            <PropertyBar
-              issue={issue}
-              project={repoName}
-              trailing={<IssueAge stamp={issue.updatedAt} />}
-              onStage={() => setSheet({ kind: 'stage' })}
-              onPriority={() => setSheet({ kind: 'priority' })}
-              onType={() => setSheet({ kind: 'type' })}
-              onSelect={{
-                status: commands.selectStatus,
-                priority: (priority) => commands.update({ priority }),
-                type: (type) => commands.update({ type }),
-              }}
-            />
-            <StatusStrip issue={issue} exceptionsOnly />
-          </View>
-          <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
-          <TaskSessions issue={issue} sessions={seats} onOpenSession={openSession} />
-          {issue.needsHuman ? (
-            <View style={styles.question}>
-              <IssueQuestionCard
+        <DetailList>
+          <DetailContent>
+            <View style={styles.header} testID="issue-detail-header">
+              <IssueTitle issue={issue} busy={busy} commands={commands} />
+              <PropertyBar
                 issue={issue}
-                onAnswer={
-                  askingSession
-                    ? async (answer) => {
-                        // A chat send like any other (POD-4762): waits for the
-                        // server, wakes a parked session first.
-                        await sendChat({
-                          sessionId: askingSession.sessionId,
-                          text: answer,
-                          wake: true,
-                        })
-                      }
-                    : undefined
-                }
-                onOpenSession={
-                  askingSession ? () => openSession(askingSession.sessionId) : undefined
-                }
-                // The card awaits its resolver; the command is fire-and-forget
-                // through the page's runner, which already owns the busy/error pair.
-                onResolve={async () => commands.resolveNeedsHuman()}
+                statusOnly
+                onStage={() => setSheet({ kind: 'stage' })}
+                onPriority={() => setSheet({ kind: 'priority' })}
+                onType={() => setSheet({ kind: 'type' })}
+                onSelect={{
+                  status: commands.selectStatus,
+                  priority: (priority) => commands.update({ priority }),
+                  type: (type) => commands.update({ type }),
+                }}
               />
             </View>
-          ) : null}
-
-          <TaskOfferSummary
-            issue={issue}
-            lead={lead}
-            onOpenSession={openSession}
-            onComment={(text) => commands.postComment(text, appendLocalComment)}
-          />
-          <DetailSection label="Description" testID="issue-description-section">
-            <IssueDescription issue={issue} busy={busy} commands={commands} />
-            <IssueAgentPanel issue={issue} only="deferred" />
-          </DetailSection>
-          <LongFormFields issue={issue} busy={busy} commands={commands} />
-          <IssueBrief issue={issue} />
+          </DetailContent>
+          <TaskSessions issue={issue} sessions={active} onOpenSession={openSession} />
           <IssueSubIssuesSection
+            key={issue.id}
             issue={issue}
             busy={busy}
             commands={commands}
             onOpen={openIssue}
             onStatus={(child) => setSheet({ kind: 'child-status', child })}
+            onAdd={() => setSheet({ kind: 'add-child' })}
           />
-          <ArtifactStrip issue={issue}>
-            <IssueAgentPanel issue={issue} only="artifacts" />
-          </ArtifactStrip>
-          {issue.worktreePath ? (
-            <FoldedSection label="Changes">
-              <GitReviewSection
-                root={issue.worktreePath}
-                headless
-                {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
-              />
+          <IssueStartAction issue={issue} onStart={launch} />
+          <IssueCost issueId={issue.id} />
+          <DetailContent>
+            <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+            {issue.needsHuman ? (
+              <View style={styles.question}>
+                <IssueQuestionCard
+                  issue={issue}
+                  onAnswer={
+                    askingSession
+                      ? async (answer) => {
+                          // A chat send like any other (POD-4762): waits for the
+                          // server, wakes a parked session first.
+                          await sendChat({
+                            sessionId: askingSession.sessionId,
+                            text: answer,
+                            wake: true,
+                          })
+                        }
+                      : undefined
+                  }
+                  onOpenSession={
+                    askingSession ? () => openSession(askingSession.sessionId) : undefined
+                  }
+                  // The card awaits its resolver; the command is fire-and-forget
+                  // through the page's runner, which already owns the busy/error pair.
+                  onResolve={async () => commands.resolveNeedsHuman()}
+                />
+              </View>
+            ) : null}
+
+            <TaskOfferSummary
+              issue={issue}
+              lead={lead}
+              onOpenSession={openSession}
+              onComment={(text) => commands.postComment(text, appendLocalComment)}
+            />
+            <FoldedSection label="Description" testID="issue-description-section">
+              <IssueDescription issue={issue} busy={busy} commands={commands} />
             </FoldedSection>
-          ) : null}
-          <PhoneProperties
-            issue={issue}
-            busy={busy}
-            commands={commands}
-            open={detailsOpen}
-            onToggle={detailsCollapsed}
-            onOpenSession={openSession}
-            onOpenIssue={openIssue}
-            onPickParent={() => setSheet({ kind: 'parent' })}
-            onAddRelation={() => setSheet({ kind: 'relation-type' })}
-          />
-          <PhoneMail issue={issue} />
-          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
-        </ScrollView>
+            <LongFormFields issue={issue} busy={busy} commands={commands} />
+            <IssueBrief issue={issue} />
+            {issue.panel?.artifacts?.length ? (
+              <FoldedSection label="Artifacts" count={String(issue.panel.artifacts.length)}>
+                <ArtifactStrip issue={issue}>
+                  <IssueAgentPanel issue={issue} only="artifacts" />
+                </ArtifactStrip>
+              </FoldedSection>
+            ) : null}
+            {issue.panel?.deferred?.length ? (
+              <FoldedSection label="Deferred" count={String(issue.panel.deferred.length)}>
+                <IssueAgentPanel issue={issue} only="deferred" />
+              </FoldedSection>
+            ) : null}
+            {issue.worktreePath ? (
+              <FoldedSection label="Changes">
+                <GitReviewSection
+                  root={issue.worktreePath}
+                  headless
+                  {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+                />
+              </FoldedSection>
+            ) : null}
+            <PhoneProperties
+              issue={issue}
+              busy={busy}
+              commands={commands}
+              open={detailsOpen}
+              onToggle={detailsCollapsed}
+              onOpenSession={openSession}
+              onOpenIssue={openIssue}
+              onPickParent={() => setSheet({ kind: 'parent' })}
+              onAddRelation={() => setSheet({ kind: 'relation-type' })}
+              onPriority={() => setSheet({ kind: 'priority' })}
+              onType={() => setSheet({ kind: 'type' })}
+            />
+            <PhoneMail issue={issue} />
+            <FoldedSection label="Activity" testID="issue-activity-fold">
+              <PhoneTimeline issue={issue} busy={busy} commands={commands} />
+            </FoldedSection>
+          </DetailContent>
+        </DetailList>
 
         {/* Pinned to the bottom, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
@@ -452,6 +469,17 @@ const IssueContent = observer(function IssueContent({
           </View>
         ) : null}
       </View>
+
+      <PromptSheet
+        visible={sheet?.kind === 'add-child'}
+        title="Add sub-task"
+        placeholder="Sub-task title"
+        confirmLabel="Add"
+        onConfirm={(title) => {
+          if (title.trim()) commands.createSubIssue(title.trim())
+        }}
+        onClose={closeIf('add-child')}
+      />
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
@@ -696,6 +724,7 @@ function issueMenuEntries(
             ]
           : []),
         { label: 'Add a Shell', icon: SquareTerminal, onPress: () => commands().addShell() },
+        { label: 'Add sub-task', icon: Plus, onPress: () => setSheet({ kind: 'add-child' }) },
       ],
     },
     {

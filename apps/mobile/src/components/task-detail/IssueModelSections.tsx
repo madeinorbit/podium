@@ -84,7 +84,7 @@ export const PhoneProperties = observer(function PhoneProperties(
         {null}
       </Disclosure>
     )
-  const sessions = views ? views.row(props.issue.id).phoneSessions : []
+  const sessions = views ? views.row(props.issue.id).retiredSessions : []
   if (typeof sessions === 'symbol') throw sessions
   const resolveEdge = (id: string | null | undefined) => resolveEdgeFromPool(pool, id)
   const parentEdge = resolveEdge(props.issue.parentId)

@@ -1,29 +1,23 @@
-import { modelName } from '@podium/client-core/agent-models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { artifactKind, motionPhase, readoutModel, sessionTitle } from '@podium/client-core/values'
-import { here } from '@podium/client-graph/lookup'
+import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact, SessionId, SessionOffer } from '@podium/model'
-import { isFinished, SESSION_WORD_LABEL } from '@podium/model/browser'
 import { type ReactNode, useState } from 'react'
 import { Image, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { issueObserver as observer } from '../../client/issue-observer'
-import { useMobilePool } from '../../client/mobile-pool'
 import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
-import { deckWordColor } from '../deck-colors'
 import { Icon } from '../Icon'
-import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
+import { FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
-import { WorkingWord } from '../WorkingWord'
 import { Disclosure } from './chrome'
-import { useDetailLayout, useDetailSize } from './detail-type'
+import { useDetailSize } from './detail-type'
 import { PromptSheet } from './PromptSheet'
 
 /** Reference content stays in native grouped disclosures. The visible sections
@@ -107,11 +101,12 @@ export const TaskSummary = observer(function TaskSummary({
     action: SessionOffer['actions'][number]
   } | null>(null)
   const [commenting, setCommenting] = useState(false)
+  const [notesExpanded, setNotesExpanded] = useState(false)
   const notes = issue.activityNotes?.trim()
   const headline = offer?.message.split('\n')[0]?.trim()
-  // Nothing to say and nothing asked: the session row below already opens the
-  // chat, so the card is left out. With no session it stays as the way to post.
-  if (!notes && !headline && lead && !asking && !failed) return null
+  // Session rows already open chat. An empty task gets the launch action;
+  // comments remain in Activity.
+  if (!notes && !headline && !asking && !failed) return null
 
   const send = async (sessionId: SessionId, createdAt: string, prompt: string) => {
     setFailed(null)
@@ -136,9 +131,23 @@ export const TaskSummary = observer(function TaskSummary({
           </Text>
         ) : null}
         {notes && notes !== offer?.message ? (
-          <Text style={[styles.summary, offer?.message && styles.summaryAfterHeadline]} selectable>
+          <Text
+            numberOfLines={notesExpanded ? undefined : 4}
+            style={[styles.summary, offer?.message && styles.summaryAfterHeadline]}
+            selectable
+          >
             {notes}
           </Text>
+        ) : null}
+        {notes && notes !== offer?.message && !notesExpanded ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="More update"
+            onPress={() => setNotesExpanded(true)}
+            style={styles.more}
+          >
+            <Text style={styles.headingActionText}>More</Text>
+          </PressableScale>
         ) : null}
         {
           <View
@@ -362,146 +371,13 @@ const Thumbnail = observer(function Thumbnail({
   )
 })
 
-/** Session rows drawn before the Details roster carries the rest. */
-const SHOWN_SESSIONS = 3
-
-/** The session rows: name, then model and state ("Opus 5.5 · idle"), in the
- *  shared page view's order (the lead first). */
-export const TaskSessions = observer(function TaskSessions({
-  issue,
-  sessions,
-  onOpenSession,
-}: {
-  issue: IssueViewModel
-  /** Already in the shared page view's order; the first is the lead. */
-  sessions: readonly SessionView[]
-  onOpenSession: (sessionId: SessionId) => void
-}) {
-  const { accessorySize } = useDetailLayout()
-  const [all, setAll] = useState(false)
-  if (sessions.length === 0) return null
-  const shown = all ? sessions : sessions.slice(0, SHOWN_SESSIONS)
-  const rest = sessions.length - shown.length
-  return (
-    <View testID="task-sessions">
-      <GroupHeading
-        label={sessions.length === 1 ? 'Agent' : 'Agents'}
-        count={sessions.length > 1 ? sessions.length : undefined}
-      />
-      <View style={styles.card}>
-        {shown.map((session, index) => (
-          <TaskSessionRow
-            key={session.sessionId}
-            sessionId={session.sessionId}
-            issue={issue}
-            first={index === 0}
-            onOpenSession={onOpenSession}
-          />
-        ))}
-        {rest > 0 ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Show all agents"
-            onPress={() => setAll(true)}
-            style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
-          >
-            <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
-            <View style={[styles.gutter, { width: accessorySize(14) }]} />
-            <Text style={styles.headingActionText}>Show {rest} more</Text>
-          </PressableScale>
-        ) : null}
-      </View>
-    </View>
-  )
-})
-
-/** Each visible seat reads the shared session model, including its state word. */
-const TaskSessionRow = observer(function TaskSessionRow({
-  sessionId,
-  issue,
-  first,
-  onOpenSession,
-}: {
-  sessionId: SessionId
-  issue: IssueViewModel
-  first: boolean
-  onOpenSession: (id: SessionId) => void
-}) {
-  const { size, accessorySize, accessibility } = useDetailLayout()
-  const pool = useMobilePool()
-  const session = here(pool?.model('session', sessionId))
-  if (!session) return null
-  const view = here(session.row) as unknown as SessionView | undefined
-  if (!view) return null
-  const phase = isFinished(issue) ? 'done' : motionPhase(view, issue)
-  const name = sessionTitle(view)
-  const meta = `${modelName(view.agentKind, readoutModel(view))} · ${SESSION_WORD_LABEL[session.word]}`
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, ${meta}`}
-      accessibilityHint="Opens the session"
-      onPress={() => onOpenSession(sessionId)}
-      scaleTo={1}
-      style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
-    >
-      {!first ? (
-        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
-      ) : null}
-      <View style={[styles.gutter, { width: accessorySize(14), height: size(leading(font.body)) }]}>
-        {phase === 'working' ? (
-          <View
-            style={{
-              width: accessorySize(8),
-              height: accessorySize(8),
-              borderRadius: accessorySize(4),
-              borderWidth: 1.5,
-              borderColor: deckWordColor('working'),
-            }}
-          />
-        ) : (
-          <View
-            style={[
-              styles.phaseDot,
-              { width: accessorySize(8), height: accessorySize(8), borderRadius: accessorySize(4) },
-              phase === 'waiting' && { backgroundColor: color.needsYouText },
-            ]}
-          />
-        )}
-      </View>
-      <View style={styles.sessionBody}>
-        <Text lineBreakStrategyIOS="standard" style={styles.sessionName}>
-          {name}
-        </Text>
-        <View style={styles.sessionMetaLine}>
-          <Text lineBreakStrategyIOS="standard" style={styles.sessionMeta}>
-            {modelName(view.agentKind, readoutModel(view))} ·
-          </Text>
-          <WorkingWord
-            active={session.word === 'working'}
-            seed={sessionId}
-            style={[
-              styles.sessionMeta,
-              session.word === 'working' && { color: deckWordColor('working') },
-            ]}
-          >
-            {SESSION_WORD_LABEL[session.word]}
-          </WorkingWord>
-        </View>
-      </View>
-      {!accessibility ? (
-        <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
-          <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
-        </View>
-      ) : null}
-    </PressableScale>
-  )
-})
+export { TaskSessions } from './TaskSessions'
 
 /** Text on the accent fill: white on light bronze, ink on dark bisque. */
 const ON_ACCENT = adaptiveColor('#ffffff', '#16171a', '#ffffff', '#16171a')
 
 const styles = StyleSheet.create({
+  more: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' },
   heading: {
     minHeight: 20,
     marginBottom: space.sm,
@@ -592,38 +468,5 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   thumbLabel: { ...sans(400), color: color.body, fontSize: font.tiny },
-  sessionRow: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-  },
   rowPressed: { backgroundColor: color.surfacePressed },
-  separator: {
-    position: 'absolute',
-    top: 0,
-    left: 34,
-    right: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
-  gutter: { width: 14, alignItems: 'center', justifyContent: 'center' },
-  phaseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.textFaint },
-  sessionBody: { flex: 1, minWidth: 0, gap: space.xs },
-  sessionName: {
-    ...sans(400),
-    color: color.text,
-    fontSize: font.body,
-    lineHeight: leading(font.body),
-  },
-  sessionMetaLine: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
-  sessionMeta: {
-    ...sans(400),
-    color: color.textDim,
-    fontSize: font.tiny,
-    flexShrink: 1,
-    maxWidth: '100%',
-  },
 })

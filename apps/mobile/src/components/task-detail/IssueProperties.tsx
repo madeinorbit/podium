@@ -63,6 +63,8 @@ export const IssueProperties = observer(function IssueProperties({
   onOpenIssue,
   onPickParent,
   onAddRelation,
+  onPriority,
+  onType,
 }: {
   issue: IssueViewModel
   /** This task's member sessions, resolved against the session world. */
@@ -79,6 +81,8 @@ export const IssueProperties = observer(function IssueProperties({
   onOpenIssue: (id: string) => void
   onPickParent: () => void
   onAddRelation: () => void
+  onPriority?: () => void
+  onType?: () => void
 }) {
   const { size: textSize, accessorySize: size, accessibility } = useDetailLayout()
   const [label, setLabel] = useState('')
@@ -92,6 +96,16 @@ export const IssueProperties = observer(function IssueProperties({
   return (
     <View style={styles.section}>
       <Disclosure label="Details" open={open} onToggle={onToggle} testID="issue-details">
+        {onPriority ? (
+          <Row label="Priority" first>
+            <Ghost label={`P${issue.priority}`} busy={busy} onPress={onPriority} />
+          </Row>
+        ) : null}
+        {onType ? (
+          <Row label="Type">
+            <Ghost label={issue.type} busy={busy} onPress={onType} />
+          </Row>
+        ) : null}
         <Row label="Labels" first>
           <View style={styles.labels}>
             {issue.labels.map((l) => (
@@ -164,20 +178,17 @@ export const IssueProperties = observer(function IssueProperties({
           <Ghost label="Add relation" busy={busy} onPress={onAddRelation} icon />
         </Row>
 
-        <Row label="Sessions">
-          {sessions.length === 0 ? <Text style={styles.none}>No agent has been here.</Text> : null}
-          {sessions.map((session) => (
-            <PropertySessionRow
-              key={session.sessionId}
-              session={session}
-              onOpenSession={onOpenSession}
-            />
-          ))}
-          <View style={styles.ghostRow}>
-            <Ghost label="Add agent" busy={busy} onPress={commands.addSession} icon />
-            <Ghost label="Add shell" busy={busy} onPress={commands.addShell} icon />
-          </View>
-        </Row>
+        {sessions.length > 0 ? (
+          <Row label="Past sessions">
+            {sessions.map((session) => (
+              <PropertySessionRow
+                key={session.sessionId}
+                session={session}
+                onOpenSession={onOpenSession}
+              />
+            ))}
+          </Row>
+        ) : null}
 
         {issue.worktreePath ? (
           <Row label="Branch">
@@ -232,16 +243,6 @@ export const IssueProperties = observer(function IssueProperties({
             )}
           </Row>
         ) : null}
-
-        <Row label="Origin">
-          <Text
-            style={styles.meta}
-          >{`Created by ${issue.intentOrigin === 'agent' ? 'an agent' : 'a person'}`}</Text>
-          <Text
-            style={styles.meta}
-          >{`Written for ${issue.audience === 'agent' ? 'agents only' : 'people'}`}</Text>
-          {issue.machineId ? <Text style={styles.meta}>{`Machine ${issue.machineId}`}</Text> : null}
-        </Row>
       </Disclosure>
     </View>
   )
@@ -267,6 +268,7 @@ export const PropertyBar = observer(function PropertyBar({
   onSelect,
   project,
   trailing,
+  statusOnly = false,
 }: {
   issue: IssueViewModel
   onStage: () => void
@@ -286,6 +288,7 @@ export const PropertyBar = observer(function PropertyBar({
   project?: string
   /** Quiet text after the pills — the task's age. */
   trailing?: ReactNode
+  statusOnly?: boolean
 }) {
   const { accessorySize: size } = useDetailLayout()
   return (
@@ -314,23 +317,25 @@ export const PropertyBar = observer(function PropertyBar({
           <Text style={styles.chipText}>{project}</Text>
         </View>
       ) : null}
-      <Chip
-        label={`P${issue.priority}`}
-        accessibilityLabel={`Priority P${issue.priority} — change`}
-        onPress={onPriority}
-        glyph={<PriorityGlyph priority={issue.priority} size={size(13)} />}
-        {...(onSelect
-          ? {
-              picker: {
-                label: 'Priority',
-                options: PRIORITIES.map((p) => ({ value: String(p), label: `P${p}` })),
-                selected: String(issue.priority),
-                onSelect: (value: string) => onSelect.priority(Number(value)),
-              },
-            }
-          : {})}
-      />
-      {issue.type !== 'task' ? (
+      {!statusOnly ? (
+        <Chip
+          label={`P${issue.priority}`}
+          accessibilityLabel={`Priority P${issue.priority} — change`}
+          onPress={onPriority}
+          glyph={<PriorityGlyph priority={issue.priority} size={size(13)} />}
+          {...(onSelect
+            ? {
+                picker: {
+                  label: 'Priority',
+                  options: PRIORITIES.map((p) => ({ value: String(p), label: `P${p}` })),
+                  selected: String(issue.priority),
+                  onSelect: (value: string) => onSelect.priority(Number(value)),
+                },
+              }
+            : {})}
+        />
+      ) : null}
+      {!statusOnly && issue.type !== 'task' ? (
         <Chip
           label={issue.type}
           accessibilityLabel={`Type ${issue.type} — change`}
