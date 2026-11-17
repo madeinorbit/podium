@@ -2455,6 +2455,13 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
+    launchPosture?: undefined | {
+        requestedMode: null | string;
+        unmet: {
+            reason: string;
+            requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+        }[];
+    };
     lifecycleFailure?: undefined | {
         reason: string;
         revision: number;
@@ -2466,6 +2473,7 @@ type Output_accounts_login = Pick<{
     nameSource?: "agent" | "user" | undefined;
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
+    observedMode?: string | undefined;
     observedModel?: string | undefined;
     observedRevision?: number | undefined;
     offer?: null | undefined | {
@@ -2658,6 +2666,13 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
+    launchPosture?: undefined | {
+        requestedMode: null | string;
+        unmet: {
+            reason: string;
+            requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+        }[];
+    };
     lifecycleFailure?: undefined | {
         reason: string;
         revision: number;
@@ -2669,6 +2684,7 @@ type Output_accounts_login = Pick<{
     nameSource?: "agent" | "user" | undefined;
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
+    observedMode?: string | undefined;
     observedModel?: string | undefined;
     observedRevision?: number | undefined;
     offer?: null | undefined | {
@@ -4861,6 +4877,13 @@ type Output_issues_get = (null) | ({
         headless?: boolean | undefined;
         issueId?: (string & z.BRAND<"IssueId">) | undefined;
         lastActiveAt: string;
+        launchPosture?: undefined | {
+            requestedMode: null | string;
+            unmet: {
+                reason: string;
+                requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+            }[];
+        };
         lifecycleFailure?: undefined | {
             reason: string;
             revision: number;
@@ -4872,6 +4895,7 @@ type Output_issues_get = (null) | ({
         nameSource?: "agent" | "user" | undefined;
         neverBound?: true | undefined;
         observedEffort?: string | undefined;
+        observedMode?: string | undefined;
         observedModel?: string | undefined;
         observedRevision?: number | undefined;
         offer?: null | undefined | {
