@@ -15,6 +15,12 @@ import { BlobConditionFailed, type BlobGetResult, BlobNotFound, type BlobStore }
 export interface BlobStoreFixture {
   store: BlobStore
   dispose?: () => Promise<void>
+  /**
+   * The adapter mints a new etag on every put, even of identical bytes (local
+   * and memory). False for object stores whose ETag is the MD5 of the bytes (S3,
+   * R2): there the etag changes when the bytes change.
+   */
+  etagPerPut?: boolean
 }
 
 const encoder = new TextEncoder()
@@ -63,14 +69,15 @@ export function describeBlobStoreContract(
   setup: () => Promise<BlobStoreFixture>,
 ): void {
   describe(`blob store contract: ${name}`, () => {
-    const withStore = (test: (store: BlobStore) => Promise<void>) => async () => {
-      const fixture = await setup()
-      try {
-        await test(fixture.store)
-      } finally {
-        await fixture.dispose?.()
+    const withStore =
+      (test: (store: BlobStore, fixture: BlobStoreFixture) => Promise<void>) => async () => {
+        const fixture = await setup()
+        try {
+          await test(fixture.store, fixture)
+        } finally {
+          await fixture.dispose?.()
+        }
       }
-    }
     const k = blobKey
 
     it(
@@ -125,13 +132,13 @@ export function describeBlobStoreContract(
     )
 
     it(
-      'replaces the whole object and changes the etag on every put',
-      withStore(async (store) => {
+      'replaces the whole object and changes the etag when the bytes change',
+      withStore(async (store, fixture) => {
         const first = await store.put(k('r/x'), bytes('a longer first body'))
         const second = await store.put(k('r/x'), bytes('short'))
         const third = await store.put(k('r/x'), bytes('short'))
         expect(second.etag).not.toBe(first.etag)
-        expect(third.etag).not.toBe(second.etag)
+        if (fixture.etagPerPut) expect(third.etag).not.toBe(second.etag)
         const got = await store.get(k('r/x'))
         expect(got?.size).toBe(5)
         expect(got?.etag).toBe(third.etag)

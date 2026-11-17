@@ -13,12 +13,14 @@ describeBlobStoreContract('local', async () => {
   const stateDir = await mkdtemp(join(tmpdir(), 'blob-store-contract-'))
   return {
     store: new LocalBlobStorage({ stateDir }).forWorkspace(LOCAL_WORKSPACE_ID),
+    etagPerPut: true,
     dispose: () => rm(stateDir, { recursive: true, force: true }),
   }
 })
 
 describeBlobStoreContract('memory', async () => ({
   store: new MemoryBlobStorage().forWorkspace(asWorkspaceId('ws-contract')),
+  etagPerPut: true,
 }))
 
 describe('memory bucket', () => {
