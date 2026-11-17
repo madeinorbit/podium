@@ -77,6 +77,8 @@ for (const shot of shots) {
   await page.goto(`http://localhost:55654/harness/add-subscription.html?${shot.query}`)
   await page.getByRole('button', { name: /^Sign in on/ }).waitFor()
   await shot.act?.(page)
+  // Let a freshly mounted button finish its fade-in.
+  await page.waitForTimeout(400)
   await page.screenshot({ path: `${out}/${shot.name}.png` })
   await page.close()
 }

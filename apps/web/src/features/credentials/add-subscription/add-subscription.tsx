@@ -89,7 +89,9 @@ export function signedInSentence(
         ? `Signed in as ${who}, not ${status.previousEmail}. “${status.label}” now uses ${who}, the account that signed in.`
         : `Signed in as ${who}. “${status.label}” now uses this account.`
     default:
-      return `Signed in as ${who}. Added as “${status.label}”.`
+      return status.label === who
+        ? `Signed in as ${who}.`
+        : `Signed in as ${who}. Added as “${status.label}”.`
   }
 }
 
@@ -243,8 +245,7 @@ export function AddSubscription({
     return (
       <div className="settings-measure flex flex-col gap-4">
         <p className="settings-prose" role="status">
-          Waiting for you to sign in to your {kind.title.toLowerCase()} in the terminal on{' '}
-          {machineName}.
+          Waiting for you to sign in to your {kind.title} in the terminal on {machineName}.
         </p>
         <p className="settings-prose">{kind.hint}</p>
         <div>

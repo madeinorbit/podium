@@ -76,7 +76,7 @@ describe('Add a subscription', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Work ChatGPT' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in on Laptop' }))
     expect(
-      await screen.findByText(/Waiting for you to sign in to your chatgpt subscription in the terminal on Laptop/),
+      await screen.findByText(/Waiting for you to sign in to your ChatGPT subscription in the terminal on Laptop/),
     ).toBeTruthy()
     expect(commands.signInStart.mutate).toHaveBeenCalledWith({
       type: 'openai.chatgpt-login',
@@ -169,5 +169,8 @@ describe('who signed in, in words (review focus 5)', () => {
     expect(signedInSentence({ ...base, email: 'a@example.test', outcome: 'same' })).toBe(
       'Signed in again as a@example.test.',
     )
+    expect(
+      signedInSentence({ ...base, label: 'b@example.test', email: 'b@example.test', outcome: 'new' }),
+    ).toBe('Signed in as b@example.test.')
   })
 })
