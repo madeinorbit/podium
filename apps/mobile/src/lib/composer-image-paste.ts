@@ -1,4 +1,4 @@
-import { type NativeModule, requireOptionalNativeModule } from 'expo-modules-core'
+import { type EventSubscription, requireOptionalNativeModule } from 'expo-modules-core'
 import { findNodeHandle, Platform } from 'react-native'
 import type { AttachmentReadSource } from './composer-media-limits'
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_PICK } from './composer-media-limits'
@@ -8,10 +8,11 @@ interface ImagePasteEvent {
   files: AttachmentReadSource[]
 }
 
-interface ComposerImagePasteModule
-  extends NativeModule<{
-    onImagePaste: (event: ImagePasteEvent) => void
-  }> {
+interface ComposerImagePasteModule {
+  addListener: (
+    event: 'onImagePaste',
+    listener: (event: ImagePasteEvent) => void,
+  ) => EventSubscription
   bindInput: (target: number, maxBytes: number, maxItems: number) => Promise<void>
   unbindInput: (target: number) => Promise<void>
 }

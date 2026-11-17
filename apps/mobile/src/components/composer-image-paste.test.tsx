@@ -29,8 +29,8 @@ vi.mock('expo-haptics', () => ({
   impactAsync: vi.fn(async () => {}),
 }))
 
-// Explicit native entry: the mobile Vitest lane normally resolves .web.ts.
-const { onMediaPaste } = await import('../lib/composer-media.ts')
+// The .js specifier resolves the native .ts entry instead of the lane's .web.ts.
+const { onMediaPaste } = await import('../lib/composer-media.js')
 
 let attachments: ComposerAttachmentsApi
 function Harness() {
