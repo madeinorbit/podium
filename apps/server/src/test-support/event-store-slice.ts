@@ -10,19 +10,19 @@
  * instead of a whole `SessionStore`, which cannot boot on Postgres until POD-6994, so
  * the same expectations run on both engines.
  *
- * CHANGE CAPTURE IS NOT WHAT THESE TESTS CHECK. On SQLite the capture triggers are
- * installed by the whole store when it opens (`store.ts`), so a bare migrated database
- * captures nothing. On Postgres every write on a source table captures in its own
- * statement (`captureWrite`), and the baseline's deferred guard refuses to commit a
- * capture row nobody drained; the drain belongs to the change-log commit, which only a
- * whole store wires. So on Postgres this clone drops the guard and the capture rows
- * stay unread, as on SQLite there are none. Capture itself is proven by
- * `sync/capture-pg.test.ts`, its oracle and the write census.
+ * CHANGE CAPTURE IS NOT WHAT THESE TESTS CHECK. On Postgres every write on a source
+ * table captures in its own statement, and the baseline's guard refuses to commit a
+ * capture row nobody drained; only a whole store's commit layer drains. So each
+ * repository here is a {@link drainedRepository} (and each raw write a
+ * {@link drainedWrite}): on Postgres a call runs in one transaction that drops what it
+ * captured, on SQLite it is the repository itself, as a bare migrated database there has
+ * no capture triggers. Capture itself is proven by `sync/capture-pg.test.ts`, its oracle
+ * and the write census.
  */
 
 import { randomUUID } from 'node:crypto'
 import { asWorkspaceId } from '@podium/model'
-import { type SQL, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { AutomationsRepository } from '../store/automations'
 import { provisionWorkspaceFeed } from '../store/database'
 import { EffectsRepository } from '../store/effects'
@@ -33,11 +33,7 @@ import { attachLaneIntentAudit } from '../store/executor/lane-intent-audit'
 import { createPgStoreDriver } from '../store/executor/pg-driver'
 import { pgQueryLayer } from '../store/executor/pg-drizzle'
 import { instrumentDriver, statementProbeHubFor } from '../store/executor/statement-probe'
-import {
-  type GlobalQueries,
-  type LegacyWorkspaceQueries,
-  legacyWorkspaceQueries,
-} from '../store/executor/sync-drizzle'
+import { type GlobalQueries, legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { InteractionsRepository } from '../store/interactions'
 import { LocksRepository } from '../store/locks'
 import { MaintenanceRepository } from '../store/maintenance'
@@ -46,8 +42,9 @@ import { SessionsRepository } from '../store/sessions'
 import { SuperagentRepository } from '../store/superagent'
 import { TranscriptCostsRepository } from '../store/transcript-costs'
 import { WorkflowsRepository } from '../store/workflows'
+import { drainedRepository, drainedWrite } from './drained-repository'
 import { openMigratedTestDatabase } from './migrated-database'
-import { openSliceStore, PG_SLICE_TABLES } from './pg-slice-tables'
+import { openSliceStore, PG_SLICE_TABLES, type SliceStore } from './pg-slice-tables'
 import { clonePgTestDatabase, type TestStoreEngine, testStoreEngine } from './pg-test-database'
 import { stageASeam } from './stage-a-seam'
 
@@ -76,60 +73,41 @@ export interface EventStoreSlice {
   close(): Promise<void>
 }
 
-/** The Postgres baseline's capture guard (POD-6981). */
-const CAPTURE_GUARD = 'fk_sync_capture_undrained_sync_capture_guard_id_fk'
-
-/** The group's repositories over one workspace's queries. */
-function sliceOver(
-  engine: TestStoreEngine,
-  queries: LegacyWorkspaceQueries,
-  probeTarget: { readonly db: object },
-  close: () => Promise<void>,
-): EventStoreSlice {
-  const run = async (statement: SQL): Promise<void> => {
-    await queries.createOrJoinTransaction(async () => {
-      await queries.rootDb.run(statement)
-    })
-  }
+/** The group's repositories over one workspace's slice, each drained on Postgres. */
+function sliceOver(slice: SliceStore): EventStoreSlice {
+  const { queries } = slice
+  const drained = <R extends object>(repository: R): R => drainedRepository(slice, repository)
   return {
-    engine,
-    events: new EventsRepository(queries),
-    effects: new EffectsRepository(queries),
-    workflows: new WorkflowsRepository(queries),
-    automations: new AutomationsRepository(queries),
-    interactions: new InteractionsRepository(queries),
-    superagent: new SuperagentRepository(queries),
-    observationCheckpoints: new ObservationCheckpointsRepository(queries),
-    transcriptCosts: new TranscriptCostsRepository(queries),
-    maintenance: new MaintenanceRepository(queries),
-    locks: new LocksRepository(queries),
-    probeTarget,
-    run,
+    engine: slice.engine,
+    events: drained(new EventsRepository(queries)),
+    effects: drained(new EffectsRepository(queries)),
+    workflows: drained(new WorkflowsRepository(queries)),
+    automations: drained(new AutomationsRepository(queries)),
+    interactions: drained(new InteractionsRepository(queries)),
+    superagent: drained(new SuperagentRepository(queries)),
+    observationCheckpoints: drained(new ObservationCheckpointsRepository(queries)),
+    transcriptCosts: drained(new TranscriptCostsRepository(queries)),
+    maintenance: drained(new MaintenanceRepository(queries)),
+    locks: drained(new LocksRepository(queries)),
+    probeTarget: slice.probeTarget,
+    run: async (statement: SQL): Promise<void> => {
+      await drainedWrite(slice, async () => {
+        await queries.createOrJoinTransaction(async () => {
+          await queries.rootDb.run(statement)
+        })
+      })
+    },
     all: async <T>(statement: SQL): Promise<T[]> =>
       (await queries.createOrJoinTransaction(
         async () => await queries.rootDb.all(statement),
       )) as T[],
-    close,
+    close: async () => await slice.close(),
   }
-}
-
-/** Drops the capture guard of a Postgres clone (see the module comment). */
-async function dropCaptureGuard(queries: LegacyWorkspaceQueries): Promise<void> {
-  await queries.createOrJoinTransaction(async () => {
-    await queries.rootDb.run(sql.raw(`ALTER TABLE sync_capture DROP CONSTRAINT ${CAPTURE_GUARD}`))
-  })
 }
 
 /** The group's repositories on a fresh store of the test run's engine. */
 export async function openEventStoreSlice(): Promise<EventStoreSlice> {
-  const slice = await openSliceStore()
-  try {
-    if (slice.engine === 'pg') await dropCaptureGuard(slice.queries)
-  } catch (error) {
-    await slice.close()
-    throw error
-  }
-  return sliceOver(slice.engine, slice.queries, slice.probeTarget, async () => await slice.close())
+  return sliceOver(await openSliceStore())
 }
 
 /** One workspace's repositories in a database that several workspaces share. */
@@ -183,15 +161,15 @@ export async function openEventStoreSlices<const Ids extends readonly [string, .
         })
       }
     })
-    const all = ids.map((id) => ({ id, queries: legacyWorkspaceQueries(base, asWorkspaceId(id)) }))
-    // One database: dropping the guard through any workspace's queries drops it for all.
-    const [first] = all
-    if (engine === 'pg' && first !== undefined) await dropCaptureGuard(first.queries)
-    const slices = all.map(({ id, queries }) => ({
-      ...sliceOver(engine, queries, probeTarget, close),
-      workspaceId: id,
-      sessions: new SessionsRepository(queries),
-    }))
+    const slices = ids.map((id) => {
+      const queries = legacyWorkspaceQueries(base, asWorkspaceId(id))
+      const slice: SliceStore = { engine, queries, probeTarget, close }
+      return {
+        ...sliceOver(slice),
+        workspaceId: id,
+        sessions: drainedRepository(slice, new SessionsRepository(queries)),
+      }
+    })
     return slices as unknown as { readonly [K in keyof Ids]: WorkspaceEventSlice }
   } catch (error) {
     await close()

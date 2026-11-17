@@ -13,11 +13,11 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { asc, desc, eq, inArray, isNull, notExists, type SQL, sql } from 'drizzle-orm'
+import { asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
 import type { superagentThreads } from '../migrations/schema'
 import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
-import { dialectPrepared } from './executor/dialect-prepared'
+import { dialectOf } from './executor/dialect-prepared'
 import type {
   StoreDrizzle,
   StoreTables,
@@ -285,7 +285,10 @@ const pendingTurnOfThread = (db: StoreDrizzle, t: StoreTables) =>
  * with nothing to clear it; this clears it, and a thread whose pending row
  * survived keeps it until that turn ends. Only rows that change are written.
  */
-const turnRunningSync = (db: StoreDrizzle, t: StoreTables, running: SQL) =>
+// SQLite names the index: a sparse running set remains bounded even under statistics
+// from a tiny database (recover no archived history just to rediscover false).
+// Postgres has no index hints and plans from its own statistics.
+const syncTurnRunning = prepared((db, t) =>
   captureWrite(
     db
       .update(t.superagentThreads)
@@ -297,7 +300,11 @@ const turnRunningSync = (db: StoreDrizzle, t: StoreTables, running: SQL) =>
             t.superagentThreads.id,
             db
               .select({ id: sql<ThreadId>`${t.superagentThreads.id}` })
-              .from(running)
+              .from(
+                dialectOf(db) === 'pg'
+                  ? sql`${t.superagentThreads}`
+                  : sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`,
+              )
               .where(
                 inWorkspace(
                   t.superagentThreads,
@@ -309,16 +316,8 @@ const turnRunningSync = (db: StoreDrizzle, t: StoreTables, running: SQL) =>
         ),
       )
       .returning(),
-  ).prepare()
-
-// TWO FORMS: SQLite names the index (a sparse running set remains bounded even under
-// statistics from a tiny database; recover no archived history just to rediscover
-// false); Postgres has no index hints and plans from its own statistics.
-const syncTurnRunning = dialectPrepared<Record<string, never>, ThreadSelect>()({
-  sqlite: (db, t) =>
-    turnRunningSync(db, t, sql`${t.superagentThreads} INDEXED BY idx_superagent_threads_running`),
-  pg: (db, t) => turnRunningSync(db, t, sql`${t.superagentThreads}`),
-})
+  ).prepare(),
+)
 
 /** A newly created member's global, in the account write's transaction. */
 const seedMemberGlobal = prepared((db, t) =>
