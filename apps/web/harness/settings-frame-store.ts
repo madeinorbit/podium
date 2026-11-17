@@ -175,6 +175,14 @@ function endpoint(path: string[] = []): unknown {
           ...(answers['setup.channel.query'] as object),
           ...args[0],
         }
+      if (key === 'credentials.useOnMyMachines.mutate') {
+        const input = args[0]
+        for (const view of answers['credentials.list.query'] as import('@podium/model').CredentialView[]) {
+          if (view.nativeLogin?.harness === input.harness && view.identity.fingerprint === input.fingerprint)
+            view.nativeLogin.useOnMyMachines = input.enabled
+        }
+        return Promise.resolve({ ok: true, enabled: input.enabled })
+      }
       if (key === 'setup.setChannel.mutate') return Promise.resolve(answers['setup.channel.query'])
       return Promise.resolve(answers[key] ?? {})
     },

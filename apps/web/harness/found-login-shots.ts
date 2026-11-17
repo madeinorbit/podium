@@ -57,6 +57,15 @@ try {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
       if (overflow) throw new Error(`Page overflows at ${width}px`)
       await page.screenshot({ path: `${output}/found-logins-${width}.png`, fullPage: true })
+      if (width === 1280) {
+        // Exercise the label's real pointer target, which sits beside the row's stretched button.
+        await page.getByText('Use on all my machines', { exact: true }).first().click()
+        await page.waitForFunction(() => {
+          const harness = (window as unknown as { settingsHarness: { calls: { key: string; input?: { enabled?: boolean } }[] } }).settingsHarness
+          return harness.calls.some((call) => call.key === 'credentials.useOnMyMachines.mutate' && call.input?.enabled === false)
+        })
+        await page.getByRole('heading', { name: 'Your credentials', exact: true }).waitFor()
+      }
       await page.close()
     }
   } finally {

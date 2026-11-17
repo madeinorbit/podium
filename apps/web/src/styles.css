@@ -8948,6 +8948,17 @@ a.ref-link--session::before {
     max-width: min(34vw, 10rem);
     flex-wrap: wrap;
   }
+  .settings-entity-row:has(.credential-login-actions) {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .settings-entity-row:has(.credential-login-actions) > .settings-entity-trailing {
+    grid-column: 2;
+    max-width: 100%;
+  }
+  .credential-login-actions {
+    flex: 1;
+    min-width: 0;
+  }
   .settings-entity-trailing > [data-slot="badge"] {
     flex-shrink: 1;
     height: auto;

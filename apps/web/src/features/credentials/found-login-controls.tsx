@@ -51,7 +51,7 @@ export const FoundLoginSwitch = observer(function FoundLoginSwitch({
   }
   return (
     <div>
-      <Label className="cursor-pointer gap-2 settings-micro">
+      <Label className="pointer-events-auto cursor-pointer gap-2 settings-micro">
         <Switch
           checked={optimistic ?? native.useOnMyMachines}
           disabled={busy}
@@ -167,7 +167,7 @@ export const FoundLoginActions = observer(function FoundLoginActions({
     }
   }
   return (
-    <div className="flex max-w-full flex-wrap items-center gap-2">
+    <div className="credential-login-actions flex max-w-full flex-wrap items-center gap-2">
       <FoundLoginSwitch view={view} commands={deps.commands} reload={deps.reload} />
       {(native.required || active) && (
         <>
