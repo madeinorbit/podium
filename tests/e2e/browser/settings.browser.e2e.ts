@@ -108,11 +108,11 @@ function newSessionsSection(page: Page) {
   return section(page, 'New sessions')
 }
 
-function accountsSection(page: Page) {
+function credentialsSection(page: Page) {
   return section(page, 'Your credentials')
 }
 
-test('native account profile labels render when available', async ({ page }) => {
+test('found-login identity labels render when available', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
   const accounts = await trpc.credentials.list.query()
   // The harness always seeds the long-identity login (POD-4730) — match that
@@ -130,8 +130,8 @@ test('native account profile labels render when available', async ({ page }) => 
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await settings.getByRole('button', { name: 'Credentials', exact: true }).click()
 
-  const section = accountsSection(page)
-  const value = section.getByText(E2E_LONG_IDENTITY_EMAIL, { exact: true })
+  const section = credentialsSection(page)
+  const value = section.locator('.settings-entity-title .font-mono').filter({ hasText: E2E_LONG_IDENTITY_EMAIL })
   await expect(value).toBeVisible()
   // The full identity fits the row without clipping, even for the long fixture.
   const layout = await value.evaluate((element) => ({
