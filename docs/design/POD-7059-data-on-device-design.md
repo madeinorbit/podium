@@ -471,10 +471,28 @@ query lifetime) and ElectricSQL's shape documentation.
 4. **To check during the build:** whether an issue and its brief from the same save reach a
    device together, and whether any screen depends on that.
 
-## Proposed build tasks
+## Build tasks
 
-For the operator's approval. Nothing is created or changed before that. The four shared steps
-are built in one go, not as a quick first version followed by a clean one.
+Approved by the operator on 2026-11-17 and created, not started. The old tasks named in the
+tables are superseded and still open; the coordinator retires them.
+
+| # | Issue |
+|---|---|
+| 1 | POD-7084 Shared record declaration |
+| 2 | POD-7085 Collection fetch and policy |
+| 3 | POD-7086 Collections in the device store |
+| 4 | POD-7087 One loader for views |
+| 5 | POD-7088 Screens on collections |
+| 6 | POD-7089 Search surfaces use server search |
+| 7 | POD-7090 Generic live store |
+| 8 | POD-7091 Declarative one-row builders |
+| 9 | POD-7094 Remove all-history indexes |
+| 10 | POD-7095 Cache cap and phone memory |
+| Server | POD-7092 Unique session resume key |
+| Server | POD-7093 Explicit setup finished answer |
+
+Order: 1, then 2, 3, 4 in sequence; 5 after 4 and the two server tasks; 6 after 4; 7 and 8
+after 1; 9 after 5; 10 after 9.
 
 Under the start-up phase (POD-5910):
 
