@@ -29,6 +29,7 @@ import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 
 const AT = '2026-11-13T00:00:00.000Z'
 const FAKE_WORK = 'sk-FAKE-work-key-0001'
@@ -142,12 +143,16 @@ const delivered = (frame: SpawnFrame | undefined) => {
 
 async function setDefault(f: Fixture, id: CredentialId): Promise<void> {
   const current = (await f.store.settings.getSettingsFor(f.admin)).credentialDefaults
-  await f.store.settings.userPreferences.set(
-    f.admin,
-    'credentialDefaults',
-    { ...current, 'claude-code': id },
-    AT,
-  )
+  // A setting the test sets up, not a write path under test: below the change
+  // log, which the registry attaches (POD-6920).
+  await seedRows(f.store, async () => {
+    await f.store.settings.userPreferences.set(
+      f.admin,
+      'credentialDefaults',
+      { ...current, 'claude-code': id },
+      AT,
+    )
+  })
 }
 
 /** The agent capability production mints for a session (the relay path). */
