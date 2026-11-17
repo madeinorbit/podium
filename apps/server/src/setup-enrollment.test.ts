@@ -1,16 +1,20 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asUserId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import type { SyncKindTokens } from '@podium/protocol'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { confirmSetupEnrollment, prepareSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { adoptLegacyHostMachine, completePreauthorizedSetup, enrollSetupMachine, readSetupEnrollment } from './setup-enrollment'
-import type { SessionStore } from './store'
+import { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
+import { readKindTokens } from './sync/kind-tokens'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 import { openTestIdentity } from './test-support/test-identity'
+import { promoteMachineAssignment } from './transfer-machine-assignment'
 
 const actor = asUserId('setup-admin')
 const stores: SessionStore[] = []
@@ -170,5 +174,61 @@ describe('legacy host adoption', () => {
     const missing = await fixture()
     expect(await adoptLegacyHostMachine(missing.store, 'installation-a', missing.request)).toBeUndefined()
     expect(await missing.store.machines.getMachine(missing.request.machineId)).toBeUndefined()
+  })
+})
+
+describe('offline server-assignment promotion on a transfer target', () => {
+  // The target daemon runs this between installing the moved database and
+  // starting its server: a store opened the way the server opens it, change
+  // capture on from the end of the boot, and no registry to drain it
+  // (POD-7100). The write cannot reach the log, so the kinds it captured go
+  // up a generation and a client refetches them from the new server.
+  it('moves the server bit on a store that captures changes, and retries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-transfer-assignment-'))
+    dirs.push(dir)
+    vi.stubEnv('PODIUM_STATE_DIR', dir)
+    vi.stubEnv('PODIUM_VAULT_KEY_FILE', join(dir, 'vault.key'))
+    const source = asMachineId('transfer-source')
+    const target = asMachineId('transfer-target')
+    let before: SyncKindTokens | undefined
+    try {
+      const store = await SessionStore.open(join(dir, 'podium.db'), source)
+      try {
+        const owner = await firstAdminMemberId(store)
+        // Setup: two enrolled machines, the source serving.
+        await seedRows(store, async () => {
+          await store.machines.upsertMachine({ id: source, name: 'source', hostname: 'source',
+            tokenHash: 'source-hash', ownerUserId: owner, assignment: { server: true, agentExecution: true } })
+          await store.machines.upsertMachine({ id: target, name: 'target', hostname: 'target',
+            tokenHash: 'target-hash', ownerUserId: owner, assignment: { server: false, agentExecution: true } })
+        })
+        before = await readKindTokens(store.sync)
+      } finally {
+        await store.close()
+      }
+
+      const input = { sourceMachineId: source, targetMachineId: target, requestId: 'transfer-1' }
+      await promoteMachineAssignment(input)
+      await promoteMachineAssignment(input)
+
+      const reopened = await SessionStore.open(join(dir, 'podium.db'), target)
+      try {
+        expect((await reopened.machines.getMachine(source))?.serviceAssignment)
+          .toEqual({ server: false, agentExecution: true })
+        expect((await reopened.machines.getMachine(target))?.serviceAssignment)
+          .toEqual({ server: true, agentExecution: true })
+        // The server bit is on the access record (the machine record reads its
+        // name, version and channel), so a client holding the old access
+        // records sees a new token for that kind alone and refetches it from
+        // the new server; the retry changed nothing more.
+        const after = await readKindTokens(reopened.sync)
+        const changed = Object.keys(after).filter((kind) => after[kind] !== before?.[kind]).sort()
+        expect(changed).toEqual(['machineAccess'])
+      } finally {
+        await reopened.close()
+      }
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

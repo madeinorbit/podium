@@ -423,6 +423,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
   ],
   [
+    'packages/sync/src/adapters/sqlite/sync-repository.ts:bumpCapturedKindGenerations',
+    "Retires one write's own change capture (POD-7100): sync_capture holds only the rows the open transaction captured since its last drain and is empty outside a write; the rows above the mark are found by the id range and their distinct kinds sorted in a temporary tree, a few per offline write.",
+  ],
+  [
     'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
     "Sorts only the active effect records: the seek on idx_effects_status_deadline reads the pending and running ones, a few in the whole table, never a target's finished history (POD-7031).",
   ],

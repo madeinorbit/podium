@@ -80,6 +80,32 @@ const captureHead = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Raise the generation of every kind captured after a mark, once per kind,
+ * in one statement: the kinds' rows come from `sync_capture` itself, so the
+ * statement count does not depend on what was written (POD-7100). A kind
+ * with no row yet starts at generation 1 (absent reads as 0).
+ */
+const bumpCapturedKindGenerations = prepared((db: StoreDrizzle) =>
+  db
+    .insert(syncKind)
+    .select(
+      db
+        .selectDistinct({
+          tenantId: sql<string>`${sql.placeholder('tenantId')}`.as('tenant_id'),
+          kind: syncCapture.kind,
+          generation: sql<number>`1`.as('generation'),
+        })
+        .from(syncCapture)
+        .where(gt(syncCapture.id, sql.placeholder('after'))),
+    )
+    .onConflictDoUpdate({
+      target: [syncKind.tenantId, syncKind.kind],
+      set: { generation: sql`${syncKind.generation} + 1` },
+    })
+    .prepare(),
+)
+
 // One row per registered kind in this tenant, independent of record count.
 const kindGenerations = prepared((db: StoreDrizzle) =>
   db
@@ -750,6 +776,21 @@ export class SyncRepository {
         oldKey: row.oldKey === null ? null : (JSON.parse(row.oldKey) as unknown[]),
         newKey: row.newKey === null ? null : (JSON.parse(row.newKey) as unknown[]),
       }))
+  }
+
+  /**
+   * A write that no change log can take (one made while no server runs, such
+   * as a transfer target's offline promotion) retires its capture instead of
+   * draining it into the log: the generation of each kind it captured after
+   * `after` goes up, as a data migration's does, and the captured rows go.
+   * A client whose kind token names the older generation refetches the kind,
+   * so it does not keep a record the log never heard about (POD-7100).
+   * Returns the kinds, sorted. Two statements.
+   */
+  async retireCapture(after = 0): Promise<string[]> {
+    await bumpCapturedKindGenerations(this.db).run({ tenantId: this.tenantId, after })
+    const kinds = new Set((await this.drainCapture(after)).map((row) => row.kind))
+    return [...kinds].sort()
   }
 
   /**

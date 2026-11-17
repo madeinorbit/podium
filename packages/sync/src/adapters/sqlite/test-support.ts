@@ -173,6 +173,12 @@ export function createTestSyncDatabase(): SqlDatabase {
     tenant_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
     PRIMARY KEY (tenant_id, kind)
   )`)
+  // The change capture's rows, without the server's always-empty guard: a
+  // fixture plants rows and reads what a drain or a retire leaves behind.
+  db.exec(`CREATE TABLE sync_capture (
+    id INTEGER PRIMARY KEY, kind TEXT NOT NULL, source INTEGER NOT NULL, op TEXT NOT NULL,
+    old_key TEXT, new_key TEXT, undrained INTEGER NOT NULL DEFAULT 0
+  )`)
 
   db.exec(
     `CREATE TABLE applied_mutations (

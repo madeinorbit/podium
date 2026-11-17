@@ -21,7 +21,7 @@
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import { FeedIdentityRegistry } from '../../feed'
-import { appliedMutations, changes, feedIdentity, syncFeed, syncKind } from './schema'
+import { appliedMutations, changes, feedIdentity, syncCapture, syncFeed, syncKind } from './schema'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
@@ -62,6 +62,10 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
 
   it('agrees on the feed-identity table’s columns (ADR 2 D1)', () => {
     expect(fixtureColumns('feed_identity')).toEqual(declaredColumns(feedIdentity))
+  })
+
+  it('agrees on the change capture’s columns (POD-6920)', () => {
+    expect(fixtureColumns('sync_capture')).toEqual(declaredColumns(syncCapture))
   })
 
   /**

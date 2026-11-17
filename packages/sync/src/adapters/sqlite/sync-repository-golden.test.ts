@@ -634,3 +634,31 @@ describe('the feed identity', () => {
     ])
   })
 })
+
+describe('the change capture', () => {
+  it('retires the rows above a mark: each kind up one generation, in this tenant only', async () => {
+    db.exec("INSERT INTO sync_kind VALUES ('local', 'machine', 4), ('other', 'machine', 9)")
+    db.exec(`INSERT INTO sync_capture (id, kind, source, op, old_key, new_key) VALUES
+      (1, 'issueProjection', 0, 'u', '["i"]', '["i"]'),
+      (2, 'machine', 0, 'u', '["m"]', '["m"]'),
+      (3, 'machineAccess', 0, 'u', '["m"]', '["m"]'),
+      (4, 'machine', 1, 'i', NULL, '["m2"]')`)
+    expect(await repo.retireCapture(1)).toEqual(['machine', 'machineAccess'])
+    // Twice-captured `machine` moves once; a kind with no row starts at 1; the
+    // row below the mark and the other tenant's generation are untouched.
+    expect(
+      stored('SELECT tenant_id, kind, generation FROM sync_kind ORDER BY tenant_id, kind'),
+    ).toEqual([
+      { tenant_id: 'local', kind: 'machine', generation: 5 },
+      { tenant_id: 'local', kind: 'machineAccess', generation: 1 },
+      { tenant_id: 'other', kind: 'machine', generation: 9 },
+    ])
+    expect(stored('SELECT id FROM sync_capture')).toEqual([{ id: 1 }])
+    expect(await repo.readKindGenerations()).toContainEqual({ kind: 'machine', generation: 5 })
+  })
+
+  it('changes nothing when nothing was captured above the mark', async () => {
+    expect(await repo.retireCapture()).toEqual([])
+    expect(stored('SELECT * FROM sync_kind')).toEqual([])
+  })
+})
