@@ -172,14 +172,50 @@ function boundColumns(db: SqlDatabase, table: string): Set<string> {
   return bound
 }
 
-/** A row maker for `table`: row n by the rule in the header, padded to `rowBytes`. */
+/** The columns of the primary key and of every unique index: they must differ per row. */
+function uniqueColumns(db: SqlDatabase, table: string): Set<string> {
+  const unique = new Set<string>()
+  for (const column of columnsOf(db, table)) if (column.pk > 0) unique.add(column.name)
+  const indexes = db.prepare('SELECT name, "unique" AS u FROM pragma_index_list(?)').all(table) as {
+    name: string
+    u: number
+  }[]
+  const names = columnsOf(db, table).map((column) => column.name)
+  for (const index of indexes.filter((i) => Number(i.u) === 1)) {
+    for (const column of db.prepare('SELECT name FROM pragma_index_info(?)').all(index.name) as {
+      name: string | null
+    }[]) {
+      if (column.name) unique.add(column.name)
+    }
+    // An expression index (`lower(name)`) names no column in pragma_index_info: read its SQL.
+    const text = (
+      db.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(index.name) as
+        | { sql: string | null }
+        | undefined
+    )?.sql
+    for (const name of names) if (text && new RegExp(`\\b${name}\\b`).test(text)) unique.add(name)
+  }
+  return unique
+}
+
+/**
+ * A row maker for `table`, padded to `rowBytes`. The key and unique columns of row n follow the
+ * rule in the header with n; every other column takes row 1's or row 2's value, the two rows
+ * `migrations/workspace-keys.test.ts` plants, so a CHECK that ties columns together holds.
+ */
 function rowMaker(db: SqlDatabase, table: string, rowBytes: number) {
   const sql = tableSql(db, table)
   const columns = columnsOf(db, table)
   const bound = boundColumns(db, table)
+  const unique = uniqueColumns(db, table)
   const pad = columns.find((c) => /TEXT/i.test(c.type) && !bound.has(c.name))?.name
   const listed = new Map<string, string[]>()
+  const ranges = new Map<string, [number, number]>()
   for (const { name } of columns) {
+    const range = new RegExp(`\\b${name}\\b\\s+BETWEEN\\s+(-?\\d+)\\s+AND\\s+(-?\\d+)`, 'i').exec(
+      sql,
+    )
+    if (range) ranges.set(name, [Number(range[1]), Number(range[2])])
     const match = new RegExp(`[\\s(\`"]${name}[\`"]?\\s+IN\\s*\\(([^)]*)\\)`, 'i').exec(sql)
     const literals = match?.[1]?.match(/'[^']*'/g)
     if (literals)
@@ -194,14 +230,18 @@ function rowMaker(db: SqlDatabase, table: string, rowBytes: number) {
     names: columns.map((c) => c.name),
     row(n: number): (string | number | null)[] {
       return columns.map(({ name, type }) => {
+        // The value rule of the header, for row k.
+        const k = unique.has(name) ? n : ((n - 1) % 2) + 1
         const override = OVERRIDES[`${table}.${name}`]
-        if (override !== undefined) return override(n)
-        if (name.endsWith('_digest')) return hex(n)
+        if (override !== undefined) return override(k)
+        if (name.endsWith('_digest')) return hex(k)
         const literals = listed.get(name)
-        if (literals !== undefined) return literals[(n - 1) % literals.length]!
-        if (/INT/i.test(type)) return n
-        if (/REAL/i.test(type)) return n + 0.5
-        return name === pad ? `v${n}${padding}` : `v${n}`
+        if (literals !== undefined) return literals[(k - 1) % literals.length]!
+        const range = ranges.get(name)
+        if (range !== undefined) return range[0] + ((k - 1) % (range[1] - range[0] + 1))
+        if (/INT/i.test(type)) return k
+        if (/REAL/i.test(type)) return k + 0.5
+        return name === pad ? `v${k}${padding}` : `v${k}`
       })
     },
   }
@@ -234,7 +274,13 @@ function fill(db: SqlDatabase, profiled: Profile): Record<string, number> {
       `INSERT INTO "${table}" (${maker.names.map((name) => `"${name}"`).join(', ')}) VALUES (${maker.names.map(() => '?').join(', ')})`,
     )
     db.exec('BEGIN')
-    for (let n = 1; n <= rows; n++) insert.run(...maker.row(n))
+    for (let n = 1; n <= rows; n++) {
+      try {
+        insert.run(...maker.row(n))
+      } catch (error) {
+        throw new Error(`${table} row ${n}: ${(error as Error).message}`)
+      }
+    }
     db.exec('COMMIT')
     planted[table] = rows
   }
