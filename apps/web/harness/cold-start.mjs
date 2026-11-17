@@ -1,7 +1,7 @@
 /** Foreground production app comparison. One implementation per invocation. */
 import { spawn, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, statfsSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, renameSync, statfsSync, existsSync } from 'node:fs'
 import { hostname, cpus, loadavg } from 'node:os'
 import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -43,7 +43,13 @@ let activeQuery = query
 const controlOnly=process.argv.includes('--control-only')
 const backgroundOnly=process.argv.includes('--background-only')
 const startupOnly=true
-if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
+// POD-7099: the measurement host and its lock are arguments. The agent VMs all
+// report hostname `agents`, so --host names the machine (its ssh alias) and
+// --lease names the host lock the caller holds for the capture window
+// (remote-lane's test:<host> lock; flatblock used bench:/meter:flatblock).
+const hostLabel = arg('host', hostname())
+const leaseName = arg('lease', mode === 'timing' ? `bench:${hostLabel}` : `meter:${hostLabel}`)
+if (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease')) throw Error('A caller-owned host lock is required (--external-lease or --lease-confirmed)')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || (cell && !/^h\d+a[124]$/.test(cell)) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${corpusKey}-r${round}`))
 if (existsSync(resolve(out,'run.json'))) throw Error('Capture output already exists; use a fresh round')
@@ -86,7 +92,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   diagnostic:existsSync('apps/web/dist/ablation-provenance.json'),
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
-  startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
+  startedAt:new Date().toISOString(), host:hostLabel, hostname:hostname(), cpu:cpus()[0].model, cores:cpus().length,
   loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[{role:'collector',pid:process.pid}], bootstraps:[], status:'running' }
 let evidenceWriteFailure
 const save = () => {
@@ -316,6 +322,52 @@ async function population(page) {
   result.population=counts;save()
   if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length))throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
 }
+// POD-7099: client memory after one cold start, once the complete corpus is in
+// durable storage. V8 heap of the page (before and after a forced GC) and the
+// resident set of every Chromium process this collector started, from /proc.
+function processTree(root) {
+  const parents=new Map()
+  for(const name of readdirSync('/proc')) {
+    if(!/^\d+$/.test(name))continue
+    try{parents.set(Number(name),Number(readFileSync(`/proc/${name}/stat`,'utf8').split(') ').at(-1).split(' ')[1]))}catch{}
+  }
+  const tree=new Set([root])
+  for(let grew=true;grew;) {grew=false;for(const [pid,parent] of parents)if(tree.has(parent)&&!tree.has(pid)){tree.add(pid);grew=true}}
+  return [...tree]
+}
+function processMemory(pid) {
+  try {
+    const status=readFileSync(`/proc/${pid}/status`,'utf8'), kib=key=>Number(status.match(new RegExp(`^${key}:\\s+(\\d+) kB`,'m'))?.[1]??0)
+    const rollup=existsSync(`/proc/${pid}/smaps_rollup`)?readFileSync(`/proc/${pid}/smaps_rollup`,'utf8'):''
+    // Chromium rewrites its child process titles: their cmdline is one
+    // space-separated string, not NUL-separated arguments.
+    const argv=readFileSync(`/proc/${pid}/cmdline`,'utf8').split(/[\0 ]/)
+    if(!/chrom/i.test(argv[0]??''))return null
+    const type=argv.find(x=>x.startsWith('--type='))?.slice(7)??'browser'
+    return {pid,type,rssKiB:kib('VmRSS'),hwmKiB:kib('VmHWM'),pssKiB:Number(rollup.match(/^Pss:\s+(\d+) kB/m)?.[1]??0)}
+  } catch { return null }
+}
+async function memoryAfterColdStart(fixture) {
+  await pause(2000)
+  const before=await metrics(fixture.cdp)
+  const usageBefore=await fixture.cdp.send('Runtime.getHeapUsage')
+  await fixture.cdp.send('HeapProfiler.collectGarbage');await pause(150);await fixture.cdp.send('HeapProfiler.collectGarbage')
+  const usageAfter=await fixture.cdp.send('Runtime.getHeapUsage'), after=await metrics(fixture.cdp)
+  // Playwright starts Chromium as a child of this collector; the harness
+  // server's Bun processes are in the same tree and are filtered out by name.
+  const processes=processTree(process.pid).map(processMemory).filter(Boolean)
+  const renderers=processes.filter(x=>x.type==='renderer').sort((a,b)=>b.rssKiB-a.rssKiB)
+  const memory={measuredAt:new Date().toISOString(),
+    heapUsedBeforeGcBytes:usageBefore.usedSize,heapTotalBeforeGcBytes:usageBefore.totalSize,
+    heapUsedAfterGcBytes:usageAfter.usedSize,heapTotalAfterGcBytes:usageAfter.totalSize,
+    jsHeapUsedSizeBeforeGc:before.JSHeapUsedSize,jsHeapUsedSizeAfterGc:after.JSHeapUsedSize,
+    documents:after.Documents,nodes:after.Nodes,
+    appRendererRssKiB:renderers[0]?.rssKiB??null,appRendererPssKiB:renderers[0]?.pssKiB??null,appRendererHwmKiB:renderers[0]?.hwmKiB??null,
+    browserTreeRssKiB:processes.reduce((sum,x)=>sum+x.rssKiB,0),browserTreePssKiB:processes.reduce((sum,x)=>sum+x.pssKiB,0),
+    processes}
+  console.log(`memory: heap ${(memory.heapUsedAfterGcBytes/1048576).toFixed(1)} MiB after GC, renderer RSS ${((memory.appRendererRssKiB??0)/1024).toFixed(1)} MiB`)
+  return memory
+}
 let recordIndex=0
 async function startup(fixture,name,profile=false) {
   const stop=await trace(fixture.cdp), before=await metrics(fixture.cdp), load=loadavg(), began=new Date().toISOString()
@@ -391,7 +443,21 @@ try {
   async function* preflightLines(){yield* preflight.body.trim().split('\n')}
   for await(const record of readSyncStream(preflightLines())){/* complete production decoder */}
   result.preflightRows=preflight.count;save()
-  browser=await chromium.launch({headless:true,executablePath:`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,env:{...process.env,LD_LIBRARY_PATH:resolve('.toolchain/lib')},args:['--no-sandbox','--disable-dev-shm-usage']})
+  // Full Chromium in new headless mode: flatblock's pinned build when present,
+  // PODIUM_CHROMIUM when set, otherwise Playwright's installed Chromium.
+  const pinnedChrome=`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`
+  const executablePath=process.env.PODIUM_CHROMIUM || (existsSync(pinnedChrome)?pinnedChrome:undefined)
+  // flatblock's checkout toolchain supplies Chromium's libasound. The agent VMs'
+  // lane toolchain lib targets a newer glibc than the VM, so there Chromium
+  // uses the system libraries, plus the user-space packages that
+  // data-on-device-baseline.py unpacks on a VM without them (vega).
+  const toolchainLib=resolve('.toolchain/lib'), browserEnv={...process.env}
+  const userLib=`${process.env.HOME}/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu`
+  if(existsSync(toolchainLib))browserEnv.LD_LIBRARY_PATH=toolchainLib
+  else if(existsSync(userLib))browserEnv.LD_LIBRARY_PATH=userLib
+  else delete browserEnv.LD_LIBRARY_PATH
+  result.browserLibraryPath=browserEnv.LD_LIBRARY_PATH??null
+  browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{channel:'chromium'}),env:browserEnv,args:['--no-sandbox','--disable-dev-shm-usage','--enable-precise-memory-info']})
   result.browser=browser.version()
   const disk=statfsSync(out)
   result.diskCaptureStart={availableBytes:disk.bavail*disk.bsize}
@@ -401,8 +467,7 @@ try {
     const file=resolve(out,'lease.json')
     while(!existsSync(file))await pause(100)
     result.lease=JSON.parse(readFileSync(file,'utf8'))
-    const expected=mode==='timing'?'bench:flatblock':'meter:flatblock'
-    if(result.lease.name!==expected || result.lease.host!=='ludovico')throw Error('Wrong capture lease')
+    if(result.lease.name!==leaseName)throw Error(`Wrong capture lease: expected ${leaseName}, got ${result.lease.name}`)
   }
   result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
   let f=fixture=await makePage()
@@ -432,9 +497,10 @@ try {
       if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))
     }
   }
-  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}
+  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page,mode==='memory'?{firstRow:true}:{})}
   if(!startupOnly)await inspect(f.page,'startup')
   await population(f.page)
+  if(mode==='memory')result.memory=await memoryAfterColdStart(f)
   result.status='complete'
 } catch(error) {
   result.status='failed';result.failure=String(error);console.error(error)

@@ -1,8 +1,10 @@
-"""Foreground resource guard for issue-owned flatblock measurements and gates.
+"""Foreground resource guard for issue-owned measurements and gates.
 
 Usage: python3 apps/web/harness/flatblock-budget.py --log=.artifacts/run.log
-       [--census] -- .toolchain/bun run test:file -- path.test.ts
-The census exception applies only while the caller holds meter:flatblock.
+       [--census] [--min-available-gib=6] -- bun run test:file -- path.test.ts
+The census exception applies only while the caller holds the host's lock.
+Written for flatblock; since POD-7099 it runs on any host (the agent VMs).
+The swap floor applies only on a host that has swap (the vega VM has none).
 """
 import argparse
 import json
@@ -10,7 +12,6 @@ import os
 from pathlib import Path
 import selectors
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -37,18 +38,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--log', required=True)
     parser.add_argument('--census', action='store_true')
+    parser.add_argument('--min-available-gib', type=float, default=6)
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
-    if socket.gethostname() != 'flatblock' or not command:
-        raise ValueError('Only foreground flatblock runs are allowed')
+    if not command:
+        raise ValueError('A foreground command is required')
     mem = memory()
-    if mem['MemAvailable'] < 6 * 1024**2 or mem['SwapFree'] < 2 * 1024**2:
-        raise RuntimeError(f'Admission: need 6 GiB available and 2 GiB swap free: {mem["MemAvailable"]} / {mem["SwapFree"]} KiB')
+    swap_floor = 2 * 1024**2 if mem['SwapTotal'] >= 2 * 1024**2 else 0
+    if mem['MemAvailable'] < args.min_available_gib * 1024**2 or mem['SwapFree'] < swap_floor:
+        raise RuntimeError(f'Admission: need {args.min_available_gib} GiB available and {swap_floor // 1024**2} GiB swap free: {mem["MemAvailable"]} / {mem["SwapFree"]} KiB')
     path = Path(args.log)
     path.parent.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, 'PATH': f'{Path.cwd()}/.toolchain:{os.environ["PATH"]}',
-           'LD_LIBRARY_PATH': f'{Path.cwd()}/.toolchain/lib', 'PODIUM_TEST_WORKERS': '1'}
+    toolchain = Path.cwd() / '.toolchain'
+    env = {**os.environ, 'PODIUM_TEST_WORKERS': '1',
+           **({'PATH': f'{toolchain}:{os.environ["PATH"]}', 'LD_LIBRARY_PATH': f'{toolchain}/lib'} if toolchain.is_dir() else {})}
     child = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
     recorded = {}
     peak = 0
@@ -90,7 +94,7 @@ def main():
                 mem = memory()
                 min_available = min(min_available, mem['MemAvailable'])
                 min_swap = min(min_swap, mem['SwapFree'])
-                if mem['MemAvailable'] < 1.5 * 1024**2 or mem['SwapFree'] < 2 * 1024**2:
+                if mem['MemAvailable'] < 1.5 * 1024**2 or mem['SwapFree'] < swap_floor:
                     reason = 'Resource floor: below 1.5 GiB available or 2 GiB swap free'
                 if interrupted:
                     reason = 'Caller interrupted the foreground run'

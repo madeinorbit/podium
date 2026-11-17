@@ -41,6 +41,16 @@ for (const row of rows) if (row.entity === 'issueGitState') {
   row.value = { updatedAt: issue.updatedAt, branch: issue.branch ?? issue.parentBranch, dirtyFiles: 0, ...row.value }
 }
 const failures = []
+// POD-7099: the acceptance seed still writes local-only entities (checkout, pin,
+// machineAccess) that the sync wire no longer carries. The server never sends
+// them, so the fixture feed drops them too; the counts are printed below.
+const notOnWire = {}
+rows = rows.filter(row => {
+  const parsed = FeedChange.safeParse({ ...row, seq: 1, op: 'upsert' })
+  if (parsed.success || !parsed.error.issues.every(issue => issue.code === 'invalid_union_discriminator' && issue.path.join('.') === 'entity')) return true
+  notOnWire[row.entity] = (notOnWire[row.entity] ?? 0) + 1
+  return false
+})
 rows = rows.map((row, index) => {
   let parsed = FeedChange.safeParse({ ...row, seq: index + 1, op: 'upsert' })
   if (!parsed.success) {
@@ -58,4 +68,4 @@ if (failures.length) throw Error(`${failures.length} invalid fixture rows; see v
 const rowBytes = JSON.stringify(rows)
 writeFileSync(`${output}/rows-${key}.json`, rowBytes)
 const rowsSha256 = createHash('sha256').update(rowBytes).digest('hex')
-console.log(JSON.stringify({ corpus: key, seed, issues: corpus.issues.length, sessions: corpus.sessions.length, rows: rows.length, semanticSha256, rowsSha256 }))
+console.log(JSON.stringify({ corpus: key, seed, issues: corpus.issues.length, sessions: corpus.sessions.length, rows: rows.length, notOnWire, semanticSha256, rowsSha256 }))

@@ -1,4 +1,4 @@
-"""Seeded production phone Work-tab cold/warm first Paint on flatblock.
+"""Seeded production phone Work-tab cold/warm first Paint on the measurement host.
 
 Uses the shared corpus, durable-cache check and Chromium Paint collector.
 Invoke from the repository root; all remaining flags go to the controller.

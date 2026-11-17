@@ -51,17 +51,24 @@ def aborted_rpc_outside_cold(message, windows):
 BOUNDARIES = {'web': 'sidebar-issue-row', 'phone': 'phone-issue-row'}
 
 
-def cold_samples(paths):
+# POD-7099: captures name their host and the host lock held for the timing
+# window: flatblock's bench:flatblock, or remote-lane's test:<vm> lock on the
+# agent VMs. The memory lease (meter:) never admits timing evidence.
+def timing_lease(name):
+    return isinstance(name, str) and (name.startswith('bench:') or name.startswith('test:'))
+
+
+def cold_samples(paths, min_samples=8):
     samples = []
     provenance = []
     for path in paths:
-        if Path(path).with_name('EXCLUDED.json').exists():
+        if Path(path).expanduser().with_name('EXCLUDED.json').exists():
             raise ValueError(f'{path}: capture was explicitly excluded')
-        run = json.loads(Path(path).read_text())
+        run = json.loads(Path(path).expanduser().read_text())
         if run.get('status') != 'complete' or run.get('controlOnly') or run.get('variants') or run.get('diagnostic'):
             raise ValueError(f'{path}: incomplete or diagnostic capture')
-        if run.get('host') != 'flatblock' or run.get('surface') not in BOUNDARIES:
-            raise ValueError(f'{path}: expected a flatblock web or phone capture')
+        if not run.get('host') or run.get('surface') not in BOUNDARIES:
+            raise ValueError(f'{path}: expected a web or phone capture that names its host')
         if run.get('startupBoundary') != BOUNDARIES[run['surface']]:
             raise ValueError(f'{path}: startup must paint a visible {BOUNDARIES[run["surface"]]}')
         cold_windows = [(row['startedAt'], row['inputToPaintMs']) for row in run['actions']
@@ -79,8 +86,8 @@ def cold_samples(paths):
             raise ValueError(f'{path}: unexpected browser errors invalidate startup evidence')
         if not run.get('semanticSha256') or not run.get('browser') or not run.get('lease'):
             raise ValueError(f'{path}: missing corpus, browser or timing lease provenance')
-        if run['lease'].get('name') != 'bench:flatblock':
-            raise ValueError(f'{path}: startup timing requires bench:flatblock')
+        if not timing_lease(run['lease'].get('name')):
+            raise ValueError(f'{path}: startup timing requires the host\'s timing lock (bench: or test:)')
         if not run.get('paired') or not run['lease'].get('cohort') or not run.get('harnessSha256'):
             raise ValueError(f'{path}: alternating captures in one leased cohort are required')
         stamp = run.get('build', {})
@@ -93,7 +100,8 @@ def cold_samples(paths):
             raise ValueError(f'{path}: complete corpus did not hydrate')
         provenance.append((run['semanticSha256'], run['browser'], run.get('httpCache'),
                            run['lease']['cohort'], run['harnessSha256'],
-                           run['surface'], run.get('scale'), run.get('cell')))
+                           run['surface'], run.get('scale'), run.get('cell'),
+                           run['host'], run['lease']['name']))
         for row in run['actions']:
             if row['action'] != 'app-cold-start' or row.get('profiled'):
                 continue
@@ -104,8 +112,8 @@ def cold_samples(paths):
             if not isinstance(value, (int, float)) or not 0 < value < float('inf'):
                 raise ValueError(f'{path}: invalid Paint sample')
             samples.append(value)
-    if len(samples) < 8:
-        raise ValueError('At least eight unprofiled fresh contexts are required per arm')
+    if len(samples) < min_samples:
+        raise ValueError(f'At least {min_samples} unprofiled fresh contexts are required per arm')
     if len(set(provenance)) != 1:
         raise ValueError('An arm contains mismatched corpus/browser/cache provenance')
     return samples, provenance[0]
@@ -115,7 +123,7 @@ def compare(old_paths, candidate_paths, max_ms=2500):
     old, old_provenance = cold_samples(old_paths)
     candidate, candidate_provenance = cold_samples(candidate_paths)
     if old_provenance != candidate_provenance:
-        raise ValueError('OLD and candidate must use the same corpus, surface, Chromium, collector and paired lease')
+        raise ValueError('OLD and candidate must use the same corpus, surface, Chromium, collector, host and paired lease')
     old_median = statistics.median(old)
     candidate_median = statistics.median(candidate)
     return {
