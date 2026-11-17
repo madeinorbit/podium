@@ -31,6 +31,8 @@ export interface LaunchConfigPorts {
   >
   /** The live daemon's negotiated capabilities (`MachinesService.daemonSupports`). */
   daemonSupports: AttachAccessDeps['daemonSupports']
+  /** Issues a token for a type Podium renews (the ChatGPT plan keeper). */
+  issueToken?: AttachAccessDeps['issueToken']
   /** The server's judgement of the live daemon's connection. */
   daemonLinkKind: AttachAccessDeps['daemonLinkKind']
 }
@@ -178,6 +180,23 @@ export class SessionLaunchConfig {
   }
 
   /**
+   * The one driver a credential's type runs on for this harness, when its
+   * accepted line names exactly one (a ChatGPT plan: Codex's server driver).
+   * Undefined when any driver will do, or with no credential.
+   */
+  async requiredDriver(
+    harness: AgentKind,
+    credentialId: CredentialId | null,
+  ): Promise<string | undefined> {
+    if (credentialId === null || harness === 'shell') return undefined
+    const type = (await this.ports.store.credentials.get(credentialId))?.type
+    if (type === undefined) return undefined
+    const lines = harnessAccepts(harness).filter((line) => line.type === type)
+    const drivers = lines.length === 1 ? lines[0]?.drivers : undefined
+    return drivers?.length === 1 ? drivers[0] : undefined
+  }
+
+  /**
    * Resolve `credentialId` for this launch, then attach it for the daemon
    * connected for the machine now (`attachAccess`): the secret is read last,
    * only for a capable daemon on a safe connection, and the frame that starts
@@ -191,6 +210,8 @@ export class SessionLaunchConfig {
     owner: UserId
     machineId: MachineId
     sessionId?: SessionId
+    /** Sent to a process that is already running (a reconnect refresh). */
+    refresh?: true
   }): Promise<LaunchAccess> {
     if (i.harness === 'shell') return { ok: true, credentialId: null }
     const plan = await resolveSessionAccess(this.ports.store, {
@@ -207,12 +228,14 @@ export class SessionLaunchConfig {
         store: this.ports.store,
         daemonSupports: this.ports.daemonSupports,
         daemonLinkKind: this.ports.daemonLinkKind,
+        ...(this.ports.issueToken ? { issueToken: this.ports.issueToken } : {}),
       },
       plan,
       {
         machineId: i.machineId,
         actingUserId: i.owner,
         ...(i.sessionId ? { sessionId: i.sessionId } : {}),
+        ...(i.refresh ? { refresh: true as const } : {}),
       },
     )
     if (!attached.ok) return attached

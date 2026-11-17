@@ -679,9 +679,15 @@ export class SessionStart {
       machineId,
     })
     if (!choice.ok) throw new CredentialRefusal(choice.refusal, choice.message)
+    // A credential only one driver accepts (the ChatGPT plan: Codex's server
+    // driver) picks that driver when the launch named none; it is recorded as
+    // the session's request, so a revival keeps it (epic Task 15).
+    const requestedDriverId =
+      input.requestedDriverId ??
+      (await this.ports.launchConfig.requiredDriver(input.agentKind, choice.credentialId))
     const access = await this.ports.launchConfig.access({
       harness: input.agentKind,
-      ...(input.requestedDriverId !== undefined ? { driverId: input.requestedDriverId } : {}),
+      ...(requestedDriverId !== undefined ? { driverId: requestedDriverId } : {}),
       credentialId: choice.credentialId,
       owner: ownerUserId,
       machineId,
@@ -761,7 +767,7 @@ export class SessionStart {
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
-      ...(input.requestedDriverId ? { requestedDriverId: input.requestedDriverId } : {}),
+      ...(requestedDriverId ? { requestedDriverId } : {}),
     })
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
@@ -816,9 +822,7 @@ export class SessionStart {
           }
         : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(input.requestedDriverId !== undefined
-        ? { requestedDriverId: input.requestedDriverId }
-        : {}),
+      ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     this.ports.broadcastSessions()
     // THE STARTER'S PERSONAL RECORD (POD-6290): a session landing on a task

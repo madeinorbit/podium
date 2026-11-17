@@ -165,6 +165,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store,
     daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     daemonLinkKind: (machineId) => deps.daemonLinkKind?.(machineId),
+    ...(deps.issueToken ? { issueToken: deps.issueToken } : {}),
   })
   bag.naming = new SessionNaming({
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -205,6 +206,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         owner: session.ownerUserId,
         machineId,
         sessionId: session.sessionId,
+        refresh: true,
       })
       if (!resolved.ok || !resolved.access) return undefined
       return { type: 'sessionAccessRefresh', sessionId: session.sessionId, access: resolved.access }

@@ -125,6 +125,12 @@ import {
 } from './modules/credentials/chatgpt-plan/service'
 import { recordFoundLogins } from './modules/credentials/found-logins'
 import {
+  PlanSessionRenewal,
+  realTimer,
+  SESSION_TOKEN_MIN_LEFT_MS,
+} from './modules/credentials/chatgpt-plan/session-renewal'
+import type { AttachAccessDeps } from './modules/credentials/attach-access'
+import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,
   type FetchLike as CredentialFetch,
@@ -2035,7 +2041,14 @@ export class SessionRegistry {
         await completion
       },
     })
+    // A ChatGPT plan's session token (epic Task 15). Late-bound: the keeper and
+    // credential health are composed further down.
+    let issueSessionToken: AttachAccessDeps['issueToken'] | undefined
     const sessionsSvc = new SessionLifecycle({
+      issueToken: async (credentialId, to) => {
+        if (!issueSessionToken) throw new Error('the ChatGPT plan keeper is not wired yet')
+        return await issueSessionToken(credentialId, to)
+      },
       durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
       ...(options.sessionResidency ? { residency: options.sessionResidency } : {}),
       store: this.store,
@@ -2987,6 +3000,29 @@ export class SessionRegistry {
         log.warn('credential placement removal on reconnect failed', { machineId, err })
       }),
     )
+    // CODEX ON A CHATGPT PLAN (§11 "Codex"; epic Task 15). A session gets a token
+    // with at least SESSION_TOKEN_MIN_LEFT_MS left, and restarts with resume at a
+    // turn boundary before the one its engine holds runs low.
+    const planRenewal = new PlanSessionRenewal({
+      now: () => this.now(),
+      setTimer: realTimer(() => this.now()),
+      restartAtTurnBoundary: async (sessionId) =>
+        await credentialHealth.restartAtTurnBoundary(sessionId),
+      onError: (err, sessionId) =>
+        log.warn('could not restart a ChatGPT plan session for a fresh token', { err, sessionId }),
+    })
+    issueSessionToken = async (credentialId, to) => {
+      const issued = await chatgptPlan.keeper.issue(credentialId, {
+        minLeftMs: SESSION_TOKEN_MIN_LEFT_MS,
+      })
+      if (to.sessionId) {
+        planRenewal.delivered(to.sessionId, issued.expiresAt, to.refresh ? 'refresh' : 'start')
+      }
+      return { secret: issued.token, expiresAt: issued.expiresAt }
+    }
+    // No forget on exit: a restart is a hibernate then a revival, and an exit
+    // event arriving after the revival's delivery would erase the deadline that
+    // delivery set. A deadline for a session that is not running does nothing.
 
     // THE SESSION LIFECYCLE CONTROLLER (ADR 12 D5 E1, POD-6356): makes a
     // session's desired state true through the daemon channel, after each edit
