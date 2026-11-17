@@ -8,6 +8,7 @@ import { UPDATED_SUBTITLE_MS, WorkspaceSyncContext } from '../client/workspace-r
 type HeaderOptions = {
   unstable_nativeProps: { headerConfig: { subtitle?: string; largeSubtitle?: string } }
   headerTitle?: () => React.ReactNode
+  headerLeft?: () => React.ReactNode
   headerBackVisible?: boolean
 }
 const options = vi.hoisted(() => ({ current: {} as HeaderOptions, history: [] as HeaderOptions[] }))
@@ -258,4 +259,18 @@ describe('header pull-down menu', () => {
     expect(rows[1]?.dataset.on).toBe('true')
     expect(rows[2]?.dataset.destructive).toBe('true')
   })
+})
+
+it('uses a native Done item for sheet dismissal so UIKit owns its text sizing', () => {
+  const done = vi.fn()
+  render(
+    <Screen title="Task details" onBack={done} backAs="text" backLabel="Done">
+      <Text>Detail content</Text>
+    </Screen>,
+  )
+  expect(options.current.headerLeft).toBeUndefined()
+  const button = screen.getByRole('button', { name: 'Done' })
+  expect(button.dataset.testid).toBe('bar-button')
+  fireEvent.click(button)
+  expect(done).toHaveBeenCalledOnce()
 })

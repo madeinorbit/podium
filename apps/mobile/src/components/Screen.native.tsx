@@ -104,15 +104,26 @@ export function Screen({
   // SF Symbols do not reach Android's toolbar, so it draws the actions itself.
   const androidActions = Platform.OS === 'android' && actions?.length ? actions : undefined
   const logicalBack = Platform.OS === 'ios' && backAs === 'chevron' && !!backTitle && !!onBack
+  const nativeDismiss = Platform.OS === 'ios' && backAs === 'text' && !!onBack
   const nativeLeadingActions = useMemo(
     () =>
-      logicalBack && onBack
+      nativeDismiss && onBack
         ? [
-            { label: `Back to ${backTitle}`, icon: ChevronLeft, onPress: onBack },
+            {
+              label: backLabel ?? 'Cancel',
+              title: backLabel ?? 'Cancel',
+              icon: ChevronLeft,
+              onPress: onBack,
+            },
             ...(leadingActions ?? []),
           ]
-        : leadingActions,
-    [backTitle, leadingActions, logicalBack, onBack],
+        : logicalBack && onBack
+          ? [
+              { label: `Back to ${backTitle}`, icon: ChevronLeft, onPress: onBack },
+              ...(leadingActions ?? []),
+            ]
+          : leadingActions,
+    [backLabel, backTitle, leadingActions, logicalBack, nativeDismiss, onBack],
   )
   const headerHeight = use(HeaderHeightContext) ?? 0
   const barInset = transparentBar ? headerHeight : 0
@@ -154,7 +165,7 @@ export function Screen({
           // title set while the screen showed another page.
           headerBackTitle: backTitle,
           // Explicitly clear the override when paging back to the chat.
-          headerBackVisible: logicalBack ? false : undefined,
+          headerBackVisible: logicalBack || nativeDismiss ? false : undefined,
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
           ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
@@ -174,7 +185,7 @@ export function Screen({
             : androidActions
               ? { headerRight: () => <AndroidHeaderActions actions={androidActions} /> }
               : {}),
-          ...(onBack && backAs === 'text'
+          ...(onBack && backAs === 'text' && !nativeDismiss
             ? {
                 headerLeft: () => (
                   <PressableScale
@@ -191,7 +202,7 @@ export function Screen({
             : {}),
         }}
       />
-      {nativeLeadingActions?.length && !(onBack && backAs === 'text') ? (
+      {nativeLeadingActions?.length && (nativeDismiss || !(onBack && backAs === 'text')) ? (
         <ToolbarItems placement="left" actions={nativeLeadingActions} />
       ) : null}
       {actions?.length && !right && !androidActions ? (
