@@ -668,15 +668,13 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
  */
 describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
   it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
-    const rowsIn = (store: SessionStore, ws: string) =>
-      rawDb(store)
-        .prepare(
-          'SELECT * FROM telegram_chat_bindings WHERE workspace_id = ? AND chat_id = ? ORDER BY rowid',
-        )
-        .all(ws, SAME)
     const SAME = 'same-chat'
+    const rowsIn = async (store: WorkspaceMessageSlice, tag: Tag) =>
+      await store.all<Record<string, unknown>>(
+        sql`SELECT * FROM telegram_chat_bindings WHERE workspace_id = ${WS[tag]} AND chat_id = ${SAME}`,
+      )
     const [a, b] = await twoSeeded()
-    const bind = async (store: SessionStore, tag: Tag, boundAt: string) =>
+    const bind = async (store: WorkspaceMessageSlice, tag: Tag, boundAt: string) =>
       await store.telegramBindings.upsert({
         chatId: SAME,
         userId: alice(tag),
@@ -684,12 +682,17 @@ describe('the same id in both workspaces, upserted through the repository (POD-7
         boundBy: { actor: { kind: 'user', id: alice(tag) }, onBehalfOf: null },
       })
     await bind(b, 'b', AT)
-    const before = rowsIn(b, WS.b)
+    const before = await rowsIn(b, 'b')
+    expect(before).toHaveLength(1)
     await bind(a, 'a', AT)
-    expect(rowsIn(a, WS.a)).toHaveLength(1)
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, 'a')).toHaveLength(1)
+    expect(await rowsIn(b, 'b')).toEqual(before)
     await bind(a, 'a', LATER)
-    expect(rowsIn(a, WS.a)).toEqual([expect.objectContaining({ bound_at: LATER })])
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, 'a')).toHaveLength(1)
+    expect((await a.telegramBindings.list()).find((row) => row.chatId === SAME)?.boundAt).toBe(
+      LATER,
+    )
+    expect((await b.telegramBindings.list()).find((row) => row.chatId === SAME)?.boundAt).toBe(AT)
+    expect(await rowsIn(b, 'b')).toEqual(before)
   })
 })
