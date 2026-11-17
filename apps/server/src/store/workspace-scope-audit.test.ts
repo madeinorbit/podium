@@ -364,7 +364,8 @@ describe('POD-7014 — every query names its workspace', () => {
     })
 
     it('a planted global definition that names a workspace table fails, marked or not', () => {
-      preparedGlobal(((db, t) => unscopedRead(db, t as StoreTables)) as Build)
+      // The type rule refuses this at compile time; the audit must refuse it too.
+      preparedGlobal((db, t) => unscopedRead(db, t as unknown as StoreTables))
       const verdict = judge(planted('globalOnWorkspace', newest()), () => false)
       expect(verdict.failures).toHaveLength(1)
       expect(verdict.failures[0]).toContain('global-workspace-table')

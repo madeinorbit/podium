@@ -921,7 +921,7 @@ class Parser {
     }
     if (this.isWord(i, 'overriding')) i += 3
     const rows: Range[][] = []
-    const selects: { scope: Scope; items: Range[] }[] = []
+    const selects: { scope: Scope; items: readonly Range[] }[] = []
     let defaultValues = false
     if (this.isWord(i, 'default') && this.isWord(i + 1, 'values')) {
       defaultValues = true
