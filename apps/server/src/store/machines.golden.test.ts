@@ -291,6 +291,9 @@ describe('the harness versions edit', () => {
     await expectConstantStatements(
       {
         name: 'machines.recordHarnessVersion',
+        // Each machine registers in its own transaction; 60 shows a count that does not
+        // follow the table's size as well as 200 does, at a third of the setup.
+        sizes: [3, 60],
         async setup(size) {
           const store = await openPeopleStoreSlice()
           for (let i = 0; i < size; i++)
@@ -334,5 +337,5 @@ describe('the harness versions edit', () => {
       },
       2,
     )
-  })
+  }, 60_000)
 })
