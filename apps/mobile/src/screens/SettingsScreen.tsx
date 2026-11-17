@@ -407,6 +407,10 @@ const SettingsServers = observer(function SettingsServers() {
   const connected = useConnected()
   const [profileName, setProfileName] = useState(profile.name)
   const account = useAccountActions()
+  // At large sizes the name and origin wrap and the Insecure badge moves under
+  // them; beside them it left "Ser…" and "http:…" at AX5.
+  const stacked = useWindowDimensions().fontScale >= STACKED_ROW_SCALE
+  const lines = stacked ? 0 : 1
   return (
     <DetailScreen title="Servers">
       <Card>
@@ -427,15 +431,18 @@ const SettingsServers = observer(function SettingsServers() {
             accessibilityState={{ selected: row.id === profile.id }}
           >
             <View style={styles.serverDetails}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
+              <Text style={styles.rowTitle} numberOfLines={lines}>
                 {row.name}
               </Text>
-              <Text style={styles.rowDetail} numberOfLines={1}>
+              <Text style={styles.rowDetail} numberOfLines={lines}>
                 {row.id === profile.id && !connected ? 'Reconnecting · ' : ''}
                 {row.userId ? `${row.httpOrigin} · ${row.userId}` : row.httpOrigin}
               </Text>
+              {stacked && row.transport === 'insecure-lan' ? (
+                <Text style={styles.rowWarning}>Insecure</Text>
+              ) : null}
             </View>
-            {row.transport === 'insecure-lan' ? (
+            {!stacked && row.transport === 'insecure-lan' ? (
               <Text style={styles.rowWarning}>Insecure</Text>
             ) : null}
             {row.id === profile.id ? <Icon as={Check} size={17} color={color.accentTint} /> : null}
