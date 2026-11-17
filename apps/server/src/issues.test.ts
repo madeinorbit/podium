@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
+import { LocalBlobStorage } from '@podium/blob-store/local'
 import {
   asAccountId,
   asArtifactId,
@@ -7150,7 +7152,8 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       readAsset: async () => ({ ok: false, error: 'no worktree reads here' }),
       listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
     })
-    const pending = new PendingUploadStore(join(base, 'pending-uploads'))
+    const files = new LocalBlobStorage({ stateDir: base }).forWorkspace(LOCAL_WORKSPACE_ID)
+    const pending = new PendingUploadStore({ files, records: h.deps.store.pendingUploads })
     h.deps.artifacts = artifacts
     h.deps.pendingUploads = pending
     const svc = await IssueService.create(h.deps)
@@ -7171,7 +7174,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       mediaType: 'image/png',
       bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     })
-    return { base, svc, issue, other, owner, upload, pending }
+    return { base, svc, issue, other, owner, upload, pending, files }
   }
 
   it('moves the upload into the issue as a chat-upload artifact, once', async () => {
@@ -7204,10 +7207,88 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       ])
       expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: issue.id } })
       expect(readdirSync(join(base, 'artifacts', issue.id))).toHaveLength(1)
+      // Copied, then the source deleted.
+      expect(await pending.bytes(upload)).toBeUndefined()
       expect(await svc.crud.chatUploadOwner(issue.id, upload.id)).toBe(owner)
       expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
         new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
       )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('a claim that crashed after its copy runs again to the same artifact key', async () => {
+    const { base, svc, issue, owner, upload, pending, files } = await claimHarness()
+    try {
+      // The first run recorded the claim and copied, then died before deleting the
+      // source or committing the panel entry.
+      const artifactId = asArtifactId('chatcrash1')
+      await pending.markClaimed(upload.id, { issueId: issue.id, artifactId })
+      await files.copy(
+        pending.fileKey(upload),
+        blobKey(`artifacts/${issue.id}/chatcrash1/shot.png`),
+      )
+
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      const artifacts = (await svc.reports.get(issue.id))?.panel?.artifacts ?? []
+      expect(artifacts).toEqual([expect.objectContaining({ artifactId, chatUploadId: upload.id })])
+      expect(readdirSync(join(base, 'artifacts', issue.id))).toEqual(['chatcrash1'])
+      expect(await pending.bytes(upload)).toBeUndefined()
+      expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('a failed launch relinquishes the claim: the file is copied back and can be claimed again', async () => {
+    const { base, svc, issue, other, owner, upload, pending } = await claimHarness()
+    try {
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      expect(await svc.crud.panelChatUploadRelease(issue.id)).toBe(true)
+      expect(await pending.meta(upload.id)).not.toHaveProperty('claimed')
+      expect(await pending.claimedBy(issue.id)).toEqual([])
+      expect(await pending.bytes(upload)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+      // The emptied artifact directories go with the copy's delete.
+      expect(existsSync(join(base, 'artifacts', issue.id))).toBe(false)
+      // A second release finds nothing to return.
+      expect(await svc.crud.panelChatUploadRelease(issue.id)).toBe(true)
+      // The same ref is claimable again, by another task too.
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, other.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: other.id } })
+      expect(await svc.crud.chatUploadBytes(other.id, upload.id)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a claim when another task recorded its claim first', async () => {
+    const { base, svc, issue, other, owner, upload, pending } = await claimHarness()
+    try {
+      await pending.markClaimed(upload.id, {
+        issueId: other.id,
+        artifactId: asArtifactId('elsewhere'),
+      })
+      await expect(
+        svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+          uploadId: upload.id,
+          ownerUserId: owner,
+        }),
+      ).rejects.toThrow('already sent with another task')
+      expect(await pending.bytes(upload)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
     } finally {
       rmSync(base, { recursive: true, force: true })
     }

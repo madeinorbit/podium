@@ -372,9 +372,10 @@ interface SessionRegistryOptions {
   /**
    * This workspace's user files (POD-6963 design 2.1): the handle the
    * composition root built with `forWorkspace`, on the state directory or on a
-   * bucket. The artifact, upload and lake owners move onto it in POD-7052,
-   * POD-7054 and POD-7055. Absent in tests: the artifact store then keeps its
-   * files under the state directory, as a self-hosted server does.
+   * bucket: the artifact, composer-upload and lake owners' files (POD-7052,
+   * POD-7054, POD-7055). Absent in tests: the artifact and composer-upload
+   * stores then keep their files under the state directory, as a self-hosted
+   * server does.
    */
   files?: BlobStore
   portableStateFence?: PortableStateFence
@@ -2471,25 +2472,27 @@ export class SessionRegistry {
     // serves them locally via /files/artifact (registered in server.ts).
     // On the workspace's blob store since POD-7054: keys under `artifacts/`,
     // today's paths on a self-hosted disk; CLI upload state in `artifact_uploads`.
+    const workspaceFiles =
+      options.files ??
+      new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
+        LOCAL_WORKSPACE_ID,
+      )
     const issueArtifacts = new IssueArtifactStore({
-      files:
-        options.files ??
-        new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
-          LOCAL_WORKSPACE_ID,
-        ),
+      files: workspaceFiles,
       uploads: store.artifactUploads,
       rpc: {
         readAsset: async (i) => await rpc.readAsset(i),
         listDir: async (i) => await rpc.listDir(i),
       },
-      pendingFence: portableStateFence,
     })
     // Files picked in a composer, held until a send or create claims them into
-    // an issue (POD-2148). A claim copies the file into the artifact store.
-    const pendingUploads = new PendingUploadStore(
-      join(stateDir(), 'pending-uploads'),
-      portableStateFence,
-    )
+    // an issue (POD-2148). On the same blob store since POD-7055: bytes under
+    // `pending-uploads/`, records in `pending_uploads`; a claim copies the file
+    // into the artifact store.
+    const pendingUploads = new PendingUploadStore({
+      files: workspaceFiles,
+      records: store.pendingUploads,
+    })
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it

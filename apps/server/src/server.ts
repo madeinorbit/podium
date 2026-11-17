@@ -130,7 +130,10 @@ import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { memberLinks } from './member-links'
 import { registerMemberRoutes } from './member-routes'
-import { convertArtifactKeys } from './migrations/artifact-key-conversion'
+import {
+  convertArtifactKeys,
+  convertPendingUploadRecords,
+} from './migrations/artifact-key-conversion'
 import { convertLakeToParts } from './migrations/lake-parts-conversion'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
@@ -724,6 +727,13 @@ export async function startServer(
   // their encoded keys, once, before anything serves them (POD-7054).
   if (!recoveryOnly && fileStorage.backend === 'local') {
     await convertArtifactKeys({ stateDir: stateDir(), log, fence: portableStateFence })
+    // Composer uploads kept their records in meta.json files; those become rows (POD-7055).
+    await convertPendingUploadRecords({
+      stateDir: stateDir(),
+      records: store.pendingUploads,
+      log,
+      fence: portableStateFence,
+    })
   }
   const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   // A lake mirrored before the parted lake kept one file per segment incarnation;

@@ -391,7 +391,7 @@ describe('workspace table manifest', () => {
    * (design 2.2 and 2.3): the primary key and every index lead with workspace_id, so the keys
    * migration (POD-7024) has nothing to rebuild in them.
    */
-  const BORN_WORKSPACE_KEYED = ['artifact_uploads'] as const
+  const BORN_WORKSPACE_KEYED = ['artifact_uploads', 'pending_uploads'] as const
 
   it('leads every key of a table created after the column migration with workspace_id', () => {
     const offending: string[] = []

@@ -1,14 +1,11 @@
-import { randomBytes, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 import {
   BlobConditionFailed,
   type BlobKey,
+  BlobNotFound,
   type BlobStore,
-  decodeKeySegment,
   joinKey,
   keySegment,
-  type PortableStateWriteFence,
   padNumber,
   parsePadded,
 } from '@podium/blob-store'
@@ -54,7 +51,7 @@ import type { ArtifactUploadsRepository } from '../../store/artifact-uploads'
  * day-old sweep: nothing is published half.
  *
  * Writes are fenced by the local adapter itself during a server transfer
- * (design 2.8); this store does not call the fence for blob writes.
+ * (design 2.8); this store does not call the fence.
  */
 
 /** Per-round-trip pull size — must stay under the daemon's MAX_ASSET_BYTES slice clamp. */
@@ -180,12 +177,6 @@ export interface IssueArtifactStoreOptions {
   /** This workspace's `artifact_uploads` rows. */
   uploads: ArtifactUploadState
   rpc: ArtifactRpc
-  /**
-   * Fences the composer-upload directory writes that stay on local disk until
-   * pending uploads move onto the blob store (POD-7055). Blob writes are fenced
-   * by the local adapter.
-   */
-  pendingFence?: PortableStateWriteFence
   now?: () => number
 }
 
@@ -251,15 +242,6 @@ function storableMemberKey(issueId: IssueId, artifactId: ArtifactId, relPath: st
   } catch {
     throw new Error(`artifact member ${relPath} has a name too long to store`)
   }
-}
-
-/** The member path a key under an artifact's prefix stands for. */
-function memberPath(prefix: BlobKey, key: BlobKey): string {
-  return key
-    .slice(prefix.length + 1)
-    .split('/')
-    .map(decodeKeySegment)
-    .join('/')
 }
 
 function uploadsPrefix(issueId: IssueId): BlobKey {
@@ -334,14 +316,12 @@ export class IssueArtifactStore {
   private readonly files: BlobStore
   private readonly uploads: ArtifactUploadState
   private readonly rpc: ArtifactRpc
-  private readonly pendingFence: PortableStateWriteFence | undefined
   private readonly now: () => number
 
   constructor(options: IssueArtifactStoreOptions) {
     this.files = options.files
     this.uploads = options.uploads
     this.rpc = options.rpc
-    this.pendingFence = options.pendingFence
     this.now = options.now ?? Date.now
   }
 
@@ -674,30 +654,31 @@ export class IssueArtifactStore {
 
   /**
    * Take a pending chat upload's file as this artifact's member (POD-2148): its
-   * bytes are copied to the artifact key, then the pending dir is removed
-   * (design 2.5, copy then delete). Idempotent per `artifactId` — a retried
-   * claim whose copy already happened finds the artifact in place.
+   * bytes are copied from `from`, the upload's key, to the artifact key, then
+   * the source is deleted (design 2.5, copy then delete). Idempotent per
+   * `artifactId`: a retried claim whose copy already happened finds the
+   * artifact in place and only deletes what is left of the source.
    */
   async adopt(o: {
     issueId: IssueId
     artifactId: ArtifactId
-    fromDir: string
+    from: BlobKey
     entry: string
   }): Promise<ArtifactSnapshot> {
     const key = storableMemberKey(o.issueId, o.artifactId, o.entry)
     let size = (await this.files.head(key))?.size
     if (size === undefined) {
-      const bytes = await readFile(join(o.fromDir, o.entry)).catch(async (error: unknown) => {
+      try {
+        await this.files.copy(o.from, key)
+      } catch (error) {
         // A concurrent claim of the same upload copied it and removed the source.
-        if ((await this.files.head(key)) === undefined) throw error
-        return undefined
-      })
-      size =
-        bytes === undefined
-          ? ((await this.files.head(key))?.size ?? 0)
-          : (await this.files.put(key, bytes, { contentType: artifactContentType(o.entry) })).size
+        if (!(error instanceof BlobNotFound) || (await this.files.head(key)) === undefined) {
+          throw error
+        }
+      }
+      size = (await this.files.head(key))?.size ?? 0
     }
-    await this.fenced(async () => await rm(o.fromDir, { recursive: true, force: true }))
+    await this.files.delete(o.from)
     return {
       artifactId: o.artifactId,
       entry: o.entry,
@@ -706,34 +687,20 @@ export class IssueArtifactStore {
     }
   }
 
-  /** Copy an artifact out to `toDir` and delete it (the reverse of
-   *  {@link adopt}): a chat upload whose task failed to launch returns to
-   *  pending (POD-2148). Nothing to move, or a target already in place, is left
-   *  as it is. */
-  async relinquish(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void> {
+  /** Copy a chat upload's artifact back to `to`, its pending key, and delete the
+   *  artifact (the reverse of {@link adopt}): a chat upload whose task failed to
+   *  launch returns to pending (POD-2148). Nothing to move is left as it is; a
+   *  source already back in place (a crash after the copy) is kept, and only the
+   *  artifact goes. */
+  async relinquish(o: { issueId: IssueId; artifactId: ArtifactId; to: BlobKey }): Promise<void> {
     const prefix = artifactPrefix(o.issueId, o.artifactId)
     const keys = await this.keysUnder(prefix)
     if (keys.length === 0) return
-    if (await stat(o.toDir).catch(() => undefined)) return
-    await this.fenced(async () => {
-      // Written beside the target and renamed into place, so a crash never
-      // leaves a partial pending dir that a later relinquish would take as done.
-      const staging = `${o.toDir}.relinquish-${randomUUID()}`
-      try {
-        for (const key of keys) {
-          const stored = await this.files.get(key)
-          if (!stored) throw new Error(`artifact member ${key} vanished while moving it`)
-          const target = join(staging, ...memberPath(prefix, key).split('/'))
-          await mkdir(dirname(target), { recursive: true })
-          await writeFile(target, await bytesOf(stored.body))
-        }
-        await mkdir(dirname(o.toDir), { recursive: true })
-        await rename(staging, o.toDir)
-      } catch (error) {
-        await rm(staging, { recursive: true, force: true }).catch(() => {})
-        throw error
-      }
-    })
+    const [member] = keys
+    if (keys.length !== 1 || member === undefined) {
+      throw new Error(`artifact ${o.artifactId} holds ${keys.length} files, not one chat upload`)
+    }
+    if ((await this.files.head(o.to)) === undefined) await this.files.copy(member, o.to)
     await this.deletePrefix(prefix)
   }
 
@@ -875,9 +842,5 @@ export class IssueArtifactStore {
   /** List, then delete: a listing is never walked while it is being deleted. */
   private async deletePrefix(prefix: BlobKey): Promise<void> {
     for (const key of await this.keysUnder(prefix)) await this.files.delete(key)
-  }
-
-  private async fenced<T>(writer: () => Promise<T>): Promise<T> {
-    return this.pendingFence ? await this.pendingFence.runWriter(writer) : await writer()
   }
 }

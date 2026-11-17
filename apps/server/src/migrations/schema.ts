@@ -107,6 +107,7 @@ export {
 
 import type {
   AccountId,
+  ArtifactId,
   AutomationId,
   AutomationRunId,
   ConversationId,
@@ -3781,5 +3782,43 @@ export const artifactUploads = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.issueId, t.uploadId], name: 'artifact_uploads_pk' }),
     index('idx_artifact_uploads_created').on(t.workspaceId, t.createdAt),
+  ],
+)
+/**
+ * A file picked in a chat or new-task composer, held until a send or a create
+ * claims it (POD-2148; POD-6963 design 2.5, POD-7055). The bytes are one object
+ * in the workspace's blob store at `pending-uploads/<id>/file/<entry>`; this row
+ * is what a `meta.json` beside them held before. A claim records its issue and
+ * artifact here before the bytes are copied into the artifact, so a claim
+ * retried after a crash copies to the same artifact key, and a second issue is
+ * refused. The day-old sweep deletes the row and whatever source is left.
+ */
+export const pendingUploads = sqliteTable(
+  'pending_uploads',
+  {
+    /** A server-minted UUID; it names the blob key and the staged file on the agent's machine. */
+    id: text().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    /** The name the person's file had. */
+    filename: text().notNull(),
+    /** The stored file's name: `filename` when that is a plain name. */
+    entry: text().notNull(),
+    mediaType: text('media_type').notNull(),
+    size: integer().notNull(),
+    /** Epoch ms; the day-old sweep reads it. */
+    createdAt: integer('created_at').notNull(),
+    /** The issue a claim moved the file into; both claim columns are set together. */
+    claimedIssueId: text('claimed_issue_id').$type<IssueId>(),
+    claimedArtifactId: text('claimed_artifact_id').$type<ArtifactId>(),
+    ...workspaceColumn(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.id], name: 'pending_uploads_pk' }),
+    index('idx_pending_uploads_created').on(t.workspaceId, t.createdAt),
+    index('idx_pending_uploads_claimed').on(t.workspaceId, t.claimedIssueId),
+    check(
+      'pending_uploads_claim_pair',
+      sql`(claimed_issue_id IS NULL) = (claimed_artifact_id IS NULL)`,
+    ),
   ],
 )

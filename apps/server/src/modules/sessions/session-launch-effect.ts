@@ -31,8 +31,6 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import {
   type DraftIssueArtifactInput,
   draftIssueArtifactInput,
@@ -514,13 +512,13 @@ async function heldDraftArtifacts(
   for (const { id, uploadId } of held) {
     const meta = await store.meta(uploadId)
     if (!meta || meta.ownerUserId !== ownerUserId || meta.claimed) return null
-    const bytes = await readFile(join(store.fileDir(uploadId), meta.entry)).catch(() => undefined)
+    const bytes = await store.bytes(meta)
     if (bytes === undefined) return null
     out.push({
       id,
       filename: meta.filename,
       mimeType: meta.mediaType,
-      dataBase64: bytes.toString('base64'),
+      dataBase64: Buffer.from(bytes).toString('base64'),
     })
   }
   return out

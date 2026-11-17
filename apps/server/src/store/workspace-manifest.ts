@@ -187,6 +187,10 @@ export const TABLE_MANIFEST = {
     'long-running operations a member starts on workspace machines; self-hosted server updates run as the one workspace local',
   ),
   pending_interactions: workspace('random', 'prompts of workspace sessions'),
+  pending_uploads: workspace(
+    'random',
+    "a file picked in a member's composer, held until a send or create claims it into an issue (POD-7055); the server mints the id, and the bytes are one object in the workspace's blob store",
+  ),
   pins: workspace('natural', "a member's pins"),
   podium_events: workspace(
     'autoinc',

@@ -27,6 +27,9 @@
 import { lstat, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isKeySegment, keySegment, type PortableStateWriteFence } from '@podium/blob-store'
+import { asArtifactId, asIssueId, type UserId } from '@podium/model'
+import { plainFilename } from '../modules/issues/pending-uploads'
+import type { PendingUploadRow } from '../store/pending-uploads'
 
 /** The marker a finished conversion writes; its presence skips the walk. */
 export const ARTIFACT_KEY_CONVERSION_MARKER = 'artifact-key-conversion.done'
@@ -183,6 +186,146 @@ export async function convertArtifactKeys(options: {
       legacyUploadsRemoved: result.legacyUploadsRemoved,
       unencodable: result.unencodable.length,
       conflicts: result.conflicts.length,
+    })
+  }
+  return result
+}
+
+/** The marker a finished pending-upload conversion writes; its presence skips the walk. */
+export const PENDING_UPLOAD_RECORDS_MARKER = 'pending-upload-records.done'
+
+const UPLOAD_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** What the conversion writes a row from (`PendingUploadsRepository.insert`, structurally). */
+export interface PendingUploadRecordSink {
+  insert(row: PendingUploadRow): Promise<boolean>
+}
+
+export interface PendingUploadRecordsResult {
+  /** False when the marker said the conversion had already run. */
+  ran: boolean
+  /** Uploads whose `meta.json` became a row. */
+  recorded: number
+  /** Upload directories removed because no readable record names them. */
+  removed: number
+}
+
+/** A `meta.json` the pre-blob-store store wrote, or undefined when it is not one. */
+function legacyMeta(id: string, text: string): PendingUploadRow | undefined {
+  let value: Record<string, unknown>
+  try {
+    value = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+  const { ownerUserId, filename, entry, mediaType, size, createdAt, claimed } = value
+  if (
+    value.id !== id ||
+    typeof ownerUserId !== 'string' ||
+    typeof filename !== 'string' ||
+    typeof entry !== 'string' ||
+    plainFilename(entry) !== entry ||
+    typeof mediaType !== 'string' ||
+    !Number.isSafeInteger(size) ||
+    !Number.isSafeInteger(createdAt)
+  ) {
+    return undefined
+  }
+  const row: PendingUploadRow = {
+    id,
+    ownerUserId: ownerUserId as UserId,
+    filename,
+    entry,
+    mediaType,
+    size: size as number,
+    createdAt: createdAt as number,
+  }
+  if (claimed === undefined) return row
+  const { issueId, artifactId } = (claimed ?? {}) as Record<string, unknown>
+  if (typeof issueId !== 'string' || typeof artifactId !== 'string') return undefined
+  return { ...row, claimed: { issueId: asIssueId(issueId), artifactId: asArtifactId(artifactId) } }
+}
+
+/**
+ * COMPOSER UPLOADS' RECORDS MOVE FROM `meta.json` TO `pending_uploads` (POD-6963 design 2.5,
+ * POD-7055).
+ *
+ * Before the blob store an upload was `<state>/pending-uploads/<id>/meta.json` beside
+ * `file/<entry>`. The bytes stay where they are (the key `pending-uploads/<id>/file/<entry>`
+ * is that path on a self-hosted disk); each `meta.json` becomes a row, claim included, and is
+ * removed. A file whose name is not a plain key segment is renamed to its encoded form first.
+ *
+ * - Re-runnable step by step: the rename, then the row (an existing row is kept), then the
+ *   removal of `meta.json`. A crash between two of them leaves what the next boot finishes.
+ * - An upload directory with no readable `meta.json` (a put that crashed before writing it), or
+ *   whose file name cannot be encoded, has no record to keep and is removed: its composer
+ *   answers "attach the file again", as it would after the day-old sweep.
+ * - The old store's own leftovers go too: `meta.json.<uuid>.tmp` and `file.relinquish-<uuid>`.
+ * - Run at boot after the store migrations, only on the local backend, with its own done marker
+ *   in the state directory.
+ */
+export async function convertPendingUploadRecords(options: {
+  stateDir: string
+  records: PendingUploadRecordSink
+  log: ArtifactKeyConversionLog
+  fence?: PortableStateWriteFence
+}): Promise<PendingUploadRecordsResult> {
+  const marker = join(options.stateDir, PENDING_UPLOAD_RECORDS_MARKER)
+  const result: PendingUploadRecordsResult = { ran: false, recorded: 0, removed: 0 }
+  if (await exists(marker)) return result
+  result.ran = true
+  const root = join(options.stateDir, 'pending-uploads')
+
+  const convertOne = async (id: string): Promise<void> => {
+    const dir = join(root, id)
+    const entries = await namesIn(dir)
+    for (const name of entries) {
+      if (name.startsWith('meta.json.') || name.startsWith('file.relinquish-')) {
+        await rm(join(dir, name), { recursive: true, force: true })
+      }
+    }
+    if (!entries.includes('meta.json')) {
+      await rm(dir, { recursive: true, force: true })
+      result.removed += 1
+      return
+    }
+    const meta = legacyMeta(id, await readFile(join(dir, 'meta.json'), 'utf8'))
+    let encoded: string | undefined
+    try {
+      encoded = meta === undefined ? undefined : keySegment(meta.entry)
+    } catch {
+      encoded = undefined
+    }
+    if (meta === undefined || encoded === undefined) {
+      options.log.warn('a composer upload has no record that can be kept; it is removed', { id })
+      await rm(dir, { recursive: true, force: true })
+      result.removed += 1
+      return
+    }
+    const source = join(dir, 'file', meta.entry)
+    if (encoded !== meta.entry && (await exists(source))) {
+      await rename(source, join(dir, 'file', encoded))
+    }
+    await options.records.insert(meta)
+    await rm(join(dir, 'meta.json'), { force: true })
+    result.recorded += 1
+  }
+
+  const run = async () => {
+    for (const name of await namesIn(root)) {
+      if (UPLOAD_DIR.test(name)) await convertOne(name)
+    }
+    await writeFile(
+      marker,
+      `${JSON.stringify({ version: 1, convertedAt: new Date().toISOString() })}\n`,
+    )
+  }
+  if (options.fence) await options.fence.runWriter(run)
+  else await run()
+  if (result.recorded > 0 || result.removed > 0) {
+    options.log.info('moved composer upload records into the database', {
+      recorded: result.recorded,
+      removed: result.removed,
     })
   }
   return result

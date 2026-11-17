@@ -117,6 +117,7 @@ import { MessagingSessionAttachmentsRepository } from './store/messaging-session
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
+import { PendingUploadsRepository } from './store/pending-uploads'
 import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
@@ -724,6 +725,8 @@ export class SessionStore {
   readonly locks: LocksRepository
   /** CLI bundle uploads in progress (POD-6963 design 2.4): their state; the bytes are blobs. */
   readonly artifactUploads: ArtifactUploadsRepository
+  /** Files picked in a composer (POD-6963 design 2.5): their records; the bytes are blobs. */
+  readonly pendingUploads: PendingUploadsRepository
   /**
    * Janitor generation fencing + deterministic command outcomes [spec:SP-c29e].
    * A workspace repository: its command ledger (`maintenance_commands`) is
@@ -834,6 +837,7 @@ export class SessionStore {
     this.agentProfiles = new AgentProfilesRepository(this.queries)
     this.locks = new LocksRepository(this.queries)
     this.artifactUploads = new ArtifactUploadsRepository(this.queries)
+    this.pendingUploads = new PendingUploadsRepository(this.queries)
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
     this.effects = new EffectsRepository(this.queries)

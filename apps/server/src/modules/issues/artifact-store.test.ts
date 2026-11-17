@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type BlobKey, type BlobStore, blobKey, LOCAL_WORKSPACE_ID } from '@podium/blob-store'
@@ -430,23 +430,41 @@ describe.each([
     it('adopts a pending chat upload by copy, and relinquishes it back', async () => {
       const store = make()
       const issueId = asIssueId('iss_chat')
-      const fromDir = join(base, 'pending-uploads', 'p1', 'file')
-      mkdirSync(fromDir, { recursive: true })
-      writeFileSync(join(fromDir, 'shot one.png'), 'PNG')
+      const from = blobKey('pending-uploads/p1/file/shot-one.png')
+      await files.put(from, Buffer.from('PNG'))
       const args = { issueId, artifactId: asArtifactId('chat1'), entry: 'shot one.png' }
-      const adopted = await store.adopt({ ...args, fromDir })
+      const adopted = await store.adopt({ ...args, from })
       expect(adopted.files).toEqual([{ path: 'shot one.png', size: 3 }])
-      expect(existsSync(fromDir)).toBe(false)
+      expect(await files.head(from)).toBeUndefined()
       // A retried claim finds the artifact in place.
-      expect((await store.adopt({ ...args, fromDir })).files).toEqual(adopted.files)
+      expect((await store.adopt({ ...args, from })).files).toEqual(adopted.files)
       expect((await store.read(issueId, args.artifactId, 'shot one.png'))?.bytes).toEqual(
         Buffer.from('PNG'),
       )
-      await store.relinquish({ ...args, toDir: fromDir })
-      expect(readFileSync(join(fromDir, 'shot one.png'), 'utf8')).toBe('PNG')
+      await store.relinquish({ ...args, to: from })
+      expect(await bytesAt(files, from)).toEqual(Buffer.from('PNG'))
       expect(await keysUnder(files, `artifacts/${issueId}`)).toEqual([])
       // Nothing to move a second time.
-      await store.relinquish({ ...args, toDir: fromDir })
+      await store.relinquish({ ...args, to: from })
+      expect(await bytesAt(files, from)).toEqual(Buffer.from('PNG'))
+    })
+
+    it('finishes a claim or a release that crashed after its copy', async () => {
+      const store = make()
+      const issueId = asIssueId('iss_chat')
+      const from = blobKey('pending-uploads/p2/file/shot.png')
+      const args = { issueId, artifactId: asArtifactId('chat2'), entry: 'shot.png' }
+      const member = blobKey(`artifacts/${issueId}/chat2/shot.png`)
+      // The claim copied, then crashed before deleting the source.
+      await files.put(from, Buffer.from('PNG'))
+      await files.copy(from, member)
+      expect((await store.adopt({ ...args, from })).files).toEqual([{ path: 'shot.png', size: 3 }])
+      expect(await files.head(from)).toBeUndefined()
+      // The release copied back, then crashed before deleting the artifact.
+      await files.copy(member, from)
+      await store.relinquish({ ...args, to: from })
+      expect(await bytesAt(files, from)).toEqual(Buffer.from('PNG'))
+      expect(await keysUnder(files, `artifacts/${issueId}`)).toEqual([])
     })
   })
 
