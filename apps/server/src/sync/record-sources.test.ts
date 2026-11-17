@@ -45,6 +45,7 @@ import type { StoreDrizzle } from '../store/executor/sync-drizzle'
 import type { MessageRow } from '../store/types'
 import { attachHostDaemon } from '../test-support/host-daemon'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
@@ -489,6 +490,15 @@ async function withSources<T>(
 // The tests
 // ---------------------------------------------------------------------------
 
+/**
+ * A case that probes SQLite's capture TRIGGERS: it writes below the repositories with raw
+ * SQL (and reads `sqlite_master`), which a trigger catches. On Postgres there are no
+ * triggers by design, so a raw statement captures nothing; the Postgres capture forms are
+ * proved against SQLite's triggers and the oracle by `capture-pg.test.ts` (POD-6982), and
+ * the declarations cases below run on both engines (POD-6994).
+ */
+const onSqliteTriggers = it.runIf(testStoreEngine() !== 'pg')
+
 describe('record sources (POD-6920)', () => {
   let corpus: Corpus
   beforeAll(async () => {
@@ -550,37 +560,47 @@ describe('record sources (POD-6920)', () => {
     expect(await undeclaredTableReads(corpus, RECORD_SOURCES)).toEqual([])
   })
 
-  it('every change to a row a record reads is captured for that record', async () => {
-    const { missed, tried, unread } = await missedChanges(corpus, RECORD_SOURCES)
-    // Over-declaration costs redundant log rows, not lost changes: reported,
-    // not failed. A row the corpus holds may simply not move the record's
-    // value for this perturbation.
-    console.log('record-sources: captured without a record change', JSON.stringify(unread, null, 1))
-    expect(tried).toBeGreaterThan(100)
-    expect(missed).toEqual([])
-  }, 300_000)
+  onSqliteTriggers(
+    'every change to a row a record reads is captured for that record',
+    async () => {
+      const { missed, tried, unread } = await missedChanges(corpus, RECORD_SOURCES)
+      // Over-declaration costs redundant log rows, not lost changes: reported,
+      // not failed. A row the corpus holds may simply not move the record's
+      // value for this perturbation.
+      console.log(
+        'record-sources: captured without a record change',
+        JSON.stringify(unread, null, 1),
+      )
+      expect(tried).toBeGreaterThan(100)
+      expect(missed).toEqual([])
+    },
+    300_000,
+  )
 
-  it('refuses a write of a synced row that no commit drains, and keeps nothing of it', async () => {
-    const { store } = corpus
-    const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
-    const before = (await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)) as {
-      title: string
-    }[]
-    await expect(
-      store.transact(async () => {
-        await db.run(
-          sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`,
-        )
-      }),
-    ).rejects.toThrow(/outside a change-log commit/)
-    await expect(
-      db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`),
-    ).rejects.toThrow()
-    expect(await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)).toEqual(before)
-    expect(await db.all(sql`SELECT id FROM sync_capture`)).toEqual([])
-  })
+  onSqliteTriggers(
+    'refuses a write of a synced row that no commit drains, and keeps nothing of it',
+    async () => {
+      const { store } = corpus
+      const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+      const before = (await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)) as {
+        title: string
+      }[]
+      await expect(
+        store.transact(async () => {
+          await db.run(
+            sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`,
+          )
+        }),
+      ).rejects.toThrow(/outside a change-log commit/)
+      await expect(
+        db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`),
+      ).rejects.toThrow()
+      expect(await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)).toEqual(before)
+      expect(await db.all(sql`SELECT id FROM sync_capture`)).toEqual([])
+    },
+  )
 
-  it('a write that leaves every column as it was captures nothing', async () => {
+  onSqliteTriggers('a write that leaves every column as it was captures nothing', async () => {
     const { store } = corpus
     const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
     const captured: string[] = []
@@ -613,16 +633,20 @@ describe('record sources (POD-6920)', () => {
     expect(captured).toEqual([])
   })
 
-  it('fails both checks when a kind loses a declaration', async () => {
-    // issueDep without its own table: its builder reads `issue_deps`, and a
-    // change to an edge is captured for no record.
-    const without: RecordSources = { ...RECORD_SOURCES, issueDep: [] }
-    expect(await undeclaredTableReads(corpus, without)).toContain('issueDep reads issue_deps')
-    const { missed } = await withSources(
-      corpus.store,
-      without,
-      async () => await missedChanges(corpus, without, ['issue_deps']),
-    )
-    expect(missed.some((line) => line.includes('-> issueDep/'))).toBe(true)
-  }, 120_000)
+  onSqliteTriggers(
+    'fails both checks when a kind loses a declaration',
+    async () => {
+      // issueDep without its own table: its builder reads `issue_deps`, and a
+      // change to an edge is captured for no record.
+      const without: RecordSources = { ...RECORD_SOURCES, issueDep: [] }
+      expect(await undeclaredTableReads(corpus, without)).toContain('issueDep reads issue_deps')
+      const { missed } = await withSources(
+        corpus.store,
+        without,
+        async () => await missedChanges(corpus, without, ['issue_deps']),
+      )
+      expect(missed.some((line) => line.includes('-> issueDep/'))).toBe(true)
+    },
+    120_000,
+  )
 })

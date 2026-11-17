@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  PG_LEG_SELECTION_ENV,
   postgresLegFiles,
   readTestStoreEngines,
   storeShardFiles,
@@ -38,6 +39,13 @@ describe('test-store-engines.json', () => {
       expect(Object.keys(engines.sqliteOnly)).not.toContain(file)
     }
     for (const file of Object.keys(engines.beyondStoreShard)) expect(leg).toContain(file)
+  })
+
+  it('runs only the pending files when asked to', () => {
+    const engines = readTestStoreEngines()
+    expect(
+      postgresLegFiles(repositoryRoot, engines, { [PG_LEG_SELECTION_ENV]: 'pending' }),
+    ).toEqual([...engines.pending])
   })
 
   it('reports a stale entry, a missing reason and a file in both lists', () => {

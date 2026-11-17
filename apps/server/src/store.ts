@@ -220,6 +220,36 @@ export type StoreDatabaseOptions = SnapshotVerifierDeps & {
 }
 
 /**
+ * A workspace's store was opened before the workspace was provisioned: it has no
+ * `sync_feed` row, which a Postgres store locks at every write of the workspace
+ * (POD-6959 contract C4), so the store's first boot step was refused. Provisioning
+ * creates the row (`StoreDatabase.provisionWorkspace`) and, on hosted, the workspace's
+ * first rows (its first member among them; POD-6964, POD-6965).
+ */
+export class WorkspaceNotProvisionedError extends Error {
+  constructor(
+    readonly workspaceId: WorkspaceId,
+    cause: unknown,
+  ) {
+    super(
+      `workspace ${workspaceId} is not provisioned: it has no sync_feed row. Provision it ` +
+        '(StoreDatabase.provisionWorkspace) before opening its store.',
+      { cause },
+    )
+    this.name = 'WorkspaceNotProvisionedError'
+  }
+}
+
+/** Whether `error` (or an error it wraps) is the driver's refusal of a missing feed row. */
+function causedByMissingFeedRow(error: unknown): boolean {
+  for (let at: unknown = error, depth = 0; at instanceof Error && depth < 8; depth++) {
+    if (at.name === 'WorkspaceFeedRowMissingError') return true
+    at = at.cause
+  }
+  return false
+}
+
+/**
  * ONE DATABASE [POD-6959 design 2.4, "The store splits in two"].
  *
  * Owns what there is one of per database: the executor, the migrations and the
@@ -449,8 +479,16 @@ export class StoreDatabase {
     if (open !== undefined) return await open
     const opening = (async () => {
       const store = new SessionStore(this, workspaceId)
-      await store.refuseAndRepair()
-      await store.seed()
+      try {
+        await store.refuseAndRepair()
+        await store.seed()
+      } catch (error) {
+        // A workspace nobody provisioned has no feed row, and a Postgres store refuses
+        // its first transaction there (contract C4). Say that, not the statement it hit.
+        if (causedByMissingFeedRow(error))
+          throw new WorkspaceNotProvisionedError(workspaceId, error)
+        throw error
+      }
       return store
     })()
     this.workspaces.set(workspaceId, opening)

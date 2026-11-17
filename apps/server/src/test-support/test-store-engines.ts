@@ -64,13 +64,21 @@ export function postgresAuditFiles(repositoryRoot: string): string[] {
 }
 
 /**
+ * Set to `pending` to run only the pending files on the Postgres leg [POD-6994]: what a
+ * task converting files runs to see which of them pass now (and leave the list).
+ */
+export const PG_LEG_SELECTION_ENV = 'PODIUM_TEST_STORE_PG_LEG'
+
+/**
  * The files the Postgres leg runs: the store shard minus both lists, the Postgres audits,
  * and `beyondStoreShard`.
  */
 export function postgresLegFiles(
   repositoryRoot: string,
   engines: TestStoreEngines = readTestStoreEngines(),
+  env: Record<string, string | undefined> = process.env,
 ): string[] {
+  if (env[PG_LEG_SELECTION_ENV] === 'pending') return [...engines.pending]
   const excluded = new Set([...Object.keys(engines.sqliteOnly), ...engines.pending])
   return [
     ...storeShardFiles(repositoryRoot).filter((file) => !excluded.has(file)),

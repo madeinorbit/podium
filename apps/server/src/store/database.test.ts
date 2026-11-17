@@ -11,8 +11,9 @@ import { existsSync } from 'node:fs'
 import { asMachineId, asWorkspaceId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { type SessionStore, StoreDatabase } from '../store'
+import { type SessionStore, StoreDatabase, WorkspaceNotProvisionedError } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import {
   CrossWorkspaceTransactionError,
@@ -175,3 +176,17 @@ describe('StoreDatabase.open on a Postgres URL [POD-6979, POD-6994]', () => {
     expect(existsSync('postgres:')).toBe(false)
   })
 })
+
+describe.runIf(testStoreEngine() === 'pg')(
+  'a workspace nobody provisioned, on Postgres [POD-6994]',
+  () => {
+    it('refuses its store with a message that names the workspace and what is missing', async () => {
+      const [a] = await twoWorkspaces()
+      const opening = a.database.workspace(asWorkspaceId('ws_never_provisioned'))
+      await expect(opening).rejects.toBeInstanceOf(WorkspaceNotProvisionedError)
+      await expect(opening).rejects.toThrow(
+        /workspace ws_never_provisioned is not provisioned: it has no sync_feed row/,
+      )
+    })
+  },
+)
