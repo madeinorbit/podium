@@ -18,15 +18,18 @@
  * added rather than defaulting to whatever the last person assumed.
  *
  * How the lists were drawn (2026-11-17, at integrate/6951-cloud-hosting 1f3730e269):
- *  - `timestamp`: the 153 `text('…_at')` columns. On a real database every value they
- *    hold is exact `toISOString()` form (counts in `schema-overrides.ts`).
+ *  - `timestamp`: the `text('…_at')` columns. On a real database every value the 153 of
+ *    them that existed there hold is exact `toISOString()` form (counts in
+ *    `schema-overrides.ts`); `workspace_secrets.updated_at` came later (POD-7013) and is
+ *    filled from `server_secrets.updated_at`, which was counted.
  *  - `json`: the six `mode: 'json'` columns, the `…_json` columns, and the columns
  *    whose every stored value on that database is a JSON object or array and whose
  *    writer is `JSON.stringify` (issues.blocked_by, offers.actions, …), including the
  *    shipping documents, which have no rows there yet but are written and read only as
  *    JSON. A column holding JSON in some rows and plain text in others (meta.value,
- *    user_layout.value, applied_mutations.result, superagent_messages.content) is
- *    `text`: `json` would refuse the plain values.
+ *    user_layout.value, applied_mutations.result, superagent_messages.content, and so
+ *    workspace_meta.value, which is filled from meta.value) is `text`: `json` would refuse
+ *    the plain values.
  *  - `text`: the rest.
  *
  * Misfiling a JSON column as `text` costs only validation; misfiling a text column as
@@ -488,6 +491,13 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   workflows: {
     timestamp: 'archived_at created_at updated_at',
     text: 'id name description scope scope_ref latest_revision_id created_by_kind created_by_id owner_user_id workspace_id',
+  },
+  workspace_meta: {
+    text: 'workspace_id key value',
+  },
+  workspace_secrets: {
+    timestamp: 'updated_at',
+    text: 'workspace_id key value',
   },
   applied_mutations: {
     text: 'mutation_id proc result workspace_id',

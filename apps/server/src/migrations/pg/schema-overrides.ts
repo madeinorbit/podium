@@ -29,6 +29,9 @@
  * | `''` (the "before every row" sentinel)       | 0       |
  * | `'￿'` (the "after every row" sentinel)  | 0       |
  *
+ * `workspace_secrets.updated_at` (POD-7013) was added after that backup; its migration
+ * fills it from `server_secrets.updated_at`, one of the 153 counted.
+ *
  * So no timestamp column stays text ({@link PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT} is
  * empty), and every one is `timestamptz(3)`. The hosted import (POD-6964) still
  * normalises what it copies, and the two-engine suite's strict timestamp mode finds a

@@ -3785,3 +3785,30 @@ export const workflows = pgTable(
     check('workflows_check_22', sql`created_by_kind IN ('operator', 'session')`),
   ],
 )
+
+export const workspaceMeta = pgTable(
+  'workspace_meta',
+  {
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'workspaceMeta'>['workspaceId']>(),
+    key: textC('key').notNull().$type<SqliteRow<'workspaceMeta'>['key']>(),
+    value: textC('value').notNull().$type<SqliteRow<'workspaceMeta'>['value']>(),
+  },
+  (table) => [primaryKey({ name: 'workspace_meta_pk', columns: [table.workspaceId, table.key] })],
+)
+
+export const workspaceSecrets = pgTable(
+  'workspace_secrets',
+  {
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'workspaceSecrets'>['workspaceId']>(),
+    key: textC('key').notNull().$type<SqliteRow<'workspaceSecrets'>['key']>(),
+    value: textC('value').notNull().$type<SqliteRow<'workspaceSecrets'>['value']>(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'workspaceSecrets'>['updatedAt']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'workspace_secrets_pk', columns: [table.workspaceId, table.key] }),
+  ],
+)
