@@ -85,6 +85,9 @@ function vaultEraSnapshot(path: string): void {
     )
     secret.run('identity.signingSecret', 'not-an-old-key-kept-as-is')
     db.prepare("INSERT INTO meta VALUES ('settings', '{}')").run()
+    // A snapshot is copied after a truncating checkpoint (`backupDatabase`), so its
+    // WAL is empty; bun:sqlite's close does not fold it in by itself.
+    db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
   })
 }
 
