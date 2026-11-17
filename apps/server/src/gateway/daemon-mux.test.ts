@@ -4,14 +4,14 @@
  * names the mux and not a feature.
  */
 
-import { asMachineId, asSessionId, asUserId, asAgentIdentityId } from '@podium/model'
+import { asAgentIdentityId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   AGENT_RELAY_FRAMES,
   attributionOf,
   DAEMON_PLANE_CLASS,
+  type DaemonPtyOutputBatch,
   edgeOf,
   HOST_EDGE_FRAMES,
-  type DaemonPtyOutputBatch,
   type MachinePrincipal,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -481,10 +481,19 @@ describe('retired daemon attribution ingress', () => {
   })
 })
 
-
 it('records readiness against the authenticated reporting machine', () => {
   const { ports, calls } = fakePorts()
-  const daemonReadiness = { state: 'recovering' as const, reason: 'retrying handshake', quarantinedBindings: 2 }
-  muxWith(ports).routeDaemonFrame(PRINCIPAL, { ...sampleFrame('hostMetrics'), daemonReadiness } as DaemonMessage)
-  expect(calls.find((call) => call.method === 'recordDaemonReadiness')?.args).toEqual([PRINCIPAL.machine, daemonReadiness])
+  const daemonReadiness = {
+    state: 'recovering' as const,
+    reason: 'retrying handshake',
+    quarantinedBindings: 2,
+  }
+  muxWith(ports).routeDaemonFrame(PRINCIPAL, {
+    ...sampleFrame('hostMetrics'),
+    daemonReadiness,
+  } as DaemonMessage)
+  expect(calls.find((call) => call.method === 'recordDaemonReadiness')?.args).toEqual([
+    PRINCIPAL.machine,
+    daemonReadiness,
+  ])
 })
