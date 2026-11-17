@@ -21,56 +21,38 @@
  *   - the written-columns hint stays per repository, so a write in A forgets nothing in B.
  */
 
-import {
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  asUserId,
-  type IssueId,
-  type SessionId,
-  type UserId,
-} from '@podium/model'
-import { fixtureWriteScope } from '@podium/sync/testing'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import {
+  ALICE,
+  AT,
+  AT_OF,
+  aliceOrder,
+  BOB,
+  heldBy,
+  iss,
+  LATER,
+  LATER_OF,
+  MACHINE,
+  only,
+  other,
+  owner,
+  ROOT,
+  rawDb,
+  rowsOf,
+  scope,
+  seed,
+  session,
+  shell,
+  sid,
+  TABLES,
+  TAGS,
+  type Tag,
+  WS,
+} from '../test-support/workspace-seeds/sessions'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import type { SessionRow } from './types'
-
-type Tag = 'a' | 'b'
-const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
-const TAGS = ['a', 'b'] as const
-const other = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
-/** Each workspace's own timestamp and snooze end: content, not keys. */
-const AT_OF: Record<Tag, string> = { a: '2026-11-17T10:00:00.000Z', b: '2026-11-17T11:00:00.000Z' }
-const LATER_OF: Record<Tag, string> = {
-  a: '2099-01-01T00:00:00.000Z',
-  b: '2099-02-01T00:00:00.000Z',
-}
-const AT = AT_OF.a
-const LATER = LATER_OF.a
-const scope = fixtureWriteScope()
-
-// The same ids in both workspaces.
-const user = (name = 'alice'): UserId => asUserId(`user:${name}`)
-const ALICE = user()
-const BOB = user('bob')
-const sid = (n: number): SessionId => asSessionId(`s${n}`)
-const iss = (n: number): IssueId => asIssueId(`iss-${n}`)
-const MACHINE = asMachineId('machine-1')
-const ROOT = '/repo'
-/** The sessions' owner: the same people in both, a different owner per workspace. */
-const owner = (tag: Tag): UserId => (tag === 'a' ? ALICE : BOB)
-/** Alice's and Bob's dock shells: the same worktrees, a different shell per workspace. */
-const shell = (tag: Tag, who: 'alice' | 'bob'): SessionId =>
-  who === 'alice' ? sid(tag === 'a' ? 1 : 3) : sid(tag === 'a' ? 2 : 5)
-/** Alice's tab order: the same sessions, a different order per workspace. */
-const aliceOrder = (tag: Tag): SessionId[] => (tag === 'a' ? [sid(2), sid(1)] : [sid(1), sid(2)])
-
-// The ids only one workspace holds.
-/** A session only `tag`'s workspace holds. */
-const only = (tag: Tag): SessionId => asSessionId(`only-${tag}`)
-/** An issue only `tag`'s workspace holds, which the OTHER workspace's s5 names. */
-const heldBy = (tag: Tag): IssueId => asIssueId(`held-by-${tag}`)
 
 let opened: SessionStore | undefined
 
@@ -78,197 +60,6 @@ afterEach(async () => {
   await opened?.close()
   opened = undefined
 })
-
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    run(...params: unknown[]): unknown
-  }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
-/** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
-const TABLES = [
-  'sessions',
-  'pins',
-  'snoozes',
-  'session_user_state',
-  'offers',
-  'tab_order',
-  'session_drafts',
-  'runtime_event_checkpoints',
-  'user_layout',
-  'user_dock_shell',
-  'user_preferences',
-  'user_read_position',
-  'issues',
-] as const
-
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
-}
-
-function session(tag: Tag, n: number, patch: Partial<SessionRow> = {}): SessionRow {
-  return {
-    id: sid(n),
-    ownerUserId: owner(tag),
-    agentKind: 'codex',
-    cwd: `${ROOT}/w${n}`,
-    title: `${tag} session ${n}`,
-    name: null,
-    nameSource: null,
-    originKind: 'spawn',
-    conversationId: null,
-    resumeKind: 'codex',
-    resumeValue: `resume-${n}`,
-    status: 'live',
-    exitCode: null,
-    spawnFailure: null,
-    durableLabel: `podium-${n}`,
-    createdAt: `2026-11-0${n}T00:00:00.000Z`,
-    lastActiveAt: `2026-11-0${n}T00:00:00.000Z`,
-    geometry: { cols: 120, rows: 40 },
-    archived: false,
-    workState: null,
-    machineId: MACHINE,
-    lastOutputAt: null,
-    lastInputAt: null,
-    lastResumedAt: null,
-    spawnedBy: 'parent',
-    headless: false,
-    issueId: null,
-    refIssueId: null,
-    refLetter: null,
-    refDraft: null,
-    stoppedAt: null,
-    stopReason: null,
-    workflowRunId: null,
-    workflowStepId: null,
-    agentProfileId: null,
-    deletedAt: null,
-    deletionSource: null,
-    deletedByIssueId: null,
-    ...patch,
-  }
-}
-
-/** An issue row, raw: the issues repository is another task's (B2). */
-function insertIssue(store: SessionStore, tag: Tag, id: IssueId, seq: number): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq, title,
-         stage, default_agent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'codex', ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      id,
-      owner(tag),
-      owner(tag),
-      ROOT,
-      'repo-1',
-      seq,
-      `${tag} issue ${seq}`,
-      AT_OF[tag],
-      AT_OF[tag],
-    )
-}
-
-/**
- * One workspace's rows, written through its own repositories. Sessions, the same ids in both:
- *   s1 live, ref-less, on the machine;     s2 live, born on issue 1 (letter A), bound to it;
- *   s3 headless, draft ref 7, child of s1; s4 tombstoned by issue 2 (bound to it);
- *   s5 live, ref-less, bound to an issue only the OTHER workspace holds.
- * And `only-<tag>`, live and ref-less, which only this workspace holds: Alice pinned and read
- * it, Bob snoozed it.
- */
-async function seed(store: SessionStore, tag: Tag): Promise<void> {
-  const at = AT_OF[tag]
-  insertIssue(store, tag, iss(1), 1)
-  insertIssue(store, tag, iss(2), 2)
-  insertIssue(store, tag, heldBy(tag), 9)
-  await store.sessions.upsertSessions(scope, [
-    session(tag, 1),
-    session(tag, 2, { refIssueId: iss(1), refLetter: 'A', issueId: iss(1) }),
-    session(tag, 3, { headless: true, refDraft: 7, spawnedBy: sid(1), status: 'hibernated' }),
-    session(tag, 4, { issueId: iss(2) }),
-    session(tag, 8, { id: only(tag), resumeValue: `resume-only-${tag}` }),
-  ])
-  await store.sessions.upsertSession(
-    scope,
-    session(tag, 5, {
-      issueId: heldBy(other(tag)),
-      lifecycle: {
-        desired: 'stopped',
-        force: false,
-        revision: 2,
-        observedRevision: 1,
-        failure: null,
-        byUser: owner(tag),
-        byAgent: null,
-      },
-    }),
-  )
-  await store.sessions.softDeleteForIssue(scope, [sid(4)], iss(2), at)
-
-  await store.sessions.addPin(ALICE, 'panel', sid(1), at)
-  await store.sessions.addPin(ALICE, 'panel', only(tag), at)
-  await store.sessions.addPin(BOB, 'issue', iss(1), at)
-  await store.sessions.markSessionRead(scope, ALICE, sid(1), at)
-  await store.sessions.markSessionRead(scope, ALICE, only(tag), at)
-  await store.sessions.markSessionRead(scope, BOB, sid(1), at)
-  await store.sessions.setSnooze(scope, ALICE, sid(2), LATER_OF[tag])
-  await store.sessions.setSnooze(scope, BOB, sid(1), null)
-  await store.sessions.setSnooze(scope, BOB, only(tag), null)
-  await store.sessions.setOffer(scope, sid(1), {
-    message: `${tag} offer`,
-    actions: [{ label: 'Go', prompt: 'go' }],
-    createdAt: at,
-  })
-  await store.sessions.setTabOrder(ALICE, ROOT, aliceOrder(tag))
-  await store.sessions.setTabOrder(BOB, ROOT, [sid(1)])
-  await store.sessions.setDraft(sid(1), `${tag} draft`)
-  await store.sessions.setDraftDoc(sid(2), {
-    text: `${tag} doc`,
-    updatedAt: at,
-    rev: 3,
-    origin: `${tag}-device`,
-    history: [`${tag}-h1`],
-  })
-  rawDb(store)
-    .prepare(
-      `INSERT INTO runtime_event_checkpoints (workspace_id, session_id, observer_generation,
-         cursor_json, turn_epoch, updated_at) VALUES (?, ?, 1, '{}', 1, ?)`,
-    )
-    .run(WS[tag], sid(1), at)
-
-  await store.layout.set(scope, ALICE, 'dockTab', `${tag}-files`, at)
-  await store.layout.set(scope, BOB, 'superOpen', tag === 'a', at)
-  await store.dockShells.set(ALICE, `${ROOT}/w1`, shell(tag, 'alice'), at)
-  await store.dockShells.set(BOB, `${ROOT}/w2`, shell(tag, 'bob'), at)
-  await store.settings.userPreferences.set(ALICE, 'roles.coding.model', `${tag}-model`, at)
-  await store.settings.userPreferences.set(BOB, 'notifications.ntfyTopic', `${tag}-topic`, at)
-  await store.readPositions.advance(
-    scope,
-    ALICE,
-    'issueEvents',
-    { lastEventId: tag === 'a' ? 10 : 20, seenAt: at },
-    at,
-  )
-  await store.readPositions.advance(
-    scope,
-    BOB,
-    'issueEvents',
-    { lastEventId: tag === 'a' ? 5 : 6, seenAt: at },
-    at,
-  )
-}
 
 async function twoSeeded(): Promise<readonly [SessionStore, SessionStore]> {
   const stores = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
