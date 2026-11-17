@@ -11,6 +11,10 @@ interface Handler {
 export interface FakeGrokStoredUpdate {
   update: Record<string, unknown>
   promptId?: string
+  /** The `_meta.eventId` and time it was first sent under. Grok replays a
+   *  record under its own eventId (1.0.44 `session/load` replay; POD-7003). */
+  eventId?: string
+  agentTimestampMs?: number
 }
 
 export interface FakeGrokAcpServerOptions {
@@ -161,10 +165,12 @@ export function startFakeGrokAcpServer(
     // except the user record it writes at the turn's start (measured).
     const promptId =
       update.sessionUpdate === 'user_message_chunk' ? undefined : server.runningPromptId
-    const log = store.get(sessionId) ?? []
-    log.push({ update, ...(promptId !== undefined ? { promptId } : {}) })
-    store.set(sessionId, log)
     eventSeq += 1
+    const eventId = `${sessionId}-${eventSeq}`
+    const agentTimestampMs = 1_786_700_000_000 + eventSeq
+    const log = store.get(sessionId) ?? []
+    log.push({ update, ...(promptId !== undefined ? { promptId } : {}), eventId, agentTimestampMs })
+    store.set(sessionId, log)
     const frame: Record<string, unknown> = {
       jsonrpc: '2.0',
       method,
@@ -172,8 +178,8 @@ export function startFakeGrokAcpServer(
         sessionId,
         update,
         _meta: {
-          eventId: `${sessionId}-${eventSeq}`,
-          agentTimestampMs: 1_786_700_000_000 + eventSeq,
+          eventId,
+          agentTimestampMs,
           ...(promptId !== undefined && method === 'session/update' ? { promptId } : {}),
           ...delivery.meta,
         },
@@ -284,7 +290,7 @@ export function startFakeGrokAcpServer(
                * `session.loading` across the call, so an update arriving after
                * the response would be mis-stamped `live`.
                */
-              for (const { update, promptId } of recorded(sessionId)) {
+              for (const { update, promptId, eventId, agentTimestampMs } of recorded(sessionId)) {
                 eventSeq += 1
                 push({
                   jsonrpc: '2.0',
@@ -293,8 +299,8 @@ export function startFakeGrokAcpServer(
                     sessionId,
                     update,
                     _meta: {
-                      eventId: `${sessionId}-replay-${eventSeq}`,
-                      agentTimestampMs: 1_786_700_000_000 + eventSeq,
+                      eventId: eventId ?? `${sessionId}-replay-${eventSeq}`,
+                      agentTimestampMs: agentTimestampMs ?? 1_786_700_000_000 + eventSeq,
                       ...(promptId !== undefined ? { promptId } : {}),
                       isReplay: true,
                     },

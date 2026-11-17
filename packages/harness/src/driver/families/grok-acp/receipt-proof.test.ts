@@ -15,6 +15,7 @@ import promptAck from './__fixtures__/prompt-ack.json' with { type: 'json' }
 import type { GrokAcpTransport } from './client.js'
 import { GrokAcpFrame, parseGrokAcpSessionUpdate } from './protocol.js'
 import { createGrokAcpRuntime, type GrokAcpRuntimeHost } from './runtime.js'
+import { grokPromptEntryId } from '../../../adapters/grok/transcript.js'
 
 // Grok's file records omit jsonrpc; its live and load-replay frames include it.
 type Frame = GrokAcpFrame
@@ -35,6 +36,15 @@ function scenario(name: Scenario): { frames: Frame[]; recorded: Frame[] } {
 
 const updateKind = (frame: Frame): string | undefined =>
   parseGrokAcpSessionUpdate(frame)?.params.update.sessionUpdate as string | undefined
+
+/** The entry a recorded prompt chunk is shown as: named by the record's own
+ *  eventId, as the Store names it (POD-7003). */
+const entryIdOf = (recorded: readonly Frame[]): string => {
+  const chunk = recorded.find((frame) => updateKind(frame) === 'user_message_chunk')
+  const eventId = chunk && parseGrokAcpSessionUpdate(chunk)?.params._meta?.eventId
+  if (!eventId) throw new Error('measured scenario has no recorded prompt chunk')
+  return grokPromptEntryId(eventId)
+}
 
 const spec: SessionSpec = {
   harness: 'grok',
@@ -220,6 +230,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
   const output = allowed.frames.find((frame) => updateKind(frame) === 'agent_message_chunk')!
   const chunk = allowed.recorded.find((frame) => updateKind(frame) === 'user_message_chunk')!
   const stamp = allowed.recorded.find((frame) => updateKind(frame) === 'agent_message_chunk')!
+  const allowedEntry = entryIdOf(allowed.recorded)
 
   it('returns accepted, held in memory, when the queue ack names our id', async () => {
     const w = world(allowedRequest.sessionId)
@@ -277,7 +288,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
         .poll(() => result.named)
         .toEqual([
           {
-            item: { id: `grok-user-${allowedId}` },
+            item: { id: allowedEntry },
             harnessRef: [{ kind: 'grok-prompt', id: allowedId }],
           },
         ])
@@ -286,7 +297,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
       ).toContainEqual(
         expect.objectContaining({
           role: 'user',
-          id: `grok-user-${allowedId}`,
+          id: allowedEntry,
           text: 'hotel eight',
         }),
       )
@@ -338,7 +349,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
         .poll(() => result.named)
         .toEqual([
           {
-            item: { id: `grok-user-${id}` },
+            item: { id: entryIdOf(failed.recorded) },
             harnessRef: [{ kind: 'grok-prompt', id }],
           },
         ])
@@ -433,7 +444,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
       await expect(sent).resolves.toMatchObject({
         outcome: 'accepted',
         provenBy: 'transcript-echo',
-        transcriptItem: { id: `grok-user-${allowedId}` },
+        transcriptItem: { id: allowedEntry },
       })
       expect(w.prompts).toEqual([])
     } finally {
