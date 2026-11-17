@@ -650,6 +650,7 @@
       "name": "@podium/e2e",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/blob-store": "workspace:*",
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
