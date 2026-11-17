@@ -212,6 +212,11 @@ export type StoreDatabaseOptions = SnapshotVerifierDeps & {
    * (`podium server migrate`, POD-6958 design 2.7). A SQLite store always migrates.
    */
   migrateAtBoot?: boolean
+  /**
+   * POSTGRES ONLY: the connection pool's size (the driver's default otherwise). A test
+   * store opens a small one: a test file may hold many stores at once.
+   */
+  poolSize?: number
 }
 
 /**
@@ -314,6 +319,7 @@ export class StoreDatabase {
       sinks,
       snapshotVerifier: options,
       ...(options.migrateAtBoot === undefined ? {} : { migrateAtBoot: options.migrateAtBoot }),
+      ...(options.poolSize === undefined ? {} : { poolSize: options.poolSize }),
       stage: bootStage,
     })
     const executor = lifecycle.executor

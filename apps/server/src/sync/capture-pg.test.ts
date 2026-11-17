@@ -35,7 +35,9 @@ import { and, type Column, eq, getTableColumns, getTableName, is, sql, Table } f
 import { PgTable } from 'drizzle-orm/pg-core'
 import { getTableConfig, SQLiteDialect, type SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { drizzle as sqliteProxy } from 'drizzle-orm/sqlite-proxy'
+import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { migratePg } from '../migrations/pg/index'
 import * as pgSchema from '../migrations/pg/schema'
 import * as schema from '../migrations/schema'
 import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
@@ -60,8 +62,8 @@ import {
   TAKE_ORACLE_ROWS,
 } from '../test-support/capture-oracle'
 import {
-  clonePgTestDatabase,
   connectPgTest,
+  emptyPgTestDatabase,
   testStoreEngine,
 } from '../test-support/pg-test-database'
 import { useRealMigrationChain } from '../test-support/pre-migrated-store'
@@ -916,7 +918,15 @@ describe.runIf(ENGINE === 'pg')('the cross-engine corpus (Postgres leg)', () => 
     const corpus = await sqliteCorpus()
     store = corpus.store
     unseeded = corpus.unseeded
-    url = (await clonePgTestDatabase('file')).url
+    // The schema without the template's starting rows (a fresh SQLite store's, POD-6994):
+    // this database holds exactly the SQLite corpus's rows.
+    url = (await emptyPgTestDatabase('file')).url
+    const migrator = postgres(url, { max: 1, onnotice: () => {} })
+    try {
+      await migratePg(migrator)
+    } finally {
+      await migrator.end({ timeout: 5 })
+    }
     executor = createPgStoreExecutor({ url, poolSize: 2, pgTables: PG_TABLES, startOpen: true })
     const admin = connectPgTest(url)
     try {

@@ -340,7 +340,6 @@
     "apps/server/src/sync/panel-catch-up.test.ts",
     "apps/server/src/sync/record-builders.statement-count.test.ts",
     "apps/server/src/sync/routes.test.ts",
-    "apps/server/src/sync/session-source-writes.test.ts",
     "apps/server/src/telemetry.test.ts",
     "apps/server/src/transcript-indexer.test.ts",
     "apps/server/src/write-contexts.test.ts"

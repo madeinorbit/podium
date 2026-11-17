@@ -163,7 +163,12 @@ async function buildCorpus(): Promise<Corpus> {
     },
   })
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_done', sessionId, owner, 1))
-  await store.messages.markDelivered(fixtureWriteScope(), 'msg_done', sessionId, 't')
+  await store.messages.markDelivered(
+    fixtureWriteScope(),
+    'msg_done',
+    sessionId,
+    '2026-11-17T00:00:00.000Z',
+  )
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_open', sessionId, owner, 2))
   const writes = (reg as unknown as { writes: WriteContexts }).writes
   await reg.modules.automations.create(

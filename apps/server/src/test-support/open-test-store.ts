@@ -30,10 +30,13 @@
  * database cloned from the run's template: one database per store, so two stores in
  * one test share no rows, exactly as two `':memory:'` SQLite stores do not. The store
  * opens it from its URL; choosing the engine from the location is the store's job
- * (POD-6979). A file path is SQLite by definition, so a Postgres run refuses it and
- * names the list where such a file belongs.
+ * (POD-6979). A file path stands for one database for the rest of the test file, so a
+ * test that reopens its store file reopens the same database (POD-6994); a file the test
+ * wrote itself is SQLite, refused with the list where such a test belongs.
  */
 
+import { existsSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   clearFirstAdminMember,
   type MachineId,
@@ -47,6 +50,7 @@ import {
   clonePgTestDatabase,
   closeBeforeDrop,
   type PgTestDatabase,
+  pgTestDatabasesCreated,
   testStoreEngine,
 } from './pg-test-database'
 
@@ -78,6 +82,8 @@ export async function openTestStore(
     ...snapshotVerifierDeps,
     changeCapture: 'whenLogAttaches',
     workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
+    // A test file may hold many stores at once; the leg's server has 300 connections.
+    ...(clone === undefined ? {} : { poolSize: 3 }),
   })
   // A store left open would still be querying when its database is dropped.
   if (clone !== undefined) closeBeforeDrop(clone.name, async () => await store.close())
@@ -90,14 +96,31 @@ export async function openTestStore(
   return store
 }
 
+/**
+ * The Postgres databases standing in for store FILES this test file opened, by path. A
+ * SQLite test that names a file does so to open the same store again (a restart, a second
+ * process's view): on Postgres the same path opens the same database, for the rest of the
+ * file, as the file would stay on disk.
+ */
+const databasesByPath = new Map<string, Promise<PgTestDatabase>>()
+
 /** The Postgres database of a test store standing in for `path`. */
 async function postgresDatabase(path: string | undefined): Promise<PgTestDatabase> {
-  if (path !== undefined && path !== ':memory:') {
+  if (path === undefined || path === ':memory:') return await clonePgTestDatabase()
+  const key = resolve(path)
+  const known = await databasesByPath.get(key)
+  // Still there: the harness drops a file's databases when the file ends.
+  if (known !== undefined && pgTestDatabasesCreated().includes(known.name)) return known
+  // A file the test wrote itself is a SQLite database it built on purpose (an older
+  // schema to upgrade, a fixture image): that tests SQLite, not the store.
+  if (existsSync(key) && statSync(key).size > 0) {
     throw new Error(
-      `openTestStore: ${path} is a SQLite file, and this run uses Postgres. A test that needs ` +
-        'a store file tests SQLite itself: list it under sqliteOnly in ' +
+      `openTestStore: ${path} is a SQLite file this test wrote, and this run uses Postgres. A ` +
+        'test that builds a store file tests SQLite itself: list it under sqliteOnly in ' +
         'apps/server/test-store-engines.json.',
     )
   }
-  return await clonePgTestDatabase()
+  const made = clonePgTestDatabase('file')
+  databasesByPath.set(key, made)
+  return await made
 }

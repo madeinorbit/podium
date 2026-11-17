@@ -177,7 +177,12 @@ export async function openPgStoreLifecycle(
   // As the SQLite composition root: the lane's audit only when a corpus run asks.
   if (process.env.PODIUM_STATEMENT_INTENT_REPORT) attachLaneIntentAudit(probes)
   const openStarted = performance.now()
-  const capture = captureDetachedDriver(createPgStoreDriver({ url }))
+  const capture = captureDetachedDriver(
+    createPgStoreDriver({
+      url,
+      ...(options.poolSize === undefined ? {} : { poolSize: options.poolSize }),
+    }),
+  )
   const executor = createStoreExecutor<QueryClient>({
     driver: instrumentDriver(capture.driver, probes),
     queryLayer: pgQueryLayer(PG_STORE_TABLES),

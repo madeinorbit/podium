@@ -174,3 +174,49 @@ export function oracleCheckedDrain(
     return rows
   }
 }
+
+/**
+ * THE ORACLE ON A WHOLE STORE OF THE POSTGRES LEG [POD-6994]. From the moment the store
+ * attaches its change capture (before it, a write's capture is dropped at its commit and
+ * the triggers would leave shadow rows nobody compares), the oracle's triggers are
+ * installed and the store's sync repository drains through {@link oracleCheckedDrain}:
+ * every Ledger commit's capture is held against what a row trigger saw, and a difference
+ * fails the commit that caused it. Opt-in per test file (`session-source-writes`,
+ * `record-builders.parity`): the check adds statements to each drain, so a file that pins
+ * statement counts must not turn it on. On SQLite it does nothing.
+ */
+export async function installCaptureOracle(store: {
+  readonly database: {
+    readonly queries: { readonly rootDb: object }
+    attachChangeLog(): Promise<void>
+  }
+  readonly sync: { drainCapture(after?: number): Promise<CapturedRow[]> }
+}): Promise<void> {
+  const db = store.database.queries.rootDb as unknown as {
+    all(query: unknown): Promise<unknown[]>
+    run(query: unknown): Promise<unknown>
+  }
+  const { dialectOf } = await import('../store/executor/dialect-prepared')
+  if (dialectOf(db as never) !== 'pg') return
+  const { sql } = await import('drizzle-orm')
+  const query: OracleQuery = async (text) => (await db.all(sql.raw(text))) as StoredCaptureRow[]
+  let installed: Promise<void> | undefined
+  const install = async (): Promise<void> => {
+    installed ??= (async () => {
+      for (const statement of oracleStatements()) await db.run(sql.raw(statement))
+      // Armed, or the file proves nothing: the triggers exist on the store's database.
+      const [armed] = (await db.all(
+        sql.raw(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname LIKE '${TRIGGER_PREFIX}%'`),
+      )) as { n: number }[]
+      if (!armed || armed.n === 0) throw new Error('capture oracle: no oracle trigger installed')
+    })()
+    await installed
+  }
+  const attach = store.database.attachChangeLog.bind(store.database)
+  store.database.attachChangeLog = async () => {
+    await attach()
+    await install()
+  }
+  const drain = store.sync.drainCapture.bind(store.sync)
+  store.sync.drainCapture = oracleCheckedDrain(drain, query)
+}

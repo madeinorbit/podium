@@ -63,6 +63,8 @@ export interface StoreLifecycleOptions {
    * step, design 2.7). SQLite always migrates at boot.
    */
   readonly migrateAtBoot?: boolean
+  /** Postgres only: the connection pool's size. */
+  readonly poolSize?: number
   /** A boot stage's timing, reported as `store.ts` reports its own. */
   readonly stage: (name: string, startedAt: number) => void
 }

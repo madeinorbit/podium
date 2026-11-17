@@ -4,6 +4,7 @@ import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Session } from '../modules/sessions/session'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
+import { installCaptureOracle } from '../test-support/capture-oracle'
 import { installChangeLogHooks } from '../test-support/change-log-hooks'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
@@ -20,10 +21,12 @@ afterEach(() => {
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
+  // On the Postgres leg every commit's capture is held against the oracle's triggers.
+  await installCaptureOracle(store)
   const ledger = new Ledger({
     repo: store.sync,
     records: await logStoreRecords(store),
-    now: () => Date.parse('2026-11-11T00:00:00Z'),
+    now: () => Date.parse('2026-11-11T00:00:00.000Z'),
     transact: (fn) => store.transact(fn),
   })
   const writer = testLedgerWriter(ledger)
@@ -38,7 +41,7 @@ async function fixture() {
     cwd: '/repo/work',
     title: 'Source session',
     origin: { kind: 'spawn' },
-    createdAt: '2026-11-10T00:00:00Z',
+    createdAt: '2026-11-10T00:00:00.000Z',
     geometry: { cols: 80, rows: 24 },
     toDaemon: () => {},
   })
@@ -141,7 +144,7 @@ describe('session source writes compare before they write', () => {
   it('logs the loss of transcript evidence in the retention write', async () => {
     const f = await fixture()
     const eventId = await f.store.events.appendEvent({
-      ts: '2026-01-01T00:00:00Z',
+      ts: '2026-01-01T00:00:00.000Z',
       kind: RUNTIME_EVENT_LOG_KIND,
       subject: f.session.sessionId,
       payload: { t: 'item', item: { kind: 'complete' } },
@@ -149,10 +152,10 @@ describe('session source writes compare before they write', () => {
     await f.store.events.saveRuntimeEventProjectionCursor(
       'runtime.board.v1',
       eventId,
-      '2026-11-11T00:00:00Z',
+      '2026-11-11T00:00:00.000Z',
     )
     const cursor = await f.ledger.cursor()
-    await f.store.events.pruneEventBatch({ cutoff: '2026-02-01T00:00:00Z', capThroughId: 0 })
+    await f.store.events.pruneEventBatch({ cutoff: '2026-02-01T00:00:00.000Z', capThroughId: 0 })
     expect(await f.changes(cursor)).toHaveLength(1)
   })
 })
