@@ -46,7 +46,7 @@
  * file never touches the socket's filesystem entry.
  */
 
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
@@ -207,6 +207,28 @@ export function codexAppServerConfigArgs(input: {
 
 /** The hook wiring a Codex terminal gets and an engine never may. */
 const ENGINE_HOOK_ENV = [PODIUM_CODEX_HOOK_URL_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV] as const
+
+/**
+ * Codex refuses to start when `CODEX_HOME` names a directory that does not
+ * exist (0.169: "CODEX_HOME points to …, but that path does not exist"), and
+ * every child's environment names one (`<home>/.codex`). A machine whose user
+ * never ran Codex has none, and a session on a ChatGPT plan signed in to
+ * Podium needs no login there, only the directory (epic Task 15). So it is
+ * made here, owner-only, as Codex makes it when the variable is unset.
+ */
+export function ensureCodexHome(
+  env: Readonly<Record<string, string>>,
+  mkdir: (path: string, opts: { recursive: true; mode: number }) => unknown = mkdirSync,
+): void {
+  const dir = env.CODEX_HOME
+  if (!dir) return
+  try {
+    mkdir(dir, { recursive: true, mode: 0o700 })
+  } catch (err) {
+    // Codex's own refusal then names the problem; this adds the cause.
+    log.warn('could not create the codex home', { err, dir })
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The host
@@ -707,6 +729,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       // otherwise hand its own down, and the engine would report every turn
       // twice. Removed here and at the spawn boundary.
       for (const key of ENGINE_HOOK_ENV) delete env[key]
+      ensureCodexHome(env)
 
       /**
        * THE ENGINE, UNDER THE HOST. The session owner starts `codex app-server`
