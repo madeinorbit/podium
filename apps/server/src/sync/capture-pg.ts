@@ -74,7 +74,7 @@ import {
   is,
   type SQL,
   sql,
-  Table,
+  type Table,
 } from 'drizzle-orm'
 import { getTableConfig, SQLiteBoolean, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { textColumnClass } from '../migrations/pg/schema-classes'
@@ -548,7 +548,8 @@ function refuseShape(builder: PgWriteBuilder, name: string): void {
     throw new Error(`captureWrite: an update of ${name} with FROM or joins is not supported`)
   }
   const table = config.table as unknown as Record<symbol, unknown>
-  if (table[Table.Symbol.Name] !== table[Table.Symbol.OriginalName]) {
+  // drizzle's own keys for a table's name and the name it aliases (`drizzle-orm/table`).
+  if (table[Symbol.for('drizzle:Name')] !== table[Symbol.for('drizzle:OriginalName')]) {
     throw new Error(`captureWrite: an aliased ${name} is not supported`)
   }
 }
