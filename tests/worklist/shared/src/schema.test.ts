@@ -57,7 +57,41 @@ function relationsOf(entity: EntityName): Record<string, RelationSpec> {
 
 describe('the declared schema', () => {
   it('declares the synced record models, with the issue projection remaining a component', () => {
-    expect(Object.keys(SCHEMA).sort()).toEqual(['agentProfile', 'automation', 'automationRun', 'credential', 'device', 'effect', 'instancePreferences', 'issue', 'issueBrief', 'issueDescription', 'issuePanelArtifact', 'issuePanelDeferred', 'issuePanelState', 'issuePanelTodo', 'machine', 'member', 'messageRecord', 'pendingInteraction', 'pin', 'repo', 'repository', 'session', 'subscription', 'superagentThread', 'tabOrder', 'userLayout', 'userPreferences', 'userReadPosition', 'workflow', 'workflowBinding', 'workflowRevision', 'workflowRun', 'worktree'])
+    expect(Object.keys(SCHEMA).sort()).toEqual([
+      'agentProfile',
+      'automation',
+      'automationRun',
+      'credential',
+      'device',
+      'effect',
+      'instancePreferences',
+      'issue',
+      'issueBrief',
+      'issueDescription',
+      'issuePanelArtifact',
+      'issuePanelDeferred',
+      'issuePanelState',
+      'issuePanelTodo',
+      'machine',
+      'member',
+      'messageRecord',
+      'pendingInteraction',
+      'pin',
+      'repo',
+      'repository',
+      'session',
+      'subscription',
+      'superagentThread',
+      'tabOrder',
+      'userLayout',
+      'userPreferences',
+      'userReadPosition',
+      'workflow',
+      'workflowBinding',
+      'workflowRevision',
+      'workflowRun',
+      'worktree',
+    ])
     // The projection is composed into `issue` by id, not a separate entity.
     expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issueProjection'])
     expect(SCHEMA.issue.components.issueProjection?.joinKey).toBe('id')
@@ -163,9 +197,20 @@ describe('the declared schema', () => {
 
     // Bound sessions inherit; stopped unbound sessions use their own decay.
     expect(SCHEMA.session.cold).toMatchObject({ kind: 'via', relation: 'issue' })
-    expect(cold.dependsOn).toEqual(expect.arrayContaining(['archived', 'deletedAt', 'audience', 'parentId']))
-    expect(SCHEMA.session.cold.kind === 'via' && SCHEMA.session.cold.unbound?.dependsOn)
-      .toEqual(expect.arrayContaining(['issueId', 'stoppedAt', 'agentState', 'unread', 'readAt', 'archived', 'agentKind']))
+    expect(cold.dependsOn).toEqual(
+      expect.arrayContaining(['archived', 'deletedAt', 'audience', 'parentId']),
+    )
+    expect(SCHEMA.session.cold.kind === 'via' && SCHEMA.session.cold.unbound?.dependsOn).toEqual(
+      expect.arrayContaining([
+        'issueId',
+        'stoppedAt',
+        'agentState',
+        'unread',
+        'readAt',
+        'archived',
+        'agentKind',
+      ]),
+    )
     expect(SCHEMA.worktree.cold.kind).toBe('never')
     expect(SCHEMA.repo.cold.kind).toBe('never')
   })
@@ -223,13 +268,16 @@ describe('validateStructure', () => {
     expect(validateStructure(SCHEMA).join('\n')).not.toMatch(/declares the same edge/)
     const schema = clone()
     ;(schema.session.relations as Record<string, RelationSpec>).anyIssue = {
-      ...relationsOf('session').missionIssue!, inverse: 'anySessions',
+      ...relationsOf('session').missionIssue!,
+      inverse: 'anySessions',
     } as RelationSpec
     ;(schema.issue.relations as Record<string, RelationSpec>).anySessions = {
-      ...relationsOf('issue').missionSessions!, inverse: 'anyIssue',
+      ...relationsOf('issue').missionSessions!,
+      inverse: 'anyIssue',
     } as RelationSpec
-    expect(validateStructure(schema).join('\n')).toMatch(/declares the same edge as session\.missionIssue/)
-
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /declares the same edge as session\.missionIssue/,
+    )
   })
 
   it('fires when a relation name collides with a declared field name', () => {
@@ -384,11 +432,20 @@ describe('validateStructure', () => {
   })
 })
 
-it.each(['many', 'allTypes'] as const)('rejects edge matching or cardinality disagreement: %s', policy => {
-  const schema = clone(), original = schema.issue.relations.pageDependencies
+it.each([
+  'many',
+  'allTypes',
+] as const)('rejects edge matching or cardinality disagreement: %s', (policy) => {
+  const schema = clone(),
+    original = schema.issue.relations.pageDependencies
   if (original?.kind !== 'edge') throw new Error('Missing edge collection declaration')
-  ;(schema.issue.relations as Record<string, RelationSpec>).pageDependencies = { ...original, [policy]: undefined }
-  expect(validateStructure(schema).join('\n')).toMatch(/edge matching\/cardinality disagrees with its inverse/)
+  ;(schema.issue.relations as Record<string, RelationSpec>).pageDependencies = {
+    ...original,
+    [policy]: undefined,
+  }
+  expect(validateStructure(schema).join('\n')).toMatch(
+    /edge matching\/cardinality disagrees with its inverse/,
+  )
 })
 
 describe('validateSources', () => {
@@ -410,7 +467,10 @@ describe('validateSources', () => {
   it('fires when a relation name shadows a durable property of the row (the `intentOrigin` trap)', () => {
     const schema = clone()
     const relations = schema.issue.relations as Record<string, RelationSpec>
-    relations.intentOrigin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
+    relations.intentOrigin = {
+      ...relationsOf('issue').children!,
+      inverse: 'parent',
+    } as RelationSpec
     // The page now declares the durable field too; its name is still taken.
     expect(fieldsOf('IssueProjection')).toContain('intentOrigin')
     expect(Object.keys(SCHEMA.issue.fields)).toContain('intentOrigin')
@@ -686,7 +746,12 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
   })
 
   it('excluded keeper control: members and lanes cannot keep an excluded closed issue', () => {
-    for (const excluded of [{ archived: true }, { deletedAt: ago(30) }, { stage: 'proposed' }, { stage: 'shipping' }]) {
+    for (const excluded of [
+      { archived: true },
+      { deletedAt: ago(30) },
+      { stage: 'proposed' },
+      { stage: 'shipping' },
+    ]) {
       const row = child('i', 30, { worktreePath: '/w', ...excluded })
       const seats = [session('bound', 'i'), { sessionId: 'unbound', cwd: '/w' }]
       expect(ruleAt([row], seats, NOW, ['/w']).issue('i')).toBe(true)
@@ -701,8 +766,11 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
   it('nesting keeper control: a closed agent child without a warm human ancestor cannot show', () => {
     const agent = child('i', 30, { audience: 'agent' })
     const seats = [session('s', 'i')]
-    for (const parent of [child('p', 30, { parentId: null, archived: true }),
-      child('p', 30, { parentId: 'older' }), child('p', 30, { parentId: null, audience: 'agent' })]) {
+    for (const parent of [
+      child('p', 30, { parentId: null, archived: true }),
+      child('p', 30, { parentId: 'older' }),
+      child('p', 30, { parentId: null, audience: 'agent' }),
+    ]) {
       const rows = [agent, parent, child('older', 30, { parentId: null, archived: true })]
       expect(ruleAt(rows, seats).issue('i')).toBe(true)
       expect(ruleAt(rows, seats).session('s')).toBe(true)
@@ -716,9 +784,17 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     // intermediate still provides nesting, and parentless started-by is untouched.
     expect(ruleAt([agent], seats).issue('i')).toBe(false)
     const human = { id: 'root', audience: 'human', stage: 'in_progress' }
-    expect(ruleAt([agent, child('p', 30, { parentId: 'root', archived: true }), human], seats).issue('i')).toBe(false)
-    expect(ruleAt([{ ...agent, parentId: null, startedBySession: 'starter' }], seats).issue('i')).toBe(false)
-    expect(ruleAt([agent, { id: 'p', audience: 'human', stage: 'review' }], seats).issue('i')).toBe(false)
+    expect(
+      ruleAt([agent, child('p', 30, { parentId: 'root', archived: true }), human], seats).issue(
+        'i',
+      ),
+    ).toBe(false)
+    expect(
+      ruleAt([{ ...agent, parentId: null, startedBySession: 'starter' }], seats).issue('i'),
+    ).toBe(false)
+    expect(ruleAt([agent, { id: 'p', audience: 'human', stage: 'review' }], seats).issue('i')).toBe(
+      false,
+    )
   })
 
   it('unbound decay control: stopped sessions use the keeper deadline, and a restart warms them', () => {
@@ -746,12 +822,18 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
 
   it('keeps a closed agent child when its parentless agent ancestor has a started-by fallback', () => {
     const agent = child('i', 30, { audience: 'agent' })
-    const parent = child('p', 30, { parentId: null, audience: 'agent', startedBySession: 'starter' })
+    const parent = child('p', 30, {
+      parentId: null,
+      audience: 'agent',
+      startedBySession: 'starter',
+    })
     const rows = [agent, parent, { id: 'root', audience: 'human', stage: 'in_progress' }]
     const seats = [session('s', 'i'), session('ps', 'p'), session('starter', 'root')]
     expect(ruleAt(rows, seats).issue('i')).toBe(false)
     expect(ruleAt(rows, seats).session('s')).toBe(false)
-    expect(ruleAt([agent, { ...parent, startedBySession: null }, rows[2]!], seats).issue('i')).toBe(true)
+    expect(ruleAt([agent, { ...parent, startedBySession: null }, rows[2]!], seats).issue('i')).toBe(
+      true,
+    )
     const spec = SCHEMA.issue.cold
     if (spec.kind !== 'unlessShown') throw new Error('unreachable')
     expect(spec.dependsOn).toContain('startedBySession')

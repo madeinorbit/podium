@@ -39,12 +39,7 @@ import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
-import type {
-  CredentialModel,
-  DeviceModel,
-  MemberModel,
-  RepositoryModel,
-} from './requested-models'
+import type { CredentialModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'

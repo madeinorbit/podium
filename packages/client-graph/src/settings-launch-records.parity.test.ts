@@ -15,13 +15,28 @@ import { SettingsRepositories } from './settings-repositories'
 import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test.fixture'
 
 const credential: CredentialView = {
-  id: asCredentialId('cred_found'), ownerUserId: asUserId('user:owner'),
-  label: 'Found Codex', type: 'openai.chatgpt-login', identity: { email: 'person@example.test', fingerprint: 'fingerprint' },
-  status: 'ok', access: 'owner', homes: [], allowedMachines: [], sessionCount: 0,
+  id: asCredentialId('cred_found'),
+  ownerUserId: asUserId('user:owner'),
+  label: 'Found Codex',
+  type: 'openai.chatgpt-login',
+  identity: { email: 'person@example.test', fingerprint: 'fingerprint' },
+  status: 'ok',
+  access: 'owner',
+  homes: [],
+  allowedMachines: [],
+  sessionCount: 0,
   nativeLogin: {
-    harness: 'codex', required: false, useOnMyMachines: false, keptOn: [],
+    harness: 'codex',
+    required: false,
+    useOnMyMachines: false,
+    keptOn: [],
     machines: [{ id: asMachineId('host'), name: 'Host', state: 'in' }],
-    attempt: { sessionId: 'login', machineId: asMachineId('host'), machineName: 'Host', status: 'succeeded' },
+    attempt: {
+      sessionId: 'login',
+      machineId: asMachineId('host'),
+      machineName: 'Host',
+      status: 'succeeded',
+    },
   },
 }
 const member: MemberView = {
@@ -78,7 +93,9 @@ it('matches every credential/member/device fact from the old section responses a
       m = directory.members[0],
       d = devices.models[0]
     const seen: string[] = []
-    const stop = autorun(() => seen.push([a?.identity.email, m?.displayName, d?.deviceName].join('|')))
+    const stop = autorun(() =>
+      seen.push([a?.identity.email, m?.displayName, d?.deviceName].join('|')),
+    )
     await other.read(async () => [{ ...credential, identity: { email: 'changed elsewhere' } }])
     await directory.read(async () => ({
       members: [{ ...member, displayName: 'Renamed' }],

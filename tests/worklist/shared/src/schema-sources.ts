@@ -62,7 +62,6 @@ import {
   IssuePanelArtifactWire,
   IssuePanelDeferredWire,
   IssuePanelStateWire,
-
   IssueGitStateProjection,
   IssueProjection,
   SlimIssueProjection,
@@ -89,8 +88,13 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  CredentialView, MemberView, DeviceSignInView, RequestRecordKey,
-  PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
+  CredentialView,
+  MemberView,
+  DeviceSignInView,
+  RequestRecordKey,
+  PendingInteractionWire: {
+    shape: Object.assign({}, ...PendingInteractionWire.options.map((arm) => arm.shape)),
+  },
   MessageRecordWire,
   MessageLedgerWire,
   MachineProjection,
