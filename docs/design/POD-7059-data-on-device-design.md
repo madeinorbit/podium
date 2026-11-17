@@ -1,7 +1,6 @@
 # Data on the device (POD-7059)
 
-Status: agreed with the operator on 2026-11-17. Design only; nothing is built. One decision is
-open: [tree preloading](#open-decision-tree-preloading).
+Status: agreed with the operator on 2026-11-17. Design only; nothing is built.
 
 This design answers one question for the start-up phase (POD-5910) and the memory phase
 (POD-5211): which data is on the device and in memory at any moment, how it gets there, and how
@@ -394,39 +393,37 @@ arrives with the fetch.
 - A link or chip to an issue reads the stub: it knows the reference and the state at once. A
   reference to a record that is absent starts a batched load, like any other lookup.
 
-## Open decision: tree preloading
+## No tree preloading
 
-Agreed earlier and still in force until the operator decides otherwise: the policy also
-preloads whole trees of up to 50 issues for the sidebar's top-level issues, and on the desktop
-the big trees that have live work. Both would be declared as "comes with" on the sidebar and
-live collections, with a condition on the tree's size.
+A tree loads when a view first opens it and then stays on the device. Nothing preloads trees.
 
-Recomputed on the operator's data (issues on the device, of 8,687):
+Two preloading rules were agreed earlier and dropped by the operator on 2026-11-17: whole trees
+of up to 50 issues for the sidebar's top-level issues, and on the desktop the big trees that
+have live work.
+
+Issues on the device, on the operator's data (of 8,687):
 
 | Option | Phone | Desktop |
 |---|---|---|
-| No tree preloading | about 2,000 | about 2,830 |
+| No tree preloading (chosen) | about 2,000 | about 2,830 |
 | Plus whole trees up to 50 issues | about 2,670 | about 3,410 |
-| Plus big trees with live work (desktop rule) | — | about 5,130 (59%) |
+| Plus big trees with live work | — | about 5,130 (59%) |
 | Every tree in full | about 5,240 (60%) | about 5,750 (66%) |
 
-The limit of 50 was set to keep the few giant trees off the device, and it does. The desktop
-rule brings ten of them back and puts 59% of all issues on a desktop. The reason for preloading
-that remains is a faster first opening of a flight deck: counts are exact from the stubs
-either way, the open members are in the sidebar collection, and a tree that was opened stays on
-the device. Without preloading, 75 small trees load about nine closed issues each on their
-first opening.
+The limit of 50 was set to keep the few giant trees off the device. The desktop rule brought
+ten of them back. What preloading still bought was a faster first opening of a flight deck:
+counts are exact from the stubs either way, the open members are in the sidebar collection, and
+a tree that was opened stays. Without it, 75 small trees load about nine closed issues each on
+their first opening. Both rules also needed a condition on a tree's size, the only such
+condition in the design.
 
-Recommendation: drop the desktop rule; the small-tree rule is cheap in data but is the only
-rule that depends on a tree's size, so drop it too and bring it back if first openings prove
-slow.
+If first openings prove slow, a preload returns as a policy entry.
 
 ## Two examples from an empty device
 
 **A small tree (12 issues).** Always and live arrive and the first screen paints. Recent, the
 sidebar and the stubs follow. Opening the tree's flight deck shows its open members and exact
-progress at once; the closed members arrive with one short fetch (none, if small trees are
-preloaded).
+progress at once; the closed members arrive with one short fetch.
 
 **A big tree (970 issues, 922 closed), opened straight after install.** Always and live arrive;
 the members with running sessions are in the live collection, so the deck's working and
@@ -509,6 +506,7 @@ integration branch.
 | Query-driven sync like Zero (any query, cached for minutes) | Needs per-client query state on the server. Views holding declared collections gives the useful part without it. |
 | Count records kept by the server | A shared count can include records a viewer may not see. |
 | Load every sub-issue of every kept tree | 60% of all issues on a phone, driven by a few long-running trees. |
+| Preload small trees, and big trees with live work on the desktop | Dropped by the operator; see "No tree preloading". |
 | An issue always comes with all its sessions | Done issues carry 3,250 sessions that are not archived; every opened tree would pull thousands. |
 | A "may be outdated" fourth lookup state for cached records | The feed keeps cached records current, so every screen handles three answers, not four. |
 | A separate stub record type | Two homes for state and parent can disagree. The stub is a part of the issue record. |
@@ -537,7 +535,8 @@ query lifetime) and ElectricSQL's shape documentation.
 - First paint from an empty device, per client type.
 - Main-thread time spent applying the feed and writing storage (the worker trigger).
 - The cache cap that keeps memory within the phone's budget.
-- The time to load a big tree (estimated at one to two seconds for 970 records, not measured).
+- The time to open a flight deck for the first time, for a small and a big tree (estimated at
+  one to two seconds for 970 records, not measured). This decides whether a preload returns.
 - The existing server search at the ten-times history size.
 
 ## To settle during the build
@@ -585,4 +584,4 @@ and chat (POD-6671).
   the unique resume key.
 - A test for simplicity merged "brings along" and "pulls" into "comes with", reduced the
   holders of an instance to the policy and open views, made the cache trim by instance,
-  removed the client's network and storage facts, and reopened tree preloading.
+  removed the client's network and storage facts, and led to dropping tree preloading.
