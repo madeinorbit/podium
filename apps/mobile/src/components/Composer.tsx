@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.5)',
     paddingLeft: space.md,
-    paddingRight: space.xs + 2,
+    paddingRight: space.md,
     paddingTop: space.md,
     // The control row's 44pt target already carries ~12 of air under its
     // glyph; paying the full inset again would hang the capsule open.

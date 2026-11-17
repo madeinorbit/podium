@@ -116,6 +116,28 @@ describe('Composer floating dock', () => {
     expect(dockOf(container)?.style.paddingBottom).toBe('42px')
   })
 
+  it('gives the Send key equal right and bottom insets inside the composer', () => {
+    render(<Composer placeholder="Message" value="Reply" onSend={vi.fn()} />)
+    const surface = getComputedStyle(screen.getByTestId('composer-bar'))
+    const send = screen.getByRole('button', { name: 'Send' })
+    const controls = getComputedStyle(send.parentElement as HTMLElement)
+    const target = getComputedStyle(send)
+    const key = getComputedStyle(send.firstElementChild as HTMLElement)
+    const right =
+      Number.parseFloat(surface.paddingRight) +
+      Number.parseFloat(controls.marginRight || controls.marginInlineEnd || controls.marginInline) +
+      Number.parseFloat(target.width) -
+      Number.parseFloat(key.left) -
+      Number.parseFloat(key.width)
+    const bottom =
+      Number.parseFloat(surface.paddingBottom) +
+      Number.parseFloat(target.height) -
+      Number.parseFloat(key.top) -
+      Number.parseFloat(key.height)
+    expect(bottom).toBe(10)
+    expect(right).toBe(bottom)
+  })
+
   it('renders a leading slot inside the control row, ahead of send', () => {
     const { container } = render(
       <Composer
