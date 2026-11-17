@@ -2,7 +2,9 @@
 
 Status: design discussed with the operator on 2026-11-17. Design only; nothing is built.
 Two points are proposed and not yet confirmed; they are marked **proposed** and listed in
-[Open points](#open-points).
+[Open points](#open-points). The document was written after the discussion and then checked
+against the full conversation; [What the check changed](#what-the-check-changed) lists the
+corrections.
 
 This design answers one question for the start-up phase (POD-5910) and the memory phase
 (POD-5211): which data is on the device and in memory at any moment, how it gets there, and how
@@ -73,7 +75,7 @@ except for what the user opens.
 | Collection instance | A collection with its arguments filled in: "the tree under issue X". Definitions are few; instances are many. |
 | Marker | The note "this collection instance is complete as of feed number N". |
 | Policy | Server data per client type: which collections load at start, in which order, and the numbers (days, tree size, cache cap). |
-| Bring-along | A kept record brings the records it points to (its parents, its issue). Upward only. |
+| Bring-along | A kept record brings the records it points to: a session brings its issue, an issue brings its parents and its small companions (the user's read state, its dependencies). Upward only, never down to children. |
 
 ## The design
 
@@ -115,7 +117,15 @@ Builders for kinds that are one database row become declarative.
 | Live | Values that change every second: busy, last input, context use, terminal size | While something watches them; never stored |
 
 Per record the device holds exactly one row. It is a stub or it has more parts. Loading the main
-part fills the row; trimming removes parts again and never needs a fetch.
+part fills the row; trimming removes parts again and never needs a fetch. Stub and main are the
+same wire record, so state and parent have one home and can never disagree.
+
+The stub needs no builder on the server: it is the declared stub fields picked from the built
+record. The feed needs no stub kind. The only new thing on the wire is that the first download
+and the fetch route can send an issue at stub level.
+
+The body stays what it is today, separate records for brief and description, so that a small
+change to an issue does not send two kilobytes of text again.
 
 The issue stub is fixed:
 
@@ -126,17 +136,33 @@ The issue stub is fixed:
 | Parent | Parent ID |
 
 It holds nothing for display and **must not grow**. A screen that wants another field over all
-history gets its answer from the server (see [Counts](#counts)), not from a wider stub. At about
-130 bytes each, stubs are about 1 MB today and about 5 MB at 50,000 issues. This is the one
-thing that grows with history; the policy can cap it per client type if that is ever needed,
-because links and chips already fall back to a single load.
+history gets its answer from the server (see [Counts](#counts)), not from a wider stub.
+
+The stubs are held in memory as a compact table, because the terminal colours references while
+it paints and needs the answer at once. Estimates, not measured:
+
+| Issues | On disk | In memory |
+|---|---|---|
+| 8,687 (today) | about 1 MB | about 1.3 MB |
+| 50,000 | about 5 MB | about 7.5 MB |
+
+This is the one thing that grows with history, which bends the rule "bound growth by design".
+The guard is that the stubs are a collection like any other, so the policy can cap them per
+client type, and links and chips already fall back to a batched load.
 
 Sessions have **no stub**. The questions that seemed to need one do not
 (see [Where each question gets its answer](#where-each-question-gets-its-answer)).
 
 The live part replaces the hand-written live store: one generic store built from the
-declaration, one map per declared live value, held only while watched. This design covers the
-hot session values directly and does not wait for POD-6811.
+declaration, one map per declared live part, held only while watched. This design covers the
+hot session values directly and does not wait for POD-6811. Live readings that belong to no
+record (connection, quota, unsent writes) stay as they are.
+
+Only issues and sessions have more than one part. The other 31 record types are a single part.
+
+Not checked: whether changes to two parts of one record from the same save always reach a
+device together. Stub and main are one record, so they do. An issue and its brief are separate
+log entries today.
 
 ### Collections
 
@@ -152,8 +178,21 @@ hot session values directly and does not wait for POD-6811.
 | Sessions of one issue | The issue page |
 | One record by ID | A lookup that finds the record absent |
 
+"Recent" reads a time saved on the record: an issue's last-change time, and for a session the
+coarse activity time its record carries. It does not read the live "last active" value.
+
 Three things can hold a collection instance on the device: the policy, an always-on view (a
-pinned list), or an open view. An instance held by none of them is cache.
+pinned list), or an open view. An instance held by none of them is cache. A pinned list is
+never trimmed.
+
+Definitions are few, perhaps fifteen to twenty. Instances are many, one per thing the user
+opened, and each costs one small marker. The cost of applying a change depends on the number of
+definitions, not instances: one lookup per definition ("do I hold the children of this issue's
+parent?").
+
+The client's reader index already files each record into named buckets from its own fields (by
+repository, stage, open or closed, proposed, live, issue). Those buckets are collection rules
+already; they stay and only cover the rows in memory.
 
 The sidebar collection holds all open issues that are not proposed, as the operator expects to
 see everything left there. It grows with open work, not with history. The operator decided to
@@ -177,6 +216,15 @@ Starting numbers:
 On the operator's data the phone policy holds about 1,900 full issues (1,858 by their own
 fields, the rest brought along as parents) instead of 8,687. Trees up to 50 issues cover 620 of
 635 trees and add 643 issues. The 15 bigger trees hold 3,271 issues and load when opened.
+
+What the server-side policy gives:
+
+- Numbers change without a client release. A phone app takes days to ship.
+- A hosted server can cap what any client loads, and tune it per workspace.
+- "Keep more on this device" is a server-side setting that follows the user to a new device.
+
+When the policy for a client changes, the client fetches the difference or lets the surplus
+become cache.
 
 The server does not stamp records with their set. The rule reads the record's own fields and the
 date, so the client can decide by itself what a change means.
@@ -205,8 +253,14 @@ Each collection is installed in chunks and its marker is written last. A downloa
 interrupted resumes at the first collection without a marker. This replaces the single large
 install that loses everything when the app closes early (POD-7048).
 
-Later starts read the disk and ask the feed for the changes since the stored feed number. If the
-feed cannot bridge the gap, the markers are dropped and the collections load again.
+Later starts read the disk and ask the feed for the changes since the stored feed number.
+Nothing else is fetched.
+
+If the feed cannot bridge the gap (the device was offline for longer than the server keeps its
+log), the markers are dropped and the collections load again. During that reload the old rows
+stay on screen and are replaced as fresh ones arrive; counts show loading until their
+collection is complete again. This is the "show what is stored, refresh, repaint" behaviour the
+operator asked for, without a fourth lookup state.
 
 ### The feed
 
@@ -237,9 +291,31 @@ Everything on the device is also in memory. The cache cap is therefore the memor
 - Indexes cover only rows in memory, which now means the rows on the device. The index over all
   history, its relation index and the active-work rule are deleted.
 - A record leaves a collection when it stops matching (an issue closes, the days pass). It is
-  then cache. The check for "the days passed" runs at start and at one daily deadline.
-- When the cache is above its cap, the records read longest ago are trimmed: issues back to
-  their stub, other records removed. This trim is the only sweep.
+  then cache. Nothing moves it: a view that lists "recent" filters by the clock as it reads, and
+  the trim checks membership at that moment.
+- When the cache is above its cap, the records read longest ago that are in no held collection
+  are trimmed: issues back to their stub, other records removed. This trim is the only sweep.
+  It does not have to be prompt, because holding extra records never makes a list wrong.
+
+**One copy in memory.** The earlier memory work in this epic found that row copies were never
+the cost: a row is about 550 bytes, and the storage copy, the sync engine's lists and the data
+layer all point at the same row objects (POD-5133). The cost was the indexes over history. So
+"one copy" is reached by removing history from the device, not by changing who owns the rows.
+
+Estimates for this design, not measured, using that work's figure of 1 to 5 KB per record held
+with its indexes:
+
+| | Phone | Desktop |
+|---|---|---|
+| Policy collections | about 3,000 records, 5 to 10 MB | about 5,000 records, 10 to 20 MB |
+| Cache | a small cap, a few MB | 5,000 to 10,000 records, 10 to 40 MB |
+| Stubs | 1 to 2 MB | 1 to 2 MB |
+| Today, for comparison | 65 to 80 MB on the phone fixture | about 90 MiB |
+
+The four rules pinned on the earlier memory work stay in force (POD-5212): rows are read
+through one reader; indexes cover only rows in memory; a record not in memory is described by a
+small declared summary, which is now the stub; an absent row answers "on its way" and starts a
+batched load.
 
 The operator agreed to this with "unsure but yes". The design keeps the way back open:
 
@@ -260,15 +336,22 @@ arrives with the fetch.
 - Counts by stage, child counts and tree progress come from the stubs. They are exact, local and
   cover all history.
 - A count under a filter that the stub cannot answer (priority, project) arrives with the first
-  page of that list.
+  page of that list, counted for that viewer. While the view is open and a change arrives that
+  could move it, the client asks again. The server already has a count by stage, priority, type
+  and assignee (`issues` service, `count`).
+- On an empty device the stubs arrive last. Until they are complete, a count over all history
+  shows loading. A view that needs the numbers first can ask for its tree at stub level, which
+  is small.
 - There are no count records on the server. They were rejected because a count shared between
   viewers can include records one viewer may not see.
 
 ### Search and references
 
 - Search shows results from the device at once and then results from the server. The command
-  palette already works this way (`trpc.issues.searchNormalized`). Server search covers titles
-  and references first; briefs and transcripts later (POD-5617).
+  palette already works this way. The server search it uses exists
+  (`trpc.issues.searchNormalized`, added 2026-10-02): it matches title, description and brief,
+  with the viewer's rights. It scans; an index for it, and search over transcripts, stay with
+  POD-5617. Mentions, pickers and the board's text filter move to the same pattern.
 - A link or chip to an issue reads the stub: it knows the reference and the state at once. A
   reference to a record that is absent starts a batched load, like any other lookup.
 
@@ -278,11 +361,16 @@ arrives with the fetch.
 sidebar follow. The tree is under 50 issues, so the policy loads it whole. Opening its flight
 deck shows everything at once, from memory, with exact progress.
 
-**A big tree (970 issues, 922 closed).** The top-level issue and its open members are on the
-device through the sidebar collection. The stubs give exact progress numbers at once. Opening
-the flight deck asks the loader for the tree; the closed members arrive in chunks and the deck
-fills in. After that the tree stays on the device and the feed keeps it current. On the desktop
-the policy loads this tree at start if it has live work.
+**A big tree (970 issues, 922 closed), opened straight after install.** Always and live arrive;
+the members with running sessions are in the live collection, so the deck's working and
+needs-you rows paint with the first screen. The deck is the visible view, so its tree goes to
+the front of the queue: first at stub level, which gives "922 of 970", then the full records,
+which fill in the phases and done members as they arrive. The rest of the first download
+continues behind it. After that the tree stays on the device and the feed keeps it current.
+On the desktop the policy loads this tree in the background anyway, because it has live work.
+
+**The second start, for both.** Everything comes from disk, with no fetch and no loading rows.
+The feed delivers what changed while the app was closed.
 
 ## Where each question gets its answer
 
@@ -297,11 +385,13 @@ methods in about 35 files); not every call site was read.
 | Progress bars and child counts | Parent and state of every member | Stubs |
 | Links and chips in chat and terminal | Reference and state | Stubs; absent record loads in a batch |
 | Header, explorer, shell | Live and recent sessions | Live and recent collections |
-| Board columns | Issues of one stage, sorted | Open stages from the device; closed stages by page |
+| Board columns | Issues of one stage, sorted | A collection per stage: what the device holds shows at once, the rest (proposed, done) arrives by page and is then kept |
+| Which issue owns this folder (header, shell) | Open issues with a worktree | Sidebar collection |
+| References to sessions in chat and terminal | The session's status | The session if held; otherwise a batched load. Old session references are not coloured until loaded, because sessions have no stub |
 | Board counts by stage | Stage of every issue | Stubs |
 | Board counts under a priority or project filter | A filtered total | Arrives with the page |
 | Board filter menu | The possible assignees, labels, projects | Their own records, not a walk over every issue |
-| Command palette | Recents; matches for typed text | Device, then server search (exists) |
+| Command palette | Recents; matches for typed text | Device, then server search (works this way today) |
 | Mention in chat | The five best matches | Device, then server search |
 | Phone "link to task" picker | Matches in one repository; "is there any other task" | Device, then server search; stubs |
 | Position of a new task | The current top of the list | The sidebar collection |
@@ -315,7 +405,8 @@ methods in about 35 files); not every call site was read.
 
 ## What is deleted
 
-- The memory copy of all history and the start-up load of every record.
+- The memory copy of all history and the start-up load of every record, including the brief of
+  every issue (20 MB today).
 - The index over all rows with its relation index (`cold-index.ts`), and the summaries that
   describe rows not in memory.
 - The active-work rule (`packages/model/src/predicates/active-work.ts`); the policy and the
@@ -336,9 +427,17 @@ integration branch.
 | The server stamps each record with its set | Not adopted; the operator was unsure. The rule reads the record's own fields, so no stamp is needed. |
 | Query-driven sync like Zero (any query, cached for minutes) | Needs per-client query state on the server. Views pinning declared collections gives the useful part without it. |
 | Count records kept by the server | A shared count can include records a viewer may not see. |
+| Load every sub-issue of every kept tree and count locally | Exact, but 58% of all issues on the operator's data, driven by a few long-running trees. Kept for trees up to 50 issues and for trees the user opens. |
+| A "may be outdated" fourth lookup state for cached records | The feed keeps cached records current, so every screen handles three answers, not four. |
+| A title index on every device for offline search | Grows with history. It stays possible later as one more part. |
+| GraphQL for the fetch route | Its strength is per-screen field selection, which this design avoids on purpose. |
+| Adopting a sync product (Zero, ElectricSQL, PowerSync, TanStack DB) | Each replaces the sync log, the store or the model layer that exist, and none runs on both SQLite and Postgres. |
+| A schema framework (Effect Schema, TypeSpec, a move to zod 4) | A thin `defineRecord` on the zod types in use is enough. |
+| Keeping the six separate declarations with a test between them | Chosen against by the operator: one declaration, everything clean in one build. |
 | A separate stub record type | Two homes for state and parent can disagree. The stub is a part of the issue record. |
 | Arbitrary column subsets per collection (as ElectricSQL allows) | Fixed parts keep "one row per record, each field in one part". |
-| Memory holds only what open views read, the rest on disk | Kept possible behind the loader. Not chosen now: earlier measurements show screens touch most held records, and synchronous reads are simpler. |
+| Memory holds only what open views read | Indexes would be rebuilt on every navigation; the earlier memory work warns against that (one rename read 3,798 rows without incremental indexes). |
+| Policy collections in memory, the cache on disk only | Kept possible behind the loader. Not chosen now: it makes the storage interface asynchronous for no visible gain at these sizes. |
 | The sync engine in a worker | Deferred until measured. |
 
 Prior art read for this design: the reverse-engineering write-up of Linear's sync engine
@@ -353,6 +452,8 @@ query lifetime) and ElectricSQL's shape documentation.
 - First paint from an empty device, per client type.
 - Main-thread time spent applying the feed and writing storage (the worker trigger).
 - The cache cap that keeps memory within the phone's budget.
+- The time to load a big tree (estimated at one to two seconds for 970 records, not measured).
+- The existing server search at the ten-times history size.
 
 ## Open points
 
@@ -367,6 +468,8 @@ query lifetime) and ElectricSQL's shape documentation.
    sets up the server". It is a server task of its own.
 3. **Default taken, not discussed:** the body part loads when an issue is opened. The policy can
    preload bodies for issues with live work if opening them proves slow.
+4. **To check during the build:** whether an issue and its brief from the same save reach a
+   device together, and whether any screen depends on that.
 
 ## Proposed build tasks
 
@@ -381,8 +484,8 @@ Under the start-up phase (POD-5910):
 | 2 | Server: fetch route for collection instances, stub part, policy per client type, ordered first download | POD-5596; POD-6773 becomes "policy" instead of load classes; POD-6774 becomes this fetch route |
 | 3 | Client store: collection instances with markers, chunked resumable install, feed applied to what is held | POD-5595, POD-5598, POD-7048 |
 | 4 | Client loader: one loader, lookup with parts, pinned and opened lists, bring-along | POD-5597, POD-5600 |
-| 5 | Screens: move each reader per the table above; counts with the page; delete the phone inbox code | POD-5599 |
-| 6 | Server search over titles and references | First part of POD-5617 |
+| 5 | Screens: move each reader per the table above; counts with the page; delete the phone inbox code | POD-5599; POD-5915 (records that arrive by request) is to be checked against the loader |
+| 6 | Mentions, pickers and the board text filter use the existing server search after device results; measure it at scale | The index and transcript search stay with POD-5617 |
 | 7 | Generic live store from the declaration | Covers the hot session values of POD-6811 |
 | 8 | Declarative builders for one-row kinds | New |
 
@@ -398,3 +501,22 @@ points 1 and 2).
 
 Unchanged and out of this design: the per-record memory cost work (POD-5157, POD-5539,
 POD-5952, POD-5811) and chat (POD-6671).
+
+## What the check changed
+
+The first version of this document was written from notes. Reading the full conversation back
+corrected it in these places:
+
+- A server search over issue titles, descriptions and briefs already exists. An earlier turn of
+  the discussion said none existed; that was wrong. Task 6 shrank accordingly.
+- On an empty device the stubs arrive last, so counts are not available "at once". The example
+  and the counts section now say so.
+- The check for "the days passed" is not a timer. It happens when a view reads and when the
+  cache is trimmed, as discussed.
+- Added what was discussed but missing: the companions a record brings along, the saved time
+  that "recent" reads for sessions, the behaviour after a long time offline, the benefits of a
+  server-side policy, the cost of many collection instances, the memory estimates, what "one
+  copy in memory" means after the earlier memory work, and seven rejected approaches.
+- Stated what is lost without a session stub: old session references are not coloured until
+  loaded.
+
