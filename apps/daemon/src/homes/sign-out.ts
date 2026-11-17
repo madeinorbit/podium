@@ -20,6 +20,7 @@ import {
   harnessCommand,
   harnessContext,
   manifestFor,
+  noAgentTerms,
   type ResolvedHarnessInventory,
   withHarnessHome,
 } from '@podium/harness'
@@ -60,7 +61,11 @@ export async function signOutOfHome(
       id: home.homeId,
       dir: home.dir,
     })
-    const command = harnessCommand(context, { args: [...declared.args], cwd: home.dir })
+    const command = harnessCommand(
+      context,
+      { args: [...declared.args], cwd: home.dir },
+      noAgentTerms('harness sign-out: runs no agent'),
+    )
     const { env } = harnessChildEnv(context, {})
     await (io.runChild ?? defaultRunChild)(
       command,

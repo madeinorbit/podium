@@ -43,7 +43,11 @@ import {
   createCodexRuntime,
   type SessionSpec,
 } from '@podium/harness/driver/host'
-import { createMemoryDriverSlots } from '@podium/harness/driver/testing'
+import {
+  createMemoryDriverSlots,
+  testEngineTerms,
+  testSessionTerms,
+} from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import type { AccessField } from '@podium/protocol'
@@ -332,6 +336,7 @@ function rig(): Rig {
     checkVersion: async () => ({ drivable: true as const }),
     harnessContextFor: async () => context,
     dialSocket: engines.dialerFor(dialEngineSocket),
+    ...testEngineTerms(),
   })
   let next: SessionId | undefined
   const started = new Set<SessionId>()
@@ -353,6 +358,7 @@ function rig(): Rig {
     model: {},
     instructions: { supported: false, reason: 'test' },
     mcpServers: { supported: false, reason: 'test' },
+    ...testSessionTerms(),
   }
   const live = (handle: AgentSessionHandle): Live => {
     const ends: ('completed' | 'failed')[] = []

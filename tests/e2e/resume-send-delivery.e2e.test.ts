@@ -17,7 +17,7 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
@@ -87,6 +87,12 @@ async function startWorld(prefix: string) {
     asMachineId(hostMachineId()),
     { server: true, agentExecution: true },
     'resume-send-lane',
+  )
+  // The session runs on the machine's own login, which only the person who
+  // looks after the machine may use (credential management §9): the starter.
+  await srv.registry.sessionStore.machines.setMachineOwner(
+    asMachineId(hostMachineId()),
+    await firstAdminMemberId(srv.registry.sessionStore),
   )
   const daemon = await startDaemon({
     serverUrl: `ws://localhost:${srv.port}`,

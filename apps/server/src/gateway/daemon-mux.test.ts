@@ -226,7 +226,10 @@ describe('machine scope and the writer class', () => {
     // with; it sets and clears the session's credential mismatch, so a machine
     // that does not hold the session must not be able to report for it (the
     // projection also checks the session's machine).
-    expect(sessionFrames.length).toBe(30)
+    //
+    // 31 with dev/mw's `agentMode` (POD-6858): the mode a harness reports in
+    // force for one session, so it takes the same ownership check.
+    expect(sessionFrames.length).toBe(31)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
