@@ -352,6 +352,7 @@ describe('the stored row', () => {
         source: 'live',
         trailJson: JSON.stringify(instance),
         ownerUserId: null,
+        workspaceId: 'local',
       },
     ])
     // The text itself, not only its parse: `json` keeps it as written.

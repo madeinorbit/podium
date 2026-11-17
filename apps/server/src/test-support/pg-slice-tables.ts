@@ -28,7 +28,7 @@
  * the Postgres query layer over these twins.
  */
 
-import type { SessionId, UserId } from '@podium/model'
+import type { SessionId, UserId, WorkspaceId } from '@podium/model'
 import {
   bigint,
   boolean,
@@ -68,6 +68,17 @@ const isoTimestamp = (name: string) =>
 /** An integer column: `bigint`, read as a number (the driver refuses values beyond 2^53). */
 const int8 = (name: string) => bigint(name, { mode: 'number' })
 
+/**
+ * The workspace column, as the SQLite schema has it today (POD-7012's
+ * `workspaceColumn()`): not null, DEFAULT 'local', spread last. The default is
+ * temporary there and here: neither repository names the workspace until POD-7023
+ * scopes them, and the generated Postgres baseline (POD-6978, after POD-7024's keys)
+ * has no default at all (contract C5).
+ */
+const workspaceColumn = () => ({
+  workspaceId: text('workspace_id').notNull().default('local').$type<WorkspaceId>(),
+})
+
 export const recapWatermarks = pgTable(
   'recap_watermarks',
   {
@@ -75,6 +86,7 @@ export const recapWatermarks = pgTable(
     sessionId: text('session_id').$type<SessionId>().notNull(),
     watermark: text().notNull(),
     updatedAt: isoTimestamp('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.reader, table.sessionId], name: 'recap_watermarks_pk' }),
@@ -104,6 +116,7 @@ export const quotaWindows = pgTable(
     source: text().notNull(),
     trailJson: jsonText('trail_json').notNull(),
     ownerUserId: text('owner_user_id').$type<UserId>(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_quota_windows_series').on(table.accountKey, table.windowKey, table.resetsAtMs),
@@ -135,6 +148,7 @@ export const PG_SLICE_DDL: readonly string[] = [
     session_id text COLLATE "C" NOT NULL,
     watermark text COLLATE "C" NOT NULL,
     updated_at timestamptz(3) NOT NULL,
+    workspace_id text COLLATE "C" NOT NULL DEFAULT 'local',
     CONSTRAINT recap_watermarks_pk PRIMARY KEY (reader, session_id)
   )`,
   `CREATE TABLE quota_windows (
@@ -158,6 +172,7 @@ export const PG_SLICE_DDL: readonly string[] = [
     source text COLLATE "C" NOT NULL,
     trail_json json NOT NULL,
     owner_user_id text COLLATE "C",
+    workspace_id text COLLATE "C" NOT NULL DEFAULT 'local',
     CONSTRAINT quota_windows_pk PRIMARY KEY (account_key, window_key, resets_at_bucket)
   )`,
   'CREATE INDEX idx_quota_windows_series ON quota_windows (account_key, window_key, resets_at_ms)',
