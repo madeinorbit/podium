@@ -1888,7 +1888,7 @@ CREATE INDEX "idx_conversations_updated_at" ON "conversations" ("workspace_id","
 CREATE INDEX "idx_conversations_top_level_updated" ON "conversations" ("workspace_id","updated_at","id") WHERE "parent_conversation_id" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_conversations_search" ON "conversations" USING gin (to_tsvector('simple', translate(coalesce("title", '') || ' ' || coalesce("name", '') || ' ' || coalesce("summary", '') || ' ' || coalesce("project_path", ''), '!"#$%&''()*+,-./:;<=>?@[\]^_`{|}~ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞàáâãäåçèéêëìíîïñòóôõöùúûüýÿĀāĂăĄąĆćĈĉĊċČčĎďĐĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦĨĩĪīĬĭĮįİĲĴĵĶķĹĺĻļĽľĿŁŃńŅņŇňŊŌōŎŏŐőŒŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƁƂƄƆƇƉƊƋƎƏƐƑƓƔƖƗƘƜƝƟƠơƢƤƦƧƩƬƮƯưƱƲƳƵƷƸƼǄǅǇǈǊǋǍǎǏǐǑǒǓǔǕǗǙǛǞǠǢǤǦǧǨǩǪǫǬǮǰǱǲǴǵǶǷǸǹǺǼǾȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȜȞȟȠȢȤȦȧȨȩȪȬȮȯȰȲȳȺȻȽȾɁɃɄɅɆɈɊɌɎ', '                                aaaaaaæceeeeiiiiðnoooooøuuuuyþaaaaaaceeeeiiiinooooouuuuyyaaaaaaccccccccddđeeeeeeeeeegggggggghhħiiiiiiiiiĳjjkkllllllŀłnnnnnnŋooooooœrrrrrrssssssssttttŧuuuuuuuuuuuuwwyyyzzzzzzsɓƃƅɔƈɖɗƌǝəɛƒɠɣɩɨƙɯɲɵooƣƥʀƨʃƭʈuuʊʋƴƶʒƹƽǆǆǉǉǌǌaaiioouuǖǘǚǜǟǡǣǥggkkooǭǯjǳǳggƕƿnnǻǽǿaaaaeeeeiiiioooorrrruuuussttȝhhƞȣȥaaeeȫȭooȱyyⱥȼƚⱦɂƀʉʌɇɉɋɍɏ')));--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_delivery_receipts_order" ON "delivery_receipts" ("workspace_id","order_id");--> statement-breakpoint
-CREATE INDEX "idx_effects_status_deadline" ON "effects" ("workspace_id","status","deadline_at");--> statement-breakpoint
+CREATE INDEX "idx_effects_status_deadline" ON "effects" ("workspace_id","status","deadline_at" NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "idx_effects_status_finished" ON "effects" ("workspace_id","status","finished_at");--> statement-breakpoint
 CREATE INDEX "idx_effects_deleted" ON "effects" ("workspace_id","deleted_at");--> statement-breakpoint
 CREATE INDEX "idx_effects_target" ON "effects" ("workspace_id","target_kind","target_id","created_at");--> statement-breakpoint
@@ -1922,7 +1922,7 @@ CREATE INDEX "idx_issue_text_revisions_issue_field" ON "issue_text_revisions" ("
 CREATE INDEX "idx_issue_user_state_issue" ON "issue_user_state" ("workspace_id","issue_id");--> statement-breakpoint
 CREATE INDEX "idx_issues_deleted_at" ON "issues" ("workspace_id","deleted_at");--> statement-breakpoint
 CREATE INDEX "idx_issues_closed_projection" ON "issues" ("workspace_id","id","stage","closed_reason","deleted_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "idx_issues_repo_id_seq" ON "issues" ("workspace_id","repo_id","seq");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_issues_repo_id_seq" ON "issues" ("workspace_id","repo_id" NULLS FIRST,"seq");--> statement-breakpoint
 CREATE INDEX "idx_issues_parent" ON "issues" ("workspace_id","parent_id");--> statement-breakpoint
 CREATE INDEX "idx_issues_seq" ON "issues" ("workspace_id","seq","repo_path","id");--> statement-breakpoint
 CREATE INDEX "idx_issues_repo" ON "issues" ("workspace_id","repo_path");--> statement-breakpoint
@@ -1946,8 +1946,9 @@ CREATE INDEX "idx_messages_reply" ON "messages" ("workspace_id","in_reply_to","k
 CREATE INDEX "idx_messages_thread" ON "messages" ("workspace_id","thread_id");--> statement-breakpoint
 CREATE INDEX "idx_messages_recipient_delivery" ON "messages" ("workspace_id","to_kind","to_id","delivery_status","created_at","id");--> statement-breakpoint
 CREATE INDEX "idx_messages_delivery_order" ON "messages" ("workspace_id","delivery_status","created_at","id");--> statement-breakpoint
-CREATE INDEX "idx_messages_delivery_expiry_explicit" ON "messages" ("workspace_id","delivery_status","expires_at","id");--> statement-breakpoint
+CREATE INDEX "idx_messages_delivery_expiry_explicit" ON "messages" ("workspace_id","delivery_status","expires_at" NULLS FIRST,"id");--> statement-breakpoint
 CREATE INDEX "idx_messages_delivery_expiry_implicit" ON "messages" ("workspace_id","delivery_status","lifecycle","expires_at","created_at","id");--> statement-breakpoint
+CREATE INDEX "idx_messages_recipient_no_id" ON "messages" ("workspace_id", "to_kind", "created_at", "id") WHERE "to_id" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_messaging_issue_topics_ref" ON "messaging_issue_topics" ("workspace_id","chat_id","thread_ref");--> statement-breakpoint
 CREATE INDEX "idx_messaging_session_attachments_session" ON "messaging_session_attachments" ("workspace_id","session_id");--> statement-breakpoint
 CREATE INDEX "idx_notification_facts_issue" ON "notification_facts" ("workspace_id","issue_id");--> statement-breakpoint

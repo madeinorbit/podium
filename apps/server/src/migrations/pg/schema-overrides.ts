@@ -81,6 +81,40 @@ export const PG_INDEX_WHERE_OVERRIDES: Readonly<Record<string, PgOverride>> = {
   },
 }
 
+/** One index whose key columns store NULLs first on Postgres, and why. */
+export interface PgNullsFirst {
+  /** The key columns, by SQL name, declared `ASC NULLS FIRST`. */
+  readonly columns: readonly string[]
+  readonly reason: string
+}
+
+const NULLS_FIRST_ORDER =
+  'SQLite sorts NULL first in ascending order, and its btree stores it there, so an ascending ' +
+  'order on this column is read off the index. The queries write that order out for Postgres as ' +
+  '`ASC NULLS FIRST` (design 2.3), but a Postgres btree stores NULLs last unless told, and then ' +
+  'it cannot serve the order and every read sorts. Declared NULLS FIRST, it reads in order again ' +
+  '(POD-6992, the Postgres query-plan audit proves it). No query on Postgres orders the column ' +
+  'ascending with NULLs last.'
+
+/**
+ * Index keys that store NULLs first on Postgres, keyed `table.index_name`: where a definition
+ * orders the column `ASC NULLS FIRST`, SQLite's own order (design 2.3, "NULL order").
+ */
+export const PG_INDEX_NULLS_FIRST: Readonly<Record<string, PgNullsFirst>> = {
+  'effects.idx_effects_status_deadline': {
+    columns: ['deadline_at'],
+    reason: `${NULLS_FIRST_ORDER} Read by effectsInStatus and expireDueEffects (effects.ts).`,
+  },
+  'issues.idx_issues_repo_id_seq': {
+    columns: ['repo_id'],
+    reason: `${NULLS_FIRST_ORDER} Read by the issue listing's repo-seq order (issue-listings.ts).`,
+  },
+  'messages.idx_messages_delivery_expiry_explicit': {
+    columns: ['expires_at'],
+    reason: `${NULLS_FIRST_ORDER} Read by the janitor's explicit expiry pages (janitor-reads.ts).`,
+  },
+}
+
 /** Column defaults, keyed `table.column`. */
 export const PG_DEFAULT_OVERRIDES: Readonly<Record<string, PgOverride>> = {
   'sessions.published_last_active_at': {
@@ -230,9 +264,11 @@ export const conversationSearchVector = (column: (name: string) => string): stri
 
 /** An index only the Postgres twin has: its method, the expression it is over, and why. */
 export interface PgOnlyIndex {
-  readonly using: 'gin'
-  /** The indexed expression, written as Postgres reads it, column names quoted. */
+  readonly using: 'gin' | 'btree'
+  /** The indexed expression or columns, written as Postgres reads them, names quoted. */
   readonly sql: string
+  /** A partial index's condition, written as Postgres reads it. */
+  readonly where?: string
   readonly reason: string
 }
 
@@ -247,6 +283,19 @@ export const PG_ONLY_INDEXES: Readonly<Record<string, PgOnlyIndex>> = {
       'index over their tsvector, which Postgres keeps current itself (design 2.6). An ' +
       'expression index rather than a generated column, so the twin keeps the SQLite ' +
       'column set and the synced record.',
+  },
+  'messages.idx_messages_recipient_no_id': {
+    using: 'btree',
+    sql: '"workspace_id", "to_kind", "created_at", "id"',
+    where: '"to_id" IS NULL',
+    reason:
+      "The messages to a recipient with no id (the operator's), oldest first " +
+      '(messagesAddressedTo, listMessagesFor). SQLite reads them in order from ' +
+      'idx_messages_recipient_time, taking `to_id IS NULL` as an equality on its key. Postgres ' +
+      'does not: after `to_id IS NULL` the index gives it no order, and it sorts every such ' +
+      'message for each page. This partial index holds those rows in the order the page reads ' +
+      'them (POD-6992, the plan before and after is in ' +
+      'docs/measurements/pod-6958-hosted-round-trips.md).',
   },
 }
 

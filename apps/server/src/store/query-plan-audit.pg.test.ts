@@ -45,6 +45,7 @@ import { join, relative } from 'node:path'
 import { MESSAGE_PENDING, primeFirstAdminMember } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
+import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as pgSchema from '../migrations/pg/schema'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
@@ -60,12 +61,7 @@ import {
   type SourceTree,
   trackedSources,
 } from '../test-support/definition-census'
-import {
-  clonePgTestDatabase,
-  connectPgTest,
-  type PgTestClient,
-  testStoreEngine,
-} from '../test-support/pg-test-database'
+import { clonePgTestDatabase, testStoreEngine } from '../test-support/pg-test-database'
 import { useRealMigrationChain } from '../test-support/pre-migrated-store'
 import type { QueryClient } from './executor/driver'
 import { buildPgStoreDrizzle } from './executor/pg-drizzle'
@@ -181,6 +177,37 @@ const MIN_MAX_SEEK =
   'one entry; the plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   // Postgres only: plans SQLite makes without a scan or sort.
+  [
+    'apps/server/src/store/messages.ts:messagesAddressedTo [no-id]',
+    "The messages to a recipient with no id (the operator's), oldest first: read in order from the partial index idx_messages_recipient_no_id, which holds only rows with no recipient id, so its range on the kind is that recipient's messages. Before it, Postgres sorted every such message for each page (POD-6992).",
+  ],
+  [
+    'apps/server/src/store/messages.ts:pendingCountOf [no-id]',
+    "Counts the pending messages of a recipient with no id (the operator's) through the partial index idx_messages_recipient_no_id: its range on the kind is that recipient's messages.",
+  ],
+  // The janitor's reads (POD-6993), as the SQLite audit lists them: each runs once per
+  // janitor tick, in the janitor's worker on a read session of its own.
+  ['apps/server/src/store/janitor-reads.ts:maxEventIdOf', MIN_MAX_SEEK],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneHeadOf',
+    "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventCapOf',
+    'Walks podium_events newest first along the key to the retention cap (OFFSET maxRows): bounded by the cap, not by the log.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
+    'Counts the prunable events (too old, or over the cap): the OR of age and cap has no one index, and the log is bounded by the retention policy it prunes to.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcFirst',
+    'Sorts the finished issues still holding a checkout: bounded by the checkouts on disk. SQLite finds them through idx_issues_worktree; on the seed half the issues have a worktree, so Postgres scans instead, which then costs less.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcAfter',
+    'Sorts the finished issues still holding a checkout: bounded by the checkouts on disk. SQLite finds them through idx_issues_worktree; on the seed half the issues have a worktree, so Postgres scans instead, which then costs less.',
+  ],
   [
     'apps/server/src/store/accounts.ts:sentMachines',
     "Sorts one account's machine sends: a row per machine the account was sent to; accounts is a small table.",
@@ -411,6 +438,19 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * one-time repairs. The list may only shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  // The janitor's archive sweeps (POD-6993), as the SQLite audit lists them.
+  [
+    'apps/server/src/store/janitor-reads.ts:sessionArchiveOf',
+    "Sweeps session_user_state for owners' reads of stopped sessions, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveFirst',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveAfter',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
   // Postgres only.
   [
     'apps/server/src/store/transcript-costs.ts:costedSessions',
@@ -596,19 +636,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
  * defers it (the SQLite audit's `SHAPE_DEBT`). The list may only shrink.
  */
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
-  // Postgres only: index order (POD-7101).
-  [
-    'apps/server/src/store/effects.ts:effectsInStatus [pending]',
-    "Sorts the pending effects by deadline NULLS FIRST, SQLite's null order; the Postgres btree stores NULLs last, so idx_effects_status_deadline does not serve the order (POD-7101). The pending effects are a few.",
-  ],
-  [
-    'apps/server/src/store/effects.ts:expireDueEffects',
-    'Sorts the due effects by deadline NULLS FIRST; idx_effects_status_deadline stores NULLs last on Postgres (POD-7101). Due effects are a few.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:messagesAddressedTo [no-id]',
-    "Sorts the messages to a recipient kind with no id (to_id IS NULL): Postgres does not take IS NULL as an equality for index order, so idx_messages_recipient_time finds the rows and a sort orders them, all of the kind's messages (POD-7101).",
-  ],
   // Mirrored from the SQLite audit: the same statement, the same reason.
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|any]',
@@ -705,6 +732,25 @@ const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
         'The leaders of the open trains. Released trains are the history and open ones a few; on that shape Postgres reads the partial index of open trains, as SQLite is told to. On the seed half the trains are open.',
     },
   ],
+  [
+    'apps/server/src/store/janitor-reads.ts:changeFeedOf [undefined]',
+    {
+      values: [WS_LITERAL, '10', WS_LITERAL],
+      reason:
+        "The janitor's read of the feed with the retention prune's age threshold (as newestAgedSeq): the generic plan takes a third of the log as aged and walks the primary key down from the head; for a real threshold Postgres plans the changes_event_time range.",
+    },
+  ],
+  ...(['implicitExpiryFirst', 'implicitExpiryAfter'] as const).map(
+    (name) =>
+      [
+        `apps/server/src/store/janitor-reads.ts:${name} [undefined]`,
+        {
+          alsoReads: 'idx_messages_delivery_order',
+          reason:
+            "The janitor's implicit expiry page: stored messages that wait, with no expiry of their own, oldest first. SQLite names idx_messages_delivery_expiry_implicit, whose `expires_at IS NULL` it reads as an equality; Postgres does not take IS NULL for order, so it reads idx_messages_delivery_order, the stored messages in created order (the pending queue), and filters: the same rows in the same order, without a sort.",
+        },
+      ] as const,
+  ),
   [
     'apps/server/src/store/superagent.ts:syncTurnRunning [undefined]',
     {
@@ -846,6 +892,29 @@ const EXPRESSION_INDEXES_UNUSED: ReadonlyMap<string, string> = new Map([])
 // Seeding
 // ---------------------------------------------------------------------------
 
+/**
+ * The audit's own connection: postgres.js, one connection, never dropped for idling, so a
+ * session setting and a transaction stay on the connection they were made on. Each
+ * planner switch and each reshape runs in a transaction of its own (`begin`), never as
+ * session state a reconnect would lose.
+ */
+type AuditDb = postgres.Sql
+/** A connection or a transaction on it: what runs one statement. */
+type Runner = Pick<postgres.Sql, 'unsafe'>
+
+function openAuditDb(url: string): AuditDb {
+  return postgres(url, { max: 1, idle_timeout: 0, onnotice: () => undefined })
+}
+
+/**
+ * Rows of one statement, as plain objects. Sent as simple-protocol text: an audited
+ * statement's `$1` is EXPLAIN's (`GENERIC_PLAN`), not a parameter to bind.
+ */
+async function rowsOf<Row>(runner: Runner, query: string): Promise<Row[]> {
+  const options = { simple: true } as unknown as Parameters<Runner['unsafe']>[2]
+  return Array.from((await runner.unsafe(query, [], options)) as unknown as Row[])
+}
+
 interface ColumnInfo {
   readonly table_name: string
   readonly column_name: string
@@ -951,8 +1020,15 @@ function closedValues(definition: string): { column: string; values: string[] } 
  * Fill every table of the audit's database and analyze it (see the header). Returns the
  * tables it filled, by name.
  */
-async function seedRows(admin: PgTestClient): Promise<string[]> {
-  const columns = await admin.unsafe<ColumnInfo>(
+async function seedRows(db: AuditDb): Promise<string[]> {
+  const filled = await db.begin(async (tx) => await seedIn(tx))
+  await db.unsafe('ANALYZE')
+  return filled
+}
+
+async function seedIn(admin: Runner): Promise<string[]> {
+  const columns = await rowsOf<ColumnInfo>(
+    admin,
     `SELECT c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable, c.is_identity,
             c.identity_generation, c.is_generated
        FROM information_schema.columns c
@@ -966,7 +1042,8 @@ async function seedRows(admin: PgTestClient): Promise<string[]> {
     byTable.set(column.table_name, [...(byTable.get(column.table_name) ?? []), column])
   }
   // The planner reads no CHECK constraint, and the generated values do not meet them.
-  const checks = await admin.unsafe<{ table_name: string; name: string; definition: string }>(
+  const checks = await rowsOf<{ table_name: string; name: string; definition: string }>(
+    admin,
     `SELECT rel.relname AS table_name, con.conname AS name,
             pg_get_constraintdef(con.oid) AS definition
        FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid
@@ -985,7 +1062,7 @@ async function seedRows(admin: PgTestClient): Promise<string[]> {
     await admin.unsafe(`ALTER TABLE "${table_name}" DROP CONSTRAINT "${name}"`)
   }
   // Foreign keys are triggers, which replica mode skips: the rows reference nothing.
-  await admin.unsafe('SET session_replication_role = replica')
+  await admin.unsafe('SET LOCAL session_replication_role = replica')
   const filled: string[] = []
   for (const [table, of] of byTable) {
     const written = of.filter(
@@ -1001,8 +1078,6 @@ async function seedRows(admin: PgTestClient): Promise<string[]> {
     )
     filled.push(table)
   }
-  await admin.unsafe('SET session_replication_role = DEFAULT')
-  await admin.unsafe('ANALYZE')
   return filled
 }
 
@@ -1042,14 +1117,15 @@ interface Schema {
   readonly expressionIndexes: ReadonlyMap<string, { table: string; definition: string }>
 }
 
-async function readSchema(admin: PgTestClient): Promise<Schema> {
-  const indexes = await admin.unsafe<{
+async function readSchema(admin: Runner): Promise<Schema> {
+  const indexes = await rowsOf<{
     name: string
     table: string
     expr: boolean
     def: string
     columns: string
   }>(
+    admin,
     `SELECT i.relname AS name, t.relname AS table, x.indexprs IS NOT NULL AS expr,
             pg_get_indexdef(x.indexrelid) AS def,
             (SELECT string_agg(coalesce(a.attname, '*'), ',' ORDER BY k.n)
@@ -1062,7 +1138,8 @@ async function readSchema(admin: PgTestClient): Promise<Schema> {
        JOIN pg_namespace n ON n.oid = t.relnamespace
       WHERE n.nspname = 'public'`,
   )
-  const columns = await admin.unsafe<{ table_name: string; column_name: string }>(
+  const columns = await rowsOf<{ table_name: string; column_name: string }>(
+    admin,
     `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
   )
   const columnsOf = new Map<string, Set<string>>()
@@ -1289,25 +1366,34 @@ const FORCED_SETTINGS = [
 ]
 
 /** {@link explain} with the planner kept off every scan, sort and hash an index could replace. */
-async function explainForced(admin: PgTestClient, sql: string): Promise<PlanNode> {
-  for (const setting of FORCED_SETTINGS) await admin.unsafe(`SET ${setting} = off`)
-  try {
-    return await explain(admin, sql)
-  } finally {
-    for (const setting of FORCED_SETTINGS) await admin.unsafe(`RESET ${setting}`)
-  }
+async function explainForced(db: AuditDb, sql: string): Promise<PlanNode> {
+  return await db.begin(async (tx) => {
+    for (const setting of FORCED_SETTINGS) await tx.unsafe(`SET LOCAL ${setting} = off`)
+    return await explain(tx, sql)
+  })
 }
 
-/** `EXPLAIN (GENERIC_PLAN, FORMAT JSON)` of one statement. */
-async function explain(admin: PgTestClient, sql: string): Promise<PlanNode> {
-  const rows = await admin.unsafe<{ 'QUERY PLAN': unknown }>(
-    `EXPLAIN (GENERIC_PLAN, FORMAT JSON) ${sql}`,
-  )
+/** The plan of one `EXPLAIN (… FORMAT JSON)` result. */
+function planOf(rows: readonly { 'QUERY PLAN': unknown }[]): PlanNode {
   const raw = rows[0]?.['QUERY PLAN']
   const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { Plan: PlanNode }[]
   const plan = parsed[0]?.Plan
   if (plan === undefined) throw new Error('EXPLAIN returned no plan')
   return plan
+}
+
+/** `EXPLAIN (GENERIC_PLAN, FORMAT JSON)` of one statement. */
+async function explain(runner: Runner, sql: string): Promise<PlanNode> {
+  return planOf(
+    await rowsOf<{ 'QUERY PLAN': unknown }>(runner, `EXPLAIN (GENERIC_PLAN, FORMAT JSON) ${sql}`),
+  )
+}
+
+/** Carries a plan out of a transaction that must roll back. */
+class Planned extends Error {
+  constructor(readonly plan: PlanNode) {
+    super('rolled back after planning')
+  }
 }
 
 /** `sql` with `$1, $2, ...` replaced by `values`, highest first so `$1` does not match `$10`. */
@@ -1319,27 +1405,31 @@ function withValues(sql: string, values: readonly string[]): string {
 
 /** The plan of `sql` on the database as `shape` reshapes it, in a transaction rolled back. */
 async function explainShaped(
-  admin: PgTestClient,
+  db: AuditDb,
   sql: string,
   shape: Omit<HintShape, 'reason'> & { readonly off?: readonly string[] },
 ): Promise<PlanNode> {
-  await admin.unsafe('BEGIN')
   try {
-    for (const setting of shape.off ?? []) await admin.unsafe(`SET LOCAL ${setting} = off`)
-    for (const statement of shape.reshape ?? []) await admin.unsafe(statement)
-    for (const table of shape.analyze ?? []) await admin.unsafe(`ANALYZE "${table}"`)
-    if (shape.values === undefined) return await explain(admin, sql)
-    const rows = await admin.unsafe<{ 'QUERY PLAN': unknown }>(
-      `EXPLAIN (FORMAT JSON) ${withValues(sql, shape.values)}`,
-    )
-    const raw = rows[0]?.['QUERY PLAN']
-    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { Plan: PlanNode }[]
-    const plan = parsed[0]?.Plan
-    if (plan === undefined) throw new Error('EXPLAIN returned no plan')
-    return plan
-  } finally {
-    await admin.unsafe('ROLLBACK')
+    await db.begin(async (tx) => {
+      for (const setting of shape.off ?? []) await tx.unsafe(`SET LOCAL ${setting} = off`)
+      for (const statement of shape.reshape ?? []) await tx.unsafe(statement)
+      for (const table of shape.analyze ?? []) await tx.unsafe(`ANALYZE "${table}"`)
+      const plan =
+        shape.values === undefined
+          ? await explain(tx, sql)
+          : planOf(
+              await rowsOf<{ 'QUERY PLAN': unknown }>(
+                tx,
+                `EXPLAIN (FORMAT JSON) ${withValues(sql, shape.values)}`,
+              ),
+            )
+      throw new Planned(plan)
+    })
+  } catch (error) {
+    if (error instanceof Planned) return error.plan
+    throw error
   }
+  throw new Error('the reshaped plan was not read')
 }
 
 /** The list entry for a statement: by `key [shape]` first, then by `key`. */
@@ -1397,7 +1487,7 @@ const SOURCE: SourceTree = {
 
 describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD-6992)', () => {
   let store: SessionStore
-  let admin: PgTestClient
+  let admin: AuditDb
   let schema: Schema
   let keyed: KeyedDefinition[]
   let audited: AuditedStatement[] = []
@@ -1429,7 +1519,7 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
     keyed = census.keyed
     built = pgStatements(keyed)
     const { url } = await clonePgTestDatabase('file')
-    admin = connectPgTest(url)
+    admin = openAuditDb(url)
     await seedRows(admin)
     schema = await readSchema(admin)
     const results: AuditedStatement[] = []
@@ -1449,8 +1539,24 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
   }, 600_000)
 
   afterAll(async () => {
-    await admin?.close()
+    await admin?.end({ timeout: 5 })
     await store?.close()
+  })
+
+  // A reading aid, off by default: PODIUM_PLAN_AUDIT_SHOW=<key fragment>,… prints the
+  // generic and forced plans of the matching statements.
+  it('shows the plans asked for', async () => {
+    const wanted = (process.env.PODIUM_PLAN_AUDIT_SHOW ?? '').split(',').filter(Boolean)
+    const tree = (node: PlanNode, depth = 0): string[] => [
+      `${'  '.repeat(depth)}${node['Node Type']}${node['Relation Name'] ? ` ${node['Relation Name']}` : ''}${node['Index Name'] ? ` using ${node['Index Name']}` : ''}${node['Index Cond'] ? ` [${node['Index Cond']}]` : ''}${node['Sort Key'] ? ` by ${node['Sort Key'].join(', ')}` : ''}`,
+      ...(node.Plans ?? []).flatMap((child) => tree(child, depth + 1)),
+    ]
+    for (const entry of audited.filter((each) => wanted.some((w) => each.key.includes(w)))) {
+      const forced = await explainForced(admin, entry.sql)
+      console.log(
+        `PLAN ${entry.key} [${String(entry.shape)}]\n${tree(entry.plan).join('\n')}\nFORCED\n${tree(forced).join('\n')}\nSQL ${entry.sql.slice(0, 900)}`,
+      )
+    }
   })
 
   it('reaches, builds and plans every query definition in its Postgres form', () => {
@@ -1497,6 +1603,7 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
       ...SHAPE_DEBT.keys(),
       ...PLANNER_CHOICES.keys(),
     ].filter((name) => !(byKey.get(name) ?? []).some((entry) => entry.findings.length > 0))
+    for (const name of stale) console.log(`STALE ${name}`)
     expect(stale).toEqual([])
     // A SQLite-only definition must still exist (it is skipped, so it has no plan).
     const built = new Set(keyed.map((entry) => entry.key))
@@ -1643,6 +1750,34 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
       reason: 'the SQLite test',
     })
     expect(indexesInPlan(plan)).toContain('idx_ship_orders_one_active_issue')
+  })
+
+  it('reads in index order where SQLite does, NULL order included (POD-6992)', () => {
+    // The Postgres indexes that store NULLs first (PG_INDEX_NULLS_FIRST) and the partial
+    // index for rows with no recipient id: before them, each of these sorted on Postgres.
+    const sorted: string[] = []
+    const keys = [
+      'apps/server/src/store/effects.ts:effectsInStatus',
+      'apps/server/src/store/effects.ts:expireDueEffects',
+      'apps/server/src/store/janitor-reads.ts:explicitExpiryFirst',
+      'apps/server/src/store/janitor-reads.ts:explicitExpiryAfter',
+      'apps/server/src/store/messages.ts:messagesAddressedTo',
+    ]
+    const entries = audited.filter((entry) => keys.includes(entry.key))
+    // The repo-seq listing through the repository index, its order intact.
+    const listing = audited.filter(
+      (entry) =>
+        entry.key === 'apps/server/src/store/issue-listings.ts:issueListing' &&
+        String(entry.shape).includes('repo-seq') &&
+        indexesInPlan(entry.plan).includes('idx_issues_repo_id_seq'),
+    )
+    for (const entry of [...entries, ...listing]) {
+      if (nodesOf(entry.plan).some((node) => node['Node Type'] === 'Sort')) {
+        sorted.push(`${entry.key} [${String(entry.shape)}]`)
+      }
+    }
+    expect(entries.length).toBeGreaterThan(keys.length)
+    expect(sorted).toEqual([])
   })
 
   it('fails a planted unindexed lookup and a planted sort', async () => {

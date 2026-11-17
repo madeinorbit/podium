@@ -663,7 +663,11 @@ export const effects = pgTable(
   },
   (table) => [
     primaryKey({ name: 'effects_pk', columns: [table.workspaceId, table.id] }),
-    index('idx_effects_status_deadline').on(table.workspaceId, table.status, table.deadlineAt),
+    index('idx_effects_status_deadline').on(
+      table.workspaceId,
+      table.status,
+      table.deadlineAt.asc().nullsFirst(),
+    ),
     index('idx_effects_status_finished').on(table.workspaceId, table.status, table.finishedAt),
     index('idx_effects_deleted').on(table.workspaceId, table.deletedAt),
     index('idx_effects_target').on(
@@ -1202,7 +1206,11 @@ export const issues = pgTable(
       table.closedReason,
       table.deletedAt,
     ),
-    uniqueIndex('idx_issues_repo_id_seq').on(table.workspaceId, table.repoId, table.seq),
+    uniqueIndex('idx_issues_repo_id_seq').on(
+      table.workspaceId,
+      table.repoId.asc().nullsFirst(),
+      table.seq,
+    ),
     index('idx_issues_parent').on(table.workspaceId, table.parentId),
     index('idx_issues_seq').on(table.workspaceId, table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.workspaceId, table.repoPath),
@@ -1578,7 +1586,7 @@ export const messages = pgTable(
     index('idx_messages_delivery_expiry_explicit').on(
       table.workspaceId,
       table.deliveryStatus,
-      table.expiresAt,
+      table.expiresAt.asc().nullsFirst(),
       table.id,
     ),
     index('idx_messages_delivery_expiry_implicit').on(
@@ -1589,6 +1597,9 @@ export const messages = pgTable(
       table.createdAt,
       table.id,
     ),
+    index('idx_messages_recipient_no_id')
+      .using('btree', sql`"workspace_id", "to_kind", "created_at", "id"`)
+      .where(sql`"to_id" IS NULL`),
     check('messages_check_5', sql`from_kind IN ('operator','superagent','agent','system')`),
     check('messages_check_6', sql`to_kind IN ('issue','session','operator')`),
     check('messages_check_7', sql`kind IN ('message','ack','notification','question')`),

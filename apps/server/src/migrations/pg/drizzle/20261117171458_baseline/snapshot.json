@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a2b7abda-4223-43b6-8d54-44996fbfcdab",
+  "id": "bb594e80-01cd-4d74-8af7-5016ee7de553",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -18235,7 +18235,7 @@
           "value": "deadline_at",
           "isExpression": false,
           "asc": true,
-          "nullsFirst": false,
+          "nullsFirst": true,
           "opclass": null
         }
       ],
@@ -19299,7 +19299,7 @@
           "value": "repo_id",
           "isExpression": false,
           "asc": true,
-          "nullsFirst": false,
+          "nullsFirst": true,
           "opclass": null
         },
         {
@@ -20125,7 +20125,7 @@
           "value": "expires_at",
           "isExpression": false,
           "asc": true,
-          "nullsFirst": false,
+          "nullsFirst": true,
           "opclass": null
         },
         {
@@ -20198,6 +20198,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "idx_messages_delivery_expiry_implicit",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "\"workspace_id\", \"to_kind\", \"created_at\", \"id\"",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"to_id\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_messages_recipient_no_id",
       "entityType": "indexes",
       "schema": "public",
       "table": "messages"

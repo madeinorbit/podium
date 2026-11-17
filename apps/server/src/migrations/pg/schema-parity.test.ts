@@ -62,6 +62,7 @@ import {
   PG_DDL_NOTES,
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
+  PG_INDEX_NULLS_FIRST,
   PG_INDEX_WHERE_OVERRIDES,
   PG_ONLY_INDEXES,
   PG_ONLY_TABLES,
@@ -102,6 +103,8 @@ function pgTablesOf(module: Module, identityKeys: ReadonlySet<string>): Map<stri
 interface Overrides {
   readonly checks: Readonly<Record<string, PgOverride>>
   readonly indexWheres: Readonly<Record<string, PgOverride>>
+  /** Index keys stored NULLS FIRST on Postgres, keyed `table.index`. */
+  readonly nullsFirst: Readonly<Record<string, { readonly columns: readonly string[] }>>
   readonly defaults: Readonly<Record<string, PgOverride>>
   readonly keptAsText: Readonly<Record<string, string>>
   readonly foreignKeyNames: Readonly<Record<string, { readonly name: string }>>
@@ -113,6 +116,7 @@ interface Overrides {
 const REAL_OVERRIDES: Overrides = {
   checks: PG_CHECK_OVERRIDES,
   indexWheres: PG_INDEX_WHERE_OVERRIDES,
+  nullsFirst: PG_INDEX_NULLS_FIRST,
   defaults: PG_DEFAULT_OVERRIDES,
   keptAsText: PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
   foreignKeyNames: PG_FOREIGN_KEY_RENAMES,
@@ -290,6 +294,19 @@ function compareTable(
     if (sCols !== pCols) find(`index ${config.name} on (${sCols}) / (${pCols})`)
     if (Boolean(config.unique) !== Boolean(twin.unique))
       find(`index ${config.name}: unique differs`)
+    // The NULL order of each key column: Postgres's default unless the override names it.
+    const declared = overrides.nullsFirst[`${table}.${config.name}`]
+    const stored = twin.columns.flatMap((column) => {
+      const nulls = (column as { indexConfig?: { nulls?: string; order?: string } }).indexConfig
+      return nulls?.nulls === 'first' && nulls.order !== 'desc'
+        ? [(column as { name: string }).name]
+        : []
+    })
+    if (declared !== undefined) parity.used.add(`nulls first ${table}.${config.name}`)
+    if (stored.join(',') !== (declared?.columns ?? []).join(','))
+      find(
+        `index ${config.name}: NULLS FIRST on (${stored.join(',')}), the override says (${(declared?.columns ?? []).join(',')})`,
+      )
     const override = overrides.indexWheres[`${table}.${config.name}`]
     const sWhere = config.where === undefined ? undefined : sqliteSql(config.where)
     const pWhere = twin.where === undefined ? undefined : pgSql(twin.where)
@@ -315,6 +332,9 @@ function compareTable(
       find(
         `index ${name}: using ${config.method} on ${columns}, the override says ${only.using} on (${only.sql})`,
       )
+    const where = config.where === undefined ? undefined : pgSql(config.where)
+    if (where !== (only.where === undefined ? undefined : fold(only.where)))
+      find(`index ${name}: where ${where}, the override says ${only.where}`)
   }
 
   // Foreign keys, by name, with their actions.
@@ -484,6 +504,7 @@ describe('the class lists and the overrides', () => {
     const listed = [
       ...Object.keys(PG_CHECK_OVERRIDES).map((key) => `check ${key}`),
       ...Object.keys(PG_INDEX_WHERE_OVERRIDES).map((key) => `where ${key}`),
+      ...Object.keys(PG_INDEX_NULLS_FIRST).map((key) => `nulls first ${key}`),
       ...Object.keys(PG_DEFAULT_OVERRIDES).map((key) => `default ${key}`),
       ...Object.keys(PG_FOREIGN_KEY_RENAMES).map((key) => `foreign key ${key}`),
       ...Object.keys(PG_ONLY_INDEXES).map((key) => `pg-only index ${key}`),
@@ -578,6 +599,8 @@ describe('the checker finds planted drift', () => {
     check?: boolean
     /** A GIN index only the twin has, over this expression. */
     searchIndex?: string
+    /** planted_name stores NULLs first (POD-6992). */
+    nullsFirst?: boolean
   }
   const twin = (drift: Drift = {}) =>
     pgTable(
@@ -592,7 +615,13 @@ describe('the checker finds planted drift', () => {
         n: pgSync.int8('n').notNull().default(0),
       },
       (table) => [
-        ...(drift.index ? [] : [index('planted_name').on(table.name)]),
+        ...(drift.index
+          ? []
+          : [
+              index('planted_name').on(
+                drift.nullsFirst ? table.name.asc().nullsFirst() : table.name,
+              ),
+            ]),
         index('planted_n').on(table.n).where(sql`"n" > 0`),
         ...(drift.check ? [] : [check('planted_n_check', sql`n >= 0`)]),
         ...(drift.searchIndex === undefined
@@ -616,6 +645,20 @@ describe('the checker finds planted drift', () => {
   it('finds a text column without COLLATE "C"', () => {
     expect(findingsOf(twin({ plainText: true }))).toMatch(
       /column name is text \(PgText\), its class wants text COLLATE "C"/,
+    )
+  })
+
+  it('finds a NULL order the overrides do not name, and one they name that is not there', () => {
+    expect(findingsOf(twin({ nullsFirst: true }))).toMatch(
+      /index planted_name: NULLS FIRST on \(name\), the override says \(\)/,
+    )
+    const named: Overrides = {
+      ...classes,
+      nullsFirst: { 'planted.planted_name': { columns: ['name'] } },
+    }
+    expect(findingsOf(twin({ nullsFirst: true }), named)).toBe('')
+    expect(findingsOf(twin(), named)).toMatch(
+      /index planted_name: NULLS FIRST on \(\), the override says \(name\)/,
     )
   })
 

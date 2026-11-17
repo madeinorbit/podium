@@ -51,6 +51,7 @@ import {
   PG_CHECK_OVERRIDES,
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
+  PG_INDEX_NULLS_FIRST,
   PG_INDEX_WHERE_OVERRIDES,
   PG_ONLY_INDEXES,
   PG_ONLY_TABLES,
@@ -257,12 +258,14 @@ function tableSource(
   for (const index of config.indexes) {
     const builder = index.config.unique ? 'uniqueIndex' : 'index'
     uses.core.add(builder)
+    const nullsFirst = PG_INDEX_NULLS_FIRST[`${name}.${index.config.name}`]
     const parts = index.config.columns.map((part) => {
       if (is(part, SQL)) {
         uses.sql = true
         return sqlTag(sqliteSqlText(part))
       }
-      return columnRef(part as Column)
+      const ref = columnRef(part as Column)
+      return nullsFirst?.columns.includes((part as Column).name) ? `${ref}.asc().nullsFirst()` : ref
     })
     let source = `${builder}(${tsString(index.config.name)}).on(${parts.join(', ')})`
     const override = PG_INDEX_WHERE_OVERRIDES[`${name}.${index.config.name}`]
@@ -283,7 +286,9 @@ function tableSource(
     if (table !== name) continue
     uses.core.add('index')
     uses.sql = true
-    extras.push(`index(${tsString(index)}).using('${only.using}', ${sqlTag(only.sql)})`)
+    extras.push(
+      `index(${tsString(index)}).using('${only.using}', ${sqlTag(only.sql)})${only.where === undefined ? '' : `.where(${sqlTag(only.where)})`}`,
+    )
   }
   for (const fk of config.foreignKeys) {
     uses.core.add('foreignKey')
