@@ -668,7 +668,8 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
   describe('the parked upstream outbox', () => {
     it('reports the parked rows oldest first and reads none of the payload', async () => {
       await fixture().seed(
-        "INSERT INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES ('b', 'issues.update', '{\"secret\":1}', 20), ('a', 'issues.create', '{\"secret\":2}', 10)",
+        // Rows of the repository's own workspace: the column has no default (POD-7024).
+        `INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at) VALUES ('${repo.workspaceId}', 'b', 'issues.update', '{"secret":1}', 20), ('${repo.workspaceId}', 'a', 'issues.create', '{"secret":2}', 10)`,
       )
       const parked = await repo.listParkedUpstreamMutations()
       expect(parked).toEqual([

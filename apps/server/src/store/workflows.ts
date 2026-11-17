@@ -440,7 +440,11 @@ const upsertBinding = prepared((db, t) =>
         updatedAt: P('now'),
       })
       .onConflictDoUpdate({
-        target: [t.workflowBindings.targetKind, t.workflowBindings.targetId],
+        target: [
+          t.workflowBindings.workspaceId,
+          t.workflowBindings.targetKind,
+          t.workflowBindings.targetId,
+        ],
         // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
         // rebind may not change the resource owner `ownerOf` authorizes from.
         set: {

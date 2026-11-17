@@ -4,10 +4,11 @@
  *
  * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
  * repositories: recap watermarks (`store/read-watermarks.ts`), quota windows
- * (`store/quota-history.ts`) and durable operations (`modules/operations/store.ts`). The ids
- * and keys differ between the workspaces: until the key migration (C1, POD-7024) no unique
- * constraint includes `workspace_id`, so the same key in both would collide on the old one.
- * For the same reason no upsert here names the other workspace's key.
+ * (`store/quota-history.ts`) and durable operations (`modules/operations/store.ts`).
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of those files:
  *   - a read answers only its own workspace's rows, the whole-table listings and counts
@@ -354,5 +355,34 @@ describe('update recovery (modules/updates/recovery-store.ts) is the install’s
       .prepare("SELECT key FROM meta WHERE key = 'updates.execution.v1'")
       .all()
     expect(rows).toHaveLength(1)
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const rowsIn = (store: SessionStore, ws: string) =>
+      rawDb(store)
+        .prepare(
+          'SELECT * FROM quota_windows WHERE workspace_id = ? AND account_key = ? ORDER BY rowid',
+        )
+        .all(ws, SAME)
+    const SAME = 'claude-code::same@example.com'
+    const { a, b } = stores
+    await b.quotaHistory.record(sample('b', { accountKey: SAME }), SAMPLING)
+    const before = rowsIn(b, WS.b)
+    await a.quotaHistory.record(sample('a', { accountKey: SAME }), SAMPLING)
+    expect(rowsIn(a, WS.a)).toHaveLength(1)
+    expect(rowsIn(b, WS.b)).toEqual(before)
+    await a.quotaHistory.record(
+      sample('a', { accountKey: SAME, usedPercent: 40, atMs: SEEN + SAMPLING }),
+      SAMPLING,
+    )
+    expect(rowsIn(a, WS.a)).toEqual([expect.objectContaining({ peak_percent: 40 })])
+    expect(rowsIn(b, WS.b)).toEqual(before)
   })
 })

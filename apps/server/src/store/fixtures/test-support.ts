@@ -56,6 +56,7 @@ export function memberFacts(store: SessionStore) {
       await store.grants.machineRecordWrites.compare(async () => {
         await store.transact(async () => {
           await db.insert(users).values({
+            workspaceId: store.workspaceId,
             id,
             displayName: account.displayName,
             email: account.email == null ? null : LoginEmail.parse(account.email),
@@ -119,6 +120,7 @@ export function legacyIdentity(store: SessionStore) {
       // Legacy rows are seeded below the change log (POD-6920).
       await seedRows(store, async () => {
         await db.insert(users).values({
+          workspaceId: store.workspaceId,
           id: asUserId(account.id),
           displayName: account.displayName,
           role: account.role,

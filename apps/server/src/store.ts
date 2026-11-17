@@ -408,6 +408,15 @@ export class StoreDatabase {
    * workspace's boot steps (the settings snapshot, the identity refusals and
    * repairs, the global thread). It provisions nothing: a workspace is
    * provisioned by whoever creates it ({@link provisionWorkspace}).
+   *
+   * NO SQLITE SEARCH HERE, ON PURPOSE (POD-7022's note, decided in POD-7024). Only
+   * the boot workspace opens the FTS5 index (`ensureFts` in the boot above).
+   * FTS5 is the SQLite engine's search, and a SQLite database is a self-hosted
+   * install with one workspace; a hosted workspace runs on Postgres, whose search
+   * is the engine task's (POD-6958). A further workspace opened here on a SQLite
+   * database searches with the LIKE fallback (`ftsAvailable` stays false), and
+   * its rows are never keyed into, or taken from, the self-hosted workspace's
+   * search keys (`store/conversations/transcript-index.ts`).
    */
   async workspace(workspaceId: WorkspaceId): Promise<SessionStore> {
     const open = this.workspaces.get(workspaceId)

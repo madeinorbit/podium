@@ -205,7 +205,7 @@ const upsertCheckpoint = prepared((db, t) =>
         turnStateJson: sql.placeholder('turnStateJson'),
       })
       .onConflictDoUpdate({
-        target: t.runtimeEventCheckpoints.sessionId,
+        target: [t.runtimeEventCheckpoints.workspaceId, t.runtimeEventCheckpoints.sessionId],
         set: {
           observerGeneration: sql.placeholder('observerGeneration'),
           cursorJson: sql.placeholder('cursorJson'),
@@ -416,7 +416,10 @@ const advanceProjectionCursor = prepared((db, t) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: t.runtimeEventProjectionCursors.projector,
+      target: [
+        t.runtimeEventProjectionCursors.workspaceId,
+        t.runtimeEventProjectionCursors.projector,
+      ],
       set: { lastEventId: sql.placeholder('lastEventId'), updatedAt: sql.placeholder('updatedAt') },
       // MONOTONIC, and the guard belongs in the statement rather than in a
       // caller: a replaying projector must not rewind the head, because
@@ -692,7 +695,10 @@ const upsertStewardValue = prepared((db, t) =>
       key: sql.placeholder('key'),
       value: sql.placeholder('value'),
     })
-    .onConflictDoUpdate({ target: t.stewardState.key, set: { value: sql.placeholder('value') } })
+    .onConflictDoUpdate({
+      target: [t.stewardState.workspaceId, t.stewardState.key],
+      set: { value: sql.placeholder('value') },
+    })
     .prepare(),
 )
 

@@ -28,10 +28,8 @@
  * through and `jsonValue` parses it, as SQLite's `mode: 'json'` does.
  */
 
-import { sql } from 'drizzle-orm'
 import {
   bigint,
-  check,
   customType,
   foreignKey,
   index,
@@ -75,18 +73,18 @@ type SqliteRow<T extends keyof typeof sqlite> = (typeof sqlite)[T] extends {
 export const appliedMutations = pgTable(
   'applied_mutations',
   {
-    mutationId: textC('mutation_id')
-      .primaryKey()
-      .$type<SqliteRow<'appliedMutations'>['mutationId']>(),
+    mutationId: textC('mutation_id').notNull().$type<SqliteRow<'appliedMutations'>['mutationId']>(),
     proc: textC('proc').notNull().$type<SqliteRow<'appliedMutations'>['proc']>(),
     result: textC('result').notNull().$type<SqliteRow<'appliedMutations'>['result']>(),
     appliedAt: int8('applied_at').notNull().$type<SqliteRow<'appliedMutations'>['appliedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'appliedMutations'>['workspaceId']>(),
   },
-  (table) => [index('idx_applied_mutations_applied_at').on(table.appliedAt)],
+  (table) => [
+    primaryKey({ name: 'applied_mutations_pk', columns: [table.workspaceId, table.mutationId] }),
+    index('idx_applied_mutations_applied_at').on(table.workspaceId, table.appliedAt),
+  ],
 )
 
 export const changes = pgTable(
@@ -108,20 +106,6 @@ export const changes = pgTable(
     index('changes_entity').on(table.workspaceId, table.entity, table.entityId, table.seq),
     index('changes_event_time').on(table.workspaceId, table.eventTime, table.seq),
   ],
-)
-
-export const feedIdentity = pgTable(
-  'feed_identity',
-  {
-    singleton: int8('singleton')
-      .primaryKey()
-      .generatedByDefaultAsIdentity()
-      .$type<SqliteRow<'feedIdentity'>['singleton']>(),
-    feedId: textC('feed_id').notNull().$type<SqliteRow<'feedIdentity'>['feedId']>(),
-    epoch: textC('epoch').notNull().$type<SqliteRow<'feedIdentity'>['epoch']>(),
-    mintedAt: int8('minted_at').notNull().$type<SqliteRow<'feedIdentity'>['mintedAt']>(),
-  },
-  (_table) => [check('feed_identity_singleton', sql`"singleton" = 1`)],
 )
 
 export const syncCapture = pgTable(
@@ -157,14 +141,18 @@ export const syncCaptureGuard = pgTable('sync_capture_guard', {
     .$type<SqliteRow<'syncCaptureGuard'>['id']>(),
 })
 
-export const syncFeed = pgTable('sync_feed', {
-  workspaceId: textC('workspace_id').primaryKey().$type<SqliteRow<'syncFeed'>['workspaceId']>(),
-  feedId: textC('feed_id').notNull().$type<SqliteRow<'syncFeed'>['feedId']>(),
-  epoch: textC('epoch').notNull().$type<SqliteRow<'syncFeed'>['epoch']>(),
-  mintedAt: int8('minted_at').notNull().$type<SqliteRow<'syncFeed'>['mintedAt']>(),
-  headSeq: int8('head_seq').notNull().$type<SqliteRow<'syncFeed'>['headSeq']>(),
-  floorSeq: int8('floor_seq').notNull().$type<SqliteRow<'syncFeed'>['floorSeq']>(),
-})
+export const syncFeed = pgTable(
+  'sync_feed',
+  {
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'syncFeed'>['workspaceId']>(),
+    feedId: textC('feed_id').notNull().$type<SqliteRow<'syncFeed'>['feedId']>(),
+    epoch: textC('epoch').notNull().$type<SqliteRow<'syncFeed'>['epoch']>(),
+    mintedAt: int8('minted_at').notNull().$type<SqliteRow<'syncFeed'>['mintedAt']>(),
+    headSeq: int8('head_seq').notNull().$type<SqliteRow<'syncFeed'>['headSeq']>(),
+    floorSeq: int8('floor_seq').notNull().$type<SqliteRow<'syncFeed'>['floorSeq']>(),
+  },
+  (table) => [primaryKey({ name: 'sync_feed_pk', columns: [table.workspaceId] })],
+)
 
 export const syncKind = pgTable(
   'sync_kind',
@@ -180,7 +168,6 @@ export const syncKind = pgTable(
 export const pgSyncTables = Object.freeze({
   appliedMutations,
   changes,
-  feedIdentity,
   syncCapture,
   syncCaptureGuard,
   syncFeed,

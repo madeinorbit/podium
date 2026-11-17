@@ -130,22 +130,23 @@ describe('the capture plan', () => {
         .map((edge) => `${edge.parent} -> ${edge.child}(${edge.columns.join(', ')}) ${edge.action}`)
         .sort(),
     ).toEqual([
-      'automations -> automation_runs(automation_id) cascade',
-      'issues -> issue_deps(from_id) cascade',
-      'issues -> issue_deps(to_id) cascade',
-      'issues -> issue_git_states(issue_id) cascade',
-      'issues -> issue_labels(issue_id) cascade',
-      'issues -> issue_panel_artifacts(issue_id) cascade',
-      'issues -> issue_panel_deferred(issue_id) cascade',
-      'issues -> issue_panel_states(id) cascade',
-      'issues -> issue_panel_todos(issue_id) cascade',
-      'issues -> issues(duplicate_of) set null',
-      'issues -> issues(parent_id) set null',
-      'issues -> issues(superseded_by) set null',
-      'labels -> issue_labels(label_id) cascade',
-      'workflow_runs -> workflow_run_steps(run_id) cascade',
-      'workflow_runs -> workflow_runs(supersedes_run_id) set null',
-      'workflows -> workflow_revisions(workflow_id) cascade',
+      'automations -> automation_runs(workspace_id, automation_id) cascade',
+      'issues -> issue_deps(workspace_id, from_id) cascade',
+      'issues -> issue_deps(workspace_id, to_id) cascade',
+      'issues -> issue_git_states(workspace_id, issue_id) cascade',
+      'issues -> issue_labels(workspace_id, issue_id) cascade',
+      'issues -> issue_panel_artifacts(workspace_id, issue_id) cascade',
+      'issues -> issue_panel_deferred(workspace_id, issue_id) cascade',
+      'issues -> issue_panel_states(workspace_id, id) cascade',
+      'issues -> issue_panel_todos(workspace_id, issue_id) cascade',
+      // Composite keys that clear their reference alone (POD-7024, CLEARED_ON_DELETE).
+      'issues -> issues(workspace_id, duplicate_of) set null',
+      'issues -> issues(workspace_id, parent_id) set null',
+      'issues -> issues(workspace_id, superseded_by) set null',
+      'labels -> issue_labels(workspace_id, label_id) cascade',
+      'workflow_runs -> workflow_run_steps(workspace_id, run_id) cascade',
+      'workflow_runs -> workflow_runs(workspace_id, supersedes_run_id) set null',
+      'workflows -> workflow_revisions(workspace_id, workflow_id) cascade',
     ])
   })
 
@@ -236,7 +237,7 @@ describe('captureWrite', () => {
         .where(eq(t.issues.id, 'iss_1' as IssueId)),
     ).toSQL().sql
     expect(update).toMatch(
-      /^with "__capture_old" as \(select .* from "issues" where .* for update\), "__capture_w" as \(update "issues" set "title" = \$2 from "__capture_old" where "issues"."id" = "__capture_old"."__capture_o_id" returning /,
+      /^with "__capture_old" as \(select .* from "issues" where .* for update\), "__capture_w" as \(update "issues" set "title" = \$2 from "__capture_old" where "issues"."workspace_id" = "__capture_old"."__capture_o_workspace_id" and "issues"."id" = "__capture_old"."__capture_o_id" returning /,
     )
     expect(update).toContain(
       ', "__capture_c" as (insert into "sync_capture" ("kind", "source", "op", "old_key", "new_key") select ',
@@ -285,7 +286,8 @@ describe('captureWrite', () => {
     expect(remove).toContain(
       `select 'issueProjection'::text, 1::bigint, 'd'::text, json_build_array("__capture_k`,
     )
-    expect(remove).toContain(`not in (select "id" from "__capture_w")`)
+    // The self-reference excludes the deleted row by its whole key (POD-7024).
+    expect(remove).toContain(`not in (select "workspace_id", "id" from "__capture_w")`)
     expect(isCaptureForm(remove)).toBe(true)
   })
 
@@ -318,6 +320,13 @@ const AT = '2026-11-13T12:00:00.000Z'
 const OTHER_WORKSPACE = 'ws_capture_b'
 /** Rows each source table holds in the corpus: one per workspace. */
 const ROWS_PER_TABLE = 2
+
+/**
+ * Rows a table gets: {@link ROWS_PER_TABLE}, one per workspace, except `ship_orders`, which
+ * gets two per workspace so a stack edge can join two orders of one workspace.
+ */
+const rowsOfTable = (name: string): number =>
+  name === 'ship_orders' ? 2 * ROWS_PER_TABLE : ROWS_PER_TABLE
 
 /** Values a CHECK constraint lists for a column (`col IN ('a', 'b')`), by table and column. */
 function checkedValues(table: SQLiteTable): Map<string, readonly unknown[]> {
@@ -451,11 +460,19 @@ function overrides(
     case 'queued_messages':
       return { session_id: rowOf('sessions', 'id') }
     case 'ship_orders':
-      return { state: 'queued', hold_code: null, requested_by_actor_kind: 'user' }
+      // Two orders per workspace (see rowsOfTable): the second of each is cancelled, so the
+      // one-active-order-per-issue index holds.
+      return {
+        state: i < ROWS_PER_TABLE ? 'queued' : 'cancelled',
+        hold_code: null,
+        requested_by_actor_kind: 'user',
+      }
     case 'ship_order_stack_edges':
+      // An edge joins two orders of its own workspace: the key is (workspace_id, order) on
+      // both sides since the keys migration (POD-7024), so order i stacks on order i + 2.
       return {
         upper_order_id: rowOf('ship_orders', 'id', i),
-        lower_order_id: rowOf('ship_orders', 'id', i + 1),
+        lower_order_id: rowOf('ship_orders', 'id', i + ROWS_PER_TABLE),
       }
     case 'ship_holds':
       return { resolved_at: null, resolution: null }
@@ -551,7 +568,7 @@ async function sqliteCorpus(): Promise<{ store: SessionStore; unseeded: string[]
     }
     const checked = checkedValues(table)
     const existing = (await db.select().from(table as never)) as Record<string, unknown>[]
-    for (let i = existing.length; i < ROWS_PER_TABLE; i++) {
+    for (let i = existing.length; i < rowsOfTable(name); i++) {
       current = i
       const extra = overrides(name, i, rowOf)
       const row: Record<string, unknown> = {}
@@ -560,7 +577,7 @@ async function sqliteCorpus(): Promise<{ store: SessionStore; unseeded: string[]
         let value: unknown
         if (column.name in extra) value = extra[column.name]
         else if (column.name === 'workspace_id')
-          value = i === 0 ? SELF_HOSTED_WORKSPACE_ID : OTHER_WORKSPACE
+          value = i % 2 === 0 ? SELF_HOSTED_WORKSPACE_ID : OTHER_WORKSPACE
         else if (reference && reference.parent === name) value = null
         else if (reference) {
           const parentKey = keysByName(

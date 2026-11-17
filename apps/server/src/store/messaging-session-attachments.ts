@@ -88,7 +88,11 @@ const upsertAttachment = prepared((db, t) =>
       relayedItemId: sql.placeholder('relayedItemId'),
     })
     .onConflictDoUpdate({
-      target: [t.messagingSessionAttachments.chatId, t.messagingSessionAttachments.threadRef],
+      target: [
+        t.messagingSessionAttachments.workspaceId,
+        t.messagingSessionAttachments.chatId,
+        t.messagingSessionAttachments.threadRef,
+      ],
       set: {
         userId: sql.placeholder('userId'),
         sessionId: sql.placeholder('sessionId'),

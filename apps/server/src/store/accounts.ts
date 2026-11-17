@@ -250,7 +250,7 @@ const connectAccount = prepared((db, t) =>
     .insert(t.accounts)
     .values({ workspaceId: WORKSPACE, ...connectPlaceholders })
     .onConflictDoUpdate({
-      target: [t.accounts.ownerUserId, t.accounts.accountKey],
+      target: [t.accounts.workspaceId, t.accounts.ownerUserId, t.accounts.accountKey],
       set: {
         ref: sql.placeholder('accountKey'),
         provider: sql.placeholder('provider'),
@@ -445,6 +445,7 @@ const upsertOptIn = prepared((db, t) =>
     })
     .onConflictDoUpdate({
       target: [
+        t.nativeLoginOptIns.workspaceId,
         t.nativeLoginOptIns.ownerUserId,
         t.nativeLoginOptIns.harness,
         t.nativeLoginOptIns.fingerprint,
@@ -498,6 +499,7 @@ const upsertTransfer = prepared((db, t) =>
     })
     .onConflictDoUpdate({
       target: [
+        t.nativeLoginTransfers.workspaceId,
         t.nativeLoginTransfers.ownerUserId,
         t.nativeLoginTransfers.harness,
         t.nativeLoginTransfers.fingerprint,

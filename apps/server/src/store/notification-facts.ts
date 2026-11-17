@@ -43,7 +43,11 @@ const claimFact = prepared((db, t) =>
       consumedAt: null,
     })
     .onConflictDoUpdate({
-      target: [t.notificationFacts.factKey, t.notificationFacts.target],
+      target: [
+        t.notificationFacts.workspaceId,
+        t.notificationFacts.factKey,
+        t.notificationFacts.target,
+      ],
       set: {
         source: sql`excluded.source`,
         issueId: sql`excluded.issue_id`,

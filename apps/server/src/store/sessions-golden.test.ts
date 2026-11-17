@@ -639,7 +639,7 @@ describe('binding inventory facts', () => {
       )
       if (memberCount === 2)
         db.prepare(
-          "INSERT INTO users (id, display_name, role, created_at) VALUES ('second-member', 'Second', 'member', 'now')",
+          "INSERT INTO users (workspace_id, id, display_name, role, created_at) VALUES ('local', 'second-member', 'Second', 'member', 'now')",
         ).run()
       await put({ id: 'legacy', ownerUserId: member })
       await put({

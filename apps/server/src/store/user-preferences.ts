@@ -117,7 +117,7 @@ const upsertPreference = prepared((db, t) =>
       .insert(t.userPreferences)
       .values({ workspaceId: WORKSPACE, ...preferencePlaceholders })
       .onConflictDoUpdate({
-        target: [t.userPreferences.userId, t.userPreferences.key],
+        target: [t.userPreferences.workspaceId, t.userPreferences.userId, t.userPreferences.key],
         // The key columns equal the conflict target's, so the set names only the rest:
         // Postgres change capture refuses an upsert that assigns its key (POD-6983).
         set: { value: preferencePlaceholders.value, updatedAt: preferencePlaceholders.updatedAt },

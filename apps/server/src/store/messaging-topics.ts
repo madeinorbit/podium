@@ -86,7 +86,11 @@ const upsertTopic = prepared((db, t) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [t.messagingIssueTopics.issueId, t.messagingIssueTopics.chatId],
+      target: [
+        t.messagingIssueTopics.workspaceId,
+        t.messagingIssueTopics.issueId,
+        t.messagingIssueTopics.chatId,
+      ],
       set: {
         threadRef: sql.placeholder('threadRef'),
         superagentThreadId: sql.placeholder('superagentThreadId'),

@@ -190,7 +190,13 @@ const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
         onBehalfOf: sql.placeholder('onBehalfOf'),
       })
       .onConflictDoUpdate({
-        target: [t.grants.resourceKind, t.grants.resourceId, t.grants.grantee, t.grants.verb],
+        target: [
+          t.grants.workspaceId,
+          t.grants.resourceKind,
+          t.grants.resourceId,
+          t.grants.grantee,
+          t.grants.verb,
+        ],
         set: {
           custody: custody === 'set' ? sql.placeholder('custody') : t.grants.custody,
           owner: sql.placeholder('owner'),

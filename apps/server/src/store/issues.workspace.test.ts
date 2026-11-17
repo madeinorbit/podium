@@ -3,9 +3,11 @@
  *
  * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
  * repositories with its own issues, labels, dependencies, comments, text history, mail,
- * markers, session letters, panel records and git states. The ids and names differ between
- * the workspaces: until the key migration (C1, POD-7024) no unique constraint includes
- * `workspace_id`, so the same id, label name or (repo, seq) in both would collide on the old key.
+ * markers, session letters, panel records and git states.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of the group (issues.ts with its listings, the panel and the git
  * states):
@@ -105,7 +107,7 @@ function onlyOwn(value: unknown, tag: Tag): void {
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
     new RegExp(
-      `\\b${other(tag)}-(iss-|repo|machine|alice|bob|bug|ui|comment|mail|todo|artifact|deferred|issue|text)`,
+      `\\b${other(tag)}-(iss-|repo|machine|alice|bob|bug|ui|comment|mail|todo|artifact|deferred|issue|text)|"${other(tag)} `,
     ),
   )
 }
@@ -603,6 +605,60 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(rowsOf(a, 'b')).toEqual(before)
   })
 
+  it('deleting an issue clears exactly the references to it, in its own workspace only (the same ids in both)', async () => {
+    // THE SAME IDS IN BOTH WORKSPACES (POD-7024): `same-6` is pointed at by `same-7` (parent,
+    // superseded by, duplicate of); `same-8` points at the workspace's issue 1, which nothing
+    // deletes. On SQLite a trigger clears the references, on Postgres the keys' ON DELETE SET
+    // NULL (column); both keep workspace_id.
+    const same = (n: number) => asIssueId(`same-${n}`)
+    const [a, b] = await twoSeeded()
+    for (const [store, tag] of [
+      [a, 'a'],
+      [b, 'b'],
+    ] as const) {
+      await store.issues.upsertIssue(scope, issue(tag, 6, { id: same(6) }))
+      await store.issues.upsertIssue(
+        scope,
+        issue(tag, 7, {
+          id: same(7),
+          parentId: same(6),
+          supersededBy: same(6),
+          duplicateOf: same(6),
+        }),
+      )
+      await store.issues.upsertIssue(scope, issue(tag, 8, { id: same(8), parentId: iss(tag, 1) }))
+    }
+    const refs = async (store: SessionStore, n: number) => {
+      const row = await store.issues.getIssue(same(n))
+      return (
+        row && {
+          parentId: row.parentId,
+          supersededBy: row.supersededBy,
+          duplicateOf: row.duplicateOf,
+        }
+      )
+    }
+    const before = rowsOf(b, 'b')
+
+    await a.issues.deleteIssue(same(6))
+
+    expect(await a.issues.getIssue(same(6))).toBeNull()
+    expect(await refs(a, 7)).toEqual({ parentId: null, supersededBy: null, duplicateOf: null })
+    expect(await refs(a, 8)).toEqual({
+      parentId: iss('a', 1),
+      supersededBy: null,
+      duplicateOf: null,
+    })
+    // B's issue of the same id, and the references to it, are where they were.
+    expect((await b.issues.getIssue(same(6)))?.title).toBe('b issue 6')
+    expect(await refs(b, 7)).toEqual({
+      parentId: same(6),
+      supersededBy: same(6),
+      duplicateOf: same(6),
+    })
+    expect(rowsOf(b, 'b')).toEqual(before)
+  })
+
   it('changes only its own rows when writing its own', async () => {
     const [a, b] = await twoSeeded()
     const s = a.issues
@@ -704,5 +760,30 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect((await a.issues.getIssue(iss('a', 5)))?.machineId).toBe(machine('a'))
     expect(rowsOf(a, 'b')).toEqual(before)
     expect((await b.issues.getIssue(iss('b', 5)))?.machineId).toBeNull()
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const rowsIn = (store: SessionStore, ws: string) =>
+      rawDb(store)
+        .prepare('SELECT * FROM issues WHERE workspace_id = ? AND id = ? ORDER BY rowid')
+        .all(ws, SAME)
+    const SAME = asIssueId('same-issue')
+    const [a, b] = await twoSeeded()
+    await b.issues.upsertIssue(scope, issue('b', 6, { id: SAME }))
+    const before = rowsIn(b, WS.b)
+    await a.issues.upsertIssue(scope, issue('a', 6, { id: SAME }))
+    expect(rowsIn(a, WS.a)).toHaveLength(1)
+    expect(rowsIn(b, WS.b)).toEqual(before)
+    await a.issues.upsertIssue(scope, issue('a', 6, { id: SAME, title: 'a retitled', revision: 2 }))
+    expect((await a.issues.getIssue(SAME))?.title).toBe('a retitled')
+    expect((await b.issues.getIssue(SAME))?.title).toBe('b issue 6')
+    expect(rowsIn(b, WS.b)).toEqual(before)
   })
 })

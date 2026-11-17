@@ -15,13 +15,15 @@
  *   - a CROSS-WORKSPACE definition is a SELECT, made with an entry of
  *     `cross-workspace-allowlist.ts`.
  *
- * PENDING MODE. The scoping tasks (phase B) land file by file. A definition file that carries the
- * marker comment `// workspace-scoped (POD-6959)` is checked strictly; the workspace findings of
- * every other file are reported as pending, not failed, with a count per file. Task C1
- * (POD-7024) removes the pending mode and turns on the ON CONFLICT target rule.
+ * STRICT. The scoping tasks (phase B, POD-7015 to POD-7023) scoped every definition file, and the
+ * keys migration (POD-7024) gave every workspace table keys that lead with workspace_id, so every
+ * statement is held to its kind and an ON CONFLICT target of a workspace table must lead with
+ * workspace_id. There is no pending file any more, and no mode that would let one through: a
+ * workspace finding in any file fails. The marker comment `// workspace-scoped (POD-6959)` the
+ * scoping tasks added stays, and a definition file without it fails too, so a new file says it
+ * was written against the rule.
  *
- * What does not wait for the scoping: every statement must parse, every table must be
- * classified, and the global and cross-workspace rules hold everywhere already.
+ * Every statement must also parse and every table must be classified.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -117,20 +119,17 @@ interface AuditEntry {
 }
 
 interface Verdict {
-  /** Findings that fail the audit now. */
+  /** Findings that fail the audit. */
   readonly failures: string[]
-  /** Workspace findings of unmarked files, by file: statements with at least one finding. */
-  readonly pending: Map<string, number>
   /** Statements checked, by kind. */
   readonly checked: Record<CheckedScope, number>
 }
 
 const fileOf = (key: string): string => key.slice(0, key.indexOf(':'))
 
-/** Hold each statement to its kind. `isMarked` says which files are scoped already. */
+/** Hold each statement to its kind. `isMarked` says which files carry the scoped marker. */
 function judge(entries: readonly AuditEntry[], isMarked: (file: string) => boolean): Verdict {
   const failures: string[] = []
-  const pending = new Map<string, number>()
   const checked: Record<CheckedScope, number> = { workspace: 0, global: 0, across: 0 }
   const fail = (entry: AuditEntry, what: string) =>
     failures.push(`${entry.key} [${String(entry.shape ?? '')}] (${entry.scope}): ${what}`)
@@ -139,10 +138,7 @@ function judge(entries: readonly AuditEntry[], isMarked: (file: string) => boole
     const allowed = CROSS_WORKSPACE_ALLOWLIST.find(
       (listed) => `${listed.file}:${listed.name}` === entry.key,
     )
-    const findings = checkWorkspaceScope(entry.statement, entry.scope, {
-      tableKind,
-      conflictTargets: false,
-    })
+    const findings = checkWorkspaceScope(entry.statement, entry.scope, { tableKind })
     const describe = (found: readonly ScopeFinding[]) =>
       `${found.map((finding) => `${finding.rule}: ${finding.detail}`).join('; ')} :: ${entry.statement.sql.slice(0, 400)}`
     // Every statement must be readable and every table classified, scoped or not.
@@ -167,11 +163,10 @@ function judge(entries: readonly AuditEntry[], isMarked: (file: string) => boole
       }
       continue
     }
-    if (rules.length === 0) continue
-    if (isMarked(entry.file)) fail(entry, describe(rules))
-    else pending.set(entry.file, (pending.get(entry.file) ?? 0) + 1)
+    if (rules.length > 0) fail(entry, describe(rules))
+    if (!isMarked(entry.file)) fail(entry, `its file lacks the marker ${MARKER}`)
   }
-  return { failures, pending, checked }
+  return { failures, checked }
 }
 
 /**
@@ -272,20 +267,15 @@ describe('POD-7014 — every query names its workspace', () => {
     expect(new Set(entries.map((entry) => entry.scope))).toContain('workspace')
   })
 
-  it('holds every statement to its kind; unmarked files are pending (the report)', () => {
+  it('holds every statement to its kind, in every file', () => {
     const { entries, verdict } = audit()
-    const marked = [...new Set(entries.map((entry) => entry.file))].filter(isMarked).sort()
-    const pendingStatements = [...verdict.pending.values()].reduce((sum, count) => sum + count, 0)
-    // THE REPORT: what was checked, what is scoped, what is still pending, per file.
+    const files = [...new Set(entries.map((entry) => entry.file))]
+    // THE REPORT: what was checked.
     console.log(
       `workspace-scope audit: ${entries.length} statements (${verdict.checked.workspace} workspace, ` +
-        `${verdict.checked.global} global, ${verdict.checked.across} cross-workspace); ` +
-        `${marked.length} files marked scoped; ${pendingStatements} statements pending in ` +
-        `${verdict.pending.size} files`,
+        `${verdict.checked.global} global, ${verdict.checked.across} cross-workspace) in ` +
+        `${files.length} files, ${files.filter(isMarked).length} marked scoped`,
     )
-    for (const [file, count] of [...verdict.pending].sort(([a], [b]) => a.localeCompare(b))) {
-      console.log(`  PENDING ${count.toString().padStart(4)}  ${file}`)
-    }
     for (const failure of verdict.failures) console.log(`SCOPE ${failure}`)
     expect(verdict.failures).toEqual([])
   })
@@ -305,10 +295,7 @@ describe('POD-7014 — every query names its workspace', () => {
           inFile: true,
         })
         expect(
-          checkWorkspaceScope({ sql: listed.sql ?? '', placeholders: [] }, 'across', {
-            tableKind,
-            conflictTargets: false,
-          }),
+          checkWorkspaceScope({ sql: listed.sql ?? '', placeholders: [] }, 'across', { tableKind }),
         ).toEqual([])
         continue
       }
@@ -359,16 +346,44 @@ describe('POD-7014 — every query names its workspace', () => {
         )
         .prepare()
 
-    it('a planted unscoped definition fails in a marked file and is pending in an unmarked one', () => {
+    it('a planted unscoped definition fails, in a marked file and in an unmarked one', () => {
       prepared(unscopedRead)
       const entries = planted('unscopedRead', newest())
       expect(entries).toHaveLength(1)
-      const strict = judge(entries, () => true)
-      expect(strict.failures).toHaveLength(1)
-      expect(strict.failures[0]).toContain('unconstrained')
-      const lenient = judge(entries, () => false)
-      expect(lenient.failures).toEqual([])
-      expect([...lenient.pending]).toEqual([[PLANTED, 1]])
+      const marked = judge(entries, () => true)
+      expect(marked.failures).toHaveLength(1)
+      expect(marked.failures[0]).toContain('unconstrained')
+      const unmarked = judge(entries, () => false)
+      expect(unmarked.failures.some((failure) => failure.includes('unconstrained'))).toBe(true)
+      expect(unmarked.failures.some((failure) => failure.includes('lacks the marker'))).toBe(true)
+    })
+
+    it('a planted upsert whose conflict target does not lead with workspace_id fails', () => {
+      prepared((db, t) =>
+        db
+          .insert(t.locks)
+          .values({
+            workspaceId: WORKSPACE,
+            repoId: sql.placeholder('repoId'),
+            name: sql.placeholder('name'),
+            holderLabel: sql.placeholder('holderLabel'),
+          } as never)
+          .onConflictDoUpdate({
+            target: [t.locks.repoId, t.locks.name],
+            set: { holderLabel: sql`excluded.holder_label` } as never,
+          })
+          .prepare(),
+      )
+      const failures = judge(planted('upsertOldKey', newest()), () => true).failures
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toContain('conflict-target')
+    })
+
+    it('a planted scoped definition in an unmarked file fails for the marker alone', () => {
+      prepared(scopedRead)
+      const failures = judge(planted('scopedUnmarked', newest()), () => false).failures
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toContain('lacks the marker')
     })
 
     it('a planted definition held to its workspace passes in a marked file', () => {

@@ -74,7 +74,7 @@ import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { syncQueriesOver, workspaceQueries } from '../store/executor/sync-drizzle'
 import { freeDiskBytes } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { runDrizzleMigrations } from './index'
+import { appliedDrizzleNames, runDrizzleMigrations } from './index'
 import { syncServerTables } from './sync-server-tables'
 
 export interface RestoreReport {
@@ -194,20 +194,12 @@ export async function restoreDatabase(opts: RestoreOptions): Promise<RestoreRepo
   return { backupPath, dbPath, replacedBackupPath, ...report }
 }
 
-/** True when `name` is a table in this database. */
-function hasTable(db: ReturnType<typeof openDatabase>, name: string): boolean {
-  return (
-    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  )
-}
-
 /**
  * Re-mint the restored database's epoch — unless the backup predates feed
  * identity entirely, in which case there is nothing to re-mint and saying so is
  * the correct answer.
  *
- * ## Why the missing table is the NORMAL case, not an edge case
+ * ## Why the missing identity is the NORMAL case, not an edge case
  *
  * The feed-identity migration's own [spec:SP-4428] pre-migration backup is taken
  * BEFORE that migration runs — so the canonical artifact for rolling THIS change
@@ -239,11 +231,18 @@ function hasTable(db: ReturnType<typeof openDatabase>, name: string): boolean {
  * Schema creation belongs to the migrator; the restore path only re-mints what
  * the migrator has already built.
  */
+/** The migration that gave the database a feed identity, and its first epoch. */
+const FEED_IDENTITY_MIGRATION = '20260730181721_add-feed-identity-table'
+
 async function remintRestoredEpoch(
   db: ReturnType<typeof openDatabase>,
   mint: (() => string) | undefined,
 ): Promise<{ feedId: string | null; previousEpoch: string | null; epoch: string | null }> {
-  if (!hasTable(db, 'feed_identity')) {
+  // The identity lived in `feed_identity` until the tenant feed (ADR 13) moved it to
+  // `sync_feed`, and the keys migration (POD-7024) dropped `feed_identity`. So the ledger
+  // answers, not a table: a database that applied the feed identity migration issued an
+  // epoch. (An older, dead `sync_feed` table predates feed identity; its name proves nothing.)
+  if (!appliedDrizzleNames(db).has(FEED_IDENTITY_MIGRATION)) {
     return { feedId: null, previousEpoch: null, epoch: null }
   }
   // Upgrade the staged backup before using today's repository schema. This is

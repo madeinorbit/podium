@@ -513,9 +513,6 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
     json: 'payload',
     text: 'workspace_id entity entity_id op origin_id causation_id mutation_id',
   },
-  feed_identity: {
-    text: 'feed_id epoch',
-  },
   sync_capture: {
     text: 'kind op old_key new_key',
   },

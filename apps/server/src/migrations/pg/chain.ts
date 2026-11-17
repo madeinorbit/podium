@@ -41,6 +41,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api-postgres'
 import * as pgSync from '../../../../../packages/sync/src/adapters/pg/schema'
+import { CLEARED_ON_DELETE } from '../schema'
 import * as pgServer from './schema'
 
 /**
@@ -99,7 +100,25 @@ export interface PgDdlPatch {
   readonly apply: (statement: string) => string
 }
 
+/** A composite reference that clears only its own column (`PG_DDL_NOTES`, SET_NULL_COLUMN). */
+function setNullColumn(table: string, constraint: string, column: string): PgDdlPatch {
+  const head = `ALTER TABLE "${table}" ADD CONSTRAINT "${constraint}" FOREIGN KEY`
+  return {
+    matches: (statement) => statement.startsWith(head),
+    apply: (statement) => {
+      if (/ON DELETE/i.test(statement)) throw new Error(`${constraint} already has a delete action`)
+      return `${statement.replace(/;\s*$/, '')} ON DELETE SET NULL ("${column}");`
+    },
+  }
+}
+
 export const PG_DDL_PATCHES: Readonly<Record<string, PgDdlPatch>> = {
+  ...Object.fromEntries(
+    CLEARED_ON_DELETE.map(({ table, key, column }) => [
+      `${table}.${key}`,
+      setNullColumn(table, key, column),
+    ]),
+  ),
   'sync_capture.fk_sync_capture_undrained_sync_capture_guard_id_fk': {
     matches: (statement) =>
       statement.startsWith(

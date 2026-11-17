@@ -8,11 +8,10 @@
  * upload id, and lake segment `m1/s1`. So every relative key below exists in
  * both workspaces, and only the handle's prefix tells them apart.
  *
- * Each workspace has its own database here. Until the key migration (POD-7024)
- * the issue and segment tables have no key that leads with `workspace_id`, so
- * two workspaces could not hold the same issue or segment id in one database;
- * the database's own workspace isolation is proven by the store's workspace
- * tests. What is shared, and under test, is the bucket.
+ * Both workspaces share ONE database too. Since the key migration (POD-7024)
+ * every key of the issue, artifact, upload and segment tables leads with
+ * `workspace_id`, so the same ids are two rows, one per workspace, beside the
+ * same keys in the one bucket.
  *
  * For reads, writes, both sweeps, the orphan audit and the `/files` route: an
  * operation in one workspace sees, changes and deletes only that workspace's
@@ -41,7 +40,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { registerArtifactRoute } from '../../file-artifact-route'
 import type { SessionStore } from '../../store'
 import { issueRowFixture } from '../../test-support/issue-row'
-import { openTestStore } from '../../test-support/open-test-store'
+import { openWorkspaceStores } from '../../test-support/workspace-stores'
 import { type ArtifactRpc, IssueArtifactStore } from '../issues/artifact-store'
 import {
   PENDING_UPLOAD_MAX_AGE_MS,
@@ -139,10 +138,14 @@ async function twoWorkspaces() {
   const bucket = new MemoryBucket({ now: () => clock })
   const storage = new MemoryBlobStorage(bucket)
   let composerId: string | undefined
+  // ONE database for both workspaces: the same issue, artifact and segment ids are two rows
+  // each, one per workspace (POD-7024). Closing the first store closes the database.
+  const [first, second] = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+  opened.push(first)
+  const stores = { a: first, b: second } as const
   const make = async (tag: Tag): Promise<Workspace> => {
     const id = WS[tag]
-    const store = await openTestStore(':memory:', undefined, undefined, { workspace: id })
-    opened.push(store)
+    const store = stores[tag]
     const files = storage.forWorkspace(id)
     const artifacts = new IssueArtifactStore({
       files,

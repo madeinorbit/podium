@@ -43,7 +43,11 @@ const upsertRecapWatermark = prepared((db, t) =>
       updatedAt: sql.placeholder('at'),
     })
     .onConflictDoUpdate({
-      target: [t.recapWatermarks.reader, t.recapWatermarks.sessionId],
+      target: [
+        t.recapWatermarks.workspaceId,
+        t.recapWatermarks.reader,
+        t.recapWatermarks.sessionId,
+      ],
       set: { watermark: sql.placeholder('watermark'), updatedAt: sql.placeholder('at') },
     })
     .prepare(),

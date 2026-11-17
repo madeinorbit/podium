@@ -789,7 +789,7 @@ describe('SessionStore drafts', () => {
 // not in-process.
 
 describe('SessionStore pins', () => {
-  it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', async () => {
+  it('starts empty, adds, dedupes, lists by kind oldest first, and removes', async () => {
     const store = await openTestStore(':memory:')
     expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
@@ -806,7 +806,8 @@ describe('SessionStore pins', () => {
     expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
-      repos: ['/repo/b', '/repo/a'],
+      // Oldest first; pins made at one instant in key order (POD-7024: the same on both engines).
+      repos: ['/repo/a', '/repo/b'],
     })
 
     await store.sessions.removePin(firstAdminMemberId(), 'repo', '/repo/b')

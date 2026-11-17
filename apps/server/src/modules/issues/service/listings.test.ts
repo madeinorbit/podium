@@ -90,7 +90,7 @@ describe('issue listings over the database', () => {
     // is planted after with the foreign keys off).
     await store.issues.deleteIssue('iss_gone_blocker')
     rawSql(store, 'PRAGMA foreign_keys = OFF')
-    rawSql(store, "INSERT INTO issue_deps (from_id, to_id, type) VALUES ('iss_9', 'iss_gone_blocker', 'blocked-by')")
+    rawSql(store, "INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('local', 'iss_9', 'iss_gone_blocker', 'blocked-by')")
     rawSql(store, 'PRAGMA foreign_keys = ON')
     await store.issues.setIssueLabels(asIssueId('iss_2'), ['ui', 'auth'])
     await store.issues.setIssueLabels(asIssueId('iss_b1'), ['auth'])
@@ -100,9 +100,6 @@ describe('issue listings over the database', () => {
     await grantIssue(store, 'iss_16', BOB, 'write')
     const viewer = await firstAdminMemberId(store)
     await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_2'), { readAt: '2026-10-01T00:00:00.000Z', tuckedAt: '2026-10-02T00:00:00.000Z' })
-    // Quarantined: a NULL id (SQLite allows one in a TEXT primary key).
-    await store.issues.upsertIssue(fixtureWriteScope(), { ...(await store.issues.getIssue('iss_7'))!, id: asIssueId('iss_corrupt'), seq: 99, revision: undefined } as never)
-    rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
     const reports = reportsOver(store, 'abc fix #2 and issue/3-login\n#14 done')
 
     // Work queues: an open blocker blocks even when deleted; a finished one or

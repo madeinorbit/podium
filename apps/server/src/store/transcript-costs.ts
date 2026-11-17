@@ -128,7 +128,11 @@ const recordCost = prepared((db, t) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [t.transcriptCosts.machineId, t.transcriptCosts.nativeId],
+      target: [
+        t.transcriptCosts.workspaceId,
+        t.transcriptCosts.machineId,
+        t.transcriptCosts.nativeId,
+      ],
       set: {
         path: sql`excluded.path`,
         harness: sql`excluded.harness`,

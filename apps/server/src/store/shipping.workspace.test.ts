@@ -6,9 +6,11 @@
  * holds and a repair candidate; a queued order that depends on it and stacks on it; a two-member
  * train that shipped (manifest, members, claims, lane revision, effect envelope, both delivery
  * receipts, the covered completion); shipwright evidence, a root integration receipt and
- * recovery work. The ids and names differ between the workspaces: until the key migration (C1,
- * POD-7024) no unique constraint includes `workspace_id`, so the same id in both would collide
- * on the old key.
+ * recovery work.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of `store/shipping.ts`:
  *   - a read answers only its own workspace's rows, including the whole-table listings, the
@@ -19,9 +21,9 @@
  *
  * `store/guarded-move.ts` holds no statement of its own: its callers own the UPDATE.
  *
- * THE RECOVERY REVISION IS A SINGLETON with key `id = 1` until C1 rekeys it per workspace, so
- * only the boot workspace holds a row. Workspace A is the self-hosted one ('local') so that the
- * row is A's; B reads none and says so, and B's receipts do not advance A's revision.
+ * THE RECOVERY REVISION is one row per workspace, keyed `(workspace_id, id = 1)` (POD-7024).
+ * Workspace A is the self-hosted one ('local'), which the shipping migration seeded; B has none
+ * until its first advance makes it, and each workspace advances only its own.
  */
 
 import { createHash } from 'node:crypto'
@@ -603,25 +605,34 @@ describe('shipping reads answer only their own workspace', () => {
     })
   }
 
-  it('reads and advances the singleton recovery revision of its own workspace only (one row until C1)', async () => {
-    // A ('local') holds the migration's row. B holds none, so it reads none.
+  it('reads and advances each workspace its own recovery revision', async () => {
+    // One row per workspace, keyed (workspace_id, id = 1) since POD-7024: A's ('local') was
+    // seeded by the shipping migration, B's is made by its first advance (its seeding may
+    // already have made it). Each advance moves its own workspace's revision only.
+    const revisionOf = async (tag: Tag) => await stores[tag].shipping.recoveryRevision()
+    const a0 = await revisionOf('a')
+    const b0 = await revisionOf('b')
+    await stores.a.shipping.assertRecoveryRevision(scope, a0)
+    await stores.b.shipping.assertRecoveryRevision(scope, b0)
+    const at = '2026-11-17T11:00:00.000Z'
+    await stores.b.shipping.resolveHold(scope, seeded.b.one.id, 2, 'retry', 'queued', at)
+    expect(await revisionOf('b')).toBe(b0 + 1)
+    expect(await revisionOf('a')).toBe(a0)
+    await stores.a.shipping.resolveHold(scope, seeded.a.one.id, 2, 'retry', 'queued', at)
+    expect(await revisionOf('a')).toBe(a0 + 1)
+    expect(await revisionOf('b')).toBe(b0 + 1)
     const rows = rawDb(stores.a)
       .prepare('SELECT workspace_id AS workspaceId, revision FROM ship_recovery_revision')
       .all() as { workspaceId: string; revision: number }[]
-    expect(rows).toEqual([{ workspaceId: WS.a, revision: expect.any(Number) }])
-    const revision = rows[0]!.revision
-    expect(await stores.a.shipping.recoveryRevision()).toBe(revision)
-    await stores.a.shipping.assertRecoveryRevision(scope, revision)
-    await expect(stores.b.shipping.recoveryRevision()).rejects.toThrow(/revision is missing/)
-    await expect(stores.b.shipping.assertRecoveryRevision(scope, revision)).rejects.toThrow(
-      /revision is missing/,
+    expect(rows.sort((x, y) => x.workspaceId.localeCompare(y.workspaceId))).toEqual(
+      [
+        { workspaceId: WS.a, revision: a0 + 1 },
+        { workspaceId: WS.b, revision: b0 + 1 },
+      ].sort((x, y) => x.workspaceId.localeCompare(y.workspaceId)),
     )
-    // A requeue in B advances B's revision (none), not A's; the same move in A advances A's.
-    const at = '2026-11-17T11:00:00.000Z'
-    await stores.b.shipping.resolveHold(scope, seeded.b.one.id, 2, 'retry', 'queued', at)
-    expect(await stores.a.shipping.recoveryRevision()).toBe(revision)
-    await stores.a.shipping.resolveHold(scope, seeded.a.one.id, 2, 'retry', 'queued', at)
-    expect(await stores.a.shipping.recoveryRevision()).toBe(revision + 1)
+    await expect(stores.b.shipping.assertRecoveryRevision(scope, b0)).rejects.toThrow(
+      /revision fence failed/,
+    )
   })
 })
 

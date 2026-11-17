@@ -180,7 +180,7 @@ const upsertLockRow = prepared((db, t) =>
       expiresAt: sql.placeholder('expiresAt'),
     })
     .onConflictDoUpdate({
-      target: [t.locks.repoId, t.locks.name],
+      target: [t.locks.workspaceId, t.locks.repoId, t.locks.name],
       set: {
         holderSessionId: sql.placeholder('holderSessionId'),
         holderIssueId: sql.placeholder('holderIssueId'),
@@ -247,7 +247,12 @@ const enqueueWaiterRow = prepared((db, t) =>
       enqueuedAt: sql.placeholder('enqueuedAt'),
     })
     .onConflictDoUpdate({
-      target: [t.lockWaiters.repoId, t.lockWaiters.name, t.lockWaiters.sessionId],
+      target: [
+        t.lockWaiters.workspaceId,
+        t.lockWaiters.repoId,
+        t.lockWaiters.name,
+        t.lockWaiters.sessionId,
+      ],
       // TWO COLUMNS AND ONLY TWO. `label`, `issue_id` and `enqueued_at` are
       // deliberately absent: a re-acquire updates what the waiter is asking
       // for, never its identity or its place in the queue.

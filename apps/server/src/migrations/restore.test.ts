@@ -189,13 +189,14 @@ describe('the migration creates the feed-identity table', () => {
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
 
+    // One row per workspace: a second feed for the same workspace is refused by the key.
     expect(() =>
       db
         .prepare(
-          'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (2, ?, ?, ?)',
+          "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
         )
         .run('feed_b', 'epoch_1', 3),
-    ).toThrow(/feed_identity_singleton/)
+    ).toThrow(/UNIQUE constraint failed/)
 
     const rows = db.prepare('SELECT feed_id, epoch FROM sync_feed').all()
     expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
@@ -526,19 +527,22 @@ describe('restoring a backup from before feed identity existed', () => {
     return database(DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut()))
   }
 
-  /** Exercise SQLite enforcement, so a present but unconstrained table fails. */
+  /**
+   * The chain created `feed_identity` and the keys migration (POD-7024) dropped it again: the
+   * identity is the workspace's `sync_feed` row, one per workspace, which the key enforces.
+   */
   function expectSingletonConstraints(db: SqlDatabase): void {
-    const before = db.prepare('SELECT * FROM feed_identity').all()
-    for (const singleton of [0, 2]) {
-      expect(() =>
-        db
-          .prepare(
-            'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
-          )
-          .run(singleton, 'invalid_feed', 'invalid_epoch', 1),
-      ).toThrow(/feed_identity_singleton/)
-    }
-    expect(db.prepare('SELECT * FROM feed_identity').all()).toEqual(before)
+    expect(hasTable(db, 'feed_identity')).toBe(false)
+    const before = db.prepare('SELECT * FROM sync_feed').all()
+    expect(before).toHaveLength(1)
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
+        )
+        .run('invalid_feed', 'invalid_epoch', 1),
+    ).toThrow(/UNIQUE constraint failed/)
+    expect(db.prepare('SELECT * FROM sync_feed').all()).toEqual(before)
   }
 
   it('the fixture is faithful: the migration really is pending and re-appliable', () => {
@@ -560,7 +564,6 @@ describe('restoring a backup from before feed identity existed', () => {
         .map((migration) => migration.name)
         .sort(),
     )
-    expect(hasTable(reopened, 'feed_identity')).toBe(true)
     expectSingletonConstraints(reopened)
     reopened.close()
   })

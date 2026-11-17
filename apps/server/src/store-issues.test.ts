@@ -505,9 +505,9 @@ describe('shipping durable store', () => {
       rawDb(s)
         .prepare(
           `INSERT INTO ship_holds
-            (id, order_id, generation, reason_code, headline, detail, evidence_refs,
+            (workspace_id, id, order_id, generation, reason_code, headline, detail, evidence_refs,
              actions, raised_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           'hold-raw-open',
@@ -801,9 +801,9 @@ describe('shipping durable store', () => {
       rawDb(s)
         .prepare(
           `INSERT INTO ship_train_members
-            (train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
+            (workspace_id, train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
              source_branch, approved_base_sha, approved_head_sha, delivery_depends_on)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           train.manifest.id,

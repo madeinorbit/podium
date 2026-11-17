@@ -366,7 +366,7 @@ describe('POD-7014 — the workspace scope checker', () => {
       expect(
         rules(
           check(
-            'insert into locks (workspace_id, name) values (?, ?) on conflict (name) do update set workspace_id = excluded.workspace_id',
+            'insert into locks (workspace_id, name) values (?, ?) on conflict (workspace_id, name) do update set workspace_id = excluded.workspace_id',
             ['ws', 'n'],
           ),
         ),
@@ -382,27 +382,29 @@ describe('POD-7014 — the workspace scope checker', () => {
     })
   })
 
-  describe('ON CONFLICT targets (off until C1)', () => {
+  describe('ON CONFLICT targets', () => {
     const upsert = (target: string) =>
       `insert into "locks" ("workspace_id", "repo_id", "name") values (?, ?, ?) on conflict (${target}) do update set "holder" = excluded."holder"`
 
-    it('is off by default: before the key migration no unique constraint includes workspace_id', () => {
-      expect(check(upsert('"locks"."repo_id", "locks"."name"'), ['ws', 'r', 'n'])).toEqual([])
-    })
-
-    it('when on, requires the target to include workspace_id', () => {
-      const on = { conflictTargets: true }
+    it('requires the target of a workspace table to lead with workspace_id', () => {
       expect(
-        check(
-          upsert('"locks"."workspace_id", "locks"."repo_id", "locks"."name"'),
-          ['ws', 'r', 'n'],
-          'workspace',
-          on,
-        ),
+        check(upsert('"locks"."workspace_id", "locks"."repo_id", "locks"."name"'), [
+          'ws',
+          'r',
+          'n',
+        ]),
       ).toEqual([])
+      expect(rules(check(upsert('"locks"."repo_id", "locks"."name"'), ['ws', 'r', 'n']))).toEqual([
+        'conflict-target',
+      ])
+      // Naming the workspace somewhere is not enough: the key leads with it, so must the target.
       expect(
         rules(
-          check(upsert('"locks"."repo_id", "locks"."name"'), ['ws', 'r', 'n'], 'workspace', on),
+          check(upsert('"locks"."repo_id", "locks"."workspace_id", "locks"."name"'), [
+            'ws',
+            'r',
+            'n',
+          ]),
         ),
       ).toEqual(['conflict-target'])
       expect(
@@ -410,11 +412,18 @@ describe('POD-7014 — the workspace scope checker', () => {
           check(
             'insert into sync_feed (workspace_id) values ($1) on conflict on constraint sync_feed_pkey do nothing',
             ['ws'],
-            'workspace',
-            on,
           ),
         ),
       ).toEqual(['conflict-target'])
+    })
+
+    it('leaves a bare ON CONFLICT DO NOTHING alone: it names no target', () => {
+      expect(
+        check(
+          'insert into "locks" ("workspace_id", "repo_id", "name") values (?, ?, ?) on conflict do nothing',
+          ['ws', 'r', 'n'],
+        ),
+      ).toEqual([])
     })
   })
 
@@ -621,8 +630,6 @@ describe('POD-7014 — the workspace scope checker', () => {
         check(
           'insert into sync_feed (workspace_id, feed_id) values ($1::text, $2) on conflict (workspace_id) do nothing',
           ['ws', 'feed'],
-          'workspace',
-          { conflictTargets: true },
         ),
       ).toEqual([])
     })

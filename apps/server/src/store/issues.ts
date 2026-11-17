@@ -577,7 +577,7 @@ const upsertRefLetterNextIndex = prepared((db, t) =>
       nextIndex: sql.placeholder('nextIndex'),
     })
     .onConflictDoUpdate({
-      target: t.issueRefLetters.issueId,
+      target: [t.issueRefLetters.workspaceId, t.issueRefLetters.issueId],
       set: { nextIndex: sql.placeholder('nextIndex') },
     })
     .prepare(),
@@ -1104,7 +1104,11 @@ const upsertMessageReadAt = prepared((db, t) =>
       readAt: sql.placeholder('readAt'),
     })
     .onConflictDoUpdate({
-      target: [t.issueMessageUserState.userId, t.issueMessageUserState.issueMessageId],
+      target: [
+        t.issueMessageUserState.workspaceId,
+        t.issueMessageUserState.userId,
+        t.issueMessageUserState.issueMessageId,
+      ],
       set: { readAt: sql.placeholder('readAt') },
     })
     .prepare(),
@@ -1209,7 +1213,7 @@ const upsertIssueUserState = prepared((db, t) =>
         assignedBy: sql.placeholder('assignedBy'),
       })
       .onConflictDoUpdate({
-        target: [t.issueUserState.userId, t.issueUserState.issueId],
+        target: [t.issueUserState.workspaceId, t.issueUserState.userId, t.issueUserState.issueId],
         set: {
           readAt: sql.placeholder('readAt'),
           tuckedAt: sql.placeholder('tuckedAt'),
@@ -1872,7 +1876,7 @@ export class IssuesRepository {
             workspaceId: WORKSPACE,
           } as unknown as typeof issues.$inferInsert)
           .onConflictDoUpdate({
-            target: t.issues.id,
+            target: [t.issues.workspaceId, t.issues.id],
             set: set as unknown as Partial<typeof issues.$inferInsert>,
             setWhere: sql.join(changed, sql` OR `),
           })

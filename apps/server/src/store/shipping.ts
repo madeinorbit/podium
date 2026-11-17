@@ -568,7 +568,7 @@ const bumpLaneRevisionUpsert = prepared((db, t) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: t.shipLaneRevisions.laneKey,
+      target: [t.shipLaneRevisions.workspaceId, t.shipLaneRevisions.laneKey],
       set: {
         revision: sql`${t.shipLaneRevisions.revision} + 1`,
         updatedAt: sql`excluded.updated_at`,
@@ -836,11 +836,21 @@ const recoveryRevision = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * One revision row per workspace (POD-7018's finding, rekeyed by POD-7024): the shipping
+ * migration seeded only the self-hosted workspace's, so a workspace with no row is at
+ * revision 0 and its first advance creates the row. An upsert, so the advance stays one
+ * statement and no workspace has to be seeded at provisioning (a global write to a workspace
+ * table, which contract C3 keeps to the feed row).
+ */
 const advanceRecoveryRevision = prepared((db, t) =>
   db
-    .update(t.shipRecoveryRevision)
-    .set({ revision: sql`${t.shipRecoveryRevision.revision} + 1` })
-    .where(inWorkspace(t.shipRecoveryRevision, eq(t.shipRecoveryRevision.id, 1)))
+    .insert(t.shipRecoveryRevision)
+    .values({ workspaceId: WORKSPACE, id: 1, revision: 1 })
+    .onConflictDoUpdate({
+      target: [t.shipRecoveryRevision.workspaceId, t.shipRecoveryRevision.id],
+      set: { revision: sql`${t.shipRecoveryRevision.revision} + 1` },
+    })
     .prepare(),
 )
 
@@ -2037,9 +2047,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   async recoveryRevision(): Promise<number> {
-    const row = await recoveryRevision(this.db).get()
-    if (!row) throw new Error('shipping recovery revision is missing')
-    return row.revision
+    // No row yet: the workspace has never advanced its revision (see advanceRecoveryRevision).
+    return (await recoveryRevision(this.db).get())?.revision ?? 0
   }
 
   async assertRecoveryRevision(_scope: WriteScope, expected: number): Promise<void> {

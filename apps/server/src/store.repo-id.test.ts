@@ -176,8 +176,8 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       const first = await openTestStore(file)
       db(first)
         .prepare(
-          `INSERT INTO repos (machine_id, path, origin_url, added_at)
-           VALUES ('m1', '/legacy', NULL, 't')`,
+          `INSERT INTO repos (workspace_id, machine_id, path, origin_url, added_at)
+           VALUES ('local', 'm1', '/legacy', NULL, 't')`,
         )
         .run()
       await first.close()
@@ -195,10 +195,10 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       const first = await openTestStore(file)
       db(first)
         .prepare(
-          `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+          `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, created_by_on_behalf_of,
              repo_path, seq, title, stage, parent_branch,
              default_agent, created_at, updated_at)
-           VALUES ('iss_legacy', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+           VALUES ('local', 'iss_legacy', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
                    '${firstAdminMemberId()}', '/legacy', 1, 'A', 'backlog', 'main',
                    'claude-code', 't', 't')`,
         )

@@ -84,7 +84,7 @@ const upsertLayout = prepared((db, t) =>
         updatedAt: P('updatedAt'),
       })
       .onConflictDoUpdate({
-        target: [t.userLayout.userId, t.userLayout.key],
+        target: [t.userLayout.workspaceId, t.userLayout.userId, t.userLayout.key],
         set: { value: P('value'), updatedAt: P('updatedAt') },
       }),
   ).prepare(),
@@ -170,7 +170,9 @@ const claimDockShell = prepared((db, t) =>
   db
     .insert(t.userDockShell)
     .values(dockShellValues)
-    .onConflictDoNothing({ target: [t.userDockShell.userId, t.userDockShell.worktreeKey] })
+    .onConflictDoNothing({
+      target: [t.userDockShell.workspaceId, t.userDockShell.userId, t.userDockShell.worktreeKey],
+    })
     .prepare(),
 )
 
@@ -179,7 +181,7 @@ const upsertDockShell = prepared((db, t) =>
     .insert(t.userDockShell)
     .values(dockShellValues)
     .onConflictDoUpdate({
-      target: [t.userDockShell.userId, t.userDockShell.worktreeKey],
+      target: [t.userDockShell.workspaceId, t.userDockShell.userId, t.userDockShell.worktreeKey],
       set: { sessionId: P('sessionId'), updatedAt: P('updatedAt') },
     })
     .prepare(),

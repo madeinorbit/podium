@@ -8,9 +8,11 @@
  * subscriptions and deliveries; effects; workflows with revisions, bindings, runs, steps and
  * events; automations and their runs; pending interactions; superagent threads, messages, queued
  * inputs and pending turns; observation leases, rebind receipts and terminal candidates;
- * transcript costs; the maintenance ledger; locks and their waiters. The ids and names differ
- * between the workspaces: until the key migration (C1, POD-7024) no unique constraint includes
- * `workspace_id`, so the same id in both would collide on the old key.
+ * transcript costs; the maintenance ledger; locks and their waiters.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of the group:
  *   - a read answers only its own workspace's rows, including the reads no id narrows (the feed
@@ -662,7 +664,7 @@ const both = (stores: readonly [WorkspaceEventSlice, WorkspaceEventSlice]) =>
 /** Every string in `value` that names a seeded thing starts with the workspace's tag. */
 function onlyOwn(value: unknown, tag: Tag): void {
   const other = otherOf(tag)
-  expect(JSON.stringify(value)).not.toMatch(new RegExp(`\\b${other}[-.]`))
+  expect(JSON.stringify(value)).not.toMatch(new RegExp(`\\b${other}[-.]|"${other} `))
 }
 
 const ids = (rows: Iterable<{ id: string | number }>) => [...rows].map((row) => row.id).sort()
@@ -814,8 +816,8 @@ describe('the events repository writes only its own workspace', () => {
   })
 
   it('claims the janitor steward in its own workspace only', async () => {
-    // One workspace only: the steward's `cursor` key is the same name in every workspace, and
-    // until C1 the old key would make the second claim's upsert hit the first one's row.
+    // The steward's `cursor` key is the same name in every workspace: since the keys migration
+    // (POD-7024) each claim is its own workspace's row.
     const { stores, seeded } = await twoSeeded()
     const [a, b] = stores
     const before = await rowsOf(a, 'b')
@@ -823,6 +825,9 @@ describe('the events repository writes only its own workspace', () => {
     expect(await a.events.getStewardState('cursor')).toBe(String(Math.max(...seeded.a.events)))
     expect(await b.events.getStewardState('cursor')).toBeUndefined()
     expect(await rowsOf(a, 'b')).toEqual(before)
+    expect(await b.events.activateJanitorSteward()).toBe(Math.max(...seeded.b.events))
+    expect(await b.events.getStewardState('cursor')).toBe(String(Math.max(...seeded.b.events)))
+    expect(await a.events.getStewardState('cursor')).toBe(String(Math.max(...seeded.a.events)))
   })
 
   it('reads its own grouped appends and announces its own events only', async () => {
@@ -1414,5 +1419,39 @@ describe('the locks repository reads and writes only its own workspace', () => {
       await l.deleteLock(repo(tag), lockName(tag))
       expect(await rowsOf(store, other)).toEqual(before)
     }
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const SAME = asSessionId('same-session')
+    const rowsIn = async (store: WorkspaceEventSlice, tag: Tag) =>
+      await store.all<Record<string, unknown>>(
+        sql`SELECT * FROM runtime_event_checkpoints WHERE workspace_id = ${WS[tag]} AND session_id = ${SAME}`,
+      )
+    const { stores } = await twoSeeded()
+    const [a, b] = stores
+    const save = async (store: WorkspaceEventSlice, tag: Tag, observerGeneration: number) =>
+      await store.events.saveRuntimeEventCheckpoint({
+        sessionId: SAME,
+        observerGeneration,
+        cursor: { segmentId: `${tag}-same-segment`, components: { seq: 1 } },
+        turnEpoch: 1,
+        closedTurnEpoch: null,
+        updatedAt: AT,
+      })
+    await save(b, 'b', 1)
+    const before = await rowsIn(b, 'b')
+    await save(a, 'a', 1)
+    expect(await rowsIn(a, 'a')).toHaveLength(1)
+    expect(await rowsIn(b, 'b')).toEqual(before)
+    await save(a, 'a', 2)
+    expect(await rowsIn(a, 'a')).toEqual([expect.objectContaining({ observer_generation: 2 })])
+    expect(await rowsIn(b, 'b')).toEqual(before)
   })
 })

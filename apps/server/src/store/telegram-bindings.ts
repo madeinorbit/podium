@@ -120,7 +120,10 @@ const upsertBinding = prepared((db, t) =>
   db
     .insert(t.telegramChatBindings)
     .values({ workspaceId: WORKSPACE, ...bindingPlaceholders })
-    .onConflictDoUpdate({ target: t.telegramChatBindings.chatId, set: bindingPlaceholders })
+    .onConflictDoUpdate({
+      target: [t.telegramChatBindings.workspaceId, t.telegramChatBindings.chatId],
+      set: bindingPlaceholders,
+    })
     .prepare(),
 )
 

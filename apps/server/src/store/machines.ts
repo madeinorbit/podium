@@ -333,7 +333,7 @@ const upsertEnrolledMachine = prepared((db, t) =>
         assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
       })
       .onConflictDoUpdate({
-        target: t.machines.id,
+        target: [t.machines.workspaceId, t.machines.id],
         setWhere: and(
           isNull(t.machines.revokedAt),
           eq(t.machines.credentialKind, 'bearer-hash'),

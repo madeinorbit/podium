@@ -103,12 +103,17 @@ const keysWorkspaceColumn = prepared((db) =>
   ),
 )
 
+/**
+ * Every read and delete of the keys names its workspace first, so the segment index leads with
+ * it (design 2.3). The keys migration (POD-7024) dropped the index of the same name that began
+ * with `machine_id`, so on an upgraded database this creates the new one.
+ */
 const createTranscriptKeysIndex = prepared((db) =>
   db.run(
     sqliteOnly(
       db,
       sql`CREATE INDEX IF NOT EXISTS idx_transcript_fts_keys_segment
-        ON transcript_fts_keys (machine_id, native_id)`,
+        ON transcript_fts_keys (workspace_id, machine_id, native_id)`,
     ),
   ),
 )
@@ -127,6 +132,12 @@ const createTranscriptKeysIndex = prepared((db) =>
  *     exists only on the SQLite engine, and a SQLite install is self-hosted: one
  *     workspace, which owns every row, including those whose segment row is gone
  *     (they matched a search before the workspace column, and still do).
+ *
+ * NEVER ANOTHER WORKSPACE'S ROW (POD-7022's second note, closed by POD-7024). The key is the
+ * FTS rowid alone, which is unique across workspaces because the FTS table is shared, so a
+ * row keyed already belongs to the workspace that keyed it: `OR IGNORE` leaves it there. With
+ * `OR REPLACE`, the self-hosted workspace's `every` catch-up would have taken the rows of any
+ * other workspace on the same database past its own last key.
  */
 type CatchUpShape = `${'all' | 'after-last'}|${'owned' | 'every'}`
 const catchUpKeys = preparedFamily((db, _t, shape: CatchUpShape) =>
@@ -144,7 +155,7 @@ function catchUpKeysSql(shape: CatchUpShape): SQL {
           WHERE s.workspace_id = ${WORKSPACE} AND s.machine_id = f.machine_id AND s.native_id = f.native_id)`)
   }
   const where = terms.length === 0 ? sql`` : sql` WHERE ${sql.join(terms, sql` AND `)}`
-  return sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+  return sql`INSERT OR IGNORE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
         SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f${where}`
 }
 

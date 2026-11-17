@@ -26,7 +26,7 @@ import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { backupDatabase } from './backup'
+import { backupDatabase, freeDiskBytes, measureBackupSpace } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import {
   folderMillis,
@@ -162,6 +162,8 @@ export function runDrizzleMigrations(
     dbPath?: string
     skipSchemaRepair?: boolean
     update?: { runtimeDir: string; grantId: string }
+    /** Free bytes on the database's file system; tests plant a small disk. */
+    freeBytes?: (dir: string) => number
   } = {},
 ): string[] {
   const applied = appliedDrizzleNames(db)
@@ -217,6 +219,7 @@ export function runDrizzleMigrations(
   // Snapshot before schema work. A retry with only retirement deferred keeps
   // the original pre-upgrade snapshot instead of ageing it out of retention.
   if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+    refuseWithoutFreeSpace(opts.dbPath, opts.freeBytes ?? freeDiskBytes)
     const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
@@ -267,7 +270,13 @@ export function runDrizzleMigrations(
       // names bun:sqlite's real `Database` class, which materializes only in a program
       // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
       // the scripts typecheck lane does not (POD-1122). Same object at runtime.
-      drizzle({ client: client as unknown as DrizzleBunClient }),
+      drizzle({
+        // Progress for an upgrade only: a fresh database builds from the whole chain at once.
+        client: reportingRebuilds(
+          client,
+          applied.size > 0 ? pending : [],
+        ) as unknown as DrizzleBunClient,
+      }),
       pending.map((m) => ({
         name: m.name,
         timestamp: folderMillis(m.name),
@@ -301,6 +310,93 @@ export function runDrizzleMigrations(
   // itself one of the migrations that may have just run.
   if (opts.skipSchemaRepair !== true) reportRepairs(db)
   return pending.map((m) => m.name)
+}
+
+/**
+ * THE UPGRADE NEEDS ROOM (POD-6959 design 2.6, POD-7024). Before the backup, refuse when the
+ * file system holding the database has less free space than {@link UPGRADE_SPACE_FACTOR} times
+ * its size. The backup is a full copy; the migrations' one transaction writes about the data
+ * again into the WAL while it rebuilds tables (the keys migration rebuilds nearly all of them);
+ * and the file grows by about its largest table, whose new copy cannot reuse the old one's
+ * pages. Measured on a 1.83 GB database with no free pages, the keys migration peaked at 2.2
+ * times the database beside it (backup 1.0, WAL 0.9, growth 0.3). Refusing here changes
+ * nothing; running out of space halfway through would roll the whole batch back after minutes
+ * of work, with a backup beside it.
+ */
+const UPGRADE_SPACE_FACTOR = 2.5
+
+function refuseWithoutFreeSpace(dbPath: string, freeBytes: (dir: string) => number): void {
+  // The backup's own measure (database and sidecars, `migrations/backup.ts`), so the two
+  // checks read one number; the backup itself still asks for its copy with a margin.
+  const space = measureBackupSpace(dbPath, freeBytes)
+  const required = Math.ceil(UPGRADE_SPACE_FACTOR * space.needed)
+  if (space.available >= required) return
+  log.warn('refusing the upgrade: not enough free disk space', { dbPath, ...space })
+  throw new Error(
+    `Podium cannot upgrade its database: there is not enough free disk space. The upgrade ` +
+      `needs about ${megabytes(required)} free in ${space.dir} (a backup copy and ` +
+      `room to rewrite the tables), and ${megabytes(space.available)} is free. Free some ` +
+      `space and start Podium again. Nothing was changed.`,
+  )
+}
+
+const megabytes = (bytes: number): string => `${Math.ceil(bytes / 1_000_000)} MB`
+
+/** An index statement: drizzle-kit writes a rebuild migration's indexes after its tables. */
+const INDEX_STATEMENT = /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s/i
+
+/** A table rebuild's last step: drizzle-kit's `ALTER TABLE __new_x RENAME TO x`. */
+const REBUILD_DONE = /^\s*ALTER TABLE [`"]__new_(\w+)[`"] RENAME TO /i
+const REBUILD_START = /CREATE TABLE [`"]__new_\w+[`"]/gi
+
+/**
+ * ONE PROGRESS LINE PER REBUILT TABLE (POD-6959 design 2.6, P-OD1). A rebuild migration holds
+ * the boot for as long as copying its tables takes, minutes on a large install, so the log says
+ * how far it is. The migrator prepares each statement through the client's `query`, so the
+ * client handed to drizzle is watched for the rename that ends each rebuild; the copy before it
+ * has run by then. Nothing is watched when no pending migration rebuilds a table.
+ */
+function reportingRebuilds<TClient extends object>(
+  client: TClient,
+  pending: readonly DrizzleMigration[],
+): TClient {
+  const total = pending.reduce((sum, m) => sum + (m.sql.match(REBUILD_START)?.length ?? 0), 0)
+  if (total === 0) return client
+  let done = 0
+  let last = performance.now()
+  // drizzle-kit writes the indexes of every rebuilt table after the rebuilds: one line says
+  // how long they took, so the time is not counted against the table rebuilt next.
+  let indexes = 0
+  return new Proxy(client, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown
+      if (typeof value !== 'function') return value
+      if (property !== 'query') return value.bind(target)
+      return (sql: string, ...rest: unknown[]) => {
+        if (INDEX_STATEMENT.test(sql)) {
+          indexes += 1
+        } else if (indexes > 0) {
+          const now = performance.now()
+          log.info('built indexes', { count: indexes, ms: Math.round(now - last) })
+          last = now
+          indexes = 0
+        }
+        const rebuilt = REBUILD_DONE.exec(sql)?.[1]
+        if (rebuilt !== undefined) {
+          done += 1
+          const now = performance.now()
+          log.info('rebuilt table', {
+            table: rebuilt,
+            done,
+            of: total,
+            ms: Math.round(now - last),
+          })
+          last = now
+        }
+        return value.call(target, sql, ...rest)
+      }
+    },
+  })
 }
 
 /**

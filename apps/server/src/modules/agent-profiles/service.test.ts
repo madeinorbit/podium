@@ -70,9 +70,9 @@ beforeEach(async () => {
 
 const insertIssue = (seq: number, profileId: string, stage = 'in_progress'): void => {
   db.prepare(
-    `INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
+    `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
        default_agent, agent_profile_id, created_at, updated_at)
-     VALUES (?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
+     VALUES ('local', ?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
   ).run(`iss_${seq}`, ADMIN, ADMIN, seq, stage, profileId)
 }
 

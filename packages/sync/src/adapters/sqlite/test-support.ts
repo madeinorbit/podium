@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
 import { sqliteSyncTables } from './binding'
 import {
@@ -37,7 +37,7 @@ import { SUITE_WORKSPACE_ID, type SyncRepositoryFixture } from './sync-repositor
 export const testQueuedMessages = sqliteTable(
   'queued_messages',
   {
-    id: text().primaryKey(),
+    id: text().notNull(),
     sessionId: text('session_id').$type<SessionId>().notNull(),
     text: text().notNull(),
     queuedAt: integer('queued_at').notNull(),
@@ -57,20 +57,27 @@ export const testQueuedMessages = sqliteTable(
     ...workspaceColumn(),
   },
   (table) => [
-    index('queued_messages_session').on(table.sessionId, table.queuedAt),
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'queued_messages_pk' }),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queuedAt),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
 )
 
-export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
-  mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
-  proc: text().notNull(),
-  input: text().notNull(),
-  queuedAt: integer('queued_at').notNull(),
-  attempts: integer().default(0).notNull(),
-  ...workspaceColumn(),
-})
+export const testUpstreamOutbox = sqliteTable(
+  'upstream_outbox',
+  {
+    mutationId: text('mutation_id').$type<MutationId>().notNull(),
+    proc: text().notNull(),
+    input: text().notNull(),
+    queuedAt: integer('queued_at').notNull(),
+    attempts: integer().default(0).notNull(),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'upstream_outbox_pk' }),
+  ],
+)
 
 /** What the fixture hands `SyncRepository` where the server hands it the real ones.
  *  The fixture is SQLite, where a write needs no capture form. */
@@ -82,7 +89,7 @@ export const testSyncServerTables: SyncServerTables = {
 
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying the tables it
- * reads: `changes`, `applied_mutations` and `feed_identity` (owned
+ * reads: `changes`, `applied_mutations`, `sync_feed` and `sync_kind` (owned
  * by THIS adapter's `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
  * (feature-owned, declared in apps/server's schema — this adapter reads them,
  * and reading a table is not owning it).
@@ -227,7 +234,7 @@ export function createTestSyncDatabase(): SqlDatabase {
   db.exec('CREATE INDEX changes_entity ON changes(workspace_id, entity, entity_id, seq)')
   db.exec('CREATE INDEX changes_event_time ON changes(workspace_id, event_time, seq)')
   db.exec(`CREATE TABLE sync_feed (
-    workspace_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
+    workspace_id TEXT NOT NULL PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
     minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
   )`)
   db.exec(`CREATE TABLE sync_kind (
@@ -237,22 +244,12 @@ export function createTestSyncDatabase(): SqlDatabase {
 
   db.exec(
     `CREATE TABLE applied_mutations (
-       mutation_id TEXT PRIMARY KEY,
+       mutation_id TEXT NOT NULL,
        proc        TEXT NOT NULL,
        result      TEXT NOT NULL,
        applied_at  INTEGER NOT NULL,
-       workspace_id TEXT NOT NULL DEFAULT 'local'
-     )`,
-  )
-  db.exec(
-    // ADR 2 D1's feed identity. ONE row, pinned by a constant primary key, so
-    // "there is exactly one current generation" is a property of the schema
-    // rather than a rule every writer has to remember.
-    `CREATE TABLE feed_identity (
-       singleton INTEGER PRIMARY KEY,
-       feed_id   TEXT NOT NULL,
-       epoch     TEXT NOT NULL,
-       minted_at INTEGER NOT NULL
+       workspace_id TEXT NOT NULL,
+       PRIMARY KEY (workspace_id, mutation_id)
      )`,
   )
   db.exec(
@@ -262,7 +259,7 @@ export function createTestSyncDatabase(): SqlDatabase {
     // that stopped at `attempts` — as this one did until POD-3249 — could not run
     // the repository's own INSERT at all.
     `CREATE TABLE queued_messages (
-       id            TEXT PRIMARY KEY,
+       id            TEXT NOT NULL,
        session_id    TEXT NOT NULL,
        text          TEXT NOT NULL,
        queued_at     INTEGER NOT NULL,
@@ -279,20 +276,24 @@ export function createTestSyncDatabase(): SqlDatabase {
        delivery      TEXT NOT NULL DEFAULT 'when-ready',
        attachments_json TEXT,
        retract_requested_at INTEGER,
-       workspace_id  TEXT NOT NULL DEFAULT 'local',
+       workspace_id  TEXT NOT NULL,
+       PRIMARY KEY (workspace_id, id),
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
   )
-  db.exec('CREATE INDEX queued_messages_session ON queued_messages(session_id, queued_at)')
+  db.exec(
+    'CREATE INDEX queued_messages_session ON queued_messages(workspace_id, session_id, queued_at)',
+  )
   db.exec(
     `CREATE TABLE upstream_outbox (
-       mutation_id TEXT PRIMARY KEY,
+       mutation_id TEXT NOT NULL,
        proc        TEXT NOT NULL,
        input       TEXT NOT NULL,
        queued_at   INTEGER NOT NULL,
        attempts    INTEGER NOT NULL DEFAULT 0,
-       workspace_id TEXT NOT NULL DEFAULT 'local'
+       workspace_id TEXT NOT NULL,
+       PRIMARY KEY (workspace_id, mutation_id)
      )`,
   )
   return db

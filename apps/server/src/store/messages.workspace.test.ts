@@ -3,9 +3,11 @@
  *
  * Two workspaces over one database of the run's engine (`openMessageStoreSlices`), each seeded through its own
  * repositories with its own sessions, messages, read receipts, wake cooldowns, chat topics,
- * chat attachments, Telegram bindings and notification facts. The ids and names differ between
- * the workspaces: until the key migration (C1, POD-7024) no unique constraint includes
- * `workspace_id`, so the same id in both would collide on the old key.
+ * chat attachments, Telegram bindings and notification facts.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of the group (messages, messaging topics, messaging session
  * attachments, Telegram bindings, notification facts):
@@ -299,7 +301,7 @@ function onlyOwn(value: unknown, tag: Tag): void {
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
     new RegExp(
-      `\\b${other}-(m\\d|s\\d|iss-|item|chat|key|alice|thread|source|target)|fact:${other}:`,
+      `\\b${other}-(m\\d|s\\d|iss-|item|chat|key|alice|thread|source|target)|fact:${other}:|"${other} `,
     ),
   )
 }
@@ -656,5 +658,38 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(own.telegram_chat_bindings).toEqual([])
     expect(own.notification_facts).toEqual([])
     expect(await rowsOf(a, 'b')).toEqual(before)
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const rowsIn = (store: SessionStore, ws: string) =>
+      rawDb(store)
+        .prepare(
+          'SELECT * FROM telegram_chat_bindings WHERE workspace_id = ? AND chat_id = ? ORDER BY rowid',
+        )
+        .all(ws, SAME)
+    const SAME = 'same-chat'
+    const [a, b] = await twoSeeded()
+    const bind = async (store: SessionStore, tag: Tag, boundAt: string) =>
+      await store.telegramBindings.upsert({
+        chatId: SAME,
+        userId: alice(tag),
+        boundAt,
+        boundBy: { actor: { kind: 'user', id: alice(tag) }, onBehalfOf: null },
+      })
+    await bind(b, 'b', AT)
+    const before = rowsIn(b, WS.b)
+    await bind(a, 'a', AT)
+    expect(rowsIn(a, WS.a)).toHaveLength(1)
+    expect(rowsIn(b, WS.b)).toEqual(before)
+    await bind(a, 'a', LATER)
+    expect(rowsIn(a, WS.a)).toEqual([expect.objectContaining({ bound_at: LATER })])
+    expect(rowsIn(b, WS.b)).toEqual(before)
   })
 })

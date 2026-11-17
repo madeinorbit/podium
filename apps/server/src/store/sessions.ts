@@ -763,7 +763,7 @@ const upsertSessionOfShape = preparedFamily((db, t, key: string) => {
       .insert(t.sessions)
       .values({ ...p, workspaceId: WORKSPACE } as unknown as SessionInsert)
       .onConflictDoUpdate({
-        target: t.sessions.id,
+        target: [t.sessions.workspaceId, t.sessions.id],
         set: sessionUpsertSet(t, (name) => p[name], groups),
       }),
   ).prepare()
@@ -806,7 +806,7 @@ const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
       .insert(t.sessions)
       .values(rows as unknown as SessionInsert[])
       .onConflictDoUpdate({
-        target: t.sessions.id,
+        target: [t.sessions.workspaceId, t.sessions.id],
         set: sessionUpsertSet(
           t,
           (name) =>
@@ -1162,6 +1162,10 @@ const allPins = prepared((db, t) =>
     })
     .from(t.pins)
     .where(inWorkspace(t.pins))
+    // Oldest first, ties by the key: said rather than left to the plan, which since the key
+    // leads with the workspace (POD-7024) may read the pins in key order, and the same on
+    // both engines (Postgres has no rowid).
+    .orderBy(asc(t.pins.pinnedAt), asc(t.pins.userId), asc(t.pins.kind), asc(t.pins.id))
     .prepare(),
 )
 
@@ -1276,7 +1280,11 @@ const upsertReadAt = prepared((db, t) =>
         readAt: sql.placeholder('readAt'),
       })
       .onConflictDoUpdate({
-        target: [t.sessionUserState.userId, t.sessionUserState.sessionId],
+        target: [
+          t.sessionUserState.workspaceId,
+          t.sessionUserState.userId,
+          t.sessionUserState.sessionId,
+        ],
         set: { readAt: sql.placeholder('readAt') },
       }),
   ).prepare(),
@@ -1364,7 +1372,7 @@ const upsertSnooze = prepared((db, t) =>
         createdAt: sql.placeholder('createdAt'),
       })
       .onConflictDoUpdate({
-        target: [t.snoozes.userId, t.snoozes.sessionId],
+        target: [t.snoozes.workspaceId, t.snoozes.userId, t.snoozes.sessionId],
         set: { snoozedUntil: sql.placeholder('snoozedUntil') },
       }),
   ).prepare(),
@@ -1415,7 +1423,7 @@ const upsertOffer = prepared((db, t) =>
         createdAt: sql.placeholder('createdAt'),
       })
       .onConflictDoUpdate({
-        target: t.offers.sessionId,
+        target: [t.offers.workspaceId, t.offers.sessionId],
         set: {
           message: sql.placeholder('message'),
           actions: sql.placeholder('actions'),
@@ -1474,7 +1482,7 @@ const upsertTabOrder = prepared((db, t) =>
         updatedAt: sql.placeholder('updatedAt'),
       })
       .onConflictDoUpdate({
-        target: [t.tabOrder.userId, t.tabOrder.worktree],
+        target: [t.tabOrder.workspaceId, t.tabOrder.userId, t.tabOrder.worktree],
         set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
       }),
   ).prepare(),
@@ -1498,6 +1506,7 @@ const pinsOfUsers = preparedFamily((db, t, size: number) =>
     })
     .from(t.pins)
     .where(inWorkspace(t.pins, inListOf(t.pins.userId, size, 'users')))
+    .orderBy(asc(t.pins.pinnedAt), asc(t.pins.userId), asc(t.pins.kind), asc(t.pins.id))
     .prepare(),
 )
 
@@ -1552,7 +1561,7 @@ const upsertDraftText = prepared((db, t) =>
         updatedAt: sql.placeholder('updatedAt'),
       })
       .onConflictDoUpdate({
-        target: t.sessionDrafts.sessionId,
+        target: [t.sessionDrafts.workspaceId, t.sessionDrafts.sessionId],
         set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
       }),
   ).prepare(),
@@ -1590,7 +1599,7 @@ const upsertDraftDoc = prepared((db, t) =>
         history: sql.placeholder('history'),
       })
       .onConflictDoUpdate({
-        target: t.sessionDrafts.sessionId,
+        target: [t.sessionDrafts.workspaceId, t.sessionDrafts.sessionId],
         set: {
           text: sql.placeholder('text'),
           updatedAt: sql.placeholder('updatedAt'),

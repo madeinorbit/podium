@@ -130,6 +130,11 @@ export interface CaptureCascade {
   readonly columns: readonly string[]
   /** The parent's referenced columns, in the same order. */
   readonly references: readonly string[]
+  /**
+   * The columns a `set null` clears: every referencing column for a plain SET NULL, the
+   * reference alone for a composite key that clears one column (`CLEARED_ON_DELETE`).
+   */
+  readonly nulls: readonly string[]
 }
 
 const SQLITE_TABLES: ReadonlyMap<string, SQLiteTable> = new Map(
@@ -231,6 +236,22 @@ export function cascadesReachingSources(
         throw new Error(`capture: ${child} -> ${parent} has ON UPDATE ${onUpdate}, not captured`)
       }
       const onDelete = key.onDelete ?? 'no action'
+      // A composite key whose delete clears its reference alone (POD-7024): it declares no
+      // action, and each engine clears the column (CLEARED_ON_DELETE in the schema).
+      const cleared = schema.CLEARED_ON_DELETE.find(
+        (entry) => entry.table === child && entry.key === key.getName(),
+      )
+      if (cleared !== undefined && onDelete === 'no action') {
+        out.push({
+          parent,
+          child,
+          action: 'set null',
+          columns: reference.columns.map((column) => column.name),
+          references: reference.foreignColumns.map((column) => column.name),
+          nulls: [cleared.column],
+        })
+        continue
+      }
       if (onDelete === 'no action' || onDelete === 'restrict') continue
       if (onDelete !== 'cascade' && onDelete !== 'set null') {
         throw new Error(`capture: ${child} -> ${parent} has ON DELETE ${onDelete}, not captured`)
@@ -241,6 +262,7 @@ export function cascadesReachingSources(
         action: onDelete,
         columns: reference.columns.map((column) => column.name),
         references: reference.foreignColumns.map((column) => column.name),
+        nulls: reference.columns.map((column) => column.name),
       })
     }
   }
@@ -471,7 +493,7 @@ function cascadeParts(
         selects.push(...branchSelects(child, childSources, { op: 'd', from: alias, old }))
       } else {
         // The same row with its referencing columns NULL, typed as the columns are.
-        const nulled = new Set(edge.columns)
+        const nulled = new Set(edge.nulls)
         const now: RowRef = (column) =>
           nulled.has(column) ? `(CASE WHEN false THEN ${old(column)} END)` : old(column)
         selects.push(...branchSelects(child, childSources, { op: 'u', from: alias, old, now }))

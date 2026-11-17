@@ -375,7 +375,7 @@ const insertMessage = preparedFamily((db, t, shape: string) =>
         ...placeholdersFor(shape),
         workspaceId: WORKSPACE,
       } as unknown as typeof messagesTable.$inferInsert)
-      .onConflictDoNothing({ target: t.messages.id })
+      .onConflictDoNothing({ target: [t.messages.workspaceId, t.messages.id] })
       .returning(),
   ).prepare(),
 )
@@ -882,7 +882,9 @@ const insertRead = prepared((db, t) =>
       readAt: sql.placeholder('readAt'),
     })
     // DO NOTHING, never DO UPDATE: the FIRST sighting is the one that happened.
-    .onConflictDoNothing({ target: [t.messageReads.messageId, t.messageReads.sessionId] })
+    .onConflictDoNothing({
+      target: [t.messageReads.workspaceId, t.messageReads.messageId, t.messageReads.sessionId],
+    })
     .prepare(),
 )
 
@@ -1379,7 +1381,7 @@ const upsertWakeCooldown = prepared((db, t) =>
       attemptedAt: sql.placeholder('attemptedAt'),
     })
     .onConflictDoUpdate({
-      target: t.messageWakeCooldowns.key,
+      target: [t.messageWakeCooldowns.workspaceId, t.messageWakeCooldowns.key],
       set: { attemptedAt: sql.placeholder('attemptedAt') },
     })
     .prepare(),

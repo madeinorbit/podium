@@ -314,13 +314,6 @@ export const TABLE_MANIFEST = {
     'the mutation dedupe ledger; mutation ids come from clients, so a global key would let one workspace mark another workspace mutation as applied',
     true,
   ),
-  feed_identity: {
-    class: 'install',
-    origin: 'schema',
-    idgen: 'singleton',
-    reason:
-      'legacy singleton kept for a later contract step (ADR 13); read by nothing current; dropped by the upgrade',
-  },
   sync_capture: {
     class: 'transient',
     origin: 'schema',
@@ -452,7 +445,6 @@ export const INSTALL_TABLE_EXPORTS = {
   meta: 'meta',
   server_secrets: 'serverSecrets',
   maintenance_leases: 'maintenanceLeases',
-  feed_identity: 'feedIdentity',
 } as const satisfies Partial<Record<InstallTableName, string>>
 export type InstallTableExport = (typeof INSTALL_TABLE_EXPORTS)[keyof typeof INSTALL_TABLE_EXPORTS]
 

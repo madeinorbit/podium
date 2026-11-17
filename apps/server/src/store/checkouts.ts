@@ -160,7 +160,7 @@ const upsertReach = preparedFamily((db, t, size: number) =>
       })),
     )
     .onConflictDoUpdate({
-      target: [t.checkoutReach.userId, t.checkoutReach.machineId],
+      target: [t.checkoutReach.workspaceId, t.checkoutReach.userId, t.checkoutReach.machineId],
       set: { reach: sql`excluded.reach`, updatedAt: sql`excluded.updated_at` },
     })
     .prepare(),
@@ -274,7 +274,7 @@ const upsertCheckout = prepared((db, t) =>
       .insert(t.checkouts)
       .values({ workspaceId: WORKSPACE, ...checkoutPlaceholders })
       .onConflictDoUpdate({
-        target: [t.checkouts.machineId, t.checkouts.path],
+        target: [t.checkouts.workspaceId, t.checkouts.machineId, t.checkouts.path],
         set: {
           root: sql.placeholder('root'),
           kind: sql.placeholder('kind'),

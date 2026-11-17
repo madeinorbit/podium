@@ -252,7 +252,6 @@ describe('workspace table manifest', () => {
     expect(WORKSPACE_TABLES.has('workspace_meta')).toBe(true)
     expect([...INSTALL_TABLES].sort()).toEqual([
       '__drizzle_migrations',
-      'feed_identity',
       'maintenance_leases',
       'member_invites',
       'meta',
@@ -281,15 +280,12 @@ describe('workspace table manifest', () => {
     )[0]
 
   /**
-   * `sync_feed.workspace_id` is its text PRIMARY KEY, renamed in place from
-   * `tenant_id` (POD-7012), and was declared without NOT NULL. SQLite's legacy
-   * rule lets a non-INTEGER primary key hold NULL, and adding NOT NULL takes a
-   * table rebuild, which the keys migration (POD-7024) does. Until then a
-   * primary key column counts as the non-null column; nothing writes a NULL
-   * workspace (the provisioning insert names it).
+   * The column is NOT NULL in the database itself, on every workspace table. SQLite's legacy
+   * rule lets a non-INTEGER primary key hold NULL, so a primary key does not count: the keys
+   * migration (POD-7024) rebuilt `sync_feed`, whose renamed key had no NOT NULL (POD-7012).
    */
   const nonNullLive = (column: { not_null: number; pk: number } | undefined) =>
-    column !== undefined && (column.not_null === 1 || column.pk > 0)
+    column !== undefined && column.not_null === 1
 
   it('keeps a pending workspace column marker only while the column is missing', () => {
     const marked = Object.entries(manifest).filter(([, entry]) => entry.workspaceColumnPending)

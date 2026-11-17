@@ -214,7 +214,7 @@ const upsertThread = prepared((db, t) =>
         updatedAt: P('now'),
       })
       .onConflictDoUpdate({
-        target: t.superagentThreads.id,
+        target: [t.superagentThreads.workspaceId, t.superagentThreads.id],
         set: {
           title: sql`COALESCE(excluded.title, ${t.superagentThreads.title})`,
           // RE-OPENING IS A SIDE EFFECT OF WRITING. `archiveSuperagentThread`

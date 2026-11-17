@@ -111,6 +111,7 @@ const sessionRow = (id: string, owner: UserId, createdAt: string): SessionRow =>
 })
 
 const account = (id: UserId, createdAt: string) => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   id,
   displayName: `name-${id}`,
   role: 'member' as const,

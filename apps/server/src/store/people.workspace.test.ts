@@ -4,9 +4,11 @@
  * Two workspaces over one database of the run's engine (`openPeopleStoreSlices`), each seeded
  * through its own
  * repositories with its own members, machines, grants, repositories, checkouts, managed
- * accounts, old sign-ins, audit rows and agent profiles. The ids and names differ between the
- * workspaces: until the key migration (C1, POD-7024) no unique constraint includes
- * `workspace_id`, so the same id in both would collide on the old key.
+ * accounts, old sign-ins, audit rows and agent profiles.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of the group (machines, machine record context, repos, checkouts,
  * grants, accounts, users, sign-in carry-over, settings audit, agent profiles, identity upgrade):
@@ -17,9 +19,7 @@
  * (`settings.workspace.test.ts`, POD-7013).
  *
  * One machine id enrolled in both workspaces (the daemon's own UUID) and one repository origin
- * registered in both are the cases the composite keys exist for. The parts that need two rows
- * under one id (`machines`, `repo_prefixes`) run once those tables' primary keys lead with
- * `workspace_id` (C1); the rest runs now.
+ * registered in both are the cases the composite keys exist for.
  */
 
 import { createHash } from 'node:crypto'
@@ -115,7 +115,7 @@ async function rowsOf(store: Store, tag: Tag): Promise<Record<string, unknown[]>
   return out
 }
 
-/** Whether `table`'s primary key leads with workspace_id: true once C1 (POD-7024) lands. */
+/** Whether `table`'s primary key leads with workspace_id, as every key does since POD-7024. */
 async function keyLeadsWithWorkspace(store: Store, table: string): Promise<boolean> {
   if (store.engine === 'pg') {
     const [first] = await store.all<{ name: string }>(
@@ -333,7 +333,7 @@ function onlyOwn(value: unknown, tag: Tag): void {
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
     new RegExp(
-      `\\b${other}-(machine|alice|bob|carol|host|laptop|secret|identity|profile|old|carried|iss)`,
+      `\\b${other}-(machine|alice|bob|carol|host|laptop|secret|identity|profile|old|carried|iss)|"${other} `,
     ),
   )
   expect(text).not.toContain(`/repo-${other}`)
@@ -879,7 +879,14 @@ describe('one machine and one repository in both workspaces', () => {
     expect(await a.repos.reportingMachineFor(sharedId, '/shared-a')).toBe(machine('a'))
     expect(await b.repos.reportingMachineFor(sharedId, '/shared-b')).toBe(machine('b'))
     expect(await a.repos.repoForPrefix('SHA')).toEqual({ repoId: sharedId, path: '/shared-a' })
-    expect(await b.repos.repoForPrefix('SHA')).toBeNull()
+    // Prefixes are unique per workspace (POD-7024): B derives its own, which may be the same
+    // letters, and it names B's root, never A's.
+    const prefixOfB = await b.repos.prefixForRepoId(sharedId)
+    expect(prefixOfB).not.toBeNull()
+    expect(await b.repos.repoForPrefix(prefixOfB as string)).toEqual({
+      repoId: sharedId,
+      path: '/shared-b',
+    })
 
     // A's removal of its root leaves B's root of the same repository.
     await a.repos.removeRepo('/shared-a', machine('a'))
@@ -888,22 +895,15 @@ describe('one machine and one repository in both workspaces', () => {
       (await b.repos.listRepos()).filter((row) => row.repoId === sharedId).map((row) => row.path),
     ).toEqual(['/shared-b'])
 
-    if (await keyLeadsWithWorkspace(a, 'repo_prefixes')) {
-      // After C1 each workspace holds its own prefix row for the shared id.
-      expect(await b.repos.prefixForRepoId(sharedId)).not.toBeNull()
-      expect(await b.repos.prefixForRepoId(sharedId)).not.toBe('SHA')
-    }
+    // Each workspace holds its own prefix row for the shared id (POD-7024).
+    expect(await keyLeadsWithWorkspace(a, 'repo_prefixes')).toBe(true)
+    expect(await b.repos.prefixForRepoId(sharedId)).toBe(prefixOfB)
   })
 
   it('one machine id enrolled in both workspaces is two rows with their own grants and checkouts', async () => {
     const [a, b] = await twoSeeded()
-    if (!(await keyLeadsWithWorkspace(a, 'machines'))) {
-      // Before C1 (POD-7024) the machines key is the id alone, so one id cannot have two rows.
-      // What holds already: B's grants and checkouts on its own machine are B's alone.
-      expect(await a.grants.loadForResource('machine', machine('b'))).toEqual([])
-      expect(await a.checkouts.ofMachine(machine('b'))).toEqual([])
-      return
-    }
+    // The machines key leads with the workspace (POD-7024), so one id is two rows.
+    expect(await keyLeadsWithWorkspace(a, 'machines')).toBe(true)
     const daemon = asMachineId('11111111-2222-4333-8444-555555555555')
     for (const [store, tag] of pairs(a, b)) {
       expect(
@@ -934,5 +934,38 @@ describe('one machine and one repository in both workspaces', () => {
     await a.machines.revokeMachine(daemon)
     expect((await b.machines.getMachine(daemon))?.revokedAt).toBeNull()
     expect(await b.machines.custodian(daemon)).toBe(user('b'))
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const SAME = 'same-machine'
+    const rowsIn = async (store: Store, tag: Tag) =>
+      await store.all<Record<string, unknown>>(
+        sql`SELECT * FROM machines WHERE workspace_id = ${WS[tag]} AND id = ${SAME}`,
+      )
+    const [a, b] = await twoSeeded()
+    const upsert = async (store: Store, tag: Tag, name: string) =>
+      await store.machines.upsertMachine({
+        id: SAME,
+        name,
+        hostname: `${tag}-same-host`,
+        tokenHash: sha(`${tag}-same-token`),
+        ownerUserId: user(tag),
+      })
+    await upsert(b, 'b', 'b box')
+    const before = await rowsIn(b, 'b')
+    expect(before).toHaveLength(1)
+    await upsert(a, 'a', 'a box')
+    expect(await rowsIn(a, 'a')).toHaveLength(1)
+    expect(await rowsIn(b, 'b')).toEqual(before)
+    await upsert(a, 'a', 'a box renamed')
+    expect(await rowsIn(a, 'a')).toEqual([expect.objectContaining({ name: 'a box renamed' })])
+    expect(await rowsIn(b, 'b')).toEqual(before)
   })
 })

@@ -971,6 +971,23 @@ describe('the ack and settle sets', () => {
       expect(statement).toBeDefined()
       const text = statement as string
       const params = Array.from({ length: (text.match(/\?/g) ?? []).length }, () => null)
+      // A self-hosted database's picture (POD-7024): one workspace holds every row, and the
+      // columns after it are what SQLite guesses without statistics. With no statistics at all
+      // SQLite takes `workspace_id = ?` as selective and seeks on any index that leads with it.
+      const indexes = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages'")
+        .all() as { name: string }[]
+      db.exec('ANALYZE')
+      db.exec("DELETE FROM sqlite_stat1 WHERE tbl = 'messages'")
+      for (const { name } of indexes) {
+        const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all().length
+        const rest = Array.from({ length: columns - 1 }, (_, i) => [10, 9, 8, 7, 6][i] ?? 5)
+        db.prepare("INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('messages', ?, ?)").run(
+          name,
+          ['100000', '100000', ...rest].join(' '),
+        )
+      }
+      db.exec('ANALYZE sqlite_schema')
       const plan = (
         db.prepare(`EXPLAIN QUERY PLAN ${text}`).all(...params) as { detail: string }[]
       ).map((row) => row.detail)

@@ -30,7 +30,13 @@ import { runDrizzleMigrations } from './index'
 const M1 = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_workspace-column'))
 
 /** Workspace tables a later migration creates, already keyed by workspace (POD-7013). */
-const CREATED_AFTER_M1 = new Set(['workspace_meta', 'workspace_secrets'])
+const CREATED_AFTER_M1 = new Set([
+  'workspace_meta',
+  'workspace_secrets',
+  // Created already keyed by workspace (POD-7057).
+  'artifact_uploads',
+  'pending_uploads',
+])
 
 /** The workspace tables the migration chain creates before M1 (planned and runtime ones excluded). */
 const WORKSPACE_TABLES = Object.entries(TABLE_MANIFEST)

@@ -3,9 +3,11 @@
  *
  * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
  * repositories with its own sessions, pins, snoozes, read markers, offers, tab orders, drafts,
- * layout, dock shells, preferences and read positions. The ids and names differ between the
- * workspaces: until the key migration (C1, POD-7024) no unique constraint includes
- * `workspace_id`, so the same id in both would collide on the old key.
+ * layout, dock shells, preferences and read positions.
+ * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
+ * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
+ * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
+ * both are marked below, and the rest of the conversion is POD-7025's.
  *
  * For every repository method of the group:
  *   - a read answers only its own workspace's rows, including the reads across people and the
@@ -249,7 +251,7 @@ function onlyOwn(value: unknown, tag: Tag): void {
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
     new RegExp(
-      `\\b${other}-(s\\d|iss-|machine|resume|alice|bob|files|model|topic|offer|draft|doc)`,
+      `\\b${other}-(s\\d|iss-|machine|resume|alice|bob|files|model|topic|offer|draft|doc)|"${other} `,
     ),
   )
 }
@@ -627,5 +629,31 @@ describe('the written-columns hint is per workspace', () => {
 
     expect(await inSpan(b, async () => hintOf(b).get(sid('b', 1)))).toBeDefined()
     expect(await inSpan(a, async () => hintOf(a).get(sid('a', 1)))).toBeUndefined()
+  })
+})
+
+/**
+ * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
+ * as it was, and A's second upsert of the id updates A's row only.
+ */
+describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
+  it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
+    const rowsIn = (store: SessionStore, ws: string) =>
+      rawDb(store)
+        .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND id = ? ORDER BY rowid')
+        .all(ws, SAME)
+    const SAME = asSessionId('same-session')
+    const [a, b] = await twoSeeded()
+    opened = a
+    await b.sessions.upsertSession(scope, session('b', 6, { id: SAME }))
+    const before = rowsIn(b, WS.b)
+    await a.sessions.upsertSession(scope, session('a', 6, { id: SAME }))
+    expect(rowsIn(a, WS.a)).toHaveLength(1)
+    expect(rowsIn(b, WS.b)).toEqual(before)
+    await a.sessions.upsertSession(scope, session('a', 6, { id: SAME, title: 'a retitled' }))
+    expect((await a.sessions.getSession(SAME))?.title).toBe('a retitled')
+    expect((await b.sessions.getSession(SAME))?.title).toBe('b session 6')
+    expect(rowsIn(b, WS.b)).toEqual(before)
   })
 })

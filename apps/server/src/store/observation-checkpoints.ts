@@ -272,7 +272,7 @@ const upsertRebindReceipt = prepared((db, t) =>
     .insert(t.sessionObservationRebinds)
     .values({ workspaceId: WORKSPACE, sessionId: P('sessionId'), ...rebindReceiptColumns })
     .onConflictDoUpdate({
-      target: t.sessionObservationRebinds.sessionId,
+      target: [t.sessionObservationRebinds.workspaceId, t.sessionObservationRebinds.sessionId],
       set: rebindReceiptColumns,
     })
     .prepare(),
@@ -337,7 +337,7 @@ const upsertTerminalProof = prepared((db, t) =>
       updatedAt: P('at'),
     })
     .onConflictDoUpdate({
-      target: t.sessionTerminalCandidates.sessionId,
+      target: [t.sessionTerminalCandidates.workspaceId, t.sessionTerminalCandidates.sessionId],
       set: { proofJson: P('proofJson'), confirmedAt: null, consumedAt: null, updatedAt: P('at') },
     })
     .prepare(),

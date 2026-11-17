@@ -78,7 +78,7 @@ const save = prepared((db, t) =>
         updatedAt: sql.placeholder('updatedAt'),
       })
       .onConflictDoUpdate({
-        target: t.issueGitStates.issueId,
+        target: [t.issueGitStates.workspaceId, t.issueGitStates.issueId],
         set: { factsJson: sql`excluded.facts_json`, updatedAt: sql`excluded.updated_at` },
         setWhere: sql`CAST(${t.issueGitStates.factsJson} AS TEXT) <> CAST(excluded.facts_json AS TEXT)`,
       })

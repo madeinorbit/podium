@@ -61,6 +61,7 @@ import {
   tablesOf,
 } from '../test-support/query-plan-audit'
 import { param, prepared, type StoreDrizzle } from './executor/sync-drizzle'
+import { WORKSPACE_TABLES } from './workspace-manifest'
 
 /**
  * Columns whose value most rows share, as `table.column`. A plan that seeks
@@ -75,7 +76,39 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
   'grants.resource_kind',
   // Three recipient kinds.
   'messages.to_kind',
+  // EVERY WORKSPACE TABLE'S WORKSPACE (POD-7024). Every key and index leads with
+  // workspace_id, and a self-hosted install has one workspace, so `workspace_id = ?` selects
+  // every row: a search constrained by the workspace alone reads the whole table. Without
+  // statistics SQLite takes it as selective (and SQLite does not carry the workspace into the
+  // branches of an OR unless statistics say it pays), so the audit models it as what it is.
+  // `sync_feed` is keyed by the workspace alone (one row per workspace): there it is the key.
+  ...[...WORKSPACE_TABLES]
+    .filter((table) => table !== 'sync_feed')
+    .map((table) => `${table}.workspace_id`),
 ])
+
+/**
+ * An index's statistics as `ANALYZE` writes them for a table of `rows` rows: the row count, then
+ * how many rows share each prefix of the index's columns. The workspace leads every index of a
+ * workspace table and a self-hosted install has one, so a real ANALYZE finds every row under it;
+ * the column after it narrows as the leading column always did (`first`), and the rest to one.
+ */
+function prefixStatistics(
+  rows: number,
+  table: string,
+  columns: readonly string[],
+  first: (rows: number, lowSelectivity: boolean) => number,
+): string {
+  let narrowed = false
+  const perPrefix = columns.map((column) => {
+    const low = LOW_SELECTIVITY.has(`${table}.${column}`)
+    if (!narrowed && low && column === 'workspace_id') return rows
+    if (narrowed) return 1
+    narrowed = true
+    return first(rows, low)
+  })
+  return [rows, ...perPrefix].join(' ')
+}
 
 /**
  * Tables that do not grow with work: their size follows the number of people,
@@ -111,7 +144,15 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
     "Durable operations (modules/operations/store.ts): single-flight keeps at most one live row per exclusion group, and retention sweeps each kind's finished history to twenty.",
   ],
   ['offers', 'At most one live offer per session, removed when cleared.'],
+  // Read whole per workspace since the keys lead with workspace_id (POD-7024).
+  ['sync_kind', 'One generation row per record kind per workspace: a few dozen.'],
+  ['workspace_secrets', "A fixed set of a workspace's own keys (POD-7013)."],
+  [
+    'artifact_uploads',
+    'CLI uploads in flight: a row is removed when the upload is published or swept.',
+  ],
   ['tab_order', 'One row per person per worktree they arranged.'],
+  ['pins', 'A few pins per person, read in the order they were made (POD-7024).'],
   // The end-of-period deletes of these two scan by workspace until the key migration (C1,
   // POD-7024) leads their keys with workspace_id; then they are keyed range deletes.
   [
@@ -129,7 +170,13 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  * Every entry here is bounded by something other than the amount of work: a
  * sort of one key's few rows, a one-time repair behind its receipt.
  */
+const MIN_MAX_SEEK =
+  "A min() or max() over a key that leads with workspace_id: SQLite's min/max optimization " +
+  'reads the one entry at that end of the workspace (measured on a million rows: 4 µs a call, ' +
+  'against 43 ms for a read of the whole workspace). The plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  ['apps/server/src/store/events.ts:highestEventId', MIN_MAX_SEEK],
+  ['packages/sync/src/adapters/sqlite/sync-repository.ts:advanceFloor', MIN_MAX_SEEK],
   [
     'apps/server/src/store/issues.ts:issuesOfLabels',
     "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
@@ -633,12 +680,42 @@ let database: SqlDatabase
 function modelLowSelectivity(db: SqlDatabase, options?: { replace?: boolean }): void {
   writeStatistics(
     db,
-    (table, columns) =>
+    (table, columns, unique) =>
       LOW_SELECTIVITY.has(`${table}.${columns[0]}`)
-        ? ['1000000', '250000', ...columns.slice(1).map(() => '1')].join(' ')
+        ? defaultsAfterWorkspace(table, columns, unique)
         : undefined,
     options,
   )
+}
+
+/** SQLite's own guess of the rows per prefix of an index it has no statistics for. */
+const SQLITE_DEFAULT_ROWS = [10, 9, 8, 7, 6]
+
+/**
+ * A million rows under one workspace, then the statistics SQLite assumes without any for the
+ * columns after it (`sqlite3DefaultRowEst`: 10, 9, 8, 7, 6, then 5 rows per prefix, one for the
+ * whole key of a unique index), except that a low-selectivity column holds a quarter of what
+ * its prefix held. So the workspace prefix adds nothing the planner did not already assume of
+ * the index, and it cannot make the column after it look more selective than it is.
+ */
+function defaultsAfterWorkspace(
+  table: string,
+  columns: readonly string[],
+  unique: boolean,
+): string {
+  let rows = 1_000_000
+  let step = 0
+  const perPrefix = columns.map((column, index) => {
+    const low = LOW_SELECTIVITY.has(`${table}.${column}`)
+    if (low) {
+      rows = column === 'workspace_id' && step === 0 ? rows : Math.max(1, Math.floor(rows / 4))
+    } else {
+      rows = Math.min(rows, SQLITE_DEFAULT_ROWS[step] ?? 5)
+      step += 1
+    }
+    return unique && index === columns.length - 1 ? 1 : rows
+  })
+  return ['1000000', ...perPrefix].join(' ')
 }
 
 /**
@@ -647,7 +724,7 @@ function modelLowSelectivity(db: SqlDatabase, options?: { replace?: boolean }): 
  */
 function writeStatistics(
   db: SqlDatabase,
-  statOf: (table: string, columns: readonly string[]) => string | undefined,
+  statOf: (table: string, columns: readonly string[], unique: boolean) => string | undefined,
   { replace = true }: { replace?: boolean } = {},
 ): void {
   if (replace) {
@@ -662,9 +739,16 @@ function writeStatistics(
     const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as {
       name: string
     }[]
+    const unique =
+      (
+        db
+          .prepare(`SELECT "unique" AS isUnique FROM pragma_index_list(?) WHERE name = ?`)
+          .get(tableName, name) as { isUnique: number } | undefined
+      )?.isUnique === 1
     const stat = statOf(
       tableName,
       columns.map((column) => column.name),
+      unique,
     )
     if (stat !== undefined) insert.run(tableName, name, stat)
   }
@@ -799,8 +883,10 @@ describe('POD-6148 — every repository query is served by an index', () => {
     const openChat = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/messages.ts:openChat',
     )
+    // The partial index leads with the workspace (POD-7024): the read seeks the workspace's
+    // open chat rows instead of walking the whole index.
     expect(openChat.map((entry) => entry.plan)).toEqual([
-      ['SCAN messages USING INDEX idx_messages_open_chat'],
+      ['SEARCH messages USING INDEX idx_messages_open_chat (workspace_id=?)'],
     ])
   })
 
@@ -817,15 +903,15 @@ describe('POD-6148 — every repository query is served by an index', () => {
         'COMPOUND QUERY',
         'LEFT-MOST SUBQUERY',
         'SCAN b VIRTUAL TABLE INDEX 1:',
-        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>? AND cwd<?)',
+        'SEARCH s USING INDEX idx_sessions_refless_place (workspace_id=? AND machine_id=? AND cwd>? AND cwd<?)',
         'UNION ALL',
         'SCAN o VIRTUAL TABLE INDEX 1:',
-        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>?)',
+        'SEARCH s USING INDEX idx_sessions_refless_place (workspace_id=? AND machine_id=? AND cwd>?)',
         'UNION ALL',
-        'SEARCH s USING INDEX idx_sessions_refless_issue (issue_id>?)',
-        // The probe reads the issue's workspace too (POD-7015): one row by the primary key,
-        // no longer covered by it until C1 (POD-7024) leads the key with `workspace_id`.
-        'SEARCH i EXISTS USING INDEX sqlite_autoindex_issues_1 (id=?)',
+        'SEARCH s USING INDEX idx_sessions_refless_issue (workspace_id=? AND issue_id>?)',
+        // The probe reads one issue of the workspace, covered by the primary key again since it
+        // leads with `workspace_id` (POD-7024).
+        'SEARCH i EXISTS USING COVERING INDEX sqlite_autoindex_issues_1 (workspace_id=? AND id=?)',
         'USE TEMP B-TREE FOR ORDER BY',
       ],
     ])
@@ -839,7 +925,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     expect(active.map((entry) => entry.plan)).toEqual([
       [
-        'SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue',
+        'SEARCH ship_orders USING INDEX idx_ship_orders_one_active_issue (workspace_id=?)',
         'USE TEMP B-TREE FOR ORDER BY',
       ],
     ])
@@ -853,8 +939,8 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     expect(open.map((entry) => entry.plan)).toEqual([
       [
-        'SCAN ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane',
-        'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (id=?)',
+        'SEARCH ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane (workspace_id=?)',
+        'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (workspace_id=? AND id=?)',
       ],
     ])
   })
@@ -874,14 +960,18 @@ describe('POD-6148 — every repository query is served by an index', () => {
           return match ? [`${match[1]} ${match[2]}`] : []
         })
         .sort()
-    // The explicit sources by event and source; the relationship ones by their
-    // anchor subscriber, never by event alone (which would read every
-    // relationship row of the kind).
+    // The explicit sources by event and source. The relationship ones were read by their
+    // anchor subscriber; since every index leads with the workspace (POD-7024), SQLite's
+    // default statistics, which a table this small keeps (111 rows on the reference database,
+    // below the statistics floor), cost the event index as low as the subscriber index, and it
+    // reads them by event and source kind: every relationship row of the polled kinds in the
+    // workspace. Bounded by the subscriptions people set up; naming the subscriber index is a
+    // follow-up reported to POD-6959, as POD-6599 did for effects.
     expect(searches('matchingSubscriptions', 'ra|4')).toEqual([
       'sessions idx_sessions_issue',
       'subscriptions idx_subscriptions_match',
-      'subscriptions idx_subscriptions_subscriber_event',
-      'subscriptions idx_subscriptions_subscriber_event',
+      'subscriptions idx_subscriptions_match',
+      'subscriptions idx_subscriptions_match',
     ])
     expect(searches('relationshipSubscriptionFor', 4)).toEqual([
       'subscriptions idx_subscriptions_match',
@@ -1033,17 +1123,11 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
   const analysedAt =
     (rows: number) =>
     (table: string, columns: readonly string[]): string =>
-      [
-        String(rows),
-        // A low-selectivity column holds a quarter of the rows per value, any
-        // other leading column ten (SQLite's own guess), the rest one.
-        String(
-          LOW_SELECTIVITY.has(`${table}.${columns[0]}`)
-            ? Math.max(1, rows / 4)
-            : Math.min(rows, 10),
-        ),
-        ...columns.slice(1).map(() => '1'),
-      ].join(' ')
+      // A low-selectivity column holds a quarter of the rows per value, any other leading
+      // column ten (SQLite's own guess), the rest one; the workspace before them all.
+      prefixStatistics(rows, table, columns, (all, low) =>
+        low ? Math.max(1, all / 4) : Math.min(all, 10),
+      )
 
   const unexplained = (): string[] => {
     const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
@@ -1058,14 +1142,15 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
   it('is armed: statistics from one-row tables steer the queries of growing tables into scans', () => {
     writeStatistics(database, analysedAt(1))
     const flagged = unexplained()
-    // The runtime-event drain the bench caught scanning (POD-6216), and the
-    // other tables that start empty and grow.
+    // The tables that start empty and grow.
     expect(flagged).toEqual(
       expect.arrayContaining([
-        'apps/server/src/store/events.ts:runtimeEventsAfter []',
+        // (The runtime-event drain the bench caught scanning, POD-6216, is no longer among
+        // them: its key leads with the workspace, and one-row statistics keep it on the key.)
         'apps/server/src/store/messages.ts:queuedAheadOf []',
-        'apps/server/src/store/conversations/registry.ts:segmentsWithPaths [4]',
         'apps/server/src/store/sessions.ts:liveSessionsOnMachine []',
+        'apps/server/src/store/issues.ts:issuesByIds [4]',
+        'packages/sync/src/adapters/sqlite/sync-repository.ts:changesWithPrior [1]',
       ]),
     )
     expect(flagged.length).toBeGreaterThan(100)

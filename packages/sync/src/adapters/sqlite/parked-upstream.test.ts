@@ -28,8 +28,8 @@ function parkRow(
   queuedAt: number,
 ): void {
   db.prepare(
-    'INSERT INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?)',
-  ).run(mutationId, proc, JSON.stringify({ id: 'iss_1', mutationId }), queuedAt)
+    'INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(TEST_WORKSPACE_ID, mutationId, proc, JSON.stringify({ id: 'iss_1', mutationId }), queuedAt)
 }
 
 describe('listParkedUpstreamMutations — the archived outbox, read-only', () => {

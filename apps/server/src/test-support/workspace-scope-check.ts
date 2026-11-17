@@ -66,8 +66,6 @@ export type TableKind = 'workspace' | 'shared'
 export interface ScopeCheckOptions {
   /** Classifies a table by its SQL name (lower case, no schema). */
   readonly tableKind: (table: string) => TableKind | undefined
-  /** The ON CONFLICT rule; off until C1 (POD-7024). */
-  readonly conflictTargets?: boolean
 }
 
 export type ScopeRule =
@@ -1355,15 +1353,16 @@ export function checkWorkspaceScope(
   for (const insert of analysis.inserts) {
     if (kindOf(insert.table) !== 'workspace') continue
     findings.push(...insertFindings(tokens, insert))
-    if (options.conflictTargets) {
-      for (const target of insert.conflictTargets) {
-        if (target !== 'constraint' && target.includes(WORKSPACE_COLUMN)) continue
-        findings.push({
-          rule: 'conflict-target',
-          table: insert.table,
-          detail: `an ON CONFLICT target of ${insert.table} does not include workspace_id`,
-        })
-      }
+    // Every key of a workspace table leads with workspace_id (POD-7024), so a conflict target
+    // names it first: the target then reads as the key it must match, and a target without it
+    // could only match a key that spans workspaces. ON CONFLICT ON CONSTRAINT names no columns.
+    for (const target of insert.conflictTargets) {
+      if (target !== 'constraint' && target[0] === WORKSPACE_COLUMN) continue
+      findings.push({
+        rule: 'conflict-target',
+        table: insert.table,
+        detail: `an ON CONFLICT target of ${insert.table} does not lead with workspace_id`,
+      })
     }
   }
 

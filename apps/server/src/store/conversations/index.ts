@@ -167,7 +167,7 @@ const upsertConversations = prepared((db, t) => {
           .where(sql`true`),
       )
       .onConflictDoUpdate({
-        target: t.conversations.id,
+        target: [t.conversations.workspaceId, t.conversations.id],
         set: {
           agentKind: sql`excluded.agent_kind`,
           providerId: sql`excluded.provider_id`,

@@ -14,8 +14,8 @@
  * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId, SOLE_USER_ID } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -122,11 +122,16 @@ describe('issue schema: FK behavior at runtime', () => {
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", async () => {
     const s = await storeWithRepo()
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
-    await s.issues.upsertIssue(fixtureWriteScope(),
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_parent'), seq: 1 }),
+    )
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
       issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }),
     )
-    await s.issues.upsertIssue(fixtureWriteScope(),
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
       issueRow({
         id: asIssueId('iss_dup'),
         seq: 3,
@@ -148,7 +153,7 @@ describe('issue schema: FK behavior at runtime', () => {
     expect(() =>
       rawDb(s)
         .prepare(
-          "INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES ('c', 'iss_ghost', 'a', 'b', 't')",
+          "INSERT INTO issue_comments (workspace_id, id, issue_id, author, body, created_at) VALUES ('local', 'c', 'iss_ghost', 'a', 'b', 't')",
         )
         .run(),
     ).toThrow(/foreign key/i)

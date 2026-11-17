@@ -1003,8 +1003,8 @@ describe('the corrupt-blob oracle', () => {
     try {
       rawDb(store)
         .prepare(`INSERT INTO sessions
-        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at, machine_id)
-        VALUES (?, ?, 'shell', '/r', 'Oracle', 'spawn', 'exited', 'oracle', ?, ?, 'machine-1')
+        (workspace_id, id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at, machine_id)
+        VALUES ('local', ?, ?, 'shell', '/r', 'Oracle', 'spawn', 'exited', 'oracle', ?, ?, 'machine-1')
       `)
         .run(sessionId, firstAdminMemberId(), AT, AT)
       expect((await store.sessions.getSession(sessionId))?.id).toBe(sessionId)

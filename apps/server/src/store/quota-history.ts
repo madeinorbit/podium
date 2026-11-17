@@ -194,6 +194,7 @@ const insertWindowPlaceholders = {
 }
 
 const insertWindowTarget = (t: StoreTables) => [
+  t.quotaWindows.workspaceId,
   t.quotaWindows.accountKey,
   t.quotaWindows.windowKey,
   t.quotaWindows.resetsAtBucket,

@@ -60,39 +60,21 @@ describe('IssueService boot quarantine', () => {
     expect(listSpy).not.toHaveBeenCalled()
   })
 
-  it('a structurally corrupt row (NULL id) is skipped; the other rows are read', async () => {
+  it('a NULL id cannot be stored: the key refuses it (POD-7024)', async () => {
+    // SQLite once permitted NULL in a TEXT primary key, and the boot load skipped such a row.
+    // Since the keys migration the key is (workspace_id, id) with both NOT NULL.
     const store = await reportingStore()
-    const svc = await IssueService.create(deps(store))
-    const good1 = await svc.crud.create(svc.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'healthy one',
-      startNow: false,
-    })
-    const good2 = await svc.crud.create(svc.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'healthy two',
-      startNow: false,
-    })
-    // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
-    seedRaw(rawDb(store), () =>
+    expect(() =>
       rawDb(store)
         .prepare(
-          `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+          `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, created_by_on_behalf_of,
              repo_path, seq, title, stage, default_agent, created_at, updated_at)
-           VALUES (NULL, '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+           VALUES ('local', NULL, '${firstAdminMemberId()}', '${firstAdminMemberId()}',
                    '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
                    't', 't')`,
         )
         .run(),
-    )
-
-    // Fresh service over the same store simulates the next boot. Every listing
-    // leaves a row with a non-string id out in SQL (POD-6158).
-    const rebooted = await IssueService.create(deps(store))
-    const ids = (await rebooted.reports.list('/r')).map((w) => w.id)
-    expect(ids).toContain(good1.id)
-    expect(ids).toContain(good2.id)
-    expect(ids).toHaveLength(2)
+    ).toThrow(/NOT NULL constraint failed: issues.id/)
   })
 
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {

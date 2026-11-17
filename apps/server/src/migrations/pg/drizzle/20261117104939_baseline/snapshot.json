@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "6e5857e1-09ed-4f58-8ea2-da51398bab9d",
+  "id": "b1437c81-4cc6-464a-85f2-5daf316dd728",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -123,12 +123,6 @@
     {
       "isRlsEnabled": false,
       "name": "effects",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "feed_identity",
       "entityType": "tables",
       "schema": "public"
     },
@@ -824,7 +818,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -980,7 +974,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1123,7 +1117,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1188,7 +1182,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1344,7 +1338,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1422,7 +1416,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1552,7 +1546,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1825,7 +1819,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -1916,7 +1910,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2124,7 +2118,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2189,7 +2183,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2345,7 +2339,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2488,7 +2482,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2540,7 +2534,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2657,7 +2651,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -2826,7 +2820,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -3021,7 +3015,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -3190,7 +3184,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -3502,74 +3496,13 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
       "entityType": "columns",
       "schema": "public",
       "table": "effects"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": {
-        "type": "byDefault",
-        "name": "feed_identity_singleton_seq",
-        "increment": "1",
-        "startWith": "1",
-        "minValue": "1",
-        "maxValue": "9223372036854775807",
-        "cache": 1,
-        "cycle": false
-      },
-      "name": "singleton",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "feed_identity"
-    },
-    {
-      "type": "text COLLATE \"C\"",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "feed_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "feed_identity"
-    },
-    {
-      "type": "text COLLATE \"C\"",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "epoch",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "feed_identity"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "minted_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "feed_identity"
     },
     {
       "type": "text COLLATE \"C\"",
@@ -3615,7 +3548,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -3771,7 +3704,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5097,7 +5030,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5149,7 +5082,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5201,7 +5134,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5240,7 +5173,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5292,7 +5225,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5435,7 +5368,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5513,7 +5446,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5591,7 +5524,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5643,7 +5576,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5721,7 +5654,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5760,7 +5693,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -5912,7 +5845,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -6029,7 +5962,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -6848,7 +6781,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -6935,7 +6868,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7074,7 +7007,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7191,7 +7124,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7542,7 +7475,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7620,7 +7553,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7763,7 +7696,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -7802,7 +7735,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8348,7 +8281,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8426,7 +8359,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8517,7 +8450,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8634,7 +8567,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8738,7 +8671,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8842,7 +8775,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -8920,7 +8853,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9037,7 +8970,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9258,7 +9191,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9388,7 +9321,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9453,7 +9386,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9553,7 +9486,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -9787,7 +9720,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10060,7 +9993,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10125,7 +10058,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10164,7 +10097,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10216,7 +10149,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10307,7 +10240,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10359,7 +10292,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10463,7 +10396,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10515,7 +10448,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10645,7 +10578,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10762,7 +10695,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10892,7 +10825,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -10970,7 +10903,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -11022,7 +10955,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -11997,7 +11930,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12136,7 +12069,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12357,7 +12290,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12461,7 +12394,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12552,7 +12485,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12708,7 +12641,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12760,7 +12693,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -12838,7 +12771,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13176,7 +13109,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13191,16 +13124,7 @@
       "dimensions": 0,
       "default": null,
       "generated": null,
-      "identity": {
-        "type": "byDefault",
-        "name": "ship_recovery_revision_id_seq",
-        "increment": "1",
-        "startWith": "1",
-        "minValue": "1",
-        "maxValue": "9223372036854775807",
-        "cache": 1,
-        "cycle": false
-      },
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -13224,7 +13148,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13289,7 +13213,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13432,7 +13356,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13640,7 +13564,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -13705,7 +13629,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14043,7 +13967,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14212,7 +14136,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14277,7 +14201,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14316,7 +14240,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14355,7 +14279,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14511,7 +14435,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14650,7 +14574,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14780,7 +14704,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -14949,7 +14873,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -15235,7 +15159,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -15539,7 +15463,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -15630,7 +15554,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -15825,7 +15749,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16019,7 +15943,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16084,7 +16008,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16149,7 +16073,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16214,7 +16138,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16292,7 +16216,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16448,7 +16372,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16552,7 +16476,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16691,7 +16615,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -16821,7 +16745,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -17055,7 +16979,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -17198,7 +17122,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -17367,7 +17291,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'local'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "workspace_id",
@@ -17470,6 +17394,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "owner_user_id",
           "isExpression": false,
           "asc": true,
@@ -17498,6 +17429,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "account_key",
           "isExpression": false,
           "asc": true,
@@ -17519,6 +17457,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "applied_at",
           "isExpression": false,
           "asc": true,
@@ -17539,6 +17484,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "status",
           "isExpression": false,
@@ -17596,6 +17548,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "automation_id",
           "isExpression": false,
           "asc": true,
@@ -17624,6 +17583,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "expires_at",
           "isExpression": false,
           "asc": true,
@@ -17645,6 +17611,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "member_id",
           "isExpression": false,
           "asc": true,
@@ -17665,6 +17638,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "old_label",
           "isExpression": false,
@@ -17764,6 +17744,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "machine_id",
           "isExpression": false,
           "asc": true,
@@ -17785,6 +17772,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "machine_id",
           "isExpression": false,
           "asc": true,
@@ -17805,6 +17799,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "machine_id",
           "isExpression": false,
@@ -17834,6 +17835,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -17854,6 +17862,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "user_id",
           "isExpression": false,
@@ -17876,6 +17891,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "expires_at",
           "isExpression": false,
           "asc": true,
@@ -17897,6 +17919,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "label",
           "isExpression": false,
           "asc": true,
@@ -17917,6 +17946,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "machine_id",
           "isExpression": false,
@@ -17953,6 +17989,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "podium_id",
           "isExpression": false,
           "asc": true,
@@ -17981,6 +18024,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "path",
           "isExpression": false,
           "asc": true,
@@ -18001,6 +18051,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "project_path",
           "isExpression": false,
@@ -18023,6 +18080,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "updated_at",
           "isExpression": false,
           "asc": true,
@@ -18043,6 +18107,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "updated_at",
           "isExpression": false,
@@ -18093,6 +18164,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -18113,6 +18191,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "status",
           "isExpression": false,
@@ -18142,6 +18227,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -18170,6 +18262,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "deleted_at",
           "isExpression": false,
           "asc": true,
@@ -18190,6 +18289,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "target_kind",
           "isExpression": false,
@@ -18225,6 +18331,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "kind",
           "isExpression": false,
@@ -18268,6 +18381,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "kind",
           "isExpression": false,
           "asc": true,
@@ -18296,6 +18416,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "revision",
           "isExpression": false,
           "asc": true,
@@ -18317,6 +18444,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "resource_id",
           "isExpression": false,
           "asc": true,
@@ -18337,6 +18471,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "grantee",
           "isExpression": false,
@@ -18632,6 +18773,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -18666,6 +18814,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "to_id",
           "isExpression": false,
@@ -18702,6 +18857,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "from_id",
           "isExpression": false,
           "asc": true,
@@ -18723,6 +18885,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "label_id",
           "isExpression": false,
           "asc": true,
@@ -18743,6 +18912,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "issue_id",
           "isExpression": false,
@@ -18779,6 +18955,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -18814,6 +18997,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -18841,6 +19031,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "issue_id",
           "isExpression": false,
@@ -18877,6 +19074,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -18911,6 +19115,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "issue_id",
           "isExpression": false,
@@ -18947,6 +19158,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -18968,6 +19186,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "deleted_at",
           "isExpression": false,
           "asc": true,
@@ -18988,6 +19213,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "id",
           "isExpression": false,
@@ -19031,6 +19263,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "repo_id",
           "isExpression": false,
           "asc": true,
@@ -19059,6 +19298,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "parent_id",
           "isExpression": false,
           "asc": true,
@@ -19079,6 +19325,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "seq",
           "isExpression": false,
@@ -19115,6 +19368,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "repo_path",
           "isExpression": false,
           "asc": true,
@@ -19135,6 +19395,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "worktree_path",
           "isExpression": false,
@@ -19157,6 +19424,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "lower(replace(\"worktree_path\", '/', '\\'))",
           "isExpression": true,
           "asc": true,
@@ -19177,6 +19451,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "superseded_by",
           "isExpression": false,
@@ -19199,6 +19480,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "duplicate_of",
           "isExpression": false,
           "asc": true,
@@ -19219,6 +19507,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "agent_profile_id",
           "isExpression": false,
@@ -19241,6 +19536,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "lower(\"name\")",
           "isExpression": true,
           "asc": true,
@@ -19262,6 +19564,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -19282,6 +19591,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "repo_id",
           "isExpression": false,
@@ -19318,6 +19634,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "expires_at",
           "isExpression": false,
           "asc": true,
@@ -19338,6 +19661,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "holder_session_id",
           "isExpression": false,
@@ -19360,6 +19690,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -19380,6 +19717,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "delivered_to",
           "isExpression": false,
@@ -19416,6 +19760,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "created_at",
           "isExpression": false,
           "asc": true,
@@ -19436,6 +19787,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "from_session",
           "isExpression": false,
@@ -19472,6 +19830,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "from_issue",
           "isExpression": false,
           "asc": true,
@@ -19506,6 +19871,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "to_kind",
           "isExpression": false,
@@ -19549,6 +19921,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "in_reply_to",
           "isExpression": false,
           "asc": true,
@@ -19577,6 +19956,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "thread_id",
           "isExpression": false,
           "asc": true,
@@ -19597,6 +19983,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "to_kind",
           "isExpression": false,
@@ -19647,6 +20040,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "delivery_status",
           "isExpression": false,
           "asc": true,
@@ -19682,6 +20082,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "delivery_status",
           "isExpression": false,
           "asc": true,
@@ -19716,6 +20123,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "delivery_status",
           "isExpression": false,
@@ -19766,6 +20180,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "chat_id",
           "isExpression": false,
           "asc": true,
@@ -19794,6 +20215,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -19814,6 +20242,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "issue_id",
           "isExpression": false,
@@ -19836,6 +20271,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "expires_at",
           "isExpression": false,
           "asc": true,
@@ -19856,6 +20298,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "exclusion_group",
           "isExpression": false,
@@ -19885,6 +20334,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "kind",
           "isExpression": false,
           "asc": true,
@@ -19912,6 +20368,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "session_id",
           "isExpression": false,
@@ -19948,6 +20411,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -19975,6 +20445,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "session_id",
           "isExpression": false,
@@ -20060,6 +20537,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "kind",
           "isExpression": false,
           "asc": true,
@@ -20088,6 +20572,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "repo_path",
           "isExpression": false,
           "asc": true,
@@ -20108,6 +20599,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "kind",
           "isExpression": false,
@@ -20130,6 +20628,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "subject",
           "isExpression": false,
           "asc": true,
@@ -20150,6 +20655,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "kind",
           "isExpression": false,
@@ -20186,6 +20698,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "kind",
           "isExpression": false,
           "asc": true,
@@ -20221,6 +20740,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -20248,6 +20774,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "account_key",
           "isExpression": false,
@@ -20283,6 +20816,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "owner_user_id",
           "isExpression": false,
@@ -20326,6 +20866,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "resets_at_ms",
           "isExpression": false,
           "asc": true,
@@ -20347,6 +20894,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -20367,6 +20921,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "last_active_publish_after",
           "isExpression": false,
@@ -20396,6 +20957,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "deleted_by_issue_id",
           "isExpression": false,
           "asc": true,
@@ -20416,6 +20984,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "machine_id",
           "isExpression": false,
@@ -20438,6 +21013,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "deleted_at",
           "isExpression": false,
           "asc": true,
@@ -20458,6 +21040,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "resume_value",
           "isExpression": false,
@@ -20487,6 +21076,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -20507,6 +21103,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "ref_issue_id",
           "isExpression": false,
@@ -20529,6 +21132,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "machine_id",
           "isExpression": false,
           "asc": true,
@@ -20549,6 +21159,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "cwd",
           "isExpression": false,
@@ -20571,6 +21188,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "lower(replace(\"cwd\", '/', '\\'))",
           "isExpression": true,
           "asc": true,
@@ -20591,6 +21215,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "spawned_by",
           "isExpression": false,
@@ -20613,6 +21244,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "ref_draft",
           "isExpression": false,
           "asc": true,
@@ -20633,6 +21271,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "machine_id",
           "isExpression": false,
@@ -20662,6 +21307,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -20682,6 +21334,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "status",
           "isExpression": false,
@@ -20704,6 +21363,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "headless",
           "isExpression": false,
           "asc": true,
@@ -20724,6 +21390,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "command",
           "isExpression": false,
@@ -20753,6 +21426,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "on_behalf_of",
           "isExpression": false,
           "asc": true,
@@ -20780,6 +21460,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "outcome",
           "isExpression": false,
@@ -20809,6 +21496,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -20836,6 +21530,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "attempt_id",
           "isExpression": false,
@@ -20865,6 +21566,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "custody_digest",
           "isExpression": false,
           "asc": true,
@@ -20892,6 +21600,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "order_id",
           "isExpression": false,
@@ -20921,6 +21636,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -20941,6 +21663,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "lower_order_id",
           "isExpression": false,
@@ -20963,6 +21692,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -20983,6 +21719,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "repo_id",
           "isExpression": false,
@@ -21018,6 +21761,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "repo_id",
           "isExpression": false,
@@ -21061,6 +21811,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "requested_at",
           "isExpression": false,
           "asc": true,
@@ -21088,6 +21845,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "repo_id",
           "isExpression": false,
@@ -21131,6 +21895,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -21151,6 +21922,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "kind",
           "isExpression": false,
@@ -21180,6 +21958,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -21200,6 +21985,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "repair_ref",
           "isExpression": false,
@@ -21222,6 +22014,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -21242,6 +22041,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "order_id",
           "isExpression": false,
@@ -21270,6 +22076,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "attempt_id",
           "isExpression": false,
@@ -21306,6 +22119,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "attempt_id",
           "isExpression": false,
           "asc": true,
@@ -21334,6 +22154,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "order_id",
           "isExpression": false,
           "asc": true,
@@ -21354,6 +22181,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "attempt_id",
           "isExpression": false,
@@ -21376,6 +22210,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "subset_id",
           "isExpression": false,
           "asc": true,
@@ -21397,6 +22238,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "canonical_digest",
           "isExpression": false,
           "asc": true,
@@ -21417,6 +22265,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "lane_key",
           "isExpression": false,
@@ -21452,6 +22307,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "leader_order_id",
           "isExpression": false,
@@ -21495,6 +22357,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "attempt_id",
           "isExpression": false,
           "asc": true,
@@ -21516,6 +22385,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -21536,6 +22412,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "order_id",
           "isExpression": false,
@@ -21579,6 +22462,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -21599,6 +22489,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "subscriber_id",
           "isExpression": false,
@@ -21635,6 +22532,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "event",
           "isExpression": false,
           "asc": true,
@@ -21670,6 +22574,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "created_at",
           "isExpression": false,
           "asc": true,
@@ -21697,6 +22608,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "thread_id",
           "isExpression": false,
@@ -21726,6 +22644,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "thread_id",
           "isExpression": false,
           "asc": true,
@@ -21753,6 +22678,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "owner_user_id",
           "isExpression": false,
@@ -21789,6 +22721,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "turn_running",
           "isExpression": false,
           "asc": true,
@@ -21810,6 +22749,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -21830,6 +22776,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "session_id",
           "isExpression": false,
@@ -21915,6 +22868,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "session_id",
           "isExpression": false,
           "asc": true,
@@ -21935,6 +22895,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "worktree_key",
           "isExpression": false,
@@ -21957,6 +22924,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "lower(\"email\")",
           "isExpression": true,
           "asc": true,
@@ -21978,6 +22952,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "account_id",
           "isExpression": false,
           "asc": true,
@@ -21998,6 +22979,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "run_id",
           "isExpression": false,
@@ -22027,6 +23015,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "workflow_id",
           "isExpression": false,
           "asc": true,
@@ -22054,6 +23049,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "workflow_id",
           "isExpression": false,
@@ -22083,6 +23085,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "assigned_session_id",
           "isExpression": false,
           "asc": true,
@@ -22110,6 +23119,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "subject_kind",
           "isExpression": false,
@@ -22139,6 +23155,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "coordinator_session_id",
           "isExpression": false,
           "asc": true,
@@ -22167,6 +23190,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -22194,6 +23224,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "subject_kind",
           "isExpression": false,
@@ -22230,6 +23267,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "started_at",
           "isExpression": false,
           "asc": true,
@@ -22257,6 +23301,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "scope",
           "isExpression": false,
@@ -22292,16 +23343,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "account_id"
       ],
       "schemaTo": "public",
       "tableTo": "accounts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "account_machine_sends_account_id_accounts_id_fk",
+      "name": "fk_account_machine_sends_account_id_accounts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "account_machine_sends"
@@ -22309,16 +23362,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "automation_id"
       ],
       "schemaTo": "public",
       "tableTo": "automations",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "automation_runs_automation_id_automations_id_fk",
+      "name": "fk_automation_runs_automation_id_automations_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "automation_runs"
@@ -22326,16 +23381,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "delivery_receipts_order_id_ship_orders_id_fk",
+      "name": "fk_delivery_receipts_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "delivery_receipts"
@@ -22411,16 +23468,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_comments_issue_id_issues_id_fk",
+      "name": "fk_issue_comments_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_comments"
@@ -22428,16 +23487,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "from_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_deps_from_id_issues_id_fk",
+      "name": "fk_issue_deps_from_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_deps"
@@ -22445,16 +23506,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "to_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_deps_to_id_issues_id_fk",
+      "name": "fk_issue_deps_to_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_deps"
@@ -22462,16 +23525,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_git_states_issue_id_issues_id_fk",
+      "name": "fk_issue_git_states_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_git_states"
@@ -22479,16 +23544,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_labels_issue_id_issues_id_fk",
+      "name": "fk_issue_labels_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_labels"
@@ -22496,16 +23563,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "label_id"
       ],
       "schemaTo": "public",
       "tableTo": "labels",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_labels_label_id_labels_id_fk",
+      "name": "fk_issue_labels_label_id_labels_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_labels"
@@ -22513,16 +23582,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_messages_issue_id_issues_id_fk",
+      "name": "fk_issue_messages_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_messages"
@@ -22530,16 +23601,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_panel_artifacts_issue_id_issues_id_fk",
+      "name": "fk_issue_panel_artifacts_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_panel_artifacts"
@@ -22547,16 +23620,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_panel_deferred_issue_id_issues_id_fk",
+      "name": "fk_issue_panel_deferred_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_panel_deferred"
@@ -22564,16 +23639,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_panel_states_id_issues_id_fk",
+      "name": "fk_issue_panel_states_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_panel_states"
@@ -22581,16 +23658,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_panel_todos_issue_id_issues_id_fk",
+      "name": "fk_issue_panel_todos_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_panel_todos"
@@ -22598,16 +23677,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "issue_text_revisions_issue_id_issues_id_fk",
+      "name": "fk_issue_text_revisions_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issue_text_revisions"
@@ -22615,16 +23696,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "parent_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "issues_parent_id_issues_id_fk",
+      "onDelete": "NO ACTION",
+      "name": "fk_issues_parent_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issues"
@@ -22632,16 +23715,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "superseded_by"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "issues_superseded_by_issues_id_fk",
+      "onDelete": "NO ACTION",
+      "name": "fk_issues_superseded_by_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issues"
@@ -22649,16 +23734,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "duplicate_of"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "issues_duplicate_of_issues_id_fk",
+      "onDelete": "NO ACTION",
+      "name": "fk_issues_duplicate_of_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "issues"
@@ -22666,16 +23753,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "root_issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "root_integration_receipts_root_issue_id_issues_id_fk",
+      "name": "fk_root_integration_receipts_root_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "root_integration_receipts"
@@ -22683,11 +23772,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "session_id"
       ],
       "schemaTo": "public",
       "tableTo": "session_observation_checkpoints",
       "columnsTo": [
+        "workspace_id",
         "session_id"
       ],
       "onUpdate": "NO ACTION",
@@ -22700,11 +23791,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "session_id"
       ],
       "schemaTo": "public",
       "tableTo": "session_observation_checkpoints",
       "columnsTo": [
+        "workspace_id",
         "session_id"
       ],
       "onUpdate": "NO ACTION",
@@ -22717,16 +23810,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_attempts_order_id_ship_orders_id_fk",
+      "name": "fk_ship_attempts_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_attempts"
@@ -22734,16 +23829,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_train_manifests",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_effect_envelopes_train_id_ship_train_manifests_id_fk",
+      "name": "fk_ship_effect_envelopes_train_id_ship_train_manifests_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_effect_envelopes"
@@ -22751,16 +23848,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_effect_envelopes_attempt_id_ship_attempts_id_fk",
+      "name": "fk_ship_effect_envelopes_attempt_id_ship_attempts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_effect_envelopes"
@@ -22768,16 +23867,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_holds_order_id_ship_orders_id_fk",
+      "name": "fk_ship_holds_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_holds"
@@ -22785,16 +23886,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "upper_order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_order_stack_edges_upper_order_id_ship_orders_id_fk",
+      "name": "fk_ship_order_stack_edges_upper_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_order_stack_edges"
@@ -22802,16 +23905,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "lower_order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_order_stack_edges_lower_order_id_ship_orders_id_fk",
+      "name": "fk_ship_order_stack_edges_lower_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_order_stack_edges"
@@ -22819,16 +23924,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_orders_issue_id_issues_id_fk",
+      "name": "fk_ship_orders_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_orders"
@@ -22836,16 +23943,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_recovery_work_order_id_ship_orders_id_fk",
+      "name": "fk_ship_recovery_work_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_recovery_work"
@@ -22853,16 +23962,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_repair_candidates_order_id_ship_orders_id_fk",
+      "name": "fk_ship_repair_candidates_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_repair_candidates"
@@ -22870,16 +23981,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_repair_candidates_attempt_id_ship_attempts_id_fk",
+      "name": "fk_ship_repair_candidates_attempt_id_ship_attempts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_repair_candidates"
@@ -22887,12 +24000,14 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id",
         "order_id"
       ],
@@ -22906,16 +24021,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_steps_order_id_ship_orders_id_fk",
+      "name": "fk_ship_steps_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_steps"
@@ -22923,16 +24040,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_steps_attempt_id_ship_attempts_id_fk",
+      "name": "fk_ship_steps_attempt_id_ship_attempts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_steps"
@@ -22940,16 +24059,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_train_manifests",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_active_claims_train_id_ship_train_manifests_id_fk",
+      "name": "fk_ship_train_active_claims_train_id_ship_train_manifests_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_active_claims"
@@ -22957,12 +24078,14 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_train_members",
       "columnsTo": [
+        "workspace_id",
         "train_id",
         "order_id"
       ],
@@ -22976,12 +24099,14 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_train_members",
       "columnsTo": [
+        "workspace_id",
         "train_id",
         "attempt_id"
       ],
@@ -22995,16 +24120,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "leader_order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_manifests_leader_order_id_ship_orders_id_fk",
+      "name": "fk_ship_train_manifests_leader_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_manifests"
@@ -23012,16 +24139,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "leader_attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_manifests_leader_attempt_id_ship_attempts_id_fk",
+      "name": "fk_ship_train_manifests_leader_attempt_id_ship_attempts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_manifests"
@@ -23029,16 +24158,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_train_manifests",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_members_train_id_ship_train_manifests_id_fk",
+      "name": "fk_ship_train_members_train_id_ship_train_manifests_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_members"
@@ -23046,16 +24177,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "issues",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_members_issue_id_issues_id_fk",
+      "name": "fk_ship_train_members_issue_id_issues_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_members"
@@ -23063,16 +24196,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_members_order_id_ship_orders_id_fk",
+      "name": "fk_ship_train_members_order_id_ship_orders_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_members"
@@ -23080,16 +24215,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "ship_train_members_attempt_id_ship_attempts_id_fk",
+      "name": "fk_ship_train_members_attempt_id_ship_attempts_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "ship_train_members"
@@ -23097,12 +24234,14 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "attempt_id",
         "order_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_attempts",
       "columnsTo": [
+        "workspace_id",
         "id",
         "order_id"
       ],
@@ -23116,12 +24255,14 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "order_id",
         "issue_id"
       ],
       "schemaTo": "public",
       "tableTo": "ship_orders",
       "columnsTo": [
+        "workspace_id",
         "id",
         "issue_id"
       ],
@@ -23152,16 +24293,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "revision_id"
       ],
       "schemaTo": "public",
       "tableTo": "workflow_revisions",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "workflow_bindings_revision_id_workflow_revisions_id_fk",
+      "name": "fk_workflow_bindings_revision_id_workflow_revisions_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "workflow_bindings"
@@ -23169,16 +24312,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "workflow_id"
       ],
       "schemaTo": "public",
       "tableTo": "workflows",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "workflow_revisions_workflow_id_workflows_id_fk",
+      "name": "fk_workflow_revisions_workflow_id_workflows_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "workflow_revisions"
@@ -23186,16 +24331,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "run_id"
       ],
       "schemaTo": "public",
       "tableTo": "workflow_runs",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "workflow_run_steps_run_id_workflow_runs_id_fk",
+      "name": "fk_workflow_run_steps_run_id_workflow_runs_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "workflow_run_steps"
@@ -23203,16 +24350,18 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "revision_id"
       ],
       "schemaTo": "public",
       "tableTo": "workflow_revisions",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "workflow_runs_revision_id_workflow_revisions_id_fk",
+      "name": "fk_workflow_runs_revision_id_workflow_revisions_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "workflow_runs"
@@ -23220,22 +24369,25 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "supersedes_run_id"
       ],
       "schemaTo": "public",
       "tableTo": "workflow_runs",
       "columnsTo": [
+        "workspace_id",
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "workflow_runs_supersedes_run_id_workflow_runs_id_fk",
+      "onDelete": "NO ACTION",
+      "name": "fk_workflow_runs_supersedes_run_id_workflow_runs_id_fk",
       "entityType": "fks",
       "schema": "public",
       "table": "workflow_runs"
     },
     {
       "columns": [
+        "workspace_id",
         "account_id",
         "machine_id"
       ],
@@ -23244,6 +24396,50 @@
       "entityType": "pks",
       "schema": "public",
       "table": "account_machine_sends"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "accounts_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "accounts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "agent_profiles_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "agent_profiles"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "mutation_id"
+      ],
+      "nameExplicit": true,
+      "name": "applied_mutations_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "applied_mutations"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "approval_requests_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "approval_requests"
     },
     {
       "columns": [
@@ -23260,6 +24456,39 @@
     {
       "columns": [
         "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "automation_runs_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "automation_runs"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "automations_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "automations"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "old_token_hash"
+      ],
+      "nameExplicit": true,
+      "name": "carried_sign_ins_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "carried_sign_ins"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "seq"
       ],
       "nameExplicit": false,
@@ -23270,6 +24499,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "machine_id",
         "path"
@@ -23282,6 +24512,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "machine_id"
       ],
@@ -23293,6 +24524,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "machine_id",
         "path"
       ],
@@ -23304,6 +24536,29 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "token_hash"
+      ],
+      "nameExplicit": true,
+      "name": "client_sessions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "client_sessions"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "podium_id"
+      ],
+      "nameExplicit": true,
+      "name": "conversation_identities_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "conversation_identities"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "machine_id",
         "native_id",
         "sequence"
@@ -23316,6 +24571,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "machine_id",
         "native_id"
       ],
@@ -23327,6 +24583,40 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "conversations_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "conversations"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "delivery_receipts_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "delivery_receipts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "effects_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "effects"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "resource_kind",
         "resource_id",
         "grantee"
@@ -23339,6 +24629,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "resource_kind",
         "resource_id",
         "grantee",
@@ -23374,6 +24665,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_comments_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_comments"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "from_id",
         "to_id",
         "type"
@@ -23386,6 +24689,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "issue_id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_git_states_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_git_states"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "issue_id",
         "label_id"
       ],
@@ -23397,6 +24712,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "issue_message_id"
       ],
@@ -23408,6 +24724,73 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_messages_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_messages"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_panel_artifacts_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_panel_artifacts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_panel_deferred_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_panel_deferred"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_panel_states_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_panel_states"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_panel_todos_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_panel_todos"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "issue_id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_ref_letters_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issue_ref_letters"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "user_id",
         "issue_id"
       ],
@@ -23419,6 +24802,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "issues_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "issues"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "repo_id",
         "name"
       ],
@@ -23430,6 +24825,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "machines_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "machines"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "job_kind",
         "run_key"
       ],
@@ -23441,6 +24848,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "message_id",
         "session_id"
       ],
@@ -23452,6 +24860,29 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "key"
+      ],
+      "nameExplicit": true,
+      "name": "message_wake_cooldowns_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "message_wake_cooldowns"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "messages_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "issue_id",
         "chat_id"
       ],
@@ -23463,6 +24894,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "chat_id",
         "thread_ref"
       ],
@@ -23474,6 +24906,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "owner_user_id",
         "harness",
         "fingerprint"
@@ -23486,6 +24919,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "owner_user_id",
         "harness",
         "fingerprint",
@@ -23499,6 +24933,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "fact_key",
         "target"
       ],
@@ -23507,6 +24942,39 @@
       "entityType": "pks",
       "schema": "public",
       "table": "notification_facts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "offers_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "offers"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "operations_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "operations"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "pending_interactions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "pending_interactions"
     },
     {
       "columns": [
@@ -23521,6 +24989,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "kind",
         "id"
@@ -23533,6 +25002,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "queued_messages_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "queued_messages"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "account_key",
         "window_key",
         "resets_at_bucket"
@@ -23545,6 +25026,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "reader",
         "session_id"
       ],
@@ -23556,6 +25038,29 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "repo_id"
+      ],
+      "nameExplicit": true,
+      "name": "repo_draft_seq_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "repo_draft_seq"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "repo_id"
+      ],
+      "nameExplicit": true,
+      "name": "repo_prefixes_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "repo_prefixes"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "machine_id",
         "path"
       ],
@@ -23567,6 +25072,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "root_issue_id",
         "approved_head_sha"
       ],
@@ -23578,6 +25084,73 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "runtime_event_checkpoints_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "projector"
+      ],
+      "nameExplicit": true,
+      "name": "runtime_event_projection_cursors_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "runtime_event_projection_cursors"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "session_drafts_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "session_drafts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "session_observation_checkpoints_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "session_observation_checkpoints"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "session_observation_rebinds_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "session_observation_rebinds"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "session_terminal_candidates_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "session_terminal_candidates"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "user_id",
         "session_id"
       ],
@@ -23589,6 +25162,73 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "sessions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_attempts_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_attempts"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "effect_key"
+      ],
+      "nameExplicit": true,
+      "name": "ship_effect_envelopes_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_effect_envelopes"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "ref"
+      ],
+      "nameExplicit": true,
+      "name": "ship_evidence_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_evidence"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_holds_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_holds"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "lane_key"
+      ],
+      "nameExplicit": true,
+      "name": "ship_lane_revisions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_lane_revisions"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "upper_order_id",
         "lower_order_id"
       ],
@@ -23600,6 +25240,40 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_orders_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_orders"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_recovery_revision_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_recovery_revision"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "key"
+      ],
+      "nameExplicit": true,
+      "name": "ship_recovery_work_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_recovery_work"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "attempt_id",
         "sequence"
       ],
@@ -23611,6 +25285,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_steps_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_steps"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "train_id",
         "order_id"
       ],
@@ -23622,6 +25308,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "ship_train_manifests_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "ship_train_manifests"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "train_id",
         "ordinal"
       ],
@@ -23633,6 +25331,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "session_id"
       ],
@@ -23644,6 +25343,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "key"
+      ],
+      "nameExplicit": true,
+      "name": "steward_state_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "steward_state"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "subscription_id",
         "event_id"
       ],
@@ -23652,6 +25363,60 @@
       "entityType": "pks",
       "schema": "public",
       "table": "subscription_deliveries"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "subscriptions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "subscriptions"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "turn_id"
+      ],
+      "nameExplicit": true,
+      "name": "superagent_pending_turns_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "input_id"
+      ],
+      "nameExplicit": true,
+      "name": "superagent_queued_inputs_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "superagent_threads_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "superagent_threads"
+    },
+    {
+      "columns": [
+        "workspace_id"
+      ],
+      "nameExplicit": true,
+      "name": "sync_feed_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "sync_feed"
     },
     {
       "columns": [
@@ -23666,6 +25431,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "worktree"
       ],
@@ -23677,6 +25443,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "chat_id"
+      ],
+      "nameExplicit": true,
+      "name": "telegram_chat_bindings_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "machine_id",
         "native_id"
       ],
@@ -23688,6 +25466,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "mutation_id"
+      ],
+      "nameExplicit": true,
+      "name": "upstream_outbox_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "upstream_outbox"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "user_id",
         "worktree_key"
       ],
@@ -23699,6 +25489,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "key"
       ],
@@ -23710,6 +25501,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "key"
       ],
@@ -23721,6 +25513,7 @@
     },
     {
       "columns": [
+        "workspace_id",
         "user_id",
         "stream_id"
       ],
@@ -23732,6 +25525,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "users_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "target_kind",
         "target_id"
       ],
@@ -23743,6 +25548,18 @@
     },
     {
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "workflow_revisions_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "workflow_revisions"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "run_id",
         "step_id"
       ],
@@ -23751,6 +25568,28 @@
       "entityType": "pks",
       "schema": "public",
       "table": "workflow_run_steps"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "workflow_runs_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "workflow_runs"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "workflows_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "workflows"
     },
     {
       "columns": [
@@ -23773,136 +25612,6 @@
       "entityType": "pks",
       "schema": "public",
       "table": "workspace_secrets"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "accounts_pkey",
-      "schema": "public",
-      "table": "accounts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "agent_profiles_pkey",
-      "schema": "public",
-      "table": "agent_profiles",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "mutation_id"
-      ],
-      "nameExplicit": false,
-      "name": "applied_mutations_pkey",
-      "schema": "public",
-      "table": "applied_mutations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "approval_requests_pkey",
-      "schema": "public",
-      "table": "approval_requests",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "automation_runs_pkey",
-      "schema": "public",
-      "table": "automation_runs",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "automations_pkey",
-      "schema": "public",
-      "table": "automations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "old_token_hash"
-      ],
-      "nameExplicit": false,
-      "name": "carried_sign_ins_pkey",
-      "schema": "public",
-      "table": "carried_sign_ins",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "token_hash"
-      ],
-      "nameExplicit": false,
-      "name": "client_sessions_pkey",
-      "schema": "public",
-      "table": "client_sessions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "podium_id"
-      ],
-      "nameExplicit": false,
-      "name": "conversation_identities_pkey",
-      "schema": "public",
-      "table": "conversation_identities",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "conversations_pkey",
-      "schema": "public",
-      "table": "conversations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "delivery_receipts_pkey",
-      "schema": "public",
-      "table": "delivery_receipts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "effects_pkey",
-      "schema": "public",
-      "table": "effects",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "singleton"
-      ],
-      "nameExplicit": false,
-      "name": "feed_identity_pkey",
-      "schema": "public",
-      "table": "feed_identity",
-      "entityType": "pks"
     },
     {
       "columns": [
@@ -23989,99 +25698,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "issue_comments_pkey",
-      "schema": "public",
-      "table": "issue_comments",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "issue_id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_git_states_pkey",
-      "schema": "public",
-      "table": "issue_git_states",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_messages_pkey",
-      "schema": "public",
-      "table": "issue_messages",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_panel_artifacts_pkey",
-      "schema": "public",
-      "table": "issue_panel_artifacts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_panel_deferred_pkey",
-      "schema": "public",
-      "table": "issue_panel_deferred",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_panel_states_pkey",
-      "schema": "public",
-      "table": "issue_panel_states",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_panel_todos_pkey",
-      "schema": "public",
-      "table": "issue_panel_todos",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "issue_id"
-      ],
-      "nameExplicit": false,
-      "name": "issue_ref_letters_pkey",
-      "schema": "public",
-      "table": "issue_ref_letters",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "issue_text_revisions_pkey",
       "schema": "public",
       "table": "issue_text_revisions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "issues_pkey",
-      "schema": "public",
-      "table": "issues",
       "entityType": "pks"
     },
     {
@@ -24106,42 +25725,12 @@
     },
     {
       "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "machines_pkey",
-      "schema": "public",
-      "table": "machines",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "name"
       ],
       "nameExplicit": false,
       "name": "maintenance_leases_pkey",
       "schema": "public",
       "table": "maintenance_leases",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "key"
-      ],
-      "nameExplicit": false,
-      "name": "message_wake_cooldowns_pkey",
-      "schema": "public",
-      "table": "message_wake_cooldowns",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "messages_pkey",
-      "schema": "public",
-      "table": "messages",
       "entityType": "pks"
     },
     {
@@ -24156,36 +25745,6 @@
     },
     {
       "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "offers_pkey",
-      "schema": "public",
-      "table": "offers",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "operations_pkey",
-      "schema": "public",
-      "table": "operations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "pending_interactions_pkey",
-      "schema": "public",
-      "table": "pending_interactions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -24196,112 +25755,12 @@
     },
     {
       "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "queued_messages_pkey",
-      "schema": "public",
-      "table": "queued_messages",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "repo_id"
-      ],
-      "nameExplicit": false,
-      "name": "repo_draft_seq_pkey",
-      "schema": "public",
-      "table": "repo_draft_seq",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "repo_id"
-      ],
-      "nameExplicit": false,
-      "name": "repo_prefixes_pkey",
-      "schema": "public",
-      "table": "repo_prefixes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "runtime_event_checkpoints_pkey",
-      "schema": "public",
-      "table": "runtime_event_checkpoints",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "projector"
-      ],
-      "nameExplicit": false,
-      "name": "runtime_event_projection_cursors_pkey",
-      "schema": "public",
-      "table": "runtime_event_projection_cursors",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "key"
       ],
       "nameExplicit": false,
       "name": "server_secrets_pkey",
       "schema": "public",
       "table": "server_secrets",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_drafts_pkey",
-      "schema": "public",
-      "table": "session_drafts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_observation_checkpoints_pkey",
-      "schema": "public",
-      "table": "session_observation_checkpoints",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_observation_rebinds_pkey",
-      "schema": "public",
-      "table": "session_observation_rebinds",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "session_id"
-      ],
-      "nameExplicit": false,
-      "name": "session_terminal_candidates_pkey",
-      "schema": "public",
-      "table": "session_terminal_candidates",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "sessions_pkey",
-      "schema": "public",
-      "table": "sessions",
       "entityType": "pks"
     },
     {
@@ -24319,159 +25778,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "ship_attempts_pkey",
-      "schema": "public",
-      "table": "ship_attempts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "effect_key"
-      ],
-      "nameExplicit": false,
-      "name": "ship_effect_envelopes_pkey",
-      "schema": "public",
-      "table": "ship_effect_envelopes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "ref"
-      ],
-      "nameExplicit": false,
-      "name": "ship_evidence_pkey",
-      "schema": "public",
-      "table": "ship_evidence",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "ship_holds_pkey",
-      "schema": "public",
-      "table": "ship_holds",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "lane_key"
-      ],
-      "nameExplicit": false,
-      "name": "ship_lane_revisions_pkey",
-      "schema": "public",
-      "table": "ship_lane_revisions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "ship_orders_pkey",
-      "schema": "public",
-      "table": "ship_orders",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "ship_recovery_revision_pkey",
-      "schema": "public",
-      "table": "ship_recovery_revision",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "key"
-      ],
-      "nameExplicit": false,
-      "name": "ship_recovery_work_pkey",
-      "schema": "public",
-      "table": "ship_recovery_work",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "ship_steps_pkey",
-      "schema": "public",
-      "table": "ship_steps",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "ship_train_manifests_pkey",
-      "schema": "public",
-      "table": "ship_train_manifests",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "key"
-      ],
-      "nameExplicit": false,
-      "name": "steward_state_pkey",
-      "schema": "public",
-      "table": "steward_state",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "subscriptions_pkey",
-      "schema": "public",
-      "table": "subscriptions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "superagent_messages_pkey",
       "schema": "public",
       "table": "superagent_messages",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "turn_id"
-      ],
-      "nameExplicit": false,
-      "name": "superagent_pending_turns_pkey",
-      "schema": "public",
-      "table": "superagent_pending_turns",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "input_id"
-      ],
-      "nameExplicit": false,
-      "name": "superagent_queued_inputs_pkey",
-      "schema": "public",
-      "table": "superagent_queued_inputs",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "superagent_threads_pkey",
-      "schema": "public",
-      "table": "superagent_threads",
       "entityType": "pks"
     },
     {
@@ -24496,52 +25805,12 @@
     },
     {
       "columns": [
-        "workspace_id"
-      ],
-      "nameExplicit": false,
-      "name": "sync_feed_pkey",
-      "schema": "public",
-      "table": "sync_feed",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "chat_id"
-      ],
-      "nameExplicit": false,
-      "name": "telegram_chat_bindings_pkey",
-      "schema": "public",
-      "table": "telegram_chat_bindings",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "id"
       ],
       "nameExplicit": false,
       "name": "transcript_text_pkey",
       "schema": "public",
       "table": "transcript_text",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "mutation_id"
-      ],
-      "nameExplicit": false,
-      "name": "upstream_outbox_pkey",
-      "schema": "public",
-      "table": "upstream_outbox",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "users_pkey",
-      "schema": "public",
-      "table": "users",
       "entityType": "pks"
     },
     {
@@ -24555,38 +25824,9 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "workflow_revisions_pkey",
-      "schema": "public",
-      "table": "workflow_revisions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "workflow_runs_pkey",
-      "schema": "public",
-      "table": "workflow_runs",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "workflows_pkey",
-      "schema": "public",
-      "table": "workflows",
-      "entityType": "pks"
-    },
-    {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "name"
       ],
       "nullsNotDistinct": false,
@@ -24598,12 +25838,35 @@
     {
       "nameExplicit": true,
       "columns": [
-        "repo_id",
-        "name",
-        "session_id"
+        "workspace_id",
+        "id"
       ],
       "nullsNotDistinct": false,
-      "name": "lock_waiters_repo_id_name_session_id_unique",
+      "name": "issue_text_revisions_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "issue_text_revisions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "labels_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "labels"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "lock_waiters_workspace_id_id_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "lock_waiters"
@@ -24611,6 +25874,57 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
+        "repo_id",
+        "name",
+        "session_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "lock_waiters_workspace_id_repo_id_name_session_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "lock_waiters"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "podium_events_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "podium_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "prefix"
+      ],
+      "nullsNotDistinct": false,
+      "name": "repo_prefixes_prefix_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "repo_prefixes"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "settings_audit_events_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "settings_audit_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
         "id",
         "order_id"
       ],
@@ -24623,6 +25937,7 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "id",
         "issue_id"
       ],
@@ -24635,6 +25950,7 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "order_id"
       ],
@@ -24647,6 +25963,7 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "issue_id"
       ],
@@ -24659,6 +25976,7 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "attempt_id"
       ],
@@ -24671,6 +25989,7 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "train_id",
         "source_branch"
       ],
@@ -24683,6 +26002,19 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "superagent_messages_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "superagent_messages"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
         "thread_id"
       ],
       "nullsNotDistinct": false,
@@ -24694,11 +26026,24 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "workflow_events_workspace_id_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "workflow_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
         "workflow_id",
         "version"
       ],
       "nullsNotDistinct": false,
-      "name": "workflow_revisions_workflow_id_version_unique",
+      "name": "workflow_revisions_workspace_id_workflow_id_version_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "workflow_revisions"
@@ -24706,11 +26051,12 @@
     {
       "nameExplicit": true,
       "columns": [
+        "workspace_id",
         "run_id",
         "position"
       ],
       "nullsNotDistinct": false,
-      "name": "workflow_run_steps_run_id_position_unique",
+      "name": "workflow_run_steps_workspace_id_run_id_position_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "workflow_run_steps"
@@ -24782,17 +26128,6 @@
       "entityType": "uniques"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "prefix"
-      ],
-      "nullsNotDistinct": false,
-      "name": "repo_prefixes_prefix_key",
-      "schema": "public",
-      "table": "repo_prefixes",
-      "entityType": "uniques"
-    },
-    {
       "value": "status IN ('pending','denied','executing','succeeded','failed')",
       "name": "approval_requests_check_4",
       "entityType": "checks",
@@ -24819,13 +26154,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "delivery_receipts"
-    },
-    {
-      "value": "\"singleton\" = 1",
-      "name": "feed_identity_singleton",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "feed_identity"
     },
     {
       "value": "type IN ('blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates')",

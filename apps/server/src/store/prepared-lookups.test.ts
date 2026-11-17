@@ -100,6 +100,8 @@ const sessionRow = (id: string, owner: UserId, createdAt: string): SessionRow =>
 })
 
 const account = (id: UserId, createdAt: string) => ({
+  // The workspace of `migratedStore` (no default since the keys migration, POD-7024).
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   id,
   displayName: `name-${id}`,
   role: 'member' as const,
@@ -199,7 +201,8 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     const fluent = async (id: UserId) =>
       userFromRow((await db.select().from(users).where(eq(users.id, id)).get())!)
     expect(await repo.get(ALICE)).toEqual(await fluent(ALICE))
-    expect(await repo.get(ALICE)).toMatchObject(account(ALICE, '2026-09-01T10:00:00.000Z'))
+    const { workspaceId: _workspace, ...alice } = account(ALICE, '2026-09-01T10:00:00.000Z')
+    expect(await repo.get(ALICE)).toMatchObject(alice)
     // FAILS CLOSED, all three ways: no row, a disabled row, an unreadable role.
     expect(await repo.get(asUserId('user:nobody'))).toBeUndefined()
     expect(await repo.get(BOB)).toBeUndefined()

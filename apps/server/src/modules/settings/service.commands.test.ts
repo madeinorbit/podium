@@ -207,7 +207,7 @@ describe('optional role harness saves stay loadable', () => {
 
   it('loads settings with an older stored harness null and can save again', async () => {
     db.prepare(
-      'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
+      "INSERT INTO user_preferences (workspace_id, user_id, key, value, updated_at) VALUES ('local', ?, ?, ?, ?)",
     ).run(USER, 'roles.superagent.harness', 'null', '2026-07-30T12:00:00.000Z')
     await store.userPreferences.set(
       USER,

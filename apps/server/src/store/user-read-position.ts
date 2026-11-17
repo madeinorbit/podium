@@ -119,7 +119,11 @@ const upsertPosition = prepared((db, t) =>
       .insert(t.userReadPosition)
       .values({ workspaceId: WORKSPACE, ...positionPlaceholders })
       .onConflictDoUpdate({
-        target: [t.userReadPosition.userId, t.userReadPosition.streamId],
+        target: [
+          t.userReadPosition.workspaceId,
+          t.userReadPosition.userId,
+          t.userReadPosition.streamId,
+        ],
         // The key columns equal the conflict target's, so the set names only the rest:
         // Postgres change capture refuses an upsert that assigns its key (POD-6983).
         set: {

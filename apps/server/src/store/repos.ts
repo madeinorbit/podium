@@ -159,7 +159,7 @@ const upsertDraftSeq = prepared((db, t) =>
       nextSeq: sql.placeholder('nextSeq'),
     })
     .onConflictDoUpdate({
-      target: t.repoDraftSeq.repoId,
+      target: [t.repoDraftSeq.workspaceId, t.repoDraftSeq.repoId],
       set: { nextSeq: sql.placeholder('nextSeq') },
     })
     .prepare(),
@@ -538,7 +538,7 @@ export class ReposRepository {
             prefix: sql.placeholder('prefix'),
           })
           .onConflictDoUpdate({
-            target: t.repoPrefixes.repoId,
+            target: [t.repoPrefixes.workspaceId, t.repoPrefixes.repoId],
             set: { prefix: sql`excluded.prefix` },
           }),
       ).prepare(),

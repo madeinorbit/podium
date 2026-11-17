@@ -82,6 +82,11 @@ const NO_RECORD_CHANGE: Readonly<Record<string, string>> = {
     'blob is moved unchanged and the fleet keys the machine record reads stay in meta ' +
     '(workspace-meta-split.test.ts: "builds the same instance preferences record after ' +
     'the split as before it", and its install-key and other-table cases)',
+  '20261117104939_workspace-keys':
+    'rebuilds every workspace table with keys that lead with workspace_id, copying every row, ' +
+    'its rowid and every column unchanged; no record value or wire payload carries the ' +
+    'workspace (POD-6959 design 2.6, "no kind generation bump"). workspace-keys.test.ts holds ' +
+    'every row of every table equal before and after.',
 }
 
 function missingBumps(sql: string): string[] {

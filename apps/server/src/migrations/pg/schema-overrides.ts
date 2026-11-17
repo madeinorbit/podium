@@ -38,6 +38,8 @@
  * writer that would start producing other forms.
  */
 
+import { CLEARED_ON_DELETE } from '../schema'
+
 /** One deliberate difference: the Postgres form and why it differs. */
 export interface PgOverride {
   /** The Postgres SQL that replaces the SQLite form. */
@@ -104,9 +106,9 @@ const TOO_LONG =
 
 /** Foreign key names, keyed `table.sqlite_name`. */
 export const PG_FOREIGN_KEY_RENAMES: Readonly<Record<string, PgRename>> = {
-  'session_observation_rebinds.session_observation_rebinds_session_id_session_observation_checkpoints_session_id_fk':
+  'session_observation_rebinds.fk_session_observation_rebinds_session_id_session_observation_checkpoints_session_id_fk':
     { name: 'session_observation_rebinds_session_id_fk', reason: TOO_LONG },
-  'session_terminal_candidates.session_terminal_candidates_session_id_session_observation_checkpoints_session_id_fk':
+  'session_terminal_candidates.fk_session_terminal_candidates_session_id_session_observation_checkpoints_session_id_fk':
     { name: 'session_terminal_candidates_session_id_fk', reason: TOO_LONG },
 }
 
@@ -123,7 +125,18 @@ export const PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT: Readonly<Record<string, string>>
  * baseline (POD-6981) must write the same. The parity test checks each named constraint
  * still exists.
  */
+const SET_NULL_COLUMN =
+  'ON DELETE SET NULL of the referencing column alone (Postgres 15+). The key is composite, ' +
+  '(workspace_id, x) to (workspace_id, id) (POD-7024), and a plain SET NULL would null ' +
+  'workspace_id too, which NOT NULL refuses; deleting an issue (or a run) must clear the ' +
+  "references to it in its workspace, as the single-column key's SET NULL did. Drizzle has no " +
+  'column list for SET NULL. SQLite has none either: its key takes no action and the keys ' +
+  'migration (20261117104939_workspace-keys) clears the references with a BEFORE DELETE trigger.'
+
 export const PG_DDL_NOTES: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(
+    CLEARED_ON_DELETE.map(({ table, key }) => [`${table}.${key}`, SET_NULL_COLUMN]),
+  ),
   'sync_capture.fk_sync_capture_undrained_sync_capture_guard_id_fk':
     'DEFERRABLE INITIALLY DEFERRED, as in the SQLite migration ' +
     '20261112232648_sync-change-capture: the fail-closed capture guard refuses a commit ' +

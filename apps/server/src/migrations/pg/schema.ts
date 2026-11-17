@@ -89,15 +89,17 @@ export const accountMachineSends = pgTable(
     sentAt: isoTimestamp('sent_at').notNull().$type<SqliteRow<'accountMachineSends'>['sentAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'accountMachineSends'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'account_machine_sends_pk', columns: [table.accountId, table.machineId] }),
+    primaryKey({
+      name: 'account_machine_sends_pk',
+      columns: [table.workspaceId, table.accountId, table.machineId],
+    }),
     foreignKey({
-      name: 'account_machine_sends_account_id_accounts_id_fk',
-      columns: [table.accountId],
-      foreignColumns: [accounts.id],
+      name: 'fk_account_machine_sends_account_id_accounts_id_fk',
+      columns: [table.workspaceId, table.accountId],
+      foreignColumns: [accounts.workspaceId, accounts.id],
     }).onDelete('cascade'),
   ],
 )
@@ -105,7 +107,7 @@ export const accountMachineSends = pgTable(
 export const accounts = pgTable(
   'accounts',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'accounts'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'accounts'>['id']>(),
     provider: textC('provider').notNull().$type<SqliteRow<'accounts'>['provider']>(),
     kind: textC('kind').notNull().$type<SqliteRow<'accounts'>['kind']>(),
     credential: textC('credential').notNull().$type<SqliteRow<'accounts'>['credential']>(),
@@ -119,21 +121,23 @@ export const accounts = pgTable(
     ref: textC('ref').$type<SqliteRow<'accounts'>['ref']>(),
     accountKey: textC('account_key').$type<SqliteRow<'accounts'>['accountKey']>(),
     sharedWith: textC('shared_with').$type<SqliteRow<'accounts'>['sharedWith']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'accounts'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'accounts'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('accounts_owner_account_key').on(table.ownerUserId, table.accountKey),
-    index('idx_accounts_account_key').on(table.accountKey),
+    primaryKey({ name: 'accounts_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('accounts_owner_account_key').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.accountKey,
+    ),
+    index('idx_accounts_account_key').on(table.workspaceId, table.accountKey),
   ],
 )
 
 export const agentProfiles = pgTable(
   'agent_profiles',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'agentProfiles'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'agentProfiles'>['id']>(),
     name: textC('name').notNull().$type<SqliteRow<'agentProfiles'>['name']>(),
     description: textC('description')
       .notNull()
@@ -156,18 +160,18 @@ export const agentProfiles = pgTable(
     updatedAt: isoTimestamp('updated_at')
       .notNull()
       .$type<SqliteRow<'agentProfiles'>['updatedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'agentProfiles'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'agentProfiles'>['workspaceId']>(),
   },
-  (table) => [unique('agent_profiles_name_unique').on(table.name)],
+  (table) => [
+    primaryKey({ name: 'agent_profiles_pk', columns: [table.workspaceId, table.id] }),
+    unique('agent_profiles_name_unique').on(table.workspaceId, table.name),
+  ],
 )
 
 export const approvalRequests = pgTable(
   'approval_requests',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'approvalRequests'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'approvalRequests'>['id']>(),
     machineId: textC('machine_id').notNull().$type<SqliteRow<'approvalRequests'>['machineId']>(),
     sessionId: textC('session_id').notNull().$type<SqliteRow<'approvalRequests'>['sessionId']>(),
     issueId: textC('issue_id').$type<SqliteRow<'approvalRequests'>['issueId']>(),
@@ -185,11 +189,11 @@ export const approvalRequests = pgTable(
     resultText: textC('result_text').$type<SqliteRow<'approvalRequests'>['resultText']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'approvalRequests'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_approval_requests_status').on(table.status, table.createdAt),
+    primaryKey({ name: 'approval_requests_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_approval_requests_status').on(table.workspaceId, table.status, table.createdAt),
     check(
       'approval_requests_check_4',
       sql`status IN ('pending','denied','executing','succeeded','failed')`,
@@ -209,7 +213,6 @@ export const artifactUploads = pgTable(
     createdAt: int8('created_at').notNull().$type<SqliteRow<'artifactUploads'>['createdAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'artifactUploads'>['workspaceId']>(),
   },
   (table) => [
@@ -224,7 +227,7 @@ export const artifactUploads = pgTable(
 export const automationRuns = pgTable(
   'automation_runs',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'automationRuns'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'automationRuns'>['id']>(),
     actor: textC('actor')
       .notNull()
       .default(sql`'system:automation-migration'`)
@@ -240,15 +243,19 @@ export const automationRuns = pgTable(
     deletedAt: isoTimestamp('deleted_at').$type<SqliteRow<'automationRuns'>['deletedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'automationRuns'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_automation_runs_automation').on(table.automationId, table.firedAt),
+    primaryKey({ name: 'automation_runs_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_automation_runs_automation').on(
+      table.workspaceId,
+      table.automationId,
+      table.firedAt,
+    ),
     foreignKey({
-      name: 'automation_runs_automation_id_automations_id_fk',
-      columns: [table.automationId],
-      foreignColumns: [automations.id],
+      name: 'fk_automation_runs_automation_id_automations_id_fk',
+      columns: [table.workspaceId, table.automationId],
+      foreignColumns: [automations.workspaceId, automations.id],
     }).onDelete('cascade'),
     check(
       'automation_runs_check_20',
@@ -260,7 +267,7 @@ export const automationRuns = pgTable(
 export const automations = pgTable(
   'automations',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'automations'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'automations'>['id']>(),
     ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'automations'>['ownerUserId']>(),
     createdByActor: textC('created_by_actor')
       .notNull()
@@ -297,19 +304,19 @@ export const automations = pgTable(
       .default(sql`'fresh'`)
       .$type<SqliteRow<'automations'>['sessionMode']>(),
     deletedAt: isoTimestamp('deleted_at').$type<SqliteRow<'automations'>['deletedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'automations'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'automations'>['workspaceId']>(),
   },
-  (_table) => [check('automations_session_mode', sql`session_mode IN ('fresh', 'resume')`)],
+  (table) => [
+    primaryKey({ name: 'automations_pk', columns: [table.workspaceId, table.id] }),
+    check('automations_session_mode', sql`session_mode IN ('fresh', 'resume')`),
+  ],
 )
 
 export const carriedSignIns = pgTable(
   'carried_sign_ins',
   {
     oldTokenHash: textC('old_token_hash')
-      .primaryKey()
+      .notNull()
       .$type<SqliteRow<'carriedSignIns'>['oldTokenHash']>(),
     deviceSignInId: textC('device_sign_in_id')
       .notNull()
@@ -322,13 +329,13 @@ export const carriedSignIns = pgTable(
     oldLabel: textC('old_label').notNull().$type<SqliteRow<'carriedSignIns'>['oldLabel']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'carriedSignIns'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_carried_sign_ins_expires').on(table.expiresAt),
-    index('idx_carried_sign_ins_member').on(table.memberId),
-    index('idx_carried_sign_ins_label').on(table.oldLabel),
+    primaryKey({ name: 'carried_sign_ins_pk', columns: [table.workspaceId, table.oldTokenHash] }),
+    index('idx_carried_sign_ins_expires').on(table.workspaceId, table.expiresAt),
+    index('idx_carried_sign_ins_member').on(table.workspaceId, table.memberId),
+    index('idx_carried_sign_ins_label').on(table.workspaceId, table.oldLabel),
   ],
 )
 
@@ -340,14 +347,14 @@ export const checkoutLost = pgTable(
     path: textC('path').notNull().$type<SqliteRow<'checkoutLost'>['path']>(),
     root: boolean('root').notNull().default(false).$type<SqliteRow<'checkoutLost'>['root']>(),
     lostAt: isoTimestamp('lost_at').notNull().$type<SqliteRow<'checkoutLost'>['lostAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'checkoutLost'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'checkoutLost'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'checkout_lost_pk', columns: [table.userId, table.machineId, table.path] }),
-    index('idx_checkout_lost_machine').on(table.machineId),
+    primaryKey({
+      name: 'checkout_lost_pk',
+      columns: [table.workspaceId, table.userId, table.machineId, table.path],
+    }),
+    index('idx_checkout_lost_machine').on(table.workspaceId, table.machineId),
   ],
 )
 
@@ -360,14 +367,14 @@ export const checkoutReach = pgTable(
     updatedAt: isoTimestamp('updated_at')
       .notNull()
       .$type<SqliteRow<'checkoutReach'>['updatedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'checkoutReach'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'checkoutReach'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'checkout_reach_pk', columns: [table.userId, table.machineId] }),
-    index('idx_checkout_reach_machine').on(table.machineId),
+    primaryKey({
+      name: 'checkout_reach_pk',
+      columns: [table.workspaceId, table.userId, table.machineId],
+    }),
+    index('idx_checkout_reach_machine').on(table.workspaceId, table.machineId),
   ],
 )
 
@@ -388,21 +395,18 @@ export const checkouts = pgTable(
       .$type<SqliteRow<'checkouts'>['prunable']>(),
     updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'checkouts'>['updatedAt']>(),
     removedAt: isoTimestamp('removed_at').$type<SqliteRow<'checkouts'>['removedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'checkouts'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'checkouts'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'checkouts_pk', columns: [table.machineId, table.path] }),
-    index('idx_checkouts_root').on(table.machineId, table.root),
+    primaryKey({ name: 'checkouts_pk', columns: [table.workspaceId, table.machineId, table.path] }),
+    index('idx_checkouts_root').on(table.workspaceId, table.machineId, table.root),
   ],
 )
 
 export const clientSessions = pgTable(
   'client_sessions',
   {
-    tokenHash: textC('token_hash').primaryKey().$type<SqliteRow<'clientSessions'>['tokenHash']>(),
+    tokenHash: textC('token_hash').notNull().$type<SqliteRow<'clientSessions'>['tokenHash']>(),
     userId: textC('user_id').notNull().$type<SqliteRow<'clientSessions'>['userId']>(),
     createdAt: isoTimestamp('created_at')
       .notNull()
@@ -421,31 +425,37 @@ export const clientSessions = pgTable(
     lastSeenAt: isoTimestamp('last_seen_at').$type<SqliteRow<'clientSessions'>['lastSeenAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'clientSessions'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('idx_client_sessions_session_id').on(table.sessionId),
-    index('idx_client_sessions_user').on(table.userId),
-    index('idx_client_sessions_expires').on(table.expiresAt),
-    index('idx_client_sessions_label').on(table.label),
+    primaryKey({ name: 'client_sessions_pk', columns: [table.workspaceId, table.tokenHash] }),
+    uniqueIndex('idx_client_sessions_session_id').on(table.workspaceId, table.sessionId),
+    index('idx_client_sessions_user').on(table.workspaceId, table.userId),
+    index('idx_client_sessions_expires').on(table.workspaceId, table.expiresAt),
+    index('idx_client_sessions_label').on(table.workspaceId, table.label),
   ],
 )
 
-export const conversationIdentities = pgTable('conversation_identities', {
-  podiumId: textC('podium_id')
-    .primaryKey()
-    .$type<SqliteRow<'conversationIdentities'>['podiumId']>(),
-  parentPodiumId:
-    textC('parent_podium_id').$type<SqliteRow<'conversationIdentities'>['parentPodiumId']>(),
-  createdAt: isoTimestamp('created_at')
-    .notNull()
-    .$type<SqliteRow<'conversationIdentities'>['createdAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'conversationIdentities'>['workspaceId']>(),
-})
+export const conversationIdentities = pgTable(
+  'conversation_identities',
+  {
+    podiumId: textC('podium_id').notNull().$type<SqliteRow<'conversationIdentities'>['podiumId']>(),
+    parentPodiumId:
+      textC('parent_podium_id').$type<SqliteRow<'conversationIdentities'>['parentPodiumId']>(),
+    createdAt: isoTimestamp('created_at')
+      .notNull()
+      .$type<SqliteRow<'conversationIdentities'>['createdAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'conversationIdentities'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'conversation_identities_pk',
+      columns: [table.workspaceId, table.podiumId],
+    }),
+  ],
+)
 
 export const conversationSegmentIncarnations = pgTable(
   'conversation_segment_incarnations',
@@ -474,15 +484,15 @@ export const conversationSegmentIncarnations = pgTable(
       isoTimestamp('retired_at').$type<SqliteRow<'conversationSegmentIncarnations'>['retiredAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'conversationSegmentIncarnations'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'conversation_segment_incarnations_pk',
-      columns: [table.machineId, table.nativeId, table.sequence],
+      columns: [table.workspaceId, table.machineId, table.nativeId, table.sequence],
     }),
     index('conversation_segment_incarnations_native').on(
+      table.workspaceId,
       table.machineId,
       table.nativeId,
       table.sequence,
@@ -523,20 +533,22 @@ export const conversationSegments = pgTable(
       int8('reported_bytes').$type<SqliteRow<'conversationSegments'>['reportedBytes']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'conversationSegments'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'conversation_segments_pk', columns: [table.machineId, table.nativeId] }),
-    index('conversation_segments_podium').on(table.podiumId, table.seqInConv),
-    index('conversation_segments_path').on(table.path),
+    primaryKey({
+      name: 'conversation_segments_pk',
+      columns: [table.workspaceId, table.machineId, table.nativeId],
+    }),
+    index('conversation_segments_podium').on(table.workspaceId, table.podiumId, table.seqInConv),
+    index('conversation_segments_path').on(table.workspaceId, table.path),
   ],
 )
 
 export const conversations = pgTable(
   'conversations',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'conversations'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'conversations'>['id']>(),
     agentKind: textC('agent_kind').notNull().$type<SqliteRow<'conversations'>['agentKind']>(),
     providerId: textC('provider_id').notNull().$type<SqliteRow<'conversations'>['providerId']>(),
     title: textC('title').$type<SqliteRow<'conversations'>['title']>(),
@@ -551,16 +563,14 @@ export const conversations = pgTable(
     machineId: textC('machine_id').notNull().$type<SqliteRow<'conversations'>['machineId']>(),
     parentConversationId:
       textC('parent_conversation_id').$type<SqliteRow<'conversations'>['parentConversationId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'conversations'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'conversations'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_conversations_project_path').on(table.projectPath),
-    index('idx_conversations_updated_at').on(table.updatedAt),
+    primaryKey({ name: 'conversations_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_conversations_project_path').on(table.workspaceId, table.projectPath),
+    index('idx_conversations_updated_at').on(table.workspaceId, table.updatedAt),
     index('idx_conversations_top_level_updated')
-      .on(table.updatedAt, table.id)
+      .on(table.workspaceId, table.updatedAt, table.id)
       .where(sql`"parent_conversation_id" IS NULL`),
     index('idx_conversations_search').using(
       'gin',
@@ -572,7 +582,7 @@ export const conversations = pgTable(
 export const deliveryReceipts = pgTable(
   'delivery_receipts',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'deliveryReceipts'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'deliveryReceipts'>['id']>(),
     orderId: textC('order_id').notNull().$type<SqliteRow<'deliveryReceipts'>['orderId']>(),
     approvedBaseSha: textC('approved_base_sha')
       .notNull()
@@ -606,15 +616,15 @@ export const deliveryReceipts = pgTable(
       .$type<SqliteRow<'deliveryReceipts'>['completedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'deliveryReceipts'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('idx_delivery_receipts_order').on(table.orderId),
+    primaryKey({ name: 'delivery_receipts_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('idx_delivery_receipts_order').on(table.workspaceId, table.orderId),
     foreignKey({
-      name: 'delivery_receipts_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_delivery_receipts_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     check('delivery_receipts_validation_result_check', sql`validation_result = 'passed'`),
   ],
@@ -623,7 +633,7 @@ export const deliveryReceipts = pgTable(
 export const effects = pgTable(
   'effects',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'effects'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'effects'>['id']>(),
     kind: textC('kind').notNull().$type<SqliteRow<'effects'>['kind']>(),
     targetKind: textC('target_kind').notNull().$type<SqliteRow<'effects'>['targetKind']>(),
     targetId: textC('target_id').notNull().$type<SqliteRow<'effects'>['targetId']>(),
@@ -649,24 +659,30 @@ export const effects = pgTable(
     updatedAt: int8('updated_at').notNull().$type<SqliteRow<'effects'>['updatedAt']>(),
     revision: int8('revision').notNull().default(1).$type<SqliteRow<'effects'>['revision']>(),
     deletedAt: int8('deleted_at').$type<SqliteRow<'effects'>['deletedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'effects'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'effects'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_effects_status_deadline').on(table.status, table.deadlineAt),
-    index('idx_effects_status_finished').on(table.status, table.finishedAt),
-    index('idx_effects_deleted').on(table.deletedAt),
-    index('idx_effects_target').on(table.targetKind, table.targetId, table.createdAt),
+    primaryKey({ name: 'effects_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_effects_status_deadline').on(table.workspaceId, table.status, table.deadlineAt),
+    index('idx_effects_status_finished').on(table.workspaceId, table.status, table.finishedAt),
+    index('idx_effects_deleted').on(table.workspaceId, table.deletedAt),
+    index('idx_effects_target').on(
+      table.workspaceId,
+      table.targetKind,
+      table.targetId,
+      table.createdAt,
+    ),
     index('idx_effects_kind_target').on(
+      table.workspaceId,
       table.kind,
       table.targetKind,
       table.targetId,
       table.createdAt,
     ),
-    index('idx_effects_awaiting').on(table.kind, table.createdAt).where(sql`decision = 'awaiting'`),
-    index('idx_effects_unpublished').on(table.revision).where(sql`revision = 0`),
+    index('idx_effects_awaiting')
+      .on(table.workspaceId, table.kind, table.createdAt)
+      .where(sql`decision = 'awaiting'`),
+    index('idx_effects_unpublished').on(table.workspaceId, table.revision).where(sql`revision = 0`),
   ],
 )
 
@@ -680,13 +696,12 @@ export const grantAudiences = pgTable(
     grantee: textC('grantee').notNull().$type<SqliteRow<'grantAudiences'>['grantee']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'grantAudiences'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'grant_audiences_pk',
-      columns: [table.resourceKind, table.resourceId, table.grantee],
+      columns: [table.workspaceId, table.resourceKind, table.resourceId, table.grantee],
     }),
   ],
 )
@@ -705,27 +720,24 @@ export const grants = pgTable(
     actorKind: textC('actor_kind').notNull().$type<SqliteRow<'grants'>['actorKind']>(),
     actorId: textC('actor_id').$type<SqliteRow<'grants'>['actorId']>(),
     onBehalfOf: textC('on_behalf_of').$type<SqliteRow<'grants'>['onBehalfOf']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'grants'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'grants'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'grants_pk',
-      columns: [table.resourceKind, table.resourceId, table.grantee, table.verb],
+      columns: [table.workspaceId, table.resourceKind, table.resourceId, table.grantee, table.verb],
     }),
     uniqueIndex('grants_machine_custodian')
-      .on(table.resourceId)
+      .on(table.workspaceId, table.resourceId)
       .where(sql`"resource_kind" = 'machine' AND "custody" = true`),
-    index('idx_grants_grantee').on(table.grantee),
+    index('idx_grants_grantee').on(table.workspaceId, table.grantee),
   ],
 )
 
 export const issueComments = pgTable(
   'issue_comments',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issueComments'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issueComments'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issueComments'>['issueId']>(),
     author: textC('author').notNull().$type<SqliteRow<'issueComments'>['author']>(),
     body: textC('body').notNull().$type<SqliteRow<'issueComments'>['body']>(),
@@ -738,17 +750,20 @@ export const issueComments = pgTable(
     editedBy: textC('edited_by').$type<SqliteRow<'issueComments'>['editedBy']>(),
     editedOnBehalfOf:
       textC('edited_on_behalf_of').$type<SqliteRow<'issueComments'>['editedOnBehalfOf']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'issueComments'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issueComments'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_comments_issue_time').on(table.issueId, table.createdAt, table.id),
+    primaryKey({ name: 'issue_comments_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issue_comments_issue_time').on(
+      table.workspaceId,
+      table.issueId,
+      table.createdAt,
+      table.id,
+    ),
     foreignKey({
-      name: 'issue_comments_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_comments_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -762,24 +777,24 @@ export const issueDeps = pgTable(
       .notNull()
       .default(sql`'blocked-by'`)
       .$type<SqliteRow<'issueDeps'>['type']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'issueDeps'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issueDeps'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'issue_deps_pk', columns: [table.fromId, table.toId, table.type] }),
-    index('idx_issue_deps_to_from').on(table.toId, table.fromId, table.type),
-    index('idx_issue_deps_from').on(table.fromId),
+    primaryKey({
+      name: 'issue_deps_pk',
+      columns: [table.workspaceId, table.fromId, table.toId, table.type],
+    }),
+    index('idx_issue_deps_to_from').on(table.workspaceId, table.toId, table.fromId, table.type),
+    index('idx_issue_deps_from').on(table.workspaceId, table.fromId),
     foreignKey({
-      name: 'issue_deps_from_id_issues_id_fk',
-      columns: [table.fromId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_deps_from_id_issues_id_fk',
+      columns: [table.workspaceId, table.fromId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
     foreignKey({
-      name: 'issue_deps_to_id_issues_id_fk',
-      columns: [table.toId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_deps_to_id_issues_id_fk',
+      columns: [table.workspaceId, table.toId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
     check(
       'issue_deps_type',
@@ -791,21 +806,21 @@ export const issueDeps = pgTable(
 export const issueGitStates = pgTable(
   'issue_git_states',
   {
-    issueId: textC('issue_id').primaryKey().$type<SqliteRow<'issueGitStates'>['issueId']>(),
+    issueId: textC('issue_id').notNull().$type<SqliteRow<'issueGitStates'>['issueId']>(),
     factsJson: jsonText('facts_json').notNull().$type<SqliteRow<'issueGitStates'>['factsJson']>(),
     updatedAt: isoTimestamp('updated_at')
       .notNull()
       .$type<SqliteRow<'issueGitStates'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issueGitStates'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'issue_git_states_pk', columns: [table.workspaceId, table.issueId] }),
     foreignKey({
-      name: 'issue_git_states_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_git_states_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -815,23 +830,23 @@ export const issueLabels = pgTable(
   {
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issueLabels'>['issueId']>(),
     labelId: int8('label_id').notNull().$type<SqliteRow<'issueLabels'>['labelId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'issueLabels'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issueLabels'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'issue_labels_pk', columns: [table.issueId, table.labelId] }),
-    index('idx_issue_labels_label_id').on(table.labelId),
+    primaryKey({
+      name: 'issue_labels_pk',
+      columns: [table.workspaceId, table.issueId, table.labelId],
+    }),
+    index('idx_issue_labels_label_id').on(table.workspaceId, table.labelId),
     foreignKey({
-      name: 'issue_labels_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_labels_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
     foreignKey({
-      name: 'issue_labels_label_id_labels_id_fk',
-      columns: [table.labelId],
-      foreignColumns: [labels.id],
+      name: 'fk_issue_labels_label_id_labels_id_fk',
+      columns: [table.workspaceId, table.labelId],
+      foreignColumns: [labels.workspaceId, labels.id],
     }).onDelete('cascade'),
   ],
 )
@@ -846,13 +861,12 @@ export const issueMessageUserState = pgTable(
     readAt: isoTimestamp('read_at').$type<SqliteRow<'issueMessageUserState'>['readAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issueMessageUserState'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'issue_message_user_state_pk',
-      columns: [table.userId, table.issueMessageId],
+      columns: [table.workspaceId, table.userId, table.issueMessageId],
     }),
   ],
 )
@@ -860,7 +874,7 @@ export const issueMessageUserState = pgTable(
 export const issueMessages = pgTable(
   'issue_messages',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issueMessages'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issueMessages'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issueMessages'>['issueId']>(),
     fromAuthor: textC('from_author').notNull().$type<SqliteRow<'issueMessages'>['fromAuthor']>(),
     body: textC('body').notNull().$type<SqliteRow<'issueMessages'>['body']>(),
@@ -875,17 +889,20 @@ export const issueMessages = pgTable(
       .$type<SqliteRow<'issueMessages'>['status']>(),
     claimedBy: textC('claimed_by').$type<SqliteRow<'issueMessages'>['claimedBy']>(),
     claimedAt: isoTimestamp('claimed_at').$type<SqliteRow<'issueMessages'>['claimedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'issueMessages'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issueMessages'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_messages_issue_time').on(table.issueId, table.createdAt, table.id),
+    primaryKey({ name: 'issue_messages_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issue_messages_issue_time').on(
+      table.workspaceId,
+      table.issueId,
+      table.createdAt,
+      table.id,
+    ),
     foreignKey({
-      name: 'issue_messages_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_messages_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -893,23 +910,28 @@ export const issueMessages = pgTable(
 export const issuePanelArtifacts = pgTable(
   'issue_panel_artifacts',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issuePanelArtifacts'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issuePanelArtifacts'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issuePanelArtifacts'>['issueId']>(),
     position: int8('position').notNull().$type<SqliteRow<'issuePanelArtifacts'>['position']>(),
     path: textC('path').notNull().$type<SqliteRow<'issuePanelArtifacts'>['path']>(),
     value: jsonText('value').notNull().$type<SqliteRow<'issuePanelArtifacts'>['value']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issuePanelArtifacts'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_panel_artifacts_order').on(table.issueId, table.position, table.id),
-    uniqueIndex('idx_issue_panel_artifacts_path').on(table.issueId, table.path),
+    primaryKey({ name: 'issue_panel_artifacts_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issue_panel_artifacts_order').on(
+      table.workspaceId,
+      table.issueId,
+      table.position,
+      table.id,
+    ),
+    uniqueIndex('idx_issue_panel_artifacts_path').on(table.workspaceId, table.issueId, table.path),
     foreignKey({
-      name: 'issue_panel_artifacts_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_panel_artifacts_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -917,22 +939,27 @@ export const issuePanelArtifacts = pgTable(
 export const issuePanelDeferred = pgTable(
   'issue_panel_deferred',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issuePanelDeferred'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issuePanelDeferred'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issuePanelDeferred'>['issueId']>(),
     position: int8('position').notNull().$type<SqliteRow<'issuePanelDeferred'>['position']>(),
     text: textC('text').notNull().$type<SqliteRow<'issuePanelDeferred'>['text']>(),
     addedAt: isoTimestamp('added_at').notNull().$type<SqliteRow<'issuePanelDeferred'>['addedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issuePanelDeferred'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_panel_deferred_order').on(table.issueId, table.position, table.id),
+    primaryKey({ name: 'issue_panel_deferred_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issue_panel_deferred_order').on(
+      table.workspaceId,
+      table.issueId,
+      table.position,
+      table.id,
+    ),
     foreignKey({
-      name: 'issue_panel_deferred_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_panel_deferred_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -940,21 +967,21 @@ export const issuePanelDeferred = pgTable(
 export const issuePanelStates = pgTable(
   'issue_panel_states',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issuePanelStates'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issuePanelStates'>['id']>(),
     text: textC('text').notNull().$type<SqliteRow<'issuePanelStates'>['text']>(),
     updatedAt: isoTimestamp('updated_at')
       .notNull()
       .$type<SqliteRow<'issuePanelStates'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issuePanelStates'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'issue_panel_states_pk', columns: [table.workspaceId, table.id] }),
     foreignKey({
-      name: 'issue_panel_states_id_issues_id_fk',
-      columns: [table.id],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_panel_states_id_issues_id_fk',
+      columns: [table.workspaceId, table.id],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
@@ -962,34 +989,44 @@ export const issuePanelStates = pgTable(
 export const issuePanelTodos = pgTable(
   'issue_panel_todos',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issuePanelTodos'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issuePanelTodos'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'issuePanelTodos'>['issueId']>(),
     position: int8('position').notNull().$type<SqliteRow<'issuePanelTodos'>['position']>(),
     text: textC('text').notNull().$type<SqliteRow<'issuePanelTodos'>['text']>(),
     done: boolean('done').notNull().$type<SqliteRow<'issuePanelTodos'>['done']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issuePanelTodos'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_panel_todos_order').on(table.issueId, table.position, table.id),
+    primaryKey({ name: 'issue_panel_todos_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issue_panel_todos_order').on(
+      table.workspaceId,
+      table.issueId,
+      table.position,
+      table.id,
+    ),
     foreignKey({
-      name: 'issue_panel_todos_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_panel_todos_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
   ],
 )
 
-export const issueRefLetters = pgTable('issue_ref_letters', {
-  issueId: textC('issue_id').primaryKey().$type<SqliteRow<'issueRefLetters'>['issueId']>(),
-  nextIndex: int8('next_index').notNull().$type<SqliteRow<'issueRefLetters'>['nextIndex']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'issueRefLetters'>['workspaceId']>(),
-})
+export const issueRefLetters = pgTable(
+  'issue_ref_letters',
+  {
+    issueId: textC('issue_id').notNull().$type<SqliteRow<'issueRefLetters'>['issueId']>(),
+    nextIndex: int8('next_index').notNull().$type<SqliteRow<'issueRefLetters'>['nextIndex']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'issueRefLetters'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'issue_ref_letters_pk', columns: [table.workspaceId, table.issueId] }),
+  ],
+)
 
 export const issueTextRevisions = pgTable(
   'issue_text_revisions',
@@ -1011,15 +1048,20 @@ export const issueTextRevisions = pgTable(
       .$type<SqliteRow<'issueTextRevisions'>['createdAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issueTextRevisions'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issue_text_revisions_issue_field').on(table.issueId, table.field, table.id),
+    unique('issue_text_revisions_workspace_id_id_unique').on(table.workspaceId, table.id),
+    index('idx_issue_text_revisions_issue_field').on(
+      table.workspaceId,
+      table.issueId,
+      table.field,
+      table.id,
+    ),
     foreignKey({
-      name: 'issue_text_revisions_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_issue_text_revisions_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('cascade'),
     check('issue_text_revisions_field', sql`field IN ('description', 'brief')`),
     check('issue_text_revisions_source', sql`source IN ('create', 'baseline', 'edit', 'restore')`),
@@ -1039,19 +1081,21 @@ export const issueUserState = pgTable(
     assignedBy: textC('assigned_by').$type<SqliteRow<'issueUserState'>['assignedBy']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'issueUserState'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'issue_user_state_pk', columns: [table.userId, table.issueId] }),
-    index('idx_issue_user_state_issue').on(table.issueId),
+    primaryKey({
+      name: 'issue_user_state_pk',
+      columns: [table.workspaceId, table.userId, table.issueId],
+    }),
+    index('idx_issue_user_state_issue').on(table.workspaceId, table.issueId),
   ],
 )
 
 export const issues = pgTable(
   'issues',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'issues'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'issues'>['id']>(),
     ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'issues'>['ownerUserId']>(),
     visibility: textC('visibility')
       .notNull()
@@ -1146,51 +1190,52 @@ export const issues = pgTable(
     coordinatorSessionId:
       textC('coordinator_session_id').$type<SqliteRow<'issues'>['coordinatorSessionId']>(),
     startedBySession: textC('started_by_session').$type<SqliteRow<'issues'>['startedBySession']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'issues'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issues'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_issues_deleted_at').on(table.deletedAt),
+    primaryKey({ name: 'issues_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_issues_deleted_at').on(table.workspaceId, table.deletedAt),
     index('idx_issues_closed_projection').on(
+      table.workspaceId,
       table.id,
       table.stage,
       table.closedReason,
       table.deletedAt,
     ),
-    uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
-    index('idx_issues_parent').on(table.parentId),
-    index('idx_issues_seq').on(table.seq, table.repoPath, table.id),
-    index('idx_issues_repo').on(table.repoPath),
+    uniqueIndex('idx_issues_repo_id_seq').on(table.workspaceId, table.repoId, table.seq),
+    index('idx_issues_parent').on(table.workspaceId, table.parentId),
+    index('idx_issues_seq').on(table.workspaceId, table.seq, table.repoPath, table.id),
+    index('idx_issues_repo').on(table.workspaceId, table.repoPath),
     index('idx_issues_worktree')
-      .on(table.worktreePath)
+      .on(table.workspaceId, table.worktreePath)
       .where(sql`"worktree_path" IS NOT NULL AND "deleted_at" IS NULL`),
     index('idx_issues_worktree_folded')
-      .on(sql`lower(replace("worktree_path", '/', '\\'))`)
+      .on(table.workspaceId, sql`lower(replace("worktree_path", '/', '\\'))`)
       .where(sql`"worktree_path" IS NOT NULL AND "deleted_at" IS NULL`),
     index('idx_issues_superseded_by')
-      .on(table.supersededBy)
+      .on(table.workspaceId, table.supersededBy)
       .where(sql`"superseded_by" IS NOT NULL`),
-    index('idx_issues_duplicate_of').on(table.duplicateOf).where(sql`"duplicate_of" IS NOT NULL`),
+    index('idx_issues_duplicate_of')
+      .on(table.workspaceId, table.duplicateOf)
+      .where(sql`"duplicate_of" IS NOT NULL`),
     index('idx_issues_agent_profile')
-      .on(table.agentProfileId)
+      .on(table.workspaceId, table.agentProfileId)
       .where(sql`"agent_profile_id" IS NOT NULL`),
     foreignKey({
-      name: 'issues_parent_id_issues_id_fk',
-      columns: [table.parentId],
-      foreignColumns: [table.id],
-    }).onDelete('set null'),
+      name: 'fk_issues_parent_id_issues_id_fk',
+      columns: [table.workspaceId, table.parentId],
+      foreignColumns: [table.workspaceId, table.id],
+    }),
     foreignKey({
-      name: 'issues_superseded_by_issues_id_fk',
-      columns: [table.supersededBy],
-      foreignColumns: [table.id],
-    }).onDelete('set null'),
+      name: 'fk_issues_superseded_by_issues_id_fk',
+      columns: [table.workspaceId, table.supersededBy],
+      foreignColumns: [table.workspaceId, table.id],
+    }),
     foreignKey({
-      name: 'issues_duplicate_of_issues_id_fk',
-      columns: [table.duplicateOf],
-      foreignColumns: [table.id],
-    }).onDelete('set null'),
+      name: 'fk_issues_duplicate_of_issues_id_fk',
+      columns: [table.workspaceId, table.duplicateOf],
+      foreignColumns: [table.workspaceId, table.id],
+    }),
     check(
       'issues_check_1',
       sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'verifying', 'done')`,
@@ -1208,12 +1253,12 @@ export const labels = pgTable(
     color: textC('color').$type<SqliteRow<'labels'>['color']>(),
     description: textC('description').$type<SqliteRow<'labels'>['description']>(),
     createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'labels'>['createdAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'labels'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'labels'>['workspaceId']>(),
   },
-  (_table) => [uniqueIndex('idx_labels_name_nocase').on(sql`lower("name")`)],
+  (table) => [
+    unique('labels_workspace_id_id_unique').on(table.workspaceId, table.id),
+    uniqueIndex('idx_labels_name_nocase').on(table.workspaceId, sql`lower("name")`),
+  ],
 )
 
 export const lockWaiters = pgTable(
@@ -1236,19 +1281,18 @@ export const lockWaiters = pgTable(
     enqueuedAt: isoTimestamp('enqueued_at')
       .notNull()
       .$type<SqliteRow<'lockWaiters'>['enqueuedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'lockWaiters'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'lockWaiters'>['workspaceId']>(),
   },
   (table) => [
-    unique('lock_waiters_repo_id_name_session_id_unique').on(
+    unique('lock_waiters_workspace_id_id_unique').on(table.workspaceId, table.id),
+    unique('lock_waiters_workspace_id_repo_id_name_session_id_unique').on(
+      table.workspaceId,
       table.repoId,
       table.name,
       table.sessionId,
     ),
-    index('idx_lock_waiters_session').on(table.sessionId),
-    index('idx_lock_waiters_lock').on(table.repoId, table.name, table.id),
+    index('idx_lock_waiters_session').on(table.workspaceId, table.sessionId),
+    index('idx_lock_waiters_lock').on(table.workspaceId, table.repoId, table.name, table.id),
   ],
 )
 
@@ -1263,15 +1307,12 @@ export const locks = pgTable(
     note: textC('note').$type<SqliteRow<'locks'>['note']>(),
     acquiredAt: isoTimestamp('acquired_at').notNull().$type<SqliteRow<'locks'>['acquiredAt']>(),
     expiresAt: isoTimestamp('expires_at').notNull().$type<SqliteRow<'locks'>['expiresAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'locks'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'locks'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'locks_pk', columns: [table.repoId, table.name] }),
-    index('idx_locks_expires').on(table.expiresAt),
-    index('idx_locks_holder_session').on(table.holderSessionId),
+    primaryKey({ name: 'locks_pk', columns: [table.workspaceId, table.repoId, table.name] }),
+    index('idx_locks_expires').on(table.workspaceId, table.expiresAt),
+    index('idx_locks_holder_session').on(table.workspaceId, table.holderSessionId),
   ],
 )
 
@@ -1280,7 +1321,7 @@ export const machines = pgTable(
   {
     revokedAt: isoTimestamp('revoked_at').$type<SqliteRow<'machines'>['revokedAt']>(),
     supersededBy: textC('superseded_by').$type<SqliteRow<'machines'>['supersededBy']>(),
-    id: textC('id').primaryKey().$type<SqliteRow<'machines'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'machines'>['id']>(),
     name: textC('name').notNull().$type<SqliteRow<'machines'>['name']>(),
     hostname: textC('hostname').notNull().$type<SqliteRow<'machines'>['hostname']>(),
     tokenHash: textC('token_hash').notNull().$type<SqliteRow<'machines'>['tokenHash']>(),
@@ -1325,12 +1366,10 @@ export const machines = pgTable(
     buildReportedAt:
       isoTimestamp('build_reported_at').$type<SqliteRow<'machines'>['buildReportedAt']>(),
     componentsJson: jsonText('components_json').$type<SqliteRow<'machines'>['componentsJson']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'machines'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'machines'>['workspaceId']>(),
   },
-  (_table) => [
+  (table) => [
+    primaryKey({ name: 'machines_pk', columns: [table.workspaceId, table.id] }),
     check(
       'machines_credential_material',
       sql`(
@@ -1358,11 +1397,13 @@ export const maintenanceCommands = pgTable(
       .$type<SqliteRow<'maintenanceCommands'>['appliedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'maintenanceCommands'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'maintenance_commands_pk', columns: [table.jobKind, table.runKey] }),
+    primaryKey({
+      name: 'maintenance_commands_pk',
+      columns: [table.workspaceId, table.jobKind, table.runKey],
+    }),
   ],
 )
 
@@ -1394,32 +1435,37 @@ export const messageReads = pgTable(
     messageId: textC('message_id').notNull().$type<SqliteRow<'messageReads'>['messageId']>(),
     sessionId: textC('session_id').notNull().$type<SqliteRow<'messageReads'>['sessionId']>(),
     readAt: isoTimestamp('read_at').notNull().$type<SqliteRow<'messageReads'>['readAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'messageReads'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'messageReads'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'message_reads_pk', columns: [table.messageId, table.sessionId] }),
-    index('idx_message_reads_session').on(table.sessionId),
+    primaryKey({
+      name: 'message_reads_pk',
+      columns: [table.workspaceId, table.messageId, table.sessionId],
+    }),
+    index('idx_message_reads_session').on(table.workspaceId, table.sessionId),
   ],
 )
 
-export const messageWakeCooldowns = pgTable('message_wake_cooldowns', {
-  key: textC('key').primaryKey().$type<SqliteRow<'messageWakeCooldowns'>['key']>(),
-  attemptedAt: isoTimestamp('attempted_at')
-    .notNull()
-    .$type<SqliteRow<'messageWakeCooldowns'>['attemptedAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'messageWakeCooldowns'>['workspaceId']>(),
-})
+export const messageWakeCooldowns = pgTable(
+  'message_wake_cooldowns',
+  {
+    key: textC('key').notNull().$type<SqliteRow<'messageWakeCooldowns'>['key']>(),
+    attemptedAt: isoTimestamp('attempted_at')
+      .notNull()
+      .$type<SqliteRow<'messageWakeCooldowns'>['attemptedAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'messageWakeCooldowns'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'message_wake_cooldowns_pk', columns: [table.workspaceId, table.key] }),
+  ],
+)
 
 export const messages = pgTable(
   'messages',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'messages'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'messages'>['id']>(),
     threadId: textC('thread_id').notNull().$type<SqliteRow<'messages'>['threadId']>(),
     inReplyTo: textC('in_reply_to').$type<SqliteRow<'messages'>['inReplyTo']>(),
     fromKind: textC('from_kind').notNull().$type<SqliteRow<'messages'>['fromKind']>(),
@@ -1480,41 +1526,63 @@ export const messages = pgTable(
       isoTimestamp('notice_dismissed_at').$type<SqliteRow<'messages'>['noticeDismissedAt']>(),
     retractRequestedAt:
       isoTimestamp('retract_requested_at').$type<SqliteRow<'messages'>['retractRequestedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'messages'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'messages'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_messages_delivered_to_time').on(table.deliveredTo, table.createdAt, table.id),
+    primaryKey({ name: 'messages_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_messages_delivered_to_time').on(
+      table.workspaceId,
+      table.deliveredTo,
+      table.createdAt,
+      table.id,
+    ),
     index('idx_messages_open_chat')
-      .on(table.createdAt)
+      .on(table.workspaceId, table.createdAt)
       .where(
         sql`"from_kind" = 'operator' AND "to_kind" = 'session' AND "notice_dismissed_at" IS NULL AND "delivery_status" NOT IN ('confirmed', 'cancelled')`,
       ),
-    index('idx_messages_from_session_time').on(table.fromSession, table.createdAt, table.id),
+    index('idx_messages_from_session_time').on(
+      table.workspaceId,
+      table.fromSession,
+      table.createdAt,
+      table.id,
+    ),
     index('idx_messages_from_issue')
-      .on(table.fromIssue, table.createdAt, table.id)
+      .on(table.workspaceId, table.fromIssue, table.createdAt, table.id)
       .where(sql`"from_issue" IS NOT NULL`),
-    index('idx_messages_recipient_time').on(table.toKind, table.toId, table.createdAt, table.id),
+    index('idx_messages_recipient_time').on(
+      table.workspaceId,
+      table.toKind,
+      table.toId,
+      table.createdAt,
+      table.id,
+    ),
     index('idx_messages_reply')
-      .on(table.inReplyTo, table.kind)
+      .on(table.workspaceId, table.inReplyTo, table.kind)
       .where(sql`"in_reply_to" IS NOT NULL`),
-    index('idx_messages_thread').on(table.threadId),
+    index('idx_messages_thread').on(table.workspaceId, table.threadId),
     index('idx_messages_recipient_delivery').on(
+      table.workspaceId,
       table.toKind,
       table.toId,
       table.deliveryStatus,
       table.createdAt,
       table.id,
     ),
-    index('idx_messages_delivery_order').on(table.deliveryStatus, table.createdAt, table.id),
+    index('idx_messages_delivery_order').on(
+      table.workspaceId,
+      table.deliveryStatus,
+      table.createdAt,
+      table.id,
+    ),
     index('idx_messages_delivery_expiry_explicit').on(
+      table.workspaceId,
       table.deliveryStatus,
       table.expiresAt,
       table.id,
     ),
     index('idx_messages_delivery_expiry_implicit').on(
+      table.workspaceId,
       table.deliveryStatus,
       table.lifecycle,
       table.expiresAt,
@@ -1550,12 +1618,14 @@ export const messagingIssueTopics = pgTable(
       .$type<SqliteRow<'messagingIssueTopics'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'messagingIssueTopics'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'messaging_issue_topics_pk', columns: [table.issueId, table.chatId] }),
-    index('idx_messaging_issue_topics_ref').on(table.chatId, table.threadRef),
+    primaryKey({
+      name: 'messaging_issue_topics_pk',
+      columns: [table.workspaceId, table.issueId, table.chatId],
+    }),
+    index('idx_messaging_issue_topics_ref').on(table.workspaceId, table.chatId, table.threadRef),
   ],
 )
 
@@ -1577,15 +1647,14 @@ export const messagingSessionAttachments = pgTable(
       textC('relayed_item_id').$type<SqliteRow<'messagingSessionAttachments'>['relayedItemId']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'messagingSessionAttachments'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'messaging_session_attachments_pk',
-      columns: [table.chatId, table.threadRef],
+      columns: [table.workspaceId, table.chatId, table.threadRef],
     }),
-    index('idx_messaging_session_attachments_session').on(table.sessionId),
+    index('idx_messaging_session_attachments_session').on(table.workspaceId, table.sessionId),
   ],
 )
 
@@ -1611,13 +1680,12 @@ export const nativeLoginOptIns = pgTable(
       .$type<SqliteRow<'nativeLoginOptIns'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'nativeLoginOptIns'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'native_login_opt_ins_pk',
-      columns: [table.ownerUserId, table.harness, table.fingerprint],
+      columns: [table.workspaceId, table.ownerUserId, table.harness, table.fingerprint],
     }),
   ],
 )
@@ -1640,13 +1708,18 @@ export const nativeLoginTransfers = pgTable(
     at: textC('at').notNull().$type<SqliteRow<'nativeLoginTransfers'>['at']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'nativeLoginTransfers'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'native_login_transfers_pk',
-      columns: [table.ownerUserId, table.harness, table.fingerprint, table.machineId],
+      columns: [
+        table.workspaceId,
+        table.ownerUserId,
+        table.harness,
+        table.fingerprint,
+        table.machineId,
+      ],
     }),
     check('native_login_transfers_outcome', sql`outcome IN ('installed', 'preserved')`),
   ],
@@ -1666,32 +1739,35 @@ export const notificationFacts = pgTable(
     consumedAt: isoTimestamp('consumed_at').$type<SqliteRow<'notificationFacts'>['consumedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'notificationFacts'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'notification_facts_pk', columns: [table.factKey, table.target] }),
-    index('idx_notification_facts_issue').on(table.issueId),
-    index('idx_notification_facts_expires').on(table.expiresAt),
+    primaryKey({
+      name: 'notification_facts_pk',
+      columns: [table.workspaceId, table.factKey, table.target],
+    }),
+    index('idx_notification_facts_issue').on(table.workspaceId, table.issueId),
+    index('idx_notification_facts_expires').on(table.workspaceId, table.expiresAt),
   ],
 )
 
-export const offers = pgTable('offers', {
-  sessionId: textC('session_id').primaryKey().$type<SqliteRow<'offers'>['sessionId']>(),
-  message: textC('message').notNull().$type<SqliteRow<'offers'>['message']>(),
-  actions: jsonText('actions').notNull().$type<SqliteRow<'offers'>['actions']>(),
-  artifacts: jsonText('artifacts').$type<SqliteRow<'offers'>['artifacts']>(),
-  createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'offers'>['createdAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'offers'>['workspaceId']>(),
-})
+export const offers = pgTable(
+  'offers',
+  {
+    sessionId: textC('session_id').notNull().$type<SqliteRow<'offers'>['sessionId']>(),
+    message: textC('message').notNull().$type<SqliteRow<'offers'>['message']>(),
+    actions: jsonText('actions').notNull().$type<SqliteRow<'offers'>['actions']>(),
+    artifacts: jsonText('artifacts').$type<SqliteRow<'offers'>['artifacts']>(),
+    createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'offers'>['createdAt']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'offers'>['workspaceId']>(),
+  },
+  (table) => [primaryKey({ name: 'offers_pk', columns: [table.workspaceId, table.sessionId] })],
+)
 
 export const operations = pgTable(
   'operations',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'operations'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'operations'>['id']>(),
     kind: textC('kind').notNull().$type<SqliteRow<'operations'>['kind']>(),
     exclusionGroup: textC('exclusion_group')
       .notNull()
@@ -1701,21 +1777,19 @@ export const operations = pgTable(
     updatedAt: int8('updated_at').notNull().$type<SqliteRow<'operations'>['updatedAt']>(),
     finishedAt: int8('finished_at').$type<SqliteRow<'operations'>['finishedAt']>(),
     payload: jsonText('payload').notNull().$type<SqliteRow<'operations'>['payload']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'operations'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'operations'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_operations_group_state').on(table.exclusionGroup, table.state),
-    index('idx_operations_kind_created').on(table.kind, table.createdAt),
+    primaryKey({ name: 'operations_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_operations_group_state').on(table.workspaceId, table.exclusionGroup, table.state),
+    index('idx_operations_kind_created').on(table.workspaceId, table.kind, table.createdAt),
   ],
 )
 
 export const pendingInteractions = pgTable(
   'pending_interactions',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'pendingInteractions'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'pendingInteractions'>['id']>(),
     sessionId: textC('session_id').notNull().$type<SqliteRow<'pendingInteractions'>['sessionId']>(),
     kind: textC('kind').notNull().$type<SqliteRow<'pendingInteractions'>['kind']>(),
     payloadJson: jsonText('payload_json')
@@ -1745,14 +1819,19 @@ export const pendingInteractions = pgTable(
     expiredAt: isoTimestamp('expired_at').$type<SqliteRow<'pendingInteractions'>['expiredAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'pendingInteractions'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_pending_interactions_session_time').on(table.sessionId, table.askedAt, table.id),
-    index('idx_pending_interactions_open').on(table.status, table.askedAt),
+    primaryKey({ name: 'pending_interactions_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_pending_interactions_session_time').on(
+      table.workspaceId,
+      table.sessionId,
+      table.askedAt,
+      table.id,
+    ),
+    index('idx_pending_interactions_open').on(table.workspaceId, table.status, table.askedAt),
     uniqueIndex('idx_pending_interactions_fingerprint')
-      .on(table.sessionId, table.fingerprint)
+      .on(table.workspaceId, table.sessionId, table.fingerprint)
       .where(sql`status = 'asked'`),
     check(
       'pending_interactions_status_check',
@@ -1787,7 +1866,6 @@ export const pendingUploads = pgTable(
       textC('claimed_artifact_id').$type<SqliteRow<'pendingUploads'>['claimedArtifactId']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'pendingUploads'>['workspaceId']>(),
   },
   (table) => [
@@ -1808,14 +1886,14 @@ export const pins = pgTable(
     kind: textC('kind').notNull().$type<SqliteRow<'pins'>['kind']>(),
     id: textC('id').notNull().$type<SqliteRow<'pins'>['id']>(),
     pinnedAt: isoTimestamp('pinned_at').notNull().$type<SqliteRow<'pins'>['pinnedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'pins'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'pins'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'pins_pk', columns: [table.userId, table.kind, table.id] }),
-    index('idx_pins_target').on(table.kind, table.id),
+    primaryKey({
+      name: 'pins_pk',
+      columns: [table.workspaceId, table.userId, table.kind, table.id],
+    }),
+    index('idx_pins_target').on(table.workspaceId, table.kind, table.id),
   ],
 )
 
@@ -1834,24 +1912,32 @@ export const podiumEvents = pgTable(
       .notNull()
       .default(sql`'{}'`)
       .$type<SqliteRow<'podiumEvents'>['payload']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'podiumEvents'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'podiumEvents'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_podium_events_repo').on(table.repoPath),
-    index('idx_podium_events_kind').on(table.kind),
-    index('idx_podium_events_subject').on(table.subject),
-    index('idx_podium_events_kind_subject_ts').on(table.kind, table.subject, table.ts),
-    index('idx_podium_events_kind_subject_id').on(table.kind, table.subject, table.id),
+    unique('podium_events_workspace_id_id_unique').on(table.workspaceId, table.id),
+    index('idx_podium_events_repo').on(table.workspaceId, table.repoPath),
+    index('idx_podium_events_kind').on(table.workspaceId, table.kind),
+    index('idx_podium_events_subject').on(table.workspaceId, table.subject),
+    index('idx_podium_events_kind_subject_ts').on(
+      table.workspaceId,
+      table.kind,
+      table.subject,
+      table.ts,
+    ),
+    index('idx_podium_events_kind_subject_id').on(
+      table.workspaceId,
+      table.kind,
+      table.subject,
+      table.id,
+    ),
   ],
 )
 
 export const queuedMessages = pgTable(
   'queued_messages',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'queuedMessages'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'queuedMessages'>['id']>(),
     sessionId: textC('session_id').notNull().$type<SqliteRow<'queuedMessages'>['sessionId']>(),
     text: textC('text').notNull().$type<SqliteRow<'queuedMessages'>['text']>(),
     queuedAt: int8('queued_at').notNull().$type<SqliteRow<'queuedMessages'>['queuedAt']>(),
@@ -1894,11 +1980,11 @@ export const queuedMessages = pgTable(
       int8('retract_requested_at').$type<SqliteRow<'queuedMessages'>['retractRequestedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'queuedMessages'>['workspaceId']>(),
   },
   (table) => [
-    index('queued_messages_session').on(table.sessionId, table.queuedAt),
+    primaryKey({ name: 'queued_messages_pk', columns: [table.workspaceId, table.id] }),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queuedAt),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
@@ -1937,24 +2023,27 @@ export const quotaWindows = pgTable(
     source: textC('source').notNull().$type<SqliteRow<'quotaWindows'>['source']>(),
     trailJson: jsonText('trail_json').notNull().$type<SqliteRow<'quotaWindows'>['trailJson']>(),
     ownerUserId: textC('owner_user_id').$type<SqliteRow<'quotaWindows'>['ownerUserId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'quotaWindows'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'quotaWindows'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'quota_windows_pk',
-      columns: [table.accountKey, table.windowKey, table.resetsAtBucket],
+      columns: [table.workspaceId, table.accountKey, table.windowKey, table.resetsAtBucket],
     }),
-    index('idx_quota_windows_series').on(table.accountKey, table.windowKey, table.resetsAtMs),
+    index('idx_quota_windows_series').on(
+      table.workspaceId,
+      table.accountKey,
+      table.windowKey,
+      table.resetsAtMs,
+    ),
     index('idx_quota_windows_owner').on(
+      table.workspaceId,
       table.ownerUserId,
       table.accountKey,
       table.windowKey,
       table.resetsAtMs,
     ),
-    index('idx_quota_windows_resets').on(table.resetsAtMs),
+    index('idx_quota_windows_resets').on(table.workspaceId, table.resetsAtMs),
   ],
 )
 
@@ -1969,33 +2058,42 @@ export const recapWatermarks = pgTable(
       .$type<SqliteRow<'recapWatermarks'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'recapWatermarks'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'recap_watermarks_pk', columns: [table.reader, table.sessionId] }),
+    primaryKey({
+      name: 'recap_watermarks_pk',
+      columns: [table.workspaceId, table.reader, table.sessionId],
+    }),
   ],
 )
 
-export const repoDraftSeq = pgTable('repo_draft_seq', {
-  repoId: textC('repo_id').primaryKey().$type<SqliteRow<'repoDraftSeq'>['repoId']>(),
-  nextSeq: int8('next_seq').notNull().$type<SqliteRow<'repoDraftSeq'>['nextSeq']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'repoDraftSeq'>['workspaceId']>(),
-})
+export const repoDraftSeq = pgTable(
+  'repo_draft_seq',
+  {
+    repoId: textC('repo_id').notNull().$type<SqliteRow<'repoDraftSeq'>['repoId']>(),
+    nextSeq: int8('next_seq').notNull().$type<SqliteRow<'repoDraftSeq'>['nextSeq']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'repoDraftSeq'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'repo_draft_seq_pk', columns: [table.workspaceId, table.repoId] }),
+  ],
+)
 
-export const repoPrefixes = pgTable('repo_prefixes', {
-  repoId: textC('repo_id').primaryKey().$type<SqliteRow<'repoPrefixes'>['repoId']>(),
-  prefix: textC('prefix').notNull().unique().$type<SqliteRow<'repoPrefixes'>['prefix']>(),
-  defaultParentBranch:
-    textC('default_parent_branch').$type<SqliteRow<'repoPrefixes'>['defaultParentBranch']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'repoPrefixes'>['workspaceId']>(),
-})
+export const repoPrefixes = pgTable(
+  'repo_prefixes',
+  {
+    repoId: textC('repo_id').notNull().$type<SqliteRow<'repoPrefixes'>['repoId']>(),
+    prefix: textC('prefix').notNull().$type<SqliteRow<'repoPrefixes'>['prefix']>(),
+    defaultParentBranch:
+      textC('default_parent_branch').$type<SqliteRow<'repoPrefixes'>['defaultParentBranch']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'repoPrefixes'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'repo_prefixes_pk', columns: [table.workspaceId, table.repoId] }),
+    unique('repo_prefixes_prefix_unique').on(table.workspaceId, table.prefix),
+  ],
+)
 
 export const repos = pgTable(
   'repos',
@@ -2006,12 +2104,11 @@ export const repos = pgTable(
     repoName: textC('repo_name').$type<SqliteRow<'repos'>['repoName']>(),
     addedAt: isoTimestamp('added_at').notNull().$type<SqliteRow<'repos'>['addedAt']>(),
     repoId: textC('repo_id').$type<SqliteRow<'repos'>['repoId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'repos'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'repos'>['workspaceId']>(),
   },
-  (table) => [primaryKey({ name: 'repos_pk', columns: [table.machineId, table.path] })],
+  (table) => [
+    primaryKey({ name: 'repos_pk', columns: [table.workspaceId, table.machineId, table.path] }),
+  ],
 )
 
 export const rootIntegrationReceipts = pgTable(
@@ -2029,63 +2126,78 @@ export const rootIntegrationReceipts = pgTable(
       .$type<SqliteRow<'rootIntegrationReceipts'>['descendants']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'rootIntegrationReceipts'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'root_integration_receipts_pk',
-      columns: [table.rootIssueId, table.approvedHeadSha],
+      columns: [table.workspaceId, table.rootIssueId, table.approvedHeadSha],
     }),
     foreignKey({
-      name: 'root_integration_receipts_root_issue_id_issues_id_fk',
-      columns: [table.rootIssueId],
-      foreignColumns: [issues.id],
+      name: 'fk_root_integration_receipts_root_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.rootIssueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('restrict'),
   ],
 )
 
-export const runtimeEventCheckpoints = pgTable('runtime_event_checkpoints', {
-  sessionId: textC('session_id')
-    .primaryKey()
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['sessionId']>(),
-  observerGeneration: int8('observer_generation')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['observerGeneration']>(),
-  cursorJson: jsonText('cursor_json')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['cursorJson']>(),
-  turnEpoch: int8('turn_epoch')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['turnEpoch']>(),
-  closedTurnEpoch:
-    int8('closed_turn_epoch').$type<SqliteRow<'runtimeEventCheckpoints'>['closedTurnEpoch']>(),
-  updatedAt: isoTimestamp('updated_at')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['updatedAt']>(),
-  turnStateJson:
-    jsonText('turn_state_json').$type<SqliteRow<'runtimeEventCheckpoints'>['turnStateJson']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'runtimeEventCheckpoints'>['workspaceId']>(),
-})
+export const runtimeEventCheckpoints = pgTable(
+  'runtime_event_checkpoints',
+  {
+    sessionId: textC('session_id')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['sessionId']>(),
+    observerGeneration: int8('observer_generation')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['observerGeneration']>(),
+    cursorJson: jsonText('cursor_json')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['cursorJson']>(),
+    turnEpoch: int8('turn_epoch')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['turnEpoch']>(),
+    closedTurnEpoch:
+      int8('closed_turn_epoch').$type<SqliteRow<'runtimeEventCheckpoints'>['closedTurnEpoch']>(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['updatedAt']>(),
+    turnStateJson:
+      jsonText('turn_state_json').$type<SqliteRow<'runtimeEventCheckpoints'>['turnStateJson']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventCheckpoints'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'runtime_event_checkpoints_pk',
+      columns: [table.workspaceId, table.sessionId],
+    }),
+  ],
+)
 
-export const runtimeEventProjectionCursors = pgTable('runtime_event_projection_cursors', {
-  projector: textC('projector')
-    .primaryKey()
-    .$type<SqliteRow<'runtimeEventProjectionCursors'>['projector']>(),
-  lastEventId: int8('last_event_id')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventProjectionCursors'>['lastEventId']>(),
-  updatedAt: isoTimestamp('updated_at')
-    .notNull()
-    .$type<SqliteRow<'runtimeEventProjectionCursors'>['updatedAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'runtimeEventProjectionCursors'>['workspaceId']>(),
-})
+export const runtimeEventProjectionCursors = pgTable(
+  'runtime_event_projection_cursors',
+  {
+    projector: textC('projector')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventProjectionCursors'>['projector']>(),
+    lastEventId: int8('last_event_id')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventProjectionCursors'>['lastEventId']>(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventProjectionCursors'>['updatedAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'runtimeEventProjectionCursors'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'runtime_event_projection_cursors_pk',
+      columns: [table.workspaceId, table.projector],
+    }),
+  ],
+)
 
 export const serverSecrets = pgTable('server_secrets', {
   key: textC('key').primaryKey().$type<SqliteRow<'serverSecrets'>['key']>(),
@@ -2093,60 +2205,73 @@ export const serverSecrets = pgTable('server_secrets', {
   updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'serverSecrets'>['updatedAt']>(),
 })
 
-export const sessionDrafts = pgTable('session_drafts', {
-  sessionId: textC('session_id').primaryKey().$type<SqliteRow<'sessionDrafts'>['sessionId']>(),
-  text: textC('text').notNull().$type<SqliteRow<'sessionDrafts'>['text']>(),
-  updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'sessionDrafts'>['updatedAt']>(),
-  rev: int8('rev').notNull().default(0).$type<SqliteRow<'sessionDrafts'>['rev']>(),
-  origin: textC('origin').$type<SqliteRow<'sessionDrafts'>['origin']>(),
-  history: jsonText('history').$type<SqliteRow<'sessionDrafts'>['history']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'sessionDrafts'>['workspaceId']>(),
-})
+export const sessionDrafts = pgTable(
+  'session_drafts',
+  {
+    sessionId: textC('session_id').notNull().$type<SqliteRow<'sessionDrafts'>['sessionId']>(),
+    text: textC('text').notNull().$type<SqliteRow<'sessionDrafts'>['text']>(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'sessionDrafts'>['updatedAt']>(),
+    rev: int8('rev').notNull().default(0).$type<SqliteRow<'sessionDrafts'>['rev']>(),
+    origin: textC('origin').$type<SqliteRow<'sessionDrafts'>['origin']>(),
+    history: jsonText('history').$type<SqliteRow<'sessionDrafts'>['history']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'sessionDrafts'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'session_drafts_pk', columns: [table.workspaceId, table.sessionId] }),
+  ],
+)
 
-export const sessionObservationCheckpoints = pgTable('session_observation_checkpoints', {
-  sessionId: textC('session_id')
-    .primaryKey()
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['sessionId']>(),
-  schemaVersion: int8('schema_version')
-    .notNull()
-    .default(1)
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['schemaVersion']>(),
-  provider: textC('provider')
-    .notNull()
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['provider']>(),
-  providerSessionId:
-    textC('provider_session_id').$type<
-      SqliteRow<'sessionObservationCheckpoints'>['providerSessionId']
-    >(),
-  bindingVersion: int8('binding_version')
-    .notNull()
-    .default(0)
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['bindingVersion']>(),
-  observationGeneration: int8('observation_generation')
-    .notNull()
-    .default(0)
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['observationGeneration']>(),
-  checkpointJson:
-    jsonText('checkpoint_json').$type<
-      SqliteRow<'sessionObservationCheckpoints'>['checkpointJson']
-    >(),
-  updatedAt: isoTimestamp('updated_at')
-    .notNull()
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['updatedAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'sessionObservationCheckpoints'>['workspaceId']>(),
-})
+export const sessionObservationCheckpoints = pgTable(
+  'session_observation_checkpoints',
+  {
+    sessionId: textC('session_id')
+      .notNull()
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['sessionId']>(),
+    schemaVersion: int8('schema_version')
+      .notNull()
+      .default(1)
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['schemaVersion']>(),
+    provider: textC('provider')
+      .notNull()
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['provider']>(),
+    providerSessionId:
+      textC('provider_session_id').$type<
+        SqliteRow<'sessionObservationCheckpoints'>['providerSessionId']
+      >(),
+    bindingVersion: int8('binding_version')
+      .notNull()
+      .default(0)
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['bindingVersion']>(),
+    observationGeneration: int8('observation_generation')
+      .notNull()
+      .default(0)
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['observationGeneration']>(),
+    checkpointJson:
+      jsonText('checkpoint_json').$type<
+        SqliteRow<'sessionObservationCheckpoints'>['checkpointJson']
+      >(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['updatedAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'sessionObservationCheckpoints'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'session_observation_checkpoints_pk',
+      columns: [table.workspaceId, table.sessionId],
+    }),
+  ],
+)
 
 export const sessionObservationRebinds = pgTable(
   'session_observation_rebinds',
   {
     sessionId: textC('session_id')
-      .primaryKey()
+      .notNull()
       .$type<SqliteRow<'sessionObservationRebinds'>['sessionId']>(),
     provider: textC('provider')
       .notNull()
@@ -2174,14 +2299,20 @@ export const sessionObservationRebinds = pgTable(
       .$type<SqliteRow<'sessionObservationRebinds'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'sessionObservationRebinds'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({
+      name: 'session_observation_rebinds_pk',
+      columns: [table.workspaceId, table.sessionId],
+    }),
     foreignKey({
       name: 'session_observation_rebinds_session_id_fk',
-      columns: [table.sessionId],
-      foreignColumns: [sessionObservationCheckpoints.sessionId],
+      columns: [table.workspaceId, table.sessionId],
+      foreignColumns: [
+        sessionObservationCheckpoints.workspaceId,
+        sessionObservationCheckpoints.sessionId,
+      ],
     }).onDelete('cascade'),
   ],
 )
@@ -2190,7 +2321,7 @@ export const sessionTerminalCandidates = pgTable(
   'session_terminal_candidates',
   {
     sessionId: textC('session_id')
-      .primaryKey()
+      .notNull()
       .$type<SqliteRow<'sessionTerminalCandidates'>['sessionId']>(),
     proofJson: jsonText('proof_json')
       .notNull()
@@ -2204,14 +2335,20 @@ export const sessionTerminalCandidates = pgTable(
       .$type<SqliteRow<'sessionTerminalCandidates'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'sessionTerminalCandidates'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({
+      name: 'session_terminal_candidates_pk',
+      columns: [table.workspaceId, table.sessionId],
+    }),
     foreignKey({
       name: 'session_terminal_candidates_session_id_fk',
-      columns: [table.sessionId],
-      foreignColumns: [sessionObservationCheckpoints.sessionId],
+      columns: [table.workspaceId, table.sessionId],
+      foreignColumns: [
+        sessionObservationCheckpoints.workspaceId,
+        sessionObservationCheckpoints.sessionId,
+      ],
     }).onDelete('cascade'),
   ],
 )
@@ -2224,19 +2361,21 @@ export const sessionUserState = pgTable(
     readAt: isoTimestamp('read_at').$type<SqliteRow<'sessionUserState'>['readAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'sessionUserState'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'session_user_state_pk', columns: [table.userId, table.sessionId] }),
-    index('idx_session_user_state_session').on(table.sessionId),
+    primaryKey({
+      name: 'session_user_state_pk',
+      columns: [table.workspaceId, table.userId, table.sessionId],
+    }),
+    index('idx_session_user_state_session').on(table.workspaceId, table.sessionId),
   ],
 )
 
 export const sessions = pgTable(
   'sessions',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'sessions'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'sessions'>['id']>(),
     ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'sessions'>['ownerUserId']>(),
     agentKind: textC('agent_kind').notNull().$type<SqliteRow<'sessions'>['agentKind']>(),
     model: textC('model').$type<SqliteRow<'sessions'>['model']>(),
@@ -2359,38 +2498,40 @@ export const sessions = pgTable(
     lifecycleFailure: textC('lifecycle_failure').$type<SqliteRow<'sessions'>['lifecycleFailure']>(),
     desiredByUser: textC('desired_by_user').$type<SqliteRow<'sessions'>['desiredByUser']>(),
     desiredByAgent: textC('desired_by_agent').$type<SqliteRow<'sessions'>['desiredByAgent']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'sessions'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'sessions'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'sessions_pk', columns: [table.workspaceId, table.id] }),
     index('idx_sessions_pending_activity')
-      .on(table.lastActivePublishAfter, table.id)
+      .on(table.workspaceId, table.lastActivePublishAfter, table.id)
       .where(sql`"published_last_active_at" < "last_active_at" AND "deleted_at" IS NULL`),
-    index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
+    index('idx_sessions_deleted_by_issue').on(table.workspaceId, table.deletedByIssueId),
     index('idx_sessions_lifecycle_pending')
-      .on(table.machineId)
+      .on(table.workspaceId, table.machineId)
       .where(sql`"revision" > "observed_revision" AND "deleted_at" IS NULL`),
-    index('idx_sessions_deleted_at').on(table.deletedAt),
-    index('idx_sessions_resume_machine').on(table.resumeValue, table.machineId),
-    index('idx_sessions_issue').on(table.issueId),
-    index('idx_sessions_ref_issue').on(table.refIssueId).where(sql`"ref_issue_id" IS NOT NULL`),
-    index('idx_sessions_machine').on(table.machineId),
-    index('idx_sessions_cwd').on(table.cwd),
-    index('idx_sessions_cwd_folded').on(sql`lower(replace("cwd", '/', '\\'))`),
-    index('idx_sessions_spawned_by').on(table.spawnedBy),
-    index('idx_sessions_ref_draft').on(table.refDraft),
+    index('idx_sessions_deleted_at').on(table.workspaceId, table.deletedAt),
+    index('idx_sessions_resume_machine').on(table.workspaceId, table.resumeValue, table.machineId),
+    index('idx_sessions_issue').on(table.workspaceId, table.issueId),
+    index('idx_sessions_ref_issue')
+      .on(table.workspaceId, table.refIssueId)
+      .where(sql`"ref_issue_id" IS NOT NULL`),
+    index('idx_sessions_machine').on(table.workspaceId, table.machineId),
+    index('idx_sessions_cwd').on(table.workspaceId, table.cwd),
+    index('idx_sessions_cwd_folded').on(table.workspaceId, sql`lower(replace("cwd", '/', '\\'))`),
+    index('idx_sessions_spawned_by').on(table.workspaceId, table.spawnedBy),
+    index('idx_sessions_ref_draft').on(table.workspaceId, table.refDraft),
     index('idx_sessions_refless_place')
-      .on(table.machineId, table.cwd)
+      .on(table.workspaceId, table.machineId, table.cwd)
       .where(sql`"ref_issue_id" IS NULL AND "ref_draft" IS NULL AND "deleted_at" IS NULL`),
     index('idx_sessions_refless_issue')
-      .on(table.issueId)
+      .on(table.workspaceId, table.issueId)
       .where(
         sql`"ref_issue_id" IS NULL AND "ref_draft" IS NULL AND "deleted_at" IS NULL AND "issue_id" IS NOT NULL`,
       ),
-    index('idx_sessions_status').on(table.status),
-    index('idx_sessions_headless').on(table.headless).where(sql`"headless" = true`),
+    index('idx_sessions_status').on(table.workspaceId, table.status),
+    index('idx_sessions_headless')
+      .on(table.workspaceId, table.headless)
+      .where(sql`"headless" = true`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -2431,13 +2572,13 @@ export const settingsAuditEvents = pgTable(
       .$type<SqliteRow<'settingsAuditEvents'>['createdAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'settingsAuditEvents'>['workspaceId']>(),
   },
   (table) => [
-    index('settings_audit_events_command').on(table.command, table.id),
-    index('settings_audit_events_person').on(table.onBehalfOf, table.id),
-    index('settings_audit_events_result').on(table.outcome, table.id),
+    unique('settings_audit_events_workspace_id_id_unique').on(table.workspaceId, table.id),
+    index('settings_audit_events_command').on(table.workspaceId, table.command, table.id),
+    index('settings_audit_events_person').on(table.workspaceId, table.onBehalfOf, table.id),
+    index('settings_audit_events_result').on(table.workspaceId, table.outcome, table.id),
     check('settings_audit_events_outcome', sql`outcome IN ('applied', 'refused')`),
     check(
       'settings_audit_events_actor_kind',
@@ -2453,7 +2594,7 @@ export const settingsAuditEvents = pgTable(
 export const shipAttempts = pgTable(
   'ship_attempts',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'shipAttempts'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'shipAttempts'>['id']>(),
     orderId: textC('order_id').notNull().$type<SqliteRow<'shipAttempts'>['orderId']>(),
     expectedSourceBaseSha: textC('expected_source_base_sha')
       .notNull()
@@ -2482,18 +2623,16 @@ export const shipAttempts = pgTable(
       textC('validation_profile_id').$type<SqliteRow<'shipAttempts'>['validationProfileId']>(),
     validationResult:
       textC('validation_result').$type<SqliteRow<'shipAttempts'>['validationResult']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'shipAttempts'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'shipAttempts'>['workspaceId']>(),
   },
   (table) => [
-    unique('idx_ship_attempts_id_order').on(table.id, table.orderId),
-    index('idx_ship_attempts_order').on(table.orderId, table.startedAt),
+    primaryKey({ name: 'ship_attempts_pk', columns: [table.workspaceId, table.id] }),
+    unique('idx_ship_attempts_id_order').on(table.workspaceId, table.id, table.orderId),
+    index('idx_ship_attempts_order').on(table.workspaceId, table.orderId, table.startedAt),
     foreignKey({
-      name: 'ship_attempts_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_attempts_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     check('ship_attempts_generation_check', sql`lease_generation >= 0`),
     check(
@@ -2518,9 +2657,7 @@ export const shipAttempts = pgTable(
 export const shipEffectEnvelopes = pgTable(
   'ship_effect_envelopes',
   {
-    effectKey: textC('effect_key')
-      .primaryKey()
-      .$type<SqliteRow<'shipEffectEnvelopes'>['effectKey']>(),
+    effectKey: textC('effect_key').notNull().$type<SqliteRow<'shipEffectEnvelopes'>['effectKey']>(),
     trainId: textC('train_id').notNull().$type<SqliteRow<'shipEffectEnvelopes'>['trainId']>(),
     attemptId: textC('attempt_id').notNull().$type<SqliteRow<'shipEffectEnvelopes'>['attemptId']>(),
     requestDigest: textC('request_digest')
@@ -2537,20 +2674,24 @@ export const shipEffectEnvelopes = pgTable(
       .$type<SqliteRow<'shipEffectEnvelopes'>['recordedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipEffectEnvelopes'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(table.attemptId, table.effectKey),
+    primaryKey({ name: 'ship_effect_envelopes_pk', columns: [table.workspaceId, table.effectKey] }),
+    uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(
+      table.workspaceId,
+      table.attemptId,
+      table.effectKey,
+    ),
     foreignKey({
-      name: 'ship_effect_envelopes_train_id_ship_train_manifests_id_fk',
-      columns: [table.trainId],
-      foreignColumns: [shipTrainManifests.id],
+      name: 'fk_ship_effect_envelopes_train_id_ship_train_manifests_id_fk',
+      columns: [table.workspaceId, table.trainId],
+      foreignColumns: [shipTrainManifests.workspaceId, shipTrainManifests.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_effect_envelopes_attempt_id_ship_attempts_id_fk',
-      columns: [table.attemptId],
-      foreignColumns: [shipAttempts.id],
+      name: 'fk_ship_effect_envelopes_attempt_id_ship_attempts_id_fk',
+      columns: [table.workspaceId, table.attemptId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id],
     }).onDelete('restrict'),
   ],
 )
@@ -2558,7 +2699,7 @@ export const shipEffectEnvelopes = pgTable(
 export const shipEvidence = pgTable(
   'ship_evidence',
   {
-    ref: textC('ref').primaryKey().$type<SqliteRow<'shipEvidence'>['ref']>(),
+    ref: textC('ref').notNull().$type<SqliteRow<'shipEvidence'>['ref']>(),
     custodyDigest: textC('custody_digest')
       .notNull()
       .$type<SqliteRow<'shipEvidence'>['custodyDigest']>(),
@@ -2570,13 +2711,11 @@ export const shipEvidence = pgTable(
     materializedAt: isoTimestamp('materialized_at')
       .notNull()
       .$type<SqliteRow<'shipEvidence'>['materializedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'shipEvidence'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'shipEvidence'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_ship_evidence_source').on(table.custodyDigest, table.sourceRef),
+    primaryKey({ name: 'ship_evidence_pk', columns: [table.workspaceId, table.ref] }),
+    index('idx_ship_evidence_source').on(table.workspaceId, table.custodyDigest, table.sourceRef),
     check(
       'ship_evidence_custody_digest_check',
       sql`length(custody_digest) = 64 AND translate(custody_digest, '0123456789abcdef', '') = ''`,
@@ -2591,7 +2730,7 @@ export const shipEvidence = pgTable(
 export const shipHolds = pgTable(
   'ship_holds',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'shipHolds'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'shipHolds'>['id']>(),
     orderId: textC('order_id').notNull().$type<SqliteRow<'shipHolds'>['orderId']>(),
     generation: int8('generation').notNull().$type<SqliteRow<'shipHolds'>['generation']>(),
     reasonCode: textC('reason_code').notNull().$type<SqliteRow<'shipHolds'>['reasonCode']>(),
@@ -2608,18 +2747,22 @@ export const shipHolds = pgTable(
     raisedAt: isoTimestamp('raised_at').notNull().$type<SqliteRow<'shipHolds'>['raisedAt']>(),
     resolvedAt: isoTimestamp('resolved_at').$type<SqliteRow<'shipHolds'>['resolvedAt']>(),
     resolution: textC('resolution').$type<SqliteRow<'shipHolds'>['resolution']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'shipHolds'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'shipHolds'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('idx_ship_holds_order_generation').on(table.orderId, table.generation),
-    uniqueIndex('idx_ship_holds_one_open_order').on(table.orderId).where(sql`resolved_at IS NULL`),
+    primaryKey({ name: 'ship_holds_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('idx_ship_holds_order_generation').on(
+      table.workspaceId,
+      table.orderId,
+      table.generation,
+    ),
+    uniqueIndex('idx_ship_holds_one_open_order')
+      .on(table.workspaceId, table.orderId)
+      .where(sql`resolved_at IS NULL`),
     foreignKey({
-      name: 'ship_holds_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_holds_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     check('ship_holds_generation_check', sql`generation > 0`),
     check(
@@ -2629,17 +2772,22 @@ export const shipHolds = pgTable(
   ],
 )
 
-export const shipLaneRevisions = pgTable('ship_lane_revisions', {
-  laneKey: textC('lane_key').primaryKey().$type<SqliteRow<'shipLaneRevisions'>['laneKey']>(),
-  revision: int8('revision').notNull().$type<SqliteRow<'shipLaneRevisions'>['revision']>(),
-  updatedAt: isoTimestamp('updated_at')
-    .notNull()
-    .$type<SqliteRow<'shipLaneRevisions'>['updatedAt']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'shipLaneRevisions'>['workspaceId']>(),
-})
+export const shipLaneRevisions = pgTable(
+  'ship_lane_revisions',
+  {
+    laneKey: textC('lane_key').notNull().$type<SqliteRow<'shipLaneRevisions'>['laneKey']>(),
+    revision: int8('revision').notNull().$type<SqliteRow<'shipLaneRevisions'>['revision']>(),
+    updatedAt: isoTimestamp('updated_at')
+      .notNull()
+      .$type<SqliteRow<'shipLaneRevisions'>['updatedAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'shipLaneRevisions'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'ship_lane_revisions_pk', columns: [table.workspaceId, table.laneKey] }),
+  ],
+)
 
 export const shipOrderStackEdges = pgTable(
   'ship_order_stack_edges',
@@ -2661,24 +2809,23 @@ export const shipOrderStackEdges = pgTable(
       .$type<SqliteRow<'shipOrderStackEdges'>['recordedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipOrderStackEdges'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'ship_order_stack_edges_pk',
-      columns: [table.upperOrderId, table.lowerOrderId],
+      columns: [table.workspaceId, table.upperOrderId, table.lowerOrderId],
     }),
-    index('idx_ship_order_stack_edges_lower').on(table.lowerOrderId),
+    index('idx_ship_order_stack_edges_lower').on(table.workspaceId, table.lowerOrderId),
     foreignKey({
-      name: 'ship_order_stack_edges_upper_order_id_ship_orders_id_fk',
-      columns: [table.upperOrderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_order_stack_edges_upper_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.upperOrderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_order_stack_edges_lower_order_id_ship_orders_id_fk',
-      columns: [table.lowerOrderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_order_stack_edges_lower_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.lowerOrderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     check('ship_order_stack_edges_distinct_check', sql`upper_order_id <> lower_order_id`),
   ],
@@ -2687,7 +2834,7 @@ export const shipOrderStackEdges = pgTable(
 export const shipOrders = pgTable(
   'ship_orders',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'shipOrders'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'shipOrders'>['id']>(),
     issueId: textC('issue_id').notNull().$type<SqliteRow<'shipOrders'>['issueId']>(),
     repoId: textC('repo_id').notNull().$type<SqliteRow<'shipOrders'>['repoId']>(),
     repoPath: textC('repo_path').$type<SqliteRow<'shipOrders'>['repoPath']>(),
@@ -2738,34 +2885,44 @@ export const shipOrders = pgTable(
       .notNull()
       .$type<SqliteRow<'shipOrders'>['stateChangedAt']>(),
     holdCode: textC('hold_code').$type<SqliteRow<'shipOrders'>['holdCode']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'shipOrders'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'shipOrders'>['workspaceId']>(),
   },
   (table) => [
-    unique('idx_ship_orders_id_issue').on(table.id, table.issueId),
-    index('idx_ship_orders_issue').on(table.issueId),
-    index('idx_ship_orders_repo_state_id').on(table.repoId, table.state, table.id),
+    primaryKey({ name: 'ship_orders_pk', columns: [table.workspaceId, table.id] }),
+    unique('idx_ship_orders_id_issue').on(table.workspaceId, table.id, table.issueId),
+    index('idx_ship_orders_issue').on(table.workspaceId, table.issueId),
+    index('idx_ship_orders_repo_state_id').on(
+      table.workspaceId,
+      table.repoId,
+      table.state,
+      table.id,
+    ),
     index('idx_ship_orders_predecessors').on(
+      table.workspaceId,
       table.repoId,
       table.state,
       table.stateChangedAt,
       table.id,
     ),
     index('idx_ship_orders_recovery')
-      .on(table.requestedAt, table.id)
+      .on(table.workspaceId, table.requestedAt, table.id)
       .where(
         sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`,
       ),
-    index('idx_ship_orders_lane').on(table.repoId, table.destination, table.requestedAt, table.id),
+    index('idx_ship_orders_lane').on(
+      table.workspaceId,
+      table.repoId,
+      table.destination,
+      table.requestedAt,
+      table.id,
+    ),
     uniqueIndex('idx_ship_orders_one_active_issue')
-      .on(table.issueId)
+      .on(table.workspaceId, table.issueId)
       .where(sql`state NOT IN ('shipped', 'cancelled')`),
     foreignKey({
-      name: 'ship_orders_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_ship_orders_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('restrict'),
     check(
       'ship_orders_state_check',
@@ -2790,41 +2947,40 @@ export const shipOrders = pgTable(
 export const shipRecoveryRevision = pgTable(
   'ship_recovery_revision',
   {
-    id: int8('id')
-      .primaryKey()
-      .generatedByDefaultAsIdentity()
-      .$type<SqliteRow<'shipRecoveryRevision'>['id']>(),
+    id: int8('id').notNull().$type<SqliteRow<'shipRecoveryRevision'>['id']>(),
     revision: int8('revision')
       .notNull()
       .default(0)
       .$type<SqliteRow<'shipRecoveryRevision'>['revision']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipRecoveryRevision'>['workspaceId']>(),
   },
-  (_table) => [check('ship_recovery_revision_singleton', sql`id = 1`)],
+  (table) => [
+    primaryKey({ name: 'ship_recovery_revision_pk', columns: [table.workspaceId, table.id] }),
+    check('ship_recovery_revision_singleton', sql`id = 1`),
+  ],
 )
 
 export const shipRecoveryWork = pgTable(
   'ship_recovery_work',
   {
-    key: textC('key').primaryKey().$type<SqliteRow<'shipRecoveryWork'>['key']>(),
+    key: textC('key').notNull().$type<SqliteRow<'shipRecoveryWork'>['key']>(),
     kind: textC('kind').notNull().$type<SqliteRow<'shipRecoveryWork'>['kind']>(),
     orderId: textC('order_id').notNull().$type<SqliteRow<'shipRecoveryWork'>['orderId']>(),
     payload: jsonText('payload').notNull().$type<SqliteRow<'shipRecoveryWork'>['payload']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipRecoveryWork'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_ship_recovery_work_kind_key').on(table.kind, table.key),
-    index('idx_ship_recovery_work_order').on(table.orderId),
+    primaryKey({ name: 'ship_recovery_work_pk', columns: [table.workspaceId, table.key] }),
+    index('idx_ship_recovery_work_kind_key').on(table.workspaceId, table.kind, table.key),
+    index('idx_ship_recovery_work_order').on(table.workspaceId, table.orderId),
     foreignKey({
-      name: 'ship_recovery_work_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_recovery_work_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     check(
       'ship_recovery_work_kind_check',
@@ -2862,27 +3018,29 @@ export const shipRepairCandidates = pgTable(
       .$type<SqliteRow<'shipRepairCandidates'>['recordedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipRepairCandidates'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'ship_repair_candidates_pk', columns: [table.attemptId, table.sequence] }),
-    uniqueIndex('idx_ship_repair_candidates_ref').on(table.repairRef),
-    index('idx_ship_repair_candidates_order').on(table.orderId),
+    primaryKey({
+      name: 'ship_repair_candidates_pk',
+      columns: [table.workspaceId, table.attemptId, table.sequence],
+    }),
+    uniqueIndex('idx_ship_repair_candidates_ref').on(table.workspaceId, table.repairRef),
+    index('idx_ship_repair_candidates_order').on(table.workspaceId, table.orderId),
     foreignKey({
-      name: 'ship_repair_candidates_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_repair_candidates_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_repair_candidates_attempt_id_ship_attempts_id_fk',
-      columns: [table.attemptId],
-      foreignColumns: [shipAttempts.id],
+      name: 'fk_ship_repair_candidates_attempt_id_ship_attempts_id_fk',
+      columns: [table.workspaceId, table.attemptId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id],
     }).onDelete('restrict'),
     foreignKey({
       name: 'fk_ship_repair_candidates_attempt_order',
-      columns: [table.attemptId, table.orderId],
-      foreignColumns: [shipAttempts.id, shipAttempts.orderId],
+      columns: [table.workspaceId, table.attemptId, table.orderId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id, shipAttempts.orderId],
     }).onDelete('restrict'),
     check('ship_repair_candidates_generation_check', sql`generation > 0`),
     check('ship_repair_candidates_sequence_check', sql`sequence > 0 AND round = sequence`),
@@ -2896,7 +3054,7 @@ export const shipRepairCandidates = pgTable(
 export const shipSteps = pgTable(
   'ship_steps',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'shipSteps'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'shipSteps'>['id']>(),
     orderId: textC('order_id').notNull().$type<SqliteRow<'shipSteps'>['orderId']>(),
     attemptId: textC('attempt_id').notNull().$type<SqliteRow<'shipSteps'>['attemptId']>(),
     effectKey: textC('effect_key').notNull().$type<SqliteRow<'shipSteps'>['effectKey']>(),
@@ -2913,24 +3071,31 @@ export const shipSteps = pgTable(
     recordedAt: isoTimestamp('recorded_at').notNull().$type<SqliteRow<'shipSteps'>['recordedAt']>(),
     startedAt: isoTimestamp('started_at').$type<SqliteRow<'shipSteps'>['startedAt']>(),
     finishedAt: isoTimestamp('finished_at').$type<SqliteRow<'shipSteps'>['finishedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'shipSteps'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'shipSteps'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_ship_steps_order').on(table.orderId, table.recordedAt),
-    index('idx_ship_steps_effect').on(table.attemptId, table.effectKey, table.recordedAt),
-    uniqueIndex('idx_ship_steps_attempt_idempotency').on(table.attemptId, table.idempotencyKey),
+    primaryKey({ name: 'ship_steps_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_ship_steps_order').on(table.workspaceId, table.orderId, table.recordedAt),
+    index('idx_ship_steps_effect').on(
+      table.workspaceId,
+      table.attemptId,
+      table.effectKey,
+      table.recordedAt,
+    ),
+    uniqueIndex('idx_ship_steps_attempt_idempotency').on(
+      table.workspaceId,
+      table.attemptId,
+      table.idempotencyKey,
+    ),
     foreignKey({
-      name: 'ship_steps_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_steps_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_steps_attempt_id_ship_attempts_id_fk',
-      columns: [table.attemptId],
-      foreignColumns: [shipAttempts.id],
+      name: 'fk_ship_steps_attempt_id_ship_attempts_id_fk',
+      columns: [table.workspaceId, table.attemptId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id],
     }).onDelete('restrict'),
     check('ship_steps_generation_check', sql`generation >= 0`),
     check(
@@ -2959,27 +3124,37 @@ export const shipTrainActiveClaims = pgTable(
       .$type<SqliteRow<'shipTrainActiveClaims'>['generation']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipTrainActiveClaims'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'ship_train_active_claims_pk', columns: [table.trainId, table.orderId] }),
-    uniqueIndex('idx_ship_train_active_claims_order').on(table.orderId),
-    uniqueIndex('idx_ship_train_active_claims_attempt').on(table.attemptId),
+    primaryKey({
+      name: 'ship_train_active_claims_pk',
+      columns: [table.workspaceId, table.trainId, table.orderId],
+    }),
+    uniqueIndex('idx_ship_train_active_claims_order').on(table.workspaceId, table.orderId),
+    uniqueIndex('idx_ship_train_active_claims_attempt').on(table.workspaceId, table.attemptId),
     foreignKey({
-      name: 'ship_train_active_claims_train_id_ship_train_manifests_id_fk',
-      columns: [table.trainId],
-      foreignColumns: [shipTrainManifests.id],
+      name: 'fk_ship_train_active_claims_train_id_ship_train_manifests_id_fk',
+      columns: [table.workspaceId, table.trainId],
+      foreignColumns: [shipTrainManifests.workspaceId, shipTrainManifests.id],
     }).onDelete('restrict'),
     foreignKey({
       name: 'fk_ship_train_active_claims_member_order',
-      columns: [table.trainId, table.orderId],
-      foreignColumns: [shipTrainMembers.trainId, shipTrainMembers.orderId],
+      columns: [table.workspaceId, table.trainId, table.orderId],
+      foreignColumns: [
+        shipTrainMembers.workspaceId,
+        shipTrainMembers.trainId,
+        shipTrainMembers.orderId,
+      ],
     }).onDelete('restrict'),
     foreignKey({
       name: 'fk_ship_train_active_claims_member_attempt',
-      columns: [table.trainId, table.attemptId],
-      foreignColumns: [shipTrainMembers.trainId, shipTrainMembers.attemptId],
+      columns: [table.workspaceId, table.trainId, table.attemptId],
+      foreignColumns: [
+        shipTrainMembers.workspaceId,
+        shipTrainMembers.trainId,
+        shipTrainMembers.attemptId,
+      ],
     }).onDelete('restrict'),
     check('ship_train_active_claims_generation_check', sql`generation > 0`),
   ],
@@ -2988,7 +3163,7 @@ export const shipTrainActiveClaims = pgTable(
 export const shipTrainManifests = pgTable(
   'ship_train_manifests',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'shipTrainManifests'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'shipTrainManifests'>['id']>(),
     version: int8('version').notNull().$type<SqliteRow<'shipTrainManifests'>['version']>(),
     subsetId: textC('subset_id').notNull().$type<SqliteRow<'shipTrainManifests'>['subsetId']>(),
     repairRound: int8('repair_round')
@@ -3044,30 +3219,31 @@ export const shipTrainManifests = pgTable(
       textC('release_reason').$type<SqliteRow<'shipTrainManifests'>['releaseReason']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipTrainManifests'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('idx_ship_train_manifests_subset').on(table.subsetId),
-    uniqueIndex('idx_ship_train_manifests_digest').on(table.canonicalDigest),
+    primaryKey({ name: 'ship_train_manifests_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('idx_ship_train_manifests_subset').on(table.workspaceId, table.subsetId),
+    uniqueIndex('idx_ship_train_manifests_digest').on(table.workspaceId, table.canonicalDigest),
     index('idx_ship_train_manifests_open_lane')
-      .on(table.laneKey, table.createdAt, table.id)
+      .on(table.workspaceId, table.laneKey, table.createdAt, table.id)
       .where(sql`"released_at" IS NULL`),
     index('idx_ship_train_manifests_leader').on(
+      table.workspaceId,
       table.leaderOrderId,
       table.leaderAttemptId,
       table.leaderGeneration,
       table.releasedAt,
     ),
     foreignKey({
-      name: 'ship_train_manifests_leader_order_id_ship_orders_id_fk',
-      columns: [table.leaderOrderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_train_manifests_leader_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.leaderOrderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_train_manifests_leader_attempt_id_ship_attempts_id_fk',
-      columns: [table.leaderAttemptId],
-      foreignColumns: [shipAttempts.id],
+      name: 'fk_ship_train_manifests_leader_attempt_id_ship_attempts_id_fk',
+      columns: [table.workspaceId, table.leaderAttemptId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id],
     }).onDelete('restrict'),
     check('ship_train_manifests_version_check', sql`version = 1`),
     check('ship_train_manifests_repair_round_check', sql`repair_round = 0`),
@@ -3106,52 +3282,59 @@ export const shipTrainMembers = pgTable(
     releasedAt: isoTimestamp('released_at').$type<SqliteRow<'shipTrainMembers'>['releasedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'shipTrainMembers'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'ship_train_members_pk', columns: [table.trainId, table.ordinal] }),
-    unique('idx_ship_train_members_order').on(table.trainId, table.orderId),
-    unique('idx_ship_train_members_issue').on(table.trainId, table.issueId),
-    unique('idx_ship_train_members_attempt').on(table.trainId, table.attemptId),
-    unique('idx_ship_train_members_source').on(table.trainId, table.sourceBranch),
-    uniqueIndex('idx_ship_train_members_attempt_global').on(table.attemptId),
-    index('idx_ship_train_members_issue_ref').on(table.issueId),
+    primaryKey({
+      name: 'ship_train_members_pk',
+      columns: [table.workspaceId, table.trainId, table.ordinal],
+    }),
+    unique('idx_ship_train_members_order').on(table.workspaceId, table.trainId, table.orderId),
+    unique('idx_ship_train_members_issue').on(table.workspaceId, table.trainId, table.issueId),
+    unique('idx_ship_train_members_attempt').on(table.workspaceId, table.trainId, table.attemptId),
+    unique('idx_ship_train_members_source').on(
+      table.workspaceId,
+      table.trainId,
+      table.sourceBranch,
+    ),
+    uniqueIndex('idx_ship_train_members_attempt_global').on(table.workspaceId, table.attemptId),
+    index('idx_ship_train_members_issue_ref').on(table.workspaceId, table.issueId),
     index('idx_ship_train_members_live_custody').on(
+      table.workspaceId,
       table.orderId,
       table.attemptId,
       table.generation,
       table.releasedAt,
     ),
     foreignKey({
-      name: 'ship_train_members_train_id_ship_train_manifests_id_fk',
-      columns: [table.trainId],
-      foreignColumns: [shipTrainManifests.id],
+      name: 'fk_ship_train_members_train_id_ship_train_manifests_id_fk',
+      columns: [table.workspaceId, table.trainId],
+      foreignColumns: [shipTrainManifests.workspaceId, shipTrainManifests.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_train_members_issue_id_issues_id_fk',
-      columns: [table.issueId],
-      foreignColumns: [issues.id],
+      name: 'fk_ship_train_members_issue_id_issues_id_fk',
+      columns: [table.workspaceId, table.issueId],
+      foreignColumns: [issues.workspaceId, issues.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_train_members_order_id_ship_orders_id_fk',
-      columns: [table.orderId],
-      foreignColumns: [shipOrders.id],
+      name: 'fk_ship_train_members_order_id_ship_orders_id_fk',
+      columns: [table.workspaceId, table.orderId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'ship_train_members_attempt_id_ship_attempts_id_fk',
-      columns: [table.attemptId],
-      foreignColumns: [shipAttempts.id],
+      name: 'fk_ship_train_members_attempt_id_ship_attempts_id_fk',
+      columns: [table.workspaceId, table.attemptId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id],
     }).onDelete('restrict'),
     foreignKey({
       name: 'fk_ship_train_members_attempt_order',
-      columns: [table.attemptId, table.orderId],
-      foreignColumns: [shipAttempts.id, shipAttempts.orderId],
+      columns: [table.workspaceId, table.attemptId, table.orderId],
+      foreignColumns: [shipAttempts.workspaceId, shipAttempts.id, shipAttempts.orderId],
     }).onDelete('restrict'),
     foreignKey({
       name: 'fk_ship_train_members_order_issue',
-      columns: [table.orderId, table.issueId],
-      foreignColumns: [shipOrders.id, shipOrders.issueId],
+      columns: [table.workspaceId, table.orderId, table.issueId],
+      foreignColumns: [shipOrders.workspaceId, shipOrders.id, shipOrders.issueId],
     }).onDelete('restrict'),
     check('ship_train_members_ordinal_check', sql`ordinal >= 0`),
     check('ship_train_members_generation_check', sql`generation > 0`),
@@ -3165,25 +3348,23 @@ export const snoozes = pgTable(
     sessionId: textC('session_id').notNull().$type<SqliteRow<'snoozes'>['sessionId']>(),
     snoozedUntil: textC('snoozed_until').$type<SqliteRow<'snoozes'>['snoozedUntil']>(),
     createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'snoozes'>['createdAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'snoozes'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'snoozes'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'snoozes_pk', columns: [table.userId, table.sessionId] }),
-    index('idx_snoozes_session').on(table.sessionId),
+    primaryKey({ name: 'snoozes_pk', columns: [table.workspaceId, table.userId, table.sessionId] }),
+    index('idx_snoozes_session').on(table.workspaceId, table.sessionId),
   ],
 )
 
-export const stewardState = pgTable('steward_state', {
-  key: textC('key').primaryKey().$type<SqliteRow<'stewardState'>['key']>(),
-  value: textC('value').notNull().$type<SqliteRow<'stewardState'>['value']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'stewardState'>['workspaceId']>(),
-})
+export const stewardState = pgTable(
+  'steward_state',
+  {
+    key: textC('key').notNull().$type<SqliteRow<'stewardState'>['key']>(),
+    value: textC('value').notNull().$type<SqliteRow<'stewardState'>['value']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'stewardState'>['workspaceId']>(),
+  },
+  (table) => [primaryKey({ name: 'steward_state_pk', columns: [table.workspaceId, table.key] })],
+)
 
 export const subscriptionDeliveries = pgTable(
   'subscription_deliveries',
@@ -3194,13 +3375,12 @@ export const subscriptionDeliveries = pgTable(
     eventId: int8('event_id').notNull().$type<SqliteRow<'subscriptionDeliveries'>['eventId']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'subscriptionDeliveries'>['workspaceId']>(),
   },
   (table) => [
     primaryKey({
       name: 'subscription_deliveries_pk',
-      columns: [table.subscriptionId, table.eventId],
+      columns: [table.workspaceId, table.subscriptionId, table.eventId],
     }),
   ],
 )
@@ -3208,7 +3388,7 @@ export const subscriptionDeliveries = pgTable(
 export const subscriptions = pgTable(
   'subscriptions',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'subscriptions'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'subscriptions'>['id']>(),
     subscriberKind: textC('subscriber_kind')
       .notNull()
       .$type<SqliteRow<'subscriptions'>['subscriberKind']>(),
@@ -3237,19 +3417,23 @@ export const subscriptions = pgTable(
     createdAt: isoTimestamp('created_at')
       .notNull()
       .$type<SqliteRow<'subscriptions'>['createdAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'subscriptions'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'subscriptions'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'subscriptions_pk', columns: [table.workspaceId, table.id] }),
     index('idx_subscriptions_subscriber_event').on(
+      table.workspaceId,
       table.subscriberId,
       table.sourceKind,
       table.event,
     ),
-    index('idx_subscriptions_match').on(table.event, table.sourceKind, table.sourceRef),
-    index('idx_subscriptions_created').on(table.createdAt, table.id),
+    index('idx_subscriptions_match').on(
+      table.workspaceId,
+      table.event,
+      table.sourceKind,
+      table.sourceRef,
+    ),
+    index('idx_subscriptions_created').on(table.workspaceId, table.createdAt, table.id),
   ],
 )
 
@@ -3277,10 +3461,12 @@ export const superagentMessages = pgTable(
       .$type<SqliteRow<'superagentMessages'>['threadId']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'superagentMessages'>['workspaceId']>(),
   },
-  (table) => [index('idx_superagent_messages_thread').on(table.threadId, table.id)],
+  (table) => [
+    unique('superagent_messages_workspace_id_id_unique').on(table.workspaceId, table.id),
+    index('idx_superagent_messages_thread').on(table.workspaceId, table.threadId, table.id),
+  ],
 )
 
 export const superagentPendingTurns = pgTable(
@@ -3289,7 +3475,7 @@ export const superagentPendingTurns = pgTable(
     ownerUserId: textC('owner_user_id')
       .notNull()
       .$type<SqliteRow<'superagentPendingTurns'>['ownerUserId']>(),
-    turnId: textC('turn_id').primaryKey().$type<SqliteRow<'superagentPendingTurns'>['turnId']>(),
+    turnId: textC('turn_id').notNull().$type<SqliteRow<'superagentPendingTurns'>['turnId']>(),
     threadId: textC('thread_id').notNull().$type<SqliteRow<'superagentPendingTurns'>['threadId']>(),
     podiumSessionId: textC('podium_session_id')
       .notNull()
@@ -3308,10 +3494,12 @@ export const superagentPendingTurns = pgTable(
     onBehalfOf: textC('on_behalf_of').$type<SqliteRow<'superagentPendingTurns'>['onBehalfOf']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'superagentPendingTurns'>['workspaceId']>(),
   },
-  (table) => [unique('superagent_pending_turns_thread_id_unique').on(table.threadId)],
+  (table) => [
+    primaryKey({ name: 'superagent_pending_turns_pk', columns: [table.workspaceId, table.turnId] }),
+    unique('superagent_pending_turns_thread_id_unique').on(table.workspaceId, table.threadId),
+  ],
 )
 
 export const superagentQueuedInputs = pgTable(
@@ -3320,7 +3508,7 @@ export const superagentQueuedInputs = pgTable(
     ownerUserId: textC('owner_user_id')
       .notNull()
       .$type<SqliteRow<'superagentQueuedInputs'>['ownerUserId']>(),
-    inputId: textC('input_id').primaryKey().$type<SqliteRow<'superagentQueuedInputs'>['inputId']>(),
+    inputId: textC('input_id').notNull().$type<SqliteRow<'superagentQueuedInputs'>['inputId']>(),
     threadId: textC('thread_id').notNull().$type<SqliteRow<'superagentQueuedInputs'>['threadId']>(),
     text: textC('text').notNull().$type<SqliteRow<'superagentQueuedInputs'>['text']>(),
     focusJson: jsonText('focus_json').$type<SqliteRow<'superagentQueuedInputs'>['focusJson']>(),
@@ -3336,16 +3524,25 @@ export const superagentQueuedInputs = pgTable(
     onBehalfOf: textC('on_behalf_of').$type<SqliteRow<'superagentQueuedInputs'>['onBehalfOf']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'superagentQueuedInputs'>['workspaceId']>(),
   },
-  (table) => [index('idx_superagent_queued_thread_order').on(table.threadId, table.createdAt)],
+  (table) => [
+    primaryKey({
+      name: 'superagent_queued_inputs_pk',
+      columns: [table.workspaceId, table.inputId],
+    }),
+    index('idx_superagent_queued_thread_order').on(
+      table.workspaceId,
+      table.threadId,
+      table.createdAt,
+    ),
+  ],
 )
 
 export const superagentThreads = pgTable(
   'superagent_threads',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'superagentThreads'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'superagentThreads'>['id']>(),
     ownerUserId: textC('owner_user_id')
       .notNull()
       .$type<SqliteRow<'superagentThreads'>['ownerUserId']>(),
@@ -3392,12 +3589,17 @@ export const superagentThreads = pgTable(
     >(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'superagentThreads'>['workspaceId']>(),
   },
   (table) => [
-    index('idx_superagent_threads_owner').on(table.ownerUserId, table.archived, table.updatedAt),
-    index('idx_superagent_threads_running').on(table.turnRunning),
+    primaryKey({ name: 'superagent_threads_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_superagent_threads_owner').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.archived,
+      table.updatedAt,
+    ),
+    index('idx_superagent_threads_running').on(table.workspaceId, table.turnRunning),
   ],
 )
 
@@ -3408,26 +3610,37 @@ export const tabOrder = pgTable(
     worktree: textC('worktree').notNull().$type<SqliteRow<'tabOrder'>['worktree']>(),
     ids: jsonText('ids').notNull().$type<SqliteRow<'tabOrder'>['ids']>(),
     updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'tabOrder'>['updatedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'tabOrder'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'tabOrder'>['workspaceId']>(),
   },
-  (table) => [primaryKey({ name: 'tab_order_pk', columns: [table.userId, table.worktree] })],
+  (table) => [
+    primaryKey({
+      name: 'tab_order_pk',
+      columns: [table.workspaceId, table.userId, table.worktree],
+    }),
+  ],
 )
 
-export const telegramChatBindings = pgTable('telegram_chat_bindings', {
-  chatId: textC('chat_id').primaryKey().$type<SqliteRow<'telegramChatBindings'>['chatId']>(),
-  userId: textC('user_id').notNull().$type<SqliteRow<'telegramChatBindings'>['userId']>(),
-  boundAt: isoTimestamp('bound_at').notNull().$type<SqliteRow<'telegramChatBindings'>['boundAt']>(),
-  actorKind: textC('actor_kind').notNull().$type<SqliteRow<'telegramChatBindings'>['actorKind']>(),
-  actorId: textC('actor_id').$type<SqliteRow<'telegramChatBindings'>['actorId']>(),
-  onBehalfOf: textC('on_behalf_of').$type<SqliteRow<'telegramChatBindings'>['onBehalfOf']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'telegramChatBindings'>['workspaceId']>(),
-})
+export const telegramChatBindings = pgTable(
+  'telegram_chat_bindings',
+  {
+    chatId: textC('chat_id').notNull().$type<SqliteRow<'telegramChatBindings'>['chatId']>(),
+    userId: textC('user_id').notNull().$type<SqliteRow<'telegramChatBindings'>['userId']>(),
+    boundAt: isoTimestamp('bound_at')
+      .notNull()
+      .$type<SqliteRow<'telegramChatBindings'>['boundAt']>(),
+    actorKind: textC('actor_kind')
+      .notNull()
+      .$type<SqliteRow<'telegramChatBindings'>['actorKind']>(),
+    actorId: textC('actor_id').$type<SqliteRow<'telegramChatBindings'>['actorId']>(),
+    onBehalfOf: textC('on_behalf_of').$type<SqliteRow<'telegramChatBindings'>['onBehalfOf']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'telegramChatBindings'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'telegram_chat_bindings_pk', columns: [table.workspaceId, table.chatId] }),
+  ],
+)
 
 export const transcriptCosts = pgTable(
   'transcript_costs',
@@ -3470,27 +3683,37 @@ export const transcriptCosts = pgTable(
       .$type<SqliteRow<'transcriptCosts'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'transcriptCosts'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'transcript_costs_pk', columns: [table.machineId, table.nativeId] }),
-    index('idx_transcript_costs_issue').on(table.issueId),
-    index('idx_transcript_costs_session').on(table.sessionId),
+    primaryKey({
+      name: 'transcript_costs_pk',
+      columns: [table.workspaceId, table.machineId, table.nativeId],
+    }),
+    index('idx_transcript_costs_issue').on(table.workspaceId, table.issueId),
+    index('idx_transcript_costs_session').on(table.workspaceId, table.sessionId),
   ],
 )
 
-export const upstreamOutbox = pgTable('upstream_outbox', {
-  mutationId: textC('mutation_id').primaryKey().$type<SqliteRow<'upstreamOutbox'>['mutationId']>(),
-  proc: textC('proc').notNull().$type<SqliteRow<'upstreamOutbox'>['proc']>(),
-  input: textC('input').notNull().$type<SqliteRow<'upstreamOutbox'>['input']>(),
-  queuedAt: int8('queued_at').notNull().$type<SqliteRow<'upstreamOutbox'>['queuedAt']>(),
-  attempts: int8('attempts').notNull().default(0).$type<SqliteRow<'upstreamOutbox'>['attempts']>(),
-  workspaceId: textC('workspace_id')
-    .notNull()
-    .default(sql`'local'`)
-    .$type<SqliteRow<'upstreamOutbox'>['workspaceId']>(),
-})
+export const upstreamOutbox = pgTable(
+  'upstream_outbox',
+  {
+    mutationId: textC('mutation_id').notNull().$type<SqliteRow<'upstreamOutbox'>['mutationId']>(),
+    proc: textC('proc').notNull().$type<SqliteRow<'upstreamOutbox'>['proc']>(),
+    input: textC('input').notNull().$type<SqliteRow<'upstreamOutbox'>['input']>(),
+    queuedAt: int8('queued_at').notNull().$type<SqliteRow<'upstreamOutbox'>['queuedAt']>(),
+    attempts: int8('attempts')
+      .notNull()
+      .default(0)
+      .$type<SqliteRow<'upstreamOutbox'>['attempts']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'upstreamOutbox'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'upstream_outbox_pk', columns: [table.workspaceId, table.mutationId] }),
+  ],
+)
 
 export const userDockShell = pgTable(
   'user_dock_shell',
@@ -3501,15 +3724,15 @@ export const userDockShell = pgTable(
     updatedAt: isoTimestamp('updated_at')
       .notNull()
       .$type<SqliteRow<'userDockShell'>['updatedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'userDockShell'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'userDockShell'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'user_dock_shell_pk', columns: [table.userId, table.worktreeKey] }),
-    index('idx_user_dock_shell_session').on(table.sessionId),
-    index('idx_user_dock_shell_worktree').on(table.worktreeKey),
+    primaryKey({
+      name: 'user_dock_shell_pk',
+      columns: [table.workspaceId, table.userId, table.worktreeKey],
+    }),
+    index('idx_user_dock_shell_session').on(table.workspaceId, table.sessionId),
+    index('idx_user_dock_shell_worktree').on(table.workspaceId, table.worktreeKey),
   ],
 )
 
@@ -3520,12 +3743,11 @@ export const userLayout = pgTable(
     key: textC('key').notNull().$type<SqliteRow<'userLayout'>['key']>(),
     value: textC('value').notNull().$type<SqliteRow<'userLayout'>['value']>(),
     updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'userLayout'>['updatedAt']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'userLayout'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'userLayout'>['workspaceId']>(),
   },
-  (table) => [primaryKey({ name: 'user_layout_pk', columns: [table.userId, table.key] })],
+  (table) => [
+    primaryKey({ name: 'user_layout_pk', columns: [table.workspaceId, table.userId, table.key] }),
+  ],
 )
 
 export const userPreferences = pgTable(
@@ -3539,10 +3761,14 @@ export const userPreferences = pgTable(
       .$type<SqliteRow<'userPreferences'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'userPreferences'>['workspaceId']>(),
   },
-  (table) => [primaryKey({ name: 'user_preferences_pk', columns: [table.userId, table.key] })],
+  (table) => [
+    primaryKey({
+      name: 'user_preferences_pk',
+      columns: [table.workspaceId, table.userId, table.key],
+    }),
+  ],
 )
 
 export const userReadPosition = pgTable(
@@ -3559,18 +3785,20 @@ export const userReadPosition = pgTable(
       .$type<SqliteRow<'userReadPosition'>['updatedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'userReadPosition'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'user_read_position_pk', columns: [table.userId, table.streamId] }),
+    primaryKey({
+      name: 'user_read_position_pk',
+      columns: [table.workspaceId, table.userId, table.streamId],
+    }),
   ],
 )
 
 export const users = pgTable(
   'users',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'users'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'users'>['id']>(),
     displayName: textC('display_name').notNull().$type<SqliteRow<'users'>['displayName']>(),
     email: textC('email').$type<SqliteRow<'users'>['email']>(),
     cloudAccountId: textC('account_id').$type<SqliteRow<'users'>['cloudAccountId']>(),
@@ -3587,14 +3815,12 @@ export const users = pgTable(
       .notNull()
       .default(0)
       .$type<SqliteRow<'users'>['membershipVersion']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'users'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'users'>['workspaceId']>(),
   },
   (table) => [
-    uniqueIndex('users_email_unique').on(sql`lower("email")`),
-    uniqueIndex('users_account_id_unique').on(table.cloudAccountId),
+    primaryKey({ name: 'users_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('users_email_unique').on(table.workspaceId, sql`lower("email")`),
+    uniqueIndex('users_account_id_unique').on(table.workspaceId, table.cloudAccountId),
   ],
 )
 
@@ -3616,15 +3842,17 @@ export const workflowBindings = pgTable(
       .$type<SqliteRow<'workflowBindings'>['ownerUserId']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'workflowBindings'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'workflow_bindings_pk', columns: [table.targetKind, table.targetId] }),
+    primaryKey({
+      name: 'workflow_bindings_pk',
+      columns: [table.workspaceId, table.targetKind, table.targetId],
+    }),
     foreignKey({
-      name: 'workflow_bindings_revision_id_workflow_revisions_id_fk',
-      columns: [table.revisionId],
-      foreignColumns: [workflowRevisions.id],
+      name: 'fk_workflow_bindings_revision_id_workflow_revisions_id_fk',
+      columns: [table.workspaceId, table.revisionId],
+      foreignColumns: [workflowRevisions.workspaceId, workflowRevisions.id],
     }).onDelete('restrict'),
     check(
       'workflow_bindings_check_13',
@@ -3656,12 +3884,12 @@ export const workflowEvents = pgTable(
       .$type<SqliteRow<'workflowEvents'>['createdAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'workflowEvents'>['workspaceId']>(),
   },
   (table) => [
-    index('workflow_events_run').on(table.runId, table.id),
-    index('workflow_events_workflow').on(table.workflowId, table.id),
+    unique('workflow_events_workspace_id_id_unique').on(table.workspaceId, table.id),
+    index('workflow_events_run').on(table.workspaceId, table.runId, table.id),
+    index('workflow_events_workflow').on(table.workspaceId, table.workflowId, table.id),
     check('workflow_events_check_19', sql`actor_kind IN ('operator', 'session')`),
   ],
 )
@@ -3669,7 +3897,7 @@ export const workflowEvents = pgTable(
 export const workflowRevisions = pgTable(
   'workflow_revisions',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'workflowRevisions'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'workflowRevisions'>['id']>(),
     workflowId: textC('workflow_id')
       .notNull()
       .$type<SqliteRow<'workflowRevisions'>['workflowId']>(),
@@ -3692,16 +3920,20 @@ export const workflowRevisions = pgTable(
       isoTimestamp('published_at').$type<SqliteRow<'workflowRevisions'>['publishedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'workflowRevisions'>['workspaceId']>(),
   },
   (table) => [
-    unique('workflow_revisions_workflow_id_version_unique').on(table.workflowId, table.version),
-    index('workflow_revisions_workflow').on(table.workflowId, table.version),
+    primaryKey({ name: 'workflow_revisions_pk', columns: [table.workspaceId, table.id] }),
+    unique('workflow_revisions_workspace_id_workflow_id_version_unique').on(
+      table.workspaceId,
+      table.workflowId,
+      table.version,
+    ),
+    index('workflow_revisions_workflow').on(table.workspaceId, table.workflowId, table.version),
     foreignKey({
-      name: 'workflow_revisions_workflow_id_workflows_id_fk',
-      columns: [table.workflowId],
-      foreignColumns: [workflows.id],
+      name: 'fk_workflow_revisions_workflow_id_workflows_id_fk',
+      columns: [table.workspaceId, table.workflowId],
+      foreignColumns: [workflows.workspaceId, workflows.id],
     }).onDelete('cascade'),
     check('workflow_revisions_check_11', sql`version > 0`),
     check('workflow_revisions_check_12', sql`created_by_kind IN ('operator', 'session')`),
@@ -3749,17 +3981,27 @@ export const workflowRunSteps = pgTable(
     completedAt: isoTimestamp('completed_at').$type<SqliteRow<'workflowRunSteps'>['completedAt']>(),
     workspaceId: textC('workspace_id')
       .notNull()
-      .default(sql`'local'`)
       .$type<SqliteRow<'workflowRunSteps'>['workspaceId']>(),
   },
   (table) => [
-    primaryKey({ name: 'workflow_run_steps_pk', columns: [table.runId, table.stepId] }),
-    unique('workflow_run_steps_run_id_position_unique').on(table.runId, table.position),
-    index('workflow_run_steps_assignee').on(table.assignedSessionId, table.status),
+    primaryKey({
+      name: 'workflow_run_steps_pk',
+      columns: [table.workspaceId, table.runId, table.stepId],
+    }),
+    unique('workflow_run_steps_workspace_id_run_id_position_unique').on(
+      table.workspaceId,
+      table.runId,
+      table.position,
+    ),
+    index('workflow_run_steps_assignee').on(
+      table.workspaceId,
+      table.assignedSessionId,
+      table.status,
+    ),
     foreignKey({
-      name: 'workflow_run_steps_run_id_workflow_runs_id_fk',
-      columns: [table.runId],
-      foreignColumns: [workflowRuns.id],
+      name: 'fk_workflow_run_steps_run_id_workflow_runs_id_fk',
+      columns: [table.workspaceId, table.runId],
+      foreignColumns: [workflowRuns.workspaceId, workflowRuns.id],
     }).onDelete('cascade'),
     check('workflow_run_steps_check_16', sql`position >= 0`),
     check(
@@ -3773,7 +4015,7 @@ export const workflowRunSteps = pgTable(
 export const workflowRuns = pgTable(
   'workflow_runs',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'workflowRuns'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'workflowRuns'>['id']>(),
     subjectKind: textC('subject_kind').notNull().$type<SqliteRow<'workflowRuns'>['subjectKind']>(),
     subjectId: textC('subject_id').notNull().$type<SqliteRow<'workflowRuns'>['subjectId']>(),
     coordinatorSessionId: textC('coordinator_session_id')
@@ -3786,29 +4028,36 @@ export const workflowRuns = pgTable(
     startedAt: isoTimestamp('started_at').notNull().$type<SqliteRow<'workflowRuns'>['startedAt']>(),
     completedAt: isoTimestamp('completed_at').$type<SqliteRow<'workflowRuns'>['completedAt']>(),
     ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'workflowRuns'>['ownerUserId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'workflowRuns'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'workflowRuns'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'workflow_runs_pk', columns: [table.workspaceId, table.id] }),
     uniqueIndex('workflow_runs_one_live_subject')
-      .on(table.subjectKind, table.subjectId)
+      .on(table.workspaceId, table.subjectKind, table.subjectId)
       .where(sql`"status" IN ('active', 'blocked')`),
-    index('workflow_runs_coordinator').on(table.coordinatorSessionId, sql`"started_at" desc`),
-    index('workflow_runs_status').on(table.status, table.startedAt),
-    index('workflow_runs_subject').on(table.subjectKind, table.subjectId, table.startedAt),
-    index('workflow_runs_started').on(table.startedAt, table.id),
+    index('workflow_runs_coordinator').on(
+      table.workspaceId,
+      table.coordinatorSessionId,
+      sql`"started_at" desc`,
+    ),
+    index('workflow_runs_status').on(table.workspaceId, table.status, table.startedAt),
+    index('workflow_runs_subject').on(
+      table.workspaceId,
+      table.subjectKind,
+      table.subjectId,
+      table.startedAt,
+    ),
+    index('workflow_runs_started').on(table.workspaceId, table.startedAt, table.id),
     foreignKey({
-      name: 'workflow_runs_revision_id_workflow_revisions_id_fk',
-      columns: [table.revisionId],
-      foreignColumns: [workflowRevisions.id],
+      name: 'fk_workflow_runs_revision_id_workflow_revisions_id_fk',
+      columns: [table.workspaceId, table.revisionId],
+      foreignColumns: [workflowRevisions.workspaceId, workflowRevisions.id],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'workflow_runs_supersedes_run_id_workflow_runs_id_fk',
-      columns: [table.supersedesRunId],
-      foreignColumns: [table.id],
-    }).onDelete('set null'),
+      name: 'fk_workflow_runs_supersedes_run_id_workflow_runs_id_fk',
+      columns: [table.workspaceId, table.supersedesRunId],
+      foreignColumns: [table.workspaceId, table.id],
+    }),
     check('workflow_runs_check_23', sql`subject_kind IN ('issue', 'session')`),
     check('workflow_runs_check_24', sql`status IN ('active', 'blocked', 'complete', 'superseded')`),
   ],
@@ -3817,7 +4066,7 @@ export const workflowRuns = pgTable(
 export const workflows = pgTable(
   'workflows',
   {
-    id: textC('id').primaryKey().$type<SqliteRow<'workflows'>['id']>(),
+    id: textC('id').notNull().$type<SqliteRow<'workflows'>['id']>(),
     name: textC('name').notNull().$type<SqliteRow<'workflows'>['name']>(),
     description: textC('description')
       .notNull()
@@ -3835,14 +4084,12 @@ export const workflows = pgTable(
     createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'workflows'>['createdAt']>(),
     updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'workflows'>['updatedAt']>(),
     ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'workflows'>['ownerUserId']>(),
-    workspaceId: textC('workspace_id')
-      .notNull()
-      .default(sql`'local'`)
-      .$type<SqliteRow<'workflows'>['workspaceId']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'workflows'>['workspaceId']>(),
   },
   (table) => [
+    primaryKey({ name: 'workflows_pk', columns: [table.workspaceId, table.id] }),
     uniqueIndex('workflows_scope_name_active')
-      .on(table.scope, sql`COALESCE("scope_ref", '')`, table.name)
+      .on(table.workspaceId, table.scope, sql`COALESCE("scope_ref", '')`, table.name)
       .where(sql`"archived_at" IS NULL`),
     check('workflows_check_21', sql`scope IN ('global', 'repository', 'task')`),
     check('workflows_check_22', sql`created_by_kind IN ('operator', 'session')`),

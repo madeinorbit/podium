@@ -116,7 +116,7 @@ const todoSave = prepared((db, t) =>
         done: sql.placeholder('done'),
       })
       .onConflictDoUpdate({
-        target: t.issuePanelTodos.id,
+        target: [t.issuePanelTodos.workspaceId, t.issuePanelTodos.id],
         set: { text: sql`excluded.text`, done: sql`excluded.done` },
       }),
   ).prepare(),
@@ -216,7 +216,7 @@ const artifactSave = prepared((db, t) =>
         value: sql.placeholder('value'),
       })
       .onConflictDoUpdate({
-        target: t.issuePanelArtifacts.id,
+        target: [t.issuePanelArtifacts.workspaceId, t.issuePanelArtifacts.id],
         set: { path: sql`excluded.path`, value: sql`excluded.value` },
       }),
   ).prepare(),
@@ -316,7 +316,7 @@ const deferredSave = prepared((db, t) =>
         addedAt: sql.placeholder('addedAt'),
       })
       .onConflictDoUpdate({
-        target: t.issuePanelDeferred.id,
+        target: [t.issuePanelDeferred.workspaceId, t.issuePanelDeferred.id],
         set: { text: sql`excluded.text`, addedAt: sql`excluded.added_at` },
       }),
   ).prepare(),
@@ -379,7 +379,7 @@ const stateSave = prepared((db, t) =>
         updatedAt: sql.placeholder('updatedAt'),
       })
       .onConflictDoUpdate({
-        target: t.issuePanelStates.id,
+        target: [t.issuePanelStates.workspaceId, t.issuePanelStates.id],
         set: { text: sql`excluded.text`, updatedAt: sql`excluded.updated_at` },
       }),
   ).prepare(),

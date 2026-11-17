@@ -14,7 +14,6 @@
 import {
   appliedMutations,
   changes,
-  feedIdentity,
   syncCapture,
   syncCaptureGuard,
   syncFeed,
@@ -25,7 +24,6 @@ import {
 export const sqliteSyncTables = Object.freeze({
   appliedMutations,
   changes,
-  feedIdentity,
   syncCapture,
   syncCaptureGuard,
   syncFeed,

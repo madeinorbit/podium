@@ -457,9 +457,9 @@ export async function reachMethodDefinitions(
   const now = new Date().toISOString()
   database
     .prepare(
-      'INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(machineId, 'audit', 'audit', 'audit-token-hash', now, now)
+    .run(target.workspaceId, machineId, 'audit', 'audit', 'audit-token-hash', now, now)
   const auditIssue = (over: Parameters<typeof issueRowFixture>[0]) =>
     issueRowFixture({
       machineId,
@@ -515,8 +515,10 @@ export async function reachMethodDefinitions(
   await attempt(() => target.repos.setRepoPrefix(machineId, '/audit/two', 'AUDB'))
   // A row stored with a trailing slash: `updateRepoOrigin` renames it to the normalized path.
   database
-    .prepare('INSERT OR IGNORE INTO repos (machine_id, path, added_at) VALUES (?, ?, ?)')
-    .run(machineId, '/audit/three/', new Date().toISOString())
+    .prepare(
+      'INSERT OR IGNORE INTO repos (workspace_id, machine_id, path, added_at) VALUES (?, ?, ?, ?)',
+    )
+    .run(target.workspaceId, machineId, '/audit/three/', new Date().toISOString())
   await attempt(() =>
     target.repos.updateRepoOrigin(machineId, '/audit/three', 'https://example.invalid/three.git'),
   )

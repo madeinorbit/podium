@@ -273,7 +273,8 @@ describe('the drop-legacy-message-status migration', () => {
     const db = legacyDatabase()
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     const prepare = vi.spyOn(db, 'prepare')
-    const due = await new MessageExpiryReader(db).read({
+    // The janitor reads one workspace's messages (POD-7020); every index leads with it (POD-7024).
+    const due = await new MessageExpiryReader(db, 'local').read({
       now: '2026-07-21T00:00:00.000Z',
       waitImplicitCutoff: '2026-07-31T00:00:00.000Z',
       limit: 100,
@@ -281,12 +282,19 @@ describe('the drop-legacy-message-status migration', () => {
     // Only the row the server still holds is a candidate; the rest were handed
     // on or ended, so they cannot expire.
     expect(due.map((row) => row.messageId)).toEqual(['held'])
-    const plan = (sql: string) =>
-      (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
-        .map((row) => row.detail)
-        .join('\n')
     const scans = prepare.mock.calls.map(([sql]) => sql).filter((sql) => /FROM messages/.test(sql))
     expect(scans).toHaveLength(2)
+    const plan = (sql: string) =>
+      (
+        db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .all(
+            'local',
+            ...Array.from({ length: (sql.match(/\?/g) ?? []).length - 1 }, () => null),
+          ) as Array<{ detail: string }>
+      )
+        .map((row) => row.detail)
+        .join('\n')
     expect(scans.map(plan).join('\n')).toMatch(
       /SEARCH messages USING (COVERING )?INDEX idx_messages_delivery_expiry_implicit/,
     )

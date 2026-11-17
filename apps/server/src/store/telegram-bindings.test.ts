@@ -49,7 +49,9 @@ const binding = (
 })
 
 /** Insert a row with exactly these columns, through the run's engine. */
-const insertRow = async (cols: Record<string, string | null>): Promise<void> => {
+const insertRow = async (input: Record<string, string | null>): Promise<void> => {
+  // The workspace has no default since the keys migration (POD-7024).
+  const cols: Record<string, string | null> = { workspace_id: 'local', ...input }
   const keys = Object.keys(cols)
   await slice.run(
     sql`INSERT INTO telegram_chat_bindings (${sql.join(

@@ -57,38 +57,26 @@
  */
 
 import type { MutationId, WorkspaceId } from '@podium/model'
-import { sql } from 'drizzle-orm'
-import {
-  check,
-  foreignKey,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from 'drizzle-orm/sqlite-core'
+import { foreignKey, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
- * THE WORKSPACE COLUMN (POD-6959 design 2.6 "U3", task POD-7012).
+ * THE WORKSPACE COLUMN (POD-6959 design 2.2 and 2.6, tasks POD-7012 and POD-7024).
  *
  * Every table the workspace manifest (`apps/server/src/store/workspace-manifest.ts`)
  * classes `workspace` spreads this into its columns, here and in the server's
- * schema, so the column is declared once. The migration that added it is an
- * `ALTER TABLE … ADD COLUMN` on each table: a metadata change, no table rebuild,
- * and every existing row reads `'local'`, the one workspace of a self-hosted
- * install.
+ * schema, so the column is declared once. Every key, unique constraint and index
+ * of such a table leads with it, and a foreign key between two of them is
+ * composite (`migrations/branded-ref.ts`, `workspaceRef`).
  *
- * THE DEFAULT IS TEMPORARY. While queries are scoped repository group by
- * repository group, an insert that does not name the workspace still gets
- * `'local'`. The keys migration (POD-7024) rebuilds every workspace table with
- * keys that lead with `workspace_id` and no default. It is spread LAST so the
- * declared column order matches the physical one ADD COLUMN produces.
- *
- * `$type<>()` goes after the literal default, as in the server schema: the
- * default is a database literal, not a `WorkspaceId`.
+ * NO DEFAULT. The column migration (POD-7012) added it with `DEFAULT 'local'` so
+ * the queries could be scoped repository group by repository group; the keys
+ * migration (POD-7024) rebuilt every workspace table without the default. An
+ * insert that does not name its workspace now fails instead of landing in the
+ * self-hosted one. It is spread LAST, so the declared column order stays the
+ * physical one the column migration's ADD COLUMN produced.
  */
 export const workspaceColumn = () => ({
-  workspaceId: text('workspace_id').notNull().default('local').$type<WorkspaceId>(),
+  workspaceId: text('workspace_id').notNull().$type<WorkspaceId>(),
 })
 
 /** The feed row assigns seqs transactionally; pruning never resets its head. */
@@ -155,46 +143,9 @@ export const changes = sqliteTable(
  * replays as a fresh command — and the covered procedures include `sendText`,
  * where a replay types into a live agent's terminal twice.
  */
-/**
- * FEED IDENTITY — `(feedId, epoch)`, persisted ALONGSIDE the log (ADR 2 D1).
- *
- * "Alongside the log" is the load-bearing phrase and the reason this table lives
- * here rather than in a config file or an env var. D1's whole argument is about
- * BACKUP RESTORE: the epoch must travel with the data it describes, so that
- * restoring `podium.db` restores the epoch that was true of those seqs. An epoch
- * kept anywhere else would survive a restore unchanged while the seqs underneath
- * it rolled back — a feed whose identity says "same generation" over content that
- * is a different timeline, which is worse than no epoch because it LOOKS checked.
- *
- * ONE ROW, pinned by a constant primary key rather than by convention. A `singleton`
- * column with a CHECK-shaped default is how "there is exactly one feed identity"
- * becomes a property of the schema instead of a rule every writer must remember;
- * a second row here would mean two answers to "which generation is this?", and
- * whichever one a query happened to return would be the one clients trusted.
- *
- * NOT NULL on both columns: an identity with a missing epoch is the fails-open
- * value the kernel's `assertOpaqueEpoch` exists to refuse, and letting NULL into
- * the column would put that value one `?? ''` away from being published.
- *
- * D1's hard part, restated so nobody looks for the hook: THERE IS NO RESTORE CODE
- * PATH. A restore is an operator copying a file, so nothing runs and nothing can
- * bump the epoch automatically. This table makes the epoch RESTORABLE and
- * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
- * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
- */
-// LEGACY(remove-after: 2027-02): retained singleton table for a later contract migration; live identity is in sync_feed.
-export const feedIdentity = sqliteTable(
-  'feed_identity',
-  {
-    /** Always 1. The schema's way of saying "there is exactly one of these". */
-    singleton: integer().primaryKey(),
-    feedId: text('feed_id').notNull(),
-    epoch: text().notNull(),
-    /** When this generation began. Diagnostics only — never compared, never ordered. */
-    mintedAt: integer('minted_at').notNull(),
-  },
-  (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
-)
+// FEED IDENTITY. The legacy `feed_identity` singleton (ADR 2 D1) was dropped by the keys
+// migration (POD-7024, design 2.1): a workspace's feed id and epoch live in its `sync_feed`
+// row, which travels with the log exactly as D1 requires.
 
 /**
  * The identity and cursor bounds travel with each workspace's durable log; the
@@ -202,15 +153,23 @@ export const feedIdentity = sqliteTable(
  * `tenant_id` was renamed `workspace_id` in place (POD-7012): ADR 13's tenant
  * is the workspace, and one name means one thing.
  */
-export const syncFeed = sqliteTable('sync_feed', {
-  workspaceId: text('workspace_id').$type<WorkspaceId>().primaryKey(),
-  feedId: text('feed_id').notNull(),
-  epoch: text().notNull(),
-  mintedAt: integer('minted_at').notNull(),
-  headSeq: integer('head_seq').notNull(),
-  /** Oldest retained seq; head + 1 when empty. Cursor + 1 must reach it. */
-  floorSeq: integer('floor_seq').notNull(),
-})
+export const syncFeed = sqliteTable(
+  'sync_feed',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    feedId: text('feed_id').notNull(),
+    epoch: text().notNull(),
+    mintedAt: integer('minted_at').notNull(),
+    headSeq: integer('head_seq').notNull(),
+    /** Oldest retained seq; head + 1 when empty. Cursor + 1 must reach it. */
+    floorSeq: integer('floor_seq').notNull(),
+  },
+  // NOT NULL since the keys migration (POD-7024, POD-7012's finding): a text primary key alone
+  // lets SQLite store NULL, and a feed row with no workspace would be no workspace's
+  // provisioning record. Declared at table level because drizzle-kit drops NOT NULL from a
+  // column-level primary key.
+  (table) => [primaryKey({ columns: [table.workspaceId], name: 'sync_feed_pk' })],
+)
 
 /** Absent kinds are at generation zero within their workspace. */
 export const syncKind = sqliteTable(
@@ -272,15 +231,18 @@ export const syncCapture = sqliteTable(
 export const appliedMutations = sqliteTable(
   'applied_mutations',
   {
-    mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
+    mutationId: text('mutation_id').$type<MutationId>().notNull(),
     proc: text().notNull(),
     result: text().notNull(),
     appliedAt: integer('applied_at').notNull(),
     ...workspaceColumn(),
   },
   (table) => [
+    // Mutation ids come from clients, so the dedupe is per workspace (design 2.7): a global key
+    // would let one workspace make another's mutation look applied (POD-7021).
+    primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'applied_mutations_pk' }),
     /**
-     * The retention sweep's ONLY predicate (POD-1638).
+     * The retention sweep's ONLY predicate (POD-1638), within its workspace.
      *
      * `pruneAppliedMutations` deletes by `applied_at < cutoff`, and without this
      * index that is a full table scan — which is not a 7585-row scan but a scan
@@ -291,6 +253,6 @@ export const appliedMutations = sqliteTable(
      * cutoff range, so the steady-state "nothing to prune" case touches no rows
      * at all.
      */
-    index('idx_applied_mutations_applied_at').on(table.appliedAt),
+    index('idx_applied_mutations_applied_at').on(table.workspaceId, table.appliedAt),
   ],
 )
