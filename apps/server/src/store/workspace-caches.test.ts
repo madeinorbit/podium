@@ -13,19 +13,19 @@
  *   | read-scope slots                       | per owner (repository or source object)        |
  *   | committed-row and table-write listeners| per repository instance (see FINDINGS)         |
  *   | machine enrolment transitions          | keyed by host object                           |
- *   | perf principal digests                 | (workspace, principal): NOT YET (see FINDINGS) |
+ *   | perf principal digests                 | (workspace, principal)                         |
  *   | update coordinator maps                | install-level, by update id                    |
  *   | kind schemas                           | code; the generations are per workspace        |
  *
- * FINDINGS, both reported to the coordinator:
+ * FINDINGS, reported to the coordinator:
  *   - The table-write announcer (`store/table-writes.ts`) is the DATABASE's, not a repository's:
  *     a write in one workspace announces to every workspace's listeners. It carries no payload
  *     and a listener may only drop what it holds, so nothing crosses; the cost is that another
  *     workspace re-reads. The case below proves the re-read answers its own rows.
- *   - Perf principal digests (`modules/perf/principal.ts`) are keyed by the principal alone. The
- *     memo is a pure hash, so it hands no workspace another's data, but the same member id in
- *     two workspaces lands in one perf partition. The design keys it by (workspace, principal);
- *     the case below is `it.fails` until that lands.
+ *   - Perf principal digests (`modules/perf/principal.ts`) were keyed by the principal alone, so
+ *     the same member id in two workspaces landed in one partition of the process's perf
+ *     registry. Settled by POD-7105: the digest hashes (workspace, principal), and every
+ *     recording site names the workspace its graph serves (the store, the connection, the job).
  *
  * CACHES THE TABLE DOES NOT LIST (a sweep of `apps/server/src` and `packages/sync/src` for
  * module-level maps and cache, memo and snapshot fields), also reported:
@@ -36,10 +36,9 @@
  *     epoch, from `sync_feed`. Workspace data, one registry per relay over its store's sync
  *     repository; the feed identity case below holds it.
  *   - `GreenPrefixCache` (`modules/shipping/queue.ts`), a field of `ShippingService`: green
- *     train prefixes, keyed by repo, target, destination and prefix id but not the workspace.
- *     Per workspace by construction (one shipping service per workspace's graph); if POD-6961
- *     shares one graph across workspaces, its key needs the workspace. Not tested here: an
- *     instance per service holds nothing another instance can see.
+ *     train prefixes. Per workspace by construction (one shipping service per workspace's
+ *     graph), and since POD-7105 also keyed by the workspace (its validation scope leads with
+ *     it), so a cache shared across workspaces stays correct too; the case below holds it.
  *   - `PictureCache` (`modules/sessions/picture-cache.ts`): one per terminal, filled from the
  *     daemon's output stream, not from a table. No workspace key to get wrong.
  *   - Code-derived, holding no rows: `sync/capture-pg.ts` (`tableCache`, `sourceCache`,
@@ -64,6 +63,8 @@ import { type MachineRowSource, ownershipFromMachinesPerPass } from '../machine-
 import { ModelCatalog } from '../model-catalog'
 import { type EnrollmentHost, withMachineTransition } from '../modules/machines/enrollment'
 import { perfPrincipal } from '../modules/perf/principal'
+import { PerfRegistry } from '../modules/perf/registry'
+import { GreenPrefixCache, isolateShippingTrain } from '../modules/shipping/queue'
 import type { SessionStore } from '../store'
 import { kindGenerationBump } from '../sync/kind-tokens'
 import * as issueSeed from '../test-support/workspace-seeds/issues'
@@ -408,20 +409,86 @@ describe('the cache table of design 2.8, each row with the same key in both work
     expect(order).toEqual(['a start', 'b', 'a end', 'a2'])
   })
 
-  it.fails('perf principal digests are keyed by (workspace, principal) (design 2.8; not yet: a finding)', () => {
-    // perfPrincipal takes no workspace: the same member id in two workspaces is one digest.
-    // This fails until the digest names the workspace; then drop `.fails`.
-    const inA = perfPrincipal({ kind: 'user', user: ALICE } as never)
-    const inB = perfPrincipal({ kind: 'user', user: ALICE } as never)
+  it('perf principal digests are keyed by (workspace, principal): one member id in two workspaces is two partitions', () => {
+    const alice = { kind: 'user', user: ALICE } as never
+    // Each workspace's sites name the workspace their graph serves: its store's.
+    const inA = perfPrincipal(stores.a.workspaceId, alice)
+    const inB = perfPrincipal(stores.b.workspaceId, alice)
+    expect(stores.a.workspaceId).not.toBe(stores.b.workspaceId)
     expect(inA.digest).not.toBe(inB.digest)
+    // The process's one registry keeps them apart, and its report lists both.
+    const registry = new PerfRegistry()
+    registry.record('rpc', 'issues.list', 5, inA)
+    registry.record('rpc', 'issues.list', 7, inB)
+    registry.record('rpc', 'issues.list', 9, inB)
+    expect(registry.snapshotFor(inA)?.rpc['issues.list']?.count).toBe(1)
+    expect(registry.snapshotFor(inB)?.rpc['issues.list']?.count).toBe(2)
+    expect(Object.keys(registry.snapshot().byPrincipal).sort()).toEqual(
+      [inA.digest, inB.digest].sort(),
+    )
   })
 
-  it('perf principal digests hold no workspace data: the memo is a pure hash of the principal', () => {
-    const first = perfPrincipal({ kind: 'user', user: ALICE } as never)
-    const again = perfPrincipal({ kind: 'user', user: ALICE } as never)
-    const other = perfPrincipal({ kind: 'user', user: asUserId('user:bob') } as never)
+  it('perf principal digests hold no workspace data: the memo is a pure hash of (workspace, principal)', () => {
+    const first = perfPrincipal(stores.a.workspaceId, { kind: 'user', user: ALICE } as never)
+    const again = perfPrincipal(stores.a.workspaceId, { kind: 'user', user: ALICE } as never)
+    const other = perfPrincipal(stores.a.workspaceId, {
+      kind: 'user',
+      user: asUserId('user:bob'),
+    } as never)
     expect(again).toEqual(first)
     expect(other.digest).not.toBe(first.digest)
+    expect(first.digest).not.toContain(stores.a.workspaceId)
+  })
+
+  it('the green-prefix cache (not in the table) is keyed by workspace: the same repo, target, destination and prefix id', async () => {
+    const shipOrder = {
+      id: 'order-1',
+      repoId: 'repo-1',
+      targetBranch: 'main',
+      destination: 'local:main',
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      deliveryDependsOn: [],
+    } as never
+    const scopeIn = (tag: Tag) => ({
+      workspaceId: stores[tag].workspaceId,
+      repoId: 'repo-1' as never,
+      targetBranch: 'main',
+      targetSha: 'base',
+      destination: 'local:main',
+      provider: null,
+      validationProfile: { id: 'podium-agent' },
+      repair: null,
+      members: [
+        {
+          orderId: 'order-1' as never,
+          attemptId: 'attempt-1',
+          generation: 1,
+          approvedHeadSha: 'head',
+        },
+      ],
+    })
+    // One cache for both, as if one shipping service served both workspaces.
+    const cache = new GreenPrefixCache()
+    const validated: Tag[] = []
+    const run = async (tag: Tag) =>
+      await isolateShippingTrain(
+        [shipOrder],
+        async () => {
+          validated.push(tag)
+          return { passed: true }
+        },
+        cache,
+        scopeIn(tag),
+      )
+    await run('a')
+    // A's green does not stand for B's identical prefix: B validates its own.
+    await run('b')
+    expect(validated).toEqual(['a', 'b'])
+    // And each workspace's green is held for it.
+    await run('a')
+    await run('b')
+    expect(validated).toEqual(['a', 'b'])
   })
 
   it('update coordinator state is the install’s: both workspaces read and write the one checkpoint', async () => {

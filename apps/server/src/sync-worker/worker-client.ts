@@ -1,3 +1,4 @@
+import type { WorkspaceId } from '@podium/model'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import type { BootstrapMetrics, SyncFailureReason } from './types'
@@ -13,6 +14,7 @@ import {
   type BootstrapJob,
   type DeltaJob,
   type FromWorker,
+  jobWorkspaceId,
   SYNC_JOB_DEADLINE_MS,
   type SyncJob,
   type SyncMetaSummary,
@@ -25,6 +27,8 @@ export { SyncWorkerError } from './types'
 
 interface Pending {
   principal: BootstrapJob['principal']
+  /** The job's workspace: its perf partition is keyed by it with the principal. */
+  workspaceId: WorkspaceId
   controller: ReadableStreamDefaultController<Uint8Array>
   resolve(meta: SyncMetaSummary): void
   reject(error: Error): void
@@ -128,7 +132,7 @@ export class SyncWorkerClient {
         const job = this.jobs.get(message.transferId)
         if (!job) return
         if (message.type === 'metrics') {
-          const attribution = perfPrincipal(job.principal)
+          const attribution = perfPrincipal(job.workspaceId, job.principal)
           for (const [name, value] of Object.entries(message.metrics.phases))
             perf.record('phase', `syncBootstrap.${name}`, value.ms, attribution, value.bytes)
           this.options.onMetrics?.(message.metrics)
@@ -263,6 +267,7 @@ export class SyncWorkerClient {
           timer.unref()
           this.jobs.set(job.transferId, {
             principal: job.principal,
+            workspaceId: jobWorkspaceId(job),
             controller,
             resolve,
             reject,

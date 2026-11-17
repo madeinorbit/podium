@@ -167,7 +167,7 @@ export class SessionClientControl {
             ? 'terminal.output.capability.binary'
             : 'terminal.output.capability.base64',
           0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         // The client's self-description, kept so an operator can address this
         perf.record(
@@ -176,7 +176,7 @@ export class SessionClientControl {
             ? 'terminal.input.client.capability.binary'
             : 'terminal.input.client.capability.base64',
           0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         // connection by the same role/machine it files its log records under
         // (POD-1920). Stored, never consulted for authorization.
@@ -224,7 +224,7 @@ export class SessionClientControl {
           'phase',
           'ws.attach',
           performance.now() - startedAt,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         break
       }
@@ -246,7 +246,7 @@ export class SessionClientControl {
           'phase',
           'ws.detach',
           performance.now() - startedAt,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         break
       }

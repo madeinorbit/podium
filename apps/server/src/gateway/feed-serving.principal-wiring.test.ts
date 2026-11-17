@@ -68,6 +68,7 @@ import {
 } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
@@ -131,6 +132,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
     },
   }
   const mux = new ClientMux({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     syncKindTokens: async () => ({ session: 'shape:0' }),
     registry,
     ports,

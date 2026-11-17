@@ -2,9 +2,11 @@ import {
   asMachineId,
   asRepoId,
   asShipOrderId,
+  asWorkspaceId,
   type DeliveryReceipt,
   firstAdminMemberId,
   type ShipOrder,
+  type WorkspaceId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { scheduledShippingProjection, shipLaneInput } from './projection'
@@ -65,7 +67,11 @@ const receipt = (item: ShipOrder, completedAt: string): DeliveryReceipt => ({
   completedAt,
 })
 
-const cacheScope = (orders: readonly ShipOrder[]) => ({
+const WS_A = asWorkspaceId('ws_a')
+const WS_B = asWorkspaceId('ws_b')
+
+const cacheScope = (orders: readonly ShipOrder[], workspaceId: WorkspaceId = WS_A) => ({
+  workspaceId,
   repoId: orders[0]!.repoId,
   targetBranch: orders[0]!.targetBranch,
   targetSha: orders[0]!.approvedBaseSha,
@@ -205,6 +211,28 @@ describe('isolateShippingTrain', () => {
     cache.invalidateOrder(a.id)
     await isolateShippingTrain([a], validate, cache, cacheScope([a]))
     expect(validations).toBe(2)
+  })
+
+  it('keys a green prefix by workspace: the same repo, target, destination and prefix id in another workspace is validated anew', async () => {
+    const a = order('a', '2026-08-14T10:00:00.000Z')
+    // One cache, as if one shipping service served both workspaces (POD-6961's case).
+    const cache = new GreenPrefixCache()
+    const validated: WorkspaceId[] = []
+    const validateIn = (workspaceId: WorkspaceId) => async () => {
+      validated.push(workspaceId)
+      return { passed: true }
+    }
+    const inA = cacheScope([a], WS_A)
+    const inB = cacheScope([a], WS_B)
+    // Every field but the workspace is equal, so the prefix id is too.
+    expect({ ...inA, workspaceId: WS_B }).toEqual(inB)
+    await isolateShippingTrain([a], validateIn(WS_A), cache, inA)
+    await isolateShippingTrain([a], validateIn(WS_B), cache, inB)
+    expect(validated).toEqual([WS_A, WS_B])
+    // Each workspace's green is now held, under its own key.
+    await isolateShippingTrain([a], validateIn(WS_A), cache, inA)
+    await isolateShippingTrain([a], validateIn(WS_B), cache, inB)
+    expect(validated).toEqual([WS_A, WS_B])
   })
 
   it('keeps direct dependency components indivisible during isolation', async () => {

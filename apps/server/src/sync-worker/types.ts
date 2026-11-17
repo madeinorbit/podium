@@ -6,6 +6,7 @@ import type {
   SyncBootstrapRequiredReason,
   SyncMeta,
 } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 export const SYNC_WORKER_MAX_JOBS = 2
 export const SYNC_WORKER_QUEUE_DEPTH = 8
@@ -38,6 +39,9 @@ export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
   omitKinds?: readonly MetadataEntityKind[]
 }
 export type SyncJob = BootstrapJob | DeltaJob
+/** The workspace a job reads: its own, or the self-hosted install's when omitted. */
+export const jobWorkspaceId = (job: SyncJob): WorkspaceId =>
+  job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID
 export type SyncMetaSummary = SyncMeta
 export type SyncFailureReason =
   | SyncBootstrapRequiredReason

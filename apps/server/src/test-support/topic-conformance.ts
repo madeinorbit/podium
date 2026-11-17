@@ -57,6 +57,7 @@ import { MachineConditionTopic } from '../modules/machines/condition-topic'
 import { AccountQuotaTopic, AccountUsageTopic } from '../modules/quota-history/quota-topic'
 import { type SessionLiveKind, SessionLiveTopics } from '../modules/sessions/live-topics'
 import { Session } from '../modules/sessions/session'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 export const MACHINE = asMachineId('m-conformance')
 export const OTHER_MACHINE = asMachineId('m-other')
@@ -643,6 +644,7 @@ export async function createTopicWorld(
             else socket.deliver(msg)
             return true
           },
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           viewports: new Map(),
           attached: new Set(),
           caps: new Set(),

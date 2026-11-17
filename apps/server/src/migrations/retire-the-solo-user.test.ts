@@ -632,6 +632,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       transact: queries.createOrJoinTransaction,
     })
     const serving = new FeedServing({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
         {

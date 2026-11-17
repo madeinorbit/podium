@@ -1,7 +1,7 @@
 /** Live WebSocket feed admission and publication. Snapshots and catch-up are HTTP reads. */
 
 import { createLogger } from '@podium/logger'
-import type { ChangeProvenanceFields, ConversationDiagnosticWire } from '@podium/model'
+import type { ChangeProvenanceFields, ConversationDiagnosticWire, WorkspaceId } from '@podium/model'
 import {
   asSubscriberId,
   type FeedChange,
@@ -124,6 +124,8 @@ export function scheduleFeedFlush(
 
 export interface FeedServingDeps {
   readonly onPublicationIdle?: OnPublicationIdle
+  /** The workspace this feed serves: its perf partitions are keyed by it. */
+  readonly workspaceId: WorkspaceId
   /** The kernel role. Both reads come from it, which is the whole point. */
   readonly authority: AuthorityPort
 
@@ -408,7 +410,7 @@ export class FeedServing {
     resyncRequired = false,
   ): Promise<void> {
     const t0 = performance.now()
-    const perfKey = perfPrincipal(principal)
+    const perfKey = perfPrincipal(this.deps.workspaceId, principal)
     await this.deps.identity.resolve()
     if (this.abandoned(peer)) return
     const identity = this.deps.identity.current()
@@ -681,7 +683,7 @@ export class FeedServing {
 
   private async publishOnce(principal: Principal, delivery: ScopedDelivery): Promise<void> {
     const totalStartedAt = performance.now()
-    const perfKey = perfPrincipal(principal)
+    const perfKey = perfPrincipal(this.deps.workspaceId, principal)
     // Scoping has already been evaluated by Authority for this principal. Record
     // the handoff under that same principal so bootstrap and publication remain
     // comparable after per-user transport authentication.

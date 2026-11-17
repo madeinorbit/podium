@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import type { WorkspaceId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import {
   type AuthorityPort,
@@ -18,6 +19,8 @@ const log = createLogger('server:funnel')
 
 export interface WriteFunnelDeps {
   onPublicationIdle?: OnPublicationIdle
+  /** The workspace whose writes this funnel publishes: its perf partition is keyed by it. */
+  workspaceId: WorkspaceId
   bus: EventBus
   /**
    * THE SERVING EDGE (POD-1203) — the one tail entity truth leaves through.
@@ -155,7 +158,7 @@ export class WriteFunnel {
     // and delivered once per connection inside `serving.publish`. There is no
     // other tail; a client sees nothing this method did not push.
     const t0 = performance.now()
-    const perfKey = perfPrincipal(DEVICE_GRADE_PRINCIPAL)
+    const perfKey = perfPrincipal(this.deps.workspaceId, DEVICE_GRADE_PRINCIPAL)
     const queued = this.pending
     this.pending = []
     const deliveries = coalesce(queued)

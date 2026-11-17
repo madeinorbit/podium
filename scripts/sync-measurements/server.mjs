@@ -56,6 +56,7 @@ const authority = new Authority({
 })
 let identity = { feedId: 'measurement-feed', epoch: 'measurement-epoch' }
 const serving = new FeedServing({
+  workspaceId: store.workspaceId,
   authority,
   subscriptions: new SubscriptionRegistry(),
   diagnostics: () => [],
@@ -71,7 +72,13 @@ const serving = new FeedServing({
   retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
   authorizationRevision: () => 0,
 })
-const funnel = new WriteFunnel({ authority, serving, bus: new EventBus(), onPublished() {} })
+const funnel = new WriteFunnel({
+  workspaceId: store.workspaceId,
+  authority,
+  serving,
+  bus: new EventBus(),
+  onPublished() {},
+})
 const { Hono } = require('hono')
 const app = new Hono()
 app.post('/checkpoint', (c) =>

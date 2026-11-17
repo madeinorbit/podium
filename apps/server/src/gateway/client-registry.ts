@@ -31,7 +31,7 @@
  * authorization itself.
  */
 
-import type { Geometry, SessionId } from '@podium/model'
+import type { Geometry, SessionId, WorkspaceId } from '@podium/model'
 import type { AccountEventPayload, ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
 import type { ClientPrincipal } from './client-principal'
@@ -52,6 +52,13 @@ export interface ClientConn {
    * facts and NEVER from a frame body.
    */
   principal: ClientPrincipal
+  /**
+   * The workspace this connection belongs to: the one whose gateway admitted it.
+   * Its member ids mean something only inside it, so whatever this connection
+   * keys by principal (the perf partitions, `modules/perf/principal.ts`) keys by
+   * this too. Set by the mux from its graph, never from a frame.
+   */
+  readonly workspaceId: WorkspaceId
   /** Socket termination on admission failure; absent for in-process sinks. */
   terminate?: () => void
   /**

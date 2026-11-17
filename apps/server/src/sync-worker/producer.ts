@@ -18,12 +18,12 @@ import {
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { openWorkerReadSession, type WorkerReadSession } from './read-session'
 import {
   type BootstrapMetrics,
+  jobWorkspaceId,
   SYNC_JOB_DEADLINE_MS,
   type SyncJob,
   type SyncMetaSummary,
@@ -64,7 +64,7 @@ async function* produceRecords(
   options: BootstrapVisibilityOptions = {},
 ): AsyncGenerator<Uint8Array> {
   const started = performance.now()
-  const attribution = perfPrincipal(job.principal)
+  const attribution = perfPrincipal(jobWorkspaceId(job), job.principal)
   const phases: BootstrapMetrics['phases'] = {}
   const heapBefore = process.memoryUsage().heapUsed
   let heapAfterPrefetch = heapBefore,
@@ -112,7 +112,7 @@ async function* produceRecords(
     // shares it. Every read is the job's workspace's (POD-7021).
     const bundle = bootstrapVisibility(session.executor, {
       ...options,
-      workspaceId: job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID,
+      workspaceId: jobWorkspaceId(job),
     })
     const context = await bundle.context
     const { headSeq: seq, floorSeq: minAvailableSeq } = await context.sync.readFeedState()

@@ -3,6 +3,7 @@ import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { StoreModelLedger as Ledger } from '../test-support/model-ledger'
 import { openTestStore } from '../test-support/open-test-store'
@@ -41,6 +42,7 @@ async function makeFunnel() {
   })
   // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
   const funnel = new WriteFunnel({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     bus,
     serving: serving.port,
     onPublished,
@@ -169,6 +171,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const serving = recordingServing()
     bus.on('oplog.appended', appended)
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -194,6 +197,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const serving = recordingServing()
     bus.on('oplog.appended', appended)
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -215,6 +219,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const fake = fakeAuthority()
     const serving = recordingServing()
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -241,6 +246,7 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     const onPublished = vi.fn()
     const fake = fakeAuthority()
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished,

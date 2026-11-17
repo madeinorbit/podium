@@ -1505,6 +1505,7 @@ export class SessionRegistry {
     })
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
         {
@@ -1531,6 +1532,7 @@ export class SessionRegistry {
 
     const funnel = new WriteFunnel({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
       // two over one store would each keep their own ordered broadcast queue.
@@ -3925,6 +3927,7 @@ export class SessionRegistry {
     ): Promise<boolean> =>
       role === 'admin' || (await readIssue(this.store.issues, issueId))?.ownerUserId === humanId
     const shipping = new ShippingService({
+      workspaceId: this.store.workspaceId,
       repository: this.store.shipping,
       // The lease projection is process-owned memory installed behind a
       // `ledger.commit` that may be a savepoint inside a wider span, so it waits
@@ -5091,6 +5094,7 @@ export class SessionRegistry {
     this.clientGateway = new ClientMux({
       mobileVersions,
       registry: clientRegistry,
+      workspaceId: this.store.workspaceId,
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,

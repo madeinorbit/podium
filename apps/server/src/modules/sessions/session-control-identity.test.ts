@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * POD-1081 integration-shaped tests over SessionClientControl:
  * attach visibility + machine use, take-control policy, agent revoke at apply.
@@ -56,6 +57,7 @@ function makeClient(
     id,
     principal: userClientPrincipal(id, user, role),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

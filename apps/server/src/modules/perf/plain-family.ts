@@ -6,6 +6,7 @@ export const PERF_PLAIN_FAMILY = definePlainFamily({
   family: 'perf',
   service: (state) => ({
     perf: state.modules.perf,
+    workspaceId: state.store.workspaceId,
     feedPrincipal: state.feedPrincipal,
     // This process's rings (absent at level `off`) and the fleet's latest
     // minutes. `loopMinutes` is passed as a bound reader, not a value: the

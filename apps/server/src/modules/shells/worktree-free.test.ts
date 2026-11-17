@@ -28,6 +28,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from '../../command-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -263,6 +264,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
       id,
       principal: testClientPrincipal(id),
       send: (m: ServerMessage) => sent.push(m),
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),

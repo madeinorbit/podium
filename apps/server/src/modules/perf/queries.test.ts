@@ -16,6 +16,7 @@
 import type { LoopMinuteWire, MachineId } from '@podium/model'
 import type { LoopAccountingHandle, LoopAccountingSnapshot } from '@podium/runtime/loop-accounting'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { PerfState } from './commands'
 import { PERF_QUERIES } from './queries'
 import { PerfRegistry } from './registry'
@@ -62,6 +63,7 @@ const handleWith = (snapshot: LoopAccountingSnapshot): LoopAccountingHandle =>
 
 const stateWith = (over: Partial<PerfState> = {}): PerfState => ({
   perf: new PerfRegistry(),
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   loopMinutes: () => ({}),
   ...over,
 })

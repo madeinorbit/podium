@@ -20,6 +20,7 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { captureLogs } from '../test-support/capture-logs'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
 import { ClientMux, type ClientMuxDeps } from './client-mux'
@@ -86,6 +87,7 @@ async function harness(
   const bootstrap = vi.fn<ClientMuxDeps['bootstrap']>(async () => {})
   const feed = (await feedTestPlumbing()).serving
   const mux = new ClientMux({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     syncKindTokens: async () => ({}),
     mobileVersions,
     registry,
@@ -543,6 +545,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
   async function fanout() {
     const registry = new ClientRegistry()
     const mux = new ClientMux({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       syncKindTokens: async () => ({}),
       registry,
       ports: {

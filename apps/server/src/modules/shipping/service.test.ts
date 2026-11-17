@@ -181,6 +181,7 @@ async function harness(
     ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
+    workspaceId: store.workspaceId,
     repository: store.shipping,
     issues: issuePort,
     ledger: {

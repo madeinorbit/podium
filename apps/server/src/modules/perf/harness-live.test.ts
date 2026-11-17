@@ -47,6 +47,7 @@ import { PHASE_MIGRATION } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { feedPrincipalOf, userClientPrincipal } from '../../gateway/client-principal'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { perfPrincipal } from './principal'
 import { perf } from './registry'
 
@@ -54,6 +55,7 @@ import { perf } from './registry'
  *  a literal here would keep passing after `feedPrincipalOf` stopped returning
  *  this principal, which is the drift the dimension exists to catch. */
 const LIVE = perfPrincipal(
+  SELF_HOSTED_WORKSPACE_ID,
   feedPrincipalOf(userClientPrincipal('perf-fixture', firstAdminMemberId(), 'admin')),
 )
 
@@ -192,7 +194,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // …and it is a function OF the id, not a constant: a different principal
     // digests differently. A digest that ignored its input would pass every
     // assertion above and merge every principal into one partition.
-    const other = perfPrincipal({
+    const other = perfPrincipal(SELF_HOSTED_WORKSPACE_ID, {
       kind: 'agent',
       agentIdentity: asAgentIdentityId('sess-someone-else'),
       onBehalfOf: asUserId('u1'),

@@ -7,8 +7,8 @@
  * ---------------------------------------------------------------------------
  *
  * `principalRoutingId` spells an agent principal as `agent:<agentIdentity>:<delegation>`.
- * An agent identity and a delegation ref are both content from somebody's slice
- * is content from somebody's slice, and `perf.snapshot` is a deployment-wide
+ * An agent identity and a delegation ref are both content from somebody's slice,
+ * and `perf.snapshot` is a deployment-wide
  * read — so keying the partitions by the raw id would put one principal's
  * identifiers into another principal's read, which is exactly the leak
  * `docs/multi-user-readiness.md` §3.1 forbids and exactly the thing this harness
@@ -24,6 +24,17 @@
  * enumeration surface; if per-user login ever makes an id guessable, THAT is the
  * moment to salt it, and this paragraph is the note saying so.
  *
+ * ---------------------------------------------------------------------------
+ * KEYED BY (WORKSPACE, PRINCIPAL)
+ * ---------------------------------------------------------------------------
+ *
+ * Member ids are unique only within a workspace (POD-6959 design 2.8), and the
+ * registry is the process's, shared by every workspace a server serves. So the
+ * digest hashes the workspace with the principal: the same member id in two
+ * workspaces is two partitions, never one. The workspace is the one the caller's
+ * graph serves (its store, its connection, its sync job), never a frame's.
+ * The workspace id is stable across runs, so the A/B property above holds.
+ *
  * `kind` stays in the clear: it is a property of the transport that produced the
  * principal, not of a person, and an operator reading a partition table needs to
  * know whether they are looking at a human's connection or an agent's.
@@ -34,16 +45,17 @@
  *
  * Every site hands this function the live feed principal for the connection or
  * call (from `feedPrincipalOf` on the WS plane, or from `FamilyState.feedPrincipal`
- * on /trpc). The digest therefore tracks whoever the transport authenticated —
- * one shared-password account today, many accounts the day per-user login has
- * more than one row — with no edit at the record sites. Hard-coding a constant
+ * on /trpc), with the workspace of the connection, store or job it serves. The
+ * digest therefore tracks whoever the transport authenticated — one
+ * shared-password account today, many accounts the day per-user login has more
+ * than one row — with no edit at the record sites. Hard-coding a constant
  * here would be the trap this harness paid for once already: a dimension added
  * later cannot be applied to samples already recorded.
  */
 
-import { type Principal, principalRoutingId } from '@podium/protocol'
 import { createHash } from 'node:crypto'
-import type { PerfPrincipalRef } from '@podium/protocol'
+import type { WorkspaceId } from '@podium/model'
+import { type PerfPrincipalRef, type Principal, principalRoutingId } from '@podium/protocol'
 
 /** Digest length in hex chars. 16 (64 bits) — collision-free at any plausible
  *  principal count, and short enough to read in a report. */
@@ -52,13 +64,13 @@ const DIGEST_CHARS = 16
 const digestCache = new Map<string, string>()
 
 /**
- * The perf partition key for one feed principal.
+ * The perf partition key for one feed principal of one workspace.
  *
  * DERIVED from the principal it is handed, never from a constant: passing
  * `DEVICE_GRADE_PRINCIPAL` here produces the device-grade digest because that IS
  * the principal, not because this function knows about it.
  */
-export const perfPrincipal = (principal: Principal): PerfPrincipalRef => {
+export const perfPrincipal = (workspaceId: WorkspaceId, principal: Principal): PerfPrincipalRef => {
   // A machine or system principal is not perf-sampled and PerfPrincipalRef has
   // never carried one. REFUSED rather than folded into 'user': widening the wire
   // type would put a kind on a report that no consumer expects, and collapsing
@@ -66,11 +78,12 @@ export const perfPrincipal = (principal: Principal): PerfPrincipalRef => {
   if (principal.kind !== 'user' && principal.kind !== 'agent') {
     throw new Error(`perfPrincipal: a ${principal.kind} principal is not perf-sampled`)
   }
-  const id = principalRoutingId(principal)
-  let digest = digestCache.get(id)
+  // Length-prefixed, so no workspace id and routing id pair spells another's.
+  const key = `${workspaceId.length}:${workspaceId}:${principalRoutingId(principal)}`
+  let digest = digestCache.get(key)
   if (digest === undefined) {
-    digest = createHash('sha256').update(id).digest('hex').slice(0, DIGEST_CHARS)
-    digestCache.set(id, digest)
+    digest = createHash('sha256').update(key).digest('hex').slice(0, DIGEST_CHARS)
+    digestCache.set(key, digest)
   }
   return { digest, kind: principal.kind }
 }
