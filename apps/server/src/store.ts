@@ -51,38 +51,25 @@ import { bootStage } from './boot-timing'
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import type { IdentityDatabase, SqliteDb } from '@podium/identity'
+import { join } from 'node:path'
+import type { IdentityDatabase, PgDb, SqliteDb } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { isFeatureEnabled } from './features'
-import { importFingerprintKey } from './fingerprint-key-import'
-import { importInstallationIdentity } from './installation-identity-import'
-import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './migrations/backup'
-import { latestAppliedMigration } from './migrations/index'
-import { SnapshotVerifier, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
+import type { BackupPreflight } from './migrations/backup'
+import type { SnapshotVerifierDeps } from './migrations/snapshot-verifier'
 import {
-  checkpointStore,
-  configureStoreConnection,
-  migrateStoreConnection,
+  openStoreLifecycle,
   PLANNER_STATISTICS_INTERVAL_MS,
-  refreshPlannerStatistics,
-  retireImportedIdentityStorage,
-  serveTrafficTempStore,
-  setStoreTransferFence,
-  withFileTempStore,
+  type StoreLifecycle,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { importConfigSettings } from './settings-config-import'
 import { AccountsRepository } from './store/accounts'
 import { AgentProfilesRepository } from './store/agent-profiles'
 import { ArtifactUploadsRepository } from './store/artifact-uploads'
@@ -92,14 +79,13 @@ import { ConversationsRepository } from './store/conversations'
 import { provisionWorkspaceFeed } from './store/database'
 import { EffectsRepository } from './store/effects'
 import { EventsRepository } from './store/events'
+import type { QueryClient, StoreRefusal, WatchdogOptions } from './store/executor'
+import { dialectOf } from './store/executor/dialect-prepared'
 import {
-  createBunStoreExecutor,
-  type QueryClient,
   type RootStoreExecutor,
-  type StoreRefusal,
-  type WatchdogOptions,
-} from './store/executor'
-import { type StoreContext, workspaceContext } from './store/executor/executor'
+  type StoreContext,
+  workspaceContext,
+} from './store/executor/executor'
 import {
   type GlobalQueries,
   type LegacyWorkspaceQueries,
@@ -136,8 +122,7 @@ import { UserDockShellRepository, UserLayoutRepository } from './store/user-layo
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
-import { openStoreDatabase, PostgresStoreBootError, storeEngineFor } from './store-database'
-import { dropChangeCapture, installChangeCapture } from './sync/capture-triggers'
+import { storeEngineFor } from './store-database'
 
 const log = createLogger('server:store')
 
@@ -148,6 +133,56 @@ export { normalizeRepoPath }
 /** Default DB file: podium.db below the selected instance state root. */
 export function defaultDbPath(): string {
   return join(stateDir(), 'podium.db')
+}
+
+/**
+ * The environment variable naming a Postgres store (POD-6994): a `postgres://` URL.
+ * Unset, the server's store is the state directory's SQLite file.
+ */
+export const DATABASE_URL_ENV = 'PODIUM_DATABASE_URL'
+/**
+ * Set to `1` to let a Postgres store apply pending migrations at boot (local
+ * development). Without it the server only checks the ledger, because on hosted
+ * migrating is a deploy step (`podium server migrate`, POD-6958 design 2.7).
+ */
+export const DATABASE_MIGRATE_AT_BOOT_ENV = 'PODIUM_DATABASE_MIGRATE_AT_BOOT'
+
+/**
+ * Where the server's store is, which names its engine: {@link DATABASE_URL_ENV}
+ * when set, else {@link defaultDbPath}. A value that is not a Postgres URL is
+ * refused rather than opened as a file named after it.
+ *
+ * THE ENVIRONMENT ONLY. The URL carries the database credential, and credentials
+ * come from the environment, never from `config.json` (the rule file storage keeps
+ * for its keys). A config key that tries to name the database (`database`,
+ * `databaseUrl`, …) is refused at boot rather than ignored, so a misplaced setting
+ * cannot leave the server quietly serving the wrong store. The URL is never logged.
+ */
+export function storeLocation(
+  env: Record<string, string | undefined> = process.env,
+  config: object = {},
+): string {
+  const misplaced = Object.keys(config).filter((key) => key.toLowerCase().startsWith('database'))
+  if (misplaced.length > 0) {
+    throw new Error(
+      `config.json sets ${misplaced.join(', ')}: the store's database is named by the ` +
+        `${DATABASE_URL_ENV} environment variable only, because its URL carries a credential. ` +
+        'Remove the key and set the variable instead.',
+    )
+  }
+  const url = env[DATABASE_URL_ENV]?.trim()
+  if (!url) return defaultDbPath()
+  if (storeEngineFor(url) !== 'pg') {
+    throw new Error(`${DATABASE_URL_ENV} must be a postgres:// or postgresql:// URL`)
+  }
+  return url
+}
+
+/** Whether {@link DATABASE_MIGRATE_AT_BOOT_ENV} asks a Postgres store to migrate at boot. */
+export function storeMigratesAtBoot(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env[DATABASE_MIGRATE_AT_BOOT_ENV]?.trim() === '1'
 }
 
 /** What {@link StoreDatabase.open} takes beyond the path and the host machine. */
@@ -169,6 +204,13 @@ export type StoreDatabaseOptions = SnapshotVerifierDeps & {
    * `SELF_HOSTED_WORKSPACE_ID`; nothing here chooses one.
    */
   bootWorkspace: WorkspaceId
+  /**
+   * POSTGRES ONLY: apply pending migrations at boot (tests and local development).
+   * Without it a Postgres store checks the migration ledger and refuses a database
+   * that is behind this build, because on hosted migrating is a deploy step
+   * (`podium server migrate`, POD-6958 design 2.7). A SQLite store always migrates.
+   */
+  migrateAtBoot?: boolean
 }
 
 /**
@@ -196,8 +238,6 @@ export class StoreDatabase {
   readonly tableWrites = new TableWrites()
   /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
   readonly hostMachineId: MachineId
-  /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
-  private readonly snapshotVerifier: SnapshotVerifier
   private readonly publicationIdleSubscriptions = new Set<() => void>()
   /** Each workspace's store, made once: a workspace's repositories hold its caches. */
   private readonly workspaces = new Map<WorkspaceId, Promise<SessionStore>>()
@@ -217,7 +257,7 @@ export class StoreDatabase {
   }
 
   static async open(
-    path: string,
+    location: string,
     hostMachineId: MachineId,
     options: StoreDatabaseOptions,
     watchdog: WatchdogOptions = {
@@ -225,15 +265,11 @@ export class StoreDatabase {
       onReportFailure: (error) => log.error('transaction watchdog sink failed', { err: error }),
     },
   ): Promise<StoreDatabase> {
-    // THE ENGINE IS CHOSEN HERE, ONCE, FROM THE LOCATION [POD-6979]: a postgres://
-    // URL is a Postgres store, anything else a SQLite file. Before the directory is
-    // made, which for a URL would be a directory named after it.
-    if (storeEngineFor(path) === 'pg') throw new PostgresStoreBootError()
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     /**
-     * The executor's report sinks, defined ONCE for both constructions below: a
-     * migration connection that logged differently from the runtime one would be
-     * a diagnostic gap nobody notices until it matters.
+     * The executor's report sinks, defined ONCE for every engine and for both of a
+     * SQLite file's connections (migration, then runtime): a connection that logged
+     * differently from another would be a diagnostic gap nobody notices until it
+     * matters.
      *
      * Every one hands the logger `err` rather than a string. The logger walks
      * `err.cause` recursively with stacks (packages/logger/src/record.ts), so a
@@ -264,51 +300,22 @@ export class StoreDatabase {
           err: refusal.error,
         }),
     }
-    const openStarted = performance.now()
-    let database = await openStoreDatabase(path)
-    bootStage('store open', openStarted)
-    let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
+    // THE ENGINE IS CHOSEN HERE, ONCE, FROM THE LOCATION [POD-6979, POD-6994]: a
+    // postgres:// URL is a Postgres store, anything else a SQLite file. The
+    // store-lifecycle port is the engine's; nothing below asks again.
+    const lifecycle = await openStoreLifecycle(location, {
+      queryOnly: options.queryOnly === true,
+      bootWorkspace: options.bootWorkspace,
+      sinks,
+      snapshotVerifier: options,
+      ...(options.migrateAtBoot === undefined ? {} : { migrateAtBoot: options.migrateAtBoot }),
+      stage: bootStage,
+    })
+    const executor = lifecycle.executor
     try {
-      const applied = await executor.exclusive(async (session) => {
-        // The change capture triggers come off before anything migrates or
-        // repairs: those writes bump `sync_kind` rather than reach the log, and
-        // a trigger left by the last boot would refuse them (POD-6920).
-        if (!options.queryOnly) await dropChangeCapture(session)
-        const migrationStarted = performance.now()
-        const result = migrateStoreConnection(database, path)
-        bootStage('migrations', migrationStarted)
-        const importsStarted = performance.now()
-        // The settings blob and the fingerprint key are the boot workspace's
-        // (POD-7013); the import receipts stay the install's.
-        importConfigSettings(
-          database,
-          options.bootWorkspace,
-          path === ':memory:' ? undefined : dirname(path),
-        )
-        importFingerprintKey(
-          database,
-          options.bootWorkspace,
-          path === ':memory:' ? undefined : dirname(path),
-        )
-        importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
-        if (path !== ':memory:') {
-          importEnrollmentLedger(database, dirname(path), options.bootWorkspace)
-          importUpdateSigningKey(database, dirname(path))
-        }
-        bootStage('imports', importsStarted)
-        return result
-      })
-      if (applied.length > 0) log.info('applied migrations', { applied })
-      if (path !== ':memory:') {
-        // Migration owns its connection, including the OFF/ON bracket. Runtime
-        // begins on a fresh connection with enforcement enabled. An in-memory
-        // database transfers the migrated handle: reopening would lose it.
-        await executor.close()
-        database = openDatabase(path)
-        executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
-        await executor.exclusive(async () => configureStoreConnection(database))
-      }
-      const store = new StoreDatabase(path, hostMachineId, options, database, executor)
+      if (lifecycle.applied.length > 0)
+        log.info('applied migrations', { applied: lifecycle.applied })
+      const store = new StoreDatabase(hostMachineId, lifecycle)
       const backfillStarted = performance.now()
       await store.boot(options.bootWorkspace, options.queryOnly === true)
       bootStage('backfill', backfillStarted)
@@ -323,14 +330,14 @@ export class StoreDatabase {
       // After the migrations and the boot repairs, so the statistics describe
       // the tables as the server will read them. An in-memory store is a test
       // fixture whose tables are empty; statistics would describe nothing.
-      if (path !== ':memory:') {
+      if (lifecycle.keepsPlannerStatistics) {
         const statisticsStarted = performance.now()
         await store.refreshPlannerStatistics('open')
         bootStage('planner statistics', statisticsStarted)
         store.startPlannerStatistics()
       }
       // Last, once nothing left in the boot builds an index (see the function).
-      await executor.exclusive(async (session) => await serveTrafficTempStore(session))
+      await lifecycle.serveTraffic()
       return store
     } catch (error) {
       await executor.close()
@@ -339,26 +346,33 @@ export class StoreDatabase {
   }
 
   private constructor(
-    private readonly path: string,
     hostMachineId: MachineId,
-    options: SnapshotVerifierDeps,
-    /** The connection itself, for the exclusive-lane lifecycle steps only. */
-    readonly db: SqlDatabase,
-    /**
-     * WHAT EVERY REPOSITORY IS BOUND TO [POD-3254, spec §3.1]: the executor's
-     * query capability, through {@link queries} or a workspace's queries made
-     * from it. Lifecycle operations and close use the same scheduler as
-     * repository work.
-     */
-    private readonly executor: RootStoreExecutor<QueryClient>,
+    /** The engine's lifecycle steps, and the executor every repository runs on. */
+    private readonly lifecycle: StoreLifecycle,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.snapshotVerifier = new SnapshotVerifier(path, options)
-    this.queries = executor.queries
+    this.executor = lifecycle.executor
+    this.db = lifecycle.connection
+    this.queries = lifecycle.executor.queries
   }
+
+  /**
+   * WHAT EVERY REPOSITORY IS BOUND TO [POD-3254, spec §3.1]: the executor's
+   * query capability, through {@link queries} or a workspace's queries made
+   * from it. Lifecycle operations and close use the same scheduler as
+   * repository work.
+   */
+  private readonly executor: RootStoreExecutor<QueryClient>
+
+  /**
+   * The connection, for the tests that read rows under the repositories and the
+   * statement probe: the SQLite handle, or on Postgres a key that refuses use as one
+   * (`StoreLifecycle.connection`).
+   */
+  readonly db: SqlDatabase
 
   /**
    * The boot's per-database steps around the boot workspace's own: provision it,
@@ -438,18 +452,12 @@ export class StoreDatabase {
 
   /** The exact newest migration identity the transfer target will verify. */
   async schemaVersionForTransfer(): Promise<string> {
-    return await this.executor.exclusive(async () => {
-      const name = latestAppliedMigration(this.db)
-      if (name === undefined) throw new Error('database migration identity is unavailable')
-      return name
-    })
+    return await this.lifecycle.schemaVersionForTransfer()
   }
 
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
   async checkpointForTransfer(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      await checkpointStore(session)
-    })
+    await this.lifecycle.checkpointForTransfer()
   }
 
   /**
@@ -466,10 +474,7 @@ export class StoreDatabase {
    * server has gone. A `stat` and a `statfs`; nothing is opened or written.
    */
   preflightUpdateBackup(): BackupPreflight {
-    if (this.path === ':memory:') return { ok: true }
-    const space = measureBackupSpace(this.path)
-    const shortfall = backupSpaceShortfall(space)
-    return shortfall === undefined ? { ok: true } : { ok: false, detail: shortfall }
+    return this.lifecycle.preflightUpdateBackup()
   }
 
   /**
@@ -485,8 +490,7 @@ export class StoreDatabase {
    * {@link discoverDatabaseSnapshots} is what changes that, at boot.
    */
   latestDatabaseSnapshot(): string | undefined {
-    if (this.path === ':memory:') return undefined
-    return this.snapshotVerifier.verifiedFallbackPath()
+    return this.lifecycle.latestDatabaseSnapshot()
   }
 
   /**
@@ -500,8 +504,7 @@ export class StoreDatabase {
    * Returns whether a background verification was started.
    */
   discoverDatabaseSnapshots(): boolean {
-    if (this.path === ':memory:') return false
-    return this.snapshotVerifier.discoverAndQueue()
+    return this.lifecycle.discoverDatabaseSnapshots()
   }
 
   private transferFenceHeld = false
@@ -515,7 +518,7 @@ export class StoreDatabase {
   async beginTransferFence(): Promise<void> {
     await this.executor.exclusive(async (session) => {
       if (this.transferFenceHeld) throw new Error('transfer fence is already held')
-      await setStoreTransferFence(session, true)
+      await this.lifecycle.setTransferFence(session, true)
       this.transferFenceHeld = true
     })
   }
@@ -524,7 +527,7 @@ export class StoreDatabase {
   async endTransferFence(): Promise<void> {
     await this.executor.exclusive(async (session) => {
       if (!this.transferFenceHeld) return
-      await setStoreTransferFence(session, false)
+      await this.lifecycle.setTransferFence(session, false)
       this.transferFenceHeld = false
     })
   }
@@ -542,15 +545,13 @@ export class StoreDatabase {
    * covers every workspace.
    */
   async attachChangeLog(): Promise<void> {
-    this.changeLogAttached ??= this.executor.exclusive(
-      async (session) => await installChangeCapture(session),
-    )
+    this.changeLogAttached ??= this.lifecycle.attachChangeCapture()
     await this.changeLogAttached
   }
 
   /** Apply retirement DDL only after the local import committed its receipt. */
   async retireImportedIdentityStorage(): Promise<void> {
-    await this.executor.exclusive(async () => retireImportedIdentityStorage(this.db))
+    await this.lifecycle.retireImportedIdentityStorage()
   }
 
   /**
@@ -588,10 +589,7 @@ export class StoreDatabase {
    * `exclusive()` throws there rather than run it inside the transaction.
    */
   async refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void> {
-    await this.executor.exclusive(
-      async (session) =>
-        await withFileTempStore(session, () => refreshPlannerStatistics(session, when)),
-    )
+    await this.lifecycle.refreshPlannerStatistics(when)
   }
 
   /** Refresh the statistics every `intervalMs` until the database closes. Restarts a running timer. */
@@ -628,7 +626,7 @@ export class StoreDatabase {
     for (const result of opened) {
       if (result.status === 'fulfilled') await result.value.events.settleGroupedAppends()
     }
-    const verifierClosed = this.snapshotVerifier.close()
+    const verifierClosed = this.lifecycle.closeSnapshots()
     await this.executor.close(async () => {
       try {
         await persist?.()
@@ -1014,6 +1012,16 @@ export class SessionStore {
    */
   identityDatabase(): IdentityDatabase {
     const { rootDb, createOrJoinTransaction } = this.queries
+    // The drizzle instance is the engine's own (POD-6979): the package writes each
+    // statement for both dialects and picks by the one named here.
+    if (dialectOf(rootDb) === 'pg') {
+      const db = rootDb as unknown as PgDb
+      return {
+        dialect: 'pg',
+        db,
+        transaction: (fn) => createOrJoinTransaction(async () => await fn(db)),
+      }
+    }
     const db = rootDb as unknown as SqliteDb
     return {
       dialect: 'sqlite',

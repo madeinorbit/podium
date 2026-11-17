@@ -206,7 +206,7 @@ import { closeServerFast } from './shutdown'
 import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
 import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { defaultDbPath, StoreDatabase } from './store'
+import { StoreDatabase, storeLocation, storeMigratesAtBoot } from './store'
 import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
@@ -717,10 +717,15 @@ export async function startServer(
     const removed = await fileStorage.removeLeftoverTempFiles()
     if (removed > 0) log.info('removed temp files left by interrupted file writes', { removed })
   }
-  // One database, and this install's one workspace over it (POD-7010).
-  const database = await StoreDatabase.open(defaultDbPath(), asMachineId(hostMachineId), {
+  // One database, and this install's one workspace over it (POD-7010). Its
+  // location names its engine (POD-6994): the state directory's SQLite file, or
+  // the Postgres database PODIUM_DATABASE_URL names. The sync worker and the
+  // janitor open their read sessions on the same location.
+  const databaseLocation = storeLocation(process.env, config)
+  const database = await StoreDatabase.open(databaseLocation, asMachineId(hostMachineId), {
     queryOnly: recoveryOnly,
     bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
+    migrateAtBoot: storeMigratesAtBoot(),
   })
   const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
   // Artifacts stored before the blob store under names that are not key segments move to
@@ -2241,7 +2246,7 @@ export async function startServer(
       if (!opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
         syncWorker = new SyncWorkerClient({
-          dbPath: defaultDbPath(),
+          dbPath: databaseLocation,
           // The worker builds effect records from the table and holds no
           // executor: it is told which kinds this server serves (POD-6770).
           effectKinds: () => registry.modules.effects?.executors.kinds() ?? [],
@@ -2251,6 +2256,7 @@ export async function startServer(
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: maintenanceToken,
+        dbPath: databaseLocation,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {
