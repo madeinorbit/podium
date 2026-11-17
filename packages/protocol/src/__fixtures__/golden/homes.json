@@ -78,22 +78,20 @@
     {
       "schema": "HomeCredentialId",
       "variant": "minimal",
-      "wire": "",
+      "wire": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "<root>: Invalid"
+      "encoded": "\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\""
     },
     {
       "schema": "HomeCredentialId",
       "variant": "full",
-      "wire": "",
+      "wire": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "<root>: Invalid"
+      "encoded": "\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\""
     },
     {
       "schema": "HomeEnsureRequestMessage",
@@ -101,14 +99,13 @@
       "wire": {
         "type": "homeEnsureRequest",
         "requestId": "requestId",
-        "credentialId": "credentialId",
+        "credentialId": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
         "harness": "claude-code"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "credentialId: Invalid"
+      "encoded": "{\"type\":\"homeEnsureRequest\",\"requestId\":\"requestId\",\"credentialId\":\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\",\"harness\":\"claude-code\"}"
     },
     {
       "schema": "HomeEnsureRequestMessage",
@@ -116,14 +113,13 @@
       "wire": {
         "type": "homeEnsureRequest",
         "requestId": "requestId",
-        "credentialId": "credentialId",
+        "credentialId": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
         "harness": "claude-code"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "credentialId: Invalid"
+      "encoded": "{\"type\":\"homeEnsureRequest\",\"requestId\":\"requestId\",\"credentialId\":\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\",\"harness\":\"claude-code\"}"
     },
     {
       "schema": "HomeEnsureResultMessage",
