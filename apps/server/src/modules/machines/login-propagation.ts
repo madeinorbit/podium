@@ -81,7 +81,7 @@ function refuseLink(
   input: LoginPropagationTrigger,
 ): LoginPropagationResult {
   log.warn('login propagation refused: the login file may not cross this link', {
-    role,
+    side: role,
     machineId,
     reason: unsafe,
     targetMachineId: input.targetMachineId,

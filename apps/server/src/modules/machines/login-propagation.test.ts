@@ -459,7 +459,7 @@ describe('login propagation coordinator', () => {
         expect(logs.at('warn')).toContainEqual(
           expect.objectContaining({
             msg: expect.stringContaining('login propagation refused'),
-            role: 'donor',
+            side: 'donor',
             machineId: 'donor',
           }),
         )
@@ -483,7 +483,7 @@ describe('login propagation coordinator', () => {
           reason: expect.stringContaining('target link (target)'),
         })
         expect(logs.at('warn')).toContainEqual(
-          expect.objectContaining({ role: 'target', machineId: 'target' }),
+          expect.objectContaining({ side: 'target', machineId: 'target' }),
         )
       } finally {
         logs.restore()
