@@ -136,12 +136,7 @@ function taskOfFile(file: string): string | undefined {
  * census reports for them (sorted, comma-separated). The owning task is
  * {@link taskOfFile}. Only shrinks: a binding task removes its entries as it adds forms.
  */
-const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
-  ['apps/server/src/store/shipping.ts:activeOrdersFifo', 'SQLite-only INDEXED BY'],
-  ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', 'SQLite-only json_each()'],
-  ['apps/server/src/store/shipping.ts:resumableOrdersFifo', 'SQLite-only INDEXED BY'],
-  ['apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains', 'SQLite-only INDEXED BY'],
-])
+const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>()
 
 // ---------------------------------------------------------------------------
 // Reading the Postgres SQL

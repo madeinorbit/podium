@@ -59,6 +59,7 @@ import {
   not,
   notInArray,
   or,
+  type SQL,
   sql,
 } from 'drizzle-orm'
 import type {
@@ -70,7 +71,11 @@ import type {
   shipRecoveryWork,
   shipSteps,
 } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { GUARD_TEXT, GuardRefusal, insertedRow, refuseUnlessWritten } from './append-only'
+import { dialectOf } from './executor/dialect-prepared'
 import type {
+  StoreDrizzle,
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
@@ -116,6 +121,14 @@ const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
  */
 const activeClaimCount = (t: StoreTables) =>
   sql<number>`(SELECT COUNT(*) FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('workspace_id')} AND c.train_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('id')})`
+
+/**
+ * `"table"."column"`, qualified by hand for a correlated subquery: drizzle renders a
+ * column of a one-table statement unqualified, and inside the subquery a bare name
+ * binds to the subquery's own table first (see {@link activeClaimCount}).
+ */
+const outer = (table: string, column: string): SQL =>
+  sql`${sql.identifier(table)}.${sql.identifier(column)}`
 
 /**
  * THE SIX ROW SHAPES THE MAPPERS BELOW READ [POD-3396, spec rule 3].
@@ -526,9 +539,8 @@ const highestHoldGenerationOf = prepared((db, t) =>
 )
 
 const insertDeliveryReceiptRow = prepared((db, t) =>
-  db
-    .insert(t.deliveryReceipts)
-    .values({
+  captureWrite(
+    db.insert(t.deliveryReceipts).values({
       workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
@@ -542,8 +554,8 @@ const insertDeliveryReceiptRow = prepared((db, t) =>
       validationResult: sql.placeholder('validationResult'),
       destination: sql.placeholder('destination'),
       completedAt: sql.placeholder('completedAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 /**
@@ -789,19 +801,24 @@ const indexedOrderColumns = (t: StoreTables) =>
     validationProfile: sql<string | null>`${sql.identifier('validation_profile')}`,
   }) as unknown as ReturnType<typeof orderColumns>
 
-const activeOrdersFifo = prepared((db, t) =>
-  db
-    .select(indexedOrderColumns(t))
-    .from(sql`${t.shipOrders} INDEXED BY idx_ship_orders_one_active_issue`)
+//
+// Postgres has no INDEXED BY: it plans the same partial index from the same literal
+// term, so its form names the table itself and selects its columns.
+const activeOrdersFifo = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
+  return db
+    .select(pg ? orderColumns(t) : indexedOrderColumns(t))
+    .from(pg ? t.shipOrders : sql`${t.shipOrders} INDEXED BY idx_ship_orders_one_active_issue`)
     .where(inWorkspace(t.shipOrders, sql.raw(ACTIVE_SHIP_ORDER_TERM))) // CONSTANT-IDENTIFIER STATEMENT POD-5612
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
-    .prepare(),
-)
+    .prepare()
+})
 
-const resumableOrdersFifo = prepared((db, t) =>
-  db
-    .select(indexedOrderColumns(t))
-    .from(sql`${t.shipOrders} INDEXED BY idx_ship_orders_recovery`)
+const resumableOrdersFifo = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
+  return db
+    .select(pg ? orderColumns(t) : indexedOrderColumns(t))
+    .from(pg ? t.shipOrders : sql`${t.shipOrders} INDEXED BY idx_ship_orders_recovery`)
     .where(
       inWorkspace(
         t.shipOrders,
@@ -809,8 +826,8 @@ const resumableOrdersFifo = prepared((db, t) =>
       ),
     )
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
-    .prepare(),
-)
+    .prepare()
+})
 
 const recoveryWorkPage = prepared((db, t) =>
   db
@@ -948,6 +965,21 @@ const activeOrdersOfLane = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
+/**
+ * "The order's `delivery_depends_on` lists one of the `ids` placeholders." SQLite reads
+ * the json array with `json_each`; Postgres with `json_array_elements_text`, whose text
+ * is compared in byte order as SQLite compares it (design 2.3, rule 13).
+ */
+const dependsOnAny = (db: StoreDrizzle, t: StoreTables, size: number): SQL => {
+  const ids = sql.join(
+    Array.from({ length: size }, (_, index) => sql`${sql.placeholder(`ids${index}`)}`),
+    sql`, `,
+  )
+  return dialectOf(db) === 'pg'
+    ? sql`EXISTS (SELECT 1 FROM json_array_elements_text(${t.shipOrders.deliveryDependsOn}) AS depends_on(value) WHERE depends_on.value COLLATE "C" IN (${ids}))`
+    : sql`EXISTS (SELECT 1 FROM json_each(${t.shipOrders.deliveryDependsOn}) WHERE json_each.value IN (${ids}))`
+}
+
 /** See {@link ShippingRepository.queuedDependentsOf}; keyed by the bucketed id count. */
 const queuedDependentsOfIds = preparedFamily((db, t, size: number) =>
   db
@@ -962,10 +994,7 @@ const queuedDependentsOfIds = preparedFamily((db, t, size: number) =>
         // SQL out of sqlite_master plus the EXPLAIN plan) and fails on drift.
         sql.raw(ACTIVE_SHIP_ORDER_TERM), // CONSTANT-IDENTIFIER STATEMENT POD-5612
         eq(t.shipOrders.state, 'queued'),
-        sql`EXISTS (SELECT 1 FROM json_each(${t.shipOrders.deliveryDependsOn}) WHERE json_each.value IN (${sql.join(
-          Array.from({ length: size }, (_, index) => sql`${sql.placeholder(`ids${index}`)}`),
-          sql`, `,
-        )}))`,
+        dependsOnAny(db, t, size),
       ),
     )
     .orderBy(asc(t.shipOrders.requestedAt), asc(t.shipOrders.id))
@@ -1067,9 +1096,8 @@ const issueBranchCustody = prepared((db, t) =>
 )
 
 const insertOrder = prepared((db, t) =>
-  db
-    .insert(t.shipOrders)
-    .values({
+  captureWrite(
+    db.insert(t.shipOrders).values({
       workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
@@ -1096,30 +1124,31 @@ const insertOrder = prepared((db, t) =>
       state: sql.placeholder('state'),
       stateChangedAt: sql.placeholder('stateChangedAt'),
       holdCode: sql.placeholder('holdCode'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 /** `transitionOrder`'s compare-and-swap. */
 const transitionOrderFenced = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({
-      state: sql.placeholder('nextState'),
-      stateChangedAt: sql.placeholder('stateChangedAt'),
-      holdCode: null,
-    })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        eq(t.shipOrders.state, param(t.shipOrders.state, 'expectedState')),
-        // Redundant against the equality above and kept verbatim: narrowing a
-        // fence during a conversion is a behaviour change, not a tidy-up.
-        notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({
+        state: sql.placeholder('nextState'),
+        stateChangedAt: sql.placeholder('stateChangedAt'),
+        holdCode: null,
+      })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          eq(t.shipOrders.state, param(t.shipOrders.state, 'expectedState')),
+          // Redundant against the equality above and kept verbatim: narrowing a
+          // fence during a conversion is a behaviour change, not a tidy-up.
+          notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const attemptById = prepared((db, t) =>
@@ -1223,38 +1252,150 @@ const insertTrainManifest = prepared((db, t) =>
     .prepare(),
 )
 
-const insertTrainMember = prepared((db, t) =>
+/** The member row's columns, as `insertTrainMember` writes them. */
+const TRAIN_MEMBER_KEYS = [
+  'workspaceId',
+  'trainId',
+  'ordinal',
+  'issueId',
+  'orderId',
+  'attemptId',
+  'generation',
+  'machineId',
+  'sourceBranch',
+  'approvedBaseSha',
+  'approvedHeadSha',
+  'deliveryDependsOn',
+] as const
+
+/**
+ * A train member's insert. SQLite's triggers guard it (`ship_train_members_insert_guard`,
+ * `ship_train_members_final_leader`); on Postgres the guard is the insert's own WHERE
+ * (design 2.5): the member is selected from its manifest, in the member's workspace,
+ * only when its ordinal is below the manifest's member count, no member of the train
+ * holds an active claim yet, and a final member is the manifest's leader. When it
+ * inserts nothing, `trainMemberRefusal` says which rule refused it, in the trigger's
+ * words.
+ */
+const insertTrainMember = prepared((db, t) => {
+  if (dialectOf(db) !== 'pg') {
+    return db
+      .insert(t.shipTrainMembers)
+      .values({
+        workspaceId: WORKSPACE,
+        trainId: sql.placeholder('trainId'),
+        ordinal: sql.placeholder('ordinal'),
+        issueId: sql.placeholder('issueId'),
+        orderId: sql.placeholder('orderId'),
+        attemptId: sql.placeholder('attemptId'),
+        generation: sql.placeholder('generation'),
+        machineId: sql.placeholder('machineId'),
+        sourceBranch: sql.placeholder('sourceBranch'),
+        approvedBaseSha: sql.placeholder('approvedBaseSha'),
+        approvedHeadSha: sql.placeholder('approvedHeadSha'),
+        deliveryDependsOn: sql.placeholder('deliveryDependsOn'),
+      })
+      .prepare()
+  }
+  const m = t.shipTrainManifests
+  const member = t.shipTrainMembers
+  const ordinal = sql`CAST(${param(member.ordinal, 'ordinal')} AS integer)`
+  return db
+    .insert(member)
+    .select(
+      db
+        .select(insertedRow(member, TRAIN_MEMBER_KEYS))
+        .from(m)
+        .where(
+          inWorkspace(
+            m,
+            eq(m.id, param(m.id, 'trainId')),
+            sql`${ordinal} < ${m.memberCount}`,
+            sql`NOT EXISTS (SELECT 1 FROM ${t.shipTrainActiveClaims} c WHERE c.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND c.train_id = ${outer('ship_train_manifests', 'id')})`,
+            or(
+              sql`${ordinal} + 1 <> ${m.memberCount}`,
+              and(
+                eq(m.leaderOrderId, param(m.leaderOrderId, 'orderId')),
+                eq(m.leaderAttemptId, param(m.leaderAttemptId, 'attemptId')),
+                eq(m.leaderGeneration, param(m.leaderGeneration, 'generation')),
+              ),
+            ),
+          ),
+        ),
+    )
+    .prepare()
+})
+
+/** What a train member's insert guard reads, to name the rule that refused it (Postgres). */
+const trainMemberGuardFacts = prepared((db, t) =>
   db
-    .insert(t.shipTrainMembers)
-    .values({
-      workspaceId: WORKSPACE,
-      trainId: sql.placeholder('trainId'),
-      ordinal: sql.placeholder('ordinal'),
-      issueId: sql.placeholder('issueId'),
-      orderId: sql.placeholder('orderId'),
-      attemptId: sql.placeholder('attemptId'),
-      generation: sql.placeholder('generation'),
-      machineId: sql.placeholder('machineId'),
-      sourceBranch: sql.placeholder('sourceBranch'),
-      approvedBaseSha: sql.placeholder('approvedBaseSha'),
-      approvedHeadSha: sql.placeholder('approvedHeadSha'),
-      deliveryDependsOn: sql.placeholder('deliveryDependsOn'),
+    .select({
+      memberCount: t.shipTrainManifests.memberCount,
+      leaderOrderId: t.shipTrainManifests.leaderOrderId,
+      leaderAttemptId: t.shipTrainManifests.leaderAttemptId,
+      leaderGeneration: t.shipTrainManifests.leaderGeneration,
+      claimCount: activeClaimCount(t),
     })
+    .from(t.shipTrainManifests)
+    .where(
+      inWorkspace(
+        t.shipTrainManifests,
+        eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
-const insertActiveClaim = prepared((db, t) =>
-  db
-    .insert(t.shipTrainActiveClaims)
-    .values({
-      workspaceId: WORKSPACE,
-      trainId: sql.placeholder('trainId'),
-      orderId: sql.placeholder('orderId'),
-      attemptId: sql.placeholder('attemptId'),
-      generation: sql.placeholder('generation'),
-    })
-    .prepare(),
-)
+/**
+ * An active claim's insert. SQLite's `ship_train_active_claims_insert_guard` refuses a
+ * claim without complete, normalized leader authority; on Postgres that is the insert's
+ * own WHERE (design 2.5): the claim is selected from its manifest and member, in the
+ * claim's workspace, only when the manifest is open, the member is the claim's, every
+ * member is recorded, the final one is the manifest's leader, and no member has a
+ * generation below 1. When it inserts nothing, the repository raises the trigger's text.
+ */
+const insertActiveClaim = prepared((db, t) => {
+  if (dialectOf(db) !== 'pg') {
+    return db
+      .insert(t.shipTrainActiveClaims)
+      .values({
+        workspaceId: WORKSPACE,
+        trainId: sql.placeholder('trainId'),
+        orderId: sql.placeholder('orderId'),
+        attemptId: sql.placeholder('attemptId'),
+        generation: sql.placeholder('generation'),
+      })
+      .prepare()
+  }
+  const m = t.shipTrainManifests
+  const tm = t.shipTrainMembers
+  const claim = t.shipTrainActiveClaims
+  return db
+    .insert(claim)
+    .select(
+      db
+        .select(
+          insertedRow(claim, ['workspaceId', 'trainId', 'orderId', 'attemptId', 'generation']),
+        )
+        .from(m)
+        .innerJoin(tm, and(sameWorkspace(tm, m), eq(tm.trainId, m.id)))
+        .where(
+          inWorkspace(
+            m,
+            eq(m.id, param(m.id, 'trainId')),
+            isNull(m.releasedAt),
+            eq(tm.orderId, param(tm.orderId, 'orderId')),
+            eq(tm.attemptId, param(tm.attemptId, 'attemptId')),
+            eq(tm.generation, param(tm.generation, 'generation')),
+            sql`(SELECT COUNT(*) FROM ${tm} all_members WHERE all_members.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND all_members.train_id = ${outer('ship_train_manifests', 'id')}) = ${m.memberCount}`,
+            sql`EXISTS (SELECT 1 FROM ${tm} leader WHERE leader.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND leader.train_id = ${outer('ship_train_manifests', 'id')} AND leader.ordinal = ${outer('ship_train_manifests', 'member_count')} - 1 AND leader.order_id = ${outer('ship_train_manifests', 'leader_order_id')} AND leader.attempt_id = ${outer('ship_train_manifests', 'leader_attempt_id')} AND leader.generation = ${outer('ship_train_manifests', 'leader_generation')})`,
+            sql`NOT EXISTS (SELECT 1 FROM ${tm} generation_member WHERE generation_member.workspace_id = ${outer('ship_train_manifests', 'workspace_id')} AND generation_member.train_id = ${outer('ship_train_manifests', 'id')} AND generation_member.generation <= 0)`,
+          ),
+        )
+        .limit(1),
+    )
+    .prepare()
+})
 
 /** The projection named 19 of the manifest table's columns and the join adds
  * none, so `select()` over the joined table returns the same fields. */
@@ -1383,6 +1524,11 @@ const trainReleaseState = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * A train's one release. SQLite's `ship_train_manifests_release_only` refuses an update
+ * of a released manifest or one that leaves `released_at` NULL; on Postgres both are the
+ * WHERE (design 2.5), and `releaseTrain` raises the trigger's text when it moved nothing.
+ */
 const releaseTrainFenced = prepared((db, t) =>
   db
     .update(t.shipTrainManifests)
@@ -1395,14 +1541,41 @@ const releaseTrainFenced = prepared((db, t) =>
         t.shipTrainManifests,
         eq(t.shipTrainManifests.id, param(t.shipTrainManifests.id, 'id')),
         isNull(t.shipTrainManifests.releasedAt),
+        dialectOf(db) === 'pg'
+          ? sql`${param(t.shipTrainManifests.releasedAt, 'releasedAt')}::timestamptz IS NOT NULL`
+          : undefined,
       ),
     )
     .prepare(),
 )
 
-const deleteActiveClaimsOfTrain = prepared((db, t) =>
+/**
+ * The release of a train's claims. SQLite's `ship_train_active_claims_release_guard`
+ * refuses to delete a claim while its manifest is open; on Postgres the delete carries
+ * that rule as its WHERE (design 2.5), and `releaseTrain` raises the trigger's text
+ * when it releases nothing though claims remain.
+ */
+const deleteActiveClaimsOfTrain = prepared((db, t) => {
+  const claims = t.shipTrainActiveClaims
+  return db
+    .delete(claims)
+    .where(
+      inWorkspace(
+        claims,
+        eq(claims.trainId, param(claims.trainId, 'trainId')),
+        dialectOf(db) === 'pg'
+          ? sql`EXISTS (SELECT 1 FROM ${t.shipTrainManifests} m WHERE m.workspace_id = ${outer('ship_train_active_claims', 'workspace_id')} AND m.id = ${outer('ship_train_active_claims', 'train_id')} AND m.released_at IS NOT NULL)`
+          : undefined,
+      ),
+    )
+    .prepare()
+})
+
+/** How many active claims a train still holds. */
+const activeClaimsOfTrain = prepared((db, t) =>
   db
-    .delete(t.shipTrainActiveClaims)
+    .select({ count: sql<number>`COUNT(*)`.mapWith(Number) })
+    .from(t.shipTrainActiveClaims)
     .where(
       inWorkspace(
         t.shipTrainActiveClaims,
@@ -1427,17 +1600,18 @@ const trainMemberCountOf = prepared((db, t) =>
 
 /** `isolateTrainFailure`'s green-member reset: any non-terminal, non-held state. */
 const requeueLiveOrder = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        notInArray(t.shipOrders.state, ['shipped', 'cancelled', 'held']),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          notInArray(t.shipOrders.state, ['shipped', 'cancelled', 'held']),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const openTrainsOfLane = prepared((db, t) =>
@@ -1462,9 +1636,14 @@ const openTrainsOfLane = prepared((db, t) =>
 const shippedLeadersOfOpenTrains = prepared((db, t) =>
   db
     // A column chunk rather than the column: the FROM is an INDEXED BY clause,
-    // not the table object.
+    // not the table object. Postgres has no INDEXED BY and plans the partial
+    // index from the same `released_at IS NULL` term.
     .select({ leaderOrderId: sql<ShipOrderValue['id']>`${t.shipTrainManifests.leaderOrderId}` })
-    .from(sql`${t.shipTrainManifests} INDEXED BY idx_ship_train_manifests_open_lane`)
+    .from(
+      dialectOf(db) === 'pg'
+        ? t.shipTrainManifests
+        : sql`${t.shipTrainManifests} INDEXED BY idx_ship_train_manifests_open_lane`,
+    )
     .innerJoin(
       t.shipOrders,
       and(
@@ -1510,17 +1689,18 @@ const activeMembersOfTrain = prepared((db, t) =>
 
 /** A train peer still in preflight goes back to the queue; three call sites. */
 const requeuePreflightOrder = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        eq(t.shipOrders.state, 'preflight'),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({ state: 'queued', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          eq(t.shipOrders.state, 'preflight'),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const stackEdgeByPair = prepared((db, t) =>
@@ -1544,17 +1724,16 @@ const stackEdgeByPair = prepared((db, t) =>
 )
 
 const insertStackEdge = prepared((db, t) =>
-  db
-    .insert(t.shipOrderStackEdges)
-    .values({
+  captureWrite(
+    db.insert(t.shipOrderStackEdges).values({
       workspaceId: WORKSPACE,
       upperOrderId: sql.placeholder('upperOrderId'),
       lowerOrderId: sql.placeholder('lowerOrderId'),
       upperApprovedHeadSha: sql.placeholder('upperApprovedHeadSha'),
       lowerApprovedHeadSha: sql.placeholder('lowerApprovedHeadSha'),
       recordedAt: sql.placeholder('recordedAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const stackEdgePresent = prepared((db, t) =>
@@ -1719,9 +1898,8 @@ const allHolds = prepared((db, t) =>
 )
 
 const insertHold = prepared((db, t) =>
-  db
-    .insert(t.shipHolds)
-    .values({
+  captureWrite(
+    db.insert(t.shipHolds).values({
       workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       orderId: sql.placeholder('orderId'),
@@ -1732,59 +1910,62 @@ const insertHold = prepared((db, t) =>
       evidenceRefs: sql.placeholder('evidenceRefs'),
       actions: sql.placeholder('actions'),
       raisedAt: sql.placeholder('raisedAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const holdOrderFenced = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({
-      state: 'held',
-      holdCode: sql.placeholder('holdCode'),
-      stateChangedAt: sql.placeholder('stateChangedAt'),
-    })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({
+        state: 'held',
+        holdCode: sql.placeholder('holdCode'),
+        stateChangedAt: sql.placeholder('stateChangedAt'),
+      })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          notInArray(t.shipOrders.state, ['shipped', 'cancelled']),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const resolveHoldFenced = prepared((db, t) =>
-  db
-    .update(t.shipHolds)
-    .set({ resolvedAt: sql.placeholder('resolvedAt'), resolution: sql.placeholder('resolution') })
-    .where(
-      inWorkspace(
-        t.shipHolds,
-        eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')),
-        eq(t.shipHolds.generation, param(t.shipHolds.generation, 'generation')),
-        isNull(t.shipHolds.resolvedAt),
+  captureWrite(
+    db
+      .update(t.shipHolds)
+      .set({ resolvedAt: sql.placeholder('resolvedAt'), resolution: sql.placeholder('resolution') })
+      .where(
+        inWorkspace(
+          t.shipHolds,
+          eq(t.shipHolds.orderId, param(t.shipHolds.orderId, 'orderId')),
+          eq(t.shipHolds.generation, param(t.shipHolds.generation, 'generation')),
+          isNull(t.shipHolds.resolvedAt),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const releaseHeldOrder = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({
-      state: sql.placeholder('nextState'),
-      holdCode: null,
-      stateChangedAt: sql.placeholder('stateChangedAt'),
-    })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        eq(t.shipOrders.state, 'held'),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({
+        state: sql.placeholder('nextState'),
+        holdCode: null,
+        stateChangedAt: sql.placeholder('stateChangedAt'),
+      })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          eq(t.shipOrders.state, 'held'),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const holdOfOrderGeneration = prepared((db, t) =>
@@ -1889,17 +2070,18 @@ const manifestClaimAuthority = prepared((db, t) =>
 )
 
 const shipPreflightOrder = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        eq(t.shipOrders.state, 'preflight'),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          eq(t.shipOrders.state, 'preflight'),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 const envelopeProofsOfAttempt = prepared((db, t) =>
@@ -1951,17 +2133,18 @@ const successfulProofAttempt = prepared((db, t) =>
 )
 
 const shipVerifyingOrder = prepared((db, t) =>
-  db
-    .update(t.shipOrders)
-    .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
-    .where(
-      inWorkspace(
-        t.shipOrders,
-        eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
-        eq(t.shipOrders.state, 'verifying'),
+  captureWrite(
+    db
+      .update(t.shipOrders)
+      .set({ state: 'shipped', stateChangedAt: sql.placeholder('stateChangedAt'), holdCode: null })
+      .where(
+        inWorkspace(
+          t.shipOrders,
+          eq(t.shipOrders.id, param(t.shipOrders.id, 'id')),
+          eq(t.shipOrders.state, 'verifying'),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 /** Narrow typed producer/consumer port shared by issue integration and Shipping
@@ -3046,28 +3229,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         createdAt: input.startedAt,
       })
       for (const [ordinal, member] of manifest.members.entries()) {
-        await insertTrainMember(this.db).run({
-          trainId: manifest.id,
-          ordinal,
-          issueId: member.issueId,
-          orderId: member.orderId,
-          attemptId: member.attemptId,
-          generation: member.generation,
-          machineId: member.machineId,
-          sourceBranch: member.sourceBranch,
-          approvedBaseSha: member.approvedBaseSha,
-          approvedHeadSha: member.approvedHeadSha,
-          // `mode: 'json'`, so the array goes in unserialised. Same bytes.
-          deliveryDependsOn: member.deliveryDependsOn,
-        })
+        await this.recordTrainMember(manifest.id, ordinal, member)
       }
       for (const member of manifest.members) {
-        await insertActiveClaim(this.db).run({
-          trainId: manifest.id,
-          orderId: member.orderId,
-          attemptId: member.attemptId,
-          generation: member.generation,
-        })
+        await this.recordActiveClaim(manifest.id, member)
       }
       const finalRevision = await laneRevisionOf(this.db).get({ laneKey })
       if (finalRevision?.revision !== laneRevisionRow.revision) {
@@ -3240,6 +3405,85 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return [...new Set(rows.map((row) => row.leaderOrderId))]
   }
 
+  /**
+   * THE GUARDED TRAIN WRITES (design 2.5). Each writes one row as SQLite's triggers allow
+   * it: on SQLite the trigger refuses a row that breaks a rule, on Postgres the
+   * statement's WHERE writes nothing and the method raises the trigger's text. The
+   * claim path only writes rows that keep the rules; the guards are for the rows it must
+   * never write, and `shipping-guards.test.ts` drives them with such rows on both engines.
+   */
+  protected async recordTrainMember(
+    trainId: ShipTrainManifestValue['id'],
+    ordinal: number,
+    member: ShipTrainManifestValue['members'][number],
+  ): Promise<void> {
+    const inserted = await insertTrainMember(this.db).run({
+      trainId,
+      ordinal,
+      issueId: member.issueId,
+      orderId: member.orderId,
+      attemptId: member.attemptId,
+      generation: member.generation,
+      machineId: member.machineId,
+      sourceBranch: member.sourceBranch,
+      approvedBaseSha: member.approvedBaseSha,
+      approvedHeadSha: member.approvedHeadSha,
+      // `mode: 'json'`, so the array goes in unserialised. Same bytes.
+      deliveryDependsOn: member.deliveryDependsOn,
+    })
+    if (inserted.changes === 0) throw await this.trainMemberRefusal(trainId, ordinal, member)
+  }
+
+  /** See {@link recordTrainMember}. */
+  protected async recordActiveClaim(
+    trainId: ShipTrainManifestValue['id'],
+    member: Pick<ShipTrainManifestValue['members'][number], 'orderId' | 'attemptId' | 'generation'>,
+  ): Promise<void> {
+    const claimed = await insertActiveClaim(this.db).run({
+      trainId,
+      orderId: member.orderId,
+      attemptId: member.attemptId,
+      generation: member.generation,
+    })
+    refuseUnlessWritten(claimed.changes, GUARD_TEXT.ship_train_active_claims_insert_guard)
+  }
+
+  /** Delete a released train's claims and return how many; see {@link recordTrainMember}. */
+  protected async releaseActiveClaims(trainId: ShipTrainManifestValue['id']): Promise<number> {
+    const claims = await deleteActiveClaimsOfTrain(this.db).run({ trainId })
+    if (
+      claims.changes === 0 &&
+      ((await activeClaimsOfTrain(this.db).get({ trainId }))?.count ?? 0) > 0
+    ) {
+      throw new GuardRefusal(GUARD_TEXT.ship_train_active_claims_release_guard)
+    }
+    return claims.changes
+  }
+
+  /**
+   * Which of the member insert guard's rules refused a member, in the order SQLite's
+   * triggers check them, as the trigger's text (Postgres; SQLite raises in the trigger).
+   */
+  private async trainMemberRefusal(
+    trainId: ShipTrainManifestValue['id'],
+    ordinal: number,
+    member: { orderId: string; attemptId: string; generation: number },
+  ): Promise<Error> {
+    const facts = await trainMemberGuardFacts(this.db).get({ id: trainId })
+    if (!facts) return new Error(`ship train ${trainId} has no manifest`)
+    if (ordinal >= facts.memberCount) return new GuardRefusal(GUARD_TEXT.ship_train_members_ordinal)
+    if (facts.claimCount > 0) return new GuardRefusal(GUARD_TEXT.ship_train_members_sealed)
+    if (
+      ordinal + 1 === facts.memberCount &&
+      (facts.leaderOrderId !== member.orderId ||
+        facts.leaderAttemptId !== member.attemptId ||
+        facts.leaderGeneration !== member.generation)
+    ) {
+      return new GuardRefusal(GUARD_TEXT.ship_train_members_final_leader)
+    }
+    return new Error(`ship train ${trainId} member ${ordinal} was not recorded`)
+  }
+
   async releaseTrain(
     _scope: WriteScope,
     trainId: ShipTrainManifestValue['id'],
@@ -3258,10 +3502,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         releaseReason: reason,
         id: trainId,
       })
-      if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
-      const claims = await deleteActiveClaimsOfTrain(this.db).run({ trainId })
+      if (changed.changes !== 1) {
+        // Postgres: a release must set `released_at` (SQLite's trigger raised).
+        if (!releasedAt) throw new GuardRefusal(GUARD_TEXT.ship_train_manifests_release_only)
+        throw new Error(`ship train ${trainId} release fence failed`)
+      }
+      const released = await this.releaseActiveClaims(trainId)
       const memberCount = await trainMemberCountOf(this.db).get({ id: trainId })
-      if (claims.changes !== memberCount?.memberCount) {
+      if (released !== memberCount?.memberCount) {
         throw new Error(`ship train ${trainId} did not release every active member claim`)
       }
     })
