@@ -1,4 +1,4 @@
-/** THE CREDENTIALS SURFACE — eight writes from their contracts, `list` from the query table. */
+/** THE CREDENTIALS SURFACE — writes from their contracts, `list` from the query table. */
 
 import type { FamilyProcedures } from '../derived-family'
 import { plainFamilyProcedures } from '../plain-command/family'

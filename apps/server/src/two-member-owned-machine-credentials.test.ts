@@ -180,8 +180,9 @@ const until = async (pred: () => boolean | Promise<boolean>, ms = 10_000): Promi
   }
 }
 
+const list = async (who: MemberName) => await (await trpc(who)).credentials.list.query()
 const codexRow = async (who: MemberName, fingerprint: string) => {
-  const views = await (await trpc(who)).credentials.list.query()
+  const views = await list(who)
   return views.find(
     (view: import('@podium/model').CredentialView) =>
       view.nativeLogin?.harness === 'codex' && view.identity.fingerprint === fingerprint,

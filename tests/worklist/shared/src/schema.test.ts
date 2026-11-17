@@ -64,6 +64,7 @@ describe('the declared schema', () => {
       'credential',
       'device',
       'effect',
+      'inboxNotice',
       'instancePreferences',
       'issue',
       'issueBrief',

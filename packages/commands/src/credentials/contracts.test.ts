@@ -1,5 +1,5 @@
 /**
- * The credential contracts (credential management Task 4, Task 14): ten writes,
+ * The credential contracts (credential management Tasks 4, 9 and 14): credential writes,
  * each classified, never queued, and those that carry a secret redact it.
  */
 
