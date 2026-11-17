@@ -6,23 +6,55 @@ import { Children, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const facts = vi.hoisted(() => ({ read: vi.fn() }))
+const expoUI = await vi.hoisted(async () => {
+  const { readFileSync } = await import('node:fs')
+  const { createRequire } = await import('node:module')
+  const { dirname, join } = await import('node:path')
+  const root = dirname(createRequire(import.meta.url).resolve('@expo/ui/package.json'))
+  const definition = readFileSync(join(root, 'ios/ExpoUIModule.swift'), 'utf8')
+  return {
+    config: JSON.parse(readFileSync(join(root, 'expo-module.config.json'), 'utf8')),
+    registered: new Set(
+      [...definition.matchAll(/\b(?:ExpoUI)?View\((?:ExpoUI\.)?(\w+)\.self\)/g)].map(
+        (match) => match[1],
+      ),
+    ),
+    component: (name: string) => join(root, 'src/swift-ui', name, 'index.tsx'),
+  }
+})
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseConcerns: facts.read }))
-vi.mock('@expo/ui', () => ({ Host: ({ children }: { children: ReactNode }) => children }))
-// Keep Expo's Section -> Slot and Text -> native text prop conversion real.
-// Fabric cannot mount RawText directly under an Expo native view in Release.
+vi.mock('@expo/ui', async () => ({ Host: (await import('@expo/ui/swift-ui')).Host }))
+// Keep every Expo wrapper real and replace only the native view factory.
+// Fabric cannot mount RawText directly under these native views in Release.
 vi.mock('expo', () => ({
-  requireNativeView:
-    (_module: string, name: string) =>
-    ({
+  requireNativeView: (module: string, name: string) => {
+    if (module !== 'ExpoUI' || !expoUI.registered.has(name)) {
+      throw new Error(`Unregistered native view ${module}.${name}`)
+    }
+    return ({
       children,
       text,
       title,
       name: slot,
+      label,
+      role,
+      modifiers,
+      onButtonPress,
+      isPresented,
+      onIsPresentedChange,
+      onDismiss,
     }: {
       children?: ReactNode
       text?: string
       title?: string
       name?: string
+      label?: string
+      role?: string
+      modifiers?: { name: string; value: unknown }[]
+      onButtonPress?: () => void
+      isPresented?: boolean
+      onIsPresentedChange?: (event: { nativeEvent: { isPresented: boolean } }) => void
+      onDismiss?: () => void
     }) => {
       if (
         Children.toArray(children).some(
@@ -31,6 +63,35 @@ vi.mock('expo', () => ({
       ) {
         throw new Error(`Unregistered RawText under ExpoUI.${name}`)
       }
+      if (name === 'Button') {
+        return (
+          <button
+            type="button"
+            data-native-role={role}
+            onClick={onButtonPress}
+            disabled={Boolean(modifiers?.find((item) => item.name === 'disabled')?.value)}
+          >
+            {label}
+            {children}
+          </button>
+        )
+      }
+      if (name === 'BottomSheetView') {
+        return (
+          <div data-testid="native-close" data-presented={isPresented}>
+            <button
+              type="button"
+              onClick={() => onIsPresentedChange?.({ nativeEvent: { isPresented: false } })}
+            >
+              Drag dismiss
+            </button>
+            {children}
+            <button type="button" onClick={onDismiss}>
+              Finish dismissal
+            </button>
+          </div>
+        )
+      }
       return (
         <div data-native-view={name} data-slot={slot}>
           {title ? <h2>{title}</h2> : null}
@@ -38,7 +99,8 @@ vi.mock('expo', () => ({
           {children}
         </div>
       )
-    },
+    }
+  },
 }))
 vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ...Object.fromEntries(
@@ -55,69 +117,23 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ),
 }))
 vi.mock('@expo/ui/swift-ui', async () => {
-  const { createRequire } = await import('node:module')
-  const root = new URL(
-    '.',
-    `file://${createRequire(import.meta.url).resolve('@expo/ui/package.json')}`,
+  return Object.assign(
+    {},
+    ...(await Promise.all(
+      [
+        'BottomSheet',
+        'Button',
+        'Form',
+        'Group',
+        'Host',
+        'NavigationStack',
+        'Section',
+        'Text',
+        'Toolbar',
+        'VStack',
+      ].map((name) => vi.importActual(expoUI.component(name))),
+    )),
   )
-  const { Section } = await vi.importActual<typeof import('@expo/ui/swift-ui')>(
-    new URL('src/swift-ui/Section/index.tsx', root).pathname,
-  )
-  const { Text } = await vi.importActual<typeof import('@expo/ui/swift-ui')>(
-    new URL('src/swift-ui/Text/index.tsx', root).pathname,
-  )
-  const Box = ({ children }: { children?: ReactNode }) => <>{children}</>
-  return {
-    BottomSheet: ({
-      isPresented,
-      onIsPresentedChange,
-      onDismiss,
-      children,
-    }: {
-      isPresented: boolean
-      onIsPresentedChange: (open: boolean) => void
-      onDismiss: () => void
-      children: ReactNode
-    }) => (
-      <div data-testid="native-close" data-presented={isPresented}>
-        <button type="button" onClick={() => onIsPresentedChange(false)}>
-          Drag dismiss
-        </button>
-        {children}
-        <button type="button" onClick={onDismiss}>
-          Finish dismissal
-        </button>
-      </div>
-    ),
-    Button: ({
-      label,
-      role,
-      onPress,
-      modifiers = [],
-    }: {
-      label: string
-      role?: string
-      onPress: () => void
-      modifiers?: { name: string; value: unknown }[]
-    }) => (
-      <button
-        type="button"
-        data-native-role={role}
-        onClick={onPress}
-        disabled={Boolean(modifiers.find((item) => item.name === 'disabled')?.value)}
-      >
-        {label}
-      </button>
-    ),
-    Form: Box,
-    Group: Box,
-    NavigationStack: Box,
-    Section,
-    Text,
-    Toolbar: Object.assign(Box, { Content: Box }),
-    ToolbarItem: Box,
-    VStack: Box,
-  }
 })
 
 import { IssueCloseSheet } from './IssueCloseSheet.ios'
@@ -134,6 +150,7 @@ beforeEach(() => facts.read.mockReset().mockReturnValue([concern]))
 afterEach(cleanup)
 
 it('mounts the concern footer through SwiftUI Text, without a raw text native child', () => {
+  expect(expoUI.config.apple.modules).toContain('ExpoUIModule')
   render(<IssueCloseSheet issue={issue} reason="done" onClose={vi.fn()} onConfirm={vi.fn()} />)
   const footer = screen.getByText(
     'Closing is still available, but it should be an explicit decision.',
