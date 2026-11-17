@@ -162,6 +162,7 @@ Sessions have **no stub**. The questions that seemed to need one do not
 |---|---|---|
 | Always | The record types that do not grow with history | Policy |
 | Live | Sessions that are starting or live | Policy |
+| Asking | Sessions that wait for the user (an open offer, a question, an error), whatever their age | Policy |
 | Recent | Issues and sessions changed in the last N days | Policy |
 | Sidebar | Open issues that are not proposed | Policy |
 | Sessions with no issue | Not archived, no issue (the sidebar's lanes) | Policy |
@@ -170,6 +171,11 @@ Sessions have **no stub**. The questions that seemed to need one do not
 | Page | One page of a sorted list: a board column, the proposal deck | The view that shows it |
 | Sessions of one issue | Sessions with that issue | What it comes with; the issue page |
 | One record | That ID | A lookup that finds the record absent |
+
+"Asking" exists because the sidebar keeps a closed issue visible for as long as a session on it
+waits for the user, with no time limit (`packages/model/src/predicates/active-work.ts`). Such a
+session can be old and on closed work, so no other collection holds it. Its rule must read
+saved fields of the session; which fields is settled in the declaration task.
 
 The sidebar collection holds all open issues that are not proposed, because the operator
 expects to see everything left there. It grows with open work, not with history. The operator
@@ -193,7 +199,8 @@ cannot say. One declaration covers both directions:
 | A held record | Comes with |
 |---|---|
 | Any issue | Its parents, the user's read state for it, its git state, its dependencies |
-| Any session | Its issue, the user's state for it, its pending interactions |
+| Any session | Its issue, the user's state for it |
+| A pin, a pending interaction | The record it points to |
 | An issue in the sidebar | Its sessions that are not archived |
 | An issue in a tree a flight deck shows | Its sessions that the deck shows |
 
@@ -216,9 +223,9 @@ the operator's data):
 
 | Group | Record types |
 |---|---|
-| Always | repository, machine, machine access, checkout, agent profile, automation, preferences, layout, tab order, pins, subscriptions, read position, workflow, workflow binding and revision, ship lane and order, superagent thread |
+| Always | repository, machine, machine access, checkout, agent profile, automation, preferences, layout, tab order, pins, pending interactions, subscriptions, read position, workflow, workflow binding and revision, ship lane and order, superagent thread |
 | Comes with its issue | the user's issue state (8,707), git state (411), dependencies (6,505) |
-| Comes with its session | the user's session state (1,936), pending interactions (34) |
+| Comes with its session | the user's session state (1,936) |
 | By rule, like issues and sessions | workflow runs (260), automation runs, native conversations (3,712): recent by policy, older by page |
 | Already windowed by the server | messages, issue events |
 
@@ -287,7 +294,7 @@ records. The client decides per change:
 | The record with its main part | Replaces it |
 | The issue as a stub, and the change does not match a held collection | Updates the stub fields |
 | The issue as a stub or not at all, and the change now matches a held collection (an old issue is reopened) | Keeps the full record and fetches what it comes with |
-| Nothing, and no held collection matches | Ignores it |
+| Nothing, and no held collection matches | Ignores it; for an issue, stores its stub |
 
 A deletion or a loss of visibility gives the lookup answer "gone". Because the feed is applied
 without gaps, a collection that was complete stays complete.
@@ -390,6 +397,9 @@ arrives with the fetch.
   (`trpc.issues.searchNormalized`, added 2026-10-02): it matches title, description and brief,
   with the viewer's rights. It scans; an index for it, and search over transcripts, stay with
   POD-5617. Mentions, pickers and the board's text filter move to the same pattern.
+- Records that a request returns, such as server search hits, are installed as "one record"
+  instances and are cache. The view keeps their IDs, so there is still one shared model per
+  record.
 - A link or chip to an issue reads the stub: it knows the reference and the state at once. A
   reference to a record that is absent starts a batched load, like any other lookup.
 
@@ -528,6 +538,16 @@ Prior art read for this design: the reverse-engineering write-up of Linear's syn
 loader; whole records only, big text as its own record), Zero's documentation (whole rows,
 query lifetime) and ElectricSQL's shape documentation.
 
+## The safety check
+
+The start-up work already has a check and a data set for this (POD-5594,
+`docs/measurements/startup-baseline.md`): the "no wrong number" check
+(`tests/worklist/harness/src/startup/no-wrong-number.ts`) asks a fixed list of first-screen and
+history questions and requires every answer to equal a full-load control or to be loading. It
+runs against any intermediate state. Every client task of this design must keep it green on
+the two-axis corpus (history times one and ten, active work times one and four), and extends
+its question list when it moves a reader.
+
 ## What must be measured
 
 - Phone memory and cold start before and after, on the operator-sized data set and on the
@@ -543,7 +563,8 @@ query lifetime) and ElectricSQL's shape documentation.
 
 - Whether an issue and its brief from the same save reach a device together, and whether any
   screen depends on that. They are separate log entries today.
-- Whether a session's agent state is a saved field; a rule may not read a live value.
+- Which saved fields of a session say "waits for the user" (offer, agent state), for the
+  "asking" collection; a rule may not read a live value.
 - What the sidebar shows on an empty device while its collection arrives: rows from the top down
   as a sorted range, or a loading state until complete.
 - The collection of each record type, per the table above.
@@ -570,6 +591,21 @@ quick first version followed by a clean one.
 
 Order: 1, then 2, 3, 4 in sequence; 5 after 4 and POD-7093; 6 after 4; 7 and 8 after 1; 9
 after 5; 10 after 9.
+
+Older issues in the two phases, and what became of them:
+
+| Issue | Outcome |
+|---|---|
+| POD-5592 and its tasks POD-5595 to POD-5600, POD-7048 | Superseded by tasks 2 to 5 |
+| POD-5593 Shared active-work rule (done) | Its rule is deleted by task 9 |
+| POD-5594 Startup corpus and gates (done) | Kept and used: the corpus and the safety check |
+| POD-5636 Deferred startup indexes and hydration | Superseded: the indexes it wanted to defer are deleted by task 9, and start-up reads only the policy set (task 3) |
+| POD-5915 Records that arrive by request | Superseded: such records are "one record" instances of the loader (task 4); search hits in task 6 |
+| POD-5617 Server full-text issue search | Stays, deferred. A scanning search exists; task 6 measures whether the index is needed |
+| POD-6761 Partial loading, with POD-6773 and POD-6774 | Superseded by task 2 |
+| POD-5212 Pool memory cutoff | Superseded by task 9 |
+| POD-5244 Operator: memory cutoff design go | Answered by this design; the operator closes it |
+| POD-5157, POD-5539, POD-5952 (cost per record in memory) | Unchanged and out of this design. Their numbers should be measured again after task 10, because far fewer records are then in memory |
 
 Out of this design: the per-record memory cost work (POD-5157, POD-5539, POD-5952, POD-5811)
 and chat (POD-6671).
