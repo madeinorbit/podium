@@ -9,7 +9,7 @@
  * the tables gained.
  */
 
-import { asMachineId, firstAdminMemberId, layoutRowId, type UserId } from '@podium/model'
+import { asMachineId, layoutRowId, type UserId } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { CapturedRow } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -43,7 +43,13 @@ beforeAll(async () => {
   ;[a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
   await a.attachChangeLog()
   raw = (a as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
-  admin = (await firstAdminMemberId(a)) as UserId
+  // The image seeds its people in the self-hosted workspace (POD-7019: members are the
+  // workspace's), so ws_a has none; the rows below need only an existing user id.
+  const [seeded] = (await raw.all(
+    sql`SELECT id FROM users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY created_at, id LIMIT 1`,
+  )) as { id: string }[]
+  if (seeded === undefined) throw new Error('the test image seeds no administrator')
+  admin = seeded.id as UserId
 }, 60_000)
 
 afterAll(async () => {
@@ -158,7 +164,7 @@ describe('the workspace column stays off the records', () => {
     const machineId = asMachineId(a.hostMachineId)
     await seedRows(a, async () => {
       await raw.run(
-        sql`INSERT OR IGNORE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at) VALUES (${machineId}, 'm', 'm', 'hash', '2026-11-17T00:00:00.000Z', '2026-11-17T00:00:00.000Z')`,
+        sql`INSERT OR IGNORE INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at) VALUES ('ws_a', ${machineId}, 'm', 'm', 'hash', '2026-11-17T00:00:00.000Z', '2026-11-17T00:00:00.000Z')`,
       )
       await raw.run(layoutRow('ws_a', 'listed'))
       await a.issues.upsertIssue(
