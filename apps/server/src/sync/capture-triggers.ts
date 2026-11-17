@@ -12,9 +12,11 @@
  * the migration chain: the store drops them before it migrates (so a data
  * migration or boot repair captures nothing; it bumps `sync_kind` instead)
  * and creates them from the declarations once the boot is done, so a changed
- * declaration takes effect at the next start. The same statements exist in
- * Postgres (a row trigger per source calling one INSERT); this generator
- * writes the SQLite dialect the store runs today.
+ * declaration takes effect at the next start. These triggers are SQLite's
+ * only: Postgres has no capture triggers. There each write on a source table
+ * captures inside its own statement, through the capture form `captureWrite`
+ * generates from the same declarations (`sync/capture-pg.ts`, POD-6958 design
+ * 2.5).
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'

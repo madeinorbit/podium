@@ -3,7 +3,8 @@
  * POD-6958 design 2.5).
  *
  * A trigger catches every write; a capture form only the writes that use it. So every
- * registered query definition is built, at each family shape, on a Postgres drizzle
+ * registered query definition (the store's, the sync adapter's, and those of any other
+ * server file that defines one) is built, at each family shape, on a Postgres drizzle
  * instance over the Postgres tables (as the dialect census builds them), and its SQL is
  * read for INSERT, UPDATE and DELETE statements on source tables (and on tables whose
  * deletion cascades to one) that are not capture forms (`sync/capture-pg.ts`,
@@ -23,6 +24,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
 import { eq, sql } from 'drizzle-orm'
@@ -44,6 +46,7 @@ import {
   trackedSources,
 } from '../test-support/definition-census'
 import { openTestStore } from '../test-support/open-test-store'
+import { queryDefinitionSites } from '../test-support/prepared-census'
 import { captureWrite, uncapturedWrites } from './capture-pg'
 
 const PG_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
@@ -105,6 +108,8 @@ const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly wri
     ['apps/server/src/store/settings.ts', { task: 'POD-6987', writes: 2 }],
     ['apps/server/src/store/sign-in-carry-over.ts', { task: 'POD-6987', writes: 1 }],
     ['apps/server/src/store/users.ts', { task: 'POD-6987', writes: 2 }],
+    // The fleet update checkpoint, an install key of `meta` beside the update-channel context.
+    ['apps/server/src/modules/updates/recovery-store.ts', { task: 'POD-6987', writes: 1 }],
     ['apps/server/src/store/automations.ts', { task: 'POD-6988', writes: 6 }],
     ['apps/server/src/store/effects.ts', { task: 'POD-6988', writes: 12 }],
     ['apps/server/src/store/events.ts', { task: 'POD-6988', writes: 6 }],
@@ -156,13 +161,41 @@ const SOURCE: SourceTree = {
   read: (file) => readFileSync(join(REPO_ROOT, file), 'utf8'),
 }
 
+/**
+ * The files the write census reads: the shared definition census's, and every other
+ * production file of the server that defines a query (`modules/operations/store.ts`,
+ * `modules/updates/recovery-store.ts`). A write on a source table is a write wherever
+ * its definition lives.
+ */
+function writeCensusSources(tree: SourceTree): string[] {
+  const shared = trackedSources(tree)
+  const elsewhere = tree
+    .list('apps/server/src')
+    .filter(
+      (path) =>
+        path.endsWith('.ts') &&
+        !path.startsWith('apps/server/src/store/') &&
+        !path.startsWith('apps/server/src/test-support/') &&
+        !path.includes('.test.') &&
+        !path.includes('.type-test.') &&
+        queryDefinitionSites(path, tree.read(path)).length > 0,
+    )
+  return [...shared, ...elsewhere]
+}
+
 describe('the write census (design 2.5)', () => {
   let store: SessionStore
   let keyed: KeyedDefinition[]
+  let outside: string[]
   beforeAll(async () => {
     store = await openTestStore(':memory:')
     await reachMethodDefinitions(store, (store as unknown as { db: SqlDatabase }).db)
-    keyed = keyedDefinitions(trackedSources(SOURCE), SOURCE).keyed
+    const sources = writeCensusSources(SOURCE)
+    const shared = new Set(trackedSources(SOURCE))
+    outside = sources.filter((path) => !shared.has(path))
+    // A module outside the store registers its definitions when it is imported.
+    for (const file of outside) await import(pathToFileURL(join(REPO_ROOT, file)).href)
+    keyed = keyedDefinitions(sources, SOURCE).keyed
   }, 60_000)
   afterAll(async () => {
     await store?.close()
@@ -185,6 +218,12 @@ describe('the write census (design 2.5)', () => {
     expect(Object.fromEntries(byFile)).toEqual(
       Object.fromEntries([...PENDING_CAPTURE].map(([file, { writes }]) => [file, writes])),
     )
+  })
+
+  it('reads the definitions of every server file that defines a query', () => {
+    expect(outside).toContain('apps/server/src/modules/operations/store.ts')
+    const keyedFiles = new Set(keyed.map(({ key }) => fileOf(key)))
+    expect(outside.filter((file) => !keyedFiles.has(file))).toEqual([])
   })
 
   it('fails on a planted plain UPDATE of a source table, and passes it wrapped', () => {
