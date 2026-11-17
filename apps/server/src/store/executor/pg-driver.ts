@@ -117,6 +117,10 @@ export interface PgDriverOptions {
 
 export interface PgStoreDriver extends StoreDriver<QueryClient> {
   readonly dialect: 'pg'
+  /** Always present: only acquisition failures this driver marked are busy. */
+  classify(error: unknown): FailureClass
+  /** Always present: the committed-view reader is another pooled connection. */
+  openReader(): Promise<DriverSession>
 }
 
 /** Default bounded retry: four attempts over about half a second, before any lock wait. */
