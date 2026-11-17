@@ -21,7 +21,9 @@ import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
 import { testHarnessContext, testEngineTerms, testSessionTerms } from '../../testing/harness-context.js'
 import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
+import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
 import { codexAppServerCapabilities } from './capabilities.js'
+import { PLAN_TOKEN_EXPIRED_TEXT } from './map.js'
 import { createCodexClient } from './client.js'
 import { type CodexJournalEntry, type CodexRuntimeHost, createCodexRuntime } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
@@ -57,7 +59,10 @@ interface World {
   dispose(): void
 }
 
-async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Promise<World> {
+async function world(
+  stageAttachment?: CodexRuntimeHost['stageAttachment'],
+  options: { modelProvider?: string } = {},
+): Promise<World> {
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
   /**
@@ -118,7 +123,11 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
         gate = undefined
         await waiting
       }
-      const server = startFakeAppServer({ threadIds: [`thr-w${++mintedThreads}`], threads })
+      const server = startFakeAppServer({
+        threadIds: [`thr-w${++mintedThreads}`],
+        threads,
+        ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
+      })
       const clients = [server]
       servers.set(input.sessionId, server)
       return {
@@ -429,6 +438,86 @@ describe('provider failure detail', () => {
       const state = await w.handle.state()
       expect(state.phase).toBe('idle')
       expect(state.error).toBeUndefined()
+    } finally {
+      w.dispose()
+    }
+  })
+})
+
+describe('Codex on a ChatGPT plan signed in to Podium (epic Task 15)', () => {
+  const REVOKED =
+    'unexpected status 401 Unauthorized: Encountered invalidated oauth token for user, failing request, url: https://api.openai.com/v1/responses, auth error: 401, auth error code: token_revoked'
+  const EXPIRED =
+    'unexpected status 401 Unauthorized: Provided authentication token is expired., url: https://api.openai.com/v1/responses, auth error: 401, auth error code: token_expired'
+  const failures = (w: World) =>
+    w.events().filter((event) => event.t === 'turn' && event.ev.ev === 'failed')
+
+  it('introduces itself to Codex as the app registered with OpenAI', async () => {
+    const w = await world()
+    try {
+      expect(w.server.initializeParams[0]?.clientInfo).toMatchObject({ name: 'Podium' })
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('journals the provider the thread runs on, so an adopted survivor knows it', async () => {
+    const w = await world(undefined, { modelProvider: CODEX_PLAN_PROVIDER_ID })
+    try {
+      expect(w.recorded().modelProvider).toBe(CODEX_PLAN_PROVIDER_ID)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it("Codex's retries are not failed turns; the revoked grant fails once, for a person", async () => {
+    const w = await world(undefined, { modelProvider: CODEX_PLAN_PROVIDER_ID })
+    try {
+      await w.handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      for (let n = 1; n <= 5; n += 1) {
+        w.server.notifyError({ message: `Reconnecting... ${n}/5`, willRetry: true })
+      }
+      await settle()
+      expect(failures(w)).toEqual([])
+      w.server.completeTurn('failed', REVOKED)
+      await settle()
+      expect(failures(w)).toHaveLength(1)
+      expect(await w.handle.state()).toMatchObject({
+        phase: 'errored',
+        error: { class: 'auth-expired', retryable: false },
+      })
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('a plan token that ran out under a long turn fails it readably and retryably (acceptance 4)', async () => {
+    const w = await world(undefined, { modelProvider: CODEX_PLAN_PROVIDER_ID })
+    try {
+      await w.handle.send({ text: 'a long job' }, { origin: 'human', delivery: 'when-ready' })
+      w.server.completeTurn('failed', EXPIRED)
+      await settle()
+      const state = await w.handle.state()
+      expect(state).toMatchObject({
+        phase: 'errored',
+        error: { class: 'provider-error', retryable: true },
+      })
+      expect(state.error?.detail).toContain(PLAN_TOKEN_EXPIRED_TEXT)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('the same 401 on the default provider is still a sign-in ask', async () => {
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      w.server.completeTurn('failed', EXPIRED)
+      await settle()
+      expect(await w.handle.state()).toMatchObject({
+        phase: 'errored',
+        error: { class: 'auth-expired' },
+      })
     } finally {
       w.dispose()
     }
@@ -1593,7 +1682,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       const adopted = await w.adopt()
       expect(w.counts().launches).toBe(1)
       expect(w.server.resumeParams).toEqual([
-        { threadId: before.resume!.value, path: w.recorded().rolloutPath },
+        { threadId: before.resume!.value, path: w.recorded().rolloutPath, excludeTurns: true },
       ])
       expect(adopted.binding.resume).toEqual(before.resume)
       expect(adopted.binding.process.key).toBe(before.process.key)
@@ -1744,7 +1833,9 @@ describe('rebind to the surviving engine (POD-4433)', () => {
     try {
       delete w.recorded().rolloutPath
       const adopted = await w.adopt()
-      expect(w.server.resumeParams).toEqual([{ threadId: w.recorded().threadId }])
+      expect(w.server.resumeParams).toEqual([
+        { threadId: w.recorded().threadId, excludeTurns: true },
+      ])
       expect(adopted.binding.resume).toEqual(w.handle.binding.resume)
     } finally {
       w.dispose()
@@ -1764,7 +1855,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       expect(w.liveServer()).not.toBe(dead)
       expect(w.liveServer().resumes).toBe(1)
       expect(w.liveServer().resumeParams).toEqual([
-        { threadId: before.resume!.value, path: w.recorded().rolloutPath },
+        { threadId: before.resume!.value, path: w.recorded().rolloutPath, excludeTurns: true },
       ])
       expect(adopted.binding.resume).toEqual(before.resume)
     } finally {
