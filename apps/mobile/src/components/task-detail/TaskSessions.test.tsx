@@ -2,7 +2,7 @@ import { modelName } from '@podium/client-core/agent-models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
@@ -84,4 +84,48 @@ it('reads live state words and observed/requested models from the shared session
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
     `Worker, ${modelName('codex', 'observed-model')} · Needs you`,
   )
+})
+
+it('opens every agent from the visible roster without opening Details', () => {
+  const stamp = '2026-10-01T00:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  state.pool = pool
+  const issue = {
+    id: 'task',
+    title: 'Task',
+    seq: 1,
+    repoPath: '/fixture',
+    stage: 'in_progress',
+    deps: [],
+    createdAt: stamp,
+    updatedAt: stamp,
+  } as unknown as IssueViewModel
+  const sessions = Array.from({ length: 4 }, (_, index) => ({
+    sessionId: `seat-${index}`,
+    issueId: 'task',
+    title: `Agent ${index + 1}`,
+    agentKind: 'codex',
+    status: 'live',
+    createdAt: stamp,
+    lastActiveAt: stamp,
+    agentState: { phase: 'idle' },
+  })) as SessionView[]
+  pool.apply({
+    type: 'replace',
+    rows: [
+      { kind: 'issue', id: 'task', value: issue },
+      ...sessions.map((session) => ({
+        kind: 'session' as const,
+        id: session.sessionId,
+        value: session,
+      })),
+    ],
+  })
+  const onOpenSession = vi.fn()
+  render(<TaskSessions issue={issue} sessions={sessions} onOpenSession={onOpenSession} />)
+  expect(screen.queryByRole('button', { name: /^Agent 4,/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Show all agents' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Agent 4,/ }))
+  expect(onOpenSession).toHaveBeenCalledExactlyOnceWith('seat-3')
+  expect(screen.queryByRole('button', { name: 'Show all agents' })).toBeNull()
 })

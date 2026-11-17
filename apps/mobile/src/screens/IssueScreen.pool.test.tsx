@@ -325,11 +325,10 @@ it('shows shared leaf progress through open phases and puts sub-tasks inside an 
   try {
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
-    const header = await screen.findByRole('button', { name: 'Sub-tasks' })
+    const header = (await screen.findByText('Sub-tasks')).parentElement
     expect(state.pool!.issueObject('root').childCount).toBe(3)
     expect(state.pool!.issueObject('root').childDoneCount).toBe(0)
-    expect(header.textContent).toBe('Sub-tasks1/2')
-    fireEvent.click(header)
+    expect(header?.textContent).toBe('Sub-tasks1/2')
     const card = await screen.findByTestId('sub-issues-card')
     expect(card.contains(screen.getByText('Delivery phase'))).toBe(true)
     expect(card.contains(screen.getByRole('button', { name: 'Add a sub-task' }))).toBe(true)
@@ -340,7 +339,7 @@ it('shows shared leaf progress through open phases and puts sub-tasks inside an 
         rows: [{ kind: 'issue', id: pending.id, value: { ...pending, stage: 'done' } }],
       }),
     )
-    await waitFor(() => expect(header.textContent).toBe('Sub-tasks2/2'))
+    await waitFor(() => expect(header?.textContent).toBe('Sub-tasks2/2'))
     expect(state.errors).toEqual([])
   } finally {
     mounted.unmount()
@@ -413,8 +412,6 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     state.measuring = true
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
-      // The description sits folded below Activity (POD-2378); open it.
-      fireEvent.click(await screen.findByRole('button', { name: 'Description' }))
       await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
       await act(async () => {})
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0)

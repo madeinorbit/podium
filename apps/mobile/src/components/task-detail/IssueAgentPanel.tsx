@@ -9,7 +9,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
-import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
 import { Icon } from '../Icon'
 import { FileText, Play } from '../icons'
@@ -138,9 +138,7 @@ const ArtifactRow = observer(function ArtifactRow({
             onError={() => setBroken(true)}
           />
           <View style={styles.caption}>
-            <Text style={styles.captionText} numberOfLines={1}>
-              {label}
-            </Text>
+            <Text style={styles.captionText}>{label}</Text>
             <Text style={styles.stamp}>
               <IssueAge stamp={artifact.addedAt} />
             </Text>
@@ -155,9 +153,7 @@ const ArtifactRow = observer(function ArtifactRow({
           style={({ pressed }) => [styles.fileRow, pressed && styles.rowPressed]}
         >
           <Icon as={kind === 'video' ? Play : FileText} size={15} color={color.textDim} />
-          <Text style={styles.fileName} numberOfLines={1}>
-            {label}
-          </Text>
+          <Text style={styles.fileName}>{label}</Text>
           <Text style={styles.stamp}>
             <IssueAge stamp={artifact.addedAt} />
           </Text>
@@ -169,15 +165,13 @@ const ArtifactRow = observer(function ArtifactRow({
 
 const styles = StyleSheet.create({
   section: {
-    paddingBottom: space.xl,
+    gap: space.sm,
   },
   figure: {
     marginBottom: space.sm,
-    borderRadius: radius.lg,
+    borderRadius: radius.card,
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
+    backgroundColor: color.groupedCard,
   },
   preview: {
     width: '100%',
@@ -186,6 +180,7 @@ const styles = StyleSheet.create({
   },
   caption: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
@@ -193,53 +188,56 @@ const styles = StyleSheet.create({
   },
   captionText: {
     ...sans(500),
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   fileRow: {
     minHeight: 44,
+    paddingVertical: space.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm + 2,
     marginBottom: space.xs,
     paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
+    borderRadius: radius.control,
+    backgroundColor: color.groupedCard,
   },
   rowPressed: {
     backgroundColor: color.surfacePressed,
   },
   fileName: {
     ...sans(400),
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   stamp: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: 9.5,
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
   },
   deferred: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
-    paddingVertical: 5,
+    paddingVertical: space.sm,
   },
   deferredDot: {
-    width: 5,
-    height: 5,
+    width: 4,
+    height: 4,
     borderRadius: radius.full,
     backgroundColor: color.textFaint,
   },
   deferredText: {
     ...sans(400),
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
+    fontSize: font.small,
+    lineHeight: leading(font.small),
   },
 })

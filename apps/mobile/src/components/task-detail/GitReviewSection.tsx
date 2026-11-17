@@ -1,9 +1,9 @@
-import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
-import { issueObserver as observer } from '../../client/issue-observer'
 import { useStoreHandle } from '@podium/client-core/react'
+import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
   diffRowAccessibilityLabel,
@@ -182,6 +182,7 @@ const DiffBody = memo(function DiffBody({ state }: { state: ReviewDiffAnswer | u
         <Text style={styles.delCount}>−{parsed.removed}</Text>
       </Text>
       {parsed.rows.slice(0, visibleRows).map((row, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are immutable and ordered within this file.
         <DiffLine key={`${index}:${row.kind}`} row={row} />
       ))}
       {visibleRows < parsed.rows.length ? (
@@ -251,12 +252,11 @@ export const DiffLine = observer(function DiffLine({ row }: { row: DiffRow }) {
 })
 
 const styles = StyleSheet.create({
-  section: { marginTop: space.xl },
-  headlessBar: { flexDirection: 'row', justifyContent: 'flex-end', minHeight: 28 },
+  section: {},
+  headlessBar: { flexDirection: 'row', justifyContent: 'flex-end', minHeight: 44 },
   refresh: {
     width: 44,
     height: 44,
-    marginVertical: -14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   branch: {
     ...mono(500),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
     marginBottom: space.xs,
   },
   empty: { ...sans(400), color: color.textFaint, fontSize: font.small, paddingVertical: space.sm },
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -space.sm,
     paddingHorizontal: space.sm,
     paddingVertical: space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   fileRowPressed: { backgroundColor: color.quaternaryFill },
   moreButton: {
@@ -291,12 +291,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: space.sm,
+    paddingVertical: space.sm,
     paddingHorizontal: space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
-  moreText: { ...sans(600), color: color.accentTint, fontSize: font.small },
+  moreText: { ...sans(600), color: color.accentTint, fontSize: font.small, flexShrink: 1 },
   moreCount: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
-  badge: { ...mono(600), width: 22, fontSize: font.micro, textAlign: 'center' },
+  badge: { ...mono(600), minWidth: 22, fontSize: font.tiny, textAlign: 'center' },
   badgeStaged: { color: color.workingText },
   badgeUnstaged: { color: color.accentTint },
   badgeUntracked: { color: color.textFaint },
@@ -307,20 +310,20 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'ui'),
   },
-  renamed: { ...mono(400), color: color.textFaint, fontSize: font.micro, marginTop: 2 },
+  renamed: { ...mono(400), color: color.textFaint, fontSize: font.tiny, marginTop: space.xs },
   diff: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     overflow: 'hidden',
     marginBottom: space.md,
     backgroundColor: color.bgSunken,
   },
   summary: {
     ...mono(600),
-    fontSize: font.micro,
+    fontSize: font.tiny,
     paddingHorizontal: space.sm,
-    paddingVertical: 6,
+    paddingVertical: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border,
   },
@@ -330,24 +333,34 @@ const styles = StyleSheet.create({
   addLine: { backgroundColor: color.workingSoft },
   delLine: { backgroundColor: color.dangerSoft },
   noteLine: { backgroundColor: color.tertiaryFill },
-  hunkLine: { backgroundColor: color.surface, paddingHorizontal: space.sm, paddingVertical: 5 },
-  hunkText: { ...mono(500), color: color.workingText, fontSize: font.micro, lineHeight: 17 },
+  hunkLine: {
+    backgroundColor: color.surface,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
+  },
+  hunkText: {
+    ...mono(500),
+    color: color.workingText,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
   sign: {
     ...mono(600),
-    width: 20,
-    paddingTop: 2,
+    minWidth: 20,
+    paddingHorizontal: space.xs,
+    paddingTop: space.xs,
     textAlign: 'center',
-    fontSize: font.micro,
-    lineHeight: 17,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
   },
   code: {
     ...mono(400),
     flex: 1,
     minWidth: 0,
     color: color.body,
-    fontSize: font.micro,
-    lineHeight: 17,
-    paddingVertical: 2,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+    paddingVertical: space.xs,
     paddingRight: space.sm,
   },
   diffMessage: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: space.sm },

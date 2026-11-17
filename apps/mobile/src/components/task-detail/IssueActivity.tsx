@@ -14,7 +14,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
 import { compactAge } from '../../screens/TasksSurface.types'
-import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, Mail } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -63,9 +63,7 @@ export const MailSection = observer(function MailSection({
               size={12}
               color={m.status === 'unread' ? color.needsYouText : color.textFaint}
             />
-            <Text style={styles.mailFrom} numberOfLines={1}>
-              {m.fromAuthor}
-            </Text>
+            <Text style={styles.mailFrom}>{m.fromAuthor}</Text>
             {m.status === 'unread' ? <Text style={styles.unread}>UNREAD</Text> : null}
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
@@ -152,7 +150,7 @@ const EarlierActivity = observer(function EarlierActivity({
     >
       {first ? null : <View style={styles.separator} />}
       <View style={styles.gutter} />
-      <Text style={styles.earlier} numberOfLines={2}>
+      <Text style={styles.earlier}>
         {history.loading
           ? 'Loading earlier activity…'
           : history.error
@@ -196,8 +194,6 @@ function Mark({ mark }: { mark: RowMark }) {
 
 /** First letter up: the event formatter writes "moved to Review" for prose. */
 const sentence = (text: string) => (text ? text[0]?.toUpperCase() + text.slice(1) : text)
-/** A comment's first line: the row is a pointer, the full text is in the thread. */
-const firstLine = (body: string) => body.trim().split('\n')[0] ?? ''
 
 function Age({ stamp }: { stamp: string }) {
   return compactAge(relativeTime(stamp, useAgeNow(stamp)))
@@ -216,7 +212,7 @@ const EntryRow = observer(function EntryRow({
       <Row
         first={first}
         mark="resting"
-        title={firstLine(entry.body)}
+        title={entry.body.trim()}
         meta={entry.author}
         ts={entry.ts}
         selectable
@@ -285,10 +281,10 @@ function Row({
         <Mark mark={mark} />
       </View>
       <View style={styles.main}>
-        <Text style={styles.title} numberOfLines={1} selectable={selectable}>
+        <Text style={styles.title} selectable={selectable}>
           {title}
         </Text>
-        <Text style={styles.meta} numberOfLines={1}>
+        <Text style={styles.meta}>
           {meta ? `${meta} · ` : ''}
           <Age stamp={ts} />
         </Text>
@@ -323,13 +319,18 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 8, overflow: 'hidden', backgroundColor: color.groupedCard },
+  card: {
+    borderCurve: 'continuous',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
+  },
   emptyInCard: {
     ...sans(400),
     paddingHorizontal: space.md,
     paddingVertical: space.md,
     color: color.textDim,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   row: {
     minHeight: 44,
@@ -337,7 +338,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: space.md,
   },
   rowPressed: { backgroundColor: color.surfacePressed },
   separator: {
@@ -351,60 +352,58 @@ const styles = StyleSheet.create({
   gutter: { width: 14, alignItems: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4 },
   ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
-  main: { flex: 1, minWidth: 0, gap: 2 },
-  title: { ...sans(400), color: color.text, fontSize: 14, lineHeight: 20 },
-  meta: { ...sans(400), color: color.textFaint, fontSize: 12, lineHeight: 16 },
-  earlier: { ...sans(400), flex: 1, color: color.textDim, fontSize: 14 },
+  main: { flex: 1, minWidth: 0, gap: space.xs },
+  title: { ...sans(400), color: color.text, fontSize: font.small },
+  meta: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
+  earlier: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.small },
   section: {
-    paddingBottom: space.xl,
+    paddingBottom: 0,
   },
   mail: {
-    gap: 5,
+    gap: space.sm,
     marginBottom: space.sm,
     padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    borderRadius: radius.card,
     backgroundColor: color.groupedCard,
   },
   mailHead: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
   },
   mailFrom: {
-    ...mono(400),
+    ...sans(400),
     flexShrink: 1,
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   unread: {
-    ...mono(600),
+    ...sans(600),
     color: color.needsYouText,
-    fontSize: 9,
-    letterSpacing: 0.5,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    fontSize: font.tiny,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
     borderRadius: radius.xs,
     overflow: 'hidden',
     backgroundColor: color.needsYouSoft,
   },
   claimed: {
-    ...mono(400),
+    ...sans(400),
     color: color.textFaint,
-    fontSize: 9,
+    fontSize: font.tiny,
   },
   mailBody: {
     ...sans(400),
     color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
   },
   stamp: {
-    ...mono(400),
+    ...sans(400),
     marginLeft: 'auto',
     color: color.textMicro,
-    fontSize: 9.5,
+    fontSize: font.tiny,
   },
   empty: {
     ...sans(400),

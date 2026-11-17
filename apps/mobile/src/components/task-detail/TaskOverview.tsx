@@ -6,7 +6,7 @@ import { here } from '@podium/client-graph/lookup'
 import type { IssuePanelArtifact, SessionId, SessionOffer } from '@podium/model'
 import { isFinished, SESSION_WORD_LABEL } from '@podium/model/browser'
 import { type ReactNode, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Image, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { issueObserver as observer } from '../../client/issue-observer'
@@ -17,27 +17,15 @@ import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts
 import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
 import { Icon } from '../Icon'
-import { ChevronDown, ChevronRight, FileText, MessagesSquare, Play } from '../icons'
+import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
+import { WorkingMark } from '../WorkingMark'
 import { Disclosure } from './chrome'
 import { PromptSheet } from './PromptSheet'
 
-/**
- * THE TOP OF THE TASK PAGE, in the board's order: what the task is waiting on
- * (the summary and the lead session's own offer buttons), what it produced
- * (the artifact strip), and who is on it (the session rows). Activity and the
- * reference sections follow below, in `IssueScreen`.
- *
- * Nothing here is a new fact: the summary is `issue.activityNotes` (what
- * `podium issue state` writes), the buttons are the lead session's existing
- * `SessionOffer` — accepting one is the same chat send the transcript makes —
- * and the artifacts are `issue.panel.artifacts`.
- */
-
-/**
- * A reference section below Activity: a chevron header, folded until opened.
- * The fold is the page visit's own; the task page leads with what moves.
+/** Reference content stays in native grouped disclosures. The visible sections
+ * read the existing issue panel and shared session models.
  */
 export function FoldedSection({
   label,
@@ -76,9 +64,6 @@ export function GroupHeading({
 }) {
   return (
     <View style={styles.heading} accessibilityRole="header">
-      <View style={styles.headingGutter}>
-        <Icon as={ChevronDown} size={14} color={color.textFaint} />
-      </View>
       <Text style={styles.headingLabel}>{label}</Text>
       {count !== undefined ? <Text style={styles.headingCount}>{count}</Text> : null}
       <View style={styles.spacer} />
@@ -111,6 +96,7 @@ export const TaskSummary = observer(function TaskSummary({
    *  send path the page's old composer used, @mentions included). */
   onComment: (text: string) => void
 }) {
+  const { fontScale } = useWindowDimensions()
   const [failed, setFailed] = useState<string | null>(null)
   const [asking, setAsking] = useState<{
     sessionId: SessionId
@@ -138,79 +124,86 @@ export const TaskSummary = observer(function TaskSummary({
   }
 
   return (
-    <View style={styles.card} testID="task-summary">
-      {notes || headline ? (
-        <Text style={styles.summary} selectable>
-          {notes || headline}
-        </Text>
-      ) : null}
-      {
-        <View
-          style={[
-            styles.buttons,
-            !offer?.actions.length && styles.buttonsTrailing,
-            !(notes || headline) && styles.buttonsAlone,
-          ]}
-        >
-          {/* Alone in the card (no session, nothing said): a quiet line names
+    <View testID="task-summary">
+      <GroupHeading label={offer ? 'Next step' : 'Update'} />
+      <View style={styles.card}>
+        {notes ? (
+          <Text style={styles.summary} selectable>
+            {notes}
+          </Text>
+        ) : null}
+        {offer?.message && offer.message !== notes ? (
+          <Text style={[styles.summary, styles.offerMessage]} selectable>
+            {offer.message}
+          </Text>
+        ) : null}
+        {
+          <View
+            style={[
+              styles.buttons,
+              fontScale > 1.3 && styles.buttonsStacked,
+              !offer?.actions.length && styles.buttonsTrailing,
+              !(notes || headline) && styles.buttonsAlone,
+            ]}
+          >
+            {/* Alone in the card (no session, nothing said): a quiet line names
               the act beside the same compact button, as on the board. */}
-          {notes || headline ? null : (
-            <Text style={styles.aloneText} numberOfLines={1}>
-              No session yet. Comment or @mention an agent.
-            </Text>
-          )}
-          {offer?.actions.map((action, index) => (
-            <PressableScale
-              // Offer actions carry no id, and the list is fixed per offer.
-              // biome-ignore lint/suspicious/noArrayIndexKey: positional by contract
-              key={`${index}:${action.label}`}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-              accessibilityHint={action.input ? 'Asks for your feedback first' : undefined}
-              onPress={() => {
-                if (!lead) return
-                if (action.input)
-                  setAsking({ sessionId: lead.sessionId, createdAt: offer.createdAt, action })
-                else void send(lead.sessionId, offer.createdAt, action.prompt)
-              }}
-              style={({ pressed }) => [
-                styles.button,
-                styles.buttonGrow,
-                index === 0 && styles.buttonPrimary,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text
-                style={[styles.buttonText, index === 0 && styles.buttonPrimaryText]}
-                numberOfLines={1}
-              >
-                {action.label}
+            {notes || headline ? null : (
+              <Text style={styles.aloneText}>
+                No agent yet. Add a comment or @mention an agent.
               </Text>
-            </PressableScale>
-          ))}
-          {
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={lead ? 'Open chat' : 'Comment'}
-              accessibilityHint={lead ? undefined : 'Post on this task, or @mention an agent'}
-              onPress={() => (lead ? onOpenSession(lead.sessionId) : setCommenting(true))}
-              hitSlop={6}
-              style={({ pressed }) => [
-                styles.button,
-                styles.buttonSquare,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Icon as={MessagesSquare} size={16} color={color.text} />
-            </PressableScale>
-          }
-        </View>
-      }
-      {failed ? (
-        <Text style={styles.failed} accessibilityLiveRegion="polite">
-          Not sent: {failed}
-        </Text>
-      ) : null}
+            )}
+            {offer?.actions.map((action, index) => (
+              <PressableScale
+                // Offer actions carry no id, and the list is fixed per offer.
+                // biome-ignore lint/suspicious/noArrayIndexKey: positional by contract
+                key={`${index}:${action.label}`}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+                accessibilityHint={action.input ? 'Asks for your feedback first' : undefined}
+                onPress={() => {
+                  if (!lead) return
+                  if (action.input)
+                    setAsking({ sessionId: lead.sessionId, createdAt: offer.createdAt, action })
+                  else void send(lead.sessionId, offer.createdAt, action.prompt)
+                }}
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.buttonGrow,
+                  fontScale > 1.3 && styles.buttonStacked,
+                  index === 0 && styles.buttonPrimary,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text style={[styles.buttonText, index === 0 && styles.buttonPrimaryText]}>
+                  {action.label}
+                </Text>
+              </PressableScale>
+            ))}
+            {
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={lead ? 'Open chat' : 'Comment'}
+                accessibilityHint={lead ? undefined : 'Post on this task, or @mention an agent'}
+                onPress={() => (lead ? onOpenSession(lead.sessionId) : setCommenting(true))}
+                hitSlop={6}
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.buttonSquare,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Icon as={MessagesSquare} size={16} color={color.text} />
+              </PressableScale>
+            }
+          </View>
+        }
+        {failed ? (
+          <Text style={styles.failed} accessibilityLiveRegion="polite">
+            Not sent: {failed}
+          </Text>
+        ) : null}
+      </View>
       <PromptSheet
         visible={asking !== null}
         title={asking?.action.label ?? ''}
@@ -246,8 +239,8 @@ export const TaskSummary = observer(function TaskSummary({
 const STRIP = 5
 
 /**
- * The artifact strip: the first five as 72×90 thumbnails, the count, and
- * "See all", which opens the full list (`children`, the existing panel).
+ * The artifact strip: previews with wrapping labels, the count, and
+ * "See all", which opens the existing full list.
  */
 export const ArtifactStrip = observer(function ArtifactStrip({
   issue,
@@ -280,17 +273,15 @@ export const ArtifactStrip = observer(function ArtifactStrip({
         label="Artifacts"
         count={artifacts.length}
         trailing={
-          artifacts.length > STRIP || all ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={all ? 'Show fewer artifacts' : 'See all artifacts'}
-              onPress={() => setAll((open) => !open)}
-              hitSlop={8}
-              style={styles.headingAction}
-            >
-              <Text style={styles.headingActionText}>{all ? 'Show less' : 'See all'}</Text>
-            </PressableScale>
-          ) : null
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={all ? 'Show fewer artifacts' : 'See all artifacts'}
+            onPress={() => setAll((open) => !open)}
+            hitSlop={8}
+            style={styles.headingAction}
+          >
+            <Text style={styles.headingActionText}>{all ? 'Show less' : 'See all'}</Text>
+          </PressableScale>
         }
       />
       {all ? (
@@ -332,6 +323,7 @@ const Thumbnail = observer(function Thumbnail({
   onOpen: () => void
 }) {
   const { bearer } = useServerProfile()
+  const { fontScale } = useWindowDimensions()
   const [broken, setBroken] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
   const label = issueArtifactLabel(artifact)
@@ -342,7 +334,11 @@ const Thumbnail = observer(function Thumbnail({
       accessibilityLabel={url ? `Open ${label}` : label}
       disabled={!url}
       onPress={onOpen}
-      style={({ pressed }) => [styles.thumb, pressed && styles.buttonPressed]}
+      style={({ pressed }) => [
+        styles.thumb,
+        { width: 96 * Math.max(1, fontScale) },
+        pressed && styles.buttonPressed,
+      ]}
     >
       {image ? (
         <Image
@@ -354,11 +350,9 @@ const Thumbnail = observer(function Thumbnail({
       ) : (
         <View style={styles.thumbFile}>
           <Icon as={kind === 'video' ? Play : FileText} size={16} color={color.textDim} />
-          <Text style={styles.thumbLabel} numberOfLines={3}>
-            {label}
-          </Text>
         </View>
       )}
+      <Text style={styles.thumbLabel}>{label}</Text>
     </PressableScale>
   )
 })
@@ -378,13 +372,14 @@ export const TaskSessions = observer(function TaskSessions({
   sessions: readonly SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
+  const [all, setAll] = useState(false)
   if (sessions.length === 0) return null
-  const shown = sessions.slice(0, SHOWN_SESSIONS)
+  const shown = all ? sessions : sessions.slice(0, SHOWN_SESSIONS)
   const rest = sessions.length - shown.length
   return (
     <View testID="task-sessions">
       <GroupHeading
-        label={sessions.length === 1 ? 'Session' : 'Sessions'}
+        label={sessions.length === 1 ? 'Agent' : 'Agents'}
         count={sessions.length > 1 ? sessions.length : undefined}
       />
       <View style={styles.card}>
@@ -398,11 +393,16 @@ export const TaskSessions = observer(function TaskSessions({
           />
         ))}
         {rest > 0 ? (
-          <View style={styles.sessionRow}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="Show all agents"
+            onPress={() => setAll(true)}
+            style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
+          >
             <View style={styles.separator} />
             <View style={styles.gutter} />
-            <Text style={styles.sessionMeta}>{rest} more in Details</Text>
-          </View>
+            <Text style={styles.headingActionText}>Show {rest} more</Text>
+          </PressableScale>
         ) : null}
       </View>
     </View>
@@ -440,20 +440,22 @@ const TaskSessionRow = observer(function TaskSessionRow({
     >
       {!first ? <View style={styles.separator} /> : null}
       <View style={styles.gutter}>
-        <View
-          style={[
-            styles.phaseDot,
-            phase === 'working' && { backgroundColor: color.workingText },
-            phase === 'waiting' && { backgroundColor: color.needsYouText },
-          ]}
-        />
+        {phase === 'working' ? (
+          <WorkingMark size={14} />
+        ) : (
+          <View
+            style={[
+              styles.phaseDot,
+              phase === 'working' && { backgroundColor: color.workingText },
+              phase === 'waiting' && { backgroundColor: color.needsYouText },
+            ]}
+          />
+        )}
       </View>
-      <Text style={styles.sessionName} numberOfLines={1}>
-        {name}
-      </Text>
-      <Text style={styles.sessionMeta} numberOfLines={1}>
-        {meta}
-      </Text>
+      <View style={styles.sessionBody}>
+        <Text style={styles.sessionName}>{name}</Text>
+        <Text style={styles.sessionMeta}>{meta}</Text>
+      </View>
       <Icon as={ChevronRight} size={14} color={color.textFaint} />
     </PressableScale>
   )
@@ -464,88 +466,101 @@ const ON_ACCENT = adaptiveColor('#ffffff', '#16171a', '#ffffff', '#16171a')
 
 const styles = StyleSheet.create({
   heading: {
-    minHeight: 28,
-    marginTop: space.lg,
-    marginBottom: space.xs,
-    paddingHorizontal: space.md,
+    minHeight: 20,
+    marginBottom: space.sm,
+    paddingLeft: space.md + 14 + space.sm,
+    paddingRight: space.md,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
   },
-  headingGutter: { width: 14, alignItems: 'center' },
-  headingLabel: { ...sans(600), color: color.textDim, fontSize: font.tiny },
-  headingCount: { ...sans(400), color: color.textFaint, fontSize: 12 },
-  headingAction: { minHeight: 28, justifyContent: 'center' },
-  headingActionText: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
+  headingLabel: { ...sans(600), color: color.textDim, fontSize: font.tiny, flexShrink: 1 },
+  headingCount: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    fontVariant: ['tabular-nums'],
+  },
+  headingAction: { minHeight: 44, justifyContent: 'center', marginVertical: -space.sm },
+  headingActionText: { ...sans(400), color: color.accentTint, fontSize: font.small, flexShrink: 1 },
   spacer: { flex: 1 },
   card: {
     borderRadius: 8,
+    borderCurve: 'continuous',
     overflow: 'hidden',
     backgroundColor: color.groupedCard,
   },
   summary: {
     ...sans(400),
     paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    paddingBottom: space.sm,
-    color: color.textDim,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
+    paddingVertical: space.md,
+    color: color.body,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
   },
+  offerMessage: { ...sans(500) },
   buttons: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: space.sm,
     paddingHorizontal: space.md,
-    paddingTop: space.xs,
     paddingBottom: space.md,
   },
+  buttonsStacked: { flexDirection: 'column', alignItems: 'stretch' },
   button: {
-    minHeight: 32,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
+    paddingVertical: space.sm,
     borderRadius: 6,
-    backgroundColor: color.surfacePressed,
+    backgroundColor: color.tertiaryFill,
   },
   buttonsTrailing: { justifyContent: 'flex-end' },
-  buttonsAlone: { paddingTop: space.sm, paddingBottom: space.sm, alignItems: 'center' },
-  aloneText: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.tiny },
-  buttonGrow: { flex: 1 },
-  buttonSquare: { width: 44, paddingHorizontal: 0 },
+  buttonsAlone: { paddingTop: space.md, alignItems: 'center' },
+  aloneText: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.small },
+  buttonGrow: { flexGrow: 1, flexShrink: 1, flexBasis: '32%' },
+  buttonStacked: { flexGrow: 0, flexBasis: 'auto' },
+  buttonSquare: { width: 44, paddingHorizontal: 0, alignSelf: 'flex-end' },
   buttonPrimary: { backgroundColor: color.accentTint },
   buttonPressed: { opacity: 0.7 },
-  buttonText: { ...sans(500), color: color.text, fontSize: 14 },
+  buttonText: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.small,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
   buttonPrimaryText: { color: ON_ACCENT },
   failed: {
     ...sans(400),
     paddingHorizontal: space.md,
     paddingBottom: space.md,
     color: color.dangerText,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
-  strip: {
-    flexDirection: 'row',
-    gap: 6,
+  strip: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, padding: space.md },
+  thumb: { gap: space.sm },
+  thumbImage: { width: '100%', height: 88, borderRadius: 4, backgroundColor: color.tertiaryFill },
+  thumbFile: {
+    height: 88,
     padding: space.md,
-  },
-  thumb: {
-    width: 72,
-    height: 90,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: color.tertiaryFill,
     borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: color.surfacePressed,
   },
-  thumbImage: { width: '100%', height: '100%' },
-  thumbFile: { flex: 1, padding: space.sm, gap: space.xs },
-  thumbLabel: { ...sans(400), color: color.textDim, fontSize: 10, lineHeight: 13 },
+  thumbLabel: { ...sans(400), color: color.body, fontSize: font.tiny },
   sessionRow: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
+    paddingVertical: space.md,
   },
   rowPressed: { backgroundColor: color.surfacePressed },
   separator: {
@@ -558,6 +573,7 @@ const styles = StyleSheet.create({
   },
   gutter: { width: 14, alignItems: 'center' },
   phaseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.textFaint },
-  sessionName: { ...sans(400), flex: 1, minWidth: 0, color: color.text, fontSize: font.small },
-  sessionMeta: { ...sans(400), color: color.textFaint, fontSize: 12 },
+  sessionBody: { flex: 1, minWidth: 0, gap: space.xs },
+  sessionName: { ...sans(400), color: color.text, fontSize: font.body },
+  sessionMeta: { ...sans(400), color: color.textDim, fontSize: font.tiny },
 })

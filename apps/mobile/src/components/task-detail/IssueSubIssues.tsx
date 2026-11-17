@@ -11,14 +11,12 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
-import { Plus } from '../icons'
+import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
-import { FoldedSection } from './TaskOverview'
 
 /** FullDeck.buckets reads this same shared execution progress. */
 function useSubTaskCount(issue?: IssueViewModel) {
@@ -34,9 +32,10 @@ export const IssueSubIssuesSection = observer(function IssueSubIssuesSection(
 ) {
   const count = useSubTaskCount(props.issue)
   return (
-    <FoldedSection label="Sub-tasks" count={count}>
+    <View testID="issue-subtasks-section">
+      <SectionHeading label="Sub-tasks" count={count} />
       <IssueSubIssues {...props} headless />
-    </FoldedSection>
+    </View>
   )
 })
 
@@ -104,19 +103,18 @@ export const IssueSubIssues = observer(function IssueSubIssues({
     <View style={headless ? undefined : styles.section} testID="sub-issues">
       {headless ? null : <SectionHeading label="Sub-tasks" count={count} />}
       <View style={styles.card} testID="sub-issues-card">
-        {subIssues.map((child) => (
+        {subIssues.map((child, index) => (
           <SubTaskRow
             key={child.id}
             child={child}
+            first={index === 0}
             workingAgents={legacyWorkers?.get(child.id) ?? 0}
             onOpen={onOpen}
             onStatus={onStatus}
             muted={isFinished(child)}
           />
         ))}
-        {subIssues.length === 0 ? (
-          <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
-        ) : null}
+        {subIssues.length === 0 ? <Text style={styles.empty}>No sub-tasks yet.</Text> : null}
 
         {adding ? (
           <View style={styles.addRow}>
@@ -168,12 +166,14 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 const SubTaskRow = observer(function SubTaskRow({
   child,
   workingAgents,
+  first,
   onOpen,
   onStatus,
   muted,
 }: {
   child: IssueViewModel
   workingAgents: number
+  first: boolean
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
@@ -191,6 +191,7 @@ const SubTaskRow = observer(function SubTaskRow({
           : color.textFaint
   return (
     <View style={[styles.row, (muted || child.archived) && styles.rowMuted]}>
+      {first ? null : <View style={styles.separator} />}
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Change status for ${issueDisplayRef(child)}`}
@@ -199,7 +200,7 @@ const SubTaskRow = observer(function SubTaskRow({
         hitSlop={4}
         style={({ pressed }) => [styles.statusButton, pressed && styles.rowPressed]}
       >
-        <StageGlyph stage={child.stage} size={14} ground={color.bg} />
+        <StageGlyph stage={child.stage} size={18} ground={color.groupedCard} />
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
@@ -208,42 +209,40 @@ const SubTaskRow = observer(function SubTaskRow({
         scaleTo={0.995}
         style={({ pressed }) => [styles.rowBody, pressed && styles.rowPressed]}
       >
-        <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
-        <Text style={styles.title} numberOfLines={1}>
-          {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
-        </Text>
-        {child.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-        {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
+        <View style={styles.main}>
+          <Text style={styles.title}>
+            {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
+          </Text>
+          <View style={styles.meta}>
+            <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
+            {child.archived ? <Text style={styles.archived}>Archived</Text> : null}
+            {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
+          </View>
+        </View>
+        <Icon as={ChevronRight} size={14} color={color.textFaint} />
       </PressableScale>
     </View>
   )
 })
 
 const styles = StyleSheet.create({
-  section: {
-    paddingBottom: space.xl,
-  },
+  section: {},
   card: {
-    borderRadius: 8,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
     overflow: 'hidden',
     backgroundColor: color.groupedCard,
-    paddingHorizontal: space.sm,
-    paddingBottom: space.xs,
   },
-  row: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: -space.sm,
-    borderRadius: radius.md,
+  row: { minHeight: 44, flexDirection: 'row', alignItems: 'stretch' },
+  separator: {
+    position: 'absolute',
+    top: 0,
+    left: 44,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
-  statusButton: {
-    width: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-  },
+  statusButton: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   rowBody: {
     minHeight: 44,
     flex: 1,
@@ -251,93 +250,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingRight: space.sm,
-    borderRadius: radius.md,
+    paddingRight: space.md,
+    paddingVertical: space.md,
   },
-  rowMuted: {
-    opacity: 0.62,
-  },
-  rowPressed: {
-    backgroundColor: alpha(color.surface, 0.8),
-  },
-  ref: {
-    ...mono(400),
-    width: 58,
-    color: color.textFaint,
-    fontSize: 10,
-  },
-  title: {
-    ...sans(400),
-    flex: 1,
-    minWidth: 0,
-    color: color.body,
-    fontSize: font.tiny,
-  },
-  archived: {
-    ...mono(500),
-    color: color.textMicro,
-    fontSize: 9,
-    letterSpacing: 0.5,
-  },
-  state: {
-    ...mono(400),
-    fontSize: 9.5,
-  },
-  empty: {
-    ...sans(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
-    paddingVertical: space.xs,
-  },
+  main: { flex: 1, minWidth: 0, gap: space.xs },
+  meta: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  rowMuted: { opacity: 0.72 },
+  rowPressed: { backgroundColor: color.surfacePressed },
+  ref: { ...sans(400), color: color.textDim, fontSize: font.tiny },
+  title: { ...sans(400), color: color.text, fontSize: font.body },
+  archived: { ...sans(400), color: color.textDim, fontSize: font.tiny },
+  state: { ...sans(400), fontSize: font.tiny },
+  empty: { ...sans(400), color: color.textDim, fontSize: font.small, padding: space.md },
   addRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
-    marginTop: space.sm,
+    padding: space.md,
   },
   field: {
     ...sans(400),
-    flex: 1,
-    minHeight: 40,
+    flexGrow: 1,
+    minWidth: 120,
+    minHeight: 44,
     color: color.text,
-    fontSize: font.small,
+    fontSize: font.body,
     backgroundColor: color.bgSunken,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
+    borderRadius: radius.control,
     paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   addBtn: {
-    minHeight: 40,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: space.lg,
-    borderRadius: radius.md,
-    backgroundColor: color.elevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    paddingVertical: space.sm,
+    borderRadius: radius.control,
+    backgroundColor: color.tertiaryFill,
   },
-  muted: {
-    opacity: 0.5,
-  },
-  addBtnText: {
-    ...sans(600),
-    color: color.body,
-    fontSize: font.small,
-  },
+  muted: { opacity: 0.5 },
+  addBtnText: { ...sans(600), color: color.accentTint, fontSize: font.body },
   addChip: {
-    minHeight: 40,
-    alignSelf: 'flex-start',
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: space.xs,
-    paddingHorizontal: space.sm,
-    marginLeft: -space.sm,
-    borderRadius: radius.md,
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
   },
-  addChipText: {
-    ...sans(500),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
+  addChipText: { ...sans(400), color: color.accentTint, fontSize: font.body, flexShrink: 1 },
 })

@@ -1,12 +1,12 @@
-import { isFinished } from '@podium/model/browser'
-import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { alpha } from '../../theme/mix'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, radius, sans, space } from '../../theme/theme'
 import { AgentMark, kindTone, markSize } from '../AgentMark'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
@@ -85,9 +85,7 @@ export const IssueNow = observer(function IssueNow({
   // exceptions underneath it when there are any.
   const git = issue.branch ? (
     <View style={styles.gitRow}>
-      <Text style={styles.branch} numberOfLines={1}>
-        {issue.branch}
-      </Text>
+      <Text style={styles.branch}>{issue.branch}</Text>
       <GitStampLine branch={issue.branch} git={issue.gitState} />
     </View>
   ) : null
@@ -103,11 +101,7 @@ export const IssueNow = observer(function IssueNow({
             ? 'No agent is on this task.'
             : `${sessions.length} session${sessions.length === 1 ? '' : 's'} · none working`}
         </Text>
-        {issue.branch ? (
-          <Text style={styles.branch} numberOfLines={1}>
-            {issue.branch}
-          </Text>
-        ) : null}
+        {issue.branch ? <Text style={styles.branch}>{issue.branch}</Text> : null}
         <GitStampLine branch={issue.branch} git={issue.gitState} />
       </View>
     )
@@ -148,9 +142,7 @@ export const IssueNow = observer(function IssueNow({
             <View style={[styles.tile, { backgroundColor: t.bg, borderColor: alpha(t.fg, 0.4) }]}>
               <AgentMark kind={session.agentKind} size={markSize(NOW_TILE)} ink={t.fg} />
             </View>
-            <Text style={styles.name} numberOfLines={1}>
-              {sessionTitle(session)}
-            </Text>
+            <Text style={styles.name}>{sessionTitle(session)}</Text>
             {phase === 'working' ? <WorkingMark size={12} /> : <View style={styles.waitingDot} />}
             <Icon as={ChevronRight} size={14} color={color.textFaint} />
           </PressableScale>
@@ -173,26 +165,27 @@ const styles = StyleSheet.create({
   // differently from its neighbours recesses rather than lifting. A drop-shadowed
   // panel here would be the page's only floating element.
   panel: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
     // engraved is systemBackground now (POD-2387); the recess needs a fill.
-    backgroundColor: color.surface,
+    backgroundColor: color.groupedCard,
     overflow: 'hidden',
-    marginBottom: space.xl,
   },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 30,
+    minHeight: 44,
+    paddingVertical: space.sm,
+    flexWrap: 'wrap',
+    gap: space.sm,
     paddingHorizontal: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.hairline,
   },
   summary: {
-    ...mono(400),
+    ...sans(400),
     marginLeft: 'auto',
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   live: {
     color: color.workingText,
@@ -204,13 +197,13 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm + 2,
+    gap: space.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
   rowWaiting: {
     backgroundColor: color.needsYouSoft,
@@ -240,31 +233,30 @@ const styles = StyleSheet.create({
     backgroundColor: color.needsYou,
   },
   rest: {
-    ...mono(400),
+    ...sans(400),
     color: color.textMicro,
-    fontSize: font.micro,
+    fontSize: font.tiny,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
   gitRow: {
-    gap: 2,
+    gap: space.xs,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
   branch: {
-    ...mono(400),
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   quiet: {
-    gap: 3,
-    marginBottom: space.xl,
+    gap: space.xs,
   },
   quietText: {
-    ...mono(400),
+    ...sans(400),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
 })
