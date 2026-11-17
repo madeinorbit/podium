@@ -487,15 +487,17 @@ describe('upgrade rehearsal', () => {
         // in the state directory, the boot's own migration snapshot included,
         // holds a planted value any more.
         expect(after.providerKeys).toEqual([])
+        // (The provider-keys migration had already moved the workspace `apiKeys.*`
+        // secret into an `accounts` row of the first admin, POD-6360.)
         expect(
           upgraded
             .prepare(
-              "SELECT type, owner_user_id AS owner, legacy_id AS legacyId FROM credentials WHERE legacy_id IN ('managed:anthropic', 'apiKeys.openai') ORDER BY legacy_id",
+              "SELECT type, owner_user_id AS owner FROM credentials WHERE status = 'ok' ORDER BY type",
             )
             .all(),
         ).toEqual([
-          { type: 'openai.api-key', owner: 'mem_upgrade_alice', legacyId: 'apiKeys.openai' },
-          { type: 'anthropic.api-key', owner: 'mem_upgrade_alice', legacyId: 'managed:anthropic' },
+          { type: 'anthropic.api-key', owner: 'mem_upgrade_alice' },
+          { type: 'openai.api-key', owner: 'mem_upgrade_alice' },
         ])
         expect(
           readdirSync(join(output, 'state')).some((name) => name.startsWith('podium.db.backup-v')),

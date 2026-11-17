@@ -29,9 +29,9 @@ import {
   collectSources,
   NAMED_SITES,
   SCRUB_CALLERS,
+  SCRUB_MODULE,
   SECRET_PATHS,
   secretTokens,
-  SCRUB_MODULE,
 } from './audit-client-secrets'
 
 const tokens = secretTokens()
@@ -56,7 +56,8 @@ describe('the vocabulary is derived and non-empty', () => {
     // An empty vocabulary makes every census in this gate report zero findings
     // perfectly — the POD-305 "fails first if the matrix imports empty" guard.
     expect(SECRET_PATHS.length).toBeGreaterThan(0)
-    expect(tokens).toContain('apiKeys')
+    // The provider keys left the vocabulary for credentials (POD-6907).
+    expect(tokens).not.toContain('apiKeys')
     expect(tokens).toContain('linearApiKey')
     expect(tokens).toContain('telegramBotToken')
   })
@@ -92,12 +93,12 @@ describe('this gate can say NO', () => {
   it('fires on every SYNTAX FORM of a blob read, not just the dotted one', () => {
     // A detector that covers one spelling of the concept passes the others.
     const forms = [
-      'const k = settings.apiKeys.openai',
-      "const k = settings['apiKeys']['openai']",
-      'const { apiKeys } = settings',
+      'const k = settings.integrations.linearApiKey',
+      "const k = settings['integrations']['linearApiKey']",
+      'const { linearApiKey } = settings.integrations',
       'const k = s.integrations.linearApiKey',
       'const k = s.notifications.telegramBotToken',
-      'const k = `${settings.apiKeys.openai}`',
+      'const k = `${settings.integrations.linearApiKey}`',
     ]
     for (const form of forms) {
       expect(auditBlobReads(file('apps/server/src/x.ts', form), tokens), form).toHaveLength(1)
@@ -122,13 +123,15 @@ describe('this gate can say NO', () => {
 
   it('does not fire on a NAMED site, and fires when one stops naming anything', () => {
     const named = NAMED_SITES[0]?.file as string
-    expect(auditBlobReads(file(named, 'const k = settings.apiKeys.openai'), tokens)).toEqual([])
+    expect(
+      auditBlobReads(file(named, 'const k = settings.integrations.linearApiKey'), tokens),
+    ).toEqual([])
     // The ratchet's other direction: an absorbed surface must not read as
     // progress on a list nobody edited. Every site is supplied and exactly ONE
     // is emptied, so the finding names that site rather than the whole list.
     const allNaming = NAMED_SITES.map((s) => ({
       rel: s.file,
-      text: 'const k = settings.apiKeys.openai',
+      text: 'const k = settings.integrations.linearApiKey',
     }))
     expect(auditVanishedSites(allNaming, tokens)).toEqual([])
     const oneEmptied = allNaming.map((f) =>
