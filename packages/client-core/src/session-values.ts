@@ -51,6 +51,30 @@ export type SessionValueInput = {
   refLetter?: string
   refDraft?: number
   handoffTargetMachineId?: string
+  credentialId?: string | null
+  // LEGACY(remove-after: 2027-02): a session started on a managed account before credentials existed; removing it drops that read
+  accountId?: string | null
+}
+
+/**
+ * THE MACHINE'S LOGIN SPEAKS ONLY FOR A SESSION ON IT (credential management
+ * §9). A session with no credential runs on whatever its harness is signed in
+ * to on the machine, so the machine's "logged out" is its condition. A session
+ * on a credential (an API key, a subscription home, a token, another member's)
+ * never reads the machine's login: its health is the credential's.
+ */
+export function runsOnOwnLogin(session: Pick<SessionValueInput, 'credentialId' | 'accountId'>): boolean {
+  return !session.credentialId && !session.accountId
+}
+
+/** The session's condition from its machine's logged-out harnesses. */
+export function loginCondition(
+  session: Pick<SessionValueInput, 'agentKind' | 'credentialId' | 'accountId'>,
+  loggedOutHarnesses: readonly string[] | undefined,
+): 'logged-out' | undefined {
+  return runsOnOwnLogin(session) && loggedOutHarnesses?.includes(session.agentKind ?? '')
+    ? 'logged-out'
+    : undefined
 }
 export interface SessionHomes {
   /** False while the principal-bound cache has not yet caught up with the feed. */
@@ -98,7 +122,7 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
     snoozedUntil: Object.hasOwn(homes, 'userState') ? userState?.snoozedUntil : joined.snoozedUntil,
     displayRef: Object.hasOwn(homes, 'repo') ? displayRef : joined.displayRef,
     machineName: Object.hasOwn(homes, 'machine') ? machine?.name ?? '' : joined.machineName ?? '',
-    condition: Object.hasOwn(homes, 'machine') ? machine?.loggedOutHarnesses.includes(session.agentKind ?? '') ? 'logged-out' : undefined : joined.condition,
+    condition: Object.hasOwn(homes, 'machine') ? loginCondition(session, machine?.loggedOutHarnesses) : joined.condition,
     handoffTarget: Object.hasOwn(homes, 'handoffMachine') ? handoffMachine?.name : joined.handoffTarget,
   }
 }

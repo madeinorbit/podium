@@ -23,6 +23,7 @@ import {
 } from '@/features/credentials/session/RefusedLaunchBanner'
 import { SessionCredentialChip } from '@/features/credentials/session/SessionCredentialChip'
 import { SessionCredentialNotice } from '@/features/credentials/session/SessionCredentialNotice'
+import { SessionLoginBar } from './SessionLoginBar'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
@@ -979,17 +980,7 @@ export const AgentPanel = observer(function AgentPanel({
         </div>
       )}
       {session?.condition === 'logged-out' && (
-        <div
-          role="status"
-          className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
-        >
-          <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
-          <span>
-            {terminalOutlook === 'none'
-              ? 'Open a sign-in terminal to authenticate, then retry here.'
-              : 'Run its login command in this pane to continue.'}
-          </span>
-        </div>
+        <SessionLoginBar agentKind={session.agentKind} terminalOutlook={terminalOutlook} />
       )}
       {session && <SessionCredentialNotice session={session} />}
       {session && <LifecycleTransitionBar session={session} />}

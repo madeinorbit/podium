@@ -2,8 +2,11 @@
  * The credential controls on sessions (epic Task 18), with planted data and no
  * server. `?scene=` picks one: `composer`, `header`, `busy`, `outcomes`,
  * `mismatch`, `attention`, `refused`, `refused-pane`, `refused-elsewhere`,
- * `before` (the bar a refused start used to get). `?theme=light` for light.
+ * `before` (the bar a refused start used to get), `login-bar` (three sessions on
+ * a machine whose Claude Code login is out: only the one on its own login gets
+ * the "isn't logged in" bar, POD-7062). `?theme=light` for light.
  */
+import { sessionValues } from '@podium/client-core/session-values'
 import { asCredentialId, asMachineId, asSessionId, type CredentialView } from '@podium/model'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -24,6 +27,7 @@ import { SessionCredentialNoticeView } from '@/features/credentials/session/Sess
 import { sessionCredentialChoices } from '@/features/credentials/session/session-credential-facts'
 import { switchOutcome } from '@/features/credentials/session/switch-outcome'
 import { ExitedBanner } from '@/features/terminal/SessionLifecyclePanes'
+import { SessionLoginBar } from '@/features/terminal/SessionLoginBar'
 import '@/index.css'
 import '@/styles.css'
 
@@ -107,6 +111,42 @@ function Transcript() {
     <div className="p-6 text-[13px] text-text-dim">
       <p className="m-0 rounded-lg bg-secondary/50 p-3">Fix the login form validation.</p>
     </div>
+  )
+}
+
+/** One session pane's top: its header, the login bar when its condition says
+ *  so, and its credential notice. The condition is the shared session model's,
+ *  derived from the machine record exactly as the app derives it. */
+function LoginBarPane({ caption, s }: { caption: string; s: ChipSession }) {
+  const { condition } = sessionValues(s, {
+    machine: { name: 'Laptop', loggedOutHarnesses: ['claude-code'] },
+  })
+  return (
+    <section className="border-b border-hairline-soft">
+      <p className="m-0 px-[18px] pt-3 pb-1 text-[11px] text-text-faint uppercase tracking-wide">
+        {caption}
+      </p>
+      <Header>
+        <SessionCredentialChipView
+          session={s}
+          views={views}
+          accepts={accepts}
+          custodianOf={custodianOf}
+          onSwitch={onSwitch}
+        />
+      </Header>
+      {condition === 'logged-out' && (
+        <SessionLoginBar agentKind={s.agentKind} terminalOutlook="terminal" />
+      )}
+      <SessionCredentialNoticeView
+        session={s}
+        views={views}
+        accepts={accepts}
+        custodianOf={custodianOf}
+        onSwitch={onSwitch}
+        onRenew={() => {}}
+      />
+    </section>
   )
 }
 
@@ -256,6 +296,20 @@ function Scene() {
         </>
       )
     }
+    case 'login-bar':
+      return (
+        <>
+          <LoginBarPane
+            caption="Its own login · Claude Code is signed out on Laptop"
+            s={session({ credentialId: undefined })}
+          />
+          <LoginBarPane caption="An API key" s={session({ credentialId: teamKey.id })} />
+          <LoginBarPane
+            caption="A token that needs attention"
+            s={session({ credentialId: ciToken.id })}
+          />
+        </>
+      )
     case 'before':
       return (
         <>

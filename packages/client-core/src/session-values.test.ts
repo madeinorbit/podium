@@ -40,6 +40,13 @@ it('derives draft refs and harness logout condition from explicit homes', () => 
   expect(sessionValues(raw, { ...homes, machine: { name: 'Host', loggedOutHarnesses: ['claude-code'] } }).condition).toBeUndefined()
 })
 
+it('reads the machine login only for a session on its harness login (POD-7062)', () => {
+  const loggedOut = { ...homes, machine: { name: 'Host', loggedOutHarnesses: ['codex'] } }
+  for (const onCredential of [{ credentialId: 'cred_api-key' }, { credentialId: 'cred_subscription-home' }, { credentialId: 'cred_another-member' }, { accountId: 'acct_legacy' }])
+    expect(sessionValues({ ...raw, ...onCredential }, loggedOut).condition).toBeUndefined()
+  expect(sessionValues({ ...raw, credentialId: null }, loggedOut).condition).toBe('logged-out')
+})
+
 it('uses the loaded personal companion boundary for unread values', () => {
   expect(sessionValues(raw, { userStatesLoaded: false }).unread).toBe(false)
   expect(sessionValues(raw, { userStatesLoaded: true }).unread).toBe(true)

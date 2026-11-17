@@ -58,6 +58,8 @@ const shots: { name: string; query: string; act?: (page: Page) => Promise<void> 
   { name: '12-refused-start-full-pane', query: 'scene=refused-pane' },
   { name: '13-refused-start-not-on-machine', query: 'scene=refused-elsewhere' },
   { name: '14-header-switch-menu-light', query: 'scene=header&theme=light', act: openChip },
+  { name: '15-login-bar', query: 'scene=login-bar' },
+  { name: '16-login-bar-light', query: 'scene=login-bar&theme=light' },
 ]
 
 for (const shot of shots) {

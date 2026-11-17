@@ -1,10 +1,11 @@
 import { ConversationService } from '@podium/client-core/conversation'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId } from '@podium/model'
+import { asSessionId, type CredentialView } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialView } from '@/test-support/credential-view'
 import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -74,6 +75,21 @@ vi.mock('./use-session-pane-inputs', async (importOriginal) => ({
 
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
+}))
+
+// My credentials list (the request boundary of the session's credential
+// controls). Undefined: not read yet, as in a suite that never opens one.
+let credentialViews: CredentialView[] | undefined
+vi.mock('@/features/credentials/session/use-session-credentials', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/credentials/session/use-session-credentials')
+  >()),
+  useSessionCredentials: () => ({
+    views: credentialViews,
+    defaults: {},
+    custodianOf: () => 'fixture-user',
+    reload: () => {},
+  }),
 }))
 
 let storeSessions: SessionView[] = []
@@ -188,6 +204,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  credentialViews = undefined
   storeSessions = [meta({})]
   storeMachines = []
   storePanelMode = { s1: 'native' }
@@ -273,6 +290,66 @@ describe('AgentPanel panel-mode persistence', () => {
     storeSessions = [...storeSessions, meta({ sessionId: asSessionId('login-1') })]
     await render({ active: true })
     expect(stableStoreFns.navigateToSession).toHaveBeenCalledWith(asSessionId('login-1'))
+  })
+})
+
+// The "isn't logged in" bar speaks for the machine's own login (POD-7062).
+// Every session here is on a machine whose Claude Code login is OUT; the
+// fixture turns `condition: 'logged-out'` into that machine record, and the
+// pool derives each session's condition from it.
+describe('AgentPanel login bar and the session credential', () => {
+  const apiKey = credentialView({ label: 'Team key', type: 'anthropic.api-key' })
+  const subscription = credentialView({
+    label: 'Work Max',
+    type: 'anthropic.claude-login',
+    homes: [{ machineId: 'machine-1', homeId: 'h:claude-code', state: 'in' }],
+  })
+  const sick = credentialView({
+    label: 'CI token',
+    type: 'anthropic.claude-token',
+    status: 'attention',
+    statusReason: 'It expired on Nov 10.',
+  })
+  const loggedOutOn = (credentialId?: string) =>
+    meta({
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+
+  it.each([
+    ['an API key', apiKey.id],
+    ['a subscription home', subscription.id],
+    ['another member’s credential', 'cred_00000000-0000-4000-8000-0000000000ff'],
+  ])('acceptance 1: a session on %s never shows the machine login bar', async (_name, id) => {
+    credentialViews = [apiKey, subscription]
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [loggedOutOn(id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    // Nor is it pulled to the terminal to sign in: the chat preference holds.
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
+  })
+
+  it('acceptance 2: a session on its harness login that is signed out still shows the bar', async () => {
+    credentialViews = [apiKey, subscription]
+    storeSessions = [loggedOutOn()]
+    await render({ active: true })
+    expect(statusText().join(' ')).toContain("isn't logged in")
+  })
+
+  it('acceptance 3: a session on a credential that needs attention shows its notice instead', async () => {
+    credentialViews = [apiKey, sick]
+    storeSessions = [loggedOutOn(sick.id)]
+    await render({ active: true })
+    const text = statusText()
+    expect(text.join(' ')).not.toContain("isn't logged in")
+    expect(text).toContainEqual(
+      expect.stringContaining('CI token needs attention: It expired on Nov 10.'),
+    )
+    expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toContain('Renew')
   })
 })
 
