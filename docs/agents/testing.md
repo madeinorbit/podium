@@ -282,10 +282,23 @@ runs, harness commit after `bddcd1b1e0`; the leg held only the five harness file
 | Cold start (container absent) | Docker run plus initdb about 4 s when the Docker daemon answers promptly; one run under load average 220 waited 4 minutes for the daemon to create the container |
 | Lane wall time, same two database-free files, three interleaved rounds | `server-store` 7.0 to 7.8 s, `server-store-pg` 6.5 to 8.5 s: no overhead above the noise |
 
-The cost that matters, store files on Postgres against the SQLite store shard, cannot be
-measured until a store opens on Postgres (POD-6979, then the two-engine slice POD-6995). The
-design's estimate, 1.5 to 3 times the SQLite time, stands until then; the slice task
-re-measures on `read-watermarks.test.ts` and `quota-history.test.ts` and updates this table.
+**Store files on Postgres** (2026-11-17, the same host, load average 6 to 9, branch
+`issue/6995-two-engine-vertical-slice`): `read-watermarks.test.ts` and `quota-history.test.ts`
+(26 tests, 28 stores opened) through the two-engine slice's store
+(`test-support/pg-slice-tables.ts`), three interleaved rounds, one lane at a time:
+
+| What | `server-store` | `server-store-pg` |
+| --- | --- | --- |
+| Lane wall time | 10.5, 15.8, 15.5 s | 13.1, 14.6, 14.5 s |
+| Vitest `tests` time (both files) | 0.66 to 0.72 s | 3.6 to 4.2 s |
+| `quota-history.test.ts` / `read-watermarks.test.ts` | 0.55 to 0.58 s / 0.11 to 0.14 s | 2.8 to 3.5 s / 0.74 to 0.79 s |
+
+For a few files the lane's wall time is transform and import, and Postgres adds nothing above
+the noise. The tests themselves take 5 to 6 times as long: most of it is the store each test
+opens (a template clone, the slice's DDL, a pool connecting, a drop at the end, about 100 ms
+against about 15 ms on SQLite), not the statements. That is above the design's estimate of 1.5
+to 3 times, and it falls where a file opens many stores. Re-measure on a whole-shard run once
+the leg holds more files (POD-6981 replaces the slice's DDL with the migrated template).
 
 ### Explicit process, browser, rewrite, and performance lanes
 
