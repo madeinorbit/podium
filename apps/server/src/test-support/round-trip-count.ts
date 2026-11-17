@@ -136,6 +136,18 @@ export async function expectConstantRoundTrips<Fixture>(
   })
   const [smallSize, largeSize] = pin.sizes ?? [5, 200]
   const detail = describeGrowth(counts.small, counts.large)
+  // For the hosted round-trip report (docs/measurements/pod-6958-hosted-round-trips.md):
+  // the calls by kind, when asked for.
+  if (process.env.PODIUM_ROUND_TRIP_REPORT === '1') {
+    const byKind: Record<string, number> = {}
+    for (const [line, n] of counts.small.byQuery) {
+      const kind = line.slice(0, line.indexOf(':') > 0 ? line.indexOf(':') : line.length)
+      byKind[kind] = (byKind[kind] ?? 0) + n
+    }
+    console.log(
+      `ROUND-TRIP-REPORT ${JSON.stringify({ name: pin.name, roundTrips: counts.small.statements, byKind })}`,
+    )
+  }
   expect(
     counts.large.statements,
     `${pin.name}: ${counts.small.statements} round trips at ${smallSize} rows, ${counts.large.statements} at ${largeSize}\n${detail}`,
