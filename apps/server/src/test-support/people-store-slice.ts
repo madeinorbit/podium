@@ -118,6 +118,27 @@ function repositoriesOver(queries: SliceStore['queries'], tableWrites: TableWrit
   }
 }
 
+/**
+ * {@link drainedRepository}, with the writers a repository holds as fields drained as
+ * well (`users.memberRows`, `machines.recordContext`): their calls do not pass through
+ * the repository's own methods.
+ */
+function drainedWithMembers<R extends object>(
+  slice: SliceStore,
+  repository: R,
+  members: readonly (keyof R & string)[],
+): R {
+  const outer = drainedRepository(slice, repository)
+  if (slice.engine !== 'pg') return outer
+  const inner = new Map<string | symbol, unknown>(
+    members.map((key) => [key, drainedRepository(slice, repository[key] as object)]),
+  )
+  return new Proxy(outer, {
+    get: (target, key, receiver) =>
+      inner.has(key) ? inner.get(key) : Reflect.get(target, key, receiver),
+  })
+}
+
 /** The group's repositories over one workspace's slice, each drained on Postgres. */
 function sliceOver(slice: SliceStore): PeopleStoreSlice {
   const { queries } = slice
@@ -127,12 +148,12 @@ function sliceOver(slice: SliceStore): PeopleStoreSlice {
   const undrained = repositoriesOver(queries, new TableWrites())
   return {
     engine: slice.engine,
-    machines: drained(repositories.machines),
+    machines: drainedWithMembers(slice, repositories.machines, ['recordContext']),
     grants: drained(repositories.grants),
     repos: drained(repositories.repos),
     checkouts: drained(repositories.checkouts),
     accounts: drained(repositories.accounts),
-    users: drained(repositories.users),
+    users: drainedWithMembers(slice, repositories.users, ['memberRows']),
     signInCarryOver: drained(repositories.signInCarryOver),
     secrets: drained(repositories.secrets),
     settings: drained(repositories.settings),

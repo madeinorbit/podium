@@ -1,7 +1,8 @@
 /**
  * MACHINES, REPOSITORIES AND PEOPLE ARE A WORKSPACE'S (POD-6959 design 2.4, 2.5; task POD-7019).
  *
- * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
+ * Two workspaces over one database of the run's engine (`openPeopleStoreSlices`), each seeded
+ * through its own
  * repositories with its own members, machines, grants, repositories, checkouts, managed
  * accounts, old sign-ins, audit rows and agent profiles. The ids and names differ between the
  * workspaces: until the key migration (C1, POD-7024) no unique constraint includes
@@ -40,10 +41,13 @@ import {
   machinePublicKeyWire,
   signWithMachine,
 } from '@podium/runtime/machine-credential'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
-import type { SessionStore } from '../store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import {
+  openPeopleStoreSlices,
+  type WorkspacePeopleSlice,
+} from '../test-support/people-store-slice'
 import type { CheckoutRow } from './checkouts'
 import type { GrantRow } from './grants'
 
@@ -62,7 +66,7 @@ const token = (tag: Tag) => `${tag}-token`
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 const ANTHROPIC: AccountId = asAccountId('managed:anthropic')
 
-let opened: SessionStore | undefined
+let opened: WorkspacePeopleSlice | undefined
 const keyDirs: string[] = []
 
 afterEach(async () => {
@@ -71,13 +75,8 @@ afterEach(async () => {
   for (const dir of keyDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    run(...params: unknown[]): unknown
-  }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
+/** One workspace's slice of the group's repositories, over the shared database. */
+type Store = WorkspacePeopleSlice
 
 /** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
 const TABLES = [
@@ -101,23 +100,33 @@ const TABLES = [
   'agent_profiles',
 ] as const
 
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/** Each table's rows of one workspace, in one order on either engine (by their text). */
+async function rowsOf(store: Store, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) {
+    const rows = await store.all<unknown>(
+      sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${WS[tag]}`,
+    )
+    out[table] = rows
+      .map((row) => [JSON.stringify(row), row] as const)
+      .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+      .map(([, row]) => row)
+  }
+  return out
 }
 
 /** Whether `table`'s primary key leads with workspace_id: true once C1 (POD-7024) lands. */
-function keyLeadsWithWorkspace(store: SessionStore, table: string): boolean {
-  const columns = rawDb(store).prepare(`PRAGMA table_info(${table})`).all() as {
-    name: string
-    pk: number
-  }[]
-  return columns.find((column) => column.pk === 1)?.name === 'workspace_id'
+async function keyLeadsWithWorkspace(store: Store, table: string): Promise<boolean> {
+  if (store.engine === 'pg') {
+    const [first] = await store.all<{ name: string }>(
+      sql`SELECT a.attname AS name FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] WHERE i.indrelid = ${table}::regclass AND i.indisprimary`,
+    )
+    return first?.name === 'workspace_id'
+  }
+  const columns = await store.all<{ name: string; pk: number }>(
+    sql`SELECT name, pk FROM pragma_table_info(${table})`,
+  )
+  return columns.find((column) => Number(column.pk) === 1)?.name === 'workspace_id'
 }
 
 function member(tag: Tag, name: string, patch: Partial<MemberWrite> = {}): MemberWrite {
@@ -163,36 +172,21 @@ function checkout(tag: Tag, path: string, patch: Partial<CheckoutRow> = {}): Che
   }
 }
 
-function insertOldSignIn(store: SessionStore, tag: Tag, hash: string, label: string): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO client_sessions (workspace_id, token_hash, user_id, created_at, expires_at, label)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(WS[tag], hash, user(tag), AT, LATER, label)
+async function insertOldSignIn(store: Store, tag: Tag, hash: string, label: string) {
+  await store.run(
+    sql`INSERT INTO client_sessions (workspace_id, token_hash, user_id, created_at, expires_at, label)
+       VALUES (${WS[tag]}, ${hash}, ${user(tag)}, ${AT}, ${LATER}, ${label})`,
+  )
 }
 
 /** An issue row, raw: the issues repository is another task's (B2). */
-function insertIssue(store: SessionStore, tag: Tag, seq: number, profileId: string): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq,
+async function insertIssue(store: Store, tag: Tag, seq: number, profileId: string) {
+  await store.run(
+    sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq,
          title, stage, default_agent, agent_profile_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'codex', ?, ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      asIssueId(`${tag}-iss-${seq}`),
-      user(tag),
-      user(tag),
-      root(tag),
-      `${tag}-repo`,
-      seq,
-      `${tag} issue ${seq}`,
-      profileId,
-      AT,
-      AT,
-    )
+       VALUES (${WS[tag]}, ${asIssueId(`${tag}-iss-${seq}`)}, ${user(tag)}, ${user(tag)}, ${root(tag)},
+         ${`${tag}-repo`}, ${seq}, ${`${tag} issue ${seq}`}, 'backlog', 'codex', ${profileId}, ${AT}, ${AT})`,
+  )
 }
 
 /**
@@ -202,7 +196,7 @@ function insertIssue(store: SessionStore, tag: Tag, seq: number, profileId: stri
  * alice's managed key, shared with bob and sent to machine 1; old sign-ins and a carry record;
  * an audit row; an agent profile with an issue using it.
  */
-async function seed(store: SessionStore, tag: Tag): Promise<void> {
+async function seed(store: Store, tag: Tag): Promise<void> {
   const rows = store.users.memberRows
   await rows.write(member(tag, 'alice'))
   await rows.write(member(tag, 'bob'))
@@ -279,9 +273,9 @@ async function seed(store: SessionStore, tag: Tag): Promise<void> {
     revision: 1,
   })
 
-  insertOldSignIn(store, tag, `${tag}-old-login`, 'login')
-  insertOldSignIn(store, tag, `${tag}-old-mobile`, 'mobile')
-  insertOldSignIn(store, tag, `${tag}-old-upstream`, 'upstream')
+  await insertOldSignIn(store, tag, `${tag}-old-login`, 'login')
+  await insertOldSignIn(store, tag, `${tag}-old-mobile`, 'mobile')
+  await insertOldSignIn(store, tag, `${tag}-old-upstream`, 'upstream')
   await store.signInCarryOver.record({
     oldTokenHash: `${tag}-carried`,
     deviceSignInId: `${tag}-device`,
@@ -313,21 +307,21 @@ async function seed(store: SessionStore, tag: Tag): Promise<void> {
     actor: user(tag),
     now: AT,
   })
-  insertIssue(store, tag, 1, `${tag}-profile`)
+  await insertIssue(store, tag, 1, `${tag}-profile`)
 }
 
 const repoIdOf = (tag: Tag) =>
   deriveRepoId({ originUrl: origin(tag), machineId: machine(tag), path: root(tag) })
 
-async function twoSeeded(): Promise<readonly [SessionStore, SessionStore]> {
-  const stores = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+async function twoSeeded(): Promise<readonly [Store, Store]> {
+  const stores = await openPeopleStoreSlices([WS.a, WS.b])
   opened = stores[0]
   await seed(stores[0], 'a')
   await seed(stores[1], 'b')
   return stores
 }
 
-const pairs = (a: SessionStore, b: SessionStore) =>
+const pairs = (a: Store, b: Store) =>
   [
     [a, 'a'],
     [b, 'b'],
@@ -350,7 +344,7 @@ describe('every row is written under its own workspace', () => {
   it('seeds each table of the group in both workspaces, with its own rows only', async () => {
     const [a] = await twoSeeded()
     for (const tag of ['a', 'b'] as const) {
-      const rows = rowsOf(a, tag)
+      const rows = await rowsOf(a, tag)
       for (const table of TABLES) {
         expect({ table, rows: rows[table]!.length > 0 }).toEqual({ table, rows: true })
         onlyOwn(rows[table], tag)
@@ -623,7 +617,7 @@ describe('reads answer only their own workspace', () => {
 describe('writes in one workspace leave the other unchanged', () => {
   it("A's writes aimed at B's ids change nothing in B", async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     // Machines: every writer addressed at B's machine finds no row in A.
     const m = machine('b')
@@ -733,7 +727,8 @@ describe('writes in one workspace leave the other unchanged', () => {
     await carry.endForToken('b-old-mobile')
     await carry.endForMember(user('b'))
     await carry.endByLabel('login')
-    await carry.deleteExpired(`${LATER}Z`)
+    // Just after every seeded expiry, so every row of A's is expired.
+    await carry.deleteExpired(new Date(Date.parse(LATER) + 1).toISOString())
     await carry.deleteEverything()
     await a.signInCarryOver.writePeriodEndIfAbsent('a-other-end')
 
@@ -752,13 +747,13 @@ describe('writes in one workspace leave the other unchanged', () => {
     ).toBe(false)
     expect(await a.agentProfiles.delete('b-profile')).toBe(false)
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await b.signInCarryOver.periodEnd()).toBe('b-period-end')
   })
 
   it("A's own writes, upserts and deletes leave B's rows unchanged", async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     await a.users.memberRows.write(member('a', 'dave'))
     await a.users.memberRows.write(member('a', 'bob', { version: 2, role: 'admin' }))
@@ -813,9 +808,9 @@ describe('writes in one workspace leave the other unchanged', () => {
       createdAt: AT,
     })
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own rows did change: the writes reached their workspace.
-    const after = rowsOf(a, 'a')
+    const after = await rowsOf(a, 'a')
     expect(after.carried_sign_ins).toEqual([])
     expect(after.agent_profiles).toEqual([])
     expect(after.accounts).toEqual([])
@@ -824,11 +819,9 @@ describe('writes in one workspace leave the other unchanged', () => {
 
   it("the sentinel scan and the credential checks see only their own workspace's rows", async () => {
     const [a, b] = await twoSeeded()
-    rawDb(b)
-      .prepare(
-        `INSERT INTO repos (workspace_id, machine_id, path, added_at) VALUES (?, 'local', ?, ?)`,
-      )
-      .run(WS.b, '/legacy-b', AT)
+    await b.run(
+      sql`INSERT INTO repos (workspace_id, machine_id, path, added_at) VALUES (${WS.b}, 'local', ${'/legacy-b'}, ${AT})`,
+    )
     expect(await a.machines.legacyMachineSentinelSites()).toEqual([])
     expect(await b.machines.legacyMachineSentinelSites()).toEqual(['repos.machine_id'])
 
@@ -850,7 +843,7 @@ describe('writes in one workspace leave the other unchanged', () => {
     expect(await a.machines.verifyMachineSignature(machine('b'), 'hello', signature)).toBe(false)
     const next = createMachineCredential(join(dir, 'next'))
     const nextWire = machinePublicKeyWire(next)
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     expect(
       await a.machines.rotateCredential(
         machine('b'),
@@ -863,7 +856,7 @@ describe('writes in one workspace leave the other unchanged', () => {
         'rotate',
       ),
     ).toBe(false)
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
   })
 })
 
@@ -895,7 +888,7 @@ describe('one machine and one repository in both workspaces', () => {
       (await b.repos.listRepos()).filter((row) => row.repoId === sharedId).map((row) => row.path),
     ).toEqual(['/shared-b'])
 
-    if (keyLeadsWithWorkspace(a, 'repo_prefixes')) {
+    if (await keyLeadsWithWorkspace(a, 'repo_prefixes')) {
       // After C1 each workspace holds its own prefix row for the shared id.
       expect(await b.repos.prefixForRepoId(sharedId)).not.toBeNull()
       expect(await b.repos.prefixForRepoId(sharedId)).not.toBe('SHA')
@@ -904,7 +897,7 @@ describe('one machine and one repository in both workspaces', () => {
 
   it('one machine id enrolled in both workspaces is two rows with their own grants and checkouts', async () => {
     const [a, b] = await twoSeeded()
-    if (!keyLeadsWithWorkspace(a, 'machines')) {
+    if (!(await keyLeadsWithWorkspace(a, 'machines'))) {
       // Before C1 (POD-7024) the machines key is the id alone, so one id cannot have two rows.
       // What holds already: B's grants and checkouts on its own machine are B's alone.
       expect(await a.grants.loadForResource('machine', machine('b'))).toEqual([])
