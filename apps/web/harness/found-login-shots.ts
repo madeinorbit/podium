@@ -90,7 +90,11 @@ try {
         await page.getByRole('heading', { name: 'Your credentials', exact: true }).waitFor()
         const receipt = page.locator('.cn-toast-receipt').filter({ hasText: 'Saved' })
         await receipt.waitFor()
-        await page.screenshot({ path: `${output}/found-logins-receipt.png`, fullPage: true })
+        await page.screenshot({
+          path: `${output}/found-logins-receipt.png`,
+          fullPage: true,
+          animations: 'disabled',
+        })
         await receipt.getByRole('button', { name: 'Undo', exact: true }).click()
         await page.waitForFunction(() => {
           const harness = (
