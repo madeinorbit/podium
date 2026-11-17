@@ -28,7 +28,7 @@ import type {
   TaskCostState,
   TaskCostWire,
 } from '@podium/model'
-import { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+import { COST_FULL_ATTRIBUTION_HARNESS, RATE_COHORT_MIN_REPLIES } from '@podium/model'
 
 export { RATE_COHORT_MIN_REPLIES } from '@podium/model'
 
@@ -614,6 +614,24 @@ export function formatCostRounded(usd: number): string {
     return `$${(Math.round(usd / factor) * factor).toLocaleString('en-US')}`
   }
   return `$${usd.toFixed(2)}`
+}
+
+/** The desktop task inspector's estimated magnitude, including a counted zero. */
+export function approxUsd(usd: number): string {
+  if (!Number.isFinite(usd) || usd <= 0) return '≈$0'
+  return `≈${formatCostRounded(usd)}`
+}
+
+/** The task inspector's attribution wording, shared with its phone detail. */
+export function floorLabel(harnesses: readonly CostHarness[], uncostedSessionCount = 0): string {
+  const parts: string[] = []
+  const named = harnesses.some((h) => h !== COST_FULL_ATTRIBUTION_HARNESS)
+    ? costHarnessLabel(harnesses)
+    : ''
+  if (named !== '') parts.push(named)
+  if (uncostedSessionCount > 0)
+    parts.push(`${uncostedSessionCount} session${uncostedSessionCount === 1 ? '' : 's'} unread`)
+  return parts.length === 0 ? '≥ floor' : `≥ floor · ${parts.join(' · ')}`
 }
 
 /**

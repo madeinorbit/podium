@@ -31,13 +31,9 @@
  * that is a rounding, not a disagreement.
  */
 
-import {
-  costHarnessLabel,
-  formatCostExact,
-  formatCostRounded,
-  formatCostWeightRatio,
-} from '@podium/client-core/values'
-import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness } from '@podium/model/browser'
+import { approxUsd, formatCostExact, formatCostWeightRatio } from '@podium/client-core/values'
+
+export { approxUsd, floorLabel } from '@podium/client-core/values'
 
 /**
  * "≈$226", "≈$4.80" — a magnitude, three significant figures, cents only under
@@ -49,12 +45,6 @@ import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness } from '@podium/model/b
  * meta). Zero is NEVER reached through this function by a cold state — the four
  * states are words, not numbers — so a `$0` here is a real, counted zero.
  */
-export function approxUsd(usd: number): string {
-  // The nil case is this surface's, not the formatter's: a session that cost
-  // nothing still occupies a row here, and `≈$0` is the reading for it.
-  if (!Number.isFinite(usd) || usd <= 0) return '≈$0'
-  return `≈${formatCostRounded(usd)}`
-}
 
 /**
  * "$225.81", "$0" — a component figure, printed so it can be checked against the
@@ -104,26 +94,6 @@ export function rateLabel(rateVsMedian: number): string {
  * One harness gets "all X"; several get them joined, in the alphabetical order
  * the wire sends.
  */
-export function floorLabel(
-  harnesses: readonly CostHarness[],
-  /** Sessions in scope with no cost row yet — `TaskCostView.uncostedSessionCount`. */
-  uncostedSessionCount = 0,
-): string {
-  const parts: string[] = []
-  // A wholly fully-attributed task now reaches this label (its floor can come
-  // from the unread count alone) and naming that harness would state a reason
-  // that is never true, so the harness clause is drawn only when a harness
-  // without complete attribution ran (POD-4737: the model slice, not a
-  // literal — a seventh harness without full attribution is named, one with
-  // it is not).
-  const named = harnesses.some((h) => h !== COST_FULL_ATTRIBUTION_HARNESS)
-    ? costHarnessLabel(harnesses)
-    : ''
-  if (named !== '') parts.push(named)
-  if (uncostedSessionCount > 0)
-    parts.push(`${uncostedSessionCount} session${uncostedSessionCount === 1 ? '' : 's'} unread`)
-  return parts.length === 0 ? '≥ floor' : `≥ floor · ${parts.join(' · ')}`
-}
 
 /**
  * "≈$226 across 10 sessions" — the fact the ROSTER is missing, in `DockPart`'s
