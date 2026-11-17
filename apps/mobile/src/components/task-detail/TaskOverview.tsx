@@ -16,11 +16,13 @@ import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { adaptiveColor, color, font, leading, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
+import { deckWordColor } from '../deck-colors'
 import { Icon } from '../Icon'
 import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
 import { WorkingMark } from '../WorkingMark'
+import { WorkingWord } from '../WorkingWord'
 import { Disclosure } from './chrome'
 import { useDetailSize } from './detail-type'
 import { PromptSheet } from './PromptSheet'
@@ -464,7 +466,16 @@ const TaskSessionRow = observer(function TaskSessionRow({
         <Text style={styles.sessionName}>{name}</Text>
         <View style={styles.sessionMetaLine}>
           <Text style={styles.sessionMeta}>{modelName(view.agentKind, readoutModel(view))} ·</Text>
-          <Text style={styles.sessionMeta}>{SESSION_WORD_LABEL[session.word]}</Text>
+          <WorkingWord
+            active={session.word === 'working'}
+            seed={sessionId}
+            style={[
+              styles.sessionMeta,
+              session.word === 'working' && { color: deckWordColor('working') },
+            ]}
+          >
+            {SESSION_WORD_LABEL[session.word]}
+          </WorkingWord>
         </View>
       </View>
       <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
