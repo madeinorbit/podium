@@ -1,7 +1,9 @@
 # POD-6958: round trips at hosted Postgres latency
 
-As of `6bd105edd0` (`issue/6992-postgres-query-plans-and-round-trips`, on
-`integrate/6951-cloud-hosting` at `e2532166d1`), 2026-11-17. Task POD-6992, design section 2.11
+As of 2026-11-17. Round trips and timings at `6bd105edd0`
+(`issue/6992-postgres-query-plans-and-round-trips`, on `integrate/6951-cloud-hosting` at
+`e2532166d1`); query plans at `ccb4f263b3`, on `integrate/6951-cloud-hosting` at `6cff54310f`,
+which added the janitor's reads. Task POD-6992, design section 2.11
 of `docs/design/POD-6958-postgres-store-design.md`. This report feeds operator decision OD2
 (a round-trip budget before a second workspace goes live); the reductions are POD-7030.
 
@@ -111,30 +113,33 @@ The round trips themselves are exact.
 
 ## Query plans on Postgres
 
-`store/query-plan-audit.pg.test.ts` plans every Postgres definition (865 definitions, 1,114
+`store/query-plan-audit.pg.test.ts` plans every Postgres definition (886 definitions, 1,135
 statements) with `EXPLAIN (GENERIC_PLAN, FORMAT JSON)`, the plan Postgres runs a prepared
 statement on. It plans them on a clone of the template filled with 10,000 synthetic rows per
 table that grows with work (50 per small table) and analyzed. The seed's statistics follow the
 SQLite audit's picture: one workspace, every key selective, `deleted_at` mostly NULL,
-closed-set columns cycling through their CHECK lists, flags rarely set. 434 statements scan or
+closed-set columns cycling through their CHECK lists, flags rarely set. 449 statements scan or
 sort, and every one is explained, by the lists the SQLite audit has and two of its own:
 
 | List | Entries |
 |---|---:|
 | Small tables (the SQLite audit's 32, plus `sync_capture` and `lock_waiters`) | 34 tables |
-| Allowlist: the SQLite audit's entries with its reasons, plus 4 Postgres-only | 59 |
-| Whole-table reads on purpose: the SQLite audit's, plus 2 Postgres-only | 44 |
-| Query-shape debt: 4 as on SQLite, 3 Postgres index order (POD-7101) | 7 |
+| Allowlist: the SQLite audit's entries with its reasons, plus 6 Postgres-only | 67 |
+| Whole-table reads on purpose: the SQLite audit's, plus 2 Postgres-only | 47 |
+| Query-shape debt, as on SQLite | 4 |
 | The planner's cost choice, each proved: for real values, on a real data shape, or with the chosen plan barred, an index serves it | 13 |
-| INDEXED BY statements whose Postgres plan reads the hinted index on a real data shape | 6 |
+| INDEXED BY statements whose Postgres plan reads the hinted index on a real data shape, or another index that gives the same rows in the same order | 9 |
 
 Also proven there:
 
-- **INDEXED BY.** All 15 statements that name an index on SQLite read the same index on
-  Postgres, 9 of them on the seed. The other 6 read it under the data shape the hint assumes
-  (few active orders, few open trains, few worktrees; for the worktrees, through its sibling
-  partial index over the same rows), or for real parameter values: the retention prune's age
-  threshold, and the running flag, which is a bound `true`.
+- **INDEXED BY.** Of the 20 statements that name an index on SQLite, 11 read the same index
+  on Postgres on the seed. 4 read it under the data shape the hint assumes (few active orders,
+  few open trains, few worktrees; for the worktrees, through its sibling partial index over the
+  same rows). 3 read it for real parameter values: the retention prune's age threshold, the
+  janitor's feed read with the same threshold, and the running flag, which is a bound `true`. The janitor's 2 implicit
+  expiry pages read `idx_messages_delivery_order`, the stored messages in created order, because
+  Postgres takes no order from the hinted index after `expires_at IS NULL`: the same rows in the
+  same order, without a sort.
 - **Expression indexes.** No JSON-field expression index (`(col ->> 'k') COLLATE "C"`) exists in
   the baseline yet. All 6 expression indexes match the queries written for them:
   `idx_conversations_search` (GIN), `idx_issues_worktree_folded`, `idx_sessions_cwd_folded`,
@@ -151,13 +156,43 @@ Found, and fixed here:
 - `issue-listings.ts` `issueListing` with `completeParent` put the integer `1` in an `AND`, which
   Postgres refuses ("argument of AND must be type boolean"). Its Postgres form now says `TRUE`;
   the SQLite text is unchanged.
+- **NULL order.** The binding tasks write `ASC NULLS FIRST` where an order is on a nullable
+  column, to keep SQLite's order (design 2.3). A Postgres btree stores NULLs last unless told,
+  so an index on that column no longer served the order, and every read sorted. The sweep
+  covered every definition that orders NULLS FIRST, or DESC NULLS LAST.
+  - Three indexes now declare the key `NULLS FIRST`: `idx_effects_status_deadline`
+    (`effectsInStatus`, `expireDueEffects`), `idx_messages_delivery_expiry_explicit` (the
+    janitor's explicit expiry pages) and `idx_issues_repo_id_seq` (the issue listing's repo-seq
+    order). Each is a named override, `PG_INDEX_NULLS_FIRST` in
+    `migrations/pg/schema-overrides.ts`, which `scripts/generate-pg-schema.ts` renders and schema
+    parity checks both ways. The baseline is regenerated. No Postgres query orders these
+    columns ascending with NULLs last.
+  - The other clauses need no index change. `pendingSummaryOf` and `pendingSendersOf` group the
+    pending rows by sender, which no index orders on either engine. The janitor's archive and
+    worktree sweeps sort by `read_at` or `closed_at`, which no index holds on either engine (the
+    SQLite audit lists them). The conversation search orders `updated_at DESC NULLS LAST` over
+    the full-text matches, which it sorts on both engines. Changing that column's index would
+    break `recentConversations`, which reads `updated_at DESC` (NULLs first) in index order.
+  - Plans, before and after: `effectsInStatus [pending]` went from Sort (`deadline_at NULLS
+    FIRST`) over an Index Scan on `idx_effects_status_finished` to a read in index order with no
+    sort;
+    the explicit expiry pages from Sort (`expires_at NULLS FIRST, id`) over
+    `idx_messages_delivery_expiry_explicit` to that index read in order. The audit's test
+    "reads in index order where SQLite does" fails if any of them sorts again.
+- **`to_id IS NULL`, then ORDER BY a later index column.** SQLite takes `IS NULL` as an equality
+  on an index key; Postgres does not, so it takes no order from the index after it. One
+  statement has the shape: `messagesAddressedTo [no-id]` (`listMessagesFor` for the operator,
+  oldest first, up to 500). A rewrite cannot give Postgres the order without an expression, so
+  it got a Postgres-only partial index, `idx_messages_recipient_no_id` on
+  `(workspace_id, to_kind, created_at, id) WHERE to_id IS NULL`, declared in `PG_ONLY_INDEXES`.
+  - Before: `Sort (created_at, id)` over a Bitmap Heap Scan of
+    `idx_messages_recipient_time [workspace_id, to_kind, to_id IS NULL]`, which sorts every
+    message of the operator for each page.
+  - After: `Limit` over an Index Scan of `idx_messages_recipient_no_id [workspace_id, to_kind]`,
+    read in order, which stops at the page. `pendingCountOf [no-id]` counts through the same
+    index.
 
 Found, for other tasks:
-
-- **POD-7101 (filed):** `ORDER BY col NULLS FIRST`, which the binding tasks added to keep
-  SQLite's NULL order, cannot use a Postgres btree that stores NULLs last
-  (`effectsInStatus`, `expireDueEffects`), and `to_id IS NULL ORDER BY created_at` does not use
-  `idx_messages_recipient_time` for order (`messagesAddressedTo`).
 - **Constants bound as parameters** (`inArray(status, [...MESSAGE_PENDING])`, `eq(flag, true)`)
   hide their values from the generic plan, so these statements depend on Postgres keeping custom
   plans: `queuedCount`, `syncTurnRunning`. The audit proves that the custom plans use the index.
