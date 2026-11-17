@@ -664,6 +664,8 @@ describe('mobile pool work-list actions', () => {
     expect(requests).toEqual([])
     await choose('Close anyway')
     const write = await request('issues.close')
+    expect(write.input).toMatchObject({ id: TARGET, reason: 'done' })
+    expect(requests).toHaveLength(1)
     await settled()
     await settle(write)
     expect(value().issue.stage).toBe('in_progress')

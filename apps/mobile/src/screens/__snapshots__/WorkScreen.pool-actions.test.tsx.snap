@@ -50,7 +50,7 @@ exports[`mobile pool work-list actions > renames from the real prompt and keeps 
 
 exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 4`] = `"27cbec626717de8604dce52bed3166ccf5acc7ab1125c089f1b1636663ddae0d"`;
 
-exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Close anyway 1`] = `"cb24d91a545d5c5f1b461c680117bc45b24b4a1a0db9c51825f9d416428e10de"`;
+exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Close anyway 1`] = `"e733aa126445e32116792a32d1dc911e0e2742deaf044378cd41eaf25ed97889"`;
 
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Done 1`] = `"c7de95cc005f2d2ecd1ff5c3d1ed94be786eae3cadc4e5896097a051bbe89cee"`;
 
