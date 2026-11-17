@@ -1,8 +1,7 @@
 import { asAccountId, asUserId } from '@podium/model'
 import { expect, it, vi } from 'vitest'
 import { managedKeyFor } from '../modules/sessions/account-env'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 import {
   expectArmed,
   expectConstantStatements,
@@ -15,10 +14,10 @@ const provider = asAccountId('managed:anthropic')
 const earlier = asAccountId('managed:anthropic:earlier-workspace')
 
 it('resolves shared provider keys and adopted aliases in two statements at any membership size', async () => {
-  const pin: StatementPin<SessionStore> = {
+  const pin: StatementPin<PeopleStoreSlice> = {
     name: 'managed provider resolution with workspace aliases',
     setup: async (size) => {
-      const store = await openTestStore(':memory:')
+      const store = await openPeopleStoreSlice()
       for (let index = 0; index < size; index++) {
         const ownerUserId = asUserId(`mem_owner_${index}`)
         const accountKey = index === 0 ? earlier : provider
@@ -36,18 +35,21 @@ it('resolves shared provider keys and adopted aliases in two statements at any m
       }
       return store
     },
-    target: (store) => store,
-    run: (store) => managedKeyFor(store.accounts, viewer, provider),
+    target: (store) => store.probeTarget,
+    // A read, through the accounts repository NOT drained: on Postgres the drain's own
+    // statements would be counted with the reads.
+    run: (store) => managedKeyFor(store.undrained.accounts, viewer, provider),
     check: (result) =>
       expect(result).toMatchObject({ accountKey: earlier, credential: 'credential-0' }),
     teardown: (store) => store.close(),
   }
   await expectConstantStatements(pin, 2)
   await expectArmed(pin, 2, (store, size) => {
-    const original = store.accounts.sharedWith.bind(store.accounts)
-    const spy = vi.spyOn(store.accounts, 'sharedWith').mockImplementation(async (...args) => {
+    const accounts = store.undrained.accounts
+    const original = accounts.sharedWith.bind(accounts)
+    const spy = vi.spyOn(accounts, 'sharedWith').mockImplementation(async (...args) => {
       for (let index = 0; index < size; index++)
-        await store.accounts.own(asUserId(`mem_owner_${index}`), provider)
+        await accounts.own(asUserId(`mem_owner_${index}`), provider)
       return original(...args)
     })
     return () => spy.mockRestore()
