@@ -439,6 +439,8 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
     const session = asSessionId('00000000-0000-4000-8000-0000000d0015')
     const first = 'tok-FAKE-plan-first-0015'
     const second = 'tok-FAKE-plan-second-0015'
+    const from = provider.calls.length
+    const calls = () => provider.calls.slice(from)
     try {
       expect(filesUnder(home).filter((path) => path.endsWith('auth.json'))).toEqual([])
       let live = await r.start(session, provider.issue(first, 60 * MIN))
@@ -463,12 +465,12 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
         ),
       ).toBe('completed')
 
-      const answered = provider.calls.filter((c) => c.answered !== '401')
+      const answered = calls().filter((c) => c.answered !== '401')
       expect(answered.at(-1)?.answered).toBe('HELIOTROPE-47')
       expect(answered.at(-1)?.token).toBe(second)
-      expect(provider.calls.some((c) => c.token === first)).toBe(true)
+      expect(calls().some((c) => c.token === first)).toBe(true)
       // Acceptance 3: the endpoint received no request with an expired token.
-      expect(provider.calls.filter((c) => c.expired)).toEqual([])
+      expect(calls().filter((c) => c.expired)).toEqual([])
 
       // Acceptance 5: no login file, and no token anywhere in the home.
       const files = filesUnder(home)
@@ -527,6 +529,7 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
     const two = asSessionId('00000000-0000-4000-8000-000000100015')
     const before = 'tok-FAKE-plan-shared-before-0015'
     const after = 'tok-FAKE-plan-shared-after-0015'
+    const from = provider.calls.length
     try {
       const firstToken = provider.issue(before, 60 * MIN)
       let a = await r.start(one, firstToken)
@@ -548,7 +551,7 @@ describeWithCodex('Codex on a ChatGPT plan, real engine (epic Task 15)', () => {
       expect(await b.turn(ask)).toBe('completed')
       expect(provider.calls.at(-1)?.answered).toBe('VERDIGRIS-2')
       expect(provider.calls.slice(-2).map((c) => c.token)).toEqual([after, after])
-      expect(provider.calls.filter((c) => c.expired)).toEqual([])
+      expect(provider.calls.slice(from).filter((c) => c.expired)).toEqual([])
     } finally {
       await r.dispose()
     }
