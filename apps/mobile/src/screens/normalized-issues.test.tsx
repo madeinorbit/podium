@@ -8,7 +8,7 @@ import {
   type IssueUserStateWire,
   type RepoProjection,
 } from '@podium/model'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
