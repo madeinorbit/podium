@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "5c193c4c-b8ca-4b51-951b-c6908dd8745b",
+  "id": "f2153103-cc77-4958-a9b0-8dd8c3e145e6",
   "prevIds": [
-    "5083f29c-cc20-4377-8cf6-76bc001229b4"
+    "787b1c80-0d9f-4cfc-a8db-b27ef8ba755a"
   ],
   "ddl": [
     {
@@ -7714,6 +7714,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "effective_auth",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "credential_mismatch",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "login_harness",
       "entityType": "columns",
       "table": "sessions"
@@ -7865,6 +7885,26 @@
       "default": null,
       "generated": null,
       "name": "observed_effort",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "observed_mode",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "launch_posture_json",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -14745,9 +14785,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"effects\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_effects_deleted",
+      "name": "idx_effects_tombstones",
       "entityType": "indexes",
       "table": "effects"
     },
@@ -15261,9 +15301,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"issues\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_issues_deleted_at",
+      "name": "idx_issues_tombstones",
       "entityType": "indexes",
       "table": "issues"
     },
@@ -15319,9 +15359,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"issues\".\"parent_id\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_issues_parent",
+      "name": "idx_issues_children",
       "entityType": "indexes",
       "table": "issues"
     },
@@ -15508,6 +15548,28 @@
       "name": "idx_locks_holder_session",
       "entityType": "indexes",
       "table": "locks"
+    },
+    {
+      "columns": [
+        {
+          "value": "applied_at",
+          "isExpression": false
+        },
+        {
+          "value": "job_kind",
+          "isExpression": false
+        },
+        {
+          "value": "run_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_maintenance_commands_applied_at",
+      "entityType": "indexes",
+      "table": "maintenance_commands"
     },
     {
       "columns": [
@@ -16171,9 +16233,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"sessions\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_sessions_deleted_at",
+      "name": "idx_sessions_tombstones",
       "entityType": "indexes",
       "table": "sessions"
     },

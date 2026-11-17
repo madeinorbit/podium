@@ -1,11 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "5083f29c-cc20-4377-8cf6-76bc001229b4",
+  "id": "3d2cc79f-c922-462d-8ded-bfd83188255f",
   "prevIds": [
-    "5267e072-ee28-46f2-bfd4-b2309208b361",
-    "53233404-d6e6-42f9-a288-64706076dad4",
-    "b93d715b-c6cf-4748-84de-7c439dd7289b"
+    "f2153103-cc77-4958-a9b0-8dd8c3e145e6"
   ],
   "ddl": [
     {
@@ -246,6 +244,10 @@
     },
     {
       "name": "native_login_transfers",
+      "entityType": "tables"
+    },
+    {
+      "name": "notices",
       "entityType": "tables"
     },
     {
@@ -3642,6 +3644,16 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mentions",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -6172,6 +6184,126 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "recipient_user_id",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subject_kind",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subject_id",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subject_anchor",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "body",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "dedupe_key",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "read_at",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resolved_at",
+      "entityType": "columns",
+      "table": "notices"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -7706,6 +7838,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "credential_id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "effective_auth",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "credential_mismatch",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "login_harness",
       "entityType": "columns",
       "table": "sessions"
@@ -7857,6 +8019,26 @@
       "default": null,
       "generated": null,
       "name": "observed_effort",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "observed_mode",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "launch_posture_json",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -13888,6 +14070,15 @@
     },
     {
       "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "notices_pk",
+      "table": "notices",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "session_id"
       ],
       "nameExplicit": false,
@@ -14737,9 +14928,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"effects\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_effects_deleted",
+      "name": "idx_effects_tombstones",
       "entityType": "indexes",
       "table": "effects"
     },
@@ -15253,9 +15444,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"issues\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_issues_deleted_at",
+      "name": "idx_issues_tombstones",
       "entityType": "indexes",
       "table": "issues"
     },
@@ -15311,9 +15502,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"issues\".\"parent_id\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_issues_parent",
+      "name": "idx_issues_children",
       "entityType": "indexes",
       "table": "issues"
     },
@@ -15500,6 +15691,28 @@
       "name": "idx_locks_holder_session",
       "entityType": "indexes",
       "table": "locks"
+    },
+    {
+      "columns": [
+        {
+          "value": "applied_at",
+          "isExpression": false
+        },
+        {
+          "value": "job_kind",
+          "isExpression": false
+        },
+        {
+          "value": "run_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_maintenance_commands_applied_at",
+      "entityType": "indexes",
+      "table": "maintenance_commands"
     },
     {
       "columns": [
@@ -15788,6 +16001,64 @@
       "name": "idx_messaging_session_attachments_session",
       "entityType": "indexes",
       "table": "messaging_session_attachments"
+    },
+    {
+      "columns": [
+        {
+          "value": "recipient_user_id",
+          "isExpression": false
+        },
+        {
+          "value": "dedupe_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": "\"notices\".\"resolved_at\" IS NULL",
+      "origin": "manual",
+      "name": "notices_open_dedupe",
+      "entityType": "indexes",
+      "table": "notices"
+    },
+    {
+      "columns": [
+        {
+          "value": "dedupe_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_notices_dedupe_key",
+      "entityType": "indexes",
+      "table": "notices"
+    },
+    {
+      "columns": [
+        {
+          "value": "recipient_user_id",
+          "isExpression": false
+        },
+        {
+          "value": "resolved_at",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        },
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_notices_recipient_open",
+      "entityType": "indexes",
+      "table": "notices"
     },
     {
       "columns": [
@@ -16163,9 +16434,9 @@
         }
       ],
       "isUnique": false,
-      "where": null,
+      "where": "\"sessions\".\"deleted_at\" IS NOT NULL",
       "origin": "manual",
-      "name": "idx_sessions_deleted_at",
+      "name": "idx_sessions_tombstones",
       "entityType": "indexes",
       "table": "sessions"
     },

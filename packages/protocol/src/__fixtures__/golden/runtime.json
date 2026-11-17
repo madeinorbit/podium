@@ -1784,8 +1784,12 @@
         "model": "model",
         "effort": "effort",
         "held": "durable",
-        "env": {
-          "env.key": "env.env.key"
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "home",
+            "homeId": "access.delivery.homeId"
+          }
         },
         "posture": {
           "mode": {
@@ -1796,7 +1800,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"env\":{\"env.key\":\"env.env.key\"},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -2332,8 +2336,13 @@
         "model": "model",
         "effort": "effort",
         "held": "durable",
-        "env": {
-          "env.key": "env.env.key"
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "env",
+            "variable": "access.delivery.variable",
+            "secret": "access.delivery.secret"
+          }
         },
         "posture": {
           "mode": "supervised"
@@ -2342,7 +2351,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":1,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"env\":{\"env.key\":\"env.env.key\"},\"posture\":{\"mode\":\"supervised\"}}"
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":1,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}},\"posture\":{\"mode\":\"supervised\"}}"
     },
     {
       "schema": "RuntimeDurableSendRequestMessage",
@@ -2382,8 +2391,12 @@
         "model": "model",
         "effort": "effort",
         "held": "durable",
-        "env": {
-          "env.key": "env.env.key"
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "home",
+            "homeId": "access.delivery.homeId"
+          }
         },
         "posture": {
           "mode": {
@@ -2394,7 +2407,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"env\":{\"env.key\":\"env.env.key\"},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -6096,8 +6109,13 @@
         "model": "model",
         "effort": "effort",
         "held": "durable",
-        "env": {
-          "env.key": "env.env.key"
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "env",
+            "variable": "access.delivery.variable",
+            "secret": "access.delivery.secret"
+          }
         },
         "posture": {
           "mode": "supervised"
@@ -6106,7 +6124,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":1,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"env\":{\"env.key\":\"env.env.key\"},\"posture\":{\"mode\":\"supervised\"}}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":1,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}},\"posture\":{\"mode\":\"supervised\"}}"
     },
     {
       "schema": "RuntimeSendRequestMessage",
@@ -6146,8 +6164,12 @@
         "model": "model",
         "effort": "effort",
         "held": "durable",
-        "env": {
-          "env.key": "env.env.key"
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "home",
+            "homeId": "access.delivery.homeId"
+          }
         },
         "posture": {
           "mode": {
@@ -6158,7 +6180,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"env\":{\"env.key\":\"env.env.key\"},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}],\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"mcpConfig\":\"mcpConfig\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"structuredPermissions\":true,\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"timeoutMs\":2,\"model\":\"model\",\"effort\":\"effort\",\"held\":\"durable\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}},\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
     },
     {
       "schema": "RuntimeSendResultMessage",
