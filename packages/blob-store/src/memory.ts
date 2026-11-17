@@ -15,6 +15,7 @@ import {
   type BlobBody,
   BlobConditionFailed,
   type BlobCopyOptions,
+  type BlobDeleteOptions,
   type BlobGetResult,
   type BlobHead,
   type BlobListEntry,
@@ -96,7 +97,7 @@ class MemoryBlobStore implements BlobStore {
     return { size: object.bytes.byteLength, etag: object.etag }
   }
 
-  async delete(key: BlobKey): Promise<void> {
+  async delete(key: BlobKey, _opts?: BlobDeleteOptions): Promise<void> {
     this.bucket.objects.delete(this.name(key))
   }
 

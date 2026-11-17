@@ -109,6 +109,20 @@ describe('local puts', () => {
     expect(await filesUnder(join(stateDir, 'n'))).toEqual(['x', 'y'])
   })
 
+  it('fsyncs the directory after a durable delete (the default), not after a relaxed one', async () => {
+    const store = localStore()
+    await store.put(blobKey('r/x'), bytes('x'), { durable: false })
+    await store.put(blobKey('r/y'), bytes('y'), { durable: false })
+    const sync = await spyOnSync()
+    await store.delete(blobKey('r/x'))
+    expect(sync).toHaveBeenCalledTimes(1)
+    sync.mockClear()
+    await store.delete(blobKey('r/y'), { durable: false })
+    await store.delete(blobKey('r/never'))
+    expect(sync).not.toHaveBeenCalled()
+    expect(await filesUnder(join(stateDir, 'r'))).toEqual([])
+  })
+
   it('makes a new inode on every put and uses inode, size and mtime as the etag', async () => {
     const store = localStore()
     const first = await store.put(blobKey('e/x'), bytes('same'))

@@ -9,7 +9,7 @@
  * - **Atomic replace.** A put writes `.tmp-<uuid>` in the target directory and
  *   renames it over the key, so a reader sees the old bytes or the new ones.
  *   `durable` (default true) fsyncs the file before the rename and the
- *   directory after it.
+ *   directory after it; a `durable` delete fsyncs the directory after the unlink.
  * - **Conditional writes.** The etag is the file's inode, size and modification
  *   time; a replace always makes a new inode, so every put changes it. The
  *   condition check and the rename run under a per-key in-process mutex, which
@@ -38,6 +38,7 @@ import {
   type BlobBody,
   BlobConditionFailed,
   type BlobCopyOptions,
+  type BlobDeleteOptions,
   type BlobGetResult,
   type BlobHead,
   type BlobListEntry,
@@ -198,15 +199,18 @@ class LocalBlobStore implements BlobStore {
     return stats === undefined ? undefined : headOf(stats)
   }
 
-  async delete(key: BlobKey): Promise<void> {
+  async delete(key: BlobKey, opts: BlobDeleteOptions = {}): Promise<void> {
     const valid = blobKey(key)
     return this.write(() =>
       this.mutex.run(valid, async () => {
+        const path = this.path(valid)
         try {
-          await unlink(this.path(valid))
+          await unlink(path)
         } catch (error) {
           if (!isMissing(error)) throw error
+          return
         }
+        if (opts.durable ?? true) await fsyncDirectory(dirname(path))
       }),
     )
   }

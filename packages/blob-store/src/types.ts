@@ -36,6 +36,11 @@ export interface BlobCopyOptions {
   durable?: boolean
 }
 
+export interface BlobDeleteOptions {
+  /** Local disk only: fsync the directory after the unlink (default true). */
+  durable?: boolean
+}
+
 export interface BlobRange {
   offset: number
   length: number
@@ -72,7 +77,7 @@ export interface BlobStore {
   get(key: BlobKey, range?: BlobRange): Promise<BlobGetResult | undefined>
   head(key: BlobKey): Promise<BlobHead | undefined>
   /** Idempotent: deleting a missing key succeeds. */
-  delete(key: BlobKey): Promise<void>
+  delete(key: BlobKey, opts?: BlobDeleteOptions): Promise<void>
   /**
    * Every key strictly under `prefix/`, in ascending order of key bytes (what
    * S3's ListObjectsV2 returns). For sweeps, audits and conversion checks only;

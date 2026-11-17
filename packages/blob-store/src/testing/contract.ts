@@ -195,6 +195,19 @@ export function describeBlobStoreContract(
     )
 
     it(
+      'deletes with either durability, idempotently',
+      withStore(async (store) => {
+        await store.put(k('d/durable'), bytes('x'))
+        await store.put(k('d/relaxed'), bytes('y'))
+        await store.delete(k('d/durable'), { durable: true })
+        await store.delete(k('d/relaxed'), { durable: false })
+        expect(await store.head(k('d/durable'))).toBeUndefined()
+        expect(await store.head(k('d/relaxed'))).toBeUndefined()
+        await store.delete(k('d/durable'), { durable: true })
+      }),
+    )
+
+    it(
       'lists every key under the prefix in ascending byte order',
       withStore(async (store) => {
         const encoded = keySegment('native id/with spaces')

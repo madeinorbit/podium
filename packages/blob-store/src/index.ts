@@ -28,6 +28,7 @@ export {
   type BlobBody,
   BlobConditionFailed,
   type BlobCopyOptions,
+  type BlobDeleteOptions,
   type BlobGetResult,
   type BlobHead,
   type BlobListEntry,
