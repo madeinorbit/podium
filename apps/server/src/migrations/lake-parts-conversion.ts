@@ -29,7 +29,12 @@
 
 import { type FileHandle, open, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import type { BlobKey, BlobStore, PortableStateWriteFence } from '@podium/blob-store'
+import {
+  type BlobKey,
+  type BlobStore,
+  InvalidBlobKey,
+  type PortableStateWriteFence,
+} from '@podium/blob-store'
 import type { MachineId, WorkspaceId } from '@podium/model'
 import { type LakeSegment, PartedLake } from '@podium/sync'
 import type { LakeConversionArchived, LakeConversionSegment } from '../store/conversations/mirror'
@@ -98,6 +103,8 @@ export interface LakePartsConversionResult {
   absent: number
   /** Bytes moved into parts. */
   bytes: number
+  /** Row-named files left in place because their ids cannot form a lake key. */
+  unaddressable: number
 }
 
 /** The preflight found less free space than one source file needs. */
@@ -147,6 +154,7 @@ export async function convertLakeToParts(
     converted: 0,
     absent: 0,
     bytes: 0,
+    unaddressable: 0,
   }
   const marker = join(options.stateDir, LAKE_PARTS_CONVERSION_MARKER)
   if (await exists(marker)) return { ...result, skipped: true }
@@ -180,6 +188,17 @@ export async function convertLakeToParts(
   for await (const { item, kind } of work()) {
     if (kind === 'segment') result.segments += 1
     else result.archived += 1
+    try {
+      lake.incarnationKey(item.segment)
+    } catch (error) {
+      if (!(error instanceof InvalidBlobKey)) throw error
+      // The mirror cannot address these bytes either; leave the file for an operator.
+      result.unaddressable += 1
+      options.log.warn('lake file left in place: its ids cannot form a lake key', {
+        path: item.path,
+      })
+      continue
+    }
     const bytes = await convertFile(lake, options.blobs, item, runWriter)
     if (bytes === undefined) result.absent += 1
     else {
@@ -209,6 +228,7 @@ export async function convertLakeToParts(
     archived: result.archived,
     converted: result.converted,
     absent: result.absent,
+    unaddressable: result.unaddressable,
     bytes: result.bytes,
     durationMs: Date.now() - started,
   })

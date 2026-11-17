@@ -267,6 +267,25 @@ describe('the lake parts conversion', () => {
     ).toBeUndefined()
   })
 
+  it('leaves a file whose ids cannot form a lake key in place and still finishes', async () => {
+    const f = await fixture()
+    // Longer than the 158 UTF-8 bytes an encoded key segment can hold.
+    const longId = 'é'.repeat(100)
+    const bytes = bytesOf(500, 16)
+    const ordinary = bytesOf(700, 17)
+    await f.segment(longId, bytes.length)
+    await f.segment('ordinary', ordinary.length)
+    const longPath = f.legacy(`${longId}.jsonl`, bytes)
+    f.legacy('ordinary.jsonl', ordinary)
+
+    expect(await f.run()).toMatchObject({ converted: 1, unaddressable: 1 })
+    expect(readFileSync(longPath).equals(bytes)).toBe(true)
+    expect(
+      (await f.stored({ machineId, nativeId: 'ordinary', incarnation: 1 })).equals(ordinary),
+    ).toBe(true)
+    expect(existsSync(join(f.stateDir, LAKE_PARTS_CONVERSION_MARKER))).toBe(true)
+  })
+
   it('converts a source shorter than its cursor as it is', async () => {
     const f = await fixture()
     const bytes = bytesOf(1400, 15)
