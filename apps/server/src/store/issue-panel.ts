@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import {
   IssuePanelArtifactWire,
   IssuePanelDeferredWire,
@@ -7,14 +8,17 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
+import type { WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 export type PanelRecord =
@@ -27,15 +31,24 @@ const todoByIds = preparedFamily((db, t, size: number) =>
   db
     .select({ item: t.issuePanelTodos })
     .from(t.issuePanelTodos)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelTodos.issueId))
-    .where(and(inListOf(t.issuePanelTodos.id, size), isNull(t.issues.deletedAt)))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issuePanelTodos), eq(t.issues.id, t.issuePanelTodos.issueId)),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelTodos,
+        inListOf(t.issuePanelTodos.id, size),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 const todoOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.issuePanelTodos)
-    .where(inListOf(t.issuePanelTodos.issueId, size))
+    .where(inWorkspace(t.issuePanelTodos, inListOf(t.issuePanelTodos.issueId, size)))
     .orderBy(
       asc(t.issuePanelTodos.issueId),
       asc(t.issuePanelTodos.position),
@@ -47,9 +60,13 @@ const todoPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select({ item: t.issuePanelTodos })
     .from(t.issuePanelTodos)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelTodos.issueId))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issuePanelTodos), eq(t.issues.id, t.issuePanelTodos.issueId)),
+    )
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelTodos,
         isNull(t.issues.deletedAt),
         phase === 'after'
           ? gt(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'after'))
@@ -64,14 +81,20 @@ const todoNext = prepared((db, t) =>
   db
     .select({ position: sql<number>`coalesce(max(${t.issuePanelTodos.position}), -1) + 1` })
     .from(t.issuePanelTodos)
-    .where(eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issuePanelTodos,
+        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 const todoRemove = prepared((db, t) =>
   db
     .delete(t.issuePanelTodos)
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelTodos,
         eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
         eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
       ),
@@ -82,6 +105,7 @@ const todoSave = prepared((db, t) =>
   db
     .insert(t.issuePanelTodos)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       position: sql.placeholder('position'),
@@ -99,15 +123,27 @@ const artifactByIds = preparedFamily((db, t, size: number) =>
   db
     .select({ item: t.issuePanelArtifacts })
     .from(t.issuePanelArtifacts)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelArtifacts.issueId))
-    .where(and(inListOf(t.issuePanelArtifacts.id, size), isNull(t.issues.deletedAt)))
+    .innerJoin(
+      t.issues,
+      and(
+        sameWorkspace(t.issues, t.issuePanelArtifacts),
+        eq(t.issues.id, t.issuePanelArtifacts.issueId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelArtifacts,
+        inListOf(t.issuePanelArtifacts.id, size),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 const artifactOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.issuePanelArtifacts)
-    .where(inListOf(t.issuePanelArtifacts.issueId, size))
+    .where(inWorkspace(t.issuePanelArtifacts, inListOf(t.issuePanelArtifacts.issueId, size)))
     .orderBy(
       asc(t.issuePanelArtifacts.issueId),
       asc(t.issuePanelArtifacts.position),
@@ -119,9 +155,16 @@ const artifactPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select({ item: t.issuePanelArtifacts })
     .from(t.issuePanelArtifacts)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelArtifacts.issueId))
-    .where(
+    .innerJoin(
+      t.issues,
       and(
+        sameWorkspace(t.issues, t.issuePanelArtifacts),
+        eq(t.issues.id, t.issuePanelArtifacts.issueId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelArtifacts,
         isNull(t.issues.deletedAt),
         phase === 'after'
           ? gt(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'after'))
@@ -136,14 +179,20 @@ const artifactNext = prepared((db, t) =>
   db
     .select({ position: sql<number>`coalesce(max(${t.issuePanelArtifacts.position}), -1) + 1` })
     .from(t.issuePanelArtifacts)
-    .where(eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issuePanelArtifacts,
+        eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 const artifactRemove = prepared((db, t) =>
   db
     .delete(t.issuePanelArtifacts)
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelArtifacts,
         eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')),
         eq(t.issuePanelArtifacts.issueId, param(t.issuePanelArtifacts.issueId, 'issueId')),
       ),
@@ -154,6 +203,7 @@ const artifactSave = prepared((db, t) =>
   db
     .insert(t.issuePanelArtifacts)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       position: sql.placeholder('position'),
@@ -171,15 +221,27 @@ const deferredByIds = preparedFamily((db, t, size: number) =>
   db
     .select({ item: t.issuePanelDeferred })
     .from(t.issuePanelDeferred)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelDeferred.issueId))
-    .where(and(inListOf(t.issuePanelDeferred.id, size), isNull(t.issues.deletedAt)))
+    .innerJoin(
+      t.issues,
+      and(
+        sameWorkspace(t.issues, t.issuePanelDeferred),
+        eq(t.issues.id, t.issuePanelDeferred.issueId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelDeferred,
+        inListOf(t.issuePanelDeferred.id, size),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 const deferredOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.issuePanelDeferred)
-    .where(inListOf(t.issuePanelDeferred.issueId, size))
+    .where(inWorkspace(t.issuePanelDeferred, inListOf(t.issuePanelDeferred.issueId, size)))
     .orderBy(
       asc(t.issuePanelDeferred.issueId),
       asc(t.issuePanelDeferred.position),
@@ -191,9 +253,16 @@ const deferredPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select({ item: t.issuePanelDeferred })
     .from(t.issuePanelDeferred)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelDeferred.issueId))
-    .where(
+    .innerJoin(
+      t.issues,
       and(
+        sameWorkspace(t.issues, t.issuePanelDeferred),
+        eq(t.issues.id, t.issuePanelDeferred.issueId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelDeferred,
         isNull(t.issues.deletedAt),
         phase === 'after'
           ? gt(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'after'))
@@ -208,14 +277,20 @@ const deferredNext = prepared((db, t) =>
   db
     .select({ position: sql<number>`coalesce(max(${t.issuePanelDeferred.position}), -1) + 1` })
     .from(t.issuePanelDeferred)
-    .where(eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issuePanelDeferred,
+        eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 const deferredRemove = prepared((db, t) =>
   db
     .delete(t.issuePanelDeferred)
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelDeferred,
         eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')),
         eq(t.issuePanelDeferred.issueId, param(t.issuePanelDeferred.issueId, 'issueId')),
       ),
@@ -226,6 +301,7 @@ const deferredSave = prepared((db, t) =>
   db
     .insert(t.issuePanelDeferred)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       position: sql.placeholder('position'),
@@ -243,15 +319,24 @@ const stateByIds = preparedFamily((db, t, size: number) =>
   db
     .select({ item: t.issuePanelStates })
     .from(t.issuePanelStates)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelStates.id))
-    .where(and(inListOf(t.issuePanelStates.id, size), isNull(t.issues.deletedAt)))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issuePanelStates), eq(t.issues.id, t.issuePanelStates.id)),
+    )
+    .where(
+      inWorkspace(
+        t.issuePanelStates,
+        inListOf(t.issuePanelStates.id, size),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 const stateOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.issuePanelStates)
-    .where(inListOf(t.issuePanelStates.id, size))
+    .where(inWorkspace(t.issuePanelStates, inListOf(t.issuePanelStates.id, size)))
     .orderBy(asc(t.issuePanelStates.id))
     .prepare(),
 )
@@ -259,9 +344,13 @@ const statePage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select({ item: t.issuePanelStates })
     .from(t.issuePanelStates)
-    .innerJoin(t.issues, eq(t.issues.id, t.issuePanelStates.id))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issuePanelStates), eq(t.issues.id, t.issuePanelStates.id)),
+    )
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelStates,
         isNull(t.issues.deletedAt),
         phase === 'after'
           ? gt(t.issuePanelStates.id, param(t.issuePanelStates.id, 'after'))
@@ -276,6 +365,7 @@ const stateSave = prepared((db, t) =>
   db
     .insert(t.issuePanelStates)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       text: sql.placeholder('text'),
       updatedAt: sql.placeholder('updatedAt'),
@@ -290,7 +380,12 @@ const stateSave = prepared((db, t) =>
 const clearTodos = prepared((db, t) =>
   db
     .delete(t.issuePanelTodos)
-    .where(eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issuePanelTodos,
+        eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
+      ),
+    )
     .returning({ id: t.issuePanelTodos.id })
     .prepare(),
 )
@@ -299,7 +394,8 @@ const toggleTodo = prepared((db, t) =>
     .update(t.issuePanelTodos)
     .set({ done: sql.placeholder('done') })
     .where(
-      and(
+      inWorkspace(
+        t.issuePanelTodos,
         eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')),
         eq(t.issuePanelTodos.issueId, param(t.issuePanelTodos.issueId, 'issueId')),
       ),
@@ -312,29 +408,41 @@ const todoExists = prepared((db, t) =>
   db
     .select({ id: t.issuePanelTodos.id })
     .from(t.issuePanelTodos)
-    .where(eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id')))
+    .where(
+      inWorkspace(t.issuePanelTodos, eq(t.issuePanelTodos.id, param(t.issuePanelTodos.id, 'id'))),
+    )
     .prepare(),
 )
 const artifactExists = prepared((db, t) =>
   db
     .select({ id: t.issuePanelArtifacts.id })
     .from(t.issuePanelArtifacts)
-    .where(eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')))
+    .where(
+      inWorkspace(
+        t.issuePanelArtifacts,
+        eq(t.issuePanelArtifacts.id, param(t.issuePanelArtifacts.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 const deferredExists = prepared((db, t) =>
   db
     .select({ id: t.issuePanelDeferred.id })
     .from(t.issuePanelDeferred)
-    .where(eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')))
+    .where(
+      inWorkspace(
+        t.issuePanelDeferred,
+        eq(t.issuePanelDeferred.id, param(t.issuePanelDeferred.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
 /** Tables are the only home. Read grouping and ordering happen in SQL. */
 export class IssuePanelRepository {
-  private readonly db: StoreDrizzle
-  constructor(queries: StoreQueries) {
-    this.db = queries.rootDb
+  private readonly db: WorkspaceDb
+  constructor(queries: WorkspaceQueries) {
+    this.db = queries.db
   }
   /** Identity collisions are checked even under a deleted parent. */
   async hasId(kind: Exclude<IssuePanelKind, 'issuePanelState'>, id: string): Promise<boolean> {
@@ -492,7 +600,9 @@ export class IssuePanelRepository {
     id: string,
     done: boolean,
   ): Promise<IssuePanelTodoWire | undefined> {
-    return (await toggleTodo(this.db).get({ issueId, id, done })) as IssuePanelTodoWire | undefined
+    // Parsed, so the stored row's workspace_id stays out of the record.
+    const row = await toggleTodo(this.db).get({ issueId, id, done })
+    return row ? IssuePanelTodoWire.parse(row) : undefined
   }
   async *pages(kind: IssuePanelKind, pageSize = 500): AsyncGenerator<PanelRecord[]> {
     let after: string | undefined

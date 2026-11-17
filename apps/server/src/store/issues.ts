@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import type { WriteScope } from '@podium/sync'
 import { CommittedRows } from './committed-rows'
 /**
@@ -52,19 +53,24 @@ import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type {
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
+  preparedGlobal,
+  sameWorkspace,
   shapeOf,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { IssueGitStatesRepository } from './issue-git-states'
@@ -109,7 +115,7 @@ const issueRevision = prepared((db, t) =>
   db
     .select({ revision: t.issues.revision })
     .from(t.issues)
-    .where(eq(t.issues.id, param(t.issues.id, 'id')))
+    .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
     .prepare(),
 )
 
@@ -117,7 +123,7 @@ const issueById = prepared((db, t) =>
   db
     .select()
     .from(t.issues)
-    .where(eq(t.issues.id, param(t.issues.id, 'id')))
+    .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
     .prepare(),
 )
 
@@ -154,7 +160,7 @@ const issueClosureRowsOf = preparedFamily((db, t, size: number) =>
       deletedAt: t.issues.deletedAt,
     })
     .from(t.issues)
-    .where(inListOf(t.issues.id, size, 'ids'))
+    .where(inWorkspace(t.issues, inListOf(t.issues.id, size, 'ids')))
     .prepare(),
 )
 
@@ -163,7 +169,7 @@ const issuesByIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.issues)
-    .where(inListOf(t.issues.id, size, 'ids'))
+    .where(inWorkspace(t.issues, inListOf(t.issues.id, size, 'ids')))
     .prepare(),
 )
 
@@ -171,7 +177,7 @@ const liveIssueParentEdges = prepared((db, t) =>
   db
     .select({ id: t.issues.id, parentId: t.issues.parentId })
     .from(t.issues)
-    .where(isNull(t.issues.deletedAt))
+    .where(inWorkspace(t.issues, isNull(t.issues.deletedAt)))
     .prepare(),
 )
 
@@ -180,9 +186,12 @@ const issueRowsOfRepo = prepared((db, t) =>
     .select()
     .from(t.issues)
     .where(
-      or(
-        eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
-        and(isNull(t.issues.repoId), eq(t.issues.repoPath, param(t.issues.repoPath, 'repoPath'))),
+      inWorkspace(
+        t.issues,
+        or(
+          eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
+          and(isNull(t.issues.repoId), eq(t.issues.repoPath, param(t.issues.repoPath, 'repoPath'))),
+        ),
       ),
     )
     .orderBy(asc(t.issues.seq))
@@ -190,7 +199,12 @@ const issueRowsOfRepo = prepared((db, t) =>
 )
 
 const allIssueRows = prepared((db, t) =>
-  db.select().from(t.issues).orderBy(asc(t.issues.repoPath), asc(t.issues.seq)).prepare(),
+  db
+    .select()
+    .from(t.issues)
+    .where(inWorkspace(t.issues))
+    .orderBy(asc(t.issues.repoPath), asc(t.issues.seq))
+    .prepare(),
 )
 
 /**
@@ -204,9 +218,12 @@ const issueRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
     .select()
     .from(t.issues)
     .where(
-      from === 'start'
-        ? gte(t.issues.id, param(t.issues.id, 'id'))
-        : gt(t.issues.id, param(t.issues.id, 'id')),
+      inWorkspace(
+        t.issues,
+        from === 'start'
+          ? gte(t.issues.id, param(t.issues.id, 'id'))
+          : gt(t.issues.id, param(t.issues.id, 'id')),
+      ),
     )
     .orderBy(asc(t.issues.id))
     .limit(sql.placeholder('limit'))
@@ -259,12 +276,19 @@ const worktreeOwnersOf = preparedFamily((db, t, size: number) => {
   const literal = db
     .select(columns)
     .from(t.issues)
-    .where(and(inListOf(t.issues.worktreePath, size, 'lit'), isNull(t.issues.deletedAt)))
+    .where(
+      inWorkspace(
+        t.issues,
+        inListOf(t.issues.worktreePath, size, 'lit'),
+        isNull(t.issues.deletedAt),
+      ),
+    )
   const folded = db
     .select(columns)
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         inArray(
           foldedWorktreePath(t),
           Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`)),
@@ -293,7 +317,8 @@ const liveWorktreesOnMachines = preparedFamily((db, t, size: number) =>
     })
     .from(sql`${t.issues} INDEXED BY idx_issues_worktree`)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         sql`${t.issues.worktreePath} IS NOT NULL AND ${t.issues.deletedAt} IS NULL`,
         inListOf(t.issues.machineId, size, 'machineIds'),
       ),
@@ -308,14 +333,28 @@ const WORKTREE_OWNER_CHUNK = 2048
 const deleteRefLettersOf = prepared((db, t) =>
   db
     .delete(t.issueRefLetters)
-    .where(eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueRefLetters,
+        eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
 const deleteOrphanRefLetters = prepared((db, t) =>
   db
     .delete(t.issueRefLetters)
-    .where(notInArray(t.issueRefLetters.issueId, db.select({ id: t.issues.id }).from(t.issues)))
+    .where(
+      inWorkspace(
+        t.issueRefLetters,
+        notInArray(
+          t.issueRefLetters.issueId,
+          // This workspace's issues only, in the subquery's own scope.
+          db.select({ id: t.issues.id }).from(t.issues).where(inWorkspace(t.issues)),
+        ),
+      ),
+    )
     .prepare(),
 )
 
@@ -323,7 +362,7 @@ const highestSeqOfRepo = prepared((db, t) =>
   db
     .select({ m: max(t.issues.seq) })
     .from(t.issues)
-    .where(eq(t.issues.repoId, param(t.issues.repoId, 'repoId')))
+    .where(inWorkspace(t.issues, eq(t.issues.repoId, param(t.issues.repoId, 'repoId'))))
     .prepare(),
 )
 
@@ -338,6 +377,7 @@ const issueSeqRows = prepared((db, t) =>
       createdAt: t.issues.createdAt,
     })
     .from(t.issues)
+    .where(inWorkspace(t.issues))
     .prepare(),
 )
 
@@ -354,7 +394,8 @@ const issuesUnderPathOutsideRepo = prepared((db, t) =>
     .select({ id: t.issues.id, seq: t.issues.seq })
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         or(
           eq(t.issues.repoPath, param(t.issues.repoPath, 'repoPath')),
           and(
@@ -374,7 +415,8 @@ const issueIdAtSeq = prepared((db, t) =>
     .select({ id: t.issues.id })
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
         eq(t.issues.seq, param(t.issues.seq, 'seq')),
       ),
@@ -403,7 +445,7 @@ const issueRefsAtSeq = prepared((db, t) =>
   db
     .select(issueRefColumns(t))
     .from(t.issues)
-    .where(eq(t.issues.seq, param(t.issues.seq, 'seq')))
+    .where(inWorkspace(t.issues, eq(t.issues.seq, param(t.issues.seq, 'seq'))))
     .orderBy(asc(t.issues.repoPath), asc(t.issues.id))
     .prepare(),
 )
@@ -413,7 +455,7 @@ const issueRefsAtSeqsOf = preparedFamily((db, t, size: number) =>
   db
     .select(issueRefColumns(t))
     .from(t.issues)
-    .where(inListOf(t.issues.seq, size, 'seqs'))
+    .where(inWorkspace(t.issues, inListOf(t.issues.seq, size, 'seqs')))
     .orderBy(asc(t.issues.seq), asc(t.issues.repoPath), asc(t.issues.id))
     .prepare(),
 )
@@ -424,7 +466,8 @@ const issueRefAtRepoSeq = prepared((db, t) =>
     .select(issueRefColumns(t))
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         eq(t.issues.repoId, param(t.issues.repoId, 'repoId')),
         eq(t.issues.seq, param(t.issues.seq, 'seq')),
       ),
@@ -438,7 +481,9 @@ const legacyIssueRefsAtSeq = prepared((db, t) =>
   db
     .select(issueRefColumns(t))
     .from(t.issues)
-    .where(and(eq(t.issues.seq, param(t.issues.seq, 'seq')), isNull(t.issues.repoId)))
+    .where(
+      inWorkspace(t.issues, eq(t.issues.seq, param(t.issues.seq, 'seq')), isNull(t.issues.repoId)),
+    )
     .prepare(),
 )
 
@@ -483,7 +528,8 @@ const issueUserStatesOf = preparedFamily((db, t, size: number) =>
     })
     .from(t.issueUserState)
     .where(
-      and(
+      inWorkspace(
+        t.issueUserState,
         eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
         inListOf(t.issueUserState.issueId, size, 'ids'),
       ),
@@ -495,14 +541,23 @@ const refLetterNextIndex = prepared((db, t) =>
   db
     .select({ nextIndex: t.issueRefLetters.nextIndex })
     .from(t.issueRefLetters)
-    .where(eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueRefLetters,
+        eq(t.issueRefLetters.issueId, param(t.issueRefLetters.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
 const upsertRefLetterNextIndex = prepared((db, t) =>
   db
     .insert(t.issueRefLetters)
-    .values({ issueId: sql.placeholder('issueId'), nextIndex: sql.placeholder('nextIndex') })
+    .values({
+      workspaceId: WORKSPACE,
+      issueId: sql.placeholder('issueId'),
+      nextIndex: sql.placeholder('nextIndex'),
+    })
     .onConflictDoUpdate({
       target: t.issueRefLetters.issueId,
       set: { nextIndex: sql.placeholder('nextIndex') },
@@ -511,10 +566,15 @@ const upsertRefLetterNextIndex = prepared((db, t) =>
 )
 
 const issuesMissingRepoIdCount = prepared((db, t) =>
-  db.select({ c: count() }).from(t.issues).where(isNull(t.issues.repoId)).prepare(),
+  db
+    .select({ c: count() })
+    .from(t.issues)
+    .where(inWorkspace(t.issues, isNull(t.issues.repoId)))
+    .prepare(),
 )
 
-const legacyWorktreeReceipt = prepared((db, t) =>
+/** The install's upgrade mark (`meta`, an install key): the backfill runs once per database. */
+const legacyWorktreeReceipt = preparedGlobal((db, t) =>
   db
     .select({ value: t.meta.value })
     .from(t.meta)
@@ -526,11 +586,17 @@ const liveMachineById = prepared((db, t) =>
   db
     .select({ id: t.machines.id })
     .from(t.machines)
-    .where(and(eq(t.machines.id, param(t.machines.id, 'id')), isNull(t.machines.revokedAt)))
+    .where(
+      inWorkspace(
+        t.machines,
+        eq(t.machines.id, param(t.machines.id, 'id')),
+        isNull(t.machines.revokedAt),
+      ),
+    )
     .prepare(),
 )
 
-const insertLegacyWorktreeReceipt = prepared((db, t) =>
+const insertLegacyWorktreeReceipt = preparedGlobal((db, t) =>
   db
     .insert(t.meta)
     .values({ key: LEGACY_WORKTREE_MIGRATION, value: sql.placeholder('value') })
@@ -557,7 +623,8 @@ const legacyWorktreeTerms = prepared((db, t) => ({
       .select({ one: sql`1` })
       .from(t.sessions)
       .where(
-        and(
+        inWorkspace(
+          t.sessions,
           or(eq(t.sessions.issueId, t.issues.id), eq(t.sessions.refIssueId, t.issues.id)),
           ne(t.sessions.machineId, param(t.sessions.machineId, 'hostMachineId')),
         ),
@@ -571,7 +638,7 @@ const legacyWorktreeSkippedBuilder = prepared((db, t) => {
   return db
     .select({ c: count() })
     .from(t.issues)
-    .where(and(legacyWorktreeRow, contradictorySession))
+    .where(inWorkspace(t.issues, legacyWorktreeRow, contradictorySession))
 })
 
 const legacyWorktreeSkipped = prepared((db) => legacyWorktreeSkippedBuilder(db).prepare())
@@ -582,9 +649,12 @@ const labelsNamed = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.labels)
     .where(
-      inArray(
-        sql`lower(${t.labels.name})`,
-        Array.from({ length: size }, (_, index) => sql.placeholder(`name${index}`)),
+      inWorkspace(
+        t.labels,
+        inArray(
+          sql`lower(${t.labels.name})`,
+          Array.from({ length: size }, (_, index) => sql.placeholder(`name${index}`)),
+        ),
       ),
     )
     .prepare(),
@@ -595,7 +665,7 @@ const patchLabel = preparedFamily((db, t, shape: string) =>
   db
     .update(t.labels)
     .set(placeholdersFor(shape) as Partial<typeof labels.$inferInsert>)
-    .where(eq(t.labels.id, param(t.labels.id, 'id')))
+    .where(inWorkspace(t.labels, eq(t.labels.id, param(t.labels.id, 'id'))))
     .prepare(),
 )
 
@@ -603,6 +673,7 @@ const insertLabelRow = prepared((db, t) =>
   db
     .insert(t.labels)
     .values({
+      workspaceId: WORKSPACE,
       name: sql.placeholder('name'),
       color: sql.placeholder('color'),
       description: sql.placeholder('description'),
@@ -616,6 +687,7 @@ const labelVocabulary = prepared((db, t) =>
   db
     .select()
     .from(t.labels)
+    .where(inWorkspace(t.labels))
     .orderBy(asc(sql`lower(${t.labels.name})`))
     .prepare(),
 )
@@ -623,14 +695,23 @@ const labelVocabulary = prepared((db, t) =>
 const deleteLabelsOf = prepared((db, t) =>
   db
     .delete(t.issueLabels)
-    .where(eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueLabels,
+        eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
 const insertLabel = prepared((db, t) =>
   db
     .insert(t.issueLabels)
-    .values({ issueId: sql.placeholder('issueId'), labelId: sql.placeholder('labelId') })
+    .values({
+      workspaceId: WORKSPACE,
+      issueId: sql.placeholder('issueId'),
+      labelId: sql.placeholder('labelId'),
+    })
     .onConflictDoNothing()
     .prepare(),
 )
@@ -639,8 +720,16 @@ const labelsOf = prepared((db, t) =>
   db
     .select({ label: t.labels.name })
     .from(t.issueLabels)
-    .innerJoin(t.labels, eq(t.labels.id, t.issueLabels.labelId))
-    .where(eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')))
+    .innerJoin(
+      t.labels,
+      and(sameWorkspace(t.labels, t.issueLabels), eq(t.labels.id, t.issueLabels.labelId)),
+    )
+    .where(
+      inWorkspace(
+        t.issueLabels,
+        eq(t.issueLabels.issueId, param(t.issueLabels.issueId, 'issueId')),
+      ),
+    )
     .orderBy(asc(t.labels.name))
     .prepare(),
 )
@@ -650,7 +739,7 @@ const issuesOfLabels = preparedFamily((db, t, size: number) =>
   db
     .selectDistinct({ issueId: t.issueLabels.issueId })
     .from(t.issueLabels)
-    .where(inListOf(t.issueLabels.labelId, size, 'ids'))
+    .where(inWorkspace(t.issueLabels, inListOf(t.issueLabels.labelId, size, 'ids')))
     .prepare(),
 )
 
@@ -658,6 +747,7 @@ const insertDep = prepared((db, t) =>
   db
     .insert(t.issueDeps)
     .values({
+      workspaceId: WORKSPACE,
       fromId: sql.placeholder('fromId'),
       toId: sql.placeholder('toId'),
       type: sql.placeholder('type'),
@@ -670,7 +760,8 @@ const deleteDepOfType = prepared((db, t) =>
   db
     .delete(t.issueDeps)
     .where(
-      and(
+      inWorkspace(
+        t.issueDeps,
         eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
         eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
         eq(t.issueDeps.type, param(t.issueDeps.type, 'type')),
@@ -683,7 +774,8 @@ const deleteDepsBetween = prepared((db, t) =>
   db
     .delete(t.issueDeps)
     .where(
-      and(
+      inWorkspace(
+        t.issueDeps,
         eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')),
         eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')),
       ),
@@ -695,7 +787,7 @@ const depsFrom = prepared((db, t) =>
   db
     .select({ toId: t.issueDeps.toId, type: t.issueDeps.type })
     .from(t.issueDeps)
-    .where(eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId')))
+    .where(inWorkspace(t.issueDeps, eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'fromId'))))
     .orderBy(asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
@@ -704,6 +796,7 @@ const allDeps = prepared((db, t) =>
   db
     .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
     .from(t.issueDeps)
+    .where(inWorkspace(t.issueDeps))
     .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
@@ -712,7 +805,7 @@ const depsTo = prepared((db, t) =>
   db
     .select({ fromId: t.issueDeps.fromId, type: t.issueDeps.type })
     .from(t.issueDeps)
-    .where(eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId')))
+    .where(inWorkspace(t.issueDeps, eq(t.issueDeps.toId, param(t.issueDeps.toId, 'toId'))))
     .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.type))
     .prepare(),
 )
@@ -721,6 +814,7 @@ const insertComment = prepared((db, t) =>
   db
     .insert(t.issueComments)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       author: sql.placeholder('author'),
@@ -736,7 +830,12 @@ const commentsOf = prepared((db, t) =>
   db
     .select()
     .from(t.issueComments)
-    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueComments,
+        eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')),
+      ),
+    )
     .orderBy(asc(t.issueComments.createdAt), asc(t.issueComments.id))
     .prepare(),
 )
@@ -745,7 +844,7 @@ const commentById = prepared((db, t) =>
   db
     .select()
     .from(t.issueComments)
-    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
+    .where(inWorkspace(t.issueComments, eq(t.issueComments.id, param(t.issueComments.id, 'id'))))
     .prepare(),
 )
 
@@ -759,14 +858,14 @@ const editComment = prepared((db, t) =>
       editedBy: sql.placeholder('editedBy') as unknown as string,
       editedOnBehalfOf: sql.placeholder('editedOnBehalfOf') as unknown as string,
     })
-    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
+    .where(inWorkspace(t.issueComments, eq(t.issueComments.id, param(t.issueComments.id, 'id'))))
     .prepare(),
 )
 
 const deleteComment = prepared((db, t) =>
   db
     .delete(t.issueComments)
-    .where(eq(t.issueComments.id, param(t.issueComments.id, 'id')))
+    .where(inWorkspace(t.issueComments, eq(t.issueComments.id, param(t.issueComments.id, 'id'))))
     .prepare(),
 )
 
@@ -774,6 +873,7 @@ const insertTextRevision = prepared((db, t) =>
   db
     .insert(t.issueTextRevisions)
     .values({
+      workspaceId: WORKSPACE,
       issueId: sql.placeholder('issueId'),
       field: sql.placeholder('field'),
       body: sql.placeholder('body'),
@@ -793,7 +893,8 @@ const textRevisionsOf = prepared((db, t) =>
     .select()
     .from(t.issueTextRevisions)
     .where(
-      and(
+      inWorkspace(
+        t.issueTextRevisions,
         eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')),
         eq(t.issueTextRevisions.field, sql.placeholder('field')),
       ),
@@ -808,7 +909,8 @@ const anyTextRevisionOf = prepared((db, t) =>
     .select({ id: t.issueTextRevisions.id })
     .from(t.issueTextRevisions)
     .where(
-      and(
+      inWorkspace(
+        t.issueTextRevisions,
         eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')),
         eq(t.issueTextRevisions.field, sql.placeholder('field')),
       ),
@@ -821,14 +923,19 @@ const textRevisionById = prepared((db, t) =>
   db
     .select()
     .from(t.issueTextRevisions)
-    .where(eq(t.issueTextRevisions.id, sql.placeholder('id')))
+    .where(inWorkspace(t.issueTextRevisions, eq(t.issueTextRevisions.id, sql.placeholder('id'))))
     .prepare(),
 )
 
 const deleteTextRevisionsOf = prepared((db, t) =>
   db
     .delete(t.issueTextRevisions)
-    .where(eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueTextRevisions,
+        eq(t.issueTextRevisions.issueId, param(t.issueTextRevisions.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -836,7 +943,12 @@ const commentCountOf = prepared((db, t) =>
   db
     .select({ n: count() })
     .from(t.issueComments)
-    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueComments,
+        eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -844,6 +956,7 @@ const commentCountsByIssue = prepared((db, t) =>
   db
     .select({ issueId: t.issueComments.issueId, n: count() })
     .from(t.issueComments)
+    .where(inWorkspace(t.issueComments))
     .groupBy(t.issueComments.issueId)
     .prepare(),
 )
@@ -861,7 +974,12 @@ const commentSearch = preparedFamily((db, t, limited: 'all' | 'limited') => {
       createdAt: t.issueComments.createdAt,
     })
     .from(t.issueComments)
-    .where(sql`${t.issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`)
+    .where(
+      inWorkspace(
+        t.issueComments,
+        sql`${t.issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`,
+      ),
+    )
     .orderBy(desc(t.issueComments.createdAt))
   return limited === 'all' ? base.prepare() : base.limit(sql.placeholder('limit')).prepare()
 })
@@ -870,6 +988,7 @@ const insertMessage = prepared((db, t) =>
   db
     .insert(t.issueMessages)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       issueId: sql.placeholder('issueId'),
       fromAuthor: sql.placeholder('fromAuthor'),
@@ -886,7 +1005,7 @@ const messageById = prepared((db, t) =>
   db
     .select()
     .from(t.issueMessages)
-    .where(eq(t.issueMessages.id, param(t.issueMessages.id, 'id')))
+    .where(inWorkspace(t.issueMessages, eq(t.issueMessages.id, param(t.issueMessages.id, 'id'))))
     .prepare(),
 )
 
@@ -894,7 +1013,12 @@ const messagesOf = prepared((db, t) =>
   db
     .select()
     .from(t.issueMessages)
-    .where(eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueMessages,
+        eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
+      ),
+    )
     .orderBy(asc(t.issueMessages.createdAt), asc(t.issueMessages.id))
     .prepare(),
 )
@@ -904,7 +1028,8 @@ const messagesOfWithStatus = prepared((db, t) =>
     .select()
     .from(t.issueMessages)
     .where(
-      and(
+      inWorkspace(
+        t.issueMessages,
         eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
         eq(t.issueMessages.status, param(t.issueMessages.status, 'status')),
       ),
@@ -918,7 +1043,8 @@ const unreadMessageCountOf = prepared((db, t) =>
     .select({ n: count() })
     .from(t.issueMessages)
     .where(
-      and(
+      inWorkspace(
+        t.issueMessages,
         eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
         eq(t.issueMessages.status, 'unread'),
       ),
@@ -932,7 +1058,8 @@ const markMessageRead = prepared((db, t) =>
     .update(t.issueMessages)
     .set({ status: 'read' })
     .where(
-      and(
+      inWorkspace(
+        t.issueMessages,
         eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
         eq(t.issueMessages.id, param(t.issueMessages.id, 'id')),
         eq(t.issueMessages.status, 'unread'),
@@ -945,6 +1072,7 @@ const upsertMessageReadAt = prepared((db, t) =>
   db
     .insert(t.issueMessageUserState)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       issueMessageId: sql.placeholder('issueMessageId'),
       readAt: sql.placeholder('readAt'),
@@ -963,7 +1091,12 @@ const messageReadAtOf = prepared((db, t) =>
       readAt: t.issueMessageUserState.readAt,
     })
     .from(t.issueMessageUserState)
-    .where(eq(t.issueMessageUserState.userId, param(t.issueMessageUserState.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.issueMessageUserState,
+        eq(t.issueMessageUserState.userId, param(t.issueMessageUserState.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -979,14 +1112,23 @@ const issueUserStateFeedColumns = (t: StoreTables) => ({
 })
 
 const allIssueUserStateRows = prepared((db, t) =>
-  db.select(issueUserStateFeedColumns(t)).from(t.issueUserState).prepare(),
+  db
+    .select(issueUserStateFeedColumns(t))
+    .from(t.issueUserState)
+    .where(inWorkspace(t.issueUserState))
+    .prepare(),
 )
 
 const issueUserStateRowsOf = prepared((db, t) =>
   db
     .select(issueUserStateFeedColumns(t))
     .from(t.issueUserState)
-    .where(eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueUserState,
+        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1002,7 +1144,8 @@ const issueUserStateOne = prepared((db, t) =>
     })
     .from(t.issueUserState)
     .where(
-      and(
+      inWorkspace(
+        t.issueUserState,
         eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
         eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
       ),
@@ -1014,7 +1157,8 @@ const deleteIssueUserStateOne = prepared((db, t) =>
   db
     .delete(t.issueUserState)
     .where(
-      and(
+      inWorkspace(
+        t.issueUserState,
         eq(t.issueUserState.userId, param(t.issueUserState.userId, 'userId')),
         eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
       ),
@@ -1026,6 +1170,7 @@ const upsertIssueUserState = prepared((db, t) =>
   db
     .insert(t.issueUserState)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       issueId: sql.placeholder('issueId'),
       readAt: sql.placeholder('readAt'),
@@ -1052,7 +1197,12 @@ const upsertIssueUserState = prepared((db, t) =>
 const deleteIssueUserStateOf = prepared((db, t) =>
   db
     .delete(t.issueUserState)
-    .where(eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueUserState,
+        eq(t.issueUserState.issueId, param(t.issueUserState.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1066,7 +1216,8 @@ const claimMessage = prepared((db, t) =>
       claimedAt: sql.placeholder('claimedAt'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.issueMessages,
         eq(t.issueMessages.id, param(t.issueMessages.id, 'id')),
         ne(t.issueMessages.status, 'claimed'),
       ),
@@ -1077,7 +1228,12 @@ const claimMessage = prepared((db, t) =>
 const deleteMessagesOf = prepared((db, t) =>
   db
     .delete(t.issueMessages)
-    .where(eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueMessages,
+        eq(t.issueMessages.issueId, param(t.issueMessages.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1085,9 +1241,12 @@ const deleteDepsTouching = prepared((db, t) =>
   db
     .delete(t.issueDeps)
     .where(
-      or(
-        eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'issueId')),
-        eq(t.issueDeps.toId, param(t.issueDeps.toId, 'issueId')),
+      inWorkspace(
+        t.issueDeps,
+        or(
+          eq(t.issueDeps.fromId, param(t.issueDeps.fromId, 'issueId')),
+          eq(t.issueDeps.toId, param(t.issueDeps.toId, 'issueId')),
+        ),
       ),
     )
     .prepare(),
@@ -1096,7 +1255,12 @@ const deleteDepsTouching = prepared((db, t) =>
 const deleteCommentsOf = prepared((db, t) =>
   db
     .delete(t.issueComments)
-    .where(eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')))
+    .where(
+      inWorkspace(
+        t.issueComments,
+        eq(t.issueComments.issueId, param(t.issueComments.issueId, 'issueId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1376,7 +1540,7 @@ export class IssuesRepository {
       perOperation: true,
     },
   )
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -1392,16 +1556,16 @@ export class IssuesRepository {
    * `prepared` would be.
    */
   private readonly issueWrites: {
-    upsert?: (db: StoreDrizzle, shape: string) => IssueRowsWrite
-    shippingStage?: (db: StoreDrizzle) => IssueRowsWrite
-    remove?: (db: StoreDrizzle) => IssueRowsWrite
-    seq?: (db: StoreDrizzle) => IssueRowsWrite
-    repoIdAndSeq?: (db: StoreDrizzle) => IssueRowsWrite
-    legacyMachine?: (db: StoreDrizzle) => IssueRowsWrite
+    upsert?: (db: WorkspaceDb, shape: string) => IssueRowsWrite
+    shippingStage?: (db: WorkspaceDb) => IssueRowsWrite
+    remove?: (db: WorkspaceDb) => IssueRowsWrite
+    seq?: (db: WorkspaceDb) => IssueRowsWrite
+    repoIdAndSeq?: (db: WorkspaceDb) => IssueRowsWrite
+    legacyMachine?: (db: WorkspaceDb) => IssueRowsWrite
   } = {}
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (
       repoPath: string,
@@ -1416,20 +1580,20 @@ export class IssuesRepository {
     // spans (POD-6189, operation-loader.ts). Deleting an issue cascades to its
     // markers, so the marker loader follows the issue feed too.
     this.committed.subscribe(() => this.rowsWritten())
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
-   * The query layer. `StoreQueries` is wiring and is named here and nowhere else
+   * The query layer. `WorkspaceQueries` is wiring and is named here and nowhere else
    * (spec rule 34), so a call site reads as a query.
    *
    * A GETTER, not a field (rule 34a): once transaction routing is ambient
    * (rule 35) this resolves the ENCLOSING transaction on every access, and a
    * field frozen at construction could never do that. B1 changes this one line.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
@@ -1664,7 +1828,10 @@ export class IssuesRepository {
         })
       return db
         .insert(t.issues)
-        .values(placeholders as unknown as typeof issues.$inferInsert)
+        .values({
+          ...placeholders,
+          workspaceId: WORKSPACE,
+        } as unknown as typeof issues.$inferInsert)
         .onConflictDoUpdate({
           target: t.issues.id,
           set: set as unknown as Partial<typeof issues.$inferInsert>,
@@ -1719,7 +1886,8 @@ export class IssuesRepository {
           revision: sql`COALESCE(${t.issues.revision}, 0) + 1`,
         })
         .where(
-          and(
+          inWorkspace(
+            t.issues,
             eq(t.issues.id, param(t.issues.id, 'id')),
             eq(t.issues.stage, param(t.issues.stage, 'expectedStage')),
             isNull(t.issues.deletedAt),
@@ -2319,7 +2487,7 @@ export class IssuesRepository {
     const remove = (this.issueWrites.remove ??= prepared((db, t) =>
       db
         .delete(t.issues)
-        .where(eq(t.issues.id, param(t.issues.id, 'id')))
+        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
         .returning()
         .prepare(),
     ))
@@ -2403,7 +2571,7 @@ export class IssuesRepository {
       db
         .update(t.issues)
         .set({ seq: sql.placeholder('seq') })
-        .where(eq(t.issues.id, param(t.issues.id, 'id')))
+        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
         .returning()
         .prepare(),
     ))
@@ -2443,7 +2611,7 @@ export class IssuesRepository {
       db
         .update(t.issues)
         .set({ repoId: sql.placeholder('repoId'), seq: sql.placeholder('seq') })
-        .where(eq(t.issues.id, param(t.issues.id, 'id')))
+        .where(inWorkspace(t.issues, eq(t.issues.id, param(t.issues.id, 'id'))))
         .returning()
         .prepare(),
     ))
@@ -2520,7 +2688,7 @@ export class IssuesRepository {
         return db
           .update(t.issues)
           .set({ machineId: sql.placeholder('hostMachineId') })
-          .where(and(legacyWorktreeRow, not(contradictorySession)))
+          .where(inWorkspace(t.issues, legacyWorktreeRow, not(contradictorySession)))
           .returning()
           .prepare()
       }))
@@ -2544,7 +2712,9 @@ export class IssuesRepository {
    * The host machine is a placeholder in both, so the text does not depend on it.
    */
   legacyWorktreeContradictionSql(_hostMachineId: MachineId): string {
-    return legacyWorktreeSkippedBuilder(this.db).toSQL().sql
+    // Rendered on the handle's drizzle instance, never run: a workspace view
+    // binds statements only, and this reads the builder's text.
+    return legacyWorktreeSkippedBuilder(this.db.drizzle).toSQL().sql
   }
 
   // ---- labels ----

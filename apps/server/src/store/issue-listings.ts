@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * ISSUE LISTINGS IN SQL (POD-6191, part of the issue map removal POD-6158).
  *
@@ -35,14 +36,22 @@ import {
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { StoreTables } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, preparedFamily } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  preparedFamily,
+  sameWorkspace,
+} from './executor/sync-drizzle'
 
 /** Board stages a ready queue may hold (`isReadyIssueStage` over the enum). */
 const READY_STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done'] as const
 
 /** The columns these fragments read: the table or an alias of it. */
 type IssueColumns = Record<
-  'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt',
+  'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt' | 'workspaceId',
   Column
 >
 
@@ -61,7 +70,9 @@ const blocker = (t: StoreTables) => alias(t.issues, 'blocker')
  *  (`isIssueBlocked`). A deleted target still blocks while open; a target
  *  whose row is gone does not. */
 function blockedOf(t: StoreTables, table: IssueColumns): SQL {
-  return sql`EXISTS (SELECT 1 FROM ${t.issueDeps} INNER JOIN ${sql.raw('"issues" "blocker"')} ON ${blocker(t).id} = ${t.issueDeps.toId} WHERE ${t.issueDeps.fromId} = ${table.id} AND ${t.issueDeps.type} = 'blocked-by' AND NOT ${closedOf(blocker(t))})`
+  // Each table in its own scope: the edge in the outer row's workspace, the
+  // blocker in the edge's.
+  return sql`EXISTS (SELECT 1 FROM ${t.issueDeps} INNER JOIN ${sql.raw('"issues" "blocker"')} ON ${blocker(t).workspaceId} = ${t.issueDeps.workspaceId} AND ${blocker(t).id} = ${t.issueDeps.toId} WHERE ${t.issueDeps.workspaceId} = ${table.workspaceId} AND ${t.issueDeps.fromId} = ${table.id} AND ${t.issueDeps.type} = 'blocked-by' AND NOT ${closedOf(blocker(t))})`
 }
 
 const child = (t: StoreTables) => alias(t.issues, 'child')
@@ -156,7 +167,7 @@ function parseListingKey(key: string): IssueListingShape {
 function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined {
   // The boot load's structural quarantine (`structurallySound` in issues.ts):
   // a corrupt row counts in no listing, as it was in no map.
-  const where: SQL[] = [
+  const where: (SQL | undefined)[] = [
     sql`${t.issues.id} IS NOT NULL AND ${t.issues.repoPath} IS NOT NULL AND ${t.issues.stage} IS NOT NULL AND ${t.issues.title} IS NOT NULL`,
   ]
   if (shape.repo) where.push(eq(t.issues.repoId, param(t.issues.repoId, 'repoId')))
@@ -174,7 +185,7 @@ function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined
     where.push(sql`julianday(${t.issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
   if (shape.completeParent) {
     const liveVisibleChild = (extra: SQL) =>
-      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child(t).parentId} = ${t.issues.id} AND ${child(t).deletedAt} IS NULL AND ${extra})`
+      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child(t).workspaceId} = ${t.issues.workspaceId} AND ${child(t).parentId} = ${t.issues.id} AND ${child(t).deletedAt} IS NULL AND ${extra})`
     where.push(
       liveVisibleChild(sql`1`),
       sql`NOT ${liveVisibleChild(sql`NOT ${closedOf(child(t))}`)}`,
@@ -192,7 +203,7 @@ function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined
   if (shape.parent) where.push(eq(t.issues.parentId, param(t.issues.parentId, 'parent')))
   if (shape.label) {
     where.push(
-      sql`EXISTS (SELECT 1 FROM ${t.issueLabels} INNER JOIN ${t.labels} ON ${t.labels.id} = ${t.issueLabels.labelId} WHERE ${t.issueLabels.issueId} = ${t.issues.id} AND ${t.labels.name} = ${sql.placeholder('label')})`,
+      sql`EXISTS (SELECT 1 FROM ${t.issueLabels} INNER JOIN ${t.labels} ON ${t.labels.workspaceId} = ${t.issueLabels.workspaceId} AND ${t.labels.id} = ${t.issueLabels.labelId} WHERE ${t.issueLabels.workspaceId} = ${t.issues.workspaceId} AND ${t.issueLabels.issueId} = ${t.issues.id} AND ${t.labels.name} = ${sql.placeholder('label')})`,
     )
   }
   if (shape.text) {
@@ -200,7 +211,7 @@ function listingWhere(t: StoreTables, shape: IssueListingShape): SQL | undefined
       sql`instr(lower(${t.issues.title} || ' ' || ${t.issues.description} || ' ' || coalesce(${t.issues.brief}, '')), ${sql.placeholder('text')}) > 0`,
     )
   }
-  return and(...where)
+  return inWorkspace(t.issues, ...where)
 }
 
 function listingOrder(t: StoreTables, shape: IssueListingShape) {
@@ -335,14 +346,15 @@ export const sortScopeOf = preparedFamily((db, t, key: 'parent' | 'top' | 'top-u
     })
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         isNull(t.issues.deletedAt),
         ...(key === 'parent'
           ? [eq(t.issues.parentId, param(t.issues.parentId, 'parentId'))]
           : [isNull(t.issues.parentId), eq(t.issues.repoId, param(t.issues.repoId, 'repoId'))]),
         ...(key === 'top-unpinned'
           ? [
-              sql`NOT EXISTS (SELECT 1 FROM ${t.pins} WHERE ${t.pins.userId} = ${sql.placeholder('viewer')} AND ${t.pins.kind} = 'issue' AND ${t.pins.id} = ${t.issues.id})`,
+              sql`NOT EXISTS (SELECT 1 FROM ${t.pins} WHERE ${t.pins.workspaceId} = ${t.issues.workspaceId} AND ${t.pins.userId} = ${sql.placeholder('viewer')} AND ${t.pins.kind} = 'issue' AND ${t.pins.id} = ${t.issues.id})`,
             ]
           : []),
       ),
@@ -356,8 +368,11 @@ export const labelsOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select({ issueId: t.issueLabels.issueId, label: t.labels.name })
     .from(t.issueLabels)
-    .innerJoin(t.labels, eq(t.labels.id, t.issueLabels.labelId))
-    .where(inListOf(t.issueLabels.issueId, size, 'ids'))
+    .innerJoin(
+      t.labels,
+      and(sameWorkspace(t.labels, t.issueLabels), eq(t.labels.id, t.issueLabels.labelId)),
+    )
+    .where(inWorkspace(t.issueLabels, inListOf(t.issueLabels.issueId, size, 'ids')))
     .orderBy(asc(t.issueLabels.issueId), asc(t.labels.name))
     .prepare(),
 )
@@ -366,7 +381,7 @@ export const depsFromIssues = preparedFamily((db, t, size: number) =>
   db
     .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
     .from(t.issueDeps)
-    .where(inListOf(t.issueDeps.fromId, size, 'ids'))
+    .where(inWorkspace(t.issueDeps, inListOf(t.issueDeps.fromId, size, 'ids')))
     .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
@@ -375,7 +390,7 @@ export const depsToIssues = preparedFamily((db, t, size: number) =>
   db
     .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
     .from(t.issueDeps)
-    .where(inListOf(t.issueDeps.toId, size, 'ids'))
+    .where(inWorkspace(t.issueDeps, inListOf(t.issueDeps.toId, size, 'ids')))
     .orderBy(asc(t.issueDeps.toId), asc(t.issueDeps.fromId), asc(t.issueDeps.type))
     .prepare(),
 )
@@ -384,7 +399,7 @@ export const commentCountsOfIssues = preparedFamily((db, t, size: number) =>
   db
     .select({ issueId: t.issueComments.issueId, n: count() })
     .from(t.issueComments)
-    .where(inListOf(t.issueComments.issueId, size, 'ids'))
+    .where(inWorkspace(t.issueComments, inListOf(t.issueComments.issueId, size, 'ids')))
     .groupBy(t.issueComments.issueId)
     .prepare(),
 )
@@ -401,7 +416,9 @@ export const liveChildrenOf = preparedFamily((db, t, size: number) =>
       deletedAt: t.issues.deletedAt,
     })
     .from(t.issues)
-    .where(and(inListOf(t.issues.parentId, size, 'ids'), isNull(t.issues.deletedAt)))
+    .where(
+      inWorkspace(t.issues, inListOf(t.issues.parentId, size, 'ids'), isNull(t.issues.deletedAt)),
+    )
     .orderBy(asc(t.issues.repoPath), asc(t.issues.seq), asc(t.issues.id))
     .prepare(),
 )

@@ -1,14 +1,18 @@
+// workspace-scoped (POD-6959)
 import { asIssueId, IssueGitState, type IssueGitStateProjection } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries, StoreTables } from './executor/sync-drizzle'
+import type { StoreTables, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 const columns = (t: StoreTables) => ({
@@ -21,8 +25,17 @@ const byIds = preparedFamily((db, t, size: number) =>
   db
     .select(columns(t))
     .from(t.issueGitStates)
-    .innerJoin(t.issues, eq(t.issues.id, t.issueGitStates.issueId))
-    .where(and(inListOf(t.issueGitStates.issueId, size), isNull(t.issues.deletedAt)))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issueGitStates), eq(t.issues.id, t.issueGitStates.issueId)),
+    )
+    .where(
+      inWorkspace(
+        t.issueGitStates,
+        inListOf(t.issueGitStates.issueId, size),
+        isNull(t.issues.deletedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -30,9 +43,13 @@ const pageOf = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select(columns(t))
     .from(t.issueGitStates)
-    .innerJoin(t.issues, eq(t.issues.id, t.issueGitStates.issueId))
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.issueGitStates), eq(t.issues.id, t.issueGitStates.issueId)),
+    )
     .where(
-      and(
+      inWorkspace(
+        t.issueGitStates,
         isNull(t.issues.deletedAt),
         phase === 'after'
           ? gt(t.issueGitStates.issueId, param(t.issueGitStates.issueId, 'after'))
@@ -49,6 +66,7 @@ const save = prepared((db, t) =>
   db
     .insert(t.issueGitStates)
     .values({
+      workspaceId: WORKSPACE,
       issueId: sql.placeholder('id'),
       factsJson: sql.placeholder('facts'),
       updatedAt: sql.placeholder('updatedAt'),
@@ -71,9 +89,9 @@ function recordOf(row: { id: string; facts: string; updatedAt: string }): IssueG
 
 /** Last event-driven git observation, durable independently of the sync log. */
 export class IssueGitStatesRepository {
-  private readonly db: StoreDrizzle
-  constructor(queries: StoreQueries) {
-    this.db = queries.rootDb
+  private readonly db: WorkspaceDb
+  constructor(queries: WorkspaceQueries) {
+    this.db = queries.db
   }
 
   async getMany(ids: readonly string[]): Promise<Map<string, IssueGitStateProjection>> {

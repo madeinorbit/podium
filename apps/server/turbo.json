@@ -1165,6 +1165,7 @@
         "src/store/issue-storage.ts",
         "src/store/issues-golden.test.ts",
         "src/store/issues.ts",
+        "src/store/issues.workspace.test.ts",
         "src/store/json-column-corruption-oracle.test.ts",
         "src/store/locks.golden.test.ts",
         "src/store/locks.ts",

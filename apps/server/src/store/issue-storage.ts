@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * `toStorage` / `fromStorage` — the ONE documented R1 ↔ R3 pair for issues
  * (ADR 4 §4.1, inventory §3 #2, POD-1151).

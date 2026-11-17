@@ -51,7 +51,7 @@ export function recordReadsOf(
   const local = legacyWorkspaceQueries(q, SELF_HOSTED_WORKSPACE_ID)
   return {
     store: {
-      issues: new IssuesRepository(q, unsupported),
+      issues: new IssuesRepository(local, unsupported),
       machines: new MachinesRepository(q),
       grants: new GrantsRepository(q),
       conversations: new ConversationsRepository(q),

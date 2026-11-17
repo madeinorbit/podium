@@ -494,6 +494,13 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
     },
   ],
   [
+    'apps/server/src/store/issues.ts',
+    {
+      reason:
+        "a workspace's issues repository; the legacy worktree backfill's receipt is an install key of meta (legacy_worktree_machine_ids_v1)",
+    },
+  ],
+  [
     'apps/server/src/store/server-secrets.ts',
     {
       reason:
