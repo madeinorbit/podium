@@ -22,8 +22,10 @@ import { actorUser, asIssueId, asMachineId, asSessionId, asUserId } from '@podiu
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor, statementProbeHubFor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -37,8 +39,10 @@ interface Side {
 }
 
 function openSide(db: SqlDatabase, inTransaction: boolean): Side {
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the synchronous query capability is absent on this handle')
+  const stage = createBunStoreExecutor({ database: db }).queries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  const queries = legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
   return {
     db,
     sessions: new SessionsRepository(queries),

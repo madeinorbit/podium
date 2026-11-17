@@ -44,11 +44,12 @@ import { join } from 'node:path'
 import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { sessions as sessionsTable, users } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import {
   createBunSqliteDriver,
@@ -58,7 +59,7 @@ import {
   queryClientOver,
   type StatementObservation,
 } from './executor'
-import { storeQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, storeQueriesOver } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 import { UsersRepository, userFromRow } from './users'
@@ -109,7 +110,11 @@ const account = (id: UserId, createdAt: string) => ({
 /** The store the repositories are normally built over. */
 function migratedStore() {
   const database = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database }).queries
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  const queries = legacyWorkspaceQueries(
+    createBunStoreExecutor({ database }).queries,
+    SELF_HOSTED_WORKSPACE_ID,
+  )
   cleanup.push(() => database.close())
   return { database, queries }
 }
@@ -267,10 +272,16 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
 
     // The same two reads. b69f2d5917 batches user ids through IN,
     // including a single-key lookup; the executor still sees the same work.
+    // The session read names its workspace first (POD-7015).
     await db
       .select()
       .from(sessionsTable)
-      .where(eq(sessionsTable.id, asSessionId('sess-a')))
+      .where(
+        and(
+          eq(sessionsTable.workspaceId, SELF_HOSTED_WORKSPACE_ID),
+          eq(sessionsTable.id, asSessionId('sess-a')),
+        ),
+      )
       .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
       .all()
     await db
@@ -373,7 +384,10 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
       async (statement) => await session.execute(statement),
       async (batch) => await session.executeBatch(batch),
     )
-    const queries = storeQueriesOver(client, async (fn) => await fn())
+    const queries = legacyWorkspaceQueries(
+      storeQueriesOver(client, async (fn) => await fn()),
+      SELF_HOSTED_WORKSPACE_ID,
+    )
     return {
       sessions: new SessionsRepository(queries),
       users: new UsersRepository(queries),
@@ -418,7 +432,9 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     // for the whole store: the shared reader reuses the owner's, the detached
     // reader has to make its own.
     const countOf = (fragment: string) => prepares.filter((text) => text.includes(fragment)).length
-    expect(countOf('from "sessions" where "sessions"."id" = ?')).toBe(2)
+    expect(
+      countOf('from "sessions" where (("sessions"."workspace_id" = ?) and ("sessions"."id" = ?))'),
+    ).toBe(2)
     expect(countOf('from "users" where "users"."id" in (?)')).toBe(2)
   })
 

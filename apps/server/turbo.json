@@ -1218,6 +1218,7 @@
         "src/store/session-upsert-changed-columns.test.ts",
         "src/store/sessions-golden.test.ts",
         "src/store/sessions.ts",
+        "src/store/sessions.workspace.test.ts",
         "src/store/settings-audit.ts",
         "src/store/settings.ts",
         "src/store/settings.workspace.test.ts",

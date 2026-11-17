@@ -45,18 +45,22 @@ export function recordReadsOf(
   q: ReturnType<typeof createBunStoreExecutor>['queries'],
   options: { effectExecutors: Pick<EffectExecutorRegistry, 'get'>; now?: () => number },
 ): RecordReads {
+  // The workspace repositories read the self-hosted install's one workspace
+  // until each read request carries its workspace (POD-7021). One handle for
+  // them all: a definition's bound view is cached per handle.
+  const local = legacyWorkspaceQueries(q, SELF_HOSTED_WORKSPACE_ID)
   return {
     store: {
       issues: new IssuesRepository(q, unsupported),
       machines: new MachinesRepository(q),
       grants: new GrantsRepository(q),
       conversations: new ConversationsRepository(q),
-      sessions: new SessionsRepository(q),
+      sessions: new SessionsRepository(local),
       users: new UsersRepository(q),
       shipping: new ShippingRepository(q),
       automations: new AutomationsRepository(q),
-      layout: new UserLayoutRepository(q),
-      readPositions: new UserReadPositionRepository(q),
+      layout: new UserLayoutRepository(local),
+      readPositions: new UserReadPositionRepository(local),
       events: new EventsRepository(q),
       interactions: new InteractionsRepository(q),
       messages: new MessagesRepository(q),
@@ -65,9 +69,8 @@ export function recordReadsOf(
       agentProfiles: new AgentProfilesRepository(q),
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
-      // The settings rows are a workspace's (POD-7013): the self-hosted install's,
-      // as for `sync` below.
-      settings: new SettingsRepository(legacyWorkspaceQueries(q, SELF_HOSTED_WORKSPACE_ID)),
+      // The settings rows are a workspace's (POD-7013): the self-hosted install's.
+      settings: new SettingsRepository(local),
       // The session record's satellites and joins (POD-6764): reads only.
       observationCheckpoints: new ObservationCheckpointsRepository(q),
       // Nothing writes on this connection, so nothing announces a write.

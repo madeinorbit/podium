@@ -29,11 +29,12 @@ import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { users } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { openTestStore } from '../test-support/open-test-store'
 import { censusScope, perCallBuilders } from '../test-support/prepared-census'
 import { createBunStoreExecutor, probeStatements, type StatementObservation } from './executor'
-import { preparationsOf } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, preparationsOf } from './executor/sync-drizzle'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
 import { SessionsRepository } from './sessions'
@@ -71,7 +72,11 @@ afterEach(async () => {
 
 function migratedStore() {
   const database = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database }).queries
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  const queries = legacyWorkspaceQueries(
+    createBunStoreExecutor({ database }).queries,
+    SELF_HOSTED_WORKSPACE_ID,
+  )
   cleanup.push(() => database.close())
   return { database, queries }
 }

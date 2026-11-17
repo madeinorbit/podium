@@ -5,7 +5,9 @@
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { fixtureCommitWriter } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { LayoutService } from './service'
@@ -20,7 +22,7 @@ beforeEach(() => {
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   service = new LayoutService({
-    layout: new UserLayoutRepository(stage),
+    layout: new UserLayoutRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)),
   })
 })
 

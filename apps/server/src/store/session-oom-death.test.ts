@@ -19,8 +19,10 @@ import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -33,7 +35,8 @@ import type { SessionRow } from './types'
 const stageQueries = (database: ReturnType<typeof openDatabase>) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 let db: ReturnType<typeof openDatabase>

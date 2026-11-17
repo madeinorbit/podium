@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * SIDEBAR / TAB LAYOUT AT REST, KEYED BY USER (POD-1350).
  *
@@ -34,18 +35,18 @@ import {
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 
 // Every query these repositories run, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
 const layoutUserIs = (t: StoreTables) =>
-  eq(t.userLayout.userId, param(t.userLayout.userId, 'userId'))
+  inWorkspace(t.userLayout, eq(t.userLayout.userId, param(t.userLayout.userId, 'userId')))
 const layoutKeyIs = (t: StoreTables) =>
   and(layoutUserIs(t), eq(t.userLayout.key, param(t.userLayout.key, 'key')))
 
@@ -64,7 +65,13 @@ const layoutValue = prepared((db, t) =>
 const upsertLayout = prepared((db, t) =>
   db
     .insert(t.userLayout)
-    .values({ userId: P('userId'), key: P('key'), value: P('value'), updatedAt: P('updatedAt') })
+    .values({
+      workspaceId: WORKSPACE,
+      userId: P('userId'),
+      key: P('key'),
+      value: P('value'),
+      updatedAt: P('updatedAt'),
+    })
     .onConflictDoUpdate({
       target: [t.userLayout.userId, t.userLayout.key],
       set: { value: P('value'), updatedAt: P('updatedAt') },
@@ -82,9 +89,12 @@ const layoutRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
     .from(t.userLayout)
     // The first page starts at the lowest key, `>=`, so it is a seek like the rest.
     .where(
-      from === 'start'
-        ? sql`(${t.userLayout.userId}, ${t.userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
-        : sql`(${t.userLayout.userId}, ${t.userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`,
+      inWorkspace(
+        t.userLayout,
+        from === 'start'
+          ? sql`(${t.userLayout.userId}, ${t.userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
+          : sql`(${t.userLayout.userId}, ${t.userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`,
+      ),
     )
     .orderBy(asc(t.userLayout.userId), asc(t.userLayout.key))
     .limit(P('limit'))
@@ -101,16 +111,22 @@ const layoutKeysOfUser = prepared((db, t) =>
 )
 
 const shellUserIs = (t: StoreTables) =>
-  eq(t.userDockShell.userId, param(t.userDockShell.userId, 'userId'))
+  inWorkspace(t.userDockShell, eq(t.userDockShell.userId, param(t.userDockShell.userId, 'userId')))
 const shellSlotIs = (t: StoreTables) =>
   and(
     shellUserIs(t),
     eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey')),
   )
 const shellWorktreeIs = (t: StoreTables) =>
-  eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey'))
+  inWorkspace(
+    t.userDockShell,
+    eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey')),
+  )
 const shellSessionIs = (t: StoreTables) =>
-  eq(t.userDockShell.sessionId, param(t.userDockShell.sessionId, 'sessionId'))
+  inWorkspace(
+    t.userDockShell,
+    eq(t.userDockShell.sessionId, param(t.userDockShell.sessionId, 'sessionId')),
+  )
 
 const dockShellOfSlot = prepared((db, t) =>
   db
@@ -130,6 +146,7 @@ const dockShellsOfUser = prepared((db, t) =>
 )
 
 const dockShellValues = {
+  workspaceId: WORKSPACE,
   userId: P('userId'),
   worktreeKey: P('worktreeKey'),
   sessionId: P('sessionId'),
@@ -193,18 +210,21 @@ const worktreesOfSessions = prepared((db, t) =>
     })
     .from(t.userDockShell)
     .where(
-      sql`${t.userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`,
+      inWorkspace(
+        t.userDockShell,
+        sql`${t.userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`,
+      ),
     )
     .orderBy(sql`rowid`)
     .prepare(),
 )
 
 export class UserLayoutRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -213,8 +233,8 @@ export class UserLayoutRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -384,11 +404,11 @@ export class UserLayoutRepository {
  * shell, never the creation path.
  */
 export class UserDockShellRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -397,8 +417,8 @@ export class UserDockShellRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Resolve the normalized key or THROW — a relative cwd cannot name a worktree. */

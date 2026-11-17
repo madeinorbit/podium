@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * EVENT-STREAM READ POSITIONS AT REST, KEYED BY USER (POD-1380).
  *
@@ -33,9 +34,9 @@ import {
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, eq, sql } from 'drizzle-orm'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { asc, eq, sql } from 'drizzle-orm'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -53,7 +54,12 @@ const positionsOfUser = prepared((db, t) =>
       seenAt: t.userReadPosition.seenAt,
     })
     .from(t.userReadPosition)
-    .where(eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.userReadPosition,
+        eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -65,7 +71,8 @@ const positionOf = prepared((db, t) =>
     })
     .from(t.userReadPosition)
     .where(
-      and(
+      inWorkspace(
+        t.userReadPosition,
         eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')),
         eq(t.userReadPosition.streamId, param(t.userReadPosition.streamId, 'streamId')),
       ),
@@ -85,9 +92,12 @@ const positionRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
     })
     .from(t.userReadPosition)
     .where(
-      from === 'start'
-        ? sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
-        : sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+      inWorkspace(
+        t.userReadPosition,
+        from === 'start'
+          ? sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
+          : sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+      ),
     )
     .orderBy(asc(t.userReadPosition.userId), asc(t.userReadPosition.streamId))
     .limit(sql.placeholder('limit'))
@@ -105,7 +115,7 @@ const positionPlaceholders = {
 const upsertPosition = prepared((db, t) =>
   db
     .insert(t.userReadPosition)
-    .values(positionPlaceholders)
+    .values({ workspaceId: WORKSPACE, ...positionPlaceholders })
     .onConflictDoUpdate({
       target: [t.userReadPosition.userId, t.userReadPosition.streamId],
       set: positionPlaceholders,
@@ -114,18 +124,18 @@ const upsertPosition = prepared((db, t) =>
 )
 
 export class UserReadPositionRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** One person's position in every stream they have read. Absent key = never. */

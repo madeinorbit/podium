@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * PERSONAL PREFERENCES AT REST, KEYED BY USER (POD-1213).
  *
@@ -51,14 +52,14 @@ import {
   type UserId,
   type UserPreferencesWire,
 } from '@podium/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -78,12 +79,18 @@ const preferencesOfUser = prepared((db, t) =>
   db
     .select({ key: t.userPreferences.key, value: t.userPreferences.value })
     .from(t.userPreferences)
-    .where(eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.userPreferences,
+        eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
 const onePreference = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.userPreferences,
     eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
     eq(t.userPreferences.key, param(t.userPreferences.key, 'key')),
   )
@@ -106,7 +113,7 @@ const preferencePlaceholders = {
 const upsertPreference = prepared((db, t) =>
   db
     .insert(t.userPreferences)
-    .values(preferencePlaceholders)
+    .values({ workspaceId: WORKSPACE, ...preferencePlaceholders })
     .onConflictDoUpdate({
       target: [t.userPreferences.userId, t.userPreferences.key],
       set: preferencePlaceholders,
@@ -122,7 +129,12 @@ const preferenceKeysOfUser = prepared((db, t) =>
   db
     .select({ key: t.userPreferences.key })
     .from(t.userPreferences)
-    .where(eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.userPreferences,
+        eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+      ),
+    )
     .orderBy(asc(t.userPreferences.key))
     .prepare(),
 )
@@ -137,6 +149,7 @@ const allPreferenceRows = prepared((db, t) =>
       value: t.userPreferences.value,
     })
     .from(t.userPreferences)
+    .where(inWorkspace(t.userPreferences))
     .prepare(),
 )
 
@@ -154,23 +167,23 @@ function leafValue(key: string, raw: string): unknown {
 }
 
 export class UserPreferencesRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** `written` runs after every preference write: the settings repository's
    *  per-operation resolution is invalidated by it (POD-6218). */
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     private readonly written: () => void = () => {},
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

@@ -10,8 +10,10 @@
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
+import { workspaceQueries } from './executor/sync-drizzle'
 import { UserReadPositionRepository } from './user-read-position'
 
 const ALICE: UserId = firstAdminMemberId()
@@ -22,7 +24,9 @@ let cursors: UserReadPositionRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  cursors = new UserReadPositionRepository(stageASeam(db))
+  cursors = new UserReadPositionRepository(
+    workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('UserReadPositionRepository', () => {

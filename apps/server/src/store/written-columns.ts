@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * WHAT A ROW HOLDS, AS THIS STORE LAST WROTE OR READ IT [POD-6234].
  *
@@ -51,7 +52,10 @@ type CommitRegistration = ReturnType<typeof applyAfterCommit>
 
 export class WrittenColumns<V> {
   private readonly committed = new Map<string, V>()
-  private readonly staged = new Map<string, { token: number; value: V; registration: CommitRegistration }>()
+  private readonly staged = new Map<
+    string,
+    { token: number; value: V; registration: CommitRegistration }
+  >()
   private nextToken = 0
   private asideInFlight = 0
   /** Moves on every write, promotion and forget, so a read can tell it was overtaken. */

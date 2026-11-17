@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Sessions aggregate — owns the `sessions` table plus its UI-adjacent
  * satellites: `pins`, `snoozes`, `tab_order` and `session_drafts`. Soft
@@ -51,19 +52,22 @@ import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type {
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
   shapeOf,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import { prefixUpperBound } from './prefix-range'
@@ -115,7 +119,8 @@ const activityPublicationsDue = prepared((db, t) =>
     .select({ id: sql<SessionId>`id` })
     .from(sql`${t.sessions} INDEXED BY idx_sessions_pending_activity`)
     .where(
-      and(
+      inWorkspace(
+        t.sessions,
         pendingActivityPublication(t),
         lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
       ),
@@ -133,7 +138,8 @@ const publishSessionActivity = preparedFamily((db, t, size: number) =>
       lastActivePublishAfter: sql.placeholder('next'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.sessions,
         inListOf(t.sessions.id, size),
         pendingActivityPublication(t),
         lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
@@ -148,7 +154,9 @@ const bindingOwnersOnMachine = prepared((db, t) =>
   db
     .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
     .from(t.sessions)
-    .where(eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId')))
+    .where(
+      inWorkspace(t.sessions, eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId'))),
+    )
     .prepare(),
 )
 
@@ -156,7 +164,7 @@ const bindingOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
     .from(t.sessions)
-    .where(inListOf(t.sessions.id, size))
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size)))
     .prepare(),
 )
 
@@ -170,7 +178,7 @@ const bindingFactsOfIds = preparedFamily((db, t, size: number) =>
       delegation: t.sessions.delegation,
     })
     .from(t.sessions)
-    .where(inListOf(t.sessions.id, size))
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size)))
     .prepare(),
 )
 
@@ -183,7 +191,7 @@ function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined)
   return db
     .select()
     .from(t.sessions)
-    .where(where)
+    .where(inWorkspace(t.sessions, where))
     .orderBy(asc(t.sessions.createdAt), asc(sql`rowid`))
     .prepare()
 }
@@ -195,7 +203,7 @@ function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined)
  * read.
  */
 function sessionsMatching(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
-  return db.select().from(t.sessions).where(where).prepare()
+  return db.select().from(t.sessions).where(inWorkspace(t.sessions, where)).prepare()
 }
 
 /**
@@ -339,7 +347,7 @@ const issueIdsOfSeq = prepared((db, t) =>
   db
     .select({ id: t.issues.id })
     .from(t.issues)
-    .where(eq(t.issues.seq, param(t.issues.seq, 'seq')))
+    .where(inWorkspace(t.issues, eq(t.issues.seq, param(t.issues.seq, 'seq'))))
     .prepare(),
 )
 
@@ -369,7 +377,10 @@ const lifecyclePendingOnMachine = prepared((db, t) =>
     .select({ id: sql<string>`id` })
     .from(sql`${t.sessions} INDEXED BY idx_sessions_lifecycle_pending`)
     .where(
-      sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+      inWorkspace(
+        t.sessions,
+        sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+      ),
     )
     .prepare(),
 )
@@ -383,7 +394,13 @@ const liveSessionsPage = prepared((db, t) =>
   db
     .select()
     .from(t.sessions)
-    .where(and(isNull(t.sessions.deletedAt), sql`${t.sessions.id} > ${sql.placeholder('after')}`))
+    .where(
+      inWorkspace(
+        t.sessions,
+        isNull(t.sessions.deletedAt),
+        sql`${t.sessions.id} > ${sql.placeholder('after')}`,
+      ),
+    )
     .orderBy(asc(t.sessions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -396,7 +413,12 @@ const liveSessionsWithoutRef = prepared((db, t) =>
     .select()
     .from(t.sessions)
     .where(
-      and(isNull(t.sessions.refIssueId), isNull(t.sessions.refDraft), isNull(t.sessions.deletedAt)),
+      inWorkspace(
+        t.sessions,
+        isNull(t.sessions.refIssueId),
+        isNull(t.sessions.refDraft),
+        isNull(t.sessions.deletedAt),
+      ),
     )
     .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare(),
@@ -405,6 +427,8 @@ const liveSessionsWithoutRef = prepared((db, t) =>
 /** The ref-less live terms, spelled as `idx_sessions_refless_*` declare them so
  *  the planner can use those partial indexes. */
 const REFLESS = sql.raw('s.ref_issue_id IS NULL AND s.ref_draft IS NULL AND s.deleted_at IS NULL')
+/** Each arm's own workspace term on its `s`; the issue arm's probe holds `i` to that `s`. */
+const S_IN_WORKSPACE = sql`s.workspace_id = ${WORKSPACE}`
 
 /**
  * THE BOOT REF BACKFILL'S CANDIDATES (POD-6222): ref-less live sessions in one
@@ -420,18 +444,23 @@ const refBackfillCandidates = prepared((db, t) =>
   db
     .select()
     .from(t.sessions)
-    .where(sql`${t.sessions}.rowid IN (
+    .where(
+      inWorkspace(
+        t.sessions,
+        sql`${t.sessions}.rowid IN (
       SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${t.sessions} AS s
-        WHERE ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
           AND s.cwd >= json_extract(b.value, '$[1]') AND s.cwd < json_extract(b.value, '$[2]')
       UNION ALL
       SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${t.sessions} AS s
-        WHERE ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
       UNION ALL
       SELECT s.rowid FROM ${t.sessions} AS s INDEXED BY idx_sessions_refless_issue
-        WHERE ${REFLESS} AND s.issue_id IS NOT NULL
-          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.id = s.issue_id)
-    )`)
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.issue_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.workspace_id = s.workspace_id AND i.id = s.issue_id)
+    )`,
+      ),
+    )
     .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare(),
 )
@@ -647,7 +676,7 @@ const upsertSessionOfShape = preparedFamily((db, t, key: string) => {
   const p = placeholdersFor(key.slice(bar + 1)) as SessionPlaceholders
   return db
     .insert(t.sessions)
-    .values(p as unknown as SessionInsert)
+    .values({ ...p, workspaceId: WORKSPACE } as unknown as SessionInsert)
     .onConflictDoUpdate({
       target: t.sessions.id,
       set: sessionUpsertSet(t, (name) => p[name], groups),
@@ -682,9 +711,10 @@ const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
   const keys = shape === '' ? [] : shape.split(',')
   const present = new Set<string>(keys)
   const columns = getTableColumns(t.sessions)
-  const rows = Array.from({ length: size }, (_, index) =>
-    Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
-  )
+  const rows = Array.from({ length: size }, (_, index) => ({
+    ...Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
+    workspaceId: WORKSPACE,
+  }))
   return db
     .insert(t.sessions)
     .values(rows as unknown as SessionInsert[])
@@ -816,7 +846,11 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
 }
 
 const untombstonedById = (t: StoreTables): SQL | undefined =>
-  and(eq(t.sessions.id, param(t.sessions.id, 'id')), isNull(t.sessions.deletedAt))
+  inWorkspace(
+    t.sessions,
+    eq(t.sessions.id, param(t.sessions.id, 'id')),
+    isNull(t.sessions.deletedAt),
+  )
 
 const stopRunningForTombstone = prepared((db, t) =>
   db
@@ -848,7 +882,7 @@ const restoreSessionsOfIssue = prepared((db, t) =>
       status: 'exited',
       exitCode: null,
     })
-    .where(deletedByIssue(t))
+    .where(inWorkspace(t.sessions, deletedByIssue(t)))
     .prepare(),
 )
 
@@ -862,7 +896,8 @@ const detachTombstones = prepared((db, t) => {
       refLetter: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refLetter} END`,
     })
     .where(
-      and(
+      inWorkspace(
+        t.sessions,
         isNotNull(t.sessions.deletedAt),
         or(
           eq(t.sessions.issueId, param(t.sessions.issueId, 'issueId')),
@@ -878,8 +913,10 @@ const detachDanglingReferences = prepared((db, t) => {
   // which is what it must do; the OUTER columns are the `sessions` ones the
   // builder qualifies for us here because they are named as columns rather
   // than interpolated into the fragment.
-  const danglingIssue = sql`${t.sessions.issueId} IS NOT NULL AND ${t.sessions.issueId} NOT IN (SELECT ${t.issues.id} FROM ${t.issues})`
-  const danglingRef = sql`${t.sessions.refIssueId} IS NOT NULL AND ${t.sessions.refIssueId} NOT IN (SELECT ${t.issues.id} FROM ${t.issues})`
+  // The subquery reads this workspace's issues only, in its own scope.
+  const workspaceIssueIds = sql`SELECT ${t.issues.id} FROM ${t.issues} WHERE ${t.issues.workspaceId} = ${WORKSPACE}`
+  const danglingIssue = sql`${t.sessions.issueId} IS NOT NULL AND ${t.sessions.issueId} NOT IN (${workspaceIssueIds})`
+  const danglingRef = sql`${t.sessions.refIssueId} IS NOT NULL AND ${t.sessions.refIssueId} NOT IN (${workspaceIssueIds})`
   return db
     .update(t.sessions)
     .set({
@@ -887,7 +924,7 @@ const detachDanglingReferences = prepared((db, t) => {
       refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refLetter} END`,
       refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refIssueId} END`,
     })
-    .where(or(danglingIssue, danglingRef))
+    .where(inWorkspace(t.sessions, or(danglingIssue, danglingRef)))
     .prepare()
 })
 
@@ -895,7 +932,10 @@ const deleteCheckpointsOfSession = prepared((db, t) =>
   db
     .delete(t.runtimeEventCheckpoints)
     .where(
-      eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+      inWorkspace(
+        t.runtimeEventCheckpoints,
+        eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+      ),
     )
     .prepare(),
 )
@@ -903,42 +943,52 @@ const deleteCheckpointsOfSession = prepared((db, t) =>
 const deleteSessionRow = prepared((db, t) =>
   db
     .delete(t.sessions)
-    .where(eq(t.sessions.id, param(t.sessions.id, 'id')))
+    .where(inWorkspace(t.sessions, eq(t.sessions.id, param(t.sessions.id, 'id'))))
     .prepare(),
 )
 
 const deletePanelPinsOf = prepared((db, t) =>
   db
     .delete(t.pins)
-    .where(and(eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id'))))
+    .where(inWorkspace(t.pins, eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id'))))
     .prepare(),
 )
 
 const deleteDraftOf = prepared((db, t) =>
   db
     .delete(t.sessionDrafts)
-    .where(eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')))
+    .where(
+      inWorkspace(
+        t.sessionDrafts,
+        eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')),
+      ),
+    )
     .prepare(),
 )
 
 const deleteSnoozesOf = prepared((db, t) =>
   db
     .delete(t.snoozes)
-    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id')))
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id'))))
     .prepare(),
 )
 
 const deleteUserStateOf = prepared((db, t) =>
   db
     .delete(t.sessionUserState)
-    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')))
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')),
+      ),
+    )
     .prepare(),
 )
 
 const deleteOfferOf = prepared((db, t) =>
   db
     .delete(t.offers)
-    .where(eq(t.offers.sessionId, param(t.offers.sessionId, 'id')))
+    .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'id'))))
     .prepare(),
 )
 
@@ -946,6 +996,7 @@ const insertPin = prepared((db, t) =>
   db
     .insert(t.pins)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       kind: sql.placeholder('kind'),
       id: sql.placeholder('id'),
@@ -956,7 +1007,8 @@ const insertPin = prepared((db, t) =>
 )
 
 const onePin = (t: StoreTables) =>
-  and(
+  inWorkspace(
+    t.pins,
     eq(t.pins.userId, param(t.pins.userId, 'userId')),
     eq(t.pins.kind, param(t.pins.kind, 'kind')),
     eq(t.pins.id, param(t.pins.id, 'id')),
@@ -968,7 +1020,13 @@ const deletePin = prepared((db, t) => db.delete(t.pins).where(onePin(t)).prepare
 const deletePinsOfTarget = prepared((db, t) =>
   db
     .delete(t.pins)
-    .where(and(eq(t.pins.kind, param(t.pins.kind, 'kind')), eq(t.pins.id, param(t.pins.id, 'id'))))
+    .where(
+      inWorkspace(
+        t.pins,
+        eq(t.pins.kind, param(t.pins.kind, 'kind')),
+        eq(t.pins.id, param(t.pins.id, 'id')),
+      ),
+    )
     .returning({ userId: t.pins.userId })
     .prepare(),
 )
@@ -978,7 +1036,13 @@ const pinnersOfTarget = prepared((db, t) =>
   db
     .select({ userId: t.pins.userId })
     .from(t.pins)
-    .where(and(eq(t.pins.kind, param(t.pins.kind, 'kind')), eq(t.pins.id, param(t.pins.id, 'id'))))
+    .where(
+      inWorkspace(
+        t.pins,
+        eq(t.pins.kind, param(t.pins.kind, 'kind')),
+        eq(t.pins.id, param(t.pins.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
@@ -996,23 +1060,24 @@ const allPins = prepared((db, t) =>
       pinnedAt: t.pins.pinnedAt,
     })
     .from(t.pins)
+    .where(inWorkspace(t.pins))
     .prepare(),
 )
 
 const allUserStateRows = prepared((db, t) =>
-  db.select().from(t.sessionUserState).where(undefined).prepare(),
+  db.select().from(t.sessionUserState).where(inWorkspace(t.sessionUserState)).prepare(),
 )
 
 const personalRecordKeys = preparedFamily((db, t, size: number) =>
   db
     .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
     .from(t.sessionUserState)
-    .where(inListOf(t.sessionUserState.sessionId, size))
+    .where(inWorkspace(t.sessionUserState, inListOf(t.sessionUserState.sessionId, size)))
     .unionAll(
       db
         .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
         .from(t.snoozes)
-        .where(inListOf(t.snoozes.sessionId, size)),
+        .where(inWorkspace(t.snoozes, inListOf(t.snoozes.sessionId, size))),
     )
     .prepare(),
 )
@@ -1022,12 +1087,12 @@ const personalRecordKeysOfUsers = preparedFamily((db, t, size: number) =>
   db
     .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
     .from(t.sessionUserState)
-    .where(inListOf(t.sessionUserState.userId, size))
+    .where(inWorkspace(t.sessionUserState, inListOf(t.sessionUserState.userId, size)))
     .unionAll(
       db
         .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
         .from(t.snoozes)
-        .where(inListOf(t.snoozes.userId, size)),
+        .where(inWorkspace(t.snoozes, inListOf(t.snoozes.userId, size))),
     )
     .prepare(),
 )
@@ -1036,17 +1101,24 @@ const userStateRowsOfSession = prepared((db, t) =>
   db
     .select()
     .from(t.sessionUserState)
-    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')))
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+      ),
+    )
     .prepare(),
 )
 
-const allSnoozeRows = prepared((db, t) => db.select().from(t.snoozes).where(undefined).prepare())
+const allSnoozeRows = prepared((db, t) =>
+  db.select().from(t.snoozes).where(inWorkspace(t.snoozes)).prepare(),
+)
 
 const snoozeRowsOfSession = prepared((db, t) =>
   db
     .select()
     .from(t.snoozes)
-    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
     .prepare(),
 )
 
@@ -1055,7 +1127,8 @@ const userSessionSnooze = prepared((db, t) =>
     .select({ until: t.snoozes.snoozedUntil })
     .from(t.snoozes)
     .where(
-      and(
+      inWorkspace(
+        t.snoozes,
         eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
         eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
       ),
@@ -1067,12 +1140,18 @@ const readAtOfUser = prepared((db, t) =>
   db
     .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
     .from(t.sessionUserState)
-    .where(eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')))
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
 const userSessionState = (t: StoreTables): SQL | undefined =>
-  and(
+  inWorkspace(
+    t.sessionUserState,
     eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
     eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
   )
@@ -1089,6 +1168,7 @@ const upsertReadAt = prepared((db, t) =>
   db
     .insert(t.sessionUserState)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       sessionId: sql.placeholder('sessionId'),
       readAt: sql.placeholder('readAt'),
@@ -1107,7 +1187,12 @@ const deleteReadAt = prepared((db, t) =>
 const deleteAllReadAtOf = prepared((db, t) =>
   db
     .delete(t.sessionUserState)
-    .where(eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')))
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+      ),
+    )
     .returning({ userId: t.sessionUserState.userId })
     .prepare(),
 )
@@ -1118,7 +1203,8 @@ const readAtOfUserSessions = preparedFamily((db, t, size: number) =>
     .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
     .from(t.sessionUserState)
     .where(
-      and(
+      inWorkspace(
+        t.sessionUserState,
         eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
         inListOf(t.sessionUserState.sessionId, size),
       ),
@@ -1132,7 +1218,8 @@ const snoozesOfUserSessions = preparedFamily((db, t, size: number) =>
     .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
     .from(t.snoozes)
     .where(
-      and(
+      inWorkspace(
+        t.snoozes,
         eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
         inListOf(t.snoozes.sessionId, size),
       ),
@@ -1144,7 +1231,7 @@ const snoozesOfUser = prepared((db, t) =>
   db
     .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
     .from(t.snoozes)
-    .where(eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')))
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.userId, param(t.snoozes.userId, 'userId'))))
     .prepare(),
 )
 
@@ -1152,7 +1239,8 @@ const deleteUserSnooze = prepared((db, t) =>
   db
     .delete(t.snoozes)
     .where(
-      and(
+      inWorkspace(
+        t.snoozes,
         eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
         eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
       ),
@@ -1164,6 +1252,7 @@ const upsertSnooze = prepared((db, t) =>
   db
     .insert(t.snoozes)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       sessionId: sql.placeholder('sessionId'),
       snoozedUntil: sql.placeholder('snoozedUntil'),
@@ -1180,7 +1269,7 @@ const anySnoozeOf = prepared((db, t) =>
   db
     .select({ present: sql<number>`1` })
     .from(t.snoozes)
-    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
     .limit(1)
     .prepare(),
 )
@@ -1188,21 +1277,28 @@ const anySnoozeOf = prepared((db, t) =>
 const deleteAllSnoozesOf = prepared((db, t) =>
   db
     .delete(t.snoozes)
-    .where(eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')))
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
     .returning({ userId: t.snoozes.userId })
     .prepare(),
 )
 
-const allOffers = prepared((db, t) => db.select().from(t.offers).prepare())
+const allOffers = prepared((db, t) =>
+  db.select().from(t.offers).where(inWorkspace(t.offers)).prepare(),
+)
 
 const offersOfIds = preparedFamily((db, t, size: number) =>
-  db.select().from(t.offers).where(inListOf(t.offers.sessionId, size)).prepare(),
+  db
+    .select()
+    .from(t.offers)
+    .where(inWorkspace(t.offers, inListOf(t.offers.sessionId, size)))
+    .prepare(),
 )
 
 const upsertOffer = prepared((db, t) =>
   db
     .insert(t.offers)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: sql.placeholder('sessionId'),
       message: sql.placeholder('message'),
       actions: sql.placeholder('actions'),
@@ -1225,7 +1321,7 @@ const offerCreatedAtOf = prepared((db, t) =>
   db
     .select({ createdAt: t.offers.createdAt })
     .from(t.offers)
-    .where(eq(t.offers.sessionId, param(t.offers.sessionId, 'sessionId')))
+    .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'sessionId'))))
     .prepare(),
 )
 
@@ -1234,7 +1330,8 @@ const tabOrderOf = prepared((db, t) =>
     .select({ ids: t.tabOrder.ids })
     .from(t.tabOrder)
     .where(
-      and(
+      inWorkspace(
+        t.tabOrder,
         eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
         eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
       ),
@@ -1246,7 +1343,8 @@ const deleteTabOrder = prepared((db, t) =>
   db
     .delete(t.tabOrder)
     .where(
-      and(
+      inWorkspace(
+        t.tabOrder,
         eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
         eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
       ),
@@ -1258,6 +1356,7 @@ const upsertTabOrder = prepared((db, t) =>
   db
     .insert(t.tabOrder)
     .values({
+      workspaceId: WORKSPACE,
       userId: sql.placeholder('userId'),
       worktree: sql.placeholder('worktree'),
       ids: sql.placeholder('ids'),
@@ -1287,7 +1386,7 @@ const pinsOfUsers = preparedFamily((db, t, size: number) =>
       pinnedAt: t.pins.pinnedAt,
     })
     .from(t.pins)
-    .where(inListOf(t.pins.userId, size, 'users'))
+    .where(inWorkspace(t.pins, inListOf(t.pins.userId, size, 'users')))
     .prepare(),
 )
 
@@ -1295,7 +1394,7 @@ const tabOrdersOfUsers = preparedFamily((db, t, size: number) =>
   db
     .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
     .from(t.tabOrder)
-    .where(inListOf(t.tabOrder.userId, size, 'users'))
+    .where(inWorkspace(t.tabOrder, inListOf(t.tabOrder.userId, size, 'users')))
     .prepare(),
 )
 
@@ -1303,6 +1402,7 @@ const allTabOrders = prepared((db, t) =>
   db
     .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
     .from(t.tabOrder)
+    .where(inWorkspace(t.tabOrder))
     .prepare(),
 )
 
@@ -1310,6 +1410,7 @@ const draftTexts = prepared((db, t) =>
   db
     .select({ sessionId: t.sessionDrafts.sessionId, text: t.sessionDrafts.text })
     .from(t.sessionDrafts)
+    .where(inWorkspace(t.sessionDrafts))
     .prepare(),
 )
 
@@ -1317,6 +1418,7 @@ const draftTimes = prepared((db, t) =>
   db
     .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
     .from(t.sessionDrafts)
+    .where(inWorkspace(t.sessionDrafts))
     .prepare(),
 )
 
@@ -1324,7 +1426,7 @@ const draftTimesOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
     .from(t.sessionDrafts)
-    .where(inListOf(t.sessionDrafts.sessionId, size))
+    .where(inWorkspace(t.sessionDrafts, inListOf(t.sessionDrafts.sessionId, size)))
     .prepare(),
 )
 
@@ -1332,6 +1434,7 @@ const upsertDraftText = prepared((db, t) =>
   db
     .insert(t.sessionDrafts)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: sql.placeholder('sessionId'),
       text: sql.placeholder('text'),
       updatedAt: sql.placeholder('updatedAt'),
@@ -1343,14 +1446,21 @@ const upsertDraftText = prepared((db, t) =>
     .prepare(),
 )
 
-const allDraftRows = prepared((db, t) => db.select().from(t.sessionDrafts).prepare())
+const allDraftRows = prepared((db, t) =>
+  db.select().from(t.sessionDrafts).where(inWorkspace(t.sessionDrafts)).prepare(),
+)
 
 /** One session's versioned draft document (POD-6160: drafts load on use). */
 const draftRowOf = prepared((db, t) =>
   db
     .select()
     .from(t.sessionDrafts)
-    .where(eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'sessionId')))
+    .where(
+      inWorkspace(
+        t.sessionDrafts,
+        eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'sessionId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1358,6 +1468,7 @@ const upsertDraftDoc = prepared((db, t) =>
   db
     .insert(t.sessionDrafts)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: sql.placeholder('sessionId'),
       text: sql.placeholder('text'),
       updatedAt: sql.placeholder('updatedAt'),
@@ -1384,7 +1495,7 @@ const upsertDraftDoc = prepared((db, t) =>
 export type SessionMessageWindowWrite = (write: () => Promise<void>) => Promise<void>
 
 export class SessionsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
   private messageWindowWrite: SessionMessageWindowWrite | undefined
   private snoozeLapseCommit: ChangeLogCommit | undefined
@@ -1409,12 +1520,12 @@ export class SessionsRepository {
    * query members retain the store's ambient transaction routing.
    */
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     private readonly purgeObservationCheckpoint: (
       sessionId: SessionId,
     ) => void | Promise<void> = () => {},
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -1424,8 +1535,8 @@ export class SessionsRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   // ---- sessions ----

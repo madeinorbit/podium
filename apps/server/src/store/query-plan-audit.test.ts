@@ -809,7 +809,9 @@ describe('POD-6148 — every repository query is served by an index', () => {
         'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>?)',
         'UNION ALL',
         'SEARCH s USING INDEX idx_sessions_refless_issue (issue_id>?)',
-        'SEARCH i EXISTS USING COVERING INDEX sqlite_autoindex_issues_1 (id=?)',
+        // The probe reads the issue's workspace too (POD-7015): one row by the primary key,
+        // no longer covered by it until C1 (POD-7024) leads the key with `workspace_id`.
+        'SEARCH i EXISTS USING INDEX sqlite_autoindex_issues_1 (id=?)',
         'USE TEMP B-TREE FOR ORDER BY',
       ],
     ])

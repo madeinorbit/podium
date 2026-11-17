@@ -7,8 +7,10 @@
 import { actorUser, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -21,7 +23,8 @@ import type { SessionRow } from './types'
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 describe('session upsert rebase seam', () => {
