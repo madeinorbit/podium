@@ -83,8 +83,10 @@ describe('the Linear and Telegram secrets in the vault', () => {
     const byKey = new Map(raw.map((r) => [r.key, r]))
     expect(byKey.get('integrations.linearApiKey')?.value).toMatch(/^vault:v1:/)
     expect(byKey.get('integrations.linearApiKey')?.updated_at).toBe(OLD_STAMP)
-    // Other keys are not the vault's: they stay as they were (Task 21 removes them).
-    expect(byKey.get('apiKeys.openai')?.value).toBe('FAKE-sk-plain-openai')
+    // A provider key is not a sealed server secret: it becomes a credential, and
+    // its old row goes once the credential reads back (Task 21).
+    expect(byKey.has('apiKeys.openai')).toBe(false)
+    expect(text).not.toContain('FAKE-sk-plain-openai')
 
     // A second start changes nothing and still reads the same values.
     const again = await openAt(dbPath, keyPath)

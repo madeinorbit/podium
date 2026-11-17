@@ -547,7 +547,10 @@ describe('MU-15: customer personal data across the complete multi-user migration
         : []),
     ])
     await upgrade(root)
-    expect(preservedMemberData(root)).toEqual(before)
+    // The provider key moves into the vault and its old row is emptied
+    // (credential management Task 21); everything else is kept as it was.
+    expect({ ...preservedMemberData(root), accounts: [] }).toEqual({ ...before, accounts: [] })
+    expect(preservedMemberData(root).accounts).toEqual([])
     withDb(root, (db) => {
       expect(
         db.prepare('SELECT count(*) AS n FROM client_sessions WHERE session_id IS NULL').get(),
@@ -563,8 +566,12 @@ describe('MU-15: customer personal data across the complete multi-user migration
             ]
           : []),
       ])
-      expect(db.prepare('SELECT owner_user_id, ref FROM accounts').all()).toEqual([
-        { owner_user_id: 'mem_upgrade_alice', ref: 'managed:anthropic' },
+      expect(db.prepare('SELECT type, owner_user_id, legacy_id FROM credentials').all()).toEqual([
+        {
+          type: 'anthropic.api-key',
+          owner_user_id: 'mem_upgrade_alice',
+          legacy_id: 'managed:anthropic',
+        },
       ])
       expect(
         db.prepare('SELECT id, owner_user_id, assignee FROM issues ORDER BY id').all(),
