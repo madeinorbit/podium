@@ -1794,7 +1794,7 @@ export class SessionsRepository {
    * inside one `authority.bootstrap()` call, which blocked the event loop whole.
    *
    * SAME ROW AS THE SCAN IT REPLACES, deliberately: `sessionsWhere` supplies the
-   * `created_at ASC, rowid ASC` order, so taking `[0]` here picks exactly the
+   * `created_at ASC, id ASC` order, so taking `[0]` here picks exactly the
    * entry a `.find()` over `loadSessions()` returned when several sessions share
    * a `resumeValue`. `deleted_at IS NULL` is restated for the same reason — it is
    * the filter `loadSessions` applied, not an added condition.

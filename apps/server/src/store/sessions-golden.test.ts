@@ -12,7 +12,7 @@ import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
  * distinction a conversion can flatten while every caller keeps working.
  *
  * THE ORDERING IS THE CONTRACT, not an incidental. `readSessions` supplies
- * `created_at ASC, rowid ASC`, and three methods depend on it meaning different
+ * `created_at ASC, id ASC`, and three methods depend on it meaning different
  * things: `findSessionByResumeValue` takes `[0]` and must pick exactly the row a
  * `.find()` over `loadSessions()` used to return (POD-1614);
  * `findSessionsByResumeValues` keeps the FIRST row per value for the same
@@ -292,7 +292,7 @@ describe('getSessions — the batched form of getSession', () => {
 describe('the three resume-value readers answer three different questions', () => {
   /**
    * Two live sessions share one resume value. `first` is created earlier, so the
-   * `created_at ASC, rowid ASC` ordering makes it the one the singular readers
+   * `created_at ASC, id ASC` ordering makes it the one the singular readers
    * pick; `second` carries an issueId that `first` lacks, which is the fact cost
    * attribution needs and the reason the plural reader exists.
    */

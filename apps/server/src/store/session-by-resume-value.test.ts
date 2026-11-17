@@ -16,7 +16,7 @@
  * `resume_value` IS NOT UNIQUE — the live corpus has 8 values shared by two live
  * sessions each — so "which row" is a real question and not a hypothetical. The
  * scan answered it with `.find()`, i.e. the FIRST row in `loadSessions()` order
- * (`created_at ASC, rowid ASC`). If the query answered with a different one, a
+ * (`created_at ASC, id ASC`). If the query answered with a different one, a
  * conversation could resolve to a session with a DIFFERENT OWNER, and the
  * visibility decision would flip — silently, and in the widening direction.
  *
