@@ -1,7 +1,8 @@
 # POD-6958: round trips at hosted Postgres latency
 
-As of `5f81d150c9` (`issue/6992-postgres-query-plans-and-round-trips`, on
-`integrate/6951-cloud-hosting` at `6cff54310f`), 2026-11-17. Task POD-6992, design section 2.11
+As of `a324ec76a5` (`issue/6992-postgres-query-plans-and-round-trips`, on
+`integrate/6951-cloud-hosting` at `e6f9fb21b3`), 2026-11-17. The timings were taken at
+`5f81d150c9`, the same code before the last rebase. Task POD-6992, design section 2.11
 of `docs/design/POD-6958-postgres-store-design.md`. This report feeds operator decision OD2
 (a round-trip budget before a second workspace goes live); the reductions are POD-7030.
 
@@ -209,7 +210,7 @@ Found, for other tasks:
 `sync/record-payloads.pg.test.ts` writes a SQLite store through the server's own paths
 (machines, issues with a parent and a dependency, sessions bound by their daemon, mail over
 tRPC to a session and to an issue), copies every row into Postgres, and streams every record
-kind from both with one clock. As of `6bd105edd0`: 35 records over 13 kinds (`machine`,
+kind from both with one clock: 35 records over 13 kinds (`machine`,
 `machineAccess`, `repo`, `issueProjection`, `issueDep`, `issueUserState`, `superagentThread`,
 `agentProfile`, `instancePreferences`, `checkout`, `issueEvent`, `message`, `session`) are equal
 byte for byte under `JSON.stringify(record.value)`, with the same ids. There are no differences.
