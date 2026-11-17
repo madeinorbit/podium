@@ -7,11 +7,13 @@ import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'rea
 import {
   Image,
   Text as NativeText,
+  Platform,
   ScrollView,
   type StyleProp,
   StyleSheet,
   type TextProps,
   type TextStyle,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import { useCodeHighlight } from '../hooks/useCodeHighlight'
@@ -56,6 +58,7 @@ interface RenderContext {
   textStyle?: StyleProp<TextStyle>
   onRefPress?: (ref: string) => void
   selectable: boolean
+  fontScale?: number
 }
 
 function plainText(token: MarkdownToken): string {
@@ -516,7 +519,7 @@ function Blocks({
             {(token.items ?? []).map((item, itemIndex) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: parsed list items are immutable and positional
               <View key={`item:${itemIndex}`} style={styles.listItem}>
-                <Text style={styles.listMarker}>
+                <Text style={[styles.listMarker, { width: 24 * Math.max(1, ctx.fontScale ?? 1) }]}>
                   {item.task ? (item.checked ? '☑' : '☐') : ordered ? `${start + itemIndex}.` : '•'}
                 </Text>
                 <View style={styles.listBody}>
@@ -557,34 +560,38 @@ export function RichMarkdown({
   onRefPress,
   selectable = true,
 }: RichMarkdownProps) {
+  const { fontScale } = useWindowDimensions()
   const tokens = useMemo(() => parseMarkdown(text), [text])
   const ctx = useMemo(
-    () => ({ textStyle, onRefPress, selectable }),
-    [onRefPress, selectable, textStyle],
+    () => ({ textStyle, onRefPress, selectable, fontScale }),
+    [onRefPress, selectable, textStyle, fontScale],
   )
   // The web shell disables selection app-wide so long-pressing a card cannot
   // raise iOS's magnifier; agent prose opts back in [POD-366, patch-web-html].
   return (
-    <View style={styles.root} {...(selectable ? selectableProps : undefined)}>
+    <View key={fontScale} style={styles.root} {...(selectable ? selectableProps : undefined)}>
       <Blocks tokens={tokens} ctx={ctx} />
     </View>
   )
 }
 
 const headingStyles = StyleSheet.create({
-  1: { fontSize: font.title, lineHeight: leading(font.title) },
-  2: { fontSize: font.heading, lineHeight: leading(font.heading) },
-  3: { fontSize: font.heading, lineHeight: leading(font.heading) },
+  1: { fontSize: font.title, ...Platform.select({ web: { lineHeight: leading(font.title) } }) },
+  2: { fontSize: font.heading, ...Platform.select({ web: { lineHeight: leading(font.heading) } }) },
+  3: { fontSize: font.heading, ...Platform.select({ web: { lineHeight: leading(font.heading) } }) },
 })
 
 const styles = StyleSheet.create({
-  root: { minWidth: 0, width: '100%', maxWidth: '100%', flexShrink: 0 },
+  root: { minWidth: 0, width: '100%', maxWidth: '100%', flexGrow: 0, flexShrink: 0 },
   body: {
     ...sans(400),
     // Keep UIKit label adaptation, including Increase Contrast, for reading text.
     color: color.body,
     fontSize: 16,
-    lineHeight: 24,
+    // Native prose follows the scaled font's intrinsic metrics. Recreate the
+    // blocks when the text size changes so a retained AX5 measurement cannot
+    // leave empty space before the next block after returning to default.
+    ...Platform.select({ web: { lineHeight: 24 } }),
   },
   paragraph: { marginVertical: 4, minWidth: 0, maxWidth: '100%' },
   // UIKit primary label can already be black/white: emphasis adds weight there.
@@ -611,13 +618,14 @@ const styles = StyleSheet.create({
     backgroundColor: color.border,
     marginVertical: space.md,
   },
-  list: { marginVertical: space.xs, gap: 3 },
+  list: { marginVertical: space.xs, gap: 4, flexGrow: 0 },
   listItem: { flexDirection: 'row', alignItems: 'flex-start', minWidth: 0 },
   listMarker: {
     ...mono(500),
     color: color.textDim,
     width: 24,
-    lineHeight: leading(font.body, 'prose'),
+    fontSize: 16,
+    ...Platform.select({ web: { lineHeight: 24 } }),
   },
   listBody: { flex: 1, minWidth: 0 },
   codeFrame: {
