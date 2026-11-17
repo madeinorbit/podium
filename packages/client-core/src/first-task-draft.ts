@@ -173,7 +173,7 @@ export function serializeFirstTaskDraft(draft: FirstTaskDraft): string {
   return JSON.stringify({ ...draft, attachments: boundedAttachmentPreviews(draft.attachments) })
 }
 
-/** Cold storage has no upload promises. Live draft reads must leave them alone. */
+/** A native cold restart has no upload promises. Live draft reads must leave them alone. */
 export function interruptFirstTaskDraftUploads(raw: string | null): string | null {
   const draft = readFirstTaskDraft(raw)
   if (!draft.attachments.some((attachment) => attachment.state === 'uploading')) return raw

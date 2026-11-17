@@ -9,7 +9,7 @@ import {
   updateFirstTaskDraftAttachments,
   withoutCreateReservation,
 } from './first-task-draft'
-import { memoryStorage } from './replica/contract'
+import { memoryStorage, type StorageEventApi } from './replica/contract'
 import { createSideCache } from './replica/kernel/side-cache'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
 
@@ -23,7 +23,58 @@ const image: ComposerAttachment = {
 }
 
 describe('first-task attachment recovery', () => {
-  it('marks orphan uploads as removable failures on cold hydration and retains ready refs', () => {
+  it('keeps a live upload when another web tab opens the same draft storage', () => {
+    const storage = memoryStorage()
+    const listeners = new Set<(event: StorageEvent) => void>()
+    const storageEventApi: StorageEventApi = {
+      addEventListener: (_type, listener) => void listeners.add(listener),
+      removeEventListener: (_type, listener) => void listeners.delete(listener),
+    }
+    const init = { storage, enumerateKeys: () => [], storageEventApi }
+    const tabA = createSideCache(init)
+    const uploading: ComposerAttachment = {
+      id: 'live-chip',
+      name: 'shot.png',
+      previewUri: '',
+      state: 'uploading',
+    }
+    const draft = {
+      ...EMPTY_FIRST_TASK_DRAFT,
+      title: 'Wait for my live upload',
+      attachments: [uploading, image],
+      createMutationId: asMutationId('live-reservation'),
+    }
+    persistFirstTaskDraft(tabA.uiState(), draft)
+    const uiKey = 'podium.kernel-replica.uistate.v1'
+    const checkpoint = storage.getItem(uiKey)
+
+    // A still owns its upload promise when B opens on the same localStorage.
+    const tabB = createSideCache(init)
+    const fireStorage = () => {
+      for (const listener of listeners) listener({ key: uiKey } as StorageEvent)
+    }
+    try {
+      // Deliver any construction-time write from B back to A's live listener.
+      fireStorage()
+      const read = (tab: typeof tabA) =>
+        readFirstTaskDraft(tab.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+      expect(read(tabA)).toEqual(draft)
+      expect(read(tabB)).toEqual(draft)
+      expect(storage.getItem(uiKey)).toBe(checkpoint)
+
+      const completed = { ...uploading, state: 'ready' as const, ref: image.ref }
+      updateFirstTaskDraftAttachments(tabA.uiState(), (current) =>
+        current.map((chip) => (chip.id === uploading.id ? completed : chip)),
+      )
+      fireStorage()
+      expect(read(tabB).attachments).toEqual([completed, image])
+    } finally {
+      tabA.dispose()
+      tabB.dispose()
+    }
+  })
+
+  it('marks orphan uploads as removable failures on native cold hydration and retains ready refs', () => {
     const storage = memoryStorage()
     const uploading: ComposerAttachment = {
       id: 'interrupted-chip',
@@ -43,7 +94,11 @@ describe('first-task attachment recovery', () => {
     ).toEqual([uploading, image])
     before.dispose()
 
-    const reopened = createSideCache({ storage, enumerateKeys: () => [] })
+    const reopened = createSideCache({
+      storage,
+      enumerateKeys: () => [],
+      recoverInterruptedDraftUploads: true,
+    })
     try {
       const ui = reopened.uiState()
       const recovered = readFirstTaskDraft(ui.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))

@@ -264,6 +264,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
       enumerateKeys: deps.enumerateKeys ?? (() => []),
       flush: deps.flushStorage,
       basePrefix: REPLICA_KEY_PREFIX,
+      recoverInterruptedDraftUploads: Platform.OS !== 'web',
     },
     onDegraded: (detail) => {
       const report = detail as { kind?: string; notice?: string }

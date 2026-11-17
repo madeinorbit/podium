@@ -888,7 +888,7 @@ describe('ColdStartComposer', () => {
    * whole point is that the agent receives it — a chip that only ever decorated
    * this screen would be worse than no affordance at all. */
   describe('attachments', () => {
-    it('allows starting after a cold restart with an interrupted upload and reuses ready refs', async () => {
+    it('waits for uploads from shared web storage and reuses ready refs after removal', async () => {
       const storage = memoryStorage()
       const completed = heldRef('completed.png', 'image/png')
       storage.setItem(
@@ -921,12 +921,15 @@ describe('ColdStartComposer', () => {
         side.dispose()
       }
       render(<ColdStartComposer first />)
-      expect(screen.queryByText('Uploading')).toBeNull()
-      expect(screen.getByText('Upload interrupted. Remove and attach the file again.')).toBeTruthy()
+      expect(screen.getByText('Uploading')).toBeTruthy()
+      expect(screen.queryByText('Upload interrupted. Remove and attach the file again.')).toBeNull()
+      expect(
+        (screen.getByRole('button', { name: 'Start task' }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove interrupted.pdf' }))
       expect(
         (screen.getByRole('button', { name: 'Start task' }) as HTMLButtonElement).disabled,
       ).toBe(false)
-      fireEvent.click(screen.getByRole('button', { name: 'Remove interrupted.pdf' }))
       fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
       expect(spawnDraftAgent).toHaveBeenCalledWith(
         expect.objectContaining({

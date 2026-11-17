@@ -57,6 +57,9 @@ export interface SideCacheInit {
   enumerateKeys?: () => string[]
   keyPrefix?: string
   now?: () => number
+  /** Only a single-process native owner can know persisted uploads lost their
+   * promises. Web tabs share storage with other owners whose uploads may be live. */
+  recoverInterruptedDraftUploads?: boolean
   /** Overridable for tests; defaults to the two homes the legacy path uses. */
   legacyOutboxKeys?: readonly string[]
   /** Surfaced, never swallowed (ADR 6 D4.4 clause 3). Fires when a QUEUED write
@@ -318,12 +321,15 @@ export function createSideCache(init: SideCacheInit): SideCache {
   let ui = readJson<Record<string, string>>(storage, uiKey, {})
   const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
   migrateLegacyUiKeys()
-  // Recover only on cold hydration, after legacy keys have reached this owner.
-  // Reopening a composer in this process can still have an active upload.
-  const recoveredDraft = interruptFirstTaskDraftUploads(ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] ?? null)
-  if (recoveredDraft !== null && recoveredDraft !== ui[FIRST_TASK_ACTIVATION_DRAFT_KEY]) {
-    ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] = recoveredDraft
-    writeJson(storage, uiKey, ui)
+  if (init.recoverInterruptedDraftUploads) {
+    // The native owner opts in after legacy keys have reached this cache.
+    const recoveredDraft = interruptFirstTaskDraftUploads(
+      ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] ?? null,
+    )
+    if (recoveredDraft !== null && recoveredDraft !== ui[FIRST_TASK_ACTIVATION_DRAFT_KEY]) {
+      ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] = recoveredDraft
+      writeJson(storage, uiKey, ui)
+    }
   }
 
   function migrateLegacyUiKeys(): void {
