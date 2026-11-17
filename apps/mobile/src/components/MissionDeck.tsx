@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   // The reserved hit band above the track keeps the visible 24pt gap.
-  filterBar: { paddingHorizontal: INSET, paddingTop: space.xl - SEGMENT_HIT_PAD },
+  filterBar: { paddingTop: space.xl - SEGMENT_HIT_PAD },
   choices: {
     borderRadius: radius.card,
     backgroundColor: color.groupedCard,

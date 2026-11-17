@@ -34,14 +34,18 @@ export function NativeGroupHeader({
   folded,
   onToggle,
   trailing,
+  inlineTrailing = false,
 }: {
   title: string
   count: number
   folded: boolean
   onToggle: () => void
   trailing?: ReactNode
+  /** Work keeps its 44pt add button trailing even at accessibility sizes. */
+  inlineTrailing?: boolean
 }) {
-  const expanded = useWindowDimensions().fontScale >= 1.6
+  const { fontScale } = useWindowDimensions()
+  const expanded = fontScale >= 1.6
   const modifiers = [
     listRowBackground(paper.ground),
     listRowSeparator('hidden'),
@@ -55,6 +59,7 @@ export function NativeGroupHeader({
         onPress={onToggle}
         modifiers={[
           buttonStyle('plain'),
+          frame({ maxWidth: Infinity, alignment: 'leading' }),
           accessibilityLabel(title),
           accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${count} tasks`),
           accessibilityHint(folded ? 'Shows this group.' : 'Folds this group away.'),
@@ -74,7 +79,7 @@ export function NativeGroupHeader({
               font({ textStyle: 'footnote', weight: 'semibold' }),
               foregroundStyle(paper.tertiary),
               // Grows with Dynamic Type so the glyph never meets the title.
-              frame({ minWidth: 14 }),
+              frame({ width: 14 * Math.max(1, fontScale) }),
               accessibilityHidden(),
             ]}
           />
@@ -109,7 +114,7 @@ export function NativeGroupHeader({
       {trailing}
     </>
   )
-  return expanded && trailing ? (
+  return expanded && trailing && !inlineTrailing ? (
     <VStack alignment="leading" spacing={8} modifiers={modifiers}>
       {content}
     </VStack>

@@ -26,6 +26,7 @@ vi.mock('../client/mobile-pool', () => ({
 }))
 vi.mock('../client/workspace-refresh', () => ({ useWorkspaceRefreshSubtitle: () => undefined }))
 vi.mock('../components/list-row-press.ios', () => ({
+  listRowHairline: (value: unknown) => ({ name: 'podiumRowHairline', value }),
   listRowPress: (onOpen: () => void) => ({ name: 'listRowPress', value: onOpen }),
   listSearchStartsHidden: () => ({ name: 'podiumSearchStartsHidden' }),
 }))
@@ -65,7 +66,7 @@ vi.mock('@expo/ui/swift-ui', () => {
         {children}
       </button>
     ),
-    ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null }),
+    ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null, Preview: () => null }),
     HStack: Box,
     Image: () => null,
     List: ({ children }: { children: ReactNode }) => <div data-testid="work-list">{children}</div>,

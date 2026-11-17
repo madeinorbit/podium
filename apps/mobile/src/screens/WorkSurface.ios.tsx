@@ -21,7 +21,6 @@ import {
   accessibilityIdentifier,
   accessibilityLabel,
   accessibilityValue,
-  alignmentGuide,
   animation,
   background,
   buttonStyle,
@@ -33,7 +32,6 @@ import {
   listRowBackground,
   listRowInsets,
   listRowSeparator,
-  listRowSeparatorTint,
   listSectionMargins,
   listSectionSpacing,
   listStyle,
@@ -73,7 +71,11 @@ import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
-import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
+import {
+  listRowHairline,
+  listRowPress,
+  listSearchStartsHidden,
+} from '../components/list-row-press.ios'
 import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
@@ -103,7 +105,6 @@ const CARD_EDGE = 8
 /** Task rows keep the system cell background (paper.card's exact values): a custom
  * listRowBackground suppresses the List's native touch-down highlight. */
 const taskRowAt = (first: boolean, last: boolean) => [
-  listRowSeparatorTint(paper.separator),
   listRowInsets({
     leading: CARD_INSET,
     trailing: CARD_INSET,
@@ -379,6 +380,7 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   useEffect(() => () => section.window.disappear(id, owner), [section, id, owner])
   const [height, setHeight] = useState(36)
   const shown = active || primed
+  const { fontScale } = useWindowDimensions()
   return (
     <VStack
       spacing={0}
@@ -394,6 +396,7 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
         // Keep cell insets outside the measured content, as on Tasks. Otherwise
         // the placeholder can pay those insets twice during a fast fling.
         ...taskRowAt(first, last),
+        listRowHairline({ leading: MARK_WIDTH * Math.max(1, fontScale) + MARK_GAP, top: 8, first }),
       ]}
     >
       {shown ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -435,6 +438,7 @@ const WorkGroupHeader = observer(function WorkGroupHeader({
   return (
     <NativeGroupHeader
       title={section.label}
+      inlineTrailing
       count={section.ids.length}
       folded={folded}
       onToggle={() => onToggle(section.key)}
@@ -559,6 +563,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const row = model?.knownRow(props.id)
   const { fontScale } = useWindowDimensions()
   const expanded = fontScale >= 1.6
+  const markScale = Math.max(1, fontScale)
   const loading = useDelayedFlag(props.pending, NAV_LOADER_DELAY_MS)
   if (row?.ready !== 'ready') return null
   const word =
@@ -595,7 +600,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const refText = (
     <Text
       modifiers={[
-        font({ size: 11 * Math.min(fontScale, 2), design: 'monospaced' }),
+        font({ size: 11 * fontScale, design: 'monospaced' }),
         foregroundStyle(paper.tertiary),
         lineLimit(1),
       ]}
@@ -604,13 +609,8 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
     </Text>
   )
   return (
-    <SwipeActions
-      modifiers={[
-        ...(props.pending ? [listRowBackground(paper.fill)] : []),
-        alignmentGuide('listRowSeparatorLeading', MARK_WIDTH + MARK_GAP),
-      ]}
-    >
-      <ContextMenu>
+    <SwipeActions modifiers={[...(props.pending ? [listRowBackground(paper.fill)] : [])]}>
+      <ContextMenu preview>
         <ContextMenu.Trigger>
           <HStack
             alignment="top"
@@ -630,17 +630,25 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
           >
             {tone === 'working' ? (
               // The shared animated mark (UI-thread clock), as on desktop rows.
-              <HStack modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}>
+              <HStack
+                modifiers={[
+                  frame({ width: MARK_WIDTH * markScale, height: 20 * markScale }),
+                  accessibilityHidden(),
+                ]}
+              >
                 <RNHostView matchContents>
-                  <WorkingMark size={12} tint={color.workingText} />
+                  <WorkingMark size={12 * markScale} tint={color.workingText} />
                 </RNHostView>
               </HStack>
             ) : (
               <Image
                 systemName={mark.symbol}
-                size={mark.size}
+                size={mark.size * markScale}
                 color={mark.signal ? toneColor(tone) : paper.tertiary}
-                modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+                modifiers={[
+                  frame({ width: MARK_WIDTH * markScale, height: 20 * markScale }),
+                  accessibilityHidden(),
+                ]}
               />
             )}
             <VStack

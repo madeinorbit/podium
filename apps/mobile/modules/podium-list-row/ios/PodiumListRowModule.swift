@@ -2,6 +2,7 @@ import ExpoModulesCore
 import ExpoUI
 import SwiftUI
 
+private let rowHairlineModifier = "podiumRowHairline"
 private let rowPressModifier = "podiumListRowPress"
 private let searchStartsHiddenModifier = "podiumSearchStartsHidden"
 private let workingWordModifier = "podiumWorkingWordGlint"
@@ -11,6 +12,14 @@ public final class PodiumListRowModule: Module {
     Name("PodiumListRow")
 
     OnCreate {
+      ViewModifierRegistry.register(rowHairlineModifier) { params, _, _ in
+        RowHairlineModifier(
+          leading: params["leading"] as? Double ?? 0,
+          trailing: params["trailing"] as? Double ?? 12,
+          top: params["top"] as? Double ?? 0,
+          visible: params["visible"] as? Bool ?? true
+        )
+      }
       ViewModifierRegistry.register(workingWordModifier) { params, _, _ in
         WorkingWordModifier(phase: params["phase"] as? Double ?? 0)
       }
@@ -23,6 +32,7 @@ public final class PodiumListRowModule: Module {
     }
 
     OnDestroy {
+      ViewModifierRegistry.unregister(rowHairlineModifier)
       ViewModifierRegistry.unregister(workingWordModifier)
       ViewModifierRegistry.unregister(rowPressModifier)
       ViewModifierRegistry.unregister(searchStartsHiddenModifier)
@@ -379,5 +389,32 @@ final class SearchStartsHiddenView: UIView {
       responder = current.next
     }
     return nil
+  }
+}
+
+/// Keep the separator independent of text scaling, and extend through List's
+/// trailing content inset. The List still owns cell layout and backgrounds.
+private struct RowHairlineModifier: ViewModifier {
+  @Environment(\.displayScale) private var displayScale
+  let leading: Double
+  let trailing: Double
+  let top: Double
+  let visible: Bool
+
+  func body(content: Content) -> some View {
+    content
+      .listRowSeparator(.hidden)
+      .overlay(alignment: .topLeading) {
+        if visible {
+          Rectangle()
+            .fill(Color(uiColor: .separator))
+            .frame(height: 1 / max(displayScale, 1))
+            .padding(.leading, leading)
+            .padding(.trailing, -trailing)
+            .offset(y: -top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+      }
   }
 }

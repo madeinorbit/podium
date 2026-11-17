@@ -7,7 +7,6 @@ import {
   accessibilityIdentifier,
   accessibilityLabel,
   accessibilityValue,
-  alignmentGuide,
   buttonStyle,
   contentShape,
   fixedSize,
@@ -35,7 +34,7 @@ import { color } from '../theme/theme'
 import { ContextMenu } from './ContextMenu.ios'
 import { deckColor, deckWordColor } from './deck-colors'
 import { IssueRowMenuItems } from './IssueRowMenuItems.ios'
-import { listRowPress } from './list-row-press.ios'
+import { listRowHairline, listRowPress } from './list-row-press.ios'
 import {
   type DeckAgentRowProps,
   type DeckPhaseHeadingProps,
@@ -86,12 +85,12 @@ function useRowType() {
   }
 }
 
-const rowInsets = (trailing = INSET) =>
-  listRowInsets({ leading: INSET, trailing, top: 0, bottom: 0 })
+const rowInsets = (trailing = 12) => listRowInsets({ leading: INSET, trailing, top: 0, bottom: 0 })
 
 export const DeckTaskRow = observer(function DeckTaskRow({
   task,
   indent,
+  first,
   onPress,
   onLongPress,
   menu,
@@ -183,8 +182,8 @@ export const DeckTaskRow = observer(function DeckTaskRow({
         frame({ maxWidth: Infinity, alignment: 'leading' }),
         // The disclosure's 44pt target ends 2pt from the card edge, so its
         // chevron lines up with the phase headings' (24pt in).
-        rowInsets(foldable ? 2 : INSET),
-        separatorAt(step),
+        rowInsets(foldable ? 2 : 12),
+        separatorAt(step, first, foldable ? 2 : 12),
       ]}
     >
       {menu ? (
@@ -284,6 +283,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
 export const DeckSeatRow = observer(function DeckSeatRow({
   task,
   sessionId,
+  first,
   current,
   onPress,
 }: DeckSeatRowProps) {
@@ -306,7 +306,7 @@ export const DeckSeatRow = observer(function DeckSeatRow({
         listRowPress(onPress),
         accessibilityIdentifier('deck-seat'),
         ...seatRowTraits(current),
-        separatorAt(0),
+        separatorAt(0, first),
       ]}
     >
       <SessionMark word={word} line={type.title} />
@@ -349,7 +349,7 @@ export const DeckPhaseHeading = observer(function DeckPhaseHeading({
       <HStack
         modifiers={[
           ...headingTraits,
-          padding({ horizontal: INSET, top: 24, bottom: 12 }),
+          padding({ leading: INSET, trailing: 12, top: 24, bottom: 12 }),
           frame({ minHeight: 44, maxWidth: Infinity }),
           accessibilityLabel('Loading phase'),
         ]}
@@ -378,7 +378,7 @@ export const DeckPhaseHeading = observer(function DeckPhaseHeading({
       <HStack
         spacing={GAP}
         modifiers={[
-          padding({ horizontal: INSET, top: 24, bottom: 12 }),
+          padding({ leading: INSET, trailing: 12, top: 24, bottom: 12 }),
           frame({ maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
         ]}
@@ -432,7 +432,8 @@ function seatRowTraits(current: boolean) {
 
 /** The separator starts at the row's text column, set outright: inferred
  * from content, a recycled cell can draw it from the row inset instead. */
-const separatorAt = (step: number) => alignmentGuide('listRowSeparatorLeading', step + INDENT)
+const separatorAt = (step: number, first = false, trailing = 12) =>
+  listRowHairline({ leading: step + INDENT, first, trailing })
 
 /** The meta line's type; each piece names its own colour (the first
  * foregroundStyle on a Text wins). */

@@ -1,4 +1,4 @@
-import { createModifierWithEventListener } from '@expo/ui/swift-ui/modifiers'
+import { createModifier, createModifierWithEventListener } from '@expo/ui/swift-ui/modifiers'
 import { requireNativeModule } from 'expo'
 
 // Requiring the module registers its modifier before any native row renders.
@@ -19,3 +19,16 @@ export const listSearchStartsHidden = ({
   canTuck: boolean | null
   onReady: () => void
 }) => createModifierWithEventListener('podiumSearchStartsHidden', onReady, { canTuck })
+
+/** One physical pixel, from the title column to the card edge, at any display scale. */
+export const listRowHairline = ({
+  leading,
+  trailing = 12,
+  top = 0,
+  first = false,
+}: {
+  leading: number
+  trailing?: number
+  top?: number
+  first?: boolean
+}) => createModifier('podiumRowHairline', { leading, trailing, top, visible: !first })

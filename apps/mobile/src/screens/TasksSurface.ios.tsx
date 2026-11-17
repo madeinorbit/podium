@@ -17,7 +17,6 @@ import {
   accessibilityHint,
   accessibilityIdentifier,
   accessibilityLabel,
-  alignmentGuide,
   animation,
   background,
   buttonStyle,
@@ -29,7 +28,6 @@ import {
   listRowBackground,
   listRowInsets,
   listRowSeparator,
-  listRowSeparatorTint,
   listSectionMargins,
   listSectionSpacing,
   listStyle,
@@ -66,7 +64,11 @@ import { deckColor } from '../components/deck-colors'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
-import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
+import {
+  listRowHairline,
+  listRowPress,
+  listSearchStartsHidden,
+} from '../components/list-row-press.ios'
 import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
@@ -84,8 +86,6 @@ import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSur
 import { useStageFolds } from './tasks-folds'
 import { workPaper as paper } from './work-paper'
 
-/** Leading edge of a row's title: 12 inset + 14 mark + 8 gap, the board's axis. */
-const ROW_AXIS = 34
 /** Dynamic Type's accessibility sizes start here (Work uses the same line). */
 const ACCESSIBILITY_SCALE = 1.6
 const CARD_INSET = 12
@@ -102,7 +102,6 @@ const CARD_EDGE = 8
 const taskRowAt = (first: boolean, last: boolean, fontScale: number) => {
   const edge = fontScale >= ACCESSIBILITY_SCALE ? CARD_EDGE : 0
   return [
-    listRowSeparatorTint(paper.separator),
     listRowInsets({
       leading: CARD_INSET,
       trailing: CARD_INSET,
@@ -404,7 +403,8 @@ const TaskSlot = observer(function TaskSlot({
     <VStack
       spacing={0}
       modifiers={[
-        frame({ maxWidth: Infinity, alignment: 'leading' }),
+        // Fill the iOS 26 cell minimum so the overlay sits at the cell boundary.
+        frame({ minHeight: 52, maxWidth: Infinity, alignment: 'leading' }),
         onAppear(() => lane?.window.appear(id)),
         onDisappear(() => {
           unprime()
@@ -412,9 +412,12 @@ const TaskSlot = observer(function TaskSlot({
         }),
         // Expo applies modifiers in order. Keep cell traits outside the frame
         // and measurement wrappers, on the Section's direct row view.
-        // The guide is relative to content that already starts after the card inset.
-        alignmentGuide('listRowSeparatorLeading', ROW_AXIS - CARD_INSET + depth * 16),
+        // The separator starts after the scaled status column.
         ...taskRowAt(first, last, fontScale),
+        listRowHairline({
+          leading: 14 * Math.max(1, fontScale) + 8 + depth * 16,
+          first,
+        }),
       ]}
     >
       {shown ? (
@@ -471,6 +474,7 @@ const TaskRow = taskObserver(function TaskRow({
   const figure = issue.childCount > 0 ? taskRowFigure(task.progress, null) : ''
   const progress = figure ? `${figure} sub-tasks done` : ''
   const accessible = fontScale >= ACCESSIBILITY_SCALE
+  const markScale = Math.max(1, fontScale)
   const title = (lines: number) => (
     <Text
       modifiers={[
@@ -502,7 +506,7 @@ const TaskRow = taskObserver(function TaskRow({
 
   return (
     <SwipeActions>
-      <ContextMenu>
+      <ContextMenu preview>
         <ContextMenu.Trigger>
           <VStack
             alignment="leading"
@@ -520,6 +524,7 @@ const TaskRow = taskObserver(function TaskRow({
             ]}
           >
             <HStack
+              alignment="top"
               spacing={8}
               modifiers={[
                 // Keep the native list minimum; this padding lets larger text
@@ -532,9 +537,12 @@ const TaskRow = taskObserver(function TaskRow({
               {row.depth > 0 ? <Spacer modifiers={[frame({ width: row.depth * 16 - 8 })]} /> : null}
               <Image
                 systemName={MARK_SYMBOL[mark]}
-                size={mark === 'needs' ? 8 : 10}
+                size={(mark === 'needs' ? 8 : 10) * markScale}
                 color={MARK_COLOR[mark]}
-                modifiers={[frame({ width: 14 }), accessibilityHidden()]}
+                modifiers={[
+                  frame({ width: 14 * markScale, height: 20 * markScale }),
+                  accessibilityHidden(),
+                ]}
               />
               {accessible ? (
                 // Accessibility sizes (as Mail): the title takes the row's width and

@@ -136,6 +136,9 @@ vi.mock('@expo/ui/swift-ui', () => {
           data-layout-priority={
             modifiers?.find((m) => m.name === 'layoutPriority')?.value as number
           }
+          data-row-hairline={JSON.stringify(
+            modifiers?.find((m) => m.name === 'podiumRowHairline')?.value,
+          )}
           onMouseEnter={appear}
           onMouseLeave={disappear}
         >
@@ -201,6 +204,7 @@ vi.mock('@expo/ui/swift-ui', () => {
       {
         Trigger: Box,
         Items: ({ children }: Props) => <div data-testid="long-press-menu">{children}</div>,
+        Preview: () => null,
       },
     ),
     SwipeActions: Object.assign(Box, {
@@ -227,6 +231,17 @@ vi.mock('./MissionProposalSlot', () => import('./MissionProposalSlot.ios'))
 vi.mock('./MissionDeckList', () => import('./MissionDeckList.ios'))
 vi.mock('./MissionDeckRows', () => import('./MissionDeckRows.ios'))
 vi.mock('./list-row-press.ios', () => ({
+  listRowHairline: ({
+    leading,
+    trailing = 12,
+    top = 0,
+    first = false,
+  }: {
+    leading: number
+    trailing?: number
+    top?: number
+    first?: boolean
+  }) => ({ name: 'podiumRowHairline', value: { leading, trailing, top, visible: !first } }),
   listRowPress: (onOpen: () => void) => ({ name: 'podiumListRowPress', value: onOpen }),
 }))
 const { MissionDeck } = await import('./MissionDeck')
@@ -567,10 +582,12 @@ it.each([
 it('draws the separator at the title column on every proposal but the first', async () => {
   await mount(3)
   const separators = (id: string) =>
-    within(screen.getByTestId(`deck-proposal-slot-${id}`)).queryAllByTestId('row-separator')
-  expect(separators('proposal-0')).toHaveLength(0)
-  expect(separators('proposal-1')).toHaveLength(1)
-  expect(separators('proposal-2')).toHaveLength(1)
+    JSON.parse(
+      screen.getByTestId(`deck-proposal-slot-${id}`).getAttribute('data-row-hairline') ?? 'null',
+    )
+  expect(separators('proposal-0')).toEqual({ leading: 32, trailing: 12, top: 0, visible: false })
+  expect(separators('proposal-1')).toEqual({ leading: 32, trailing: 12, top: 0, visible: true })
+  expect(separators('proposal-2')).toEqual({ leading: 32, trailing: 12, top: 0, visible: true })
 })
 
 it('keeps the last positive content height when a receipt cell leaves and re-enters the row window', async () => {

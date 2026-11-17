@@ -49,6 +49,17 @@ vi.mock('@podium/client-graph/react', async (original) => ({
 }))
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
 vi.mock('../components/list-row-press.ios', () => ({
+  listRowHairline: ({
+    leading,
+    trailing = 12,
+    top = 0,
+    first = false,
+  }: {
+    leading: number
+    trailing?: number
+    top?: number
+    first?: boolean
+  }) => ({ name: 'podiumRowHairline', value: { leading, trailing, top, visible: !first } }),
   listRowPress: (onOpen: () => void) => ({ name: 'podiumListRowPress', value: onOpen }),
   listSearchStartsHidden: () => ({ name: 'podiumSearchStartsHidden' }),
 }))
@@ -241,6 +252,7 @@ vi.mock('@expo/ui/swift-ui', () => {
       Trigger: Box,
       Items: ({ children }: Props) =>
         state.showActions ? <div data-testid="context-menu">{children}</div> : null,
+      Preview: () => null,
     }),
     HStack: Box,
     Image: () => null,
@@ -741,23 +753,21 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
     if (!node) throw new Error('Expected a native view')
     return JSON.parse(node.getAttribute('data-modifiers') ?? '[]')
   }
-  const cellTraits = modifiers(slot).slice(-3)
+  const cellTraits = modifiers(slot).slice(-2)
   expect(slot.parentElement?.tagName).toBe('SECTION')
   // No custom listRowBackground: it would suppress the List's native touch-down
   // highlight (the system cell background has paper.card's exact values).
   expect(modifiers(slot).map((m: { name: string }) => m.name)).not.toContain('listRowBackground')
   expect(cellTraits).toEqual([
-    { name: 'alignmentGuide', value: 'listRowSeparatorLeading', offset: 22 },
-    { name: 'listRowSeparatorTint', value: expect.any(String) },
     // At default sizes the List minimum already pads the row: no extra edge,
     // so the first row centres like the middle rows.
     { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 0, bottom: 0 } },
+    { name: 'podiumRowHairline', value: { leading: 22, trailing: 12, top: 0, visible: false } },
   ])
   for (const [depth, nestedSlot] of slots.entries()) {
     expect(modifiers(nestedSlot)).toContainEqual({
-      name: 'alignmentGuide',
-      value: 'listRowSeparatorLeading',
-      offset: 22 + depth * 16,
+      name: 'podiumRowHairline',
+      value: { leading: 22 + depth * 16, trailing: 12, top: 0, visible: depth > 0 },
     })
   }
   // The row is there on first render, and stays once the prime lapses.
@@ -765,7 +775,7 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   await lapsePrime()
   expect(screen.getByText('Single task')).toBeTruthy()
   act(() => fireEvent.mouseEnter(slot))
-  expect(modifiers(slot).slice(-3)).toEqual(cellTraits)
+  expect(modifiers(slot).slice(-2)).toEqual(cellTraits)
   expect(modifiers(screen.getByText('Single task').parentElement).slice(0, 2)).toEqual([
     { name: 'padding', value: { vertical: 6 } },
     { name: 'frame', value: expect.objectContaining({ minHeight: 44, alignment: 'leading' }) },
@@ -797,11 +807,10 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(monoSizes()).toEqual([22, 24])
   // Accessibility sizes outgrow the minimum: the first row gets 8pt against the corners.
   const accessibleTraits = [
-    cellTraits[0],
-    cellTraits[1],
     { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 0 } },
+    { name: 'podiumRowHairline', value: { leading: 36, trailing: 12, top: 0, visible: false } },
   ]
-  expect(modifiers(slot).slice(-3)).toEqual(accessibleTraits)
+  expect(modifiers(slot).slice(-2)).toEqual(accessibleTraits)
   expect(state.actions).toHaveLength(1)
   expect(state.actions[0]?.label).toBe('Task actions')
   const newTask = state.actions[0]?.items?.find(
@@ -818,7 +827,7 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   // A short lane never leaves the window: the row stays, not a placeholder.
   act(() => fireEvent.mouseLeave(slot))
   expect(screen.getByText('Single task')).toBeTruthy()
-  expect(modifiers(slot).slice(-3)).toEqual(accessibleTraits)
+  expect(modifiers(slot).slice(-2)).toEqual(accessibleTraits)
 })
 
 it('native placeholders activate a bounded window both ways; only age labels read the clock', async () => {
