@@ -111,8 +111,9 @@ export const MissionDeck = observer(function MissionDeck({
   const stackedVitals = useWindowDimensions().fontScale > SEGMENT_MAX_SCALE
   const [proposalsOpen, setProposalsOpen] = useState(true)
   const acceptedTree = full.ready ? submissions.acceptedTree : null
-  // Beside Done, spend the available width on attention and working first.
-  // At accessibility sizes the toggle is on its own line, leaving the full summary.
+  // Beside Done the summary drops Up next; the done/total count always shows.
+  // When the line and the toggle do not fit together, the row wraps the toggle
+  // onto its own line instead of clipping it or dropping the count.
   const compactVitals = !stackedVitals && acceptedTree?.filterable === true
   const rowIds = acceptedTree?.rowIds ?? []
   const proposalIds = full.ready ? submissions.ids : []
@@ -154,7 +155,6 @@ export const MissionDeck = observer(function MissionDeck({
                 vitals={vitals}
                 numberOfLines={stackedVitals ? undefined : 1}
                 showUpNext={!compactVitals}
-                showProgress={!compactVitals || vitals.needsYou === 0 || vitals.working === 0}
               />
             </View>
             {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
@@ -542,9 +542,16 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
-  vitalsRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  vitalsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: space.md,
+    rowGap: space.xs,
+  },
   vitalsStacked: { alignItems: 'flex-start', gap: space.xs },
-  vitalsText: { flex: 1, flexShrink: 1, minWidth: 0 },
+  // Content-sized basis, so the row wraps the toggle before shrinking the text.
+  vitalsText: { flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: '100%' },
   // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
   groupGap: { height: 0 },
   /** The 44pt hit row; the 32pt track sits at its foot, so the reserved band

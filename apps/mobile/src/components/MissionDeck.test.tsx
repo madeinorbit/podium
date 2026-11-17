@@ -619,7 +619,7 @@ it('uses the task word for shipping, even without a computing seat', async () =>
 
 it.each([
   1, 2.35,
-])('shares vitals width with the done toggle while preserving priority words at scale %s', async (scale) => {
+])('keeps the done count and priority words beside the done toggle at scale %s', async (scale) => {
   dimensions.fontScale = scale
   const ready = issue({
     id: asIssueId('ready'),
@@ -641,7 +641,7 @@ it.each([
     expect(column.textContent).toContain('1 needs you')
     expect(column.textContent).toContain('1 working')
     expect(column.textContent?.includes('up next')).toBe(scale > 1)
-    expect(/\d+\/\d+/.test(column.textContent ?? '')).toBe(scale > 1)
+    expect(column.textContent).toMatch(/\d+\/\d+/)
   } finally {
     dimensions.fontScale = 1
   }
