@@ -56,6 +56,7 @@ import {
   ShippingRepairApplyRequestMessage,
   ShippingTrainExecution,
 } from '../messages/shipping'
+import { HomeCredentialId } from '../messages/homes'
 import { TopicKeyField, topicKey } from '../planes/topics'
 import type { SampleOptions } from './sampler'
 
@@ -82,6 +83,9 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   [MessageId, () => 'msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'],
   // `cred_` + a UUID (credential management, plan Task 1): same reason.
   [CredentialId, () => 'cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71'],
+  // A home's credential segment (credential management §10, Task 8): `cred_`
+  // and a directory-safe tail; the path-derived "credentialId" fails it.
+  [HomeCredentialId, () => 'cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71'],
   // A lowercase slug (POD-6107): the path-derived "AgentProfileName" fails the regex.
   [AgentProfileName, () => 'build'],
   // A network range (credential management §8): a path-derived string is no range.
