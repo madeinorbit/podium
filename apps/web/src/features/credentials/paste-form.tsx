@@ -7,8 +7,8 @@
 
 import type { CredentialTypeId, CredentialView } from '@podium/model'
 import { type FormEvent, useId, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
 import { pasteHint, typeTitle } from './credential-facts'
 import { type CredentialDeps, errorText } from './credentials-deps'
@@ -51,7 +51,7 @@ export function PasteForm({
       }
       setSecret('')
       deps.reload()
-      toast(mode.kind === 'add' ? `Added ${label.trim()}` : `Renewed ${mode.label}`)
+      settingsReceipt('Saved')
       onDone()
     } catch (e) {
       setError(errorText(e))

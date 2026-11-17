@@ -88,7 +88,22 @@ try {
           )
         })
         await page.getByRole('heading', { name: 'Your credentials', exact: true }).waitFor()
+        const receipt = page.locator('.cn-toast-receipt').filter({ hasText: 'Saved' })
+        await receipt.waitFor()
+        await page.screenshot({ path: `${output}/found-logins-receipt.png`, fullPage: true })
+        await receipt.getByRole('button', { name: 'Undo', exact: true }).click()
+        await page.waitForFunction(() => {
+          const harness = (
+            window as unknown as {
+              settingsHarness: { calls: { key: string; input?: { enabled?: boolean } }[] }
+            }
+          ).settingsHarness
+          return harness.calls
+            .filter((call) => call.key === 'credentials.useOnMyMachines.mutate')
+            .at(-1)?.input?.enabled === true
+        })
       }
+      if (errors.length) throw new Error(errors.join('\n'))
       await page.close()
     }
   } finally {

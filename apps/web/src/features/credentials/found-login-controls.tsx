@@ -2,8 +2,8 @@ import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import type { CredentialView } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsSessionPresent } from '@/features/settings/readers'
@@ -39,7 +39,7 @@ export const FoundLoginSwitch = observer(function FoundLoginSwitch({
     setOptimistic(enabled)
     try {
       await commands.useOnMyMachines.mutate({ harness: native.harness, fingerprint, enabled })
-      toast('Saved', { action: { label: 'Undo', onClick: () => void change(!enabled) } })
+      settingsReceipt('Saved', { action: { label: 'Undo', onClick: () => void change(!enabled) } })
     } catch (e) {
       setError(errorText(e))
     } finally {

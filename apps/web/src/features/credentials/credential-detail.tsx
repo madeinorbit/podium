@@ -10,6 +10,7 @@ import { observer } from 'mobx-react-lite'
 import { type FormEvent, useId, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
 import {
   ConfirmInline,
@@ -47,7 +48,7 @@ function RenameForm({ view, deps }: { view: CredentialView; deps: CredentialDeps
     try {
       await deps.commands.rename.mutate({ credentialId: view.id, label: label.trim() })
       deps.reload()
-      toast('Renamed')
+      settingsReceipt('Saved')
     } catch (e) {
       setError(errorText(e))
     } finally {
@@ -129,7 +130,7 @@ export const CredentialDetail = observer(function CredentialDetail({
         verb: share.verb,
       })
       deps.reload()
-      toast(`Stopped sharing with ${granteeText(share, deps)}`)
+      settingsReceipt('Saved')
     } catch (e) {
       setError(errorText(e))
     } finally {
@@ -278,6 +279,7 @@ export const CredentialDetail = observer(function CredentialDetail({
             onConfirm={async () => {
               const removed = await deps.commands.remove.mutate({ credentialId: view.id })
               deps.reload()
+              settingsReceipt('Removed')
               if (
                 'providerRevocation' in removed &&
                 removed.providerRevocation === 'not-confirmed'
@@ -286,8 +288,6 @@ export const CredentialDetail = observer(function CredentialDetail({
                   `Removed ${view.label} from Podium. ${providerName(view.type)} did not confirm that it withdrew Podium’s access; disconnect Podium in ChatGPT’s settings to be sure.`,
                   { duration: 15_000 },
                 )
-              } else {
-                toast(`Removed ${view.label}`)
               }
               onClose()
             }}

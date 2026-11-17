@@ -9,8 +9,8 @@ import { CREDENTIAL_MACHINE_DISCLOSURE } from '@podium/commands/credentials'
 import { asMachineId, type CredentialView } from '@podium/model'
 import { Laptop } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { ConfirmInline, EntityRow } from '@/features/settings/sections/shared'
 import { type CredentialDeps, errorText, type MachineChoice } from './credentials-deps'
 
@@ -36,7 +36,7 @@ export function MachineSend({ view, deps }: { view: CredentialView; deps: Creden
         machineId: asMachineId(machine.id),
       })
       deps.reload()
-      toast(`Taken back from ${machine.name}`)
+      settingsReceipt('Saved')
     } catch (e) {
       setError(errorText(e))
     } finally {
@@ -97,7 +97,7 @@ export function MachineSend({ view, deps }: { view: CredentialView; deps: Creden
                 })
                 setSending(null)
                 deps.reload()
-                toast(`Sent to ${machine.name}`)
+                settingsReceipt('Saved')
               }}
             />
           )}

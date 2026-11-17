@@ -12,8 +12,8 @@
  */
 
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Input } from '@/components/ui/input'
 import { type CredentialDeps, errorText } from '../credentials-deps'
 
@@ -211,7 +211,7 @@ export function ChatgptSignIn({
           <Button
             type="button"
             onClick={() => {
-              toast(`Added ${status.label}`)
+              settingsReceipt('Saved')
               onDone()
             }}
           >

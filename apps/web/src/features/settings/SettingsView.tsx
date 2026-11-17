@@ -100,7 +100,7 @@ const UpdatesSection = lazy(() =>
   })),
 )
 
-/** The live settings, per-control writer, accounts and short-flow state. */
+/** The live settings, per-control writer and short-flow state. */
 interface SectionContext {
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void

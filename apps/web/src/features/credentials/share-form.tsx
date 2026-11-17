@@ -8,8 +8,8 @@
 import { CREDENTIAL_SHARE_DISCLOSURE, CREDENTIAL_SHARE_WARNING } from '@podium/commands/credentials'
 import { asUserId, type CredentialShare, type CredentialView } from '@podium/model'
 import { type FormEvent, useId, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { settingsReceipt } from '@/features/settings/settings-receipt'
 import { Checkbox } from '@/components/ui/checkbox'
 import { typeSpecOf } from './credential-facts'
 import { type CredentialDeps, errorText } from './credentials-deps'
@@ -59,7 +59,7 @@ export function ShareForm({
         ...(warn ? { acknowledgeWarning: true } : {}),
       })
       deps.reload()
-      toast(`Shared ${view.label}`)
+      settingsReceipt('Saved')
       onDone()
     } catch (e) {
       setError(errorText(e))
