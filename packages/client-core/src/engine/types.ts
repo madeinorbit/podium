@@ -56,7 +56,9 @@ export interface StoreServerConfig {
 
 /** UI-notice seam: web wires this to sonner toasts; mobile to its own surface. */
 export interface StoreNotices {
-  error(message: string): void
+  error(message: string, id?: string): void
+  /** Resolve only the error belonging to a retried operation. */
+  dismissError?(id: string): void
   info(message: string, description?: string): void
 }
 

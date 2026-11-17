@@ -20,12 +20,25 @@ export function useShellErrorChannel(): {
   report(message: string): void
   readonly notices: StoreNotices
 } {
-  const [message, setMessage] = useState<string | null>(null)
-  const report = useCallback((next: string) => setMessage(next), [])
-  const notices = useMemo<StoreNotices>(() => ({ error: report, info: () => {} }), [report])
+  const [notice, setNotice] = useState<{ message: string; id?: string } | null>(null)
+  const report = useCallback((message: string, id?: string) => setNotice({ message, id }), [])
+  const dismissError = useCallback(
+    (id: string) => setNotice((current) => (current?.id === id ? null : current)),
+    [],
+  )
+  const notices = useMemo<StoreNotices>(
+    () => ({ error: report, dismissError, info: () => {} }),
+    [report, dismissError],
+  )
   const error = useMemo(
-    () => (message === null ? null : { message, dismiss: () => setMessage(null) }),
-    [message],
+    () =>
+      notice === null
+        ? null
+        : {
+            message: notice.message,
+            dismiss: () => setNotice((current) => (current === notice ? null : current)),
+          },
+    [notice],
   )
   return { error, report, notices }
 }

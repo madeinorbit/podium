@@ -270,7 +270,8 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onFatalError: (m) => latest.current.onFatalError(m),
         formatError: (e, f) => latest.current.formatError(e, f),
         notices: {
-          error: (m) => latest.current.notices.error(m),
+          error: (m, id) => latest.current.notices.error(m, id),
+          dismissError: (id) => latest.current.notices.dismissError?.(id),
           info: (m, d) => latest.current.notices.info(m, d),
         },
         createReplicaFn,

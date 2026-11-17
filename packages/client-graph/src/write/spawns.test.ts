@@ -1,6 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core'
 import type { SpawnPlaceholderEvent } from '@podium/client-core/engine'
-import { asUserId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
 import { PoolSpawns } from './spawns'
 
@@ -10,17 +10,21 @@ function fixture() {
   vi.useFakeTimers()
   const create = vi.fn<() => Promise<void>>()
   const error = vi.fn()
+  const dismissError = vi.fn()
   const truth = new Map<string, object>()
   const pending = new Set<string>()
   const events: SpawnPlaceholderEvent[] = []
   const owner = new PoolSpawns({
-    api: { sessions: { create: { mutate: create } }, issues: { create: { mutate: create } } } as unknown as PodiumClientApi,
+    api: {
+      sessions: { create: { mutate: create } },
+      issues: { create: { mutate: create } },
+    } as unknown as PodiumClientApi,
     userId: asUserId('u-1'),
-    notices: { error, info: () => {} },
+    notices: { error, dismissError, info: () => {} },
     truth: (kind, id) => truth.get(`${kind}:${id}`),
-    pending: id => pending.has(id),
+    pending: (id) => pending.has(id),
     sortKey: () => 'a0',
-    paint: event => {
+    paint: (event) => {
       events.push(event)
       if (event.type === 'painted') pending.add(event.sessionId)
       else for (const id of event.ids) pending.delete(id)
@@ -28,18 +32,33 @@ function fixture() {
     graceMs: 2000,
   })
   const args = { target: { path: '/repo/tree', repoPath: '/repo' }, agentKind: 'codex' as const }
-  return { owner, args, create, error, events, truth, pending }
+  return { owner, args, create, error, dismissError, events, truth, pending }
 }
 
 it('paints the session, task, personal markers and first turn before creation', async () => {
   const f = fixture()
   f.create.mockResolvedValue()
-  const result = f.owner.spawnDraftAgent({ ...f.args, firstPrompt: 'First turn', requestedDriverId: 'generic-pty' })
+  const result = f.owner.spawnDraftAgent({
+    ...f.args,
+    firstPrompt: 'First turn',
+    requestedDriverId: 'generic-pty',
+  })
   expect(f.events).toHaveLength(1)
-  expect(f.events[0]).toMatchObject({ type: 'painted', sessionId: result.sessionId, prompt: 'First turn' })
+  expect(f.events[0]).toMatchObject({
+    type: 'painted',
+    sessionId: result.sessionId,
+    prompt: 'First turn',
+  })
   if (f.events[0]?.type !== 'painted') throw new Error('missing paint')
-  expect(f.events[0].overlays.map(o => o.entity)).toEqual(['sessions', 'sessionUserStates', 'issueProjections', 'issueUserStates'])
-  expect(f.create).toHaveBeenCalledWith(expect.objectContaining({ initialPrompt: 'First turn', requestedDriverId: 'generic-pty' }))
+  expect(f.events[0].overlays.map((o) => o.entity)).toEqual([
+    'sessions',
+    'sessionUserStates',
+    'issueProjections',
+    'issueUserStates',
+  ])
+  expect(f.create).toHaveBeenCalledWith(
+    expect.objectContaining({ initialPrompt: 'First turn', requestedDriverId: 'generic-pty' }),
+  )
   expect(await result.settled).toBe(true)
   f.owner.dispose()
 })
@@ -83,7 +102,7 @@ it('rolls back both placeholders after a definitive spawn failure and releases w
   await waiter
   expect(await result.settled).toBe(false)
   expect(f.events.at(-1)).toEqual({ type: 'removed', ids: [result.sessionId, result.issueId] })
-  expect(f.error).toHaveBeenCalledWith("Couldn't start the agent — refused")
+  expect(f.error).toHaveBeenCalledWith("Couldn't start the agent — refused", result.sessionId)
   f.owner.dispose()
 })
 
@@ -96,6 +115,54 @@ it('keeps an authoritative task when only starting its agent failed', async () =
   expect(await result.outcome).toBe('issue-only')
   expect(f.truth.has(`issueProjections:${result.issueId}`)).toBe(true)
   expect(f.events.at(-1)).toEqual({ type: 'removed', ids: [result.sessionId, result.issueId] })
+  expect(f.dismissError).not.toHaveBeenCalled()
+  f.owner.dispose()
+})
+
+it.each([
+  { kind: 'draft', acceptance: 'answer' },
+  { kind: 'draft', acceptance: 'feed' },
+  { kind: 'issue', acceptance: 'answer' },
+  { kind: 'issue', acceptance: 'feed' },
+])('resolves the same mutation notice after an accepted $kind retry via $acceptance', async ({
+  kind,
+  acceptance,
+}) => {
+  const f = fixture()
+  const reservation = {
+    ...f.args,
+    sessionId: asSessionId('reserved-session'),
+    issueId: asIssueId('reserved-issue'),
+    mutationId: asMutationId('reserved-create'),
+  }
+  const spawn = () =>
+    kind === 'draft'
+      ? f.owner.spawnDraftAgent({ ...reservation, firstPrompt: 'Review the image' })
+      : f.owner.spawnIssueAgent({
+          ...reservation,
+          title: 'Review',
+          description: 'Review the image',
+        })
+  f.create.mockRejectedValueOnce(new Error('this attachment is no longer available'))
+  const failed = spawn()
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(await failed.settled).toBe(false)
+  expect(f.error).toHaveBeenCalledWith(
+    expect.stringContaining('this attachment is no longer available'),
+    reservation.mutationId,
+  )
+  expect(f.dismissError).not.toHaveBeenCalled()
+
+  if (acceptance === 'answer') f.create.mockResolvedValueOnce()
+  else f.create.mockRejectedValueOnce(new Error('response lost'))
+  const retry = spawn()
+  if (acceptance === 'feed') {
+    f.truth.set(`sessions:${reservation.sessionId}`, {})
+    await vi.advanceTimersByTimeAsync(2000)
+  }
+  expect(await retry.settled).toBe(true)
+  expect(f.dismissError).toHaveBeenCalledExactlyOnceWith(reservation.mutationId)
+  expect(f.create.mock.calls[1]).toEqual(f.create.mock.calls[0])
   f.owner.dispose()
 })
 
@@ -117,7 +184,12 @@ it('retires principal-owned timers and waiters on disposal', async () => {
 it('ignores a create response arriving after the principal was disposed', async () => {
   const f = fixture()
   let finish!: () => void
-  f.create.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  f.create.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
   const result = f.owner.spawnDraftAgent(f.args)
   f.owner.dispose()
   expect(await result.settled).toBe(false)

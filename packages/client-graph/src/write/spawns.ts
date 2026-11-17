@@ -1,18 +1,44 @@
 /** Spawn creation belongs to the pool's transaction log. The transport can fail
  * after truth landed, so a failed create retains its grace window and partial
  * task outcome. No replica rows or whole-list snapshot are held here. */
-import { asIssueId, asMutationId, asSessionId, IssueProjection,
-  type AgentKind, type IssueId, type MutationId, type SessionId,
-  type SessionMeta, type UserId } from '@podium/model'
+
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { assertSpawnPlacement, createDraftAgent, createIssueAgent,
-  type SpawnDraftAgentArgs, type SpawnTarget, type TaskSpawnOutcome } from '@podium/client-core/spawn-agent'
+import {
+  insertOverlay,
+  type OverlayTarget,
+  type PendingOverlay,
+} from '@podium/client-core/command-reducers'
+import type { SpawnPlaceholderEvent, StoreNotices } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
-import { insertOverlay, type OverlayTarget, type PendingOverlay } from '@podium/client-core/command-reducers'
-import type { StoreNotices, SpawnPlaceholderEvent } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { optimisticDraftIssue, optimisticSessionUserState, optimisticStartedIssue,
-  optimisticStartingSession, type StartingSessionRow } from '@podium/client-core/values'
+import {
+  assertSpawnPlacement,
+  createDraftAgent,
+  createIssueAgent,
+  type SpawnDraftAgentArgs,
+  type SpawnTarget,
+  type TaskSpawnOutcome,
+} from '@podium/client-core/spawn-agent'
+import {
+  optimisticDraftIssue,
+  optimisticSessionUserState,
+  optimisticStartedIssue,
+  optimisticStartingSession,
+  type StartingSessionRow,
+} from '@podium/client-core/values'
+import {
+  type AgentKind,
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  type IssueId,
+  IssueProjection,
+  type MutationId,
+  type SessionId,
+  type SessionMeta,
+  type UserId,
+} from '@podium/model'
+
 const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
 function placeholderProjection(issue: IssueViewModel): IssueProjection {
   const source = issue as unknown as Record<string, unknown>
@@ -42,9 +68,12 @@ export class PoolSpawns {
   constructor(private readonly ports: PoolSpawnPorts) {}
   waitForSpawnConfirmed(sessionId: SessionId): Promise<void> {
     if (this.disposed || !this.ports.pending(sessionId)) return Promise.resolve()
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       let waiters = this.waiters.get(sessionId)
-      if (!waiters) this.waiters.set(sessionId, waiters = new Set())
+      if (!waiters) {
+        waiters = new Set()
+        this.waiters.set(sessionId, waiters)
+      }
       waiters.add(resolve)
     })
   }
@@ -67,6 +96,7 @@ export class PoolSpawns {
   private paintSpawn(args: {
     sessionId: SessionId
     issueId: IssueId
+    mutationId?: MutationId
     session: StartingSessionRow
     issue: IssueViewModel
     prompt?: string
@@ -80,6 +110,7 @@ export class PoolSpawns {
     outcome: Promise<TaskSpawnOutcome>
   } {
     const { sessionId, issueId } = args
+    const noticeId = args.mutationId ?? sessionId
     // A temporary issue projection and personal markers accompany the starting
     // session. Markers retire with their issue: create need not publish a row
     // whose markers are all unset.
@@ -111,16 +142,22 @@ export class PoolSpawns {
     })
     let settle: (outcome: TaskSpawnOutcome) => void = () => {}
     const outcome = new Promise<TaskSpawnOutcome>((resolve) => {
-      settle = value => { this.inflight.delete(settle); resolve(value) }
+      settle = (value) => {
+        this.inflight.delete(settle)
+        if (value === 'started') this.ports.notices.dismissError?.(noticeId)
+        resolve(value)
+      }
       this.inflight.add(settle)
     })
     const settled = outcome.then((value) => value === 'started')
     void args.create().then(
       () => settle(this.disposed ? 'failed' : 'started'),
       (error) => {
-        if (this.disposed) { settle('failed'); return }
-        const arrived = (): boolean =>
-          this.ports.truth('sessions', sessionId) !== undefined
+        if (this.disposed) {
+          settle('failed')
+          return
+        }
+        const arrived = (): boolean => this.ports.truth('sessions', sessionId) !== undefined
         const issueArrived = (): boolean =>
           this.ports.truth('issueProjections', issueId) !== undefined
         const settleFailure = (): void => {
@@ -133,6 +170,7 @@ export class PoolSpawns {
             this.confirmed()
             this.ports.notices.error(
               `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
+              noticeId,
             )
             settle('issue-only')
             return
@@ -141,6 +179,7 @@ export class PoolSpawns {
           this.confirmed()
           this.ports.notices.error(
             `Couldn't start the ${args.failureSubject} — ${error instanceof Error ? error.message : 'unknown error'}`,
+            noticeId,
           )
           settle('failed')
         }
@@ -174,6 +213,7 @@ export class PoolSpawns {
     return this.paintSpawn({
       sessionId,
       issueId,
+      mutationId: args.mutationId,
       session: optimisticStartingSession({
         sessionId,
         issueId,
@@ -243,6 +283,7 @@ export class PoolSpawns {
     const painted = this.paintSpawn({
       sessionId,
       issueId,
+      mutationId,
       session: optimisticStartingSession({
         sessionId,
         issueId,
