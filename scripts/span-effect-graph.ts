@@ -1027,6 +1027,16 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'the capture form names one column of the old or new row as an SQL expression string; a pure computation, no statement runs',
   },
+  // POD-6986: the shipping guards (store/append-only.ts), which captureWrite applies when it
+  // renders a write's Postgres form. Each builds SQL; none runs a statement.
+  'apps/server/src/store/append-only.ts#WriteGuardForm.where': {
+    kind: 'contained',
+    why: "the guard's in-statement refusal ANDed into a write's WHERE, built as SQL from the write's own WHERE; a pure computation, no statement runs",
+  },
+  'apps/server/src/store/append-only.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'a guard rule names one column of the written row as an SQL expression string; a pure computation, no statement runs',
+  },
   'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
     kind: 'opaque',
     why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',
