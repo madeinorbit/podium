@@ -1,6 +1,7 @@
+import { COST_HEDGE, floorLabel } from '@podium/client-core/values'
 import { TaskCostModel } from '@podium/client-graph/task-cost-model'
 import type { TaskCostComparisonWire } from '@podium/model'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -12,6 +13,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'alignmentGuide',
       'accessibilityIdentifier',
       'accessibilityLabel',
+      'accessibilityValue',
       'buttonStyle',
       'fixedSize',
       'font',
@@ -42,7 +44,29 @@ vi.mock('@expo/ui/swift-ui', () => {
       {children}
     </span>
   )
-  return { HStack: Box, VStack: Box, Text: Leaf, Rectangle: Leaf, Button: Box }
+  const Button = ({
+    children,
+    onPress,
+    modifiers,
+  }: {
+    children?: ReactNode
+    onPress?: () => void
+    modifiers?: Record<string, unknown>[]
+  }) => {
+    const find = (name: string) =>
+      modifiers?.find((modifier) => name in modifier)?.[name] as string | undefined
+    return (
+      <button
+        type="button"
+        onClick={onPress}
+        aria-label={find('accessibilityLabel')}
+        aria-valuetext={find('accessibilityValue')}
+      >
+        {children}
+      </button>
+    )
+  }
+  return { HStack: Box, VStack: Box, Text: Leaf, Rectangle: Leaf, Button }
 })
 
 import { CostReading } from './CostReading'
@@ -95,4 +119,43 @@ it.each([
   )
   expect(screen.queryByRole('button', { name: /cost/i })).toBeNull()
   expect(screen.queryByRole('progressbar')).toBeNull()
+})
+
+it('lets VoiceOver read the expanded attribution and hedge on the iOS cost row', async () => {
+  const costed: TaskCostComparisonWire = {
+    task: {
+      ...pending.task,
+      issueId: 'costed-task' as never,
+      state: 'costed',
+      rollup: {
+        models: [
+          {
+            model: 'claude-opus-5',
+            inputTokens: 2_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            cacheCreation1hTokens: 0,
+            messages: 25,
+          },
+        ],
+        messages: 25,
+        sessionCount: 2,
+      },
+      uncostedSessionCount: 1,
+    },
+    cohort: { taskCount: 0, medianUsdPerReply: null },
+  }
+  model = new TaskCostModel(vi.fn().mockResolvedValue(costed), 'costed-task', false)
+  model.open()
+  render(<NativeCostReading model={model} />)
+  act(() => model?.setVisible(true))
+  const row = await screen.findByRole('button', { name: /Show cost details/ })
+  expect(row.getAttribute('aria-valuetext')).toBeNull()
+
+  fireEvent.click(row)
+  const expanded = screen.getByRole('button', { name: /Hide cost details/ })
+  const value = expanded.getAttribute('aria-valuetext') ?? ''
+  expect(value).toContain(floorLabel(['codex'], 1))
+  expect(value).toContain(COST_HEDGE)
 })

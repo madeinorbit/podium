@@ -3,6 +3,7 @@ import {
   accessibilityHidden,
   accessibilityIdentifier,
   accessibilityLabel,
+  accessibilityValue,
   buttonStyle,
   fixedSize,
   font,
@@ -126,6 +127,22 @@ export const CostReading = observer(function CostReading({ model }: { model: Tas
             accessibilityLabel(
               `${view.provisional ? 'Estimated cost so far' : 'Estimated cost'}, ${value}. Estimate at list price${view.floor === 'partial' ? ', partial' : ''}. ${details ? 'Hide' : 'Show'} cost details`,
             ),
+            // The Button's label replaces its children for VoiceOver, so the
+            // expanded attribution and hedge are read as its value.
+            ...(details
+              ? [
+                  accessibilityValue(
+                    [
+                      view.floor === 'partial'
+                        ? floorLabel(view.harnesses, view.uncostedSessionCount)
+                        : null,
+                      COST_HEDGE,
+                    ]
+                      .filter(Boolean)
+                      .join(' '),
+                  ),
+                ]
+              : []),
           ]}
         >
           {reading}
