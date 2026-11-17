@@ -3951,26 +3951,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-attachments.ts",
-      "holder": "useAttachments/attachments",
-      "rule": "consume:map",
-      "tokens": "ec9ac37905c64b05e27895045bb0ad8ba560131b7a1dab819d2c25e091da1db2",
-      "gate": [
-        "then:8d1ec15dca5c06afb5d309c13a138a7c2fa9a76f8cd4c27c36493b56fc3484ff"
-      ],
-      "origin": [
-        "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
-      ],
-      "fingerprint": "463a8b924172860c332a13992b6d251a089d6bef819685192ed4f770e8a1cd36",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-2607",
-      "trigger": "Invocation of useAttachments/attachments while reading or editing the current composer attachment list.",
-      "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
-      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
-      "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-attachments.ts",
       "holder": "useAttachments/processFiles/useCallback:callback/map:callback",
       "rule": "helper-consumer",
       "tokens": "b166e508e6349574cdf239bd19a9a998a5abbf3134c5f9ae2c17cd752919064c",
@@ -4065,38 +4045,38 @@
       "file": "apps/web/src/features/chat/use-attachments.ts",
       "holder": "useAttachments/ready/useCallback:callback/tags",
       "rule": "consume:map",
-      "tokens": "b6be40d038e2a15c74b997fc6833e5d2eb23c43a519080afc03298eb14c5b4bc",
+      "tokens": "ec3346f20c0d0c37bb48c328c4256352ea9ee9f49d79a0fb23f9317c2bcc819c",
       "gate": [],
       "origin": [
         "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
       ],
-      "fingerprint": "9cf769477c697e19e00a77a123900d034a2afb626040fff1005bf0d6eca28d80",
+      "fingerprint": "882909893d875ba5d0719b7609335bff1db421f52e2efa0f8f2187200cf03dae",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2607",
       "trigger": "Invocation of useAttachments/ready/useCallback:callback/tags while reading or editing the current composer attachment list.",
       "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
-      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair. Predecessor: 9cf769477c697e19e00a77a123900d034a2afb626040fff1005bf0d6eca28d80. Shared previewUri removes per-render conversion; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
     },
     {
       "file": "apps/web/src/features/chat/use-attachments.ts",
       "holder": "useAttachments/setAttachments/useCallback:callback",
       "rule": "helper-consumer",
-      "tokens": "68f887a7cd253a9d41b6eac00884fbf345734aef28bb2b36107e2ab44d09899a",
+      "tokens": "84e4878026487ecb712969ad7c2664d9e5ec15e7278842191e658cbd3dece74e",
       "gate": [
         "exit:then:7cbb3dda517cef0e15b2d03a79992e0e0d57e616f846209524ab02e1f842c176"
       ],
       "origin": [
         "7a82621129328b8a9922043676b02178c515c3878d0fc7de563ee8fdb218a61b"
       ],
-      "fingerprint": "1eb3b696a7fc05374c90e683dc91ade89632e5d739729fcaaf5dd989f2190d27",
+      "fingerprint": "c9d1dcf9c3c5f23e30c8684c445b9b370acc9450c195d6bf29b8536c49945fb9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2607",
       "trigger": "Invocation of useAttachments/setAttachments/useCallback:callback while reading or editing the current composer attachment list.",
       "bound": "Current composer attachments only; no proven cardinality cap or named-demand bound is claimed.",
-      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair.",
+      "reason": "The draft-backed attachment hook makes this composer-local chip operation traceable by the conservative collection census. Predecessor hook evidence: 3b65b2cae512d7d505fbc3d70b0f0d9c6beef9597fe23fcaa0908f64d0b41893. This records the operation, not a performance repair. Predecessor: 1eb3b696a7fc05374c90e683dc91ade89632e5d739729fcaaf5dd989f2190d27. Shared previewUri removes per-render conversion; classification and bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. Attachment recovery is covered by NewIssueScreen.selectors.test.tsx, ColdStartComposer.test.tsx and first-task-draft.test.ts; these are correctness guards and do not establish bounded work."
     },
     {
