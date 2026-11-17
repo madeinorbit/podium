@@ -20,12 +20,16 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { is } from 'drizzle-orm'
+import { getTableConfig, PgTable } from 'drizzle-orm/pg-core'
 import { afterEach, describe, expect, it } from 'vitest'
+import * as syncPgSchema from '../../../../packages/sync/src/adapters/pg/schema'
 import { captureLogs } from '../test-support/capture-logs'
 import { retainedSnapshotPaths } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 import { newerDatabaseMessage } from './ledger-guards'
+import * as pgSchema from './pg/schema'
 import { withMigrationForeignKeysDisabled } from './store-lifecycle'
 
 const KEYS = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name.endsWith('_workspace-keys'))
@@ -367,6 +371,67 @@ describe('POD-7024 — the workspace keys migration', () => {
     expect(workspaceTables.length).toBeGreaterThan(100)
     expect(wrong).toEqual([])
     db.close()
+  })
+
+  /**
+   * The same rule on the Postgres twin, which also holds the tables and indexes only Postgres
+   * has (`PG_ONLY_TABLES`, `PG_ONLY_INDEXES`): the SQLite case above cannot see them.
+   */
+  it('leads every key and index of a Postgres workspace table with workspace_id too', () => {
+    // A tsvector GIN index cannot lead with a text column (that needs the btree_gin
+    // extension); each search names `workspace_id` on the row it matches.
+    const isSearchIndex = (method: string | undefined) => method === 'gin'
+    // A global identity no foreign key or conflict target names, unlike the seven
+    // AUTOINCREMENT ids, which carry UNIQUE (workspace_id, id) for the composite references.
+    const SURROGATE_WITHOUT_UNIQUE = new Set(['transcript_text'])
+    const tables = new Map<string, PgTable>()
+    for (const value of [...Object.values(pgSchema), ...Object.values(syncPgSchema)]) {
+      if (is(value, PgTable)) tables.set(getTableConfig(value).name, value)
+    }
+    const wrong: string[] = []
+    let workspaceTables = 0
+    for (const [name, table] of tables) {
+      if (name.startsWith('identity_')) continue
+      const config = getTableConfig(table)
+      const workspace = config.columns.find((column) => column.name === 'workspace_id')
+      if (workspace === undefined) continue
+      workspaceTables += 1
+      if (!workspace.notNull || workspace.hasDefault) wrong.push(`${name}: column`)
+      const columnKey = config.columns.filter((column) => column.primary).map((c) => c.name)
+      const key =
+        columnKey.length > 0 ? columnKey : (config.primaryKeys[0]?.columns ?? []).map((c) => c.name)
+      const uniques = config.uniqueConstraints.map((u) => u.columns.map((c) => c.name))
+      if (key.length === 1 && key[0] === 'id') {
+        const paired = uniques.some((u) => u[0] === 'workspace_id' && u[1] === 'id')
+        if (!AUTOINCREMENT.includes(name) && !SURROGATE_WITHOUT_UNIQUE.has(name))
+          wrong.push(`${name}: integer key`)
+        if (AUTOINCREMENT.includes(name) && !paired)
+          wrong.push(`${name}: unique (workspace_id, id)`)
+      } else if (key[0] !== 'workspace_id') {
+        wrong.push(`${name}: primary key`)
+      }
+      for (const unique of uniques) if (unique[0] !== 'workspace_id') wrong.push(`${name}: unique`)
+      for (const column of config.columns) {
+        if (column.isUnique && column.name !== 'workspace_id')
+          wrong.push(`${name}: ${column.name} unique`)
+      }
+      for (const index of config.indexes) {
+        const first = index.config.columns[0] as { name?: string } | undefined
+        if (isSearchIndex(index.config.method)) continue
+        if (first?.name !== 'workspace_id') wrong.push(`${name}: ${index.config.name}`)
+      }
+      for (const fk of config.foreignKeys) {
+        const reference = fk.reference()
+        if (
+          reference.columns[0]?.name !== 'workspace_id' ||
+          reference.foreignColumns[0]?.name !== 'workspace_id'
+        )
+          wrong.push(`${name}: fk ${fk.getName()}`)
+      }
+    }
+    expect(tables.has('transcript_text')).toBe(true)
+    expect(workspaceTables).toBeGreaterThan(100)
+    expect(wrong).toEqual([])
   })
 
   it('leaves no dangling reference and an intact file', () => {
