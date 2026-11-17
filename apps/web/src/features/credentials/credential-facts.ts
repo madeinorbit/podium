@@ -92,6 +92,9 @@ export function statusLines(view: CredentialView, ctx: StatusContext): StatusLin
       lines.push({ tone: 'warn', text: `Removal pending on ${ctx.machineName(home.machineId)}` })
     }
   }
+  if (view.status !== 'revoked' && view.nativeLogin?.required) {
+    lines.push({ tone: 'warn', text: 'Machine login needed.' })
+  }
   if (lines.length === 0) lines.push({ tone: 'ok', text: 'Ready' })
   if (view.access !== 'owner') {
     const owner = ctx.ownerName(view.ownerUserId) ?? 'another member'

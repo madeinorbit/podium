@@ -89,7 +89,6 @@ export const FoundLoginStatus = observer(function FoundLoginStatus({
             : undefined
   return (
     <>
-      {native.required && <p>Machine login needed.</p>}
       {native.keptOn.length > 0 && (
         <p className="text-warning">
           Not copied to {native.keptOn.map((machine) => machine.name).join(', ')}: a different login

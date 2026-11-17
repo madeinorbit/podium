@@ -28,6 +28,14 @@ describe('statusLines', () => {
     expect(statusLines(view(), ctx)).toEqual([{ tone: 'ok', text: 'Ready' }])
   })
 
+  it('a found login that needs repair never also reads Ready', () => {
+    const login = view({
+      type: 'openai.chatgpt-login',
+      nativeLogin: { harness: 'codex', required: true, machines: [], keptOn: [] },
+    })
+    expect(statusLines(login, ctx)).toEqual([{ tone: 'warn', text: 'Machine login needed.' }])
+  })
+
   it('needs attention names its reason', () => {
     const lines = statusLines(
       view({ status: 'attention', statusReason: 'The key was rejected.' }),

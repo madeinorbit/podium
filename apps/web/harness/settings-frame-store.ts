@@ -344,7 +344,7 @@ if (populated) {
       label: 'Codex on Build machine',
       type: 'openai.chatgpt-login',
       identity: { email: 'sam@example.test', fingerprint: 'demo-codex' },
-      status: 'attention',
+      status: 'ok',
       homes: [{ machineId: 'builder', homeId: 'default', state: 'out' }],
       allowedMachines: [],
       sessionCount: 0,
