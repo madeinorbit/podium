@@ -325,7 +325,6 @@
     "apps/server/src/store/runtime-events.test.ts",
     "apps/server/src/store/runtime-late-workspace.test.ts",
     "apps/server/src/store/sessions.workspace.test.ts",
-    "apps/server/src/store/settings.workspace.test.ts",
     "apps/server/src/store/shipping-lane-reads.test.ts",
     "apps/server/src/store/shipping-uncovered.test.ts",
     "apps/server/src/store/spike/turso-append/libsql-driver.test.ts",

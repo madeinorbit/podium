@@ -1,7 +1,7 @@
 /**
  * SETTINGS ARE A WORKSPACE'S (POD-6959 design 2.1, task POD-7013).
  *
- * Two workspaces over one database (`openWorkspaceStores`) each read and write
+ * Two workspaces over one database (`openPeopleStoreSlices`, on the run's engine) each read and write
  * their own `workspace_meta` rows: the settings blob, the model catalog of the
  * same machine, the membership cursor, the upgrade receipts, the sign-in
  * carry-over end. Each case writes both workspaces under the same key and reads
@@ -10,29 +10,27 @@
 
 import { asMachineId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import {
+  openPeopleStoreSlices,
+  type WorkspacePeopleSlice,
+} from '../test-support/people-store-slice'
 
 const MACHINE = asMachineId('machine-shared')
 
-let opened: SessionStore | undefined
+let opened: WorkspacePeopleSlice | undefined
 
 afterEach(async () => {
   await opened?.close()
   opened = undefined
 })
 
-async function twoWorkspaces(): Promise<readonly [SessionStore, SessionStore]> {
-  const stores = await openWorkspaceStores(['ws_a', 'ws_b'])
+async function twoWorkspaces(): Promise<readonly [WorkspacePeopleSlice, WorkspacePeopleSlice]> {
+  const stores = await openPeopleStoreSlices(['ws_a', 'ws_b'])
   opened = stores[0]
   return stores
 }
-
-interface RawDb {
-  prepare(sql: string): { all(...params: unknown[]): unknown[] }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
 
 describe('workspace settings', () => {
   it('holds a settings blob per workspace', async () => {
@@ -49,13 +47,11 @@ describe('workspace settings', () => {
     expect((await a.settings.getSettings()).gitWorkflow.defaultParentBranch).toBe('release-a')
     expect((await b.settings.getSettings()).gitWorkflow.defaultParentBranch).toBe('release-b')
     // Two rows of one key in workspace_meta, none in meta.
-    const rows = rawDb(a)
-      .prepare(
-        "SELECT workspace_id FROM workspace_meta WHERE key = 'settings' ORDER BY workspace_id",
-      )
-      .all()
+    const rows = await a.all(
+      sql`SELECT workspace_id FROM workspace_meta WHERE key = 'settings' ORDER BY workspace_id`,
+    )
     expect(rows).toEqual([{ workspace_id: 'ws_a' }, { workspace_id: 'ws_b' }])
-    expect(rawDb(a).prepare("SELECT 1 FROM meta WHERE key = 'settings'").all()).toEqual([])
+    expect(await a.all(sql`SELECT 1 FROM meta WHERE key = 'settings'`)).toEqual([])
   })
 
   it('holds a model catalog per workspace for the same machine', async () => {
@@ -106,16 +102,15 @@ describe('workspace settings', () => {
 
   it('keeps the identity links receipt an install key, one for every workspace', async () => {
     const [a, b] = await twoWorkspaces()
-    const db = rawDb(a)
-    db.prepare("DELETE FROM meta WHERE key = 'identity.legacyLinksImported'").all()
+    await a.run(sql`DELETE FROM meta WHERE key = 'identity.legacyLinksImported'`)
     expect(await b.settings.legacyIdentityLinksImported()).toBe(false)
     await a.settings.recordLegacyIdentityLinksImported()
     expect(await b.settings.legacyIdentityLinksImported()).toBe(true)
     expect(
-      db.prepare("SELECT value FROM meta WHERE key = 'identity.legacyLinksImported'").all(),
+      await a.all(sql`SELECT value FROM meta WHERE key = 'identity.legacyLinksImported'`),
     ).toEqual([{ value: '1' }])
     expect(
-      db.prepare("SELECT 1 FROM workspace_meta WHERE key = 'identity.legacyLinksImported'").all(),
+      await a.all(sql`SELECT 1 FROM workspace_meta WHERE key = 'identity.legacyLinksImported'`),
     ).toEqual([])
   })
 })
