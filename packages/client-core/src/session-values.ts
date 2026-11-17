@@ -52,7 +52,7 @@ export type SessionValueInput = {
   refDraft?: number
   handoffTargetMachineId?: string
   credentialId?: string | null
-  // LEGACY(remove-after: 2027-02): a session started on a managed account before credentials existed; removing it drops that read
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
   accountId?: string | null
 }
 
@@ -63,7 +63,9 @@ export type SessionValueInput = {
  * on a credential (an API key, a subscription home, a token, another member's)
  * never reads the machine's login: its health is the credential's.
  */
-export function runsOnOwnLogin(session: Pick<SessionValueInput, 'credentialId' | 'accountId'>): boolean {
+export function runsOnOwnLogin(
+  session: Pick<SessionValueInput, 'credentialId' | 'accountId'>,
+): boolean {
   return !session.credentialId && !session.accountId
 }
 
@@ -101,7 +103,9 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   }
   const { userState, repo, machine, handoffMachine } = homes
   const joined = session as SessionValueInput & Partial<SessionValues>
-  const readAt = Object.hasOwn(homes, 'userState') ? userState?.readAt ?? null : joined.readAt ?? null
+  const readAt = Object.hasOwn(homes, 'userState')
+    ? (userState?.readAt ?? null)
+    : (joined.readAt ?? null)
   let displayRef: string | undefined
   if (repo?.prefix) {
     if (session.refSeq !== undefined && session.refLetter) {
@@ -117,13 +121,20 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   return {
     readAt,
     // No personal source row means no read cursor, just as an explicit null does.
-    unread: (userState !== undefined || homes.userStatesLoaded !== false)
-      && activityAfterRead(readAt, session.lastActiveAt ?? ''),
+    unread:
+      (userState !== undefined || homes.userStatesLoaded !== false) &&
+      activityAfterRead(readAt, session.lastActiveAt ?? ''),
     snoozedUntil: Object.hasOwn(homes, 'userState') ? userState?.snoozedUntil : joined.snoozedUntil,
     displayRef: Object.hasOwn(homes, 'repo') ? displayRef : joined.displayRef,
-    machineName: Object.hasOwn(homes, 'machine') ? machine?.name ?? '' : joined.machineName ?? '',
-    condition: Object.hasOwn(homes, 'machine') ? loginCondition(session, machine?.loggedOutHarnesses) : joined.condition,
-    handoffTarget: Object.hasOwn(homes, 'handoffMachine') ? handoffMachine?.name : joined.handoffTarget,
+    machineName: Object.hasOwn(homes, 'machine')
+      ? (machine?.name ?? '')
+      : (joined.machineName ?? ''),
+    condition: Object.hasOwn(homes, 'machine')
+      ? loginCondition(session, machine?.loggedOutHarnesses)
+      : joined.condition,
+    handoffTarget: Object.hasOwn(homes, 'handoffMachine')
+      ? handoffMachine?.name
+      : joined.handoffTarget,
   }
 }
 

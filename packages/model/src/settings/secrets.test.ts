@@ -108,7 +108,7 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // keys and SUCCEED (POD-640's trap), so `safeParse().success` proves nothing
     // about shape. Keyed on the parsed OUTPUT instead.
     const parsed = SecretPresenceWire.parse({
-      key: 'apiKeys.anthropic',
+      key: 'integrations.linearApiKey',
       present: true,
       fingerprint: 'ab12',
       updatedAt: '2026-07-30T00:00:00.000Z',
@@ -122,10 +122,13 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // `null` is a representable "configured, no fingerprint"; an absent key would
     // be indistinguishable from "nobody threaded the value" (the
     // `UserCredential.passwordHash` rule).
-    const missing = SecretPresenceWire.safeParse({ key: 'apiKeys.openai', present: false })
+    const missing = SecretPresenceWire.safeParse({
+      key: 'notifications.telegramBotToken',
+      present: false,
+    })
     expect(missing.success).toBe(false)
     const explicit = SecretPresenceWire.safeParse({
-      key: 'apiKeys.openai',
+      key: 'notifications.telegramBotToken',
       present: false,
       fingerprint: null,
       updatedAt: null,
@@ -137,10 +140,12 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // Without this, `present: true` could be derived from a row holding '' and
     // the presence bit would mean nothing.
     expect(
-      ServerSecret.safeParse({ key: 'apiKeys.openai', value: '', updatedAt: 'now' }).success,
+      ServerSecret.safeParse({ key: 'integrations.linearApiKey', value: '', updatedAt: 'now' })
+        .success,
     ).toBe(false)
     expect(
-      ServerSecret.safeParse({ key: 'apiKeys.openai', value: 'sk-x', updatedAt: 'now' }).success,
+      ServerSecret.safeParse({ key: 'integrations.linearApiKey', value: 'lin-x', updatedAt: 'now' })
+        .success,
     ).toBe(true)
   })
 
@@ -228,7 +233,9 @@ describe('the key-name detector over every projection', () => {
 describe('the vocabulary and its neighbours', () => {
   it('is one closed set — enum and array cannot drift apart', () => {
     expect(ServerSecretKey.options).toEqual([...SERVER_SECRET_KEYS])
-    expect(ServerSecretKey.safeParse('apiKeys.anthropic').success).toBe(true)
+    expect(ServerSecretKey.safeParse('integrations.linearApiKey').success).toBe(true)
+    // The provider keys left for credentials (credential management §18).
+    expect(ServerSecretKey.safeParse('apiKeys.anthropic').success).toBe(false)
     expect(ServerSecretKey.safeParse('sidebar.repoSort').success).toBe(false)
   })
 

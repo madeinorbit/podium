@@ -107,8 +107,8 @@ void _serverSecretKeyIsOneVocabulary
  *
  * `.min(1)`: an empty secret is not a secret, it is an ABSENT one, and the two
  * must not be spellable the same way. Today's blob uses `''` for "not
- * configured" (and `credentialEnv` already refuses to export a blank env var
- * because some CLIs read it as "configured but broken"); in the keyed store,
+ * configured" (and a blank env var is never exported, because some CLIs read
+ * it as "configured but broken"); in the keyed store,
  * absence is the ROW being absent. A store that accepted `''` would make
  * {@link SecretPresenceWire.present} unable to mean anything.
  */

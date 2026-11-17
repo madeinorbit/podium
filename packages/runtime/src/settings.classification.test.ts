@@ -44,9 +44,10 @@ describe('the blob walk, probed before it is believed', () => {
     // + credentialDefaults (credential management §9), + RoleBackend.credentialId
     // on each of the four roles,
     // + the three notice push switches (notifications.notices.mention,
-    // .credentialAttention, .credentialShared; POD-6881).
+    // .credentialAttention, .credentialShared; POD-6881), - the three
+    // `apiKeys.*` leaves, which are credentials now (POD-6907).
     // Pinned to the classification count on purpose: the two walks must agree.
-    expect(blobLeaves().length).toBe(62)
+    expect(blobLeaves().length).toBe(59)
     expect(blobLeaves()).toContain('roles.background.credentialId')
     expect(blobLeaves()).toContain('notifications.notices.credentialShared')
     expect(blobLeaves()).toContain('roles.coding.model')
@@ -179,7 +180,6 @@ describe('the composed blob still parses exactly as before', () => {
         // to close: a default nobody wrote down is a default nobody reviewed.
         shipwright: { accountId: '', model: 'auto', effort: 'auto' },
       },
-      apiKeys: { openrouter: '', anthropic: '', openai: '' },
       integrations: { linearApiKey: '' },
       hibernation: {
         enabled: true,
@@ -218,7 +218,6 @@ describe('the composed blob still parses exactly as before', () => {
     const parsed = normalizeSettings({})
     expect(Object.keys(parsed)).toEqual([
       'roles',
-      'apiKeys',
       'integrations',
       'hibernation',
       'notifications',

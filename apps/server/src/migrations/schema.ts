@@ -3659,10 +3659,11 @@ export const issuePanelStates = sqliteTable('issue_panel_states', {
  * organisation). `identity_fingerprint` repeats the fingerprint so the lookup of
  * a login found on a machine is an indexed read rather than a JSON scan.
  *
- * LEGACY(remove-after: 2027-05): `legacy_id` names the row a credential was moved
- * from (an `accounts` id or an `apiKeys.*` server secret), and `legacy_key` the id
- * sessions and settings recorded for it (`managed:anthropic`), unique per owner, so
- * an old session's account id still resolves; removing it drops the accounts table.
+ * LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+ * `legacy_id` names the row a credential was moved from (an `accounts` id or an
+ * `apiKeys.*` server secret), and `legacy_key` the id sessions and settings
+ * recorded for it (`managed:anthropic`), unique per owner, so an old session's
+ * account id still resolves.
  */
 export const credentials = sqliteTable(
   'credentials',
