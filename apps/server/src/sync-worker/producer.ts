@@ -9,7 +9,6 @@ import {
   type SyncComplete,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
 import type { RecordSourcePort } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
@@ -22,7 +21,14 @@ import { perf } from '../modules/perf/registry'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
-import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
+import { openWorkerReadSession, type WorkerReadSession } from './read-session'
+import {
+  type BootstrapMetrics,
+  SYNC_JOB_DEADLINE_MS,
+  type SyncJob,
+  type SyncMetaSummary,
+  SyncWorkerError,
+} from './types'
 import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
 const log = createLogger('server:sync-bootstrap')
@@ -42,12 +48,15 @@ async function* bootstrapPages(
 }
 
 /**
- * One read-only WAL connection per active job in the one worker. Holding the reader
- * for a transfer prevents checkpointing past its snapshot until completion/cancel;
- * the ten-minute admission deadline bounds this window (and consequent WAL growth).
+ * One read session per active job in the one worker (`read-session.ts`): on SQLite a
+ * read-only WAL connection of its own, on Postgres one pooled connection in a
+ * REPEATABLE READ READ ONLY transaction, chosen by the store's location. Holding the
+ * snapshot for a transfer prevents SQLite checkpointing past it (and Postgres vacuum
+ * from removing the row versions it sees) until completion/cancel; the ten-minute
+ * admission deadline bounds this window.
  */
 async function* produceRecords(
-  dbPath: string,
+  location: string,
   job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
@@ -76,9 +85,7 @@ async function* produceRecords(
     if (Date.now() >= (job.deadlineMs ?? Infinity)) throw new SyncWorkerError('deadline')
   }
   check()
-  const db = openDatabase(dbPath, { readOnly: true })
-  let bundle: Awaited<ReturnType<typeof bootstrapVisibility>> | undefined
-  let transaction = false
+  let session: WorkerReadSession | undefined
   let rows = 0,
     records = 0,
     bytesBefore = 0,
@@ -95,12 +102,15 @@ async function* produceRecords(
     return bytes
   }
   try {
-    db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN')
-    transaction = true
+    // The transaction may idle between pages while the client drains them; the job's
+    // deadline, not the engine's idle limit, ends it.
+    session = await openWorkerReadSession(location, {
+      idleBudgetMs: (job.deadlineMs ?? Date.now() + SYNC_JOB_DEADLINE_MS) - Date.now(),
+    })
     const capture = performance.now()
-    // This FIRST read fixes the SQLite snapshot; every visibility read shares it.
-    // Every read is the job's workspace's (POD-7021).
-    bundle = bootstrapVisibility(db, {
+    // This FIRST read fixes the snapshot, on either engine; every visibility read
+    // shares it. Every read is the job's workspace's (POD-7021).
+    const bundle = bootstrapVisibility(session.executor, {
       ...options,
       workspaceId: job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID,
     })
@@ -306,12 +316,8 @@ async function* produceRecords(
     }
     throw error instanceof SyncWorkerError ? error : new SyncWorkerError(reason)
   } finally {
-    try {
-      if (transaction) db.exec('ROLLBACK')
-    } finally {
-      if (bundle) await bundle.executor.close()
-      else db.close()
-    }
+    // Ends the snapshot and releases the connection.
+    if (session) await session.close()
     phases.compress = { ms: 0, bytes: bytesAfter }
     perf.record('phase', 'syncBootstrap.compress', 0, attribution, bytesAfter)
     phase('transfer', started, bytesAfter)
@@ -332,9 +338,12 @@ async function* produceRecords(
   }
 }
 
-/** The entire content-coding pipeline stays in this worker, including codec flushing. */
+/**
+ * The entire content-coding pipeline stays in this worker, including codec flushing.
+ * `location` is the store's: a SQLite file path or a `postgres://` URL.
+ */
 export async function* produceBootstrap(
-  dbPath: string,
+  location: string,
   job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
@@ -347,7 +356,7 @@ export async function* produceBootstrap(
   if (signal.aborted) abort()
   const telemetry: { metrics?: BootstrapMetrics } = {}
   const records = produceRecords(
-    dbPath,
+    location,
     job,
     lifetime.signal,
     onMeta,

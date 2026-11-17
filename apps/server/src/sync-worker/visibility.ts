@@ -1,10 +1,10 @@
 // workspace-scoped (POD-6959)
 import type { WorkspaceId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
-import { createBunStoreExecutor } from '../store/executor/bun-driver'
+import type { QueryClient } from '../store/executor/driver'
+import type { RootStoreExecutor } from '../store/executor/executor'
 import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
 
@@ -22,16 +22,16 @@ export interface BootstrapVisibilityOptions {
 }
 
 /**
- * The sharing rules and the record builders over one read-only connection:
- * query repositories only, with no SessionStore, migrations, authority or
- * publication. The caller has already opened the read transaction, so every
- * read below belongs to that snapshot.
+ * The sharing rules and the record builders over one read session's executor
+ * (`read-session.ts`, on either engine): query repositories only, with no
+ * SessionStore, migrations, authority or publication. Every statement of that
+ * executor runs in the session's read transaction, so every read below belongs
+ * to its snapshot. The caller owns the session and closes it.
  */
 export function bootstrapVisibility(
-  database: SqlDatabase,
+  executor: RootStoreExecutor<QueryClient>,
   options: BootstrapVisibilityOptions = {},
 ) {
-  const executor = createBunStoreExecutor({ database })
   const context = (async () => {
     const reads = recordReadsOf(executor.queries, {
       effectExecutors: effectPublication(options.effectKinds ?? []),
@@ -56,12 +56,10 @@ export function bootstrapVisibility(
       records,
     }
   })()
-  // Return ownership before the first async read can fail, so the caller always closes it.
   return {
     context,
     get policy() {
       return context.then((value) => value.policy)
     },
-    executor,
   }
 }

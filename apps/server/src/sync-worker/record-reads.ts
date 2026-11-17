@@ -1,9 +1,11 @@
 // workspace-scoped (POD-6959)
 /**
- * The record builders' reads over a read-only database handle (POD-6763): the
- * same repositories the server holds, built over the connection the sync
- * worker opens, with no SessionStore, migrations, authority or writers. Every
- * read shares the caller's snapshot when the caller has opened a transaction.
+ * The record builders' reads over a read-only connection (POD-6763): the same
+ * repositories the server holds, built over the executor of the sync worker's
+ * read session (`read-session.ts`, SQLite or Postgres, POD-6991), with no
+ * SessionStore, migrations, authority or writers. Every read shares the
+ * session's snapshot. {@link recordReadsOver} is the SQLite form for scripts
+ * and tests that hold a bun:sqlite handle.
  *
  * ONE WORKSPACE'S READS (POD-7021). Every repository is built over the queries
  * of the request's workspace, as a workspace's store builds them: the sync
@@ -24,7 +26,7 @@ import { ConversationsRepository } from '../store/conversations'
 import { EffectsRepository } from '../store/effects'
 import { EventsRepository } from '../store/events'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
-import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
+import { type GlobalQueries, legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { GrantsRepository } from '../store/grants'
 import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
@@ -54,11 +56,8 @@ export interface RecordReadsOptions {
   readonly workspaceId?: WorkspaceId
 }
 
-/** The reads of one workspace over an executor's queries the caller already holds. */
-export function recordReadsOf(
-  base: ReturnType<typeof createBunStoreExecutor>['queries'],
-  options: RecordReadsOptions,
-): RecordReads {
+/** The reads of one workspace over an executor's queries (either engine's) the caller holds. */
+export function recordReadsOf(base: GlobalQueries, options: RecordReadsOptions): RecordReads {
   // One handle for every repository: a definition's bound view is cached per handle.
   const workspaceId = options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID
   const q = legacyWorkspaceQueries(base, workspaceId)
