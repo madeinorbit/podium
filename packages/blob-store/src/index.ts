@@ -15,6 +15,7 @@ export {
   isKeySegment,
   joinKey,
   keySegment,
+  MAX_ENCODED_ID_BYTES,
   MAX_KEY_BYTES,
   MAX_SEGMENT_BYTES,
   padNumber,

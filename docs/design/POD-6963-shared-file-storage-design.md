@@ -126,9 +126,13 @@ export interface BlobStorage {
   `[A-Za-z0-9._-]`, no empty, `.` or `..` segment, no leading `/`. Callers build keys through
   small per-owner functions (`artifactKey(issue, artifact, rel)`), never by string joins. An
   id that is not already a valid segment (a native id with other characters) is encoded as
-  `~` followed by its base64url form; `~` is outside the segment alphabet, so an encoded id
-  can never equal a plain one. Numbers in keys (part numbers, chunk offsets) are zero-padded
-  to a fixed width so lexicographic order is numeric order.
+  `~` followed by the base32 form of its UTF-8 bytes (RFC 4648 alphabet, lower case, no
+  padding); `~` is outside the segment alphabet, so an encoded id can never equal a plain one.
+  Base32 has one case, so two encoded ids never collide on a case-insensitive filesystem
+  (macOS and Windows desktop installs); the longest encodable id is 158 UTF-8 bytes, which fits
+  the 255-byte segment limit. Plain ids keep today's paths and today's case behaviour. Numbers
+  in keys (part numbers, chunk offsets) are zero-padded to a fixed width so lexicographic order
+  is numeric order.
 - **`get`.** A missing key returns `undefined`. A range is clipped to the object: an `offset`
   at or past the end returns an empty body with the object's real `size` (the S3 adapter maps
   the provider's 416 to this), and a range that runs past the end returns the bytes up to it.

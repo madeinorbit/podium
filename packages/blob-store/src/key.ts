@@ -8,9 +8,18 @@
  * never by string joins.
  *
  * An id that is not already a valid segment is encoded by {@link keySegment} as
- * `~` followed by its base64url form. `~` is outside the plain alphabet, so an
- * encoded id can never equal a plain one, and the validator accepts the encoded
- * form as a segment of its own.
+ * `~` followed by the base32 form of its UTF-8 bytes (RFC 4648 alphabet, lower
+ * case, no padding). `~` is outside the plain alphabet, so an encoded id can
+ * never equal a plain one, and the validator accepts the encoded form as a
+ * segment of its own. Base32 has one case, so two encoded ids never collide on a
+ * case-insensitive filesystem (macOS and Windows desktop installs). The longest
+ * id that encodes within the 255-byte segment limit is {@link MAX_ENCODED_ID_BYTES}
+ * (158) UTF-8 bytes: 158 bytes are 253 base32 characters, 254 with the `~`.
+ *
+ * Plain ids that already pass the validator are kept as they are, so today's
+ * paths need no migration; they keep today's case behaviour, which means two
+ * plain ids that differ only in case still share a file on a case-insensitive
+ * filesystem.
  *
  * Two refusals beyond the alphabet keep keys safe on both backends: a plain
  * segment may not start with `.tmp-` (the local adapter's temp-file prefix, so
@@ -28,9 +37,12 @@ export const MAX_SEGMENT_BYTES = 255
 export const MAX_KEY_BYTES = 1024
 /** Local temp files are named `<TEMP_PREFIX><uuid>`; no key segment may start with it. */
 export const TEMP_PREFIX = '.tmp-'
+/** The longest id, in UTF-8 bytes, whose `~` + base32 segment fits in {@link MAX_SEGMENT_BYTES}. */
+export const MAX_ENCODED_ID_BYTES = Math.floor(((MAX_SEGMENT_BYTES - 1) * 5) / 8)
 
 const PLAIN_SEGMENT = /^[A-Za-z0-9._-]+$/
-const ENCODED_SEGMENT = /^~[A-Za-z0-9_-]+$/
+const ENCODED_SEGMENT = /^~[a-z2-7]+$/
+const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'
 
 export class InvalidBlobKey extends TypeError {
   override readonly name = 'InvalidBlobKey'
@@ -56,7 +68,7 @@ function plainSegmentProblem(segment: string): string | undefined {
 
 function segmentProblem(segment: string): string | undefined {
   if (segment.startsWith('~')) {
-    if (!ENCODED_SEGMENT.test(segment)) return `segment '${segment}' is not '~' + base64url`
+    if (!ENCODED_SEGMENT.test(segment)) return `segment '${segment}' is not '~' + lower-case base32`
     if (segment.length > MAX_SEGMENT_BYTES) return `segment longer than ${MAX_SEGMENT_BYTES} bytes`
     return undefined
   }
@@ -98,25 +110,78 @@ export function joinKey(...parts: readonly string[]): BlobKey {
 
 /**
  * The segment for an arbitrary id: the id itself when it is already a plain
- * segment, otherwise `~` + base64url of its UTF-8 bytes. Injective, so two
- * different ids never share a segment.
+ * segment, otherwise `~` + lower-case unpadded base32 of its UTF-8 bytes.
+ * Injective, so two different ids never share a segment, and case-safe, so two
+ * encoded segments never differ only in case.
  */
 export function keySegment(id: string): string {
   if (id.length === 0) throw new InvalidBlobKey(id, 'an empty id has no segment')
   if (plainSegmentProblem(id) === undefined) return id
-  const encoded = `~${Buffer.from(id, 'utf8').toString('base64url')}`
-  if (encoded.length > MAX_SEGMENT_BYTES) {
-    throw new InvalidBlobKey(id, `encoded id longer than ${MAX_SEGMENT_BYTES} bytes`)
+  const raw = new TextEncoder().encode(id)
+  if (raw.byteLength > MAX_ENCODED_ID_BYTES) {
+    throw new InvalidBlobKey(
+      id,
+      `id longer than ${MAX_ENCODED_ID_BYTES} UTF-8 bytes cannot be encoded`,
+    )
   }
-  return encoded
+  return `~${base32Encode(raw)}`
 }
 
-/** The id a {@link keySegment} result stands for. */
+/** The id a {@link keySegment} result stands for; refuses a non-canonical encoding. */
 export function decodeKeySegment(segment: string): string {
   const problem = segmentProblem(segment)
   if (problem !== undefined) throw new InvalidBlobKey(segment, problem)
   if (!segment.startsWith('~')) return segment
-  return Buffer.from(segment.slice(1), 'base64url').toString('utf8')
+  const raw = base32Decode(segment.slice(1))
+  // Only the form keySegment writes decodes, so one id has exactly one segment.
+  if (raw === undefined || `~${base32Encode(raw)}` !== segment) {
+    throw new InvalidBlobKey(segment, 'not a canonical base32 encoding')
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(raw)
+  } catch {
+    throw new InvalidBlobKey(segment, 'encoded bytes are not UTF-8')
+  }
+}
+
+function base32Encode(bytes: Uint8Array): string {
+  let out = ''
+  let buffer = 0
+  let bits = 0
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      bits -= 5
+      out += BASE32_ALPHABET[(buffer >> bits) & 31]
+    }
+    buffer &= (1 << bits) - 1
+  }
+  if (bits > 0) out += BASE32_ALPHABET[(buffer << (5 - bits)) & 31]
+  return out
+}
+
+/** Bytes of unpadded lower-case base32, or `undefined` for a length no byte string encodes to. */
+function base32Decode(text: string): Uint8Array | undefined {
+  // 8 characters carry 5 bytes; a trailing group of 1, 3 or 6 characters is impossible.
+  if ([1, 3, 6].includes(text.length % 8)) return undefined
+  const out = new Uint8Array(Math.floor((text.length * 5) / 8))
+  let buffer = 0
+  let bits = 0
+  let at = 0
+  for (const char of text) {
+    const value = BASE32_ALPHABET.indexOf(char)
+    if (value < 0) return undefined
+    buffer = (buffer << 5) | value
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      out[at] = (buffer >> bits) & 255
+      at += 1
+    }
+    buffer &= (1 << bits) - 1
+  }
+  return out
 }
 
 /** A non-negative integer zero-padded to `width` digits, so string order is numeric order. */
