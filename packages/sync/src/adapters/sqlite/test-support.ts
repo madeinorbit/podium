@@ -6,6 +6,7 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
 import { sqliteSyncTables } from './binding'
 import { bindTables } from './prepared'
+import { workspaceColumn } from './schema'
 import type { SyncServerTables } from './server-tables'
 import type { StoreDrizzle, StoreQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
@@ -47,6 +48,7 @@ export const testQueuedMessages = sqliteTable(
     delivery: text().default('when-ready').notNull(),
     attachmentsJson: text('attachments_json'),
     retractRequestedAt: integer('retract_requested_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('queued_messages_session').on(table.sessionId, table.queuedAt),
@@ -61,6 +63,7 @@ export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
   input: text().notNull(),
   queuedAt: integer('queued_at').notNull(),
   attempts: integer().default(0).notNull(),
+  ...workspaceColumn(),
 })
 
 /** What the fixture hands `SyncRepository` where the server hands it the real ones. */
@@ -230,6 +233,7 @@ export function createTestSyncDatabase(): SqlDatabase {
        delivery      TEXT NOT NULL DEFAULT 'when-ready',
        attachments_json TEXT,
        retract_requested_at INTEGER,
+       workspace_id  TEXT NOT NULL DEFAULT 'local',
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
@@ -241,7 +245,8 @@ export function createTestSyncDatabase(): SqlDatabase {
        proc        TEXT NOT NULL,
        input       TEXT NOT NULL,
        queued_at   INTEGER NOT NULL,
-       attempts    INTEGER NOT NULL DEFAULT 0
+       attempts    INTEGER NOT NULL DEFAULT 0,
+       workspace_id TEXT NOT NULL DEFAULT 'local'
      )`,
   )
   return db

@@ -1290,10 +1290,13 @@ describe('against the live repo', () => {
     expect(new Set(tables.map((t) => t.table))).toEqual(DECLARED_WORKSPACE_TABLES)
     expect(DECLARED_WORKSPACE_TABLES.size).toBeGreaterThan(100)
     const files = new Set(tables.map((t) => t.file))
+    // The two schema files, and the sync package's test mirrors of the two
+    // server tables its repository is handed (which must match them).
     expect(files).toEqual(
       new Set([
         'apps/server/src/migrations/schema.ts',
         'packages/sync/src/adapters/sqlite/schema.ts',
+        'packages/sync/src/adapters/sqlite/test-support.ts',
       ]),
     )
     const issues = tables.find((t) => t.table === 'issues')
