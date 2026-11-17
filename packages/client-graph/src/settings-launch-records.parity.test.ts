@@ -15,13 +15,11 @@ import { SettingsRepositories } from './settings-repositories'
 import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test.fixture'
 
 const account: AccountView = {
-  id: 'managed:openai',
+  id: 'native:codex',
   provider: 'openai',
-  source: 'managed',
-  kind: 'api-key',
+  source: 'native',
   identity: 'abcd…1234',
   status: 'connected',
-  credentialSource: 'stored',
   harness: 'codex',
   machines: ['Host'],
   identityFingerprint: 'fingerprint',
