@@ -219,7 +219,9 @@ sealCredentialSecret(deps, credential: { id; type }, plaintext: string, expected
 //   latestSecret(id) → { version, sealed, openable } | null       (openable false: vault locked or reset)
 //   insert({ id?, ownerUserId, label, type, identity?, expiresAt?, legacyId?, legacyKey? }) → CredentialRecord
 //   findByIdentity({ ownerUserId, type, fingerprint }), listVisibleTo(userId): own, not revoked
-//   recordPlacement, listPlacements, setPlacementState,
+//   recordPlacement(PlacementRecord), listPlacements, setPlacementState,
+//   PlacementRecord = PlacementRef & { homeId? }   (Task 9: column credential_placements.home_id,
+//     the daemon home id of a home placement; absent: the credential's own homeIdFor)
 //   allowMachine, disallowMachine, isMachineAllowed,
 //   getMany(ids) (not revoked), allowedMachinesOf(ids) → Map<id, MachineId[]>, setIdentity(id, identity),
 //   clearLegacyIds(id)   // 2027-05: lets a later accounts.connect under the same old id make a new credential
@@ -325,7 +327,11 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   HOME_HARNESSES = ['claude-code', 'codex']; HomeHarness
 //   homeIdFor(credentialId, harness) → '<credentialId>:<harness>'; parseHomeId(id) → { credentialId, harness } | null
 //   homeEnsureRequest { requestId, credentialId, harness } → homeEnsureResult { ok, homeId?, created?, error? }
-//   homeRemoveRequest { requestId, homeId } → homeRemoveResult { ok, removed?, freedBytes?, error? }
+//   homeRemoveRequest { requestId, homeId, signOut? } → homeRemoveResult { ok, removed?, freedBytes?, error? }
+//     signOut (Task 9): run the harness's HarnessInventory.signOutCommand in the home first
+//     (apps/daemon/src/homes/sign-out.ts signOutOfHome); the server sends it only while
+//     HOME_SIGN_OUT_ON_REMOVE (credentials/home-removers.ts) is true. It is false until the
+//     scope of a vendor sign-out is measured (deferred on POD-6857).
 //   credentialRemoveRequest { requestId, harness, fingerprint }
 //     → credentialRemoveResult { outcome: 'removed' | 'absent' | 'changed' | 'failed', error? }
 //   A home is per credential and harness on a machine: two members using one shared
@@ -353,9 +359,17 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   sentences for the dialogs: CREDENTIAL_SHARE_DISCLOSURE, CREDENTIAL_SHARE_WARNING,
 //   CREDENTIAL_MACHINE_DISCLOSURE
 // apps/server/src/modules/credentials/queries.ts — listCredentials(store, userId): CredentialView[]
-//   (homes [] until Task 9; sessionCount counted once sessions carry credential_id)
+//   (homes: each live home placement with the state its machine reports, plus each machine whose
+//   default home reports the same account; sessionCount counted once sessions carry credential_id)
 // packages/client-graph — CredentialModel (`pool.model('credential', id)`, request:credentials.list)
-//   credentials.signInStart({ type, machineId, label }) → { credentialId, terminalSessionId }
+//   credentials.signInStart({ type, machineId, label?, credentialId? }) → { credentialId, terminalSessionId }
+//   credentials.signInCancel({ credentialId }); query credentials.signInStatus({ credentialId }) →
+//     { state: 'waiting', machineId, terminalSessionId } | { state: 'signed-in', credentialId, label,
+//     email?, outcome: 'new' | 'same' | 'attached' | 'identity-changed', previousEmail? }
+//     | { state: 'failed', reason }   (apps/server/src/modules/credentials/sign-in.ts, Task 9:
+//     HomeSignInService at registry.modules.homeSignIn; bindHomeLogin; IdentitySerial)
+//   found logins: recordFoundLogins(deps, machineId, inventory) (credentials/found-logins.ts)
+//   sessions: SessionStartInput.loginHome { credentialId, homeId } puts a sign-in pane in a home
 //   credentials.chatgptSignInStart | chatgptSignInComplete ; query credentials.list
 //   chatgptSignInStart({ label?, machineId?, credentialId? }) → { attemptId, authorizeUrl,
 //     via: 'machine' | 'paste' }; chatgptSignInComplete({ attemptId, pastedUrl }) and query
@@ -398,14 +412,15 @@ placements.removePlacement(placement: { credentialId; machineId; kind: 'home' | 
 placements.retryPendingOn(machineId)        // on machine.connected
 interface PlacementTransport { isOnline(machineId): boolean
   removers: Partial<Record<'home' | 'propagated-file',
-    (machineId, credential: CredentialRecord) => Promise<boolean>>> }   // true: the machine confirmed
+    (machineId, credential: CredentialRecord, placement: PlacementRecord) => Promise<boolean>>> }
+                                                                         // true: the machine confirmed
 //   relay.ts binds `removers: {}` today; Task 8 binds 'propagated-file' (credentialRemoveRequest)
 //   and 'home'. login-propagation records a 'propagated-file' placement when the installed
 //   login's fingerprint is a credential of the owner.
 // CredentialRecord.limitReachedUntil (column credentials.limit_reached_until); CredentialsRepository
 //   markVerified(id, at), setExpiresAt, setLimitReachedUntil(id, until | null),
 //   markAttention(id, reason) → boolean (true only for the call that moved it from 'ok'),
-//   listWithExpiry(), listPendingPlacementsOn(machineId), listPendingPlacementsOfOwner(ownerUserId)
+//   listWithExpiry(), listPendingPlacementsOn(machineId), listLivePlacementsOfOwner(ownerUserId)
 // SessionsRepository.liveSessionIdsOnCredential(credentialId) → SessionId[]
 
 // apps/server/src/modules/credentials/health.ts — `CredentialHealth`, at registry.modules.credentialHealth
