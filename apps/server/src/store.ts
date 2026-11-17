@@ -982,9 +982,17 @@ export class SessionStore {
    *  The executor owns the transaction scope and drains registered post-commit
    *  work after the outermost commit. Nested registrations are discarded on
    *  rollback or merged into the parent on savepoint release. Opened inside
-   *  another workspace's transaction it is refused. */
-  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
-    return await this.database.transactFor(this.context, fn)
+   *  another workspace's transaction it is refused.
+   *
+   *  It hands back {@link StoreDatabase.transactFor}'s promise instead of awaiting
+   *  it, so the caller resumes as soon after the commit as it did before the
+   *  store split (POD-7068). The post-commit drain dispatches effects without
+   *  awaiting them (the authority's delivery among them); with one more async
+   *  frame here the caller resumed after the delivery's first read instead of
+   *  before it, and that read fell inside statement counts that end when the
+   *  write returns. */
+  transact<T>(fn: () => T | Promise<T>): Promise<T> {
+    return this.database.transactFor(this.context, fn)
   }
 
   /**
