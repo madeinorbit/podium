@@ -121,6 +121,42 @@ describe('ChatgptPlanKeeper', () => {
     }
   }
 
+  describe('a token for a Codex session: a longer margin, with its expiry (epic Task 15)', () => {
+    it('hands out the current token while it has the margin left', async () => {
+      const { keeper, openai, signedIn } = await setup()
+      const id = await signedIn(50 * MIN)
+      expect(await keeper.issue(id, { minLeftMs: 40 * MIN })).toEqual({
+        token: 'FAKE-access-token-original',
+        expiresAt: T0 + 50 * MIN,
+      })
+      expect(openai.state.tokenForms).toHaveLength(0)
+    })
+
+    it('renews when less than the margin is left, though more than five minutes are', async () => {
+      const { keeper, openai, signedIn } = await setup()
+      const id = await signedIn(30 * MIN)
+      expect(await keeper.issue(id, { minLeftMs: 40 * MIN })).toEqual({
+        token: 'FAKE-access-token-1',
+        expiresAt: T0 + 3600_000,
+      })
+      expect(openai.state.tokenForms).toHaveLength(1)
+      // A model call in between needs only five minutes: no second renewal.
+      expect(await keeper.accessToken(id)).toBe('FAKE-access-token-1')
+      expect(openai.state.tokenForms).toHaveLength(1)
+    })
+
+    it('two sessions asking at once share one renewal', async () => {
+      const { keeper, openai, signedIn } = await setup()
+      const id = await signedIn(30 * MIN)
+      const [a, b] = await Promise.all([
+        keeper.issue(id, { minLeftMs: 40 * MIN }),
+        keeper.issue(id, { minLeftMs: 40 * MIN }),
+      ])
+      expect(a).toEqual(b)
+      expect(openai.state.tokenForms).toHaveLength(1)
+    })
+  })
+
   describe('acceptance 6: a fresh token, one renewal at a time', () => {
     it('returns a token with at least five minutes left without asking OpenAI', async () => {
       const { keeper, openai, signedIn } = await setup()

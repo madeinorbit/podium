@@ -61,13 +61,24 @@ export interface ChatgptPlanKeeperDeps {
   retryDelaysMs?: readonly number[]
 }
 
+/** A token handed out, and when it stops working (epoch ms). */
+export interface IssuedToken {
+  token: string
+  expiresAt: number
+}
+
+const issued = (set: ChatgptTokenSet): IssuedToken => ({
+  token: set.accessToken,
+  expiresAt: set.expiresAt,
+})
+
 /** Renewal failed for a passing reason and the current token is (nearly) spent. */
 export class RenewalUnavailable extends Error {
   override readonly name = 'RenewalUnavailable'
 }
 
 export class ChatgptPlanKeeper {
-  private readonly inflight = new Map<CredentialId, Promise<string>>()
+  private readonly inflight = new Map<CredentialId, Promise<IssuedToken>>()
   private readonly fetchImpl: FetchLike
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
@@ -86,16 +97,31 @@ export class ChatgptPlanKeeper {
    * {@link RenewalUnavailable} when OpenAI could not be reached in time.
    */
   async accessToken(credentialId: CredentialId): Promise<string> {
+    return (await this.issue(credentialId)).token
+  }
+
+  /**
+   * A token with at least `minLeftMs` left (default five minutes), and its
+   * expiry. A Codex session holds its token for as long as its engine runs, so
+   * it asks for a longer margin than a single model call (epic Task 15). Same
+   * errors as {@link accessToken}.
+   */
+  async issue(credentialId: CredentialId, opts: { minLeftMs?: number } = {}): Promise<IssuedToken> {
+    const minLeft = opts.minLeftMs ?? RENEW_WHEN_LEFT_MS
     const current = await this.read(credentialId)
-    if (current.expiresAt - this.now() >= RENEW_WHEN_LEFT_MS) return current.accessToken
-    return await this.renew(credentialId)
+    if (current.expiresAt - this.now() >= minLeft) return issued(current)
+    return await this.renewFor(credentialId, minLeft)
   }
 
   /** Renew now unless a renewal of this credential is already running; then share it. */
-  renew(credentialId: CredentialId): Promise<string> {
+  async renew(credentialId: CredentialId): Promise<string> {
+    return (await this.renewFor(credentialId, RENEW_WHEN_LEFT_MS)).token
+  }
+
+  private renewFor(credentialId: CredentialId, minLeftMs: number): Promise<IssuedToken> {
     const running = this.inflight.get(credentialId)
     if (running) return running
-    const renewal = this.renewUnderLock(credentialId).finally(() => {
+    const renewal = this.renewUnderLock(credentialId, minLeftMs).finally(() => {
       this.inflight.delete(credentialId)
     })
     this.inflight.set(credentialId, renewal)
@@ -121,13 +147,13 @@ export class ChatgptPlanKeeper {
     return revoked ? 'confirmed' : 'not-confirmed'
   }
 
-  private async renewUnderLock(credentialId: CredentialId): Promise<string> {
+  private async renewUnderLock(credentialId: CredentialId, minLeftMs: number): Promise<IssuedToken> {
     // Read again inside the lock: a renewal that just finished made this one moot.
     const set = await this.read(credentialId)
-    if (set.expiresAt - this.now() >= RENEW_WHEN_LEFT_MS) return set.accessToken
+    if (set.expiresAt - this.now() >= minLeftMs) return issued(set)
     const record = { id: credentialId, type: CHATGPT_PLAN_TYPE }
     const answer = await this.refreshWithRetry(credentialId, set)
-    if (typeof answer === 'string') return answer
+    if (typeof answer === 'string') return { token: answer, expiresAt: set.expiresAt }
     const savedAt = this.now()
     const next: ChatgptTokenSet = {
       seq: set.seq + 1,
@@ -147,9 +173,9 @@ export class ChatgptPlanKeeper {
     )
     if (stored === 'conflict') {
       // Another writer stored a newer set first: it is the one to use.
-      return (await this.read(credentialId)).accessToken
+      return issued(await this.read(credentialId))
     }
-    return next.accessToken
+    return issued(next)
   }
 
   /**

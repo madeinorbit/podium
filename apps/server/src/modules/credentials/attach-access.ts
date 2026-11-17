@@ -18,13 +18,31 @@
  * credential returns no field, so a launch on the harness's own login is
  * unchanged on any daemon and any connection. Each refusal records a `refuse`
  * event and each delivery a `deliver` event; neither ever holds the secret.
+ *
+ * A TYPE PODIUM RENEWS (the ChatGPT plan, §11) is not handed over as stored:
+ * the vault holds a token set, and what a harness needs is one access token
+ * with enough time left. `issueToken` (the keeper, bound by the composition
+ * root) issues it, and it is the only secret such a delivery carries.
  */
 
-import type { CredentialId, MachineId, SessionId, UserId } from '@podium/model'
+import {
+  CREDENTIAL_TYPES,
+  type CredentialId,
+  type CredentialTypeId,
+  type MachineId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { type AccessField, CAP_SESSION_ACCESS } from '@podium/protocol'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { SessionStore } from '../../store'
-import { type AccessRefusal, type AccessRefused, refuse, type SessionAccess } from './access'
+import {
+  ACCESS_REFUSAL_MESSAGES,
+  type AccessRefusal,
+  type AccessRefused,
+  refuse,
+  type SessionAccess,
+} from './access'
 import { recordCredentialEvent } from './events'
 import { SecretUnavailableError, withSecret } from './vault'
 
@@ -34,6 +52,15 @@ export interface AttachAccessDeps {
   daemonSupports(machineId: MachineId, cap: string): boolean
   /** The server's own judgement of that daemon's connection; undefined: none. */
   daemonLinkKind(machineId: MachineId): DaemonLinkKind | undefined
+  /**
+   * An access token for a credential whose type Podium renews, and when it
+   * expires. Throws a refusal-carrying error (`CredentialRefusal`) when the
+   * credential cannot be used. Absent: such a credential is refused.
+   */
+  issueToken?(
+    credentialId: CredentialId,
+    to: AttachTarget,
+  ): Promise<{ secret: string; expiresAt: number }>
 }
 
 export interface AttachTarget {
@@ -42,6 +69,11 @@ export interface AttachTarget {
   sessionId?: SessionId
   /** The person the session runs for. */
   actingUserId: UserId
+  /**
+   * The access is sent to a process that is already running (a reconnect's
+   * `sessionAccessRefresh`), not with a process start.
+   */
+  refresh?: true
 }
 
 export type AttachedAccess = { ok: true; access?: AccessField } | AccessRefused
@@ -84,17 +116,38 @@ export async function attachAccess(
     return await refuse(deps.store, 'connection-not-encrypted', context)
   }
   let secret: string
-  try {
-    secret = await withSecret(deps.store, credentialId, async (opened) => opened)
-  } catch (error) {
-    if (!(error instanceof SecretUnavailableError)) throw error
-    return await refuse(deps.store, SECRET_REFUSAL[error.reason], context)
+  const type = (await deps.store.credentials.get(credentialId))?.type
+  if (type !== undefined && CREDENTIAL_TYPES[type as CredentialTypeId]?.renewal === 'podium') {
+    if (!deps.issueToken) return await refuse(deps.store, 'needs-attention', context)
+    try {
+      secret = (await deps.issueToken(credentialId, to)).secret
+    } catch (error) {
+      const refusal = refusalOf(error)
+      if (!refusal) throw error
+      return await refuse(deps.store, refusal, context)
+    }
+  } else {
+    try {
+      secret = await withSecret(deps.store, credentialId, async (opened) => opened)
+    } catch (error) {
+      if (!(error instanceof SecretUnavailableError)) throw error
+      return await refuse(deps.store, SECRET_REFUSAL[error.reason], context)
+    }
   }
   await delivered(deps, credentialId, to, 'env')
   return {
     ok: true,
     access: { credentialId, delivery: { kind: 'env', variable: delivery.variable, secret } },
   }
+}
+
+/** The refusal an issuer's error carries (`CredentialRefusal`), if it is one. */
+function refusalOf(error: unknown): AccessRefusal | undefined {
+  if (!(error instanceof Error) || !('refusal' in error)) return undefined
+  const refusal = (error as { refusal: unknown }).refusal
+  return typeof refusal === 'string' && refusal in ACCESS_REFUSAL_MESSAGES
+    ? (refusal as AccessRefusal)
+    : undefined
 }
 
 /** No capability: either no daemon is there at all, or it is an older one. */

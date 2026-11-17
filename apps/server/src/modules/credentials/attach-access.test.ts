@@ -206,3 +206,98 @@ describe('attachAccess', () => {
     ).toMatchObject({ ok: false, refusal: 'revoked' })
   })
 })
+
+describe('attachAccess for a type Podium renews (the ChatGPT plan, epic Task 15)', () => {
+  /** Obviously fake: the sealed token set, and the token the keeper issues. */
+  const SEALED_SET = JSON.stringify({ accessToken: 'tok-FAKE-sealed-in-set', refreshToken: 'x' })
+  const ISSUED = 'tok-FAKE-issued-access-0015'
+
+  async function withPlan(): Promise<{ s: SessionStore; id: CredentialId }> {
+    store = await openTestStore(':memory:')
+    const record = await store.credentials.insert({
+      ownerUserId: OWNER,
+      label: 'ChatGPT',
+      type: 'openai.chatgpt-plan',
+    })
+    expect(await sealCredentialSecret(store, record, SEALED_SET, 0)).toBe(1)
+    return { s: store, id: record.id }
+  }
+
+  const planPlan = (id: CredentialId): SessionAccess => ({
+    ok: true,
+    credentialId: id,
+    delivery: { kind: 'env', variable: 'ACCESS_TOKEN' },
+  })
+
+  it('delivers the token the keeper issues, never the sealed token set', async () => {
+    const { s, id } = await withPlan()
+    const asked: unknown[] = []
+    const result = await attachAccess(
+      {
+        ...daemon(s, { caps: [CAP_SESSION_ACCESS], link: 'encrypted' }),
+        issueToken: async (credentialId, target) => {
+          asked.push({ credentialId, target })
+          return { secret: ISSUED, expiresAt: Date.now() + 3600_000 }
+        },
+      },
+      planPlan(id),
+      { ...to, refresh: true },
+    )
+    expect(result).toEqual({
+      ok: true,
+      access: { credentialId: id, delivery: { kind: 'env', variable: 'ACCESS_TOKEN', secret: ISSUED } },
+    })
+    expect(asked).toEqual([{ credentialId: id, target: { ...to, refresh: true } }])
+    // Canary, then the search: the sealed set's token is not in the result.
+    expect(JSON.stringify(result)).toContain(ISSUED)
+    expect(JSON.stringify(result)).not.toContain('tok-FAKE-sealed-in-set')
+    expect(await events(s, 'deliver')).toHaveLength(1)
+  })
+
+  it('a refusal from the keeper is the launch refusal, on the trail', async () => {
+    const { s, id } = await withPlan()
+    const refusing = Object.assign(new Error(ACCESS_REFUSAL_MESSAGES['needs-attention']), {
+      refusal: 'needs-attention',
+    })
+    const result = await attachAccess(
+      {
+        ...daemon(s, { caps: [CAP_SESSION_ACCESS], link: 'local' }),
+        issueToken: async () => {
+          throw refusing
+        },
+      },
+      planPlan(id),
+      to,
+    )
+    expect(result).toMatchObject({ ok: false, refusal: 'needs-attention' })
+    expect(await events(s, 'refuse')).toHaveLength(1)
+  })
+
+  it('with no issuer bound, the plan is refused rather than sent as stored', async () => {
+    const { s, id } = await withPlan()
+    const result = await attachAccess(
+      daemon(s, { caps: [CAP_SESSION_ACCESS], link: 'local' }),
+      planPlan(id),
+      to,
+    )
+    expect(result).toMatchObject({ ok: false, refusal: 'needs-attention' })
+  })
+
+  it('the keeper is asked only after the link checks: a plain link never issues a token', async () => {
+    const { s, id } = await withPlan()
+    let issued = 0
+    const result = await attachAccess(
+      {
+        ...daemon(s, { caps: [CAP_SESSION_ACCESS], link: 'plain' }),
+        issueToken: async () => {
+          issued += 1
+          return { secret: ISSUED, expiresAt: 0 }
+        },
+      },
+      planPlan(id),
+      to,
+    )
+    expect(result).toMatchObject({ ok: false, refusal: 'connection-not-encrypted' })
+    expect(issued).toBe(0)
+  })
+})
