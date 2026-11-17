@@ -1,5 +1,6 @@
 import { AUTO, type ModelChoice } from '@podium/client-core/agent-models'
-import { asAccountId, type CredentialView } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model'
+import { asAccountId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { HarnessAgent, RoleBackend } from '@podium/runtime'
 import { issueAgentDescriptors } from '@/lib/issue-agents'

@@ -6,7 +6,7 @@ import {
   modelOptions,
 } from '@podium/client-core/agent-models'
 import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
-import type { CredentialView } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model'
 import {
   type HarnessAgent,
   type PodiumSettings,

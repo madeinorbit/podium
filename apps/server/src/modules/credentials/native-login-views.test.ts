@@ -1,4 +1,4 @@
-import { asCredentialId, asMachineId, asUserId, type CredentialView } from '@podium/model'
+import { asCredentialId, asMachineId, asSessionId, asUserId, type CredentialView } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeLoginState } from './native-login-actions'
 import { withNativeLoginViews } from './native-login-views'
@@ -69,7 +69,7 @@ describe('native controls on found-login credentials', () => {
   it('preserves the old tick, kept-login warning and attempt facts on the credential row', async () => {
     const { state } = fixture(true)
     const attempt = {
-      sessionId: 'login',
+      sessionId: asSessionId('login'),
       machineId: id('empty'),
       machineName: 'empty',
       status: 'running' as const,

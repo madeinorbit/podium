@@ -1,5 +1,6 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import { asAccountId, type CredentialView } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model'
+import { asAccountId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { agentOptions, backendForAgent } from './agent-options'

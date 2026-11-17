@@ -19,7 +19,7 @@
  */
 
 import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
-import { asMachineId, type MachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
+import { asMachineId, type CredentialView, type MachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, createHandshakeDialer } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -180,11 +180,11 @@ const until = async (pred: () => boolean | Promise<boolean>, ms = 10_000): Promi
   }
 }
 
-const list = async (who: MemberName) => await (await trpc(who)).credentials.list.query()
+const list = async (who: MemberName): Promise<CredentialView[]> => await (await trpc(who)).credentials.list.query()
 const codexRow = async (who: MemberName, fingerprint: string) => {
   const views = await list(who)
   return views.find(
-    (view: import('@podium/model').CredentialView) =>
+    (view) =>
       view.nativeLogin?.harness === 'codex' && view.identity.fingerprint === fingerprint,
   )?.nativeLogin
 }
