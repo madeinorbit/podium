@@ -10,6 +10,7 @@ import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from 'react'
+import { useSessionCredentialLabel } from '../client/session-credential'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
@@ -256,7 +257,9 @@ const SessionChrome = observer(function SessionChrome({
   const selectedModel = session.observedModel ?? session.model
   // Served descriptors for the session's machine (POD-4475): the harness
   // name and model render from the report, bundled copy offline.
-  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
+  // The credential it runs on (credential management §9), read-only here.
+  const credential = useSessionCredentialLabel(session.credentialId)
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}${credential && session.agentKind !== 'shell' ? ` · ${credential}` : ''}`
 
   return (
     <Screen
