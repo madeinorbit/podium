@@ -168,7 +168,7 @@ export function importEnrollmentLedger(
         }
       }
     }
-    db.prepare('UPDATE sync_feed SET epoch = ? WHERE tenant_id = ?').run(`ledger-import-${Date.now()}`, workspaceId)
+    db.prepare('UPDATE sync_feed SET epoch = ? WHERE workspace_id = ?').run(`ledger-import-${Date.now()}`, workspaceId)
     db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
     db.exec('COMMIT')
   } catch (error) {

@@ -32,7 +32,7 @@ export const provisionWorkspaceFeed = preparedGlobal((db, t) =>
   db
     .insert((t as unknown as StoreTables).syncFeed)
     .values({
-      tenantId: sql.placeholder('workspaceId'),
+      workspaceId: sql.placeholder('workspaceId'),
       feedId: sql.placeholder('feedId'),
       epoch: sql.placeholder('epoch'),
       mintedAt: sql.placeholder('mintedAt'),

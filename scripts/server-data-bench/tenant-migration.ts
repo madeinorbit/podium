@@ -44,12 +44,12 @@ function measure(path: string) {
     const wallMs = performance.now() - started
     const feed = candidate
       .prepare(
-        "SELECT head_seq, floor_seq, feed_id, epoch FROM sync_feed WHERE tenant_id = 'local'",
+        "SELECT head_seq, floor_seq, feed_id, epoch FROM sync_feed WHERE workspace_id = 'local'",
       )
       .get() as { head_seq: number; floor_seq: number; feed_id: string; epoch: string }
     const retained = candidate
       .prepare(
-        "SELECT count(*) AS n, sum(length(payload)) AS payload_bytes FROM changes WHERE tenant_id = 'local'",
+        "SELECT count(*) AS n, sum(length(payload)) AS payload_bytes FROM changes WHERE workspace_id = 'local'",
       )
       .get() as { n: number; payload_bytes: number }
     if (

@@ -301,7 +301,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('prunes each observed tenant independently and keeps replay keys separate', async () => {
-    const tenants = [store.sync, store.sync.forTenant('other/tenant')]
+    const tenants = [store.sync, store.sync.forWorkspace('other/tenant')]
     for (const repo of tenants) {
       await repo.appendChanges(
         Array.from({ length: 5 }, (_, i) => ({
@@ -317,7 +317,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     if (lease.status !== 'ready') throw new Error('expected lease')
     const commands = tenants.map((repo) => {
       const observed = {
-        tenantId: repo.tenantId,
+        tenantId: repo.workspaceId,
         keepRows: CHANGE_KEEP_ROWS,
         maxAgeMs: CHANGE_MAX_AGE_MS,
         thresholdSeq: 5,

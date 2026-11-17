@@ -16,6 +16,7 @@ import {
   perUserSingletons,
   physicalTableColumns,
   unregisteredRestatements,
+  workspaceTablesWithoutWorkspaceId,
 } from './representation-audit'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -455,6 +456,24 @@ export const issues = sqliteTable("issues", {
     ])
   })
 
+  it('reads the workspace column helper as workspace_id, which is not a partition it refuses', () => {
+    const planted = SCHEMA.replace(
+      '\ttitle: text().notNull(),',
+      '\ttitle: text().notNull(),\n\t...workspaceColumn(),',
+    )
+    expect(
+      physicalTableColumns(schemaCtx(planted))
+        .filter((c) => c.table === 'issues')
+        .map((c) => `${c.key}:${c.column}`),
+    ).toEqual(['id:id', 'title:title', 'workspaceId:workspace_id'])
+    // Another spread is not a column the parser can name.
+    const other = SCHEMA.replace('\ttitle: text().notNull(),', '\t...auditColumns(),')
+    expect(physicalTableColumns(schemaCtx(other)).filter((c) => c.table === 'issues')).toEqual([
+      expect.objectContaining({ column: 'id' }),
+    ])
+    expect(instancePartitions(schemaCtx(planted))).toEqual([])
+  })
+
   /**
    * ADR 1 D5's DEPLOYMENT partition is a real and permitted concept — POD-368
    * verified the ~150 `instanceId` sites in the tree are exactly that. What is
@@ -605,5 +624,40 @@ describe('the detector’s two judgement calls are pinned', () => {
     }
     const keys = NOT_A_REPRESENTATION.map((e) => `${e.file}::${e.symbol}`)
     expect(new Set(keys).size).toBe(keys.length)
+  })
+})
+
+/** The other half of the partition rule (POD-6959 design 2.5, POD-7012). */
+describe('workspaceTablesWithoutWorkspaceId', () => {
+  const schemaCtx = (source: string) => ctxOf(source, 'apps/server/src/migrations/schema.ts')
+  const WORKSPACE = new Set(['sessions', 'issues'])
+
+  it('reports a workspace table declared without workspace_id, and nothing else', () => {
+    const sites = workspaceTablesWithoutWorkspaceId(
+      schemaCtx(`
+export const sessions = sqliteTable('sessions', {
+  id: text().primaryKey(),
+  ...workspaceColumn(),
+})
+export const issues = sqliteTable('issues', {
+  id: text().primaryKey(),
+})
+export const meta = sqliteTable('meta', { key: text().primaryKey() })
+`),
+      WORKSPACE,
+    )
+    expect(sites).toEqual([
+      expect.objectContaining({ line: 6, text: 'issues (no workspace_id column)' }),
+    ])
+  })
+
+  it('reports a workspace table no file declares', () => {
+    const sites = workspaceTablesWithoutWorkspaceId(
+      schemaCtx("export const issues = sqliteTable('issues', { ...workspaceColumn() })"),
+      WORKSPACE,
+    )
+    expect(sites.map((s) => s.text)).toEqual([
+      'sessions (classed workspace, declared nowhere this audit reads)',
+    ])
   })
 })

@@ -1106,6 +1106,14 @@ export function capabilitySnapshots(ctx: AuditContext): AuditSite[] {
  * and the dimension it adds is OWNER, not tenant. Expected zero, kept as a
  * regression guard, because "multi-user" and "multi-tenant" are the two words
  * this programme most needs kept apart.
+ *
+ * REVERSED FOR THE WORKSPACE (POD-6959 design 2.5, task POD-7012). The partition
+ * of the data is the WORKSPACE, and its one column is `workspace_id`, which this
+ * pattern does not match. `instance_id` stays forbidden: a runtime instance is
+ * not a tenant. `tenant_id` is forbidden everywhere, the sync tables included,
+ * since their `tenant_id` was renamed `workspace_id`: one name for one thing.
+ * The other half, every workspace table HAVING the column, is
+ * {@link workspaceTablesWithoutWorkspaceId}.
  */
 const INSTANCE_PARTITION_KEY = /^(instance_?id|tenant_?id)$/i
 
@@ -1126,6 +1134,15 @@ const PHYSICAL_TABLE =
  * be the spelling that carries the partition.
  */
 const PHYSICAL_COLUMN = /^\s*(\w+)\s*:\s*(?:\w+\.)?\w+\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)?/
+
+/**
+ * The workspace column helper spread into a table's columns:
+ * `...workspaceColumn()` (`packages/sync/src/adapters/sqlite/schema.ts`). It
+ * declares `workspaceId: text('workspace_id')`, so the parser reads it as that
+ * column; a spread of anything else is not a column it can name.
+ */
+const WORKSPACE_COLUMN_SPREAD = /^\s*\.\.\.\s*workspaceColumn\(\s*\)/
+const WORKSPACE_COLUMN = { key: 'workspaceId', column: 'workspace_id' } as const
 
 /**
  * The body of the columns object as `(segment, offset)` pairs — one per
@@ -1192,7 +1209,21 @@ export interface PhysicalColumn {
  * distinguished from a trailing `(t) => [...]` constraint callback.
  */
 export function physicalTableColumns(ctx: AuditContext): PhysicalColumn[] {
-  const out: PhysicalColumn[] = []
+  return physicalTables(ctx).flatMap((t) => t.columns)
+}
+
+/** One drizzle table declaration and the columns the parser could read in it. */
+export interface PhysicalTable {
+  readonly file: string
+  readonly line: number
+  /** The SQL table name as declared in the call's first argument. */
+  readonly table: string
+  readonly columns: readonly PhysicalColumn[]
+}
+
+/** Every physical table declared as drizzle schema-as-code, see {@link physicalTableColumns}. */
+export function physicalTables(ctx: AuditContext): PhysicalTable[] {
+  const out: PhysicalTable[] = []
   const table = new RegExp(PHYSICAL_TABLE.source, 'gm')
   for (const f of ctx.files) {
     if (f.isTest) continue
@@ -1208,19 +1239,28 @@ export function physicalTableColumns(ctx: AuditContext): PhysicalColumn[] {
       if (open === -1) continue
       const members = objectMembers(src, open)
       if (!members) continue
+      const lineAt = (offset: number) => src.slice(0, offset).split('\n').length
+      const columns: PhysicalColumn[] = []
       for (const member of members) {
+        const spread = WORKSPACE_COLUMN_SPREAD.exec(member.text)
+        if (spread) {
+          const offset = member.at + spread.index + spread[0].indexOf('workspaceColumn')
+          columns.push({ file: f.file, line: lineAt(offset), table: name, ...WORKSPACE_COLUMN })
+          continue
+        }
         const col = PHYSICAL_COLUMN.exec(member.text)
         if (!col) continue
         const key = col[1] as string
         const offset = member.at + (col.index + col[0].indexOf(key))
-        out.push({
+        columns.push({
           file: f.file,
-          line: src.slice(0, offset).split('\n').length,
+          line: lineAt(offset),
           table: name,
           key,
           column: col[2] ?? col[3] ?? col[4] ?? key,
         })
       }
+      out.push({ file: f.file, line: lineAt(m.index), table: name, columns })
     }
   }
   return out
@@ -1243,6 +1283,46 @@ export function instancePartitions(ctx: AuditContext): AuditSite[] {
     if (INSTANCE_PARTITION_KEY.test(c.key) || INSTANCE_PARTITION_KEY.test(c.column)) {
       sites.push({ file: c.file, line: c.line, text: `${c.table}.${c.column} (column)` })
     }
+  }
+  return sites
+}
+
+/**
+ * ITEM: a workspace table without its `workspace_id` column (POD-6959 design
+ * 2.5, task POD-7012). Expected ZERO.
+ *
+ * `workspaceTables` is the set the workspace manifest classes `workspace` and
+ * declares in a schema (`apps/server/src/store/workspace-manifest.ts`); the
+ * caller passes it, so a plant can drive this with its own. Two ways to miss:
+ * a declaration of such a table with no `workspace_id` column, and a workspace
+ * table no live declaration declares at all, which this parser then cannot
+ * check. Test files are skipped, as everywhere in this audit: a test fixture is
+ * not where a table is authored.
+ */
+const WORKSPACE_MANIFEST_FILE = 'apps/server/src/store/workspace-manifest.ts'
+
+export function workspaceTablesWithoutWorkspaceId(
+  ctx: AuditContext,
+  workspaceTables: ReadonlySet<string>,
+): AuditSite[] {
+  const sites: AuditSite[] = []
+  const declared = new Set<string>()
+  for (const t of physicalTables(ctx)) {
+    if (!workspaceTables.has(t.table)) continue
+    declared.add(t.table)
+    if (!t.columns.some((c) => c.column === 'workspace_id')) {
+      sites.push({ file: t.file, line: t.line, text: `${t.table} (no workspace_id column)` })
+    }
+  }
+  const manifest = ctx.files.find((f) => f.file === WORKSPACE_MANIFEST_FILE)?.stripped ?? ''
+  for (const name of [...workspaceTables].sort()) {
+    if (declared.has(name)) continue
+    const at = manifest.search(new RegExp(`^[ \\t]*${name}:`, 'm'))
+    sites.push({
+      file: WORKSPACE_MANIFEST_FILE,
+      line: at === -1 ? 1 : manifest.slice(0, at).split('\n').length,
+      text: `${name} (classed workspace, declared nowhere this audit reads)`,
+    })
   }
   return sites
 }

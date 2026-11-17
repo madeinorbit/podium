@@ -160,7 +160,7 @@ export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(
     `CREATE TABLE changes (
-       tenant_id  TEXT NOT NULL,
+       workspace_id  TEXT NOT NULL,
        seq        INTEGER NOT NULL,
        entity     TEXT NOT NULL,
        entity_id  TEXT NOT NULL,
@@ -172,18 +172,18 @@ export function createTestSyncDatabase(): SqlDatabase {
        origin_id    TEXT,
        causation_id TEXT,
        mutation_id  TEXT,
-       PRIMARY KEY (tenant_id, seq)
+       PRIMARY KEY (workspace_id, seq)
      )`,
   )
-  db.exec('CREATE INDEX changes_entity ON changes(tenant_id, entity, entity_id, seq)')
-  db.exec('CREATE INDEX changes_event_time ON changes(tenant_id, event_time, seq)')
+  db.exec('CREATE INDEX changes_entity ON changes(workspace_id, entity, entity_id, seq)')
+  db.exec('CREATE INDEX changes_event_time ON changes(workspace_id, event_time, seq)')
   db.exec(`CREATE TABLE sync_feed (
-    tenant_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
+    workspace_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
     minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
   )`)
   db.exec(`CREATE TABLE sync_kind (
-    tenant_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
-    PRIMARY KEY (tenant_id, kind)
+    workspace_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, kind)
   )`)
 
   db.exec(
@@ -191,7 +191,8 @@ export function createTestSyncDatabase(): SqlDatabase {
        mutation_id TEXT PRIMARY KEY,
        proc        TEXT NOT NULL,
        result      TEXT NOT NULL,
-       applied_at  INTEGER NOT NULL
+       applied_at  INTEGER NOT NULL,
+       workspace_id TEXT NOT NULL DEFAULT 'local'
      )`,
   )
   db.exec(

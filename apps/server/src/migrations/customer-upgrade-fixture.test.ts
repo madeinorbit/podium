@@ -78,7 +78,7 @@ const meta = (db: SqlDatabase, key: string): string | undefined =>
     ?.value
 const feedEpoch = (db: SqlDatabase): string | undefined =>
   (
-    db.prepare("SELECT epoch FROM sync_feed WHERE tenant_id = 'local'").get() as
+    db.prepare("SELECT epoch FROM sync_feed WHERE workspace_id = 'local'").get() as
       | { epoch: string }
       | undefined
   )?.epoch
@@ -479,7 +479,10 @@ function preservedMemberData(root: string) {
     users: db
       .prepare('SELECT id, display_name, role, created_at, disabled_at FROM users ORDER BY id')
       .all(),
-    preferences: db.prepare('SELECT * FROM user_preferences ORDER BY user_id, key').all(),
+    // Named columns: the workspace column migration (POD-7012) adds workspace_id.
+    preferences: db
+      .prepare('SELECT user_id, key, value, updated_at FROM user_preferences ORDER BY user_id, key')
+      .all(),
     credentials: db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all(),
     // An earlier migration gives legacy sign-ins public ids. Compare their existing facts.
     logins: db

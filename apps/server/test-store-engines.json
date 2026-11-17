@@ -68,6 +68,7 @@
     "apps/server/src/migrations/tenant-sync-feed.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/migrations/user-accounts.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/migrations/workflow-agent-profiles.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
+    "apps/server/src/migrations/workspace-column.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/modules/server-transfer/operation.test.ts": "Tests the server transfer of a SQLite database file; hosted Postgres has no transfer (design 2.9).",
     "apps/server/src/modules/server-transfer/snapshot.test.ts": "Tests the SQLite snapshot a server transfer ships; hosted Postgres has no transfer (design 2.9).",
     "apps/server/src/pre-migrated-store-wiring.test.ts": "Tests the SQLite schema image fixture; the Postgres leg clones a template database instead.",

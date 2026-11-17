@@ -750,12 +750,12 @@ export class ChangeLogPrunePlanner {
 
   constructor(db: SqlDatabase) {
     this.feeds = db.prepare(`
-      SELECT feed.tenant_id, feed.head_seq, feed.floor_seq,
+      SELECT feed.workspace_id, feed.head_seq, feed.floor_seq,
         (SELECT MAX(seq) FROM changes INDEXED BY changes_event_time
-         WHERE tenant_id = feed.tenant_id AND event_time < ?) AS aged_seq
+         WHERE workspace_id = feed.workspace_id AND event_time < ?) AS aged_seq
       FROM sync_feed AS feed
-      WHERE feed.tenant_id > ? AND feed.floor_seq <= feed.head_seq
-      ORDER BY feed.tenant_id
+      WHERE feed.workspace_id > ? AND feed.floor_seq <= feed.head_seq
+      ORDER BY feed.workspace_id
       LIMIT ?
     `)
   }
@@ -771,7 +771,7 @@ export class ChangeLogPrunePlanner {
         input.nowMs - input.maxAgeMs,
         afterTenant,
         CANDIDATE_PAGE_SIZE,
-      ) as { tenant_id: string; head_seq: number; floor_seq: number; aged_seq: number | null }[]
+      ) as { workspace_id: string; head_seq: number; floor_seq: number; aged_seq: number | null }[]
       for (const feed of feeds) {
         // Appends commit contiguous seqs with the head; retention removes only
         // a prefix and advances the floor, so the eligible count is arithmetic.
@@ -784,7 +784,7 @@ export class ChangeLogPrunePlanner {
         // recovery new runKeys after a capped tick instead of starving the tail.
         await runTimeBudgetedJob(() => {
           batches.push({
-            tenantId: feed.tenant_id,
+            tenantId: feed.workspace_id,
             keepRows: input.keepRows,
             maxAgeMs: input.maxAgeMs,
             thresholdSeq,
@@ -796,7 +796,7 @@ export class ChangeLogPrunePlanner {
         })
       }
       if (feeds.length < CANDIDATE_PAGE_SIZE) return batches
-      afterTenant = feeds[feeds.length - 1]!.tenant_id
+      afterTenant = feeds[feeds.length - 1]!.workspace_id
     }
   }
 }

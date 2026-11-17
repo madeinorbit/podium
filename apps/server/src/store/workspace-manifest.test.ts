@@ -253,14 +253,25 @@ describe('workspace table manifest', () => {
     expect(listed).toEqual(declaredInstall)
   })
 
-  const liveWorkspaceColumn = (name: string): { not_null: number } | undefined =>
+  const liveWorkspaceColumn = (name: string): { not_null: number; pk: number } | undefined =>
     (
       db
         .prepare(
-          `SELECT "notnull" AS not_null FROM pragma_table_info(?) WHERE name = 'workspace_id'`,
+          `SELECT "notnull" AS not_null, pk FROM pragma_table_info(?) WHERE name = 'workspace_id'`,
         )
-        .all(name) as { not_null: number }[]
+        .all(name) as { not_null: number; pk: number }[]
     )[0]
+
+  /**
+   * `sync_feed.workspace_id` is its text PRIMARY KEY, renamed in place from
+   * `tenant_id` (POD-7012), and was declared without NOT NULL. SQLite's legacy
+   * rule lets a non-INTEGER primary key hold NULL, and adding NOT NULL takes a
+   * table rebuild, which the keys migration (POD-7024) does. Until then a
+   * primary key column counts as the non-null column; nothing writes a NULL
+   * workspace (the provisioning insert names it).
+   */
+  const nonNullLive = (column: { not_null: number; pk: number } | undefined) =>
+    column !== undefined && (column.not_null === 1 || column.pk > 0)
 
   it('keeps a pending workspace column marker only while the column is missing', () => {
     const marked = Object.entries(manifest).filter(([, entry]) => entry.workspaceColumnPending)
@@ -272,8 +283,8 @@ describe('workspace table manifest', () => {
     }
   })
 
-  // Task A4 (POD-7012) adds the column and removes `.skip`.
-  it.skip('gives every workspace table a non-null workspace_id column', () => {
+  // The column migration (POD-7012) added it to every declared workspace table.
+  it('gives every workspace table a non-null workspace_id column', () => {
     const missing: string[] = []
     for (const name of WORKSPACE_TABLES) {
       const entry: ManifestEntry = manifest[name] as ManifestEntry
@@ -285,7 +296,7 @@ describe('workspace table manifest', () => {
           ? entry.origin === 'runtime'
           : getTableConfig(table.table).columns.find((c) => c.name === 'workspace_id')?.notNull ===
             true
-      if (!declaredOk || liveWorkspaceColumn(name)?.not_null !== 1) missing.push(name)
+      if (!declaredOk || !nonNullLive(liveWorkspaceColumn(name))) missing.push(name)
     }
     expect(missing).toEqual([])
   })

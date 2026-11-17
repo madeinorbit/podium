@@ -95,7 +95,7 @@ const kindGenerations = prepared((db, t) =>
   db
     .select({ kind: t.syncKind.kind, generation: t.syncKind.generation })
     .from(t.syncKind)
-    .where(eq(t.syncKind.tenantId, param(t.syncKind.tenantId, 'tenantId')))
+    .where(eq(t.syncKind.workspaceId, param(t.syncKind.workspaceId, 'tenantId')))
     .prepare(),
 )
 
@@ -106,7 +106,7 @@ const reserveChangeSeqs = prepared((db, t) =>
   db
     .update(t.syncFeed)
     .set({ headSeq: sql`${t.syncFeed.headSeq} + ${sql.placeholder('count')}` })
-    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
+    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
     .returning({ headSeq: t.syncFeed.headSeq })
     .prepare(),
 )
@@ -115,7 +115,7 @@ const currentFeedState = prepared((db, t) =>
   db
     .select({ headSeq: t.syncFeed.headSeq, floorSeq: t.syncFeed.floorSeq })
     .from(t.syncFeed)
-    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
+    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
     .prepare(),
 )
 
@@ -132,7 +132,7 @@ const raiseEmptyHead = prepared((db, t) =>
     .set({ headSeq: 1 })
     .where(
       and(
-        eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')),
+        eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')),
         eq(t.syncFeed.headSeq, 0),
       ),
     )
@@ -143,9 +143,9 @@ const advanceFloor = prepared((db, t) =>
   db
     .update(t.syncFeed)
     .set({
-      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.tenantId} = ${sql.placeholder('tenantId')}), ${t.syncFeed.headSeq} + 1)`,
+      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.workspaceId} = ${sql.placeholder('tenantId')}), ${t.syncFeed.headSeq} + 1)`,
     })
-    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
+    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
     .prepare(),
 )
 
@@ -161,7 +161,7 @@ const insertChangeRows = preparedFamily((db, t, rows: number) =>
     .insert(t.changes)
     .values(
       Array.from({ length: rows }, (_, i) => ({
-        tenantId: sql.placeholder('tenantId'),
+        workspaceId: sql.placeholder('tenantId'),
         seq: sql.placeholder(`seq${i}`),
         entity: sql.placeholder(`entity${i}`),
         entityId: sql.placeholder(`entityId${i}`),
@@ -195,7 +195,7 @@ const changesAfter = prepared((db, t) =>
     .from(t.changes)
     .where(
       and(
-        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
         gt(t.changes.seq, param(t.changes.seq, 'cursor')),
       ),
     )
@@ -219,7 +219,7 @@ const changesBetween = prepared((db, t) =>
     .from(t.changes)
     .where(
       and(
-        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
         gt(t.changes.seq, param(t.changes.seq, 'from')),
         lte(t.changes.seq, param(t.changes.seq, 'through')),
       ),
@@ -237,7 +237,7 @@ const newestAgedSeq = prepared((db, t) =>
     .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
     .where(
       and(
-        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
         lt(t.changes.eventTime, param(t.changes.eventTime, 'before')),
       ),
     )
@@ -249,7 +249,7 @@ const deleteChangeHead = prepared((db, t) =>
     .delete(t.changes)
     .where(
       and(
-        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
         inArray(
           t.changes.seq,
           db
@@ -257,7 +257,7 @@ const deleteChangeHead = prepared((db, t) =>
             .from(t.changes)
             .where(
               and(
-                eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+                eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
                 lte(t.changes.seq, param(t.changes.seq, 'thresholdSeq')),
               ),
             )
@@ -272,7 +272,7 @@ const deleteChangeHead = prepared((db, t) =>
 /**
  * Each of `size` changes by seq, with the change of the same row just before it
  * (POD-6834). The earlier change is one primary-key seek through a correlated
- * `max(seq)` on `changes_entity (tenant_id, entity, entity_id, seq)`; a row with
+ * `max(seq)` on `changes_entity (workspace_id, entity, entity_id, seq)`; a row with
  * no earlier change in the log (first write, or pruned) comes back with a NULL
  * prior. Catch-up reads the log here only to compare two logged records of one
  * row; a pruned prior answers "moved", which costs a re-send, never a fact.
@@ -294,7 +294,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
     .leftJoin(
       priorChange(t),
       and(
-        eq(priorChange(t).tenantId, t.changes.tenantId),
+        eq(priorChange(t).workspaceId, t.changes.workspaceId),
         eq(
           priorChange(t).seq,
           db
@@ -302,7 +302,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
             .from(earlierChange(t))
             .where(
               and(
-                eq(earlierChange(t).tenantId, t.changes.tenantId),
+                eq(earlierChange(t).workspaceId, t.changes.workspaceId),
                 eq(earlierChange(t).entity, t.changes.entity),
                 eq(earlierChange(t).entityId, t.changes.entityId),
                 lt(earlierChange(t).seq, t.changes.seq),
@@ -313,7 +313,7 @@ const changesWithPrior = preparedFamily((db, t, size: number) =>
     )
     .where(
       and(
-        eq(t.changes.tenantId, param(t.changes.tenantId, 'tenantId')),
+        eq(t.changes.workspaceId, param(t.changes.workspaceId, 'tenantId')),
         inListOf(t.changes.seq, size),
       ),
     )
@@ -372,12 +372,12 @@ const currentFeedIdentity = prepared((db, t) =>
   db
     .select({ feedId: t.syncFeed.feedId, epoch: t.syncFeed.epoch })
     .from(t.syncFeed)
-    .where(eq(t.syncFeed.tenantId, param(t.syncFeed.tenantId, 'tenantId')))
+    .where(eq(t.syncFeed.workspaceId, param(t.syncFeed.workspaceId, 'tenantId')))
     .prepare(),
 )
 
 const initialFeedValues = {
-  tenantId: sql.placeholder('tenantId'),
+  workspaceId: sql.placeholder('tenantId'),
   feedId: sql.placeholder('feedId'),
   epoch: sql.placeholder('epoch'),
   mintedAt: sql.placeholder('mintedAt'),
@@ -398,7 +398,7 @@ const upsertFeedIdentity = prepared((db, t) =>
     .insert(t.syncFeed)
     .values({ ...initialFeedValues, headSeq: 1 })
     .onConflictDoUpdate({
-      target: t.syncFeed.tenantId,
+      target: t.syncFeed.workspaceId,
       set: {
         feedId: sql`excluded.feed_id`,
         epoch: sql`excluded.epoch`,
@@ -651,26 +651,28 @@ export class SyncRepository {
   }
 
   /**
-   * `tenantId` is the workspace this repository is bound to, named by whoever
+   * `workspaceId` is the workspace this repository is bound to, named by whoever
    * builds it (a workspace's store, POD-7010); there is no default workspace.
+   * Its statements still bind it under the placeholder name `tenantId` until
+   * they are scoped (POD-7021).
    */
   constructor(
     queries: StoreQueries,
     private readonly tables: SyncServerTables,
-    readonly tenantId: string,
+    readonly workspaceId: string,
   ) {
-    if (!tenantId) throw new Error('a sync repository requires a tenant')
+    if (!workspaceId) throw new Error('a sync repository requires a workspace')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
   }
 
-  /** A tenant-bound view over the same executor and transaction runner. */
-  forTenant(tenantId: string): SyncRepository {
+  /** A workspace-bound view over the same executor and transaction runner. */
+  forWorkspace(workspaceId: string): SyncRepository {
     return new SyncRepository(
       { rootDb: this.rootDb, createOrJoinTransaction: this.createOrJoinTransaction },
       this.tables,
-      tenantId,
+      workspaceId,
     )
   }
 
@@ -692,7 +694,7 @@ export class SyncRepository {
     const seqs: number[] = []
     const chunkSize = 100
     await this.createOrJoinTransaction(async () => {
-      const { tenantId } = this
+      const tenantId = this.workspaceId
       let reserved = await reserveChangeSeqs(this.db).get({ tenantId, count: rows.length })
       if (!reserved) {
         // A first writer can precede client admission. A competing first writer
@@ -759,13 +761,13 @@ export class SyncRepository {
   /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so
    *  every start-up load is stamped at a positive seq (ADR 2 D12). No-op otherwise. */
   async raiseEmptyHead(): Promise<void> {
-    await raiseEmptyHead(this.db).run({ tenantId: this.tenantId })
+    await raiseEmptyHead(this.db).run({ tenantId: this.workspaceId })
   }
 
   /** One snapshot read of this tenant's durable cursor bounds. */
   async readFeedState(): Promise<{ headSeq: number; floorSeq: number }> {
     return (
-      (await currentFeedState(this.db).get({ tenantId: this.tenantId })) ?? {
+      (await currentFeedState(this.db).get({ tenantId: this.workspaceId })) ?? {
         headSeq: 0,
         floorSeq: 1,
       }
@@ -789,14 +791,14 @@ export class SyncRepository {
    * this is a plain range read.
    */
   async changesSince(cursor: number, limit = 10_000): Promise<ChangeLogReadRow[]> {
-    const rows = await changesAfter(this.db).all({ tenantId: this.tenantId, cursor, limit })
+    const rows = await changesAfter(this.db).all({ tenantId: this.workspaceId, cursor, limit })
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
   /** Read exactly (from, through], with a bounded page size. */
   async changesInRange(from: number, through: number, limit: number): Promise<ChangeLogReadRow[]> {
     const rows = await changesBetween(this.db).all({
-      tenantId: this.tenantId,
+      tenantId: this.workspaceId,
       from,
       through,
       limit,
@@ -820,12 +822,12 @@ export class SyncRepository {
     now: number
   }): Promise<ChangePrunePlan> {
     const rowCapSeq = (await this.maxChangeSeq()) - opts.keepRows
-    // Force the covering (tenant_id, event_time, seq) index: the age lookup
+    // Force the covering (workspace_id, event_time, seq) index: the age lookup
     // seeks this tenant's time range and reads seq without loading log payloads.
     // seq must be explicit because the composite primary key is not the rowid.
     // `INDEXED BY` has no builder form, hence newestAgedSeq's SQL FROM fragment.
     const aged = await newestAgedSeq(this.db).get({
-      tenantId: this.tenantId,
+      tenantId: this.workspaceId,
       before: opts.now - opts.maxAgeMs,
     })
     return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
@@ -843,13 +845,14 @@ export class SyncRepository {
     if (plan.thresholdSeq <= 0) return 0
     return await this.createOrJoinTransaction(async () => {
       // Take the same tenant lock as appends before changing the floor.
-      await reserveChangeSeqs(this.db).get({ tenantId: this.tenantId, count: 0 })
+      await reserveChangeSeqs(this.db).get({ tenantId: this.workspaceId, count: 0 })
       const result = await deleteChangeHead(this.db).run({
-        tenantId: this.tenantId,
+        tenantId: this.workspaceId,
         thresholdSeq: plan.thresholdSeq,
         batchSize,
       })
-      if (Number(result.changes) > 0) await advanceFloor(this.db).run({ tenantId: this.tenantId })
+      if (Number(result.changes) > 0)
+        await advanceFloor(this.db).run({ tenantId: this.workspaceId })
       return Number(result.changes)
     })
   }
@@ -883,7 +886,7 @@ export class SyncRepository {
     for (let start = 0; start < distinct.length; start += SEQ_CHUNK) {
       const chunk = distinct.slice(start, start + SEQ_CHUNK)
       const size = inListSize(chunk.length)
-      const values = inListValues(chunk, size, 'in', { tenantId: this.tenantId })
+      const values = inListValues(chunk, size, 'in', { tenantId: this.workspaceId })
       for (const row of await changesWithPrior(this.db, size).all(values)) {
         out.set(row.seq, {
           op: row.op,
@@ -1142,7 +1145,7 @@ export class SyncRepository {
   }
 
   async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {
-    return await kindGenerations(this.db).all({ tenantId: this.tenantId })
+    return await kindGenerations(this.db).all({ tenantId: this.workspaceId })
   }
 
   // ---- feed identity (ADR 2 D1) ----
@@ -1158,7 +1161,7 @@ export class SyncRepository {
    * and the one that runs would depend on which door the write came through.
    */
   async readFeedIdentity(): Promise<{ feedId: string; epoch: string } | null> {
-    const row = await currentFeedIdentity(this.db).get({ tenantId: this.tenantId })
+    const row = await currentFeedIdentity(this.db).get({ tenantId: this.workspaceId })
     return row === undefined ? null : { feedId: row.feedId, epoch: row.epoch }
   }
 
@@ -1176,7 +1179,7 @@ export class SyncRepository {
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
     await upsertFeedIdentity(this.db).run({
-      tenantId: this.tenantId,
+      tenantId: this.workspaceId,
       feedId: identity.feedId,
       epoch: identity.epoch,
       mintedAt,

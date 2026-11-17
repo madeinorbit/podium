@@ -337,7 +337,7 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const repo = this.store.sync.forTenant(observed.tenantId)
+    const repo = this.store.sync.forWorkspace(observed.tenantId)
     const plan = await repo.planChangePrune({
       keepRows: observed.keepRows,
       maxAgeMs: observed.maxAgeMs,

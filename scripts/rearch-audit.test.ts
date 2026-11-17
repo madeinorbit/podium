@@ -15,6 +15,7 @@ import {
   cliLaunchPlanControlMisses,
   DAEMON_COMPOSITION_ROOT,
   DAEMON_COMPOSITION_ROOT_MAX_LINES,
+  DECLARED_WORKSPACE_TABLES,
   diffBaseline,
   grep,
   grepDistinctLiterals,
@@ -39,6 +40,7 @@ import {
   entityShapedDeclarations,
   ISSUE_VOCABULARY,
   physicalTableColumns,
+  physicalTables,
   SESSION_VOCABULARY,
 } from './representation-audit'
 
@@ -303,6 +305,80 @@ function countOf(ctx: AuditContext, id: string): number {
   if (!check) throw new Error(`no such check: ${id}`)
   return check.collect(ctx).length
 }
+
+describe('the workspace partition is the only partition (POD-6959 design 2.5)', () => {
+  const schema = (body: string) => ({ 'apps/server/src/migrations/schema.ts': body })
+
+  it('refuses a tenant_id column on any table, a sync table included', () => {
+    for (const table of ['sessions', 'changes', 'sync_feed']) {
+      const ctx = ctxOf(
+        schema(
+          [
+            `export const t = sqliteTable('${table}', {`,
+            "  tenantId: text('tenant_id').notNull(),",
+            '  ...workspaceColumn(),',
+            '})',
+          ].join('\n'),
+        ),
+      )
+      expect(countOf(ctx, 'instance-partitions'), table).toBe(1)
+    }
+    // instance_id stays refused; workspace_id is the partition and is not.
+    const ctx = ctxOf(
+      schema(
+        [
+          "export const t = sqliteTable('sessions', {",
+          "  instanceId: text('instance_id'),",
+          "  workspaceId: text('workspace_id').notNull(),",
+          '  ...workspaceColumn(),',
+          '})',
+        ].join('\n'),
+      ),
+    )
+    expect(countOf(ctx, 'instance-partitions')).toBe(1)
+  })
+
+  it('refuses a workspace table declared without workspace_id', () => {
+    const only = (body: string) =>
+      CHECKS.find((c) => c.id === 'workspace-tables-without-workspace-id')
+        ?.collect(ctxOf(schema(body)))
+        .filter((site) => site.text.startsWith('sessions ') || site.text.startsWith('issues '))
+        .map((site) => site.text)
+    // A planted workspace table with no workspace_id column, beside one that has it.
+    expect(
+      only(
+        [
+          "export const sessions = sqliteTable('sessions', {",
+          '  id: text().primaryKey(),',
+          '})',
+          'export const issues = sqliteTable(',
+          "  'issues',",
+          '  {',
+          '    id: text().primaryKey(),',
+          '    ...workspaceColumn(),',
+          '  },',
+          '  (table) => [index("x").on(table.id)],',
+          ')',
+        ].join('\n'),
+      ),
+    ).toEqual(['sessions (no workspace_id column)'])
+    // Named by hand, as on the renamed sync tables, it counts too.
+    expect(
+      only(
+        [
+          "export const sessions = sqliteTable('sessions', {",
+          "  workspaceId: text('workspace_id').notNull(),",
+          '})',
+          "export const issues = sqliteTable('issues', { ...workspaceColumn() })",
+        ].join('\n'),
+      ),
+    ).toEqual([])
+    // A workspace table no file declares cannot be checked, so it is reported.
+    expect(only("export const issues = sqliteTable('issues', { ...workspaceColumn() })")).toEqual([
+      'sessions (classed workspace, declared nowhere this audit reads)',
+    ])
+  })
+})
 
 describe('inventory checks', () => {
   it('every check maps to a phase issue and declares its unit', () => {
@@ -1012,6 +1088,11 @@ describe('against the live repo', () => {
       'router-triple-access',
       'capability-snapshots',
       'instance-partitions',
+      // POD-7012 gave every workspace table its workspace_id. The anchor is
+      // 'the workspace column detector still binds to the live schema' below,
+      // against the population (every declared workspace table found), and the
+      // two plants in 'the workspace partition is the only partition'.
+      'workspace-tables-without-workspace-id',
       // POD-398 folded every static row into the canonical per-CLI manifests.
       // The fixture test above remains the detector anchor: it proves both a
       // protocol export and a module-private server table are still counted,
@@ -1199,6 +1280,24 @@ describe('against the live repo', () => {
     // And it reads the SQL name, not just the key — `machine_id` under
     // `machineId` is the form a partition column would take.
     expect(cols.some((c) => c.key === 'machineId' && c.column === 'machine_id')).toBe(true)
+  })
+
+  it('the workspace column detector still binds to the live schema', () => {
+    // A zero from a parser that found no workspace table would read as "every
+    // workspace table has the column". So it must find every declared one, in
+    // both schema files, and read the helper spread as the column.
+    const tables = physicalTables(liveContext).filter((t) => DECLARED_WORKSPACE_TABLES.has(t.table))
+    expect(new Set(tables.map((t) => t.table))).toEqual(DECLARED_WORKSPACE_TABLES)
+    expect(DECLARED_WORKSPACE_TABLES.size).toBeGreaterThan(100)
+    const files = new Set(tables.map((t) => t.file))
+    expect(files).toEqual(
+      new Set([
+        'apps/server/src/migrations/schema.ts',
+        'packages/sync/src/adapters/sqlite/schema.ts',
+      ]),
+    )
+    const issues = tables.find((t) => t.table === 'issues')
+    expect(issues?.columns.find((c) => c.column === 'workspace_id')?.key).toBe('workspaceId')
   })
 
   it('reports real files for every site', () => {

@@ -83,8 +83,8 @@ const codeInputs: Partial<Record<MetadataEntityKind, unknown>> = {
 // its schema nor the code inputs above describe (for example a projection
 // algorithm). A data migration that rewrites a kind instead increments its
 // generation in the same migration:
-// INSERT INTO sync_kind (tenant_id, kind, generation) VALUES ('local', 'example', 1)
-// ON CONFLICT (tenant_id, kind) DO UPDATE SET generation = sync_kind.generation + 1;
+// INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('local', 'example', 1)
+// ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1;
 const salts: Partial<Record<MetadataEntityKind, string>> = {}
 
 // The scoped feed has its own schema for some kinds. Other kinds use the

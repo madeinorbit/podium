@@ -45,7 +45,7 @@ describe('StoreDatabase.workspace', () => {
     // The repositories are each workspace's own, not shared.
     expect(a.sessions).not.toBe(b.sessions)
     expect(a.issues).not.toBe(b.issues)
-    expect([a.sync.tenantId, b.sync.tenantId]).toEqual([WS_A, WS_B])
+    expect([a.sync.workspaceId, b.sync.workspaceId]).toEqual([WS_A, WS_B])
     // What there is one of per database is shared.
     expect(a.secrets).toBe(b.secrets)
     expect(a.tableWrites).toBe(b.tableWrites)

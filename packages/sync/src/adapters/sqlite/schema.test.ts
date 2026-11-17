@@ -101,11 +101,11 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
   })
 })
 
-describe('tenant sync keys', () => {
-  it('keys changes and kind generations by tenant', () => {
+describe('workspace sync keys', () => {
+  it('keys changes and kind generations by workspace', () => {
     for (const table of [changes, syncKind]) {
       expect(getTableConfig(table).primaryKeys[0]?.columns.map((c) => c.name)).toEqual([
-        'tenant_id',
+        'workspace_id',
         table === changes ? 'seq' : 'kind',
       ])
     }

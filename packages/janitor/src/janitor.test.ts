@@ -503,22 +503,22 @@ describe('JanitorService [spec:SP-c29e]', () => {
     const db = openDatabase(':memory:')
     try {
       db.exec(`CREATE TABLE sync_feed (
-        tenant_id TEXT PRIMARY KEY, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
+        workspace_id TEXT PRIMARY KEY, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
       );
       INSERT INTO sync_feed VALUES ('local', 250, 1);
       CREATE TABLE changes (
-        tenant_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
         seq INTEGER NOT NULL,
         entity TEXT,
         entity_id TEXT,
         op TEXT,
         payload TEXT,
         event_time INTEGER,
-        PRIMARY KEY (tenant_id, seq)
+        PRIMARY KEY (workspace_id, seq)
       );
-      CREATE INDEX changes_event_time ON changes (tenant_id, event_time, seq)`)
+      CREATE INDEX changes_event_time ON changes (workspace_id, event_time, seq)`)
       const insert = db.prepare(
-        "INSERT INTO changes (tenant_id, seq, entity, entity_id, op, payload, event_time) VALUES ('local', ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO changes (workspace_id, seq, entity, entity_id, op, payload, event_time) VALUES ('local', ?, ?, ?, ?, ?, ?)",
       )
       // 250 aged rows; batchSize 100 → first plan 3 batches; after deleting 200, replan continues.
       const aged = Date.parse('2026-07-01T00:00:00.000Z')
@@ -536,8 +536,8 @@ describe('JanitorService [spec:SP-c29e]', () => {
       expect(first[0]?.fromSeq).toBe(1)
       expect(first[1]?.fromSeq).toBe(101)
       // Simulate a capped first tick deleting the first 200 rows (2 batches).
-      db.prepare("DELETE FROM changes WHERE tenant_id = 'local' AND seq <= 200").run()
-      db.prepare("UPDATE sync_feed SET floor_seq = 201 WHERE tenant_id = 'local'").run()
+      db.prepare("DELETE FROM changes WHERE workspace_id = 'local' AND seq <= 200").run()
+      db.prepare("UPDATE sync_feed SET floor_seq = 201 WHERE workspace_id = 'local'").run()
       const second = await planner.plan({
         keepRows: 0,
         maxAgeMs: 1,

@@ -236,7 +236,7 @@ it('filters the snapshot and changes only the token whose generation was bumped'
     const db = openDatabase(f.path)
     try {
       db.exec(
-        "INSERT INTO sync_kind (tenant_id, kind, generation) VALUES ('local', 'issuePanelState', 1) ON CONFLICT (tenant_id, kind) DO UPDATE SET generation = sync_kind.generation + 1",
+        "INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('local', 'issuePanelState', 1) ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1",
       )
     } finally {
       db.close()

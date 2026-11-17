@@ -97,7 +97,7 @@ describe('tenant feed isolation', () => {
     const { db, tenant } = fixture()
     // The fresh-install row the tenant-feed migration writes: head 0, floor 1.
     db.exec(
-      "INSERT INTO sync_feed (tenant_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('a', 'fa', 'ea', 0, 0, 1), ('b', 'fb', 'eb', 0, 0, 1)",
+      "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('a', 'fa', 'ea', 0, 0, 1), ('b', 'fb', 'eb', 0, 0, 1)",
     )
     const a = tenant('a'),
       b = tenant('b')

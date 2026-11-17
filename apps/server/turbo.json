@@ -486,6 +486,7 @@
         "src/migrations/tenant-sync-feed.test.ts",
         "src/migrations/user-accounts.test.ts",
         "src/migrations/workflow-agent-profiles.test.ts",
+        "src/migrations/workspace-column.test.ts",
         "src/mobile-pairing-route.test.ts",
         "src/mobile-pairing-route.ts",
         "src/model-catalog.ts",

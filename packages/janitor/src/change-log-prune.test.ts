@@ -6,15 +6,16 @@ import { ChangeLogPrunePlanner } from './janitor'
 
 const input = { keepRows: 3, maxAgeMs: 1_000, batchSize: 2, nowMs: 2_000 }
 
-function database(): SqlDatabase {
+/** The feed tables before the covering index; `tenant_id` is the shape before POD-7012's rename. */
+function database(workspace: 'workspace_id' | 'tenant_id' = 'workspace_id'): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(`
-    CREATE TABLE sync_feed (tenant_id TEXT PRIMARY KEY, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL);
+    CREATE TABLE sync_feed (${workspace} TEXT PRIMARY KEY, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL);
     CREATE TABLE changes (
-      tenant_id TEXT NOT NULL, seq INTEGER NOT NULL, event_time INTEGER NOT NULL, payload TEXT,
-      PRIMARY KEY (tenant_id, seq)
+      ${workspace} TEXT NOT NULL, seq INTEGER NOT NULL, event_time INTEGER NOT NULL, payload TEXT,
+      PRIMARY KEY (${workspace}, seq)
     );
-    CREATE INDEX changes_event_time ON changes (tenant_id, event_time);
+    CREATE INDEX changes_event_time ON changes (${workspace}, event_time);
   `)
   return db
 }
@@ -56,13 +57,13 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
     const db = database()
     try {
       seed(db, 'local', 12, 8)
-      db.prepare('UPDATE changes SET event_time = ? WHERE tenant_id = ? AND seq = ?').run(
+      db.prepare('UPDATE changes SET event_time = ? WHERE workspace_id = ? AND seq = ?').run(
         999,
         'local',
         9,
       )
       // Equal to the cutoff is retained: age is strictly less than the cutoff.
-      db.prepare('UPDATE changes SET event_time = ? WHERE tenant_id = ? AND seq = ?').run(
+      db.prepare('UPDATE changes SET event_time = ? WHERE workspace_id = ? AND seq = ?').run(
         1_000,
         'local',
         12,
@@ -129,13 +130,13 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
       const first = await planner.plan({ ...input, keepRows: 0 })
       expect(first).toHaveLength(100)
       expect(first[99]?.fromSeq).toBe(199)
-      db.exec("DELETE FROM changes WHERE tenant_id = 'local' AND seq <= 200")
-      db.exec("UPDATE sync_feed SET floor_seq = 201 WHERE tenant_id = 'local'")
+      db.exec("DELETE FROM changes WHERE workspace_id = 'local' AND seq <= 200")
+      db.exec("UPDATE sync_feed SET floor_seq = 201 WHERE workspace_id = 'local'")
       const second = await planner.plan({ ...input, keepRows: 0 })
       expect(second).toHaveLength(25)
       expect(second[0]?.fromSeq).toBe(201)
-      db.exec("DELETE FROM changes WHERE tenant_id = 'local'")
-      db.exec("UPDATE sync_feed SET floor_seq = 251 WHERE tenant_id = 'local'")
+      db.exec("DELETE FROM changes WHERE workspace_id = 'local'")
+      db.exec("UPDATE sync_feed SET floor_seq = 251 WHERE workspace_id = 'local'")
       expect(await planner.plan({ ...input, keepRows: 0 })).toEqual([])
     } finally {
       db.close()
@@ -143,7 +144,7 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
   })
 
   it('adds a covering age index without changing rows and seeks both planner reads', async () => {
-    const db = database()
+    const db = database('tenant_id')
     try {
       seed(db, 'local', 12, 8, 8)
       const migrationRoot = new URL('../../../apps/server/src/migrations/drizzle/', import.meta.url)
@@ -164,6 +165,9 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
           .all()
           .map((row) => (row as { name: string }).name),
       ).toEqual(['tenant_id', 'event_time', 'seq'])
+      // The workspace column migration (POD-7012) renames the column in place; the index follows.
+      db.exec('ALTER TABLE changes RENAME COLUMN tenant_id TO workspace_id')
+      db.exec('ALTER TABLE sync_feed RENAME COLUMN tenant_id TO workspace_id')
       const prepare = vi.spyOn(db, 'prepare')
       const planner = new ChangeLogPrunePlanner(db)
       await planner.plan(input)
@@ -178,7 +182,7 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
       expect(plans.some((row) => /\bSCAN\b/.test(row.detail))).toBe(false)
       expect(plans.some((row) => /SEARCH feed USING INDEX/.test(row.detail))).toBe(true)
       expect(plans.map((row) => row.detail).join('\n')).toContain(
-        'USING COVERING INDEX changes_event_time (tenant_id=? AND event_time<?)',
+        'USING COVERING INDEX changes_event_time (workspace_id=? AND event_time<?)',
       )
     } finally {
       db.close()

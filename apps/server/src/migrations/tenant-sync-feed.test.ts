@@ -34,10 +34,10 @@ describe('tenant feed migration', () => {
         >[]
         runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
         expect(db.prepare('SELECT * FROM changes ORDER BY seq').all()).toEqual(
-          before.map((r) => ({ ...r, tenant_id: 'local' })),
+          before.map((r) => ({ ...r, workspace_id: 'local' })),
         )
         expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
-          generations.map((r) => ({ ...r, tenant_id: 'local' })),
+          generations.map((r) => ({ ...r, workspace_id: 'local' })),
         )
         const sync = new SyncRepository(
           syncQueriesOver(db),

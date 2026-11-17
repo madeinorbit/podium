@@ -56,7 +56,7 @@
  * rather than a devDependency.
  */
 
-import type { MutationId } from '@podium/model'
+import type { MutationId, WorkspaceId } from '@podium/model'
 import { sql } from 'drizzle-orm'
 import {
   check,
@@ -68,8 +68,28 @@ import {
   text,
 } from 'drizzle-orm/sqlite-core'
 
-/** One instance is one tenant, matching PDM-107's self-hosted identity workspace. */
-export const SELF_HOSTED_TENANT_ID = 'local'
+/**
+ * THE WORKSPACE COLUMN (POD-6959 design 2.6 "U3", task POD-7012).
+ *
+ * Every table the workspace manifest (`apps/server/src/store/workspace-manifest.ts`)
+ * classes `workspace` spreads this into its columns, here and in the server's
+ * schema, so the column is declared once. The migration that added it is an
+ * `ALTER TABLE … ADD COLUMN` on each table: a metadata change, no table rebuild,
+ * and every existing row reads `'local'`, the one workspace of a self-hosted
+ * install.
+ *
+ * THE DEFAULT IS TEMPORARY. While queries are scoped repository group by
+ * repository group, an insert that does not name the workspace still gets
+ * `'local'`. The keys migration (POD-7024) rebuilds every workspace table with
+ * keys that lead with `workspace_id` and no default. It is spread LAST so the
+ * declared column order matches the physical one ADD COLUMN produces.
+ *
+ * `$type<>()` goes after the literal default, as in the server schema: the
+ * default is a database literal, not a `WorkspaceId`.
+ */
+export const workspaceColumn = () => ({
+  workspaceId: text('workspace_id').notNull().default('local').$type<WorkspaceId>(),
+})
 
 /** The feed row assigns seqs transactionally; pruning never resets its head. */
 /**
@@ -112,7 +132,7 @@ const changeProvenanceColumns = {
 export const changes = sqliteTable(
   'changes',
   {
-    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
     seq: integer().notNull(),
     ...changeTargetColumns,
     op: text().notNull(),
@@ -120,9 +140,9 @@ export const changes = sqliteTable(
     ...changeProvenanceColumns,
   },
   (table) => [
-    primaryKey({ columns: [table.tenantId, table.seq] }),
-    index('changes_entity').on(table.tenantId, table.entity, table.entityId, table.seq),
-    index('changes_event_time').on(table.tenantId, table.eventTime, table.seq),
+    primaryKey({ columns: [table.workspaceId, table.seq] }),
+    index('changes_entity').on(table.workspaceId, table.entity, table.entityId, table.seq),
+    index('changes_event_time').on(table.workspaceId, table.eventTime, table.seq),
   ],
 )
 
@@ -176,9 +196,14 @@ export const feedIdentity = sqliteTable(
   (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
 )
 
-/** The identity and cursor bounds travel with each tenant's durable log. */
+/**
+ * The identity and cursor bounds travel with each workspace's durable log; the
+ * row is also the workspace's provisioning record (POD-6959 contract C4).
+ * `tenant_id` was renamed `workspace_id` in place (POD-7012): ADR 13's tenant
+ * is the workspace, and one name means one thing.
+ */
 export const syncFeed = sqliteTable('sync_feed', {
-  tenantId: text('tenant_id').primaryKey(),
+  workspaceId: text('workspace_id').$type<WorkspaceId>().primaryKey(),
   feedId: text('feed_id').notNull(),
   epoch: text().notNull(),
   mintedAt: integer('minted_at').notNull(),
@@ -187,15 +212,15 @@ export const syncFeed = sqliteTable('sync_feed', {
   floorSeq: integer('floor_seq').notNull(),
 })
 
-/** Absent kinds are at generation zero within their tenant. */
+/** Absent kinds are at generation zero within their workspace. */
 export const syncKind = sqliteTable(
   'sync_kind',
   {
-    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
     kind: text().notNull(),
     generation: integer().notNull(),
   },
-  (table) => [primaryKey({ columns: [table.tenantId, table.kind] })],
+  (table) => [primaryKey({ columns: [table.workspaceId, table.kind] })],
 )
 
 /**
@@ -251,6 +276,7 @@ export const appliedMutations = sqliteTable(
     proc: text().notNull(),
     result: text().notNull(),
     appliedAt: integer('applied_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     /**

@@ -57,12 +57,12 @@ function append(writer: SqlDatabase, name: string, text = 'x') {
       .run(id, `profile ${id}`, text)
     const { head_seq: seq } = writer
       .prepare(
-        "UPDATE sync_feed SET head_seq = head_seq + 1 WHERE tenant_id = 'local' RETURNING head_seq",
+        "UPDATE sync_feed SET head_seq = head_seq + 1 WHERE workspace_id = 'local' RETURNING head_seq",
       )
       .get() as { head_seq: number }
     writer
       .prepare(
-        "INSERT INTO changes(tenant_id,seq,entity,entity_id,op,payload,event_time) VALUES ('local',?,'agentProfile',?,'upsert','{}',1)",
+        "INSERT INTO changes(workspace_id,seq,entity,entity_id,op,payload,event_time) VALUES ('local',?,'agentProfile',?,'upsert','{}',1)",
       )
       .run(seq, id)
     writer.exec('COMMIT')
@@ -299,7 +299,7 @@ it.each([
     })
     append(f.writer, 'later')
     f.writer.exec(
-      "DELETE FROM changes WHERE tenant_id = 'local' AND seq < 50; UPDATE sync_feed SET floor_seq = 50 WHERE tenant_id = 'local'",
+      "DELETE FROM changes WHERE workspace_id = 'local' AND seq < 50; UPDATE sync_feed SET floor_seq = 50 WHERE workspace_id = 'local'",
     )
     let bytes = Buffer.from(await new Response(transfer.body).arrayBuffer())
     if (encoding === 'gzip') bytes = gunzipSync(bytes)

@@ -142,6 +142,11 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+// THE WORKSPACE COLUMN is declared once, in the sync adapter's schema, because
+// that package cannot import this one and both declare workspace tables
+// (POD-7012). A relative import, like `./branded-ref`: drizzle-kit's loader
+// resolves relative files but not every package specifier.
+import { workspaceColumn } from '../../../../packages/sync/src/adapters/sqlite/schema'
 import { brandedRef } from './branded-ref'
 
 export const sessions = sqliteTable(
@@ -353,6 +358,7 @@ export const sessions = sqliteTable(
      *  re-checks that writer's machine `use` before it STARTS anything. */
     desiredByUser: text('desired_by_user').$type<UserId>(),
     desiredByAgent: text('desired_by_agent').$type<SessionId>(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_sessions_pending_activity')
@@ -449,6 +455,7 @@ export const sessionObservationCheckpoints = sqliteTable('session_observation_ch
   observationGeneration: integer('observation_generation').default(0).notNull(),
   checkpointJson: text('checkpoint_json'),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const sessionObservationRebinds = sqliteTable('session_observation_rebinds', {
@@ -467,6 +474,7 @@ export const sessionObservationRebinds = sqliteTable('session_observation_rebind
   resultingBindingVersion: integer('resulting_binding_version').notNull(),
   resultingObservationGeneration: integer('resulting_observation_generation').notNull(),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const sessionTerminalCandidates = sqliteTable('session_terminal_candidates', {
@@ -479,6 +487,7 @@ export const sessionTerminalCandidates = sqliteTable('session_terminal_candidate
   confirmedAt: text('confirmed_at'),
   consumedAt: text('consumed_at'),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const meta = sqliteTable('meta', {
@@ -576,6 +585,7 @@ export const settingsAuditEvents = sqliteTable(
     /** Which declared paths were withheld from `detail_json`. */
     redactedPaths: text('redacted_paths').default('[]').notNull(),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('settings_audit_events_command').on(table.command, table.id),
@@ -602,16 +612,19 @@ export const repoPrefixes = sqliteTable('repo_prefixes', {
   prefix: text().notNull().unique(),
   // The repo's base branch [POD-2065]; NULL defers to the instance default.
   defaultParentBranch: text('default_parent_branch'),
+  ...workspaceColumn(),
 })
 
 export const issueRefLetters = sqliteTable('issue_ref_letters', {
   issueId: text('issue_id').$type<IssueId>().primaryKey(),
   nextIndex: integer('next_index').notNull(),
+  ...workspaceColumn(),
 })
 
 export const repoDraftSeq = sqliteTable('repo_draft_seq', {
   repoId: text('repo_id').$type<RepoId>().primaryKey(),
   nextSeq: integer('next_seq').notNull(),
+  ...workspaceColumn(),
 })
 
 // PER-USER STATE (POD-380, docs/multi-user-readiness.md §3.3): keyed
@@ -624,6 +637,7 @@ export const pins = sqliteTable(
     kind: text().notNull(),
     id: text().notNull(),
     pinnedAt: text('pinned_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.kind, table.id], name: 'pins_pk' }),
@@ -640,6 +654,7 @@ export const tabOrder = sqliteTable(
     worktree: text().notNull(),
     ids: text().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.worktree], name: 'tab_order_pk' })],
 )
@@ -662,6 +677,7 @@ export const sessionUserState = sqliteTable(
     /** When this person last opened it. Row absent = never opened; there is no
      *  second spelling, because `markUnread` DELETES the row. */
     readAt: text('read_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.sessionId], name: 'session_user_state_pk' }),
@@ -690,6 +706,7 @@ export const issueUserState = sqliteTable(
     joinedVia: text('joined_via').$type<'start' | 'agent' | 'join'>(),
     assignedAt: text('assigned_at'),
     assignedBy: text('assigned_by').$type<UserId>(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.issueId], name: 'issue_user_state_pk' }),
@@ -704,6 +721,7 @@ export const issueMessageUserState = sqliteTable(
     userId: text('user_id').$type<UserId>().notNull(),
     issueMessageId: text('issue_message_id').notNull(),
     readAt: text('read_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -743,6 +761,7 @@ export const userPreferences = sqliteTable(
     value: text().notNull(),
     /** When this person last wrote this preference — a fact the blob never had. */
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.key], name: 'user_preferences_pk' })],
 )
@@ -776,6 +795,7 @@ export const userLayout = sqliteTable(
     /** The layout value as JSON text. */
     value: text().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.key], name: 'user_layout_pk' })],
 )
@@ -810,6 +830,7 @@ export const userReadPosition = sqliteTable(
     /** Descriptive label for the divider; never an arbitration input. */
     seenAt: text('seen_at'),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.streamId], name: 'user_read_position_pk' }),
@@ -838,6 +859,7 @@ export const conversations = sqliteTable(
     /** UNBRANDED: the parent's NATIVE id, same id space as `id` above — the
      *  carve-out `ConversationSummaryWire.parentConversationId` already makes. */
     parentConversationId: text('parent_conversation_id'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_conversations_project_path').on(table.projectPath),
@@ -862,6 +884,7 @@ export const superagentMessages = sqliteTable(
     toolName: text('tool_name'),
     createdAt: text('created_at').notNull(),
     threadId: text('thread_id').default('global').$type<ThreadId>().notNull(),
+    ...workspaceColumn(),
   },
   // A thread's messages, newest first (POD-6148).
   (table) => [index('idx_superagent_messages_thread').on(table.threadId, table.id)],
@@ -920,6 +943,7 @@ export const superagentThreads = sqliteTable(
     lastTurnFailureAt: text('last_turn_failure_at'),
     lastTurnFailureMessage: text('last_turn_failure_message'),
     lastTurnFailureUserText: text('last_turn_failure_user_text'),
+    ...workspaceColumn(),
   },
   // A user's open threads, most recently updated first (POD-6148).
   (table) => [
@@ -986,6 +1010,7 @@ export const machines = sqliteTable(
     buildReportedAt: text('build_reported_at'),
     // Legacy versioned migration evidence only; current readers derive components from assignment.
     componentsJson: text('components_json'),
+    ...workspaceColumn(),
   },
   (t) => [
     check(
@@ -1008,6 +1033,7 @@ export const repos = sqliteTable(
     repoName: text('repo_name'),
     addedAt: text('added_at').notNull(),
     repoId: text('repo_id').$type<RepoId>(),
+    ...workspaceColumn(),
   },
   (table) => [primaryKey({ columns: [table.machineId, table.path], name: 'repos_pk' })],
 )
@@ -1039,6 +1065,7 @@ export const checkouts = sqliteTable(
      *  the path is registered again. A worktree's row is deleted instead: its
      *  removal goes to the USE holders, who are the only readers it had. */
     removedAt: text('removed_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.machineId, table.path], name: 'checkouts_pk' }),
@@ -1065,6 +1092,7 @@ export const checkoutReach = sqliteTable(
     machineId: text('machine_id').$type<MachineId>().notNull(),
     reach: text({ enum: ['all', 'roots', 'none'] }).notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.machineId], name: 'checkout_reach_pk' }),
@@ -1094,6 +1122,7 @@ export const checkoutLost = sqliteTable(
     /** The path was a registered root (MANAGE covers it), else a worktree. */
     root: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     lostAt: text('lost_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.machineId, table.path], name: 'checkout_lost_pk' }),
@@ -1112,6 +1141,7 @@ export const sessionDrafts = sqliteTable('session_drafts', {
   rev: integer('rev').default(0).notNull(),
   origin: text('origin'),
   history: text('history'),
+  ...workspaceColumn(),
 })
 
 // PER-USER STATE (POD-380): keyed (user_id, session_id). Note snoozed_until
@@ -1124,6 +1154,7 @@ export const snoozes = sqliteTable(
     sessionId: text('session_id').$type<SessionId>().notNull(),
     snoozedUntil: text('snoozed_until'),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.sessionId], name: 'snoozes_pk' }),
@@ -1141,6 +1172,7 @@ export const offers = sqliteTable('offers', {
   actions: text().notNull(), // JSON array of { label, prompt }
   artifacts: text(), // JSON array of issue-artifact paths [POD-120]; NULL = none
   createdAt: text('created_at').notNull(),
+  ...workspaceColumn(),
 })
 
 // USER ACCOUNTS (POD-1075, ADR 9 D1.2). The identity `client_sessions`,
@@ -1182,6 +1214,7 @@ export const users = sqliteTable(
      * or an older one after a newer one, is harmless.
      */
     membershipVersion: integer('membership_version').notNull().default(0),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),
@@ -1206,6 +1239,7 @@ export const grantAudiences = sqliteTable(
     resourceKind: text('resource_kind').notNull(),
     resourceId: text('resource_id').notNull(),
     grantee: text().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -1231,6 +1265,7 @@ export const grants = sqliteTable(
     actorKind: text('actor_kind').notNull(),
     actorId: text('actor_id'),
     onBehalfOf: text('on_behalf_of'),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('grants_machine_custodian')
@@ -1259,6 +1294,7 @@ export const clientSessions = sqliteTable(
     deviceName: text('device_name'),
     platform: text(),
     lastSeenAt: text('last_seen_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('idx_client_sessions_session_id').on(table.sessionId),
@@ -1284,6 +1320,7 @@ export const carriedSignIns = sqliteTable(
     expiresAt: text('expires_at').notNull(),
     memberId: text('member_id').$type<UserId>().notNull(),
     oldLabel: text('old_label').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_carried_sign_ins_expires').on(table.expiresAt),
@@ -1319,6 +1356,7 @@ export const telegramChatBindings = sqliteTable('telegram_chat_bindings', {
   actorKind: text('actor_kind').notNull(),
   actorId: text('actor_id'),
   onBehalfOf: text('on_behalf_of').$type<UserId>(),
+  ...workspaceColumn(),
 })
 
 // `changes` and `applied_mutations` moved to
@@ -1364,6 +1402,7 @@ export const queuedMessages = sqliteTable(
     // later forward sends the retract instead of the row, and only the
     // daemon's answer settles it. Null = no retract pending.
     retractRequestedAt: integer('retract_requested_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('queued_messages_session').on(table.sessionId, table.queuedAt),
@@ -1376,6 +1415,7 @@ export const conversationIdentities = sqliteTable('conversation_identities', {
   podiumId: text('podium_id').$type<ConversationId>().primaryKey(),
   parentPodiumId: text('parent_podium_id').$type<ConversationId>(),
   createdAt: text('created_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const conversationSegments = sqliteTable(
@@ -1393,6 +1433,7 @@ export const conversationSegments = sqliteTable(
     mirroredAt: text('mirrored_at'),
     indexedBytes: integer('indexed_bytes').default(0).notNull(),
     reportedBytes: integer('reported_bytes'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('conversation_segments_podium').on(table.podiumId, table.seqInConv),
@@ -1460,6 +1501,7 @@ export const transcriptCosts = sqliteTable(
     windowModelsJson: text('window_models_json').default('[]').notNull(),
     windowSinceMs: integer('window_since_ms').default(0).notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_transcript_costs_issue').on(table.issueId),
@@ -1479,6 +1521,7 @@ export const conversationSegmentIncarnations = sqliteTable(
     mirroredBytes: integer('mirrored_bytes').default(0).notNull(),
     createdAt: text('created_at').notNull(),
     retiredAt: text('retired_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('conversation_segment_incarnations_native').on(
@@ -1502,6 +1545,7 @@ export const podiumEvents = sqliteTable(
     subject: text().notNull(),
     repoPath: text('repo_path'),
     payload: text().default('{}').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_podium_events_repo').on(table.repoPath),
@@ -1540,6 +1584,7 @@ export const runtimeEventCheckpoints = sqliteTable('runtime_event_checkpoints', 
   // in the event's transaction, so a session that leaves memory, or a server
   // that restarts, restores what it showed. Null = none recorded yet.
   turnStateJson: text('turn_state_json'),
+  ...workspaceColumn(),
 })
 
 /** Durable consumption head for each coarse-event oplog projector. */
@@ -1547,11 +1592,13 @@ export const runtimeEventProjectionCursors = sqliteTable('runtime_event_projecti
   projector: text().primaryKey(),
   lastEventId: integer('last_event_id').notNull(),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const stewardState = sqliteTable('steward_state', {
   key: text().primaryKey(),
   value: text().notNull(),
+  ...workspaceColumn(),
 })
 
 export const upstreamOutbox = sqliteTable('upstream_outbox', {
@@ -1560,6 +1607,7 @@ export const upstreamOutbox = sqliteTable('upstream_outbox', {
   input: text().notNull(),
   queuedAt: integer('queued_at').notNull(),
   attempts: integer().default(0).notNull(),
+  ...workspaceColumn(),
 })
 
 export const subscriptions = sqliteTable(
@@ -1576,6 +1624,7 @@ export const subscriptions = sqliteTable(
     origin: text().default('custom').notNull(),
     enabled: integer({ mode: 'boolean' }).default(sql`1`).notNull(),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     // A subscriber's own rows, and the steward's relationship arm: the rows of
@@ -1599,6 +1648,7 @@ export const subscriptionDeliveries = sqliteTable(
   {
     subscriptionId: text('subscription_id').notNull(),
     eventId: integer('event_id').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -1618,6 +1668,7 @@ export const notificationFacts = sqliteTable(
     createdAt: text('created_at').notNull(),
     expiresAt: text('expires_at'),
     consumedAt: text('consumed_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_notification_facts_issue').on(table.issueId),
@@ -1640,6 +1691,7 @@ export const labels = sqliteTable(
     color: text(),
     description: text(),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [uniqueIndex('idx_labels_name_nocase').on(sql`lower(${table.name})`)],
 )
@@ -1651,6 +1703,7 @@ export const issueLabels = sqliteTable(
       onDelete: 'cascade',
     }).notNull(),
     labelId: brandedRef(integer('label_id'), () => labels.id, { onDelete: 'cascade' }).notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_issue_labels_label_id').on(table.labelId),
@@ -1668,6 +1721,7 @@ export const issueDeps = sqliteTable(
       onDelete: 'cascade',
     }).notNull(),
     type: text().default('blocked-by').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     // Ordered as `depsTo` reads it, so it needs no sort (POD-6148).
@@ -1702,6 +1756,7 @@ export const issueComments = sqliteTable(
     editedAt: text('edited_at'),
     editedBy: text('edited_by'),
     editedOnBehalfOf: text('edited_on_behalf_of'),
+    ...workspaceColumn(),
   },
   // Ordered as an issue's comments are read, so the read needs no sort (POD-6148).
   (table) => [index('idx_issue_comments_issue_time').on(table.issueId, table.createdAt, table.id)],
@@ -1737,6 +1792,7 @@ export const issueTextRevisions = sqliteTable(
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_issue_text_revisions_issue_field').on(table.issueId, table.field, table.id),
@@ -1760,6 +1816,7 @@ export const issueMessages = sqliteTable(
     status: text().default('unread').notNull(),
     claimedBy: text('claimed_by'),
     claimedAt: text('claimed_at'),
+    ...workspaceColumn(),
   },
   // Ordered as an issue's messages are read, so the read needs no sort (POD-6148).
   (table) => [index('idx_issue_messages_issue_time').on(table.issueId, table.createdAt, table.id)],
@@ -1876,6 +1933,7 @@ export const issues = sqliteTable(
     /** Bare session id of the agent session that created this issue (started-by
      *  provenance). Null for operator/human creates. Dangling-tolerant TEXT. */
     startedBySession: text('started_by_session').$type<SessionId>(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_issues_deleted_at').on(table.deletedAt),
@@ -1948,6 +2006,7 @@ export const issueGitStates = sqliteTable('issue_git_states', {
     .notNull(),
   factsJson: text('facts_json').notNull(),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 /**
@@ -1965,6 +2024,7 @@ export const rootIntegrationReceipts = sqliteTable(
     }).notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
     descendants: text('descendants').default('[]').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -2004,6 +2064,7 @@ export const shipOrders = sqliteTable(
     state: text().notNull(),
     stateChangedAt: text('state_changed_at').notNull(),
     holdCode: text('hold_code'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_ship_orders_issue').on(table.issueId),
@@ -2065,6 +2126,7 @@ export const shipAttempts = sqliteTable(
     destinationSha: text('destination_sha'),
     validationProfileId: text('validation_profile_id'),
     validationResult: text('validation_result'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_ship_attempts_order').on(table.orderId, table.startedAt),
@@ -2112,6 +2174,7 @@ export const shipRepairCandidates = sqliteTable(
     candidateHeadSha: text('candidate_head_sha').notNull(),
     resultToken: text('result_token').notNull(),
     recordedAt: text('recorded_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -2147,6 +2210,7 @@ export const shipEvidence = sqliteTable(
     sourceRef: text('source_ref').notNull(),
     content: text().notNull(),
     materializedAt: text('materialized_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     // Evidence by its custody digest and source (POD-6148).
@@ -2174,6 +2238,7 @@ export const shipOrderStackEdges = sqliteTable(
     upperApprovedHeadSha: text('upper_approved_head_sha').notNull(),
     lowerApprovedHeadSha: text('lower_approved_head_sha').notNull(),
     recordedAt: text('recorded_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -2191,6 +2256,7 @@ export const shipLaneRevisions = sqliteTable('ship_lane_revisions', {
   laneKey: text('lane_key').primaryKey(),
   revision: integer().notNull(),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
 
 export const shipTrainManifests = sqliteTable(
@@ -2227,6 +2293,7 @@ export const shipTrainManifests = sqliteTable(
     createdAt: text('created_at').notNull(),
     releasedAt: text('released_at'),
     releaseReason: text('release_reason'),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('idx_ship_train_manifests_subset').on(table.subsetId),
@@ -2276,6 +2343,7 @@ export const shipTrainMembers = sqliteTable(
     approvedHeadSha: text('approved_head_sha').notNull(),
     deliveryDependsOn: text('delivery_depends_on', { mode: 'json' }).notNull(),
     releasedAt: text('released_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.trainId, table.ordinal], name: 'ship_train_members_pk' }),
@@ -2318,6 +2386,7 @@ export const shipTrainActiveClaims = sqliteTable(
     orderId: text('order_id').$type<ShipOrderId>().notNull(),
     attemptId: text('attempt_id').$type<ShipAttemptId>().notNull(),
     generation: integer().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.trainId, table.orderId], name: 'ship_train_active_claims_pk' }),
@@ -2353,6 +2422,7 @@ export const shipEffectEnvelopes = sqliteTable(
     requestJson: text('request_json').notNull(),
     resultJson: text('result_json').notNull(),
     recordedAt: text('recorded_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(table.attemptId, table.effectKey),
@@ -2381,6 +2451,7 @@ export const shipSteps = sqliteTable(
     recordedAt: text('recorded_at').notNull(),
     startedAt: text('started_at'),
     finishedAt: text('finished_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_ship_steps_order').on(table.orderId, table.recordedAt),
@@ -2411,6 +2482,7 @@ export const shipRecoveryWork = sqliteTable(
       onDelete: 'restrict',
     }).notNull(),
     payload: text().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_ship_recovery_work_kind_key').on(table.kind, table.key),
@@ -2428,6 +2500,7 @@ export const shipRecoveryRevision = sqliteTable(
   {
     id: integer().primaryKey(),
     revision: integer().notNull().default(0),
+    ...workspaceColumn(),
   },
   () => [check('ship_recovery_revision_singleton', sql`id = 1`)],
 )
@@ -2448,6 +2521,7 @@ export const shipHolds = sqliteTable(
     raisedAt: text('raised_at').notNull(),
     resolvedAt: text('resolved_at'),
     resolution: text(),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('idx_ship_holds_order_generation').on(table.orderId, table.generation),
@@ -2477,6 +2551,7 @@ export const deliveryReceipts = sqliteTable(
     validationResult: text('validation_result').notNull(),
     destination: text().notNull(),
     completedAt: text('completed_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('idx_delivery_receipts_order').on(table.orderId),
@@ -2499,6 +2574,7 @@ export const approvalRequests = sqliteTable(
     onBehalfOf: text('on_behalf_of'),
     decidedAt: text('decided_at'),
     resultText: text('result_text'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_approval_requests_status').on(table.status, table.createdAt),
@@ -2520,6 +2596,7 @@ export const locks = sqliteTable(
     note: text(),
     acquiredAt: text('acquired_at').notNull(),
     expiresAt: text('expires_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_locks_expires').on(table.expiresAt),
@@ -2540,6 +2617,7 @@ export const lockWaiters = sqliteTable(
     ttlSeconds: integer('ttl_seconds').notNull().default(120),
     note: text(),
     enqueuedAt: text('enqueued_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_lock_waiters_session').on(table.sessionId),
@@ -2576,6 +2654,7 @@ export const superagentQueuedInputs = sqliteTable(
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
+    ...workspaceColumn(),
   },
   /**
    * ONE ROW PER THREAD IS GONE (POD-782), and it was the schema-level half of a
@@ -2609,6 +2688,7 @@ export const superagentPendingTurns = sqliteTable(
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
+    ...workspaceColumn(),
   },
   (table) => [unique('superagent_pending_turns_thread_id_unique').on(table.threadId)],
 )
@@ -2695,6 +2775,7 @@ export const messages = sqliteTable(
     // the delivery status then says `cancelled`, and otherwise says how far the
     // message got — which, beside this stamp, is "too late to retract".
     retractRequestedAt: text('retract_requested_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     // Ordered by time so the ledger's arms merge without a sort (POD-6148).
@@ -2774,6 +2855,7 @@ export const messages = sqliteTable(
 export const messageWakeCooldowns = sqliteTable('message_wake_cooldowns', {
   key: text().primaryKey(),
   attemptedAt: text('attempted_at').notNull(),
+  ...workspaceColumn(),
 })
 
 /** Per-READER receipts [POD-1379] [spec:SP-b11e]: one row per (message, session that has seen
@@ -2787,6 +2869,7 @@ export const messageReads = sqliteTable(
     messageId: text('message_id').notNull(),
     sessionId: text('session_id').$type<SessionId>().notNull(),
     readAt: text('read_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.messageId, table.sessionId], name: 'message_reads_pk' }),
@@ -2813,6 +2896,7 @@ export const maintenanceCommands = sqliteTable(
     fencingToken: integer('fencing_token').notNull(),
     resultJson: text('result_json').notNull(),
     appliedAt: text('applied_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.jobKind, table.runKey], name: 'maintenance_commands_pk' }),
@@ -2826,6 +2910,7 @@ export const recapWatermarks = sqliteTable(
     sessionId: text('session_id').$type<SessionId>().notNull(),
     watermark: text().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.reader, table.sessionId], name: 'recap_watermarks_pk' }),
@@ -2841,6 +2926,7 @@ export const messagingIssueTopics = sqliteTable(
     threadRef: text('thread_ref').notNull(),
     superagentThreadId: text('superagent_thread_id').$type<ThreadId>().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.chatId], name: 'messaging_issue_topics_pk' }),
@@ -2863,6 +2949,7 @@ export const messagingSessionAttachments = sqliteTable(
     sessionId: text('session_id').$type<SessionId>().notNull(),
     attachedAt: text('attached_at').notNull(),
     relayedItemId: text('relayed_item_id'),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -2888,6 +2975,7 @@ export const workflows = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('workflows_scope_name_active')
@@ -2912,6 +3000,7 @@ export const workflowRevisions = sqliteTable(
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
     publishedAt: text('published_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('workflow_revisions_workflow').on(table.workflowId, table.version),
@@ -2933,6 +3022,7 @@ export const workflowBindings = sqliteTable(
     updatedById: text('updated_by_id'),
     updatedAt: text('updated_at').notNull(),
     ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.targetKind, table.targetId], name: 'workflow_bindings_pk' }),
@@ -2968,6 +3058,7 @@ export const agentProfiles = sqliteTable(
     updatedBy: text('updated_by'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [unique('agent_profiles_name_unique').on(table.name)],
 )
@@ -2991,6 +3082,7 @@ export const workflowRuns = sqliteTable(
     startedAt: text('started_at').notNull(),
     completedAt: text('completed_at'),
     ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('workflow_runs_one_live_subject')
@@ -3035,6 +3127,7 @@ export const workflowRunSteps = sqliteTable(
     warningsJson: text('warnings_json').default('[]').notNull(),
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('workflow_run_steps_assignee').on(table.assignedSessionId, table.status),
@@ -3067,6 +3160,7 @@ export const workflowEvents = sqliteTable(
     onBehalfOf: text('on_behalf_of'),
     payloadJson: text('payload_json').default('{}').notNull(),
     createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('workflow_events_run').on(table.runId, table.id),
@@ -3098,6 +3192,7 @@ export const accounts = sqliteTable(
     ref: text().$type<AccountId>(),
     accountKey: text('account_key').$type<AccountId>(),
     sharedWith: text('shared_with'),
+    ...workspaceColumn(),
   },
   (table) => [
     uniqueIndex('accounts_owner_account_key').on(table.ownerUserId, table.accountKey),
@@ -3120,6 +3215,7 @@ export const accountMachineSends = sqliteTable(
     }).notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     sentAt: text('sent_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({ columns: [table.accountId, table.machineId], name: 'account_machine_sends_pk' }),
@@ -3148,6 +3244,7 @@ export const nativeLoginOptIns = sqliteTable(
     enabled: integer().notNull(),
     revision: integer().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -3175,6 +3272,7 @@ export const nativeLoginTransfers = sqliteTable(
     outcome: text().notNull(),
     revision: integer().notNull(),
     at: text().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -3210,6 +3308,7 @@ export const automations = sqliteTable(
     /** Ownership outlives the row (POD-1509): a removal cannot be scoped from
      *  post-delete state, so `remove` stamps this instead of deleting. */
     deletedAt: text('deleted_at'),
+    ...workspaceColumn(),
   },
   (table) => [check('automations_session_mode', sql`session_mode IN ('fresh', 'resume')`)],
 )
@@ -3229,6 +3328,7 @@ export const automationRuns = sqliteTable(
     detail: text(),
     /** Same tombstone, same reason — see `automations.deletedAt`. */
     deletedAt: text('deleted_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_automation_runs_automation').on(table.automationId, table.firedAt),
@@ -3271,6 +3371,7 @@ export const operations = sqliteTable(
     finishedAt: integer('finished_at'),
     /** The operation object as JSON — the bytes clients are served verbatim. */
     payload: text().notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_operations_group_state').on(table.exclusionGroup, table.state),
@@ -3335,6 +3436,7 @@ export const effects = sqliteTable(
      * row must outlive its removal. The sweep deletes tombstones later.
      */
     deletedAt: integer('deleted_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     // The sweep: pending by deadline, running, finished rows by age, tombstones.
@@ -3395,6 +3497,7 @@ export const pendingInteractions = sqliteTable(
     answerJson: text('answer_json'),
     deliveredVia: text('delivered_via'),
     expiredAt: text('expired_at'),
+    ...workspaceColumn(),
   },
   (table) => [
     // A session's interactions newest first, with no sort (POD-6148).
@@ -3481,6 +3584,7 @@ export const quotaWindows = sqliteTable(
      * earliest active admin on upgrade.
      */
     ownerUserId: text('owner_user_id').$type<UserId>(),
+    ...workspaceColumn(),
   },
   (table) => [
     index('idx_quota_windows_series').on(table.accountKey, table.windowKey, table.resetsAtMs),
@@ -3533,6 +3637,7 @@ export const userDockShell = sqliteTable(
     /** The dock shell session for this (user, worktree). */
     sessionId: text('session_id').$type<SessionId>().notNull(),
     updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
     primaryKey({
@@ -3556,6 +3661,7 @@ export const issuePanelTodos = sqliteTable(
     position: integer().notNull(),
     text: text().notNull(),
     done: integer({ mode: 'boolean' }).notNull(),
+    ...workspaceColumn(),
   },
   (t) => [index('idx_issue_panel_todos_order').on(t.issueId, t.position, t.id)],
 )
@@ -3570,6 +3676,7 @@ export const issuePanelArtifacts = sqliteTable(
     position: integer().notNull(),
     path: text().notNull(),
     value: text().notNull(),
+    ...workspaceColumn(),
   },
   (t) => [
     index('idx_issue_panel_artifacts_order').on(t.issueId, t.position, t.id),
@@ -3587,6 +3694,7 @@ export const issuePanelDeferred = sqliteTable(
     position: integer().notNull(),
     text: text().notNull(),
     addedAt: text('added_at').notNull(),
+    ...workspaceColumn(),
   },
   (t) => [index('idx_issue_panel_deferred_order').on(t.issueId, t.position, t.id)],
 )
@@ -3594,4 +3702,5 @@ export const issuePanelStates = sqliteTable('issue_panel_states', {
   id: brandedRef(text().$type<IssueId>().primaryKey(), () => issues.id, { onDelete: 'cascade' }),
   text: text().notNull(),
   updatedAt: text('updated_at').notNull(),
+  ...workspaceColumn(),
 })
