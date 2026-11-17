@@ -109,7 +109,7 @@ export const FoundLoginActions = observer(function FoundLoginActions({
   deps: CredentialDeps
 }) {
   const { navigateToSession } = useSettingsClient()
-  const [machineId, setMachineId] = useState(
+  const [machineId, setMachineId] = useState<string>(
     view.nativeLogin?.machines.find((machine) => machine.state === 'out')?.id ??
       view.nativeLogin?.machines[0]?.id ??
       '',

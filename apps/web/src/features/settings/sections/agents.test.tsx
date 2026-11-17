@@ -14,7 +14,7 @@ import { SettingsControlsContext } from './shared'
 
 const fixture = vi.hoisted(() => ({
   credentialViews: [] as CredentialView[],
-  serverAi: undefined as { machineName?: string; lastError?: string } | undefined,
+  serverAi: undefined as { harness: string; machineName?: string; lastError?: string } | undefined,
   machines: [] as MachineModel[],
   catalog: {} as ModelCatalogState['catalog'],
   byMachine: {} as Record<string, ModelCatalogState>,
@@ -208,7 +208,7 @@ it('shows subagent model only when the harness accepts it', () => {
 
 it('shows the background error with its machine', () => {
   const settings = normalizeSettings({ roles: { background: { accountId: 'native:codex' } } })
-  fixture.serverAi = { machineName: 'Workstation', lastError: 'Provider refused the request' }
+  fixture.serverAi = { harness: 'codex', machineName: 'Workstation', lastError: 'Provider refused the request' }
   render(<AgentsSection settings={settings} patch={vi.fn()} />)
   expect(screen.getByText('Last error: Provider refused the request')).toBeTruthy()
   expect(screen.getByText('Uses the login on Workstation.')).toBeTruthy()

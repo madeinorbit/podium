@@ -355,7 +355,8 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
   const models = source.kind === 'api' ? (BACKGROUND_MODELS[source.provider] ?? []) : []
   const defaultModel = source.kind === 'api' ? backgroundDefaultModel(source.provider) : AUTO
   const modelValue = backend.model || defaultModel
-  const serverAi = useServerAiStatus(native)
+  const marker = useServerAiStatus(native)
+  const serverAi = marker?.harness === resolved.harness ? marker : undefined
   const lastError = serverAi?.lastError
   return (
     <Section
