@@ -12,7 +12,7 @@ import { openTestStore } from '../test-support/open-test-store'
 import { countStatements } from '../test-support/statement-count'
 import { withOperation } from './executor/operation-scope'
 import { withReadScope } from './executor/read-scope'
-import type { StoreQueries } from './executor/sync-drizzle'
+import type { LegacyWorkspaceQueries } from './executor/sync-drizzle'
 import { memberFacts } from './fixtures/test-support'
 import { type GrantRow, GrantsRepository } from './grants'
 import type { SessionRow } from './types'
@@ -331,7 +331,7 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
       // Written through a SECOND repository over the same database, whose
       // invalidation does not reach the store's loader: a reused answer would
       // still say "no grants".
-      const queries = (store as unknown as { queries: StoreQueries }).queries
+      const queries = (store as unknown as { queries: LegacyWorkspaceQueries }).queries
       await new GrantsRepository(queries).upsert(grant('iss_a', 'mallory'))
       await withOperation(async () =>
         expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['mallory']),
@@ -606,8 +606,14 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
           expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
         })
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
-        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.defaultParentBranch': 'next' }, at)
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe('next')
+        await store.settings.applyPreferencePatch(
+          user,
+          { 'gitWorkflow.defaultParentBranch': 'next' },
+          at,
+        )
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe(
+          'next',
+        )
         await store.settings.userPreferences.clear(user, 'sidebar.repoSort')
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).not.toBe('custom')
       })
@@ -621,7 +627,9 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
         const first = await store.settings.getSettingsFor(user)
         const stored = first.gitWorkflow.defaultParentBranch
         first.gitWorkflow.defaultParentBranch = stored === 'next' ? 'release' : 'next'
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe(stored)
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe(
+          stored,
+        )
       })
     })
   })

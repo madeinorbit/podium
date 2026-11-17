@@ -1,8 +1,10 @@
 import { asAccountId, asMachineId, asUserId } from '@podium/model'
 import { beforeEach, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { AccountsRepository, type ManagedAccountWrite, SHARED_WITH_EVERYONE } from './accounts'
+import { workspaceQueries } from './executor/sync-drizzle'
 
 let repo: AccountsRepository
 let db: ReturnType<typeof openMigratedTestDatabase>
@@ -25,7 +27,7 @@ const key = (ownerUserId: typeof ALICE, credential: string): ManagedAccountWrite
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  repo = new AccountsRepository(stageASeam(db))
+  repo = new AccountsRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
 })
 
 it('round-trips a managed account, owned and private', async () => {

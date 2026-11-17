@@ -39,8 +39,10 @@ import type { DaemonContext } from '../apps/daemon/src/control/context'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
 import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
+import { SELF_HOSTED_WORKSPACE_ID } from '../apps/server/src/self-hosted-workspace'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 import { createBunStoreExecutor } from '../apps/server/src/store/executor'
+import { workspaceQueries } from '../apps/server/src/store/executor/sync-drizzle'
 
 /** Whose key it is: the session owner (POD-6360, managed keys are per user). */
 const OWNER = asUserId('user:spawn-probe-owner')
@@ -84,7 +86,7 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
   const db = openAccountsDatabase()
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
-  const accounts = new AccountsRepository(queries)
+  const accounts = new AccountsRepository(workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
   await accounts.connect({
     ownerUserId: OWNER,
     accountKey: asAccountId('managed:anthropic'),
@@ -319,7 +321,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     const db = openAccountsDatabase()
     const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
-    const accounts = new AccountsRepository(queries)
+    const accounts = new AccountsRepository(workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
     await accounts.connect({
       ownerUserId: OWNER,
       accountKey: asAccountId('managed:claude-oauth'),

@@ -53,7 +53,7 @@ beforeEach(async () => {
   }
   runnable = new Set(['claude-code', 'codex'])
   probes = []
-  profiles = new AgentProfilesRepository(queries)
+  profiles = new AgentProfilesRepository(workspace)
   service = new AgentProfileService({
     store: profiles,
     now: () => '2026-10-14T12:00:00.000Z',

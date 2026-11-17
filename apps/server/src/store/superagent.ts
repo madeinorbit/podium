@@ -7,7 +7,7 @@
 
 import {
   asThreadId,
-  firstAdminMemberId,
+  asUserId,
   type SessionId,
   type SuperagentTurnFailureWire,
   type ThreadId,
@@ -17,11 +17,11 @@ import { asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
 import type { superagentThreads } from '../migrations/schema'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type {
-  LegacyWorkspaceQueries,
   StoreDrizzle,
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -455,9 +455,9 @@ export class SuperagentRepository {
 
   private readonly users: UsersRepository
 
-  /** The queries are one workspace's; `rootDb` rides along only for the users
-   *  repository, whose own scoping task narrows it (POD-6959). */
-  constructor(queries: LegacyWorkspaceQueries) {
+  /** One workspace's queries: its threads and the members it reads are the workspace's
+   *  (POD-7019, POD-7020). */
+  constructor(queries: WorkspaceQueries) {
     this.users = new UsersRepository(queries)
     this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -501,9 +501,15 @@ export class SuperagentRepository {
   /** Per-boot heal: idempotent seed of the always-there 'global' thread.
    *  BOOTSTRAP (POD-6285): with no owner given, the bare id is seeded for the
    *  first admin, the install's original person; other members get their own
-   *  `global:<member>` thread on first use. */
+   *  `global:<member>` thread on first use. The admin is this workspace's
+   *  (POD-7019): a workspace provisioned with no admin yet seeds nothing here,
+   *  and its first admin's join seeds the thread ({@link seedMemberGlobalThread}). */
   async seedGlobalThread(ownerUserId?: UserId): Promise<void> {
-    ownerUserId ??= await firstAdminMemberId({ users: this.users })
+    if (ownerUserId === undefined) {
+      const admin = await this.users.earliestAdmin()
+      if (admin === undefined) return
+      ownerUserId = asUserId(admin.id)
+    }
     const saNow = new Date().toISOString()
     // `DO NOTHING` matches `OR IGNORE` here: see `seedGlobal`.
     await this.writeThreads(async () => await seedGlobal(this.db).all({ ownerUserId, now: saNow }))

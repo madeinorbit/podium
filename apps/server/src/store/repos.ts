@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import { createLogger } from '@podium/logger'
 import {
   isMachinePathWithinRoot,
@@ -16,15 +17,17 @@ import {
 
 import { type MachineId, machinePathBasename, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
 import type {
+  Bound,
   StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { executeRaw, param, prepared } from './executor/sync-drizzle'
+import { executeRaw, inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 import type { TableWrites } from './table-writes'
 
@@ -67,6 +70,7 @@ const registryRows = prepared((db, t) =>
       repoId: t.repos.repoId,
     })
     .from(t.repos)
+    .where(inWorkspace(t.repos))
     .orderBy(sql`rowid ASC`)
     .prepare(),
 )
@@ -79,18 +83,28 @@ const registryPrefixes = prepared((db, t) =>
       defaultParentBranch: t.repoPrefixes.defaultParentBranch,
     })
     .from(t.repoPrefixes)
+    .where(inWorkspace(t.repoPrefixes))
     .prepare(),
 )
 
 const allPrefixes = prepared((db, t) =>
-  db.select({ prefix: t.repoPrefixes.prefix }).from(t.repoPrefixes).prepare(),
+  db
+    .select({ prefix: t.repoPrefixes.prefix })
+    .from(t.repoPrefixes)
+    .where(inWorkspace(t.repoPrefixes))
+    .prepare(),
 )
 
 const prefixOwner = prepared((db, t) =>
   db
     .select({ repoId: t.repoPrefixes.repoId })
     .from(t.repoPrefixes)
-    .where(eq(t.repoPrefixes.prefix, param(t.repoPrefixes.prefix, 'prefix')))
+    .where(
+      inWorkspace(
+        t.repoPrefixes,
+        eq(t.repoPrefixes.prefix, param(t.repoPrefixes.prefix, 'prefix')),
+      ),
+    )
     .prepare(),
 )
 
@@ -98,7 +112,7 @@ const onePathOfRepo = prepared((db, t) =>
   db
     .select({ path: t.repos.path })
     .from(t.repos)
-    .where(eq(t.repos.repoId, param(t.repos.repoId, 'repoId')))
+    .where(inWorkspace(t.repos, eq(t.repos.repoId, param(t.repos.repoId, 'repoId'))))
     .limit(1)
     .prepare(),
 )
@@ -107,14 +121,23 @@ const draftSeqOf = prepared((db, t) =>
   db
     .select({ nextSeq: t.repoDraftSeq.nextSeq })
     .from(t.repoDraftSeq)
-    .where(eq(t.repoDraftSeq.repoId, param(t.repoDraftSeq.repoId, 'repoId')))
+    .where(
+      inWorkspace(
+        t.repoDraftSeq,
+        eq(t.repoDraftSeq.repoId, param(t.repoDraftSeq.repoId, 'repoId')),
+      ),
+    )
     .prepare(),
 )
 
 const upsertDraftSeq = prepared((db, t) =>
   db
     .insert(t.repoDraftSeq)
-    .values({ repoId: sql.placeholder('repoId'), nextSeq: sql.placeholder('nextSeq') })
+    .values({
+      workspaceId: WORKSPACE,
+      repoId: sql.placeholder('repoId'),
+      nextSeq: sql.placeholder('nextSeq'),
+    })
     .onConflictDoUpdate({
       target: t.repoDraftSeq.repoId,
       set: { nextSeq: sql.placeholder('nextSeq') },
@@ -126,7 +149,7 @@ const repoPathsAndIdsOnMachine = prepared((db, t) =>
   db
     .select({ path: t.repos.path, repoId: t.repos.repoId })
     .from(t.repos)
-    .where(eq(t.repos.machineId, param(t.repos.machineId, 'machineId')))
+    .where(inWorkspace(t.repos, eq(t.repos.machineId, param(t.repos.machineId, 'machineId'))))
     .prepare(),
 )
 
@@ -134,12 +157,16 @@ const repoPathsOnMachine = prepared((db, t) =>
   db
     .select({ path: t.repos.path })
     .from(t.repos)
-    .where(eq(t.repos.machineId, param(t.repos.machineId, 'machineId')))
+    .where(inWorkspace(t.repos, eq(t.repos.machineId, param(t.repos.machineId, 'machineId'))))
     .prepare(),
 )
 
 const reposMissingRepoId = prepared((db, t) =>
-  db.select({ c: count() }).from(t.repos).where(isNull(t.repos.repoId)).prepare(),
+  db
+    .select({ c: count() })
+    .from(t.repos)
+    .where(inWorkspace(t.repos, isNull(t.repos.repoId)))
+    .prepare(),
 )
 
 const reposMissingPrefix = prepared((db, t) =>
@@ -147,11 +174,15 @@ const reposMissingPrefix = prepared((db, t) =>
     .select({ c: countDistinct(t.repos.repoId) })
     .from(t.repos)
     .where(
-      and(
+      inWorkspace(
+        t.repos,
         isNotNull(t.repos.repoId),
         notInArray(
           t.repos.repoId,
-          db.select({ repoId: t.repoPrefixes.repoId }).from(t.repoPrefixes),
+          db
+            .select({ repoId: t.repoPrefixes.repoId })
+            .from(t.repoPrefixes)
+            .where(inWorkspace(t.repoPrefixes)),
         ),
       ),
     )
@@ -160,20 +191,21 @@ const reposMissingPrefix = prepared((db, t) =>
 
 /** One repo row, by its primary key: placeholders `machineId` and `path`. */
 function repoRowAt(t: StoreTables) {
-  return and(
+  return inWorkspace(
+    t.repos,
     eq(t.repos.machineId, param(t.repos.machineId, 'machineId')),
     eq(t.repos.path, param(t.repos.path, 'path')),
   )
 }
 
-/** A prepared builder write on `repos` / `repo_prefixes`. */
-type RepoWrite = (db: StoreDrizzle) => { run(values: Record<string, unknown>): Promise<unknown> }
+/** A prepared builder write on `repos` / `repo_prefixes`, bound to the workspace. */
+type RepoWrite = (db: WorkspaceDb) => { run(values: Record<string, unknown>): Promise<unknown> }
 /** A prepared write that returns the rows it changed. */
-type RepoReturningWrite = (db: StoreDrizzle) => {
+type RepoReturningWrite = (db: WorkspaceDb) => {
   all(values: Record<string, unknown>): Promise<unknown[]>
 }
-/** A prepared whole raw statement (`UPDATE OR IGNORE`, POD-3406). */
-type RepoRawWrite = (db: StoreDrizzle) => ReturnType<StoreDrizzle['run']>
+/** A prepared whole raw statement (`UPDATE OR IGNORE`, POD-3406), bound to the workspace. */
+type RepoRawWrite = (db: WorkspaceDb) => Bound<ReturnType<StoreDrizzle['run']>>
 
 /** The four columns the held registry read materializes, as drizzle returns them. */
 interface RegistryRow {
@@ -238,7 +270,7 @@ export class ReposRepository {
     prefixes: Map<string, string>
     baseBranches: Map<string, string>
   } | null = null
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -268,14 +300,14 @@ export class ReposRepository {
   } = {}
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** The store's per-table write announcement, for the writers that never reach
      *  this class. */
     tableWrites: TableWrites,
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     for (const table of ['repos', 'repo_prefixes'])
       tableWrites.subscribe(table, async () => await this.invalidateRegistry())
@@ -293,8 +325,8 @@ export class ReposRepository {
    * assigned once in a constructor cannot. B1 changes the line inside this getter
    * and nothing below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -449,7 +481,11 @@ export class ReposRepository {
     const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db, t) =>
       db
         .insert(t.repoPrefixes)
-        .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
+        .values({
+          workspaceId: WORKSPACE,
+          repoId: sql.placeholder('repoId'),
+          prefix: sql.placeholder('prefix'),
+        })
         .onConflictDoNothing()
         .prepare(),
     ))
@@ -476,7 +512,11 @@ export class ReposRepository {
     const upsertPrefix = (this.repoWrites.upsertPrefix ??= prepared((db, t) =>
       db
         .insert(t.repoPrefixes)
-        .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
+        .values({
+          workspaceId: WORKSPACE,
+          repoId: sql.placeholder('repoId'),
+          prefix: sql.placeholder('prefix'),
+        })
         .onConflictDoUpdate({
           target: t.repoPrefixes.repoId,
           set: { prefix: sql`excluded.prefix` },
@@ -552,7 +592,12 @@ export class ReposRepository {
       db
         .update(t.repoPrefixes)
         .set({ defaultParentBranch: sql.placeholder('branch') })
-        .where(eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'repoId')))
+        .where(
+          inWorkspace(
+            t.repoPrefixes,
+            eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'repoId')),
+          ),
+        )
         .prepare(),
     ))
     await setBaseBranch(this.db).run({ branch, repoId })
@@ -622,6 +667,7 @@ export class ReposRepository {
       db
         .insert(t.repos)
         .values({
+          workspaceId: WORKSPACE,
           machineId: sql.placeholder('machineId'),
           path: sql.placeholder('path'),
           originUrl: sql.placeholder('originUrl'),
@@ -655,7 +701,11 @@ export class ReposRepository {
         const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db, t) =>
           db
             .insert(t.repoPrefixes)
-            .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
+            .values({
+              workspaceId: WORKSPACE,
+              repoId: sql.placeholder('repoId'),
+              prefix: sql.placeholder('prefix'),
+            })
             .onConflictDoNothing()
             .prepare(),
         ))
@@ -716,7 +766,7 @@ export class ReposRepository {
       const renamePath = (this.repoWrites.renamePath ??= prepared((db) =>
         db.run(
           // UPDATE-CONFLICT STATEMENT POD-3406
-          sql`UPDATE OR IGNORE repos SET path = ${sql.placeholder('toPath')} WHERE machine_id = ${sql.placeholder('machineId')} AND path = ${sql.placeholder('fromPath')}`,
+          sql`UPDATE OR IGNORE repos SET path = ${sql.placeholder('toPath')} WHERE workspace_id = ${WORKSPACE} AND machine_id = ${sql.placeholder('machineId')} AND path = ${sql.placeholder('fromPath')}`,
         ),
       ))
       const result = await executeRaw(renamePath(this.db), {
@@ -765,7 +815,7 @@ export class ReposRepository {
         const rekeyPrefix = (this.repoWrites.rekeyPrefix ??= prepared((db) =>
           db.run(
             // UPDATE-CONFLICT STATEMENT POD-3406
-            sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${sql.placeholder('newId')} WHERE repo_id = ${sql.placeholder('oldId')}`,
+            sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${sql.placeholder('newId')} WHERE workspace_id = ${WORKSPACE} AND repo_id = ${sql.placeholder('oldId')}`,
           ),
         ))
         await executeRaw(rekeyPrefix(this.db), { newId, oldId: row.repoId })
@@ -798,7 +848,8 @@ export class ReposRepository {
         .update(t.repoPrefixes)
         .set({ defaultParentBranch: sql.placeholder('branch') })
         .where(
-          and(
+          inWorkspace(
+            t.repoPrefixes,
             eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'repoId')),
             isNull(t.repoPrefixes.defaultParentBranch),
           ),

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE SETTINGS AUDIT TRAIL (POD-421, 3.7d) — the append-only record of who
  * changed what on the settings family, and what they were refused.
@@ -47,8 +48,8 @@ import type { RedactionReport } from '@podium/commands'
 import { and, asc, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import type { settingsAuditEvents } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
@@ -126,6 +127,7 @@ const appendAudit = prepared((db, t) =>
   db
     .insert(t.settingsAuditEvents)
     .values({
+      workspaceId: WORKSPACE,
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
       actorKind: sql.placeholder('actorKind'),
@@ -142,6 +144,7 @@ const auditInOrder = prepared((db, t) =>
   db
     .select()
     .from(t.settingsAuditEvents)
+    .where(inWorkspace(t.settingsAuditEvents))
     .orderBy(asc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -201,7 +204,8 @@ const securityEventsNewestFirst = preparedFamily((db, t, shape: SecurityEventSha
     .select()
     .from(t.settingsAuditEvents)
     .where(
-      and(
+      inWorkspace(
+        t.settingsAuditEvents,
         lt(t.settingsAuditEvents.id, param(t.settingsAuditEvents.id, 'beforeId')),
         commands,
         actor === '1'
@@ -221,18 +225,18 @@ export interface SecurityEventRow extends SettingsAuditRow {
 }
 
 export class SettingsAuditRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

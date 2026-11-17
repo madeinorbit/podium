@@ -5,11 +5,13 @@ import { z } from 'zod'
 import type { LlmClient, LlmMessage } from './llm'
 import { LlmConfigError } from './llm-error'
 import { completeForRole, jsonSchema, oneShotApiKey, resolveOneShotBackend } from './llm-roles'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import {
   AccountsRepository,
   type ManagedAccountWrite,
   SHARED_WITH_EVERYONE,
 } from './store/accounts'
+import { workspaceQueries } from './store/executor/sync-drizzle'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
 import { stageASeam } from './test-support/stage-a-seam'
 
@@ -143,7 +145,9 @@ const connect = async (
   })
 
 beforeEach(() => {
-  accounts = new AccountsRepository(stageASeam(openMigratedTestDatabase()))
+  accounts = new AccountsRepository(
+    workspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+  )
 })
 
 describe('oneShotApiKey', () => {

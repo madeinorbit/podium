@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Managed-account aggregate — credentials Podium holds and injects at spawn
  * [spec:SP-6454]. Separate from the settings blob on purpose: settings round-trip
@@ -18,12 +19,12 @@ import { type AccountId, asAccountId, type MachineId, type UserId } from '@podiu
 import { and, asc, eq, isNotNull, or, sql } from 'drizzle-orm'
 import type { accounts } from '../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, sameWorkspace, WORKSPACE } from './executor/sync-drizzle'
 
 /** The grantee that means every user of this instance. */
 export const SHARED_WITH_EVERYONE = '*'
@@ -139,7 +140,12 @@ const storageIdFor = (ownerUserId: UserId, accountKey: AccountId): AccountId =>
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const accountsByCreation = prepared((db, t) =>
-  db.select().from(t.accounts).orderBy(asc(t.accounts.createdAt), asc(t.accounts.id)).prepare(),
+  db
+    .select()
+    .from(t.accounts)
+    .where(inWorkspace(t.accounts))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
+    .prepare(),
 )
 
 /** Every owned row WITHOUT its credential, for the admin's keys read. */
@@ -155,7 +161,9 @@ const keySummaries = prepared((db, t) =>
       sharedWith: t.accounts.sharedWith,
     })
     .from(t.accounts)
-    .where(and(isNotNull(t.accounts.ownerUserId), isNotNull(t.accounts.accountKey)))
+    .where(
+      inWorkspace(t.accounts, isNotNull(t.accounts.ownerUserId), isNotNull(t.accounts.accountKey)),
+    )
     .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
@@ -164,7 +172,12 @@ const accountsOfOwner = prepared((db, t) =>
   db
     .select()
     .from(t.accounts)
-    .where(eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')))
+    .where(
+      inWorkspace(
+        t.accounts,
+        eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
+      ),
+    )
     .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
@@ -174,7 +187,8 @@ const ownAccount = prepared((db, t) =>
     .select()
     .from(t.accounts)
     .where(
-      and(
+      inWorkspace(
+        t.accounts,
         eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
         eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
@@ -188,7 +202,8 @@ const sharedAccountsOfKey = prepared((db, t) =>
     .select()
     .from(t.accounts)
     .where(
-      and(
+      inWorkspace(
+        t.accounts,
         or(
           eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
           eq(t.accounts.accountKey, param(t.accounts.accountKey, 'earlierKey')),
@@ -205,7 +220,7 @@ const sharedAccounts = prepared((db, t) =>
   db
     .select()
     .from(t.accounts)
-    .where(isNotNull(t.accounts.sharedWith))
+    .where(inWorkspace(t.accounts, isNotNull(t.accounts.sharedWith)))
     .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
@@ -233,7 +248,7 @@ const connectPlaceholders = {
 const connectAccount = prepared((db, t) =>
   db
     .insert(t.accounts)
-    .values(connectPlaceholders)
+    .values({ workspaceId: WORKSPACE, ...connectPlaceholders })
     .onConflictDoUpdate({
       target: [t.accounts.ownerUserId, t.accounts.accountKey],
       set: {
@@ -253,7 +268,8 @@ const deleteOwnAccount = prepared((db, t) =>
   db
     .delete(t.accounts)
     .where(
-      and(
+      inWorkspace(
+        t.accounts,
         eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
         eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
@@ -267,7 +283,8 @@ const shareOwnAccount = prepared((db, t) =>
     .update(t.accounts)
     .set({ sharedWith: sql.placeholder('sharedWith') })
     .where(
-      and(
+      inWorkspace(
+        t.accounts,
         eq(t.accounts.ownerUserId, param(t.accounts.ownerUserId, 'ownerUserId')),
         eq(t.accounts.accountKey, param(t.accounts.accountKey, 'accountKey')),
       ),
@@ -279,7 +296,12 @@ const shareOwnAccount = prepared((db, t) =>
 const deleteSendsOf = prepared((db, t) =>
   db
     .delete(t.accountMachineSends)
-    .where(eq(t.accountMachineSends.accountId, param(t.accountMachineSends.accountId, 'accountId')))
+    .where(
+      inWorkspace(
+        t.accountMachineSends,
+        eq(t.accountMachineSends.accountId, param(t.accountMachineSends.accountId, 'accountId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -291,8 +313,14 @@ const sentMachines = prepared((db, t) =>
   db
     .select({ machineId: t.accountMachineSends.machineId, sentAt: t.accountMachineSends.sentAt })
     .from(t.accountMachineSends)
-    .innerJoin(t.accounts, eq(t.accounts.id, t.accountMachineSends.accountId))
-    .where(and(ownerIs(t), refIs(t)))
+    .innerJoin(
+      t.accounts,
+      and(
+        sameWorkspace(t.accounts, t.accountMachineSends),
+        eq(t.accounts.id, t.accountMachineSends.accountId),
+      ),
+    )
+    .where(inWorkspace(t.accountMachineSends, ownerIs(t), refIs(t)))
     // The primary key's order after `account_id`: no sort (query-plan audit).
     .orderBy(asc(t.accountMachineSends.machineId))
     .prepare(),
@@ -307,8 +335,14 @@ const sendsOfOwner = prepared((db, t) =>
       sentAt: t.accountMachineSends.sentAt,
     })
     .from(t.accounts)
-    .innerJoin(t.accountMachineSends, eq(t.accountMachineSends.accountId, t.accounts.id))
-    .where(ownerIs(t))
+    .innerJoin(
+      t.accountMachineSends,
+      and(
+        sameWorkspace(t.accountMachineSends, t.accounts),
+        eq(t.accountMachineSends.accountId, t.accounts.id),
+      ),
+    )
+    .where(inWorkspace(t.accounts, ownerIs(t)))
     .prepare(),
 )
 
@@ -316,7 +350,8 @@ const deleteSend = prepared((db, t) =>
   db
     .delete(t.accountMachineSends)
     .where(
-      and(
+      inWorkspace(
+        t.accountMachineSends,
         eq(t.accountMachineSends.accountId, param(t.accountMachineSends.accountId, 'accountId')),
         eq(t.accountMachineSends.machineId, param(t.accountMachineSends.machineId, 'machineId')),
       ),
@@ -329,6 +364,7 @@ const insertSend = prepared((db, t) =>
   db
     .insert(t.accountMachineSends)
     .values({
+      workspaceId: WORKSPACE,
       accountId: sql.placeholder('accountId'),
       machineId: sql.placeholder('machineId'),
       sentAt: sql.placeholder('sentAt'),
@@ -373,7 +409,7 @@ const optInsOfOwner = prepared((db, t) =>
   db
     .select(optInColumns(t))
     .from(t.nativeLoginOptIns)
-    .where(optInOwnerIs(t))
+    .where(inWorkspace(t.nativeLoginOptIns, optInOwnerIs(t)))
     // The primary key's order after `owner_user_id`: no sort.
     .orderBy(asc(t.nativeLoginOptIns.harness), asc(t.nativeLoginOptIns.fingerprint))
     .prepare(),
@@ -384,7 +420,8 @@ const optInOf = prepared((db, t) =>
     .select(optInColumns(t))
     .from(t.nativeLoginOptIns)
     .where(
-      and(
+      inWorkspace(
+        t.nativeLoginOptIns,
         optInOwnerIs(t),
         eq(t.nativeLoginOptIns.harness, param(t.nativeLoginOptIns.harness, 'harness')),
         eq(t.nativeLoginOptIns.fingerprint, param(t.nativeLoginOptIns.fingerprint, 'fingerprint')),
@@ -398,6 +435,7 @@ const upsertOptIn = prepared((db, t) =>
   db
     .insert(t.nativeLoginOptIns)
     .values({
+      workspaceId: WORKSPACE,
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
       fingerprint: sql.placeholder('fingerprint'),
@@ -431,7 +469,10 @@ const transfersOfOwner = prepared((db, t) =>
     })
     .from(t.nativeLoginTransfers)
     .where(
-      eq(t.nativeLoginTransfers.ownerUserId, param(t.nativeLoginTransfers.ownerUserId, 'owner')),
+      inWorkspace(
+        t.nativeLoginTransfers,
+        eq(t.nativeLoginTransfers.ownerUserId, param(t.nativeLoginTransfers.ownerUserId, 'owner')),
+      ),
     )
     // The primary key's order after `owner_user_id`: no sort.
     .orderBy(
@@ -446,6 +487,7 @@ const upsertTransfer = prepared((db, t) =>
   db
     .insert(t.nativeLoginTransfers)
     .values({
+      workspaceId: WORKSPACE,
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
       fingerprint: sql.placeholder('fingerprint'),
@@ -472,18 +514,18 @@ const upsertTransfer = prepared((db, t) =>
 
 /** One member's managed provider connections, and their D11 choices. */
 export class AccountsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** The owner's public account refs, for the custody and discovery APIs. */

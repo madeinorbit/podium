@@ -1217,6 +1217,7 @@
         "src/store/operation-loaders.test.ts",
         "src/store/pending-uploads.test.ts",
         "src/store/pending-uploads.ts",
+        "src/store/people.workspace.test.ts",
         "src/store/pg-test-database.test.ts",
         "src/store/pg-test-isolation-1.test.ts",
         "src/store/pg-test-isolation-2.test.ts",

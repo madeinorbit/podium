@@ -35,7 +35,7 @@
  */
 
 import {
-  firstAdminMemberId,
+  clearFirstAdminMember,
   type MachineId,
   primeFirstAdminMember,
   type WorkspaceId,
@@ -73,7 +73,12 @@ export async function openTestStore(
     changeCapture: 'whenLogAttaches',
     workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
   })
-  primeFirstAdminMember(await firstAdminMemberId(store))
+  // The workspace's own first admin (POD-7019: members are the workspace's). A workspace the
+  // image does not seed (its people are the self-hosted workspace's) has none, and then no
+  // earlier store's admin stays primed.
+  const admin = await store.users.earliestAdmin()
+  if (admin) primeFirstAdminMember(admin.id)
+  else clearFirstAdminMember()
   return store
 }
 

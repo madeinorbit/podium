@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import type { MachineCredentialRotation } from '@podium/protocol'
 import { z } from 'zod'
 import { CommittedRows } from './committed-rows'
@@ -25,19 +26,21 @@ import type { LedgerWriter } from '@podium/sync'
 import { and, asc, eq, gt, isNull, type SQL, sql } from 'drizzle-orm'
 import type { machines } from '../migrations/schema'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   executeRaw,
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { GrantsRepository } from './grants'
 import { MachineRecordContextRepository } from './machine-record-context'
@@ -270,36 +273,52 @@ const machineRecordPage = preparedFamily((db, t, phase: 'start' | 'after') =>
   db
     .select(MACHINE_COLUMNS(t))
     .from(t.machines)
-    .where(phase === 'after' ? gt(t.machines.id, param(t.machines.id, 'after')) : undefined)
+    .where(
+      inWorkspace(
+        t.machines,
+        phase === 'after' ? gt(t.machines.id, param(t.machines.id, 'after')) : undefined,
+      ),
+    )
     .orderBy(asc(t.machines.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 const machineRecordIds = prepared((db, t) =>
-  db.select({ id: t.machines.id }).from(t.machines).orderBy(asc(t.machines.id)).prepare(),
+  db
+    .select({ id: t.machines.id })
+    .from(t.machines)
+    .where(inWorkspace(t.machines))
+    .orderBy(asc(t.machines.id))
+    .prepare(),
 )
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const liveMachineById = (t: StoreTables): SQL | undefined =>
-  and(eq(t.machines.id, param(t.machines.id, 'id')), isNull(t.machines.revokedAt))
+  inWorkspace(
+    t.machines,
+    eq(t.machines.id, param(t.machines.id, 'id')),
+    isNull(t.machines.revokedAt),
+  )
 
 /** The sentinel scan is one constant statement over constant identifiers (see the method). */
 const legacySentinelScan = prepared((db) => {
   const sentinels = RETIRED_MACHINE_SENTINELS.map((v) => `'${v}'`).join(', ')
+  // Each arm's probe holds its table to the workspace, in the probe's own scope.
   const arms = MACHINE_ID_SITES.map((site) => {
     const [table, column] = site.split('.')
-    return `SELECT '${site}' AS site WHERE EXISTS (SELECT 1 FROM "${table}" WHERE "${column}" IN (${sentinels}))`
+    return sql`${sql.raw(`SELECT '${site}' AS site WHERE EXISTS (SELECT 1 FROM "${table}" WHERE "${table}".workspace_id = `)}${WORKSPACE}${sql.raw(` AND "${column}" IN (${sentinels}))`)}`
   })
-  const statement = arms.join('\nUNION ALL\n')
-  return db.all<{ site: string }>(sql.raw(statement)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
+  const statement = sql.join(arms, sql.raw('\nUNION ALL\n'))
+  return db.all<{ site: string }>(statement) // CONSTANT-IDENTIFIER STATEMENT POD-3404
 })
 
 const upsertEnrolledMachine = prepared((db, t) =>
   db
     .insert(t.machines)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       name: sql.placeholder('name'),
       hostname: sql.placeholder('hostname'),
@@ -330,26 +349,35 @@ const upsertEnrolledMachine = prepared((db, t) =>
 )
 
 const machinesByCreation = prepared((db, t) =>
-  db.select(MACHINE_COLUMNS(t)).from(t.machines).orderBy(asc(t.machines.createdAt)).prepare(),
+  db
+    .select(MACHINE_COLUMNS(t))
+    .from(t.machines)
+    .where(inWorkspace(t.machines))
+    .orderBy(asc(t.machines.createdAt))
+    .prepare(),
 )
 
 const machineById = prepared((db, t) =>
   db
     .select(MACHINE_COLUMNS(t))
     .from(t.machines)
-    .where(eq(t.machines.id, param(t.machines.id, 'id')))
+    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
     .prepare(),
 )
 
 const machinesByIds = preparedFamily((db, t, size: number) =>
-  db.select(MACHINE_COLUMNS(t)).from(t.machines).where(inListOf(t.machines.id, size)).prepare(),
+  db
+    .select(MACHINE_COLUMNS(t))
+    .from(t.machines)
+    .where(inWorkspace(t.machines, inListOf(t.machines.id, size)))
+    .prepare(),
 )
 
 const machineRowById = prepared((db, t) =>
   db
     .select()
     .from(t.machines)
-    .where(eq(t.machines.id, param(t.machines.id, 'id')))
+    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
     .prepare(),
 )
 
@@ -471,7 +499,8 @@ const rotateCredentialOf = preparedFamily((db, t, previousKey: 'null' | 'key') =
     .update(t.machines)
     .set({ credentialKind: 'ed25519', tokenHash: '', publicKey: sql.placeholder('newPublicKey') })
     .where(
-      and(
+      inWorkspace(
+        t.machines,
         eq(t.machines.id, param(t.machines.id, 'id')),
         isNull(t.machines.revokedAt),
         isNull(t.machines.supersededBy),
@@ -497,7 +526,8 @@ const adoptHostCredentialOf = prepared((db, t) =>
       assignmentEvidenceJson: sql.placeholder('assignmentEvidenceJson'),
     })
     .where(
-      and(
+      inWorkspace(
+        t.machines,
         eq(t.machines.id, param(t.machines.id, 'id')),
         isNull(t.machines.revokedAt),
         isNull(t.machines.supersededBy),
@@ -533,7 +563,8 @@ const custodianOf = prepared((db, t) =>
     .select({ grantee: t.grants.grantee })
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, 'machine'),
         eq(t.grants.resourceId, param(t.grants.resourceId, 'id')),
         eq(t.grants.verb, 'manage'),
@@ -549,7 +580,8 @@ const custodyOf = prepared((db, t) =>
     .select({ id: t.grants.resourceId })
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, 'machine'),
         eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
         eq(t.grants.verb, 'manage'),
@@ -575,6 +607,7 @@ const insertEnrollment = prepared((db, t) =>
   db
     .insert(t.machines)
     .values({
+      workspaceId: WORKSPACE,
       ...enrollmentPlaceholders,
       createdAt: sql.placeholder('now'),
       lastSeenAt: sql.placeholder('now'),
@@ -602,7 +635,8 @@ const replaceRevokedEnrollment = prepared((db, t) =>
       buildReportedAt: null,
     })
     .where(
-      and(
+      inWorkspace(
+        t.machines,
         eq(t.machines.id, param(t.machines.id, 'id')),
         eq(t.machines.revokedAt, param(t.machines.revokedAt, 'replaceRevokedAt')),
         isNull(t.machines.supersededBy),
@@ -621,7 +655,7 @@ const supersedeMachineOf = prepared((db, t) =>
       revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
       availabilityJson: null,
     })
-    .where(eq(t.machines.id, param(t.machines.id, 'id')))
+    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
     .returning()
     .prepare(),
 )
@@ -633,7 +667,7 @@ const revokeMachineOf = prepared((db, t) =>
       revokedAt: sql`COALESCE(${t.machines.revokedAt}, ${sql.placeholder('now')})`,
       availabilityJson: null,
     })
-    .where(eq(t.machines.id, param(t.machines.id, 'id')))
+    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
     .returning()
     .prepare(),
 )
@@ -641,7 +675,7 @@ const revokeMachineOf = prepared((db, t) =>
 const deleteMachineOf = prepared((db, t) =>
   db
     .delete(t.machines)
-    .where(eq(t.machines.id, param(t.machines.id, 'id')))
+    .where(inWorkspace(t.machines, eq(t.machines.id, param(t.machines.id, 'id'))))
     .returning()
     .prepare(),
 )
@@ -659,17 +693,17 @@ export class MachinesRepository {
   readonly recordContext: MachineRecordContextRepository
   readonly committed: CommittedRows<typeof machines.$inferSelect>
 
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     private readonly grantRepository = new GrantsRepository(queries),
     readonly machineRecordWrites = grantRepository.machineRecordWrites,
   ) {
     this.recordContext = new MachineRecordContextRepository(queries, this.machineRecordWrites)
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -681,8 +715,8 @@ export class MachinesRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * AGENT PROFILES — the `agent_profiles` table (POD-6107). Rows only: the rules
  * (who may write, name and candidate validation, refusing a delete in use) are
@@ -9,23 +10,28 @@ import {
   isIssueClosed,
   type MachineId,
 } from '@podium/model'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { eq, isNull, sql } from 'drizzle-orm'
 import type { agentProfiles } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type { WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 const P = (name: string) => sql.placeholder(name)
 
 const allProfiles = prepared((db, t) =>
-  db.select().from(t.agentProfiles).orderBy(t.agentProfiles.name).prepare(),
+  db
+    .select()
+    .from(t.agentProfiles)
+    .where(inWorkspace(t.agentProfiles))
+    .orderBy(t.agentProfiles.name)
+    .prepare(),
 )
 
 const profileById = prepared((db, t) =>
   db
     .select()
     .from(t.agentProfiles)
-    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
+    .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id'))))
     .prepare(),
 )
 
@@ -33,7 +39,12 @@ const profileByName = prepared((db, t) =>
   db
     .select()
     .from(t.agentProfiles)
-    .where(sql`${t.agentProfiles.name} = ${param(t.agentProfiles.name, 'name')} COLLATE NOCASE`)
+    .where(
+      inWorkspace(
+        t.agentProfiles,
+        sql`${t.agentProfiles.name} = ${param(t.agentProfiles.name, 'name')} COLLATE NOCASE`,
+      ),
+    )
     .prepare(),
 )
 
@@ -41,6 +52,7 @@ const insertProfile = prepared((db, t) =>
   db
     .insert(t.agentProfiles)
     .values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       name: P('name'),
       description: P('description'),
@@ -67,14 +79,14 @@ const updateProfile = prepared((db, t) =>
       updatedBy: P('actor'),
       updatedAt: P('now'),
     })
-    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
+    .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id'))))
     .prepare(),
 )
 
 const deleteProfile = prepared((db, t) =>
   db
     .delete(t.agentProfiles)
-    .where(eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id')))
+    .where(inWorkspace(t.agentProfiles, eq(t.agentProfiles.id, param(t.agentProfiles.id, 'id'))))
     .prepare(),
 )
 
@@ -83,7 +95,8 @@ const liveIssuesUsingProfile = prepared((db, t) =>
     .select({ seq: t.issues.seq, stage: t.issues.stage, closedReason: t.issues.closedReason })
     .from(t.issues)
     .where(
-      and(
+      inWorkspace(
+        t.issues,
         eq(t.issues.agentProfileId, param(t.issues.agentProfileId, 'id')),
         isNull(t.issues.deletedAt),
       ),
@@ -134,16 +147,16 @@ function rowValues(input: AgentProfileRowInput & { actor: string; now: string })
 }
 
 export class AgentProfilesRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
   }
 
   /** One instance for the store's life: the executor routes each statement to
    *  the enclosing transaction as it runs [POD-6147]. */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   async list(): Promise<AgentProfileWire[]> {

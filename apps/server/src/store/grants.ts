@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import { CommittedRows } from './committed-rows'
 import { MachineRecordWrites } from './machine-record-writes'
 /**
@@ -9,22 +10,24 @@ import { MachineRecordWrites } from './machine-record-writes'
 
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
-import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
+import { asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import type { grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
@@ -91,7 +94,8 @@ const audiencesOf = preparedFamily((db, t, size: number) =>
     .select({ resourceId: t.grantAudiences.resourceId, grantee: t.grantAudiences.grantee })
     .from(t.grantAudiences)
     .where(
-      and(
+      inWorkspace(
+        t.grantAudiences,
         eq(t.grantAudiences.resourceKind, param(t.grantAudiences.resourceKind, 'resourceKind')),
         inListOf(t.grantAudiences.resourceId, size, 'resourceIds'),
       ),
@@ -104,6 +108,7 @@ const noteAudience = prepared((db, t) =>
   db
     .insert(t.grantAudiences)
     .values({
+      workspaceId: WORKSPACE,
       resourceKind: sql.placeholder('resourceKind'),
       resourceId: sql.placeholder('resourceId'),
       grantee: sql.placeholder('grantee'),
@@ -120,7 +125,8 @@ const grantsOfResource = prepared((db, t) =>
     .select()
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
         eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
       ),
@@ -134,7 +140,8 @@ const grantsOfResources = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
         inListOf(t.grants.resourceId, size),
       ),
@@ -152,7 +159,8 @@ const grantsOfResourceKeys = preparedFamily((db, t, shape: string) => {
     .select()
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         inListOf(t.grants.resourceKind, kindSize, 'kind'),
         inListOf(t.grants.resourceId, idSize, 'id'),
       ),
@@ -166,6 +174,7 @@ const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
   db
     .insert(t.grants)
     .values({
+      workspaceId: WORKSPACE,
       resourceKind: sql.placeholder('resourceKind'),
       resourceId: sql.placeholder('resourceId'),
       grantee: sql.placeholder('grantee'),
@@ -195,7 +204,8 @@ const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
 )
 
 const oneEdge = (t: StoreTables): SQL | undefined =>
-  and(
+  inWorkspace(
+    t.grants,
     eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
     eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
     eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
@@ -211,7 +221,7 @@ const deleteEdge = prepared((db, t) => db.delete(t.grants).where(oneEdge(t)).ret
 const deleteGrantsOfGrantee = prepared((db, t) =>
   db
     .delete(t.grants)
-    .where(eq(t.grants.grantee, param(t.grants.grantee, 'grantee')))
+    .where(inWorkspace(t.grants, eq(t.grants.grantee, param(t.grants.grantee, 'grantee'))))
     .returning()
     .prepare(),
 )
@@ -221,7 +231,8 @@ const machinesGrantedTo = prepared((db, t) =>
     .select({ id: t.grants.resourceId })
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
         eq(t.grants.resourceKind, 'machine'),
       ),
@@ -233,7 +244,8 @@ const deleteGrantsOfResource = preparedFamily((db, t, custody: 'retain' | 'all')
   db
     .delete(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
         eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
         ...(custody === 'retain' ? [eq(t.grants.custody, false)] : []),
@@ -301,18 +313,18 @@ export class GrantsRepository {
   ): Promise<void> {
     await noteAudience(this.db).run({ resourceKind, resourceId, grantee })
   }
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     readonly machineRecordWrites = new MachineRecordWrites(),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'grants')
     // The loader is invalidated after each write below AND after each commit of
     // one, which is what makes its memo exact inside write spans (POD-6189).
     this.committed.subscribe(() => this.resourceGrants.invalidate())
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -321,8 +333,8 @@ export class GrantsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

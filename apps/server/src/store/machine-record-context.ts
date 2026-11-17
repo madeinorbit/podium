@@ -1,23 +1,26 @@
+// workspace-scoped (POD-6959)
 import { DEFAULT_FLEET_UPDATE_CHANNEL, UpdateChannel } from '@podium/model'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
-import { prepared } from './executor/sync-drizzle'
+import type { StoreDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { preparedGlobal } from './executor/sync-drizzle'
 import { MachineRecordWrites } from './machine-record-writes'
 
+// The fleet channel and the update execution are install keys of `meta` (one per
+// installation, workspace-manifest.ts INSTALL_META_KEYS), so every definition here is global.
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
-const channelRow = prepared((db, t) =>
+const channelRow = preparedGlobal((db, t) =>
   db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, FLEET_CHANNEL)).prepare(),
 )
-const contextRows = prepared((db, t) =>
+const contextRows = preparedGlobal((db, t) =>
   db
     .select({ key: t.meta.key, value: t.meta.value })
     .from(t.meta)
     .where(inArray(t.meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
     .prepare(),
 )
-const setChannel = prepared((db, t) =>
+const setChannel = preparedGlobal((db, t) =>
   db
     .insert(t.meta)
     .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
@@ -37,12 +40,12 @@ const StoredTargets = z.object({
 })
 
 export class MachineRecordContextRepository {
-  private readonly db: StoreDrizzle
+  private readonly db: StoreDb
   constructor(
-    private readonly queries: StoreQueries,
+    private readonly queries: WorkspaceQueries,
     private readonly records = new MachineRecordWrites(),
   ) {
-    this.db = queries.rootDb
+    this.db = queries.db
   }
 
   /** The resolved channel and its settings source share the source write. */

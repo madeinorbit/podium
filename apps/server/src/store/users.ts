@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import { CommittedRows } from './committed-rows'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
@@ -7,18 +8,20 @@ import { SignInCarryOverRepository } from './sign-in-carry-over'
 import type { MemberRows, MemberWrite } from '@podium/identity'
 import type { UserId, UserRole } from '@podium/model'
 import { asUserId, LoginEmail, USER_ROLES } from '@podium/model'
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { users } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -39,13 +42,17 @@ const accountById = prepared((db, t) =>
   db
     .select()
     .from(t.users)
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .prepare(),
 )
 
 /** The accounts of a set of ids: the per-operation loader's batch [POD-6218]. */
 const accountsByIds = preparedFamily((db, t, size: number) =>
-  db.select().from(t.users).where(inListOf(t.users.id, size)).prepare(),
+  db
+    .select()
+    .from(t.users)
+    .where(inWorkspace(t.users, inListOf(t.users.id, size)))
+    .prepare(),
 )
 
 // Two rows are enough to tell "exactly one" from "more than one".
@@ -54,7 +61,7 @@ const activeRecordMembers = prepared((db, t) =>
   db
     .select({ id: t.users.id, role: t.users.role })
     .from(t.users)
-    .where(and(isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
+    .where(inWorkspace(t.users, isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
     .prepare(),
 )
 
@@ -62,7 +69,7 @@ const firstTwoActiveMembers = prepared((db, t) =>
   db
     .select()
     .from(t.users)
-    .where(and(isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
+    .where(inWorkspace(t.users, isNull(t.users.disabledAt), inArray(t.users.role, [...USER_ROLES])))
     .limit(2)
     .prepare(),
 )
@@ -70,14 +77,14 @@ const firstTwoActiveMembers = prepared((db, t) =>
 // Retained disabled/removed people still own their historical usage. Read at
 // most two ids from the covering primary-key index, regardless of roster size.
 const firstTwoMemberIds = prepared((db, t) =>
-  db.select({ id: t.users.id }).from(t.users).limit(2).prepare(),
+  db.select({ id: t.users.id }).from(t.users).where(inWorkspace(t.users)).limit(2).prepare(),
 )
 
 const earliestAdminRow = prepared((db, t) =>
   db
     .select()
     .from(t.users)
-    .where(and(eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
+    .where(inWorkspace(t.users, eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
     .orderBy(asc(t.users.createdAt), asc(t.users.id))
     .limit(1)
     .prepare(),
@@ -88,7 +95,7 @@ const activeAdminIdRows = prepared((db, t) =>
   db
     .select({ id: t.users.id })
     .from(t.users)
-    .where(and(eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
+    .where(inWorkspace(t.users, eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
     .prepare(),
 )
 
@@ -99,7 +106,7 @@ const userIdByEmail = prepared((db, t) =>
   db
     .select({ id: t.users.id })
     .from(t.users)
-    .where(eq(sql`lower(${t.users.email})`, sql.placeholder('email')))
+    .where(inWorkspace(t.users, eq(sql`lower(${t.users.email})`, sql.placeholder('email'))))
     .prepare(),
 )
 
@@ -107,7 +114,7 @@ const setUserProfile = prepared((db, t) =>
   db
     .update(t.users)
     .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .prepare(),
 )
 
@@ -115,17 +122,29 @@ const userIdByAccount = prepared((db, t) =>
   db
     .select({ id: t.users.id })
     .from(t.users)
-    .where(eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId')))
+    .where(
+      inWorkspace(t.users, eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId'))),
+    )
     .prepare(),
 )
 
 const userIdsByCreation = prepared((db, t) =>
-  db.select({ id: t.users.id }).from(t.users).orderBy(asc(t.users.createdAt)).prepare(),
+  db
+    .select({ id: t.users.id })
+    .from(t.users)
+    .where(inWorkspace(t.users))
+    .orderBy(asc(t.users.createdAt))
+    .prepare(),
 )
 
 /** Every member row, disabled ones included, for the admins' member list (POD-6298). */
 const everyUserByCreation = prepared((db, t) =>
-  db.select().from(t.users).orderBy(asc(t.users.createdAt), asc(t.users.id)).prepare(),
+  db
+    .select()
+    .from(t.users)
+    .where(inWorkspace(t.users))
+    .orderBy(asc(t.users.createdAt), asc(t.users.id))
+    .prepare(),
 )
 
 /** One step of the member's authorization generation, returning the row (POD-6293). */
@@ -136,7 +155,7 @@ const bumpAuthzGeneration = prepared((db, t) =>
       authzGeneration: sql`${t.users.authzGeneration} + 1`,
       authzChangedAt: sql.placeholder('changedAt'),
     })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .returning()
     .prepare(),
 )
@@ -146,7 +165,7 @@ const stampMemberVersion = prepared((db, t) =>
   db
     .update(t.users)
     .set({ membershipVersion: sql.placeholder('version') })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .prepare(),
 )
 
@@ -154,6 +173,7 @@ const insertSettingsAudit = prepared((db, t) =>
   db
     .insert(t.settingsAuditEvents)
     .values({
+      workspaceId: WORKSPACE,
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
       actorKind: sql.placeholder('actorKind'),
@@ -170,7 +190,8 @@ const custodyMachinesOf = prepared((db, t) =>
     .select({ id: t.grants.resourceId })
     .from(t.grants)
     .where(
-      and(
+      inWorkspace(
+        t.grants,
         eq(t.grants.resourceKind, 'machine'),
         eq(t.grants.custody, true),
         eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
@@ -186,6 +207,7 @@ const insertMemberRow = prepared((db, t) =>
   db
     .insert(t.users)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       displayName: sql.placeholder('displayName'),
       email: sql.placeholder('email'),
@@ -213,7 +235,7 @@ const writeMemberFacts = prepared((db, t) =>
       cloudAccountId: sql.placeholder('accountId'),
       membershipVersion: sql.placeholder('membershipVersion'),
     })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .returning()
     .prepare(),
 )
@@ -223,7 +245,7 @@ const memberHoldingEmail = prepared((db, t) =>
   db
     .select({ id: t.users.id, disabledAt: t.users.disabledAt })
     .from(t.users)
-    .where(eq(sql`lower(${t.users.email})`, sql.placeholder('email')))
+    .where(inWorkspace(t.users, eq(sql`lower(${t.users.email})`, sql.placeholder('email'))))
     .prepare(),
 )
 
@@ -232,7 +254,9 @@ const memberHoldingAccount = prepared((db, t) =>
   db
     .select({ id: t.users.id, disabledAt: t.users.disabledAt })
     .from(t.users)
-    .where(eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId')))
+    .where(
+      inWorkspace(t.users, eq(t.users.cloudAccountId, param(t.users.cloudAccountId, 'accountId'))),
+    )
     .prepare(),
 )
 
@@ -240,7 +264,7 @@ const clearMemberEmail = prepared((db, t) =>
   db
     .update(t.users)
     .set({ email: null })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .prepare(),
 )
 
@@ -248,7 +272,7 @@ const clearMemberAccount = prepared((db, t) =>
   db
     .update(t.users)
     .set({ cloudAccountId: null })
-    .where(eq(t.users.id, param(t.users.id, 'id')))
+    .where(inWorkspace(t.users, eq(t.users.id, param(t.users.id, 'id'))))
     .prepare(),
 )
 
@@ -301,18 +325,18 @@ export type MemberAccessListener = (change: MemberAccessChange) => void
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
 
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     private readonly machinesRepository = new MachinesRepository(queries),
     private readonly grantsRepository = new GrantsRepository(queries),
     // LEGACY(remove-after: 2027-06): end pre-upgrade sign-ins on a membership change.
     private readonly oldSignIns = new SignInCarryOverRepository(queries),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -386,8 +410,8 @@ export class UsersRepository {
   }
 
   /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

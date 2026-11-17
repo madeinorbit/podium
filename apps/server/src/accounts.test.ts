@@ -31,7 +31,7 @@ function emptyAccounts(): AccountsRepository {
   const db = openMigratedTestDatabase()
   const queries = stageASeam(db)
   secrets = new ServerSecretsRepository(workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
-  return new AccountsRepository(queries)
+  return new AccountsRepository(workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
 }
 
 beforeEach(() => {

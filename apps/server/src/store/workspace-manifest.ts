@@ -507,6 +507,20 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
     },
   ],
   [
+    'apps/server/src/store/machine-record-context.ts',
+    {
+      reason:
+        "a workspace's machine record context; the fleet channel and update execution it reads and records are install keys of meta (POD-7019)",
+    },
+  ],
+  [
+    'apps/server/src/store/identity-upgrade.ts',
+    {
+      reason:
+        'the boot identity import of the one workspace local; the pre-upgrade password and invitation tables it reads are install tables (POD-7019)',
+    },
+  ],
+  [
     'apps/server/src/store/server-secrets.ts',
     {
       reason:

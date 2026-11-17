@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE CHECKOUTS ON EACH MACHINE AT REST (POD-6644): the `checkouts` table, one
  * row per registered repository root and per worktree of one, keyed
@@ -14,18 +15,20 @@ import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/mode
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CheckoutReach } from '../checkout-reach'
 import type {
-  StoreDrizzle,
-  StoreQueries,
   StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** One stored checkout. */
@@ -60,7 +63,8 @@ const checkoutsOfMachine = prepared((db, t) =>
     .select(COLUMNS(t))
     .from(t.checkouts)
     .where(
-      and(
+      inWorkspace(
+        t.checkouts,
         eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
         isNull(t.checkouts.removedAt),
       ),
@@ -74,7 +78,7 @@ const allCheckouts = prepared((db, t) =>
   db
     .select(COLUMNS(t))
     .from(t.checkouts)
-    .where(isNull(t.checkouts.removedAt))
+    .where(inWorkspace(t.checkouts, isNull(t.checkouts.removedAt)))
     .orderBy(asc(t.checkouts.machineId), asc(t.checkouts.path))
     .prepare(),
 )
@@ -85,7 +89,13 @@ const checkoutsOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select(COLUMNS(t))
     .from(t.checkouts)
-    .where(and(inListOf(t.checkouts.machineId, size), isNull(t.checkouts.removedAt)))
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        isNull(t.checkouts.removedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -95,7 +105,13 @@ const pathsOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({ machineId: t.checkouts.machineId, path: t.checkouts.path, root: t.checkouts.root })
     .from(t.checkouts)
-    .where(and(inListOf(t.checkouts.machineId, size), isNull(t.checkouts.removedAt)))
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        isNull(t.checkouts.removedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -107,7 +123,13 @@ const rootPathsOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({ machineId: t.checkouts.machineId, path: t.checkouts.path })
     .from(t.checkouts)
-    .where(and(inListOf(t.checkouts.machineId, size), eq(t.checkouts.root, t.checkouts.path)))
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        eq(t.checkouts.root, t.checkouts.path),
+      ),
+    )
     .prepare(),
 )
 
@@ -120,7 +142,7 @@ const reachOfMachines = preparedFamily((db, t, size: number) =>
       reach: t.checkoutReach.reach,
     })
     .from(t.checkoutReach)
-    .where(inListOf(t.checkoutReach.machineId, size))
+    .where(inWorkspace(t.checkoutReach, inListOf(t.checkoutReach.machineId, size)))
     .prepare(),
 )
 
@@ -129,6 +151,7 @@ const upsertReach = preparedFamily((db, t, size: number) =>
     .insert(t.checkoutReach)
     .values(
       Array.from({ length: size }, (_, i) => ({
+        workspaceId: WORKSPACE,
         userId: sql.placeholder(`userId${i}`),
         machineId: sql.placeholder(`machineId${i}`),
         reach: sql.placeholder(`reach${i}`),
@@ -146,11 +169,14 @@ const deleteReach = preparedFamily((db, t, size: number) =>
   db
     .delete(t.checkoutReach)
     .where(
-      or(
-        ...Array.from({ length: size }, (_, i) =>
-          and(
-            eq(t.checkoutReach.userId, param(t.checkoutReach.userId, `userId${i}`)),
-            eq(t.checkoutReach.machineId, param(t.checkoutReach.machineId, `machineId${i}`)),
+      inWorkspace(
+        t.checkoutReach,
+        or(
+          ...Array.from({ length: size }, (_, i) =>
+            and(
+              eq(t.checkoutReach.userId, param(t.checkoutReach.userId, `userId${i}`)),
+              eq(t.checkoutReach.machineId, param(t.checkoutReach.machineId, `machineId${i}`)),
+            ),
           ),
         ),
       ),
@@ -168,7 +194,7 @@ const lostOfMachines = preparedFamily((db, t, size: number) =>
       root: t.checkoutLost.root,
     })
     .from(t.checkoutLost)
-    .where(inListOf(t.checkoutLost.machineId, size))
+    .where(inWorkspace(t.checkoutLost, inListOf(t.checkoutLost.machineId, size)))
     .prepare(),
 )
 
@@ -177,6 +203,7 @@ const insertLost = preparedFamily((db, t, size: number) =>
     .insert(t.checkoutLost)
     .values(
       Array.from({ length: size }, (_, i) => ({
+        workspaceId: WORKSPACE,
         userId: sql.placeholder(`userId${i}`),
         machineId: sql.placeholder(`machineId${i}`),
         path: sql.placeholder(`path${i}`),
@@ -192,12 +219,15 @@ const deleteLost = preparedFamily((db, t, size: number) =>
   db
     .delete(t.checkoutLost)
     .where(
-      or(
-        ...Array.from({ length: size }, (_, i) =>
-          and(
-            eq(t.checkoutLost.userId, param(t.checkoutLost.userId, `userId${i}`)),
-            eq(t.checkoutLost.machineId, param(t.checkoutLost.machineId, `machineId${i}`)),
-            eq(t.checkoutLost.path, param(t.checkoutLost.path, `path${i}`)),
+      inWorkspace(
+        t.checkoutLost,
+        or(
+          ...Array.from({ length: size }, (_, i) =>
+            and(
+              eq(t.checkoutLost.userId, param(t.checkoutLost.userId, `userId${i}`)),
+              eq(t.checkoutLost.machineId, param(t.checkoutLost.machineId, `machineId${i}`)),
+              eq(t.checkoutLost.path, param(t.checkoutLost.path, `path${i}`)),
+            ),
           ),
         ),
       ),
@@ -237,7 +267,7 @@ const checkoutPlaceholders = {
 const upsertCheckout = prepared((db, t) =>
   db
     .insert(t.checkouts)
-    .values(checkoutPlaceholders)
+    .values({ workspaceId: WORKSPACE, ...checkoutPlaceholders })
     .onConflictDoUpdate({
       target: [t.checkouts.machineId, t.checkouts.path],
       set: {
@@ -262,7 +292,8 @@ const tombstoneRoot = prepared((db, t) =>
     .update(t.checkouts)
     .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
     .where(
-      and(
+      inWorkspace(
+        t.checkouts,
         eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
         eq(t.checkouts.path, param(t.checkouts.path, 'path')),
       ),
@@ -274,7 +305,8 @@ const deleteCheckout = prepared((db, t) =>
   db
     .delete(t.checkouts)
     .where(
-      and(
+      inWorkspace(
+        t.checkouts,
         eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
         eq(t.checkouts.path, param(t.checkouts.path, 'path')),
       ),
@@ -298,16 +330,16 @@ export function checkoutWireOf(row: CheckoutRow): CheckoutWire {
 }
 
 export class CheckoutsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** One machine's live checkouts, by path. */

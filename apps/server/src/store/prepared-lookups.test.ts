@@ -272,7 +272,8 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
 
     // The same two reads. b69f2d5917 batches user ids through IN,
     // including a single-key lookup; the executor still sees the same work.
-    // The session read names its workspace first (POD-7015).
+    // The session read names its workspace first (POD-7015), and so does the account read
+    // (POD-7019).
     await db
       .select()
       .from(sessionsTable)
@@ -287,7 +288,7 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     await db
       .select()
       .from(users)
-      .where(inArray(users.id, [ALICE]))
+      .where(and(eq(users.workspaceId, SELF_HOSTED_WORKSPACE_ID), inArray(users.id, [ALICE])))
       .all()
     expect(prepared).toEqual(seen.splice(0).map(shape))
     // A probe that saw nothing agrees with a probe that saw nothing.
@@ -435,7 +436,9 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     expect(
       countOf('from "sessions" where (("sessions"."workspace_id" = ?) and ("sessions"."id" = ?))'),
     ).toBe(2)
-    expect(countOf('from "users" where "users"."id" in (?)')).toBe(2)
+    expect(
+      countOf('from "users" where (("users"."workspace_id" = ?) and ("users"."id" in (?)))'),
+    ).toBe(2)
   })
 
   it('refuses a write on a detached reader, the same way it always did', async () => {

@@ -1,11 +1,21 @@
 // LEGACY(remove-after: 2027-06): boot-only readers of pre-upgrade passwords and invitations; removal ends import from older databases.
-/** The boot import is the only reader of pre-identity credentials and links. */
+// workspace-scoped (POD-6959)
+/**
+ * The boot import is the only reader of pre-identity credentials and links. Those
+ * pre-upgrade tables are the install's (read once, for the one workspace `local`), so their
+ * reads are global; the retired product sessions are the workspace's own.
+ */
 import { asUserId } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { memberInvites, userCredentials } from '../migrations/identity-import-schema'
-import { prepared, type StoreQueries } from './executor/sync-drizzle'
+import {
+  inWorkspace,
+  prepared,
+  preparedGlobal,
+  type WorkspaceQueries,
+} from './executor/sync-drizzle'
 
-const passwords = prepared((db) =>
+const passwords = preparedGlobal((db) =>
   db
     .select({ userId: userCredentials.userId, passwordHash: userCredentials.passwordHash })
     .from(userCredentials)
@@ -14,21 +24,26 @@ const passwords = prepared((db) =>
     )
     .prepare(),
 )
-const links = prepared((db) =>
+const links = preparedGlobal((db) =>
   db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).prepare(),
 )
 const retiredSessions = prepared((db, t) =>
   db
     .delete(t.clientSessions)
-    .where(inArray(t.clientSessions.label, ['upstream', 'server-transfer-claim']))
+    .where(
+      inWorkspace(
+        t.clientSessions,
+        inArray(t.clientSessions.label, ['upstream', 'server-transfer-claim']),
+      ),
+    )
     .prepare(),
 )
 
 export class IdentityUpgradeRepository {
-  constructor(private readonly queries: StoreQueries) {}
+  constructor(private readonly queries: WorkspaceQueries) {}
 
   async passwordHashes() {
-    const rows = await passwords(this.queries.rootDb).all()
+    const rows = await passwords(this.queries.db).all()
     return new Map(
       rows.flatMap(({ userId, passwordHash }) =>
         passwordHash ? [[asUserId(userId), passwordHash] as const] : [],
@@ -37,9 +52,9 @@ export class IdentityUpgradeRepository {
   }
 
   async pendingLinks() {
-    return await links(this.queries.rootDb).all()
+    return await links(this.queries.db).all()
   }
   async retireSessions() {
-    return Number((await retiredSessions(this.queries.rootDb).run()).changes)
+    return Number((await retiredSessions(this.queries.db).run()).changes)
   }
 }

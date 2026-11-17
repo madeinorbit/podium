@@ -1,6 +1,8 @@
 import { asAccountId, asMachineId, asUserId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { AccountsRepository, SHARED_WITH_EVERYONE } from '../../store/accounts'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { stageASeam } from '../../test-support/stage-a-seam'
 import {
@@ -20,7 +22,7 @@ async function portsWith(
   ...rows: Parameters<AccountsRepository['upsert']>[0][]
 ): Promise<AccountEnvPorts & { repo: AccountsRepository }> {
   const db = openMigratedTestDatabase()
-  const repo = new AccountsRepository(stageASeam(db))
+  const repo = new AccountsRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
   for (const r of rows) await repo.upsert(r)
   const custody = new Map([
     [ALICE_MACHINE, ALICE],

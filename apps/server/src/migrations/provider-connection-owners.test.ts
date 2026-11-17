@@ -13,7 +13,9 @@ import { asAccountId, asMachineId, asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { resolveAccountEnv } from '../modules/sessions/account-env'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { AccountsRepository } from '../store/accounts'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -53,7 +55,11 @@ const seedConnection = (db: SqlDatabase, id: string, provider: string, credentia
     .run(id, provider, credential)
 
 const ownership = (db: SqlDatabase) =>
-  db.prepare('SELECT id, ref, owner_user_id AS owner, shared_with AS sharedWith FROM accounts ORDER BY id').all()
+  db
+    .prepare(
+      'SELECT id, ref, owner_user_id AS owner, shared_with AS sharedWith FROM accounts ORDER BY id',
+    )
+    .all()
 
 /** The instance's existing first admin: the one member every database has. */
 const firstAdmin = (db: SqlDatabase) =>
@@ -79,7 +85,9 @@ describe(`migration ${MIGRATION}`, () => {
         { id: 'managed:openai', ref: 'managed:openai', owner: member, sharedWith: '["*"]' },
       ])
       // Exactly as before: the member's spawn on their machine carries the key.
-      const accounts = new AccountsRepository(stageASeam(db))
+      const accounts = new AccountsRepository(
+        workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+      )
       const env = await resolveAccountEnv(
         {
           accounts,

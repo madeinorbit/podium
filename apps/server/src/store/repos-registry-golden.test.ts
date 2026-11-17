@@ -30,9 +30,10 @@ import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { probeStatements } from './executor'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { syncQueriesOver, workspaceQueries } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
 
@@ -61,7 +62,11 @@ beforeEach(() => {
   probeStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
-  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, new TableWrites())
+  repos = new ReposRepository(
+    workspaceQueries(syncQueriesOver(rawDb), SELF_HOSTED_WORKSPACE_ID),
+    () => {},
+    new TableWrites(),
+  )
 })
 
 describe('ReposRepository.invalidateRegistry', () => {
@@ -178,8 +183,8 @@ describe('ReposRepository.repoIdResolver', () => {
     await repos.addRepo('/same', remote, undefined, 'BB')
     const rows = await repos.listRepos()
     const resolve = await repos.repoIdResolver()
-    expect(resolve('/same', HOST)).toBe(rows.find(r => r.machineId === HOST)?.repoId)
-    expect(resolve('/same', remote)).toBe(rows.find(r => r.machineId === remote)?.repoId)
+    expect(resolve('/same', HOST)).toBe(rows.find((r) => r.machineId === HOST)?.repoId)
+    expect(resolve('/same', remote)).toBe(rows.find((r) => r.machineId === remote)?.repoId)
     expect(resolve('/same', HOST)).not.toBe(resolve('/same', remote))
   })
 
@@ -237,7 +242,9 @@ describe('ReposRepository.issueRepoIdResolver', () => {
     expect(resolve('/r', PIN)).toBe(reported)
     expect(resolve('/r/sub', PIN)).toBe(reported)
     // The session-side rule is unchanged: scoped to the pin, it still derives.
-    expect((await repos.repoIdResolver())('/r', PIN)).toBe(deriveRepoId({ machineId: PIN, path: '/r' }))
+    expect((await repos.repoIdResolver())('/r', PIN)).toBe(
+      deriveRepoId({ machineId: PIN, path: '/r' }),
+    )
   })
 
   it("prefers the pin's own report of the same path", async () => {
@@ -246,7 +253,7 @@ describe('ReposRepository.issueRepoIdResolver', () => {
     await repos.addRepo('/same', HOST, 'https://example.test/a.git', 'AA')
     await repos.addRepo('/same', PIN, 'https://example.test/b.git', 'BB')
     const rows = await repos.listRepos()
-    const pinned = rows.find(r => r.machineId === PIN)?.repoId
+    const pinned = rows.find((r) => r.machineId === PIN)?.repoId
     const resolve = await repos.issueRepoIdResolver()
 
     expect(pinned).not.toBe(deriveRepoId({ machineId: PIN, path: '/same' }))

@@ -108,6 +108,16 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['quota_windows', 'Rolling usage windows: a few rows per provider account per week.'],
   ['offers', 'At most one live offer per session, removed when cleared.'],
   ['tab_order', 'One row per person per worktree they arranged.'],
+  // The end-of-period deletes of these two scan by workspace until the key migration (C1,
+  // POD-7024) leads their keys with workspace_id; then they are keyed range deletes.
+  [
+    'client_sessions',
+    'Sign-ins from before shared sign-in (POD-6751): nothing inserts one any more; a row leaves when it is consumed, expires or the period ends.',
+  ],
+  [
+    'carried_sign_ins',
+    'One carry record per consumed old sign-in, kept ten minutes and swept when it expires.',
+  ],
 ])
 
 /**
