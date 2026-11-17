@@ -14,7 +14,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
 import { RecordRequest } from '@podium/client-graph/requested-records'
-import type { CredentialView, MachineId } from '@podium/model'
+import type { AccessRefusal, CredentialView, MachineId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -123,4 +123,13 @@ export function useHarnessAccepts(
     (harness) => descriptors.find((d) => d.kind === harness)?.accepts ?? NO_LINES,
     [descriptors],
   )
+}
+
+/** Why this session's start was refused for its credential, from its launch record. */
+export function usePaneLaunchRefusal(sessionId: SessionId | undefined): AccessRefusal | undefined {
+  const read = useCallback(
+    (pool: MobxPool) => (sessionId ? pool.sessionObject(sessionId).launchRefusal : undefined),
+    [sessionId],
+  )
+  return useWorklistPoolProjection(read, undefined)
 }

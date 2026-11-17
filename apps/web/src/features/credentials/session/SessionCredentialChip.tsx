@@ -45,7 +45,11 @@ import {
   sessionCredentialLine,
 } from './session-credential-facts'
 import { switchOutcome } from './switch-outcome'
-import { useHarnessAccepts, useSessionCredentials } from './use-session-credentials'
+import {
+  useHarnessAccepts,
+  usePaneLaunchRefusal,
+  useSessionCredentials,
+} from './use-session-credentials'
 
 /** The session facts the chip reads. */
 export type ChipSession = Pick<
@@ -137,15 +141,38 @@ export function SwitchCredentialMenu({
   )
 }
 
-/** The chip, with its data passed in. */
+const CHIP_CLASS =
+  'inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-[7px] px-1.5 text-[12px] leading-none text-text-faint'
+
+/**
+ * The chip, with its data passed in. A start refused for its credential never
+ * ran (§9 "Choosing for a session"): it names the credential the person chose,
+ * as a readout with nothing to switch, and with none chosen it shows nothing,
+ * never "Its own login".
+ */
 export function SessionCredentialChipView({
   className,
+  refused = false,
   ...props
-}: SwitchMenuProps & { className?: string }): JSX.Element {
+}: SwitchMenuProps & { className?: string; refused?: boolean }): JSX.Element | null {
   const view = props.views?.find((v) => v.id === props.session.credentialId)
   const line = sessionCredentialLine(props.session, view)
   const kind = line.kind ? KIND_WORDS[line.kind] : undefined
   const text = kind && line.kind !== 'own-login' ? `${line.label} · ${kind}` : line.label
+  if (refused) {
+    if (!props.session.credentialId) return null
+    return (
+      <span
+        data-testid="session-credential-readout"
+        title={`Started on ${text}.`}
+        className={cn(CHIP_CLASS, className)}
+      >
+        <KeyRound size={12} className="flex-none" aria-hidden="true" />
+        <span className="sr-only">Credential: </span>
+        <span className="min-w-0 truncate">{text}</span>
+      </span>
+    )
+  }
   return (
     <SwitchCredentialMenu
       {...props}
@@ -155,10 +182,7 @@ export function SessionCredentialChipView({
           data-pressable
           aria-label={`Credential: ${text}`}
           title={`Runs on ${text}. Switch credential.`}
-          className={cn(
-            'inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-[7px] px-1.5 text-[12px] leading-none text-text-faint hover:text-text-strong',
-            className,
-          )}
+          className={cn(CHIP_CLASS, 'hover:text-text-strong', className)}
         >
           <KeyRound size={12} className="flex-none" aria-hidden="true" />
           <span className="min-w-0 truncate">{text}</span>
@@ -215,10 +239,12 @@ export const SessionCredentialChip = observer(function SessionCredentialChip({
     credentials.views,
     credentials.reload,
   )
+  const refusal = usePaneLaunchRefusal(session?.sessionId as SessionId | undefined)
   if (!session?.agentKind || session.agentKind === 'shell') return null
   return (
     <SessionCredentialChipView
       session={session}
+      refused={refusal !== undefined}
       views={credentials.views}
       accepts={acceptsOf(session.agentKind)}
       custodianOf={credentials.custodianOf}

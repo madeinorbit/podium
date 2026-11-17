@@ -155,3 +155,29 @@ describe('acceptance 3: the outcome of a switch', () => {
     expect(handoff.openSessionId).toBe('session-2')
   })
 })
+
+describe('a start refused for its credential (POD-7067)', () => {
+  const refused = (s: ChipSession) =>
+    render(
+      <SessionCredentialChipView
+        session={s}
+        views={[key, max, pro, openai]}
+        accepts={ACCEPTS}
+        custodianOf={custodianOf}
+        onSwitch={vi.fn()}
+        refused
+      />,
+    )
+
+  it('names the credential chosen, and offers no switch', () => {
+    refused(session({ status: 'exited', credentialId: key.id }))
+    expect(screen.getByTestId('session-credential-readout').textContent).toContain('Work key')
+    expect(screen.queryByRole('button', { name: /^Credential/ })).toBeNull()
+  })
+
+  it('shows nothing when no credential was named, never "Its own login"', () => {
+    const { credentialId: _none, ...bare } = session({ status: 'exited' })
+    const { container } = refused(bare)
+    expect(container.textContent).toBe('')
+  })
+})

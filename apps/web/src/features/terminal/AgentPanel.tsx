@@ -979,7 +979,8 @@ export const AgentPanel = observer(function AgentPanel({
           </span>
         </div>
       )}
-      {session?.condition === 'logged-out' && (
+      {/* A start refused for its credential never ran: no login to ask for. */}
+      {session?.condition === 'logged-out' && !launchRefusal && (
         <SessionLoginBar agentKind={session.agentKind} terminalOutlook={terminalOutlook} />
       )}
       {session && <SessionCredentialNotice session={session} />}

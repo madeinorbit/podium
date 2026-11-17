@@ -35,6 +35,8 @@ import { useOpenCredentials } from './SessionCredentialNotice'
 import { type CredentialChoice, sessionCredentialChoices } from './session-credential-facts'
 import { useHarnessAccepts, useSessionCredentials } from './use-session-credentials'
 
+export { usePaneLaunchRefusal } from './use-session-credentials'
+
 /** Refusals renewing the credential can cure. */
 const RENEWABLE: ReadonlySet<AccessRefusal> = new Set(['needs-attention'])
 
@@ -92,15 +94,6 @@ interface LaunchFacts {
   readonly draftIssue?: { readonly repoPath: string; readonly issueId: IssueId }
   readonly model?: string
   readonly effort?: string
-}
-
-/** Why this session's start was refused for its credential, from its launch record. */
-export function usePaneLaunchRefusal(sessionId: SessionId | undefined): AccessRefusal | undefined {
-  const read = useCallback(
-    (pool: MobxPool) => (sessionId ? pool.sessionObject(sessionId).launchRefusal : undefined),
-    [sessionId],
-  )
-  return useWorklistPoolProjection(read, undefined)
 }
 
 export const RefusedLaunchBanner = observer(function RefusedLaunchBanner({

@@ -1,7 +1,7 @@
 import { ConversationService } from '@podium/client-core/conversation'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId, type CredentialView } from '@podium/model'
+import { type AccessRefusal, asSessionId, type CredentialView } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -90,7 +90,12 @@ vi.mock('@/features/credentials/session/use-session-credentials', async (importO
     custodianOf: () => 'fixture-user',
     reload: () => {},
   }),
+  // The refusal a failed launch record names, by session (the record itself is
+  // the pool's effect model, which this fixture does not carry).
+  usePaneLaunchRefusal: (sessionId: string | undefined) =>
+    sessionId ? launchRefusals[sessionId] : undefined,
 }))
+let launchRefusals: Record<string, AccessRefusal> = {}
 
 let storeSessions: SessionView[] = []
 let storeMachines: Array<{ id: string; name: string; hostname: string; online: boolean }> = []
@@ -205,6 +210,7 @@ let root: Root
 
 beforeEach(() => {
   credentialViews = undefined
+  launchRefusals = {}
   storeSessions = [meta({})]
   storeMachines = []
   storePanelMode = { s1: 'native' }
@@ -350,6 +356,50 @@ describe('AgentPanel login bar and the session credential', () => {
       expect.stringContaining('CI token needs attention: It expired on Nov 10.'),
     )
     expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toContain('Renew')
+  })
+})
+
+// A start refused for its credential never ran, and no session row landed for
+// it (POD-7067): the pane reads the painted session alone, on a machine whose
+// own Claude login is out. It never says the session runs on its own login,
+// and never asks for that login.
+describe('AgentPanel on a start refused for its credential (POD-7067)', () => {
+  const token = credentialView({ label: 'Placeholder token', type: 'anthropic.claude-token' })
+  const refusedOn = (credentialId?: string) =>
+    meta({
+      status: 'exited',
+      spawnFailure: 'not encrypted',
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+  const chip = () =>
+    container.querySelector(
+      '[aria-label^="Credential"], [data-testid="session-credential-readout"]',
+    )
+
+  it('shows no login bar and no "Its own login" chip when no credential was named', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn()]
+    await render({ active: true })
+    const text = statusText().join(' ')
+    expect(text).toContain('This session did not start.')
+    expect(text).not.toContain("isn't logged in")
+    expect(chip()).toBeNull()
+    expect(container.textContent).not.toContain('Its own login')
+  })
+
+  it('names the credential chosen, as a readout with nothing to switch', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn(token.id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    expect(chip()?.textContent).toContain('Placeholder token')
+    expect(chip()?.tagName).not.toBe('BUTTON')
   })
 })
 

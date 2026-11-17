@@ -66,6 +66,7 @@ import {
   asIssueId,
   asMutationId,
   asSessionId,
+  type CredentialId,
   type EffectRecordWire,
   type IssueBoardStage,
   type IssueId,
@@ -194,6 +195,8 @@ interface LaunchInput {
   readonly draftIssue?: { readonly repoPath: string; readonly issueId: IssueId }
   /** A plain start's existing task (POD-6523): joined, never painted. */
   readonly issueId?: IssueId
+  /** The credential a `session.launch` chose; null is its harness's own login. */
+  readonly credentialId?: CredentialId | null
   // `issue.start`: the create's fields (the description only while queued here).
   readonly sessionId?: SessionId
   readonly repoPath?: string
@@ -770,6 +773,7 @@ export class PoolLaunches {
         agentKind,
         cwd,
         ...(machineId !== undefined ? { machineId } : {}),
+        ...(input.credentialId ? { credentialId: input.credentialId } : {}),
         nowIso: launch.createdAt,
       } as Parameters<typeof startingSessionRow>[0]),
       ...(ended

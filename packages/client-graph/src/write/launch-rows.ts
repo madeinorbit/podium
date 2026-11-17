@@ -4,10 +4,12 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  *  which `IssueModel` reads off the painted row until the record and its body
  *  records arrive (POD-6921). */
 export type LaunchIssueRow = IssueViewModel & { description: string; brief?: string }
+
 import type { SessionValues, SessionView } from '@podium/client-core/session-values'
 import {
   type AgentKind,
   actorUser,
+  type CredentialId,
   DRAFT_ISSUE_TITLE,
   type IssueBoardStage,
   type IssueId,
@@ -40,6 +42,10 @@ export interface LaunchRowArgs {
   agentKind: AgentKind
   cwd: string
   machineId?: MachineId
+  /** The credential the start chose (credential management §9): the painted
+   *  session names it, and never reads as on its harness's own login, also
+   *  when the start is refused and no row ever lands. */
+  credentialId?: CredentialId
   /** ISO timestamp; injected so the builders stay pure/testable. */
   nowIso: string
 }
@@ -57,6 +63,7 @@ export function startingSessionRow(args: LaunchRowArgs): StartingSessionRow {
     title: machinePathBasename(args.cwd) || args.cwd,
     cwd: args.cwd,
     ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
+    ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     status: 'starting',
     createdAt: args.nowIso,
     lastActiveAt: args.nowIso,
