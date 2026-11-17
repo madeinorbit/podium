@@ -4,16 +4,19 @@
  * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
  * repositories with its own issues, labels, dependencies, comments, text history, mail,
  * markers, session letters, panel records and git states.
- * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
- * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
- * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
- * both are marked below, and the rest of the conversion is POD-7025's.
+ * Both workspaces hold the SAME ids and natural keys (POD-7025): the same issues, repository,
+ * path, machine, people, label names, comments, mail and panel items. Every key leads with
+ * workspace_id (POD-7024), so the same id is two rows, told apart only by the workspace. The
+ * content differs (titles, texts, bodies, the owner, timestamps, panel positions, the labels
+ * an issue carries, git states), so a read that crossed over would answer the other
+ * workspace's content. Where a case needs an id the other workspace does not hold, it plants
+ * one only the other holds (`only-<tag>`).
  *
  * For every repository method of the group (issues.ts with its listings, the panel and the git
  * states):
  *   - a read answers only its own workspace's rows;
- *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
- *     a write in A addressed at B's own ids, which must find nothing to change;
+ *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, both for
+ *     the ids the two share and for ids only the other holds, which must find nothing to change;
  *   - issue numbers count per (workspace, repository).
  */
 
@@ -25,8 +28,6 @@ import {
   asUserId,
   type IssueId,
   type IssuePanelTodoWire,
-  type MachineId,
-  type RepoId,
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -40,22 +41,33 @@ import type { IssueRow } from './types'
 type Tag = 'a' | 'b'
 const TAGS = ['a', 'b'] as const
 const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
-const AT = '2026-11-17T10:00:00.000Z'
+/** Each workspace's own timestamp: content, not a key. */
+const AT_OF: Record<Tag, string> = { a: '2026-11-17T10:00:00.000Z', b: '2026-11-17T10:30:00.000Z' }
 const LATER = '2026-11-17T11:00:00.000Z'
 const scope = fixtureWriteScope()
 
 const other = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
-const user = (tag: Tag, name = 'alice'): UserId => asUserId(`user:${tag}-${name}`)
-const iss = (tag: Tag, n: number): IssueId => asIssueId(`${tag}-iss-${n}`)
-const repo = (tag: Tag): RepoId => asRepoId(`${tag}-repo`)
-const root = (tag: Tag) => `/repo-${tag}`
-const machine = (tag: Tag): MachineId => asMachineId(`${tag}-machine`)
-const label = (tag: Tag, name: string) => `${tag}-${name}`
-const comment = (tag: Tag, n: number) => `${tag}-comment-${n}`
-const message = (tag: Tag, n: number) => `${tag}-mail-${n}`
-const todo = (tag: Tag, n: number) => asIssuePanelItemId(`${tag}-todo-${n}`)
-const artifact = (tag: Tag, n: number) => asIssuePanelItemId(`${tag}-artifact-${n}`)
-const deferred = (tag: Tag, n: number) => asIssuePanelItemId(`${tag}-deferred-${n}`)
+// The same ids and natural keys in both workspaces.
+const user = (name = 'alice'): UserId => asUserId(`user:${name}`)
+const ALICE = user()
+const BOB = user('bob')
+const iss = (n: number): IssueId => asIssueId(`iss-${n}`)
+const REPO = asRepoId('repo-1')
+const ROOT = '/repo'
+const MACHINE = asMachineId('machine-1')
+const comment = (n: number) => `comment-${n}`
+const message = (n: number) => `mail-${n}`
+const todo = (n: number) => asIssuePanelItemId(`todo-${n}`)
+const artifact = (n: number) => asIssuePanelItemId(`artifact-${n}`)
+const deferred = (n: number) => asIssuePanelItemId(`deferred-${n}`)
+/** The issues' owner: the same people in both, a different owner per workspace. */
+const owner = (tag: Tag): UserId => (tag === 'a' ? ALICE : BOB)
+/** The labels issue 1 carries: the same names, `ui` only in A. */
+const labelsOf = (tag: Tag): string[] => (tag === 'a' ? ['bug', 'ui'] : ['bug'])
+/** The position of the panel items: content, so `next` tells the workspaces apart. */
+const position = (tag: Tag): number => (tag === 'a' ? 0 : 1)
+// An id only `tag`'s workspace holds.
+const only = (tag: Tag): IssueId => asIssueId(`only-${tag}`)
 
 let opened: SessionStore | undefined
 
@@ -102,19 +114,19 @@ function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
   )
 }
 
-/** Every string in `value` that names a seeded thing starts with the workspace's tag. */
+/** No content of the other workspace anywhere in `value`. */
 function onlyOwn(value: unknown, tag: Tag): void {
+  const o = other(tag)
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
-    new RegExp(
-      `\\b${other(tag)}-(iss-|repo|machine|alice|bob|bug|ui|comment|mail|todo|artifact|deferred|issue|text)|"${other(tag)} `,
-    ),
+    new RegExp(`"${o} |\\b${o}-(artifact|issue-branch)|only-${o}|"${WS[o]}"`),
   )
+  expect(text).not.toContain(AT_OF[o])
 }
 
 /**
- * One workspace's issues, in its own repository `<tag>-repo` at `/repo-<tag>`:
- *   1 parent, open, top level, labels bug+ui, deferred;
+ * One workspace's issues, in the repository `repo-1` at `/repo` (the same in both):
+ *   1 parent, open, top level, labelled, deferred;
  *   2 child of 1, blocked by 3, with a worktree on the machine;
  *   3 child of 1, done;
  *   4 top level, deleted;
@@ -122,12 +134,12 @@ function onlyOwn(value: unknown, tag: Tag): void {
  */
 function issue(tag: Tag, n: number, patch: Partial<IssueRow> = {}): IssueRow {
   return issueRowFixture({
-    id: iss(tag, n),
-    ownerUserId: user(tag),
-    createdByActor: user(tag),
-    createdByOnBehalfOf: user(tag),
-    repoPath: root(tag),
-    repoId: repo(tag),
+    id: iss(n),
+    ownerUserId: owner(tag),
+    createdByActor: owner(tag),
+    createdByOnBehalfOf: owner(tag),
+    repoPath: ROOT,
+    repoId: REPO,
     seq: n,
     title: `${tag} issue ${n}`,
     description: `${tag} text ${n}`,
@@ -149,103 +161,107 @@ function issue(tag: Tag, n: number, patch: Partial<IssueRow> = {}): IssueRow {
   } as Partial<IssueRow> as never)
 }
 
-async function seed(store: SessionStore, tag: Tag): Promise<void> {
-  const s = store.issues
-  const raw = rawDb(store)
-  raw
+function insertMachine(store: SessionStore, tag: Tag, id: string): void {
+  rawDb(store)
     .prepare(
       `INSERT INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(WS[tag], machine(tag), `${tag} machine`, `${tag}-host`, `${tag}-token`, AT, AT)
+    .run(WS[tag], id, `${tag} machine`, `${tag}-host`, `${tag}-token-${id}`, AT_OF[tag], AT_OF[tag])
+}
+
+async function seed(store: SessionStore, tag: Tag): Promise<void> {
+  const s = store.issues
+  const at = AT_OF[tag]
+  insertMachine(store, tag, MACHINE)
   await s.upsertIssue(scope, issue(tag, 1, { deferUntil: LATER, sortKey: 'm' }))
   await s.upsertIssue(
     scope,
     issue(tag, 2, {
-      parentId: iss(tag, 1),
+      parentId: iss(1),
       stage: 'in_progress',
-      worktreePath: `${root(tag)}/.worktrees/two`,
-      machineId: machine(tag),
+      worktreePath: `${ROOT}/.worktrees/two`,
+      machineId: MACHINE,
     }),
   )
-  await s.upsertIssue(scope, issue(tag, 3, { parentId: iss(tag, 1), stage: 'done' }))
-  await s.upsertIssue(scope, issue(tag, 4, { deletedAt: AT }))
-  await s.upsertIssue(scope, issue(tag, 5, { worktreePath: `${root(tag)}/.worktrees/five` }))
+  await s.upsertIssue(scope, issue(tag, 3, { parentId: iss(1), stage: 'done' }))
+  await s.upsertIssue(scope, issue(tag, 4, { deletedAt: at }))
+  await s.upsertIssue(scope, issue(tag, 5, { worktreePath: `${ROOT}/.worktrees/five` }))
 
-  await s.setIssueLabels(iss(tag, 1), [label(tag, 'bug'), label(tag, 'ui')])
-  await s.addIssueDep(iss(tag, 2), iss(tag, 3))
-  await s.addIssueDep(iss(tag, 2), iss(tag, 1), 'related')
+  await s.setIssueLabels(iss(1), labelsOf(tag))
+  await s.addIssueDep(iss(2), iss(3))
+  await s.addIssueDep(iss(2), iss(1), 'related')
   await s.addIssueComment({
-    id: comment(tag, 1),
-    issueId: iss(tag, 1),
-    author: user(tag),
+    id: comment(1),
+    issueId: iss(1),
+    author: owner(tag),
     body: `${tag} needle one`,
-    createdAt: AT,
+    createdAt: at,
   })
   await s.addIssueComment({
-    id: comment(tag, 2),
-    issueId: iss(tag, 2),
-    author: user(tag),
+    id: comment(2),
+    issueId: iss(2),
+    author: owner(tag),
     body: `${tag} needle two`,
     createdAt: LATER,
   })
   await s.appendIssueTextRevision({
-    issueId: iss(tag, 1),
+    issueId: iss(1),
     field: 'description',
     body: `${tag} text first`,
     source: 'create',
     restoredFrom: null,
     issueRevision: 1,
-    actor: user(tag),
-    onBehalfOf: user(tag),
-    createdAt: AT,
+    actor: owner(tag),
+    onBehalfOf: owner(tag),
+    createdAt: at,
   })
   for (const n of [1, 2]) {
     await s.addIssueMessage({
-      id: message(tag, n),
-      issueId: iss(tag, 1),
-      fromAuthor: user(tag),
+      id: message(n),
+      issueId: iss(1),
+      fromAuthor: owner(tag),
       body: `${tag} mail ${n}`,
-      createdAt: n === 1 ? AT : LATER,
+      createdAt: n === 1 ? at : LATER,
       status: 'unread',
       claimedBy: null,
       claimedAt: null,
     })
   }
-  await s.markIssueMessagesRead(user(tag), iss(tag, 1), [message(tag, 1)], AT)
-  await s.setIssueUserState(scope, user(tag), iss(tag, 1), { readAt: AT })
-  await s.setIssueUserState(scope, user(tag, 'bob'), iss(tag, 2), { tuckedAt: AT })
-  expect(await s.allocateSessionLetter(iss(tag, 1))).toBe('A')
+  await s.markIssueMessagesRead(ALICE, iss(1), [message(1)], at)
+  await s.setIssueUserState(scope, ALICE, iss(1), { readAt: at })
+  await s.setIssueUserState(scope, BOB, iss(2), { tuckedAt: at })
+  expect(await s.allocateSessionLetter(iss(1))).toBe('A')
 
   const panel = s.panel
   await panel.save(scope, 'issuePanelTodo', {
-    id: todo(tag, 1),
-    issueId: iss(tag, 1),
-    position: 0,
+    id: todo(1),
+    issueId: iss(1),
+    position: position(tag),
     text: `${tag} todo`,
     done: false,
   })
   await panel.save(scope, 'issuePanelArtifact', {
-    id: artifact(tag, 1),
-    issueId: iss(tag, 1),
-    position: 0,
+    id: artifact(1),
+    issueId: iss(1),
+    position: position(tag),
     path: `${tag}-artifact.png`,
-    addedAt: AT,
+    addedAt: at,
   })
   await panel.save(scope, 'issuePanelDeferred', {
-    id: deferred(tag, 1),
-    issueId: iss(tag, 1),
-    position: 0,
+    id: deferred(1),
+    issueId: iss(1),
+    position: position(tag),
     text: `${tag} deferred`,
-    addedAt: AT,
+    addedAt: at,
   })
   await panel.save(scope, 'issuePanelState', {
-    id: iss(tag, 1),
+    id: iss(1),
     text: `${tag} state`,
-    updatedAt: AT,
+    updatedAt: at,
   })
-  await s.gitStates.set(scope, iss(tag, 2), {
-    updatedAt: AT,
+  await s.gitStates.set(scope, iss(2), {
+    updatedAt: at,
     branch: `${tag}-issue-branch`,
     shared: false,
     dirtyFiles: tag === 'a' ? 1 : 2,
@@ -260,7 +276,27 @@ async function twoSeeded(): Promise<readonly [SessionStore, SessionStore]> {
   return stores
 }
 
-const ids = (rows: Iterable<{ id: string }>) => [...rows].map((row) => row.id).sort()
+/** An issue only `tag`'s workspace holds: top level, in the same repository, its own number. */
+async function plantOnly(store: SessionStore, tag: Tag): Promise<void> {
+  await store.issues.upsertIssue(
+    scope,
+    issue(tag, 6, { id: only(tag), seq: tag === 'a' ? 6 : 7, title: `${tag} only` }),
+  )
+}
+
+/** The sorted ids of `rows`, each held to its own workspace's title: the ids are the same in
+ *  both workspaces, so the title is what tells a crossed-over row. */
+function ids(rows: Iterable<{ id: string; title: string }>, tag: Tag): string[] {
+  const list = [...rows]
+  for (const row of list) expect(row.title.startsWith(`${tag} `), row.id).toBe(true)
+  return list.map((row) => row.id).sort()
+}
+/** The sorted ids of rows that carry no title, held to no other workspace's content. */
+function idsOf(rows: Iterable<{ id: string }>, tag: Tag): string[] {
+  const list = [...rows]
+  onlyOwn(list, tag)
+  return list.map((row) => row.id).sort()
+}
 const pairs = [
   ['a', 0],
   ['b', 1],
@@ -282,52 +318,51 @@ describe('the issues repository reads only its own workspace', () => {
 
   it('answers the issue row reads with its own rows', async () => {
     const stores = await twoSeeded()
+    for (const [tag, at] of pairs) await plantOnly(stores[at], tag)
     for (const [tag, at] of pairs) {
       const s = stores[at].issues
       const o = other(tag)
-      const all = [1, 2, 3, 4, 5].map((n) => iss(tag, n)).sort()
-      const live = [1, 2, 3, 5].map((n) => iss(tag, n)).sort()
+      const all = [...[1, 2, 3, 4, 5].map(iss), only(tag)].sort()
+      const live = [...[1, 2, 3, 5].map(iss), only(tag)].sort()
 
-      expect((await s.getIssue(iss(tag, 1)))?.id).toBe(iss(tag, 1))
-      expect(await s.getIssue(iss(o, 1))).toBeNull()
-      expect((await s.loadIssue(iss(tag, 2)))?.id).toBe(iss(tag, 2))
-      expect(await s.loadIssue(iss(o, 2))).toBeUndefined()
-      expect([...(await s.loadIssues([iss(tag, 1), iss(o, 1)])).keys()]).toEqual([iss(tag, 1)])
-      expect([...(await s.getIssues([iss(tag, 1), iss(o, 1)])).keys()]).toEqual([iss(tag, 1)])
-      expect((await s.getIssueLive(iss(tag, 1)))?.id).toBe(iss(tag, 1))
-      expect(await s.getIssueLive(iss(o, 1))).toBeNull()
-      expect(await s.hasIssue(iss(tag, 1))).toBe(true)
-      expect(await s.hasIssue(iss(o, 1))).toBe(false)
+      // By id: the ids both hold answer with its own row, an id only the other holds misses.
+      expect((await s.getIssue(iss(1)))?.title).toBe(`${tag} issue 1`)
+      expect(await s.getIssue(only(o))).toBeNull()
+      expect((await s.loadIssue(iss(2)))?.title).toBe(`${tag} issue 2`)
+      expect(await s.loadIssue(only(o))).toBeUndefined()
+      expect(ids((await s.loadIssues([iss(1), only(o)])).values(), tag)).toEqual([iss(1)])
+      expect(ids((await s.getIssues([iss(1), only(o)])).values(), tag)).toEqual([iss(1)])
+      expect((await s.getIssueLive(iss(1)))?.title).toBe(`${tag} issue 1`)
+      expect(await s.getIssueLive(only(o))).toBeNull()
+      expect(await s.hasIssue(iss(1))).toBe(true)
+      expect(await s.hasIssue(only(o))).toBe(false)
 
-      expect(ids(await s.listIssueRows())).toEqual(all)
-      const pages: string[] = []
-      for await (const page of s.issueRowPages(2)) pages.push(...page.map((row) => row.id))
-      expect(pages.sort()).toEqual(all)
+      expect(ids(await s.listIssueRows(), tag)).toEqual(all)
+      const pages: { id: string; title: string }[] = []
+      for await (const page of s.issueRowPages(2)) pages.push(...page)
+      expect(ids(pages, tag)).toEqual(all)
       expect((await s.listIssueParentEdges()).map((e) => e.id).sort()).toEqual(live)
 
       const refs = await s.issueRefsAtSeqs([1, 2])
-      expect([...refs.values()].flat().map((r) => r.id)).toEqual([iss(tag, 1), iss(tag, 2)])
-      expect((await s.issueRefsAt(1)).map((r) => r.id)).toEqual([iss(tag, 1)])
-      expect((await s.issueRefsAt(1, repo(tag))).map((r) => r.id)).toEqual([iss(tag, 1)])
-      expect(await s.issueRefsAt(1, repo(o))).toEqual([])
+      expect([...refs.values()].flat().map((r) => r.id)).toEqual([iss(1), iss(2)])
+      expect((await s.issueRefsAt(1)).map((r) => r.id)).toEqual([iss(1)])
+      expect((await s.issueRefsAt(1, REPO)).map((r) => r.id)).toEqual([iss(1)])
+      // The other workspace's own number in the same repository is no number here.
+      expect(await s.issueRefsAt(tag === 'a' ? 7 : 6, REPO)).toEqual([])
 
-      const closure = await s.closureOf([iss(tag, 3), iss(o, 3)])
-      expect([...closure.keys()]).toEqual([iss(tag, 3)])
-      expect(
-        [...(await s.closedIssueIdsAmong([iss(tag, 3), iss(tag, 4), iss(o, 3)]))].sort(),
-      ).toEqual([iss(tag, 3), iss(tag, 4)])
-      expect(ids(await s.liveChildrenOf([iss(tag, 1), iss(o, 1)]))).toEqual([
-        iss(tag, 2),
-        iss(tag, 3),
+      const closure = await s.closureOf([iss(3), only(o)])
+      expect([...closure.keys()]).toEqual([iss(3)])
+      expect([...(await s.closedIssueIdsAmong([iss(3), iss(4), only(o)]))].sort()).toEqual([
+        iss(3),
+        iss(4),
       ])
+      expect(ids(await s.liveChildrenOf([iss(1), only(o)]), tag)).toEqual([iss(2), iss(3)])
 
-      const onMachines = await s.liveWorktreeIssuesOnMachines([machine(tag), machine(o)])
-      expect(ids(onMachines.get(machine(tag)) ?? [])).toEqual([iss(tag, 2)])
-      expect(onMachines.get(machine(o))).toEqual([])
-      expect(ids(await s.worktreeOwnerCandidates([`${root(tag)}/.worktrees/two/src`]))).toEqual([
-        iss(tag, 2),
+      const onMachines = await s.liveWorktreeIssuesOnMachines([MACHINE])
+      expect(ids(onMachines.get(MACHINE) ?? [], tag)).toEqual([iss(2)])
+      expect(ids(await s.worktreeOwnerCandidates([`${ROOT}/.worktrees/two/src`]), tag)).toEqual([
+        iss(2),
       ])
-      expect(await s.worktreeOwnerCandidates([`${root(o)}/.worktrees/two/src`])).toEqual([])
       expect(await s.issuesMissingRepoId()).toBe(0)
     }
   })
@@ -337,64 +372,58 @@ describe('the issues repository reads only its own workspace', () => {
     for (const [tag, at] of pairs) {
       const s = stores[at].issues
       const o = other(tag)
-      const live = [1, 2, 3, 5].map((n) => iss(tag, n)).sort()
+      const live = [1, 2, 3, 5].map(iss).sort()
 
-      expect(ids(await s.listIssueRowsWhere(LIVE))).toEqual(live)
+      expect(ids(await s.listIssueRowsWhere(LIVE), tag)).toEqual(live)
       expect(
-        ids(await s.listIssueRowsWhere({ ...LIVE, repo: true }, { repoId: repo(tag) })),
+        ids(await s.listIssueRowsWhere({ ...LIVE, repo: true }, { repoId: REPO }), tag),
       ).toEqual(live)
-      expect(await s.listIssueRowsWhere({ ...LIVE, repo: true }, { repoId: repo(o) })).toEqual([])
-      expect(ids(await s.listIssueRowsWhere({ ...LIVE, state: 'blocked' }))).toEqual([])
-      expect(ids(await s.listIssueRowsWhere({ ...LIVE, state: 'closed' }))).toEqual([iss(tag, 3)])
+      expect(ids(await s.listIssueRowsWhere({ ...LIVE, state: 'blocked' }), tag)).toEqual([])
+      expect(ids(await s.listIssueRowsWhere({ ...LIVE, state: 'closed' }), tag)).toEqual([iss(3)])
       expect(
-        ids(await s.listIssueRowsWhere({ ...LIVE, label: true }, { label: label(tag, 'bug') })),
-      ).toEqual([iss(tag, 1)])
+        ids(await s.listIssueRowsWhere({ ...LIVE, label: true }, { label: 'bug' }), tag),
+      ).toEqual([iss(1)])
+      // `ui` is a label only A holds.
       expect(
-        await s.listIssueRowsWhere({ ...LIVE, label: true }, { label: label(o, 'bug') }),
-      ).toEqual([])
+        ids(await s.listIssueRowsWhere({ ...LIVE, label: true }, { label: 'ui' }), tag),
+      ).toEqual(tag === 'a' ? [iss(1)] : [])
       expect(
         ids(
-          await s.listIssueRowsWhere(
-            { ...LIVE, parents: 1 },
-            { parents: [iss(tag, 1), iss(o, 1)] },
-          ),
+          await s.listIssueRowsWhere({ ...LIVE, parents: 1 }, { parents: [iss(1), only(o)] }),
+          tag,
         ),
-      ).toEqual([iss(tag, 2), iss(tag, 3)])
+      ).toEqual([iss(2), iss(3)])
       expect(
-        ids(await s.listIssueRowsWhere({ ...LIVE, ids: 1 }, { ids: [iss(tag, 5), iss(o, 5)] })),
-      ).toEqual([iss(tag, 5)])
-      expect(ids(await s.listIssueRowsWhere({ ...LIVE, topLevel: true }))).toEqual([
-        iss(tag, 1),
-        iss(tag, 5),
+        ids(await s.listIssueRowsWhere({ ...LIVE, ids: 1 }, { ids: [iss(5), only(o)] }), tag),
+      ).toEqual([iss(5)])
+      expect(ids(await s.listIssueRowsWhere({ ...LIVE, topLevel: true }), tag)).toEqual([
+        iss(1),
+        iss(5),
       ])
 
       const groups = await s.countIssueGroups(LIVE)
       expect(groups.reduce((n, g) => n + g.n, 0)).toBe(4)
-      expect(new Set(groups.map((g) => g.assignee))).toEqual(new Set([user(tag)]))
+      expect(new Set(groups.map((g) => g.assignee))).toEqual(new Set([owner(tag)]))
       expect(await s.issueStatTotals(LIVE)).toEqual({ total: 4, closed: 1, ready: 3, blocked: 0 })
-      expect((await s.deferralsIn(LIVE)).map((d) => d.id)).toEqual([iss(tag, 1)])
+      expect((await s.deferralsIn(LIVE)).map((d) => d.id)).toEqual([iss(1)])
 
-      expect(ids(await s.sortScope({ parentId: iss(tag, 1) }))).toEqual([iss(tag, 2), iss(tag, 3)])
-      expect(await s.sortScope({ parentId: iss(o, 1) })).toEqual([])
-      expect(ids(await s.sortScope({ repoId: repo(tag) }))).toEqual([iss(tag, 1), iss(tag, 5)])
-      expect(await s.sortScope({ repoId: repo(o) })).toEqual([])
-      expect(ids(await s.sortScope({ repoId: repo(tag), unpinnedFor: user(tag) }))).toEqual([
-        iss(tag, 1),
-        iss(tag, 5),
+      expect(ids(await s.sortScope({ parentId: iss(1) }), tag)).toEqual([iss(2), iss(3)])
+      expect(ids(await s.sortScope({ repoId: REPO }), tag)).toEqual([iss(1), iss(5)])
+      expect(ids(await s.sortScope({ repoId: REPO, unpinnedFor: owner(tag) }), tag)).toEqual([
+        iss(1),
+        iss(5),
       ])
 
-      expect([...(await s.labelsOfIssues([iss(tag, 1), iss(o, 1)])).entries()]).toEqual([
-        [iss(tag, 1), [label(tag, 'bug'), label(tag, 'ui')]],
+      expect([...(await s.labelsOfIssues([iss(1), only(o)])).entries()]).toEqual([
+        [iss(1), labelsOf(tag)],
       ])
-      expect((await s.depsFromIssues([iss(tag, 2), iss(o, 2)])).map((d) => d.toId).sort()).toEqual([
-        iss(tag, 1),
-        iss(tag, 3),
+      expect((await s.depsFromIssues([iss(2), only(o)])).map((d) => d.toId).sort()).toEqual([
+        iss(1),
+        iss(3),
       ])
-      expect((await s.depsToIssues([iss(tag, 3), iss(o, 3)])).map((d) => d.fromId)).toEqual([
-        iss(tag, 2),
-      ])
-      expect([...(await s.commentCountsOfIssues([iss(tag, 1), iss(o, 1)])).entries()]).toEqual([
-        [iss(tag, 1), 1],
+      expect((await s.depsToIssues([iss(3), only(o)])).map((d) => d.fromId)).toEqual([iss(2)])
+      expect([...(await s.commentCountsOfIssues([iss(1), only(o)])).entries()]).toEqual([
+        [iss(1), 1],
       ])
     }
   })
@@ -403,68 +432,61 @@ describe('the issues repository reads only its own workspace', () => {
     const stores = await twoSeeded()
     for (const [tag, at] of pairs) {
       const s = stores[at].issues
-      const o = other(tag)
+      const atOf = AT_OF[tag]
 
       const vocabulary = await s.listLabels()
-      expect(vocabulary.map((l) => l.name)).toEqual([label(tag, 'bug'), label(tag, 'ui')])
-      expect([...(await s.findLabels([label(tag, 'bug'), label(o, 'bug')])).keys()]).toEqual([
-        label(tag, 'bug'),
-      ])
+      expect(vocabulary.map((l) => l.name)).toEqual(labelsOf(tag))
+      expect([...(await s.findLabels(['bug', 'ui'])).keys()]).toEqual(labelsOf(tag))
       const own = vocabulary.map((l) => l.id)
       const theirs = (await stores[at === 0 ? 1 : 0].issues.listLabels()).map((l) => l.id)
-      expect(await s.issueIdsOfLabels([...own, ...theirs])).toEqual([iss(tag, 1)])
-      expect(await s.getIssueLabels(iss(tag, 1))).toEqual([label(tag, 'bug'), label(tag, 'ui')])
-      expect(await s.getIssueLabels(iss(o, 1))).toEqual([])
+      expect(await s.issueIdsOfLabels([...own, ...theirs])).toEqual([iss(1)])
+      expect(await s.getIssueLabels(iss(1))).toEqual(labelsOf(tag))
 
-      expect((await s.listIssueDeps(iss(tag, 2))).map((d) => d.toId).sort()).toEqual([
-        iss(tag, 1),
-        iss(tag, 3),
-      ])
-      expect(await s.listIssueDeps(iss(o, 2))).toEqual([])
-      expect((await s.listAllIssueDeps()).map((d) => d.fromId)).toEqual([iss(tag, 2), iss(tag, 2)])
-      expect((await s.listDependents(iss(tag, 3))).map((d) => d.fromId)).toEqual([iss(tag, 2)])
-      expect(await s.listDependents(iss(o, 3))).toEqual([])
+      expect((await s.listIssueDeps(iss(2))).map((d) => d.toId).sort()).toEqual([iss(1), iss(3)])
+      expect((await s.listAllIssueDeps()).map((d) => d.fromId)).toEqual([iss(2), iss(2)])
+      expect((await s.listDependents(iss(3))).map((d) => d.fromId)).toEqual([iss(2)])
 
-      expect(ids(await s.listIssueComments(iss(tag, 1)))).toEqual([comment(tag, 1)])
-      expect(await s.listIssueComments(iss(o, 1))).toEqual([])
-      expect((await s.getIssueComment(comment(tag, 1)))?.id).toBe(comment(tag, 1))
-      expect(await s.getIssueComment(comment(o, 1))).toBeUndefined()
-      expect(await s.countIssueComments(iss(tag, 1))).toBe(1)
-      expect(await s.countIssueComments(iss(o, 1))).toBe(0)
-      expect([...(await s.countIssueCommentsByIssue()).keys()].sort()).toEqual([
-        iss(tag, 1),
-        iss(tag, 2),
+      const comments = await s.listIssueComments(iss(1))
+      expect(comments.map((c) => [c.id, c.body])).toEqual([[comment(1), `${tag} needle one`]])
+      expect((await s.getIssueComment(comment(1)))?.body).toBe(`${tag} needle one`)
+      expect(await s.countIssueComments(iss(1))).toBe(1)
+      expect([...(await s.countIssueCommentsByIssue()).entries()].sort()).toEqual([
+        [iss(1), 1],
+        [iss(2), 1],
       ])
       const found = await s.searchIssueComments('needle', null)
-      expect(found.map((c) => c.issueId).sort()).toEqual([iss(tag, 1), iss(tag, 2)])
+      expect(found.map((c) => c.issueId).sort()).toEqual([iss(1), iss(2)])
+      onlyOwn(found, tag)
       onlyOwn(await s.searchIssueComments('needle', 1), tag)
 
-      const history = await s.listIssueTextRevisions(iss(tag, 1), 'description')
+      const history = await s.listIssueTextRevisions(iss(1), 'description')
       expect(history.map((r) => r.body)).toEqual([`${tag} text first`])
-      expect(await s.listIssueTextRevisions(iss(o, 1), 'description')).toEqual([])
-      expect(await s.hasIssueTextRevisions(iss(tag, 1), 'description')).toBe(true)
-      expect(await s.hasIssueTextRevisions(iss(o, 1), 'description')).toBe(false)
+      expect(await s.hasIssueTextRevisions(iss(1), 'description')).toBe(true)
+      expect(await s.hasIssueTextRevisions(iss(5), 'description')).toBe(false)
       expect((await s.getIssueTextRevision(history[0]!.id))?.body).toBe(`${tag} text first`)
+      // A revision's id is the table's own number, so the other workspace's is an id only it
+      // holds.
       const theirHistory = await stores[at === 0 ? 1 : 0].issues.listIssueTextRevisions(
-        iss(o, 1),
+        iss(1),
         'description',
       )
+      expect(theirHistory[0]!.id).not.toBe(history[0]!.id)
       expect(await s.getIssueTextRevision(theirHistory[0]!.id)).toBeUndefined()
 
-      expect((await s.getIssueMessage(message(tag, 1)))?.id).toBe(message(tag, 1))
-      expect(await s.getIssueMessage(message(o, 1))).toBeNull()
-      expect(ids(await s.listIssueMessages(iss(tag, 1)))).toEqual([
-        message(tag, 1),
-        message(tag, 2),
+      expect((await s.getIssueMessage(message(1)))?.body).toBe(`${tag} mail 1`)
+      const mail = await s.listIssueMessages(iss(1))
+      expect(mail.map((m) => [m.id, m.body])).toEqual([
+        [message(1), `${tag} mail 1`],
+        [message(2), `${tag} mail 2`],
       ])
-      expect(ids(await s.listIssueMessages(iss(tag, 1), { status: 'unread' }))).toEqual([
-        message(tag, 2),
+      expect(idsOf(await s.listIssueMessages(iss(1), { status: 'unread' }), tag)).toEqual([
+        message(2),
       ])
-      expect(await s.listIssueMessages(iss(o, 1))).toEqual([])
-      expect(await s.countUnreadIssueMessages(iss(tag, 1))).toBe(1)
-      expect(await s.countUnreadIssueMessages(iss(o, 1))).toBe(0)
-      expect(Object.keys(await s.listIssueMessageReadAt(user(tag)))).toEqual([message(tag, 1)])
-      expect(await s.listIssueMessageReadAt(user(o))).toEqual({})
+      expect(await s.countUnreadIssueMessages(iss(1))).toBe(1)
+      const readAt = await s.listIssueMessageReadAt(ALICE)
+      expect(Object.keys(readAt)).toEqual([message(1)])
+      onlyOwn(readAt, tag)
+      expect(JSON.stringify(readAt)).toContain(atOf)
     }
   })
 
@@ -472,25 +494,21 @@ describe('the issues repository reads only its own workspace', () => {
     const stores = await twoSeeded()
     for (const [tag, at] of pairs) {
       const s = stores[at].issues
-      const o = other(tag)
+      const atOf = AT_OF[tag]
       const everyone = await s.listIssueUserStateRows()
-      expect(everyone.map((r) => r.userId).sort()).toEqual([user(tag), user(tag, 'bob')])
-      expect((await s.listIssueUserStateRows(iss(tag, 1))).map((r) => r.userId)).toEqual([
-        user(tag),
-      ])
-      expect(await s.listIssueUserStateRows(iss(o, 1))).toEqual([])
-      expect((await s.getIssueUserState(user(tag), iss(tag, 1)))?.readAt).toBe(AT)
-      expect(await s.getIssueUserState(user(o), iss(o, 1))).toBeUndefined()
-      expect((await s.loadIssueUserState(user(tag), iss(tag, 1)))?.readAt).toBe(AT)
-      expect(await s.loadIssueUserState(user(o), iss(o, 1))).toBeUndefined()
-      const states = await s.loadIssueUserStates(user(tag), [iss(tag, 1), iss(o, 1)])
-      expect(states.get(iss(tag, 1))?.readAt).toBe(AT)
-      expect(states.get(iss(o, 1))).toBeUndefined()
+      expect(everyone.map((r) => r.userId).sort()).toEqual([ALICE, BOB].sort())
+      onlyOwn(everyone, tag)
+      expect((await s.listIssueUserStateRows(iss(1))).map((r) => r.userId)).toEqual([ALICE])
+      expect((await s.getIssueUserState(ALICE, iss(1)))?.readAt).toBe(atOf)
+      expect((await s.loadIssueUserState(ALICE, iss(1)))?.readAt).toBe(atOf)
+      const states = await s.loadIssueUserStates(ALICE, [iss(1), only(other(tag))])
+      expect(states.get(iss(1))?.readAt).toBe(atOf)
+      expect(states.get(only(other(tag)))).toBeUndefined()
       const ofPairs = await s.loadIssueUserStatesOfPairs([
-        { userId: user(tag, 'bob'), issueId: iss(tag, 2) },
-        { userId: user(o, 'bob'), issueId: iss(o, 2) },
+        { userId: BOB, issueId: iss(2) },
+        { userId: ALICE, issueId: iss(2) },
       ])
-      expect([...ofPairs.values()].filter(Boolean).map((v) => v?.tuckedAt)).toEqual([AT])
+      expect([...ofPairs.values()].filter(Boolean).map((v) => v?.tuckedAt)).toEqual([atOf])
     }
   })
 
@@ -501,43 +519,45 @@ describe('the issues repository reads only its own workspace', () => {
       const git = stores[at].issues.gitStates
       const o = other(tag)
 
-      expect(await panel.hasId('issuePanelTodo', todo(tag, 1))).toBe(true)
-      expect(await panel.hasId('issuePanelTodo', todo(o, 1))).toBe(false)
-      expect(await panel.hasId('issuePanelArtifact', artifact(o, 1))).toBe(false)
-      expect(await panel.hasId('issuePanelDeferred', deferred(o, 1))).toBe(false)
-      for (const [kind, own, theirs] of [
-        ['issuePanelTodo', todo(tag, 1), todo(o, 1)],
-        ['issuePanelArtifact', artifact(tag, 1), artifact(o, 1)],
-        ['issuePanelDeferred', deferred(tag, 1), deferred(o, 1)],
-        ['issuePanelState', iss(tag, 1), iss(o, 1)],
+      expect(await panel.hasId('issuePanelTodo', todo(1))).toBe(true)
+      expect(await panel.hasId('issuePanelTodo', todo(2))).toBe(false)
+      for (const [kind, own] of [
+        ['issuePanelTodo', todo(1)],
+        ['issuePanelArtifact', artifact(1)],
+        ['issuePanelDeferred', deferred(1)],
+        ['issuePanelState', iss(1)],
       ] as const) {
-        expect(ids(await panel.getMany(kind, [own, theirs]))).toEqual([own])
-        const forIssues = await panel.forIssues(kind, [iss(tag, 1), iss(o, 1)])
-        expect(ids(forIssues)).toEqual([own])
+        expect(idsOf(await panel.getMany(kind, [own, only(o)]), tag)).toEqual([own])
+        const forIssues = await panel.forIssues(kind, [iss(1), only(o)])
+        expect(idsOf(forIssues, tag)).toEqual([own])
         expect(JSON.stringify(forIssues)).not.toContain('workspace')
-        const paged: string[] = []
-        for await (const page of panel.pages(kind, 1)) paged.push(...page.map((r) => r.id))
-        expect(paged).toEqual([own])
+        const paged: { id: string }[] = []
+        for await (const page of panel.pages(kind, 1)) paged.push(...page)
+        expect(idsOf(paged, tag)).toEqual([own])
       }
-      const read = await panel.readMany([iss(tag, 1), iss(o, 1)])
-      expect(read.get(iss(o, 1))).toEqual({
+      const read = await panel.readMany([iss(1), only(o)])
+      expect(read.get(iss(1))?.panel.todos.map((t) => t.text)).toEqual([`${tag} todo`])
+      expect(read.get(only(o))).toEqual({
         panel: { todos: [], artifacts: [], deferred: [] },
         state: undefined,
       })
-      expect((await panel.read(iss(tag, 1))).todos.map((t) => t.text)).toEqual([`${tag} todo`])
-      expect((await panel.state(iss(tag, 1)))?.text).toBe(`${tag} state`)
-      expect(await panel.state(iss(o, 1))).toBeUndefined()
-      expect(await panel.next('issuePanelTodo', iss(tag, 1))).toBe(1)
-      expect(await panel.next('issuePanelTodo', iss(o, 1))).toBe(0)
-      expect(await panel.next('issuePanelArtifact', iss(o, 1))).toBe(0)
-      expect(await panel.next('issuePanelDeferred', iss(o, 1))).toBe(0)
+      expect((await panel.read(iss(1))).todos.map((t) => t.text)).toEqual([`${tag} todo`])
+      expect((await panel.read(iss(1))).artifacts.map((t) => t.path)).toEqual([
+        `${tag}-artifact.png`,
+      ])
+      expect((await panel.state(iss(1)))?.text).toBe(`${tag} state`)
+      // The next position follows its own items: A's at 0, B's at 1.
+      for (const kind of ['issuePanelTodo', 'issuePanelArtifact', 'issuePanelDeferred'] as const) {
+        expect(await panel.next(kind, iss(1))).toBe(position(tag) + 1)
+      }
 
-      expect([...(await git.getMany([iss(tag, 2), iss(o, 2)])).keys()]).toEqual([iss(tag, 2)])
-      expect((await git.get(iss(tag, 2)))?.branch).toBe(`${tag}-issue-branch`)
-      expect(await git.get(iss(o, 2))).toBeUndefined()
-      const paged: string[] = []
-      for await (const page of git.pages(1)) paged.push(...page.map((r) => r.id))
-      expect(paged).toEqual([iss(tag, 2)])
+      const states = await git.getMany([iss(2), only(o)])
+      expect([...states.keys()]).toEqual([iss(2)])
+      expect(states.get(iss(2))?.branch).toBe(`${tag}-issue-branch`)
+      expect((await git.get(iss(2)))?.branch).toBe(`${tag}-issue-branch`)
+      const paged: { id: string }[] = []
+      for await (const page of git.pages(1)) paged.push(...page)
+      expect(idsOf(paged, tag)).toEqual([iss(2)])
     }
   })
 })
@@ -545,71 +565,129 @@ describe('the issues repository reads only its own workspace', () => {
 describe('issue numbers count per workspace and repository', () => {
   it('allocates the next number from its own workspace only', async () => {
     const [a, b] = await twoSeeded()
-    expect(await a.issues.nextIssueSeq(repo('a'))).toBe(6)
-    // B holds no issue of A's repository, so its count of it starts at 1.
-    expect(await b.issues.nextIssueSeq(repo('a'))).toBe(1)
-    await b.issues.upsertIssue(scope, issue('b', 6, { repoId: repo('b'), seq: 6 }))
-    expect(await b.issues.nextIssueSeq(repo('b'))).toBe(7)
-    expect(await a.issues.nextIssueSeq(repo('a'))).toBe(6)
+    // The same repository in both, five issues each.
+    expect(await a.issues.nextIssueSeq(REPO)).toBe(6)
+    expect(await b.issues.nextIssueSeq(REPO)).toBe(6)
+    await b.issues.upsertIssue(scope, issue('b', 6, { seq: 6 }))
+    expect(await b.issues.nextIssueSeq(REPO)).toBe(7)
+    expect(await a.issues.nextIssueSeq(REPO)).toBe(6)
+    // A repository only B holds starts at 1 in A.
+    await b.issues.upsertIssue(
+      scope,
+      issue('b', 7, { id: only('b'), repoId: asRepoId('only-b-repo'), seq: 1 }),
+    )
+    expect(await a.issues.nextIssueSeq(asRepoId('only-b-repo'))).toBe(1)
+    expect(await b.issues.nextIssueSeq(asRepoId('only-b-repo'))).toBe(2)
   })
 
   it('renumbers and re-keys only its own workspace', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
     expect(await a.issues.renumberCollidingIssueSeqs()).toBe(0)
-    // A path under B's root: A holds nothing there, and B's rows keep their repository.
-    await a.issues.assignRepoIdToIssuesUnder(asRepoId('a-merged'), root('b'))
-    expect(rowsOf(a, 'b')).toEqual(before)
-    await a.issues.assignRepoIdToIssuesUnder(asRepoId('a-merged'), root('a'))
-    expect((await a.issues.getIssue(iss('a', 1)))?.repoId).toBe('a-merged')
-    expect(await a.issues.nextIssueSeq(asRepoId('a-merged'))).toBe(6)
-    expect(await b.issues.nextIssueSeq(asRepoId('a-merged'))).toBe(1)
-    expect(rowsOf(a, 'b')).toEqual(before)
+    // A path only B holds issues under: A holds nothing there.
+    await b.issues.upsertIssue(scope, issue('b', 6, { id: only('b'), repoPath: '/only-b' }))
+    const withOnly = rowsOf(a, 'b')
+    await a.issues.assignRepoIdToIssuesUnder(asRepoId('merged'), '/only-b')
+    expect(rowsOf(a, 'b')).toEqual(withOnly)
+    // The root both hold: A's rows take the repository, B's keep theirs.
+    await a.issues.assignRepoIdToIssuesUnder(asRepoId('merged'), ROOT)
+    expect((await a.issues.getIssue(iss(1)))?.repoId).toBe('merged')
+    expect((await b.issues.getIssue(iss(1)))?.repoId).toBe(REPO)
+    expect(await a.issues.nextIssueSeq(asRepoId('merged'))).toBe(6)
+    expect(await b.issues.nextIssueSeq(asRepoId('merged'))).toBe(1)
+    expect(rowsOf(a, 'b')).toEqual(withOnly)
   })
 })
 
 describe("a write in one workspace leaves the other's rows unchanged", () => {
-  it("finds nothing to change when aimed at the other workspace's ids", async () => {
+  it('finds nothing to change when aimed at ids only the other workspace holds', async () => {
     const [a, b] = await twoSeeded()
     const s = a.issues
-    // B's issue 2 waits in review, so only the workspace term fences A's transition off it.
+    // B's issue 2 waits in review, A's of the same id does not, so only the workspace term
+    // fences A's transition off B's row.
     await b.issues.upsertIssue(scope, issue('b', 2, { stage: 'review', revision: 2 }))
+    // Ids only B holds: an issue with a dependency, comments, mail, markers and panel items.
+    const ONLY = only('b')
+    const ONLY_2 = asIssueId('only-b-2')
+    await b.issues.upsertIssue(scope, issue('b', 6, { id: ONLY, seq: 6 }))
+    await b.issues.upsertIssue(scope, issue('b', 7, { id: ONLY_2, seq: 7, parentId: ONLY }))
+    await b.issues.addIssueDep(ONLY_2, ONLY)
+    for (const n of [1, 2]) {
+      await b.issues.addIssueComment({
+        id: `only-b-comment-${n}`,
+        issueId: ONLY,
+        author: BOB,
+        body: `b only comment ${n}`,
+        createdAt: AT_OF.b,
+      })
+      await b.issues.addIssueMessage({
+        id: `only-b-mail-${n}`,
+        issueId: ONLY,
+        fromAuthor: BOB,
+        body: `b only mail ${n}`,
+        createdAt: AT_OF.b,
+        status: 'unread',
+        claimedBy: null,
+        claimedAt: null,
+      })
+    }
+    await b.issues.setIssueUserState(scope, ALICE, ONLY, { readAt: AT_OF.b })
+    const onlyItem = (kind: string) => asIssuePanelItemId(`only-b-${kind}`)
+    await b.issues.panel.save(scope, 'issuePanelTodo', {
+      id: onlyItem('todo'),
+      issueId: ONLY,
+      position: 0,
+      text: 'b only todo',
+      done: false,
+    })
+    await b.issues.panel.save(scope, 'issuePanelArtifact', {
+      id: onlyItem('artifact'),
+      issueId: ONLY,
+      position: 0,
+      path: 'b-only.png',
+      addedAt: AT_OF.b,
+    })
+    await b.issues.panel.save(scope, 'issuePanelDeferred', {
+      id: onlyItem('deferred'),
+      issueId: ONLY,
+      position: 0,
+      text: 'b only deferred',
+      addedAt: AT_OF.b,
+    })
     const before = rowsOf(a, 'b')
 
-    await expect(
-      s.transitionShippingStage(iss('b', 2), 'review', 'shipping', LATER),
-    ).rejects.toThrow(/fence failed/)
-    await s.deleteIssue(iss('b', 1))
-    await s.removeIssueDep(iss('b', 2), iss('b', 3), 'blocked-by')
-    await s.removeIssueDep(iss('b', 2), iss('b', 1))
+    await expect(s.transitionShippingStage(iss(2), 'review', 'shipping', LATER)).rejects.toThrow(
+      /fence failed/,
+    )
+    await s.deleteIssue(ONLY)
+    await s.removeIssueDep(ONLY_2, ONLY, 'blocked-by')
     await s.editIssueComment({
-      id: comment('b', 1),
+      id: 'only-b-comment-1',
       body: 'overwritten',
       editedAt: LATER,
-      editedBy: user('a'),
+      editedBy: ALICE,
       editedOnBehalfOf: null,
     })
-    await s.deleteIssueComment(comment('b', 2))
-    await s.markIssueMessagesRead(null, iss('b', 1), [message('b', 2)], LATER)
-    expect(await s.claimIssueMessage(message('b', 2), 'a-claimer', LATER)).toBe(false)
-    await s.purgeIssueUserState(iss('b', 1))
-    await s.deleteIssueMessagesForIssue(iss('b', 1))
-    await s.deleteIssueChildRows(iss('b', 1))
-    await s.deleteIssueChildRows(iss('b', 2))
-    await s.panel.remove(scope, 'issuePanelTodo', iss('b', 1), todo('b', 1))
-    await s.panel.remove(scope, 'issuePanelArtifact', iss('b', 1), artifact('b', 1))
-    await s.panel.remove(scope, 'issuePanelDeferred', iss('b', 1), deferred('b', 1))
-    expect(await s.panel.clearTodos(scope, iss('b', 1))).toEqual([])
-    expect(await s.panel.toggle(scope, iss('b', 1), todo('b', 1), true)).toBeUndefined()
+    await s.deleteIssueComment('only-b-comment-2')
+    await s.markIssueMessagesRead(null, ONLY, ['only-b-mail-2'], LATER)
+    expect(await s.claimIssueMessage('only-b-mail-2', 'a-claimer', LATER)).toBe(false)
+    await s.purgeIssueUserState(ONLY)
+    await s.deleteIssueMessagesForIssue(ONLY)
+    await s.deleteIssueChildRows(ONLY)
+    await s.deleteIssueChildRows(ONLY_2)
+    await s.panel.remove(scope, 'issuePanelTodo', ONLY, onlyItem('todo'))
+    await s.panel.remove(scope, 'issuePanelArtifact', ONLY, onlyItem('artifact'))
+    await s.panel.remove(scope, 'issuePanelDeferred', ONLY, onlyItem('deferred'))
+    expect(await s.panel.clearTodos(scope, ONLY)).toEqual([])
+    expect(await s.panel.toggle(scope, ONLY, onlyItem('todo'), true)).toBeUndefined()
 
     expect(rowsOf(a, 'b')).toEqual(before)
+    expect((await a.issues.getIssue(iss(2)))?.stage).toBe('in_progress')
   })
 
   it('deleting an issue clears exactly the references to it, in its own workspace only (the same ids in both)', async () => {
-    // THE SAME IDS IN BOTH WORKSPACES (POD-7024): `same-6` is pointed at by `same-7` (parent,
-    // superseded by, duplicate of); `same-8` points at the workspace's issue 1, which nothing
-    // deletes. On SQLite a trigger clears the references, on Postgres the keys' ON DELETE SET
-    // NULL (column); both keep workspace_id.
+    // `same-6` is pointed at by `same-7` (parent, superseded by, duplicate of); `same-8` points
+    // at the workspace's issue 1, which nothing deletes. On SQLite a trigger clears the
+    // references, on Postgres the keys' ON DELETE SET NULL (column); both keep workspace_id.
     const same = (n: number) => asIssueId(`same-${n}`)
     const [a, b] = await twoSeeded()
     for (const [store, tag] of [
@@ -626,7 +704,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
           duplicateOf: same(6),
         }),
       )
-      await store.issues.upsertIssue(scope, issue(tag, 8, { id: same(8), parentId: iss(tag, 1) }))
+      await store.issues.upsertIssue(scope, issue(tag, 8, { id: same(8), parentId: iss(1) }))
     }
     const refs = async (store: SessionStore, n: number) => {
       const row = await store.issues.getIssue(same(n))
@@ -645,7 +723,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(await a.issues.getIssue(same(6))).toBeNull()
     expect(await refs(a, 7)).toEqual({ parentId: null, supersededBy: null, duplicateOf: null })
     expect(await refs(a, 8)).toEqual({
-      parentId: iss('a', 1),
+      parentId: iss(1),
       supersededBy: null,
       duplicateOf: null,
     })
@@ -659,83 +737,84 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(rowsOf(b, 'b')).toEqual(before)
   })
 
-  it('changes only its own rows when writing its own', async () => {
+  it('changes only its own rows when writing the ids both hold', async () => {
     const [a, b] = await twoSeeded()
     const s = a.issues
     const before = rowsOf(a, 'b')
 
     await s.upsertIssue(scope, issue('a', 1, { title: 'a renamed', revision: 2 }))
     await s.upsertIssue(scope, issue('a', 2, { stage: 'review', revision: 2 }))
-    const shipped = await s.transitionShippingStage(iss('a', 2), 'review', 'shipping', LATER)
+    const shipped = await s.transitionShippingStage(iss(2), 'review', 'shipping', LATER)
     expect(shipped.stage).toBe('shipping')
-    await s.defineLabel({ name: label('a', 'bug'), color: 'violet' })
-    await s.setIssueLabels(iss('a', 2), [label('a', 'ui')])
-    await s.removeIssueDep(iss('a', 2), iss('a', 3))
-    await s.addIssueDep(iss('a', 5), iss('a', 1))
+    await s.defineLabel({ name: 'bug', color: 'violet' })
+    await s.setIssueLabels(iss(2), ['ui'])
+    await s.removeIssueDep(iss(2), iss(3))
+    await s.addIssueDep(iss(5), iss(1))
     await s.editIssueComment({
-      id: comment('a', 1),
+      id: comment(1),
       body: 'a edited',
       editedAt: LATER,
-      editedBy: user('a'),
+      editedBy: ALICE,
       editedOnBehalfOf: null,
     })
-    await s.deleteIssueComment(comment('a', 2))
-    await s.markIssueMessagesRead(user('a'), iss('a', 1), [message('a', 2)], LATER)
-    expect(await s.claimIssueMessage(message('a', 1), 'a-claimer', LATER)).toBe(true)
-    await s.setIssueUserState(scope, user('a'), iss('a', 1), { tuckedAt: LATER })
-    expect(await s.allocateSessionLetter(iss('a', 1))).toBe('B')
+    await s.deleteIssueComment(comment(2))
+    await s.markIssueMessagesRead(ALICE, iss(1), [message(2)], LATER)
+    expect(await s.claimIssueMessage(message(1), 'a-claimer', LATER)).toBe(true)
+    await s.setIssueUserState(scope, ALICE, iss(1), { tuckedAt: LATER })
+    expect(await s.allocateSessionLetter(iss(1))).toBe('B')
     await s.panel.save(scope, 'issuePanelTodo', {
-      id: todo('a', 2),
-      issueId: iss('a', 1),
+      id: todo(2),
+      issueId: iss(1),
       position: 1,
       text: 'a second todo',
       done: false,
     })
-    const toggled = (await s.panel.toggle(scope, iss('a', 1), todo('a', 1), true)) as
+    const toggled = (await s.panel.toggle(scope, iss(1), todo(1), true)) as
       | IssuePanelTodoWire
       | undefined
     expect(toggled).toEqual({
-      id: todo('a', 1),
-      issueId: iss('a', 1),
+      id: todo(1),
+      issueId: iss(1),
       position: 0,
       text: 'a todo',
       done: true,
     })
-    expect((await s.panel.clearTodos(scope, iss('a', 1))).sort()).toEqual([
-      todo('a', 1),
-      todo('a', 2),
-    ])
-    await s.panel.remove(scope, 'issuePanelArtifact', iss('a', 1), artifact('a', 1))
-    await s.gitStates.set(scope, iss('a', 2), {
+    expect((await s.panel.clearTodos(scope, iss(1))).sort()).toEqual([todo(1), todo(2)])
+    await s.panel.remove(scope, 'issuePanelArtifact', iss(1), artifact(1))
+    await s.gitStates.set(scope, iss(2), {
       updatedAt: LATER,
       branch: 'a-moved',
       shared: false,
       dirtyFiles: 9,
     })
-    await s.purgeIssueUserState(iss('a', 2))
-    await s.deleteIssueMessagesForIssue(iss('a', 1))
-    await s.deleteIssueChildRows(iss('a', 1))
-    await s.deleteIssue(iss('a', 3))
-    expect(await s.hasIssue(iss('a', 3))).toBe(false)
+    await s.purgeIssueUserState(iss(2))
+    await s.deleteIssueMessagesForIssue(iss(1))
+    await s.deleteIssueChildRows(iss(1))
+    await s.deleteIssue(iss(3))
+    expect(await s.hasIssue(iss(3))).toBe(false)
 
     expect(rowsOf(a, 'b')).toEqual(before)
-    // B still reads everything it wrote.
-    expect(await b.issues.getIssueLabels(iss('b', 1))).toEqual([
-      label('b', 'bug'),
-      label('b', 'ui'),
+    // B still reads everything it wrote, at the same ids.
+    expect(await b.issues.getIssueLabels(iss(1))).toEqual(labelsOf('b'))
+    expect((await b.issues.getIssue(iss(1)))?.title).toBe('b issue 1')
+    expect((await b.issues.getIssue(iss(3)))?.title).toBe('b issue 3')
+    expect((await b.issues.getIssueComment(comment(2)))?.body).toBe('b needle two')
+    expect((await b.issues.panel.read(iss(1))).todos.map((t) => [t.text, t.done])).toEqual([
+      ['b todo', false],
     ])
-    expect((await b.issues.getIssue(iss('b', 1)))?.title).toBe('b issue 1')
+    expect((await b.issues.gitStates.get(iss(2)))?.branch).toBe('b-issue-branch')
+    expect(await b.issues.allocateSessionLetter(iss(1))).toBe('B')
   })
 
   it('prunes only its own orphan letters', async () => {
     const [a] = await twoSeeded()
-    // An orphan in each workspace: a counter whose issue is gone.
+    // An orphan of the same id in each workspace: a counter whose issue is gone.
     for (const tag of TAGS) {
       rawDb(a)
         .prepare(
           'INSERT INTO issue_ref_letters (workspace_id, issue_id, next_index) VALUES (?, ?, 3)',
         )
-        .run(WS[tag], `${tag}-iss-gone`)
+        .run(WS[tag], 'iss-gone')
     }
     const before = rowsOf(a, 'b')
     // A's own counter survives: its issue is A's. B's counters, the orphan included, are B's.
@@ -743,28 +822,32 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(rowsOf(a, 'b')).toEqual(before)
     expect(
       rawDb(a).prepare("SELECT issue_id FROM issue_ref_letters WHERE workspace_id = 'ws_a'").all(),
-    ).toEqual([{ issue_id: iss('a', 1) }])
+    ).toEqual([{ issue_id: iss(1) }])
   })
 
   it('backfills the legacy worktrees of its own workspace, on its own host', async () => {
     const [a, b] = await twoSeeded()
     rawDb(a).prepare("DELETE FROM meta WHERE key = 'legacy_worktree_machine_ids_v1'").run()
+    // A machine only B holds is no host of A's.
+    insertMachine(b, 'b', 'only-b-machine')
     const before = rowsOf(a, 'b')
-    // B's machine is no host of A's.
-    expect(await a.issues.backfillLegacyWorktreeMachineIds(machine('b'))).toBeUndefined()
-    expect(await a.issues.backfillLegacyWorktreeMachineIds(machine('a'))).toEqual({
-      hostMachineId: machine('a'),
+    expect(
+      await a.issues.backfillLegacyWorktreeMachineIds(asMachineId('only-b-machine')),
+    ).toBeUndefined()
+    // The machine both hold: A's issue 5 gets it, B's of the same id does not.
+    expect(await a.issues.backfillLegacyWorktreeMachineIds(MACHINE)).toEqual({
+      hostMachineId: MACHINE,
       backfilled: 1,
       skipped: 0,
     })
-    expect((await a.issues.getIssue(iss('a', 5)))?.machineId).toBe(machine('a'))
+    expect((await a.issues.getIssue(iss(5)))?.machineId).toBe(MACHINE)
     expect(rowsOf(a, 'b')).toEqual(before)
-    expect((await b.issues.getIssue(iss('b', 5)))?.machineId).toBeNull()
+    expect((await b.issues.getIssue(iss(5)))?.machineId).toBeNull()
   })
 })
 
 /**
- * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * THE SAME ID UPSERTED FIRST IN THE OTHER WORKSPACE (POD-7024): every ON CONFLICT target leads with workspace_id,
  * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
  * as it was, and A's second upsert of the id updates A's row only.
  */
