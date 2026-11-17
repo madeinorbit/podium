@@ -1,6 +1,6 @@
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { observer } from 'mobx-react-lite'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { useLiveInk } from '../theme/use-live-ink'
 import { Icon } from './Icon'
@@ -40,6 +40,7 @@ export const MissionBar = observer(function MissionBar({
   onOpen: () => void
 }) {
   const loadingInk = useLiveInk(color.textDim)
+  const { fontScale } = useWindowDimensions()
   const vitals = deckVitals(full)
   const reading = vitals ? deckVitalsLabel(vitals) : 'Task counts are loading'
   return (
@@ -55,11 +56,17 @@ export const MissionBar = observer(function MissionBar({
     >
       <View style={styles.counts}>
         {vitals ? (
-          // One line, capped like bar text: the chat is laid out under a bar
-          // of one line, so a second line at accessibility sizes covered the
-          // transcript. The deck page shows the whole line; VoiceOver reads it
-          // from the label above.
-          <DeckVitalsLine vitals={vitals} numberOfLines={1} maxFontSizeMultiplier={BAR_MAX_SCALE} />
+          // The native scroll edge binds to this 40pt strip. Drop lower-priority
+          // counts as type grows; the full reading remains in the button label.
+          <DeckVitalsLine
+            vitals={vitals}
+            numberOfLines={1}
+            maxFontSizeMultiplier={BAR_MAX_SCALE}
+            showUpNext={fontScale <= BAR_MAX_SCALE}
+            showProgress={
+              fontScale < BAR_STATUS_ONLY_SCALE || (vitals.needsYou === 0 && vitals.working === 0)
+            }
+          />
         ) : (
           <Text
             style={
@@ -85,6 +92,8 @@ export const MissionBar = observer(function MissionBar({
 })
 
 const BAR_MAX_SCALE = 1.35
+/** At double text size, give the line to needs-you/working when either exists. */
+const BAR_STATUS_ONLY_SCALE = 2
 
 const styles = StyleSheet.create({
   // Transparent over Glass: the chat scrolls under the bar and the nav bar's
@@ -93,7 +102,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    minHeight: 40,
+    height: 40,
     paddingHorizontal: space.lg,
   },
   pressed: { opacity: 0.6 },

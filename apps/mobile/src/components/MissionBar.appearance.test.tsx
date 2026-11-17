@@ -5,6 +5,7 @@ import type { StyleProp, TextStyle } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const appearance = vi.hoisted(() => ({
+  fontScale: 1,
   scheme: 'dark' as 'dark' | 'light' | 'unspecified',
   listeners: new Set<() => void>(),
 }))
@@ -13,6 +14,12 @@ vi.mock('react-native', async (importOriginal) => {
   const { useSyncExternalStore } = await import('react')
   return {
     ...actual,
+    useWindowDimensions: () => ({
+      width: 402,
+      height: 874,
+      scale: 1,
+      fontScale: appearance.fontScale,
+    }),
     Platform: {
       ...actual.Platform,
       OS: 'ios',
@@ -28,8 +35,17 @@ vi.mock('react-native', async (importOriginal) => {
         },
         () => appearance.scheme,
       ),
-    Text: ({ style, children }: { style?: unknown; children: ReactNode }) => (
+    Text: ({
+      style,
+      children,
+      numberOfLines,
+    }: {
+      style?: unknown
+      children: ReactNode
+      numberOfLines?: number
+    }) => (
       <span
+        data-line-limit={numberOfLines}
         data-ink={JSON.stringify(actual.StyleSheet.flatten(style as StyleProp<TextStyle>)?.color)}
       >
         {children}
@@ -67,6 +83,7 @@ function changeAppearance(scheme: 'light' | 'dark') {
 afterEach(() => {
   cleanup()
   appearance.scheme = 'dark'
+  appearance.fontScale = 1
   appearance.listeners.clear()
 })
 
@@ -152,4 +169,55 @@ it('uses the light foreground when iOS reports an unspecified appearance', () =>
   appearance.scheme = 'unspecified'
   render(<MissionBar full={full} onOpen={() => {}} />)
   expect(token(visibleText('41/64')).dynamic.light).toBe('#000000')
+})
+
+const long = {
+  ...full,
+  buckets: { done: 106, total: 112, working: 2, waiting: 0, todo: 4 },
+  counts: { 'needs-you': 1, 'up-next': 33 },
+} as unknown as FullDeck
+
+it.each([
+  { scale: 1, progress: true, upNext: true },
+  { scale: 1.8, progress: true, upNext: false },
+  { scale: 2.35, progress: false, upNext: false },
+  { scale: 3.12, progress: false, upNext: false },
+])('keeps priority counts on one line at font scale $scale', ({ scale, progress, upNext }) => {
+  appearance.fontScale = scale
+  render(<MissionBar full={long} onOpen={() => {}} />)
+  const needs = visibleText(/1 needs you/)
+  const counts = needs.parentElement
+  if (!counts) throw new Error('Missing native counts text')
+  expect(counts.getAttribute('data-line-limit')).toBe('1')
+  expect(counts.textContent).toContain('1 needs you')
+  expect(counts.textContent).toContain('2 working')
+  const visible = (text: string | RegExp) =>
+    screen.queryAllByText(text).some((node) => !node.closest('[aria-hidden=true]'))
+  expect(visible('106/112')).toBe(progress)
+  expect(visible(/33 up next/)).toBe(upNext)
+  expect(getComputedStyle(screen.getByTestId('mission-bar')).height).toBe('40px')
+  expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
+    'Flight deck, 106/112 · 1 needs you · 2 working · 33 up next',
+  )
+})
+
+it.each([
+  { needsYou: 0, working: 0, reading: '106/112' },
+  { needsYou: 1, working: 0, reading: '1 needs you' },
+  { needsYou: 0, working: 2, reading: '2 working' },
+])('keeps a complete $reading without a leading separator at AX5', ({
+  needsYou,
+  working,
+  reading,
+}) => {
+  appearance.fontScale = 3.12
+  const single = {
+    ...long,
+    buckets: { ...long.buckets, working },
+    counts: { 'needs-you': needsYou, 'up-next': 33 },
+  } as unknown as FullDeck
+  render(<MissionBar full={single} onOpen={() => {}} />)
+  const label = visibleText(reading)
+  expect(label.parentElement?.textContent).toBe(reading)
+  expect(Boolean(screen.queryByTestId('working-word'))).toBe(working > 0)
 })

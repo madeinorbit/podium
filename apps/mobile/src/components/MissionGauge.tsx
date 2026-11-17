@@ -30,21 +30,28 @@ export function deckVitals(full: FullDeck): DeckVitals | null {
   }
 }
 
-/** The full deck's counts line, coloured per part. Chrome that cannot grow
- * (the chat's pinned bar) passes one line and a text-size cap. */
+/** The full deck's counts, coloured per part. The fixed-height chat strip can
+ * omit lower-priority progress/up-next segments while preserving status counts. */
 export function DeckVitalsLine({
   vitals,
   numberOfLines,
   maxFontSizeMultiplier,
+  showProgress = true,
+  showUpNext = true,
 }: {
   vitals: DeckVitals
   numberOfLines?: number
   maxFontSizeMultiplier?: number
+  showProgress?: boolean
+  showUpNext?: boolean
 }) {
   const lineInk = useLiveInk(color.textDim)
   const fractionInk = useLiveInk(color.text)
   const needsInk = useLiveInk(deckColor.needsYou)
   const workingInk = useLiveInk(deckColor.working)
+  const needsPrefix = showProgress ? '  ·  ' : ''
+  const workingPrefix = showProgress || vitals.needsYou > 0 ? '  ·  ' : ''
+  const nextPrefix = showProgress || vitals.needsYou > 0 || vitals.working > 0 ? '  ·  ' : ''
   return (
     <WorkingWord
       active={vitals.working > 0}
@@ -54,40 +61,62 @@ export function DeckVitalsLine({
       maxFontSizeMultiplier={maxFontSizeMultiplier}
       glint={
         <>
-          <Text style={[styles.fraction, styles.clear]}>{`${vitals.done}/${vitals.total}`}</Text>
-          {vitals.needsYou > 0 ? (
-            <Text style={styles.clear}>{`  ·  ${vitals.needsYou} needs you`}</Text>
+          {showProgress ? (
+            <Text
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+              style={[styles.fraction, styles.clear]}
+            >{`${vitals.done}/${vitals.total}`}</Text>
           ) : null}
-          <Text style={styles.clear}>{'  ·  '}</Text>
+          {vitals.needsYou > 0 ? (
+            <Text
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+              style={styles.clear}
+            >{`${needsPrefix}${vitals.needsYou} needs you`}</Text>
+          ) : null}
+          <Text maxFontSizeMultiplier={maxFontSizeMultiplier} style={styles.clear}>
+            {workingPrefix}
+          </Text>
           {`${vitals.working} working`}
-          {vitals.upNext > 0 ? (
-            <Text style={styles.clear}>{`  ·  ${vitals.upNext} up next`}</Text>
+          {showUpNext && vitals.upNext > 0 ? (
+            <Text
+              maxFontSizeMultiplier={maxFontSizeMultiplier}
+              style={styles.clear}
+            >{`${nextPrefix}${vitals.upNext} up next`}</Text>
           ) : null}
         </>
       }
     >
-      <Text
-        style={
-          fractionInk === color.text ? styles.fraction : [styles.fraction, { color: fractionInk }]
-        }
-      >{`${vitals.done}/${vitals.total}`}</Text>
+      {showProgress ? (
+        <Text
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
+          style={
+            fractionInk === color.text ? styles.fraction : [styles.fraction, { color: fractionInk }]
+          }
+        >{`${vitals.done}/${vitals.total}`}</Text>
+      ) : null}
       {vitals.needsYou > 0 ? (
         <Text
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={
             needsInk === deckColor.needsYou ? styles.needs : [styles.needs, { color: needsInk }]
           }
-        >{`  ·  ${vitals.needsYou} needs you`}</Text>
+        >{`${needsPrefix}${vitals.needsYou} needs you`}</Text>
       ) : null}
       {vitals.working > 0 ? (
         <Text
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={
             workingInk === deckColor.working
               ? styles.working
               : [styles.working, { color: workingInk }]
           }
-        >{`  ·  ${vitals.working} working`}</Text>
+        >{`${workingPrefix}${vitals.working} working`}</Text>
       ) : null}
-      {vitals.upNext > 0 ? <Text>{`  ·  ${vitals.upNext} up next`}</Text> : null}
+      {showUpNext && vitals.upNext > 0 ? (
+        <Text
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
+        >{`${nextPrefix}${vitals.upNext} up next`}</Text>
+      ) : null}
     </WorkingWord>
   )
 }
