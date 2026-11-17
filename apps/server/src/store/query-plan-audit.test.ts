@@ -402,6 +402,10 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/sessions.ts:anySession',
+    'One-row existence probe for setup: LIMIT 1 stops at the first stored session, including tombstones. Reads at most one row regardless of history.',
+  ],
+  [
     'apps/server/src/store/issues.ts:issuesOfLabels',
     "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
   ],

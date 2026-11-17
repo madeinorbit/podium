@@ -499,7 +499,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     view,
     repoCount,
     worktreeCount,
-    sessionCount,
     selectedIssueId,
     missionRoot: flightDeckMission,
     settled: chromeSettled,
@@ -545,15 +544,16 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // wizard with no way out. Undefined until the server has answered.
   const adminViewer = useAdminSections()
   const setsUpServer =
-    adminViewer.status === 'loading' ? undefined : (adminViewer.capabilities?.setUpServer ?? true)
+    adminViewer.status === 'ready' ? adminViewer.capabilities?.setUpServer : undefined
+  const setupFinished = adminViewer.setupFinished
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
       setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
@@ -562,18 +562,18 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     vpsActivation.ready &&
     shouldStartBrowserAtProjectIntake({
       nativeShell: nativeDesktopBridge() !== undefined,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
       setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
   const activationFacts = {
-    loaded: reposLoaded,
+    loaded: reposLoaded && setupFinished !== undefined,
     repoCount,
-    sessionCount,
+    setupFinished: setupFinished === true,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
@@ -582,10 +582,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     ...activationFacts,
     setsUpServer: setsUpServer === true,
   })
-  // Only a window that WOULD open setup waits for the server's answer; one with
-  // work in it never asks, so a warm start costs nothing extra.
+  // Only a window that could open setup waits for the shared viewer read.
   const awaitingSetupViewer =
-    setsUpServer === undefined && isActivationEligible({ ...activationFacts, setsUpServer: true })
+    (setsUpServer === undefined || setupFinished === undefined) &&
+    isActivationEligible({ ...activationFacts, loaded: reposLoaded, setsUpServer: true })
   // Setup owns the window outright (POD-1174). There is no exploring mode and no
   // other view to be in: while this is true the shell below simply does not
   // render, so nothing else can be reached until setup finishes.
@@ -656,12 +656,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     navigateActivation(next.route)
   }
 
-  // A setup flag or URL step left on an instance that already has sessions is
-  // stale (see isActivationEligible): retire it, so the device heals itself.
+  // Retire a saved flag from a finished instance using the server's answer.
   const staleActivation = hasStaleActivation({
-    loaded: reposLoaded && setsUpServer !== undefined,
+    loaded: setsUpServer !== undefined && setupFinished !== undefined,
     setsUpServer: setsUpServer !== false,
-    sessionCount,
+    setupFinished: setupFinished === true,
     setupInProgress,
     hasActivationCheckpoint,
   })
@@ -670,6 +669,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   }, [staleActivation, clearActivation])
 
   const completeActivation = (): void => {
+    adminViewer.retry()
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
     setSelectedIssueId(null)
@@ -955,7 +955,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     return (
       <>
         {menuHost}
-        {sync.firstSync ? (
+        {awaitingSetupViewer && adminViewer.status === 'error' ? (
+          <AppErrorPage
+            title="Setup status is unavailable"
+            message="Podium could not check whether this server needs setup. Try again to continue."
+            onRetry={adminViewer.retry}
+          />
+        ) : sync.firstSync ? (
           <SyncLoader
             store={syncProgress}
             reposLoaded={reposLoaded}

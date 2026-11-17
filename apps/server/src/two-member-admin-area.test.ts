@@ -76,13 +76,18 @@ describe('who is offered the admin area', () => {
       body: {
         sections: ['people', 'access', 'machines', 'instance', 'audit'],
         capabilities: { addMachine: true, setUpServer: true },
+        setupFinished: false,
       },
     })
     // Bob joined a workspace Alice set up: first-run setup is never his (POD-6882),
     // yet he may add a machine of his own (POD-6883).
     expect(await get('bob', '/auth/admin/viewer')).toEqual({
       status: 200,
-      body: { sections: [], capabilities: { addMachine: true, setUpServer: false } },
+      body: {
+        sections: [],
+        capabilities: { addMachine: true, setUpServer: false },
+        setupFinished: false,
+      },
     })
     expect((await get(null, '/auth/admin/viewer')).status).toBe(401)
   })

@@ -30,6 +30,16 @@ import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
+import { headerView } from '@podium/client-graph/header-views'
+import {
+  hasStaleActivation,
+  isActivationEligible,
+  shouldStartBrowserAtProjectIntake,
+  shouldStartRemoteClientAtHandoff,
+} from '../../../../../apps/web/src/features/setup/activation-route'
+
+/** Viewer request answer and device checkpoints, separate from the partial record pool. */
+export type StartupSetupFacts = Omit<Parameters<typeof isActivationEligible>[0], 'repoCount'>
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
@@ -122,11 +132,43 @@ function plain(value: unknown, ancestors = new Set<object>()): unknown {
 const pendingOr = <T>(pending: number, value: T): T | typeof LOADING => (pending > 0 ? LOADING : value)
 
 /** The declared first-screen and history questions, over `targets`. */
-export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
+export function startupQuestions(
+  targets: StartupTargets,
+  setup?: () => StartupSetupFacts | typeof LOADING,
+): StartupQuestion[] {
   const questions: StartupQuestion[] = []
   const add = (group: StartupGroup, name: string, read: (pool: MobxPool) => unknown) =>
     questions.push({ group, name: `${group}:${name}`, read })
   const board = (pool: MobxPool) => createIssueBoardSource(pool)
+
+  if (setup) {
+    const facts = (pool: MobxPool) => {
+      const answer = setup()
+      return answer === LOADING
+        ? LOADING
+        : { ...answer, repoCount: headerView(pool).repositoryCount() }
+    }
+    add('first-screen', 'setup-eligible', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING ? LOADING : isActivationEligible(answer)
+    })
+    add('first-screen', 'setup-stale', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING ? LOADING : hasStaleActivation(answer)
+    })
+    add('first-screen', 'setup-browser-route', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING
+        ? LOADING
+        : shouldStartBrowserAtProjectIntake({ ...answer, nativeShell: false, route: 'welcome' })
+    })
+    add('first-screen', 'setup-desktop-route', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING
+        ? LOADING
+        : shouldStartRemoteClientAtHandoff({ ...answer, launchMode: 'client', route: 'welcome' })
+    })
+  }
 
   for (const id of targets.roots) add('first-screen', `sidebar-row:${id}`, (pool) => {
     const row = sidebarView(pool).row(id)

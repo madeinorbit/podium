@@ -1791,6 +1791,8 @@ export async function startServer(
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>

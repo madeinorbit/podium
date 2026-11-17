@@ -86,6 +86,11 @@ import { WrittenColumns } from './written-columns'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
 
+/** Setup needs existence, including archived/deleted work, never a session count. */
+const anySession = prepared((db: StoreDrizzle) =>
+  db.select({ id: sessionsTable.id }).from(sessionsTable).limit(1).prepare(),
+)
+
 export const SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS = 60_000
 const ACTIVITY_PUBLICATION_BATCH_SIZE = 256
 
@@ -1549,6 +1554,10 @@ export class SessionsRepository {
 
   async loadSessions(): Promise<SessionRow[]> {
     return (await liveSessions(this.db).all()).map(mapSession)
+  }
+
+  async hasAnySession(): Promise<boolean> {
+    return (await anySession(this.db).get()) !== undefined
   }
 
   /** Up to `limit` live sessions with an id after `after` ('' = the first), in

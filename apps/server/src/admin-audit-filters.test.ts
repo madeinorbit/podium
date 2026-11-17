@@ -69,6 +69,8 @@ beforeAll(async () => {
   app = new Hono()
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: (await openTestIdentity(store)).workspace,
     audit: store.settingsAudit,
     machineNames: async () => new Map(),

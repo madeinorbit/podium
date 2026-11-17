@@ -70,21 +70,30 @@ afterEach(() => {
 })
 
 describe('the viewer answer: who sets this server up', () => {
-  it('reads the server fact, and keeps older servers and failed reads on the old behaviour', async () => {
-    viewerAnswers({ sections: [], capabilities: { setUpServer: false } })
+  it('reads the server facts and leaves a failed read unknown', async () => {
+    viewerAnswers({ sections: [], capabilities: { setUpServer: false }, setupFinished: true })
     const bob = renderHook(() => useAdminSections())
+    expect(bob.result.current.setupFinished).toBeUndefined()
     await waitFor(() => expect(bob.result.current.status).toBe('ready'))
     expect(bob.result.current.capabilities).toEqual({ addMachine: false, setUpServer: false })
-
-    viewerAnswers({ sections: ['machines'] })
-    const older = renderHook(() => useAdminSections())
-    await waitFor(() => expect(older.result.current.status).toBe('ready'))
-    expect(older.result.current.capabilities).toEqual({ addMachine: false, setUpServer: true })
+    expect(bob.result.current.setupFinished).toBe(true)
 
     viewerAnswers('unavailable')
     const failed = renderHook(() => useAdminSections())
     await waitFor(() => expect(failed.result.current.status).toBe('error'))
-    expect(failed.result.current.capabilities).toEqual({ addMachine: false, setUpServer: true })
+    expect(failed.result.current.capabilities).toEqual({ addMachine: false })
+    expect(failed.result.current.setupFinished).toBeUndefined()
+  })
+
+  it('refreshes the instance completion answer after the wizard finishes', async () => {
+    viewerAnswers({ sections: [], capabilities: { setUpServer: true }, setupFinished: false })
+    const hook = renderHook(() => useAdminSections())
+    await waitFor(() => expect(hook.result.current.status).toBe('ready'))
+    expect(hook.result.current.setupFinished).toBe(false)
+    viewerAnswers({ sections: [], capabilities: { setUpServer: true }, setupFinished: true })
+    act(() => hook.result.current.retry())
+    await waitFor(() => expect(hook.result.current.status).toBe('ready'))
+    expect(hook.result.current.setupFinished).toBe(true)
   })
 })
 
