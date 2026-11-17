@@ -276,14 +276,16 @@ const credentialByLegacyKey = prepared((db: StoreDrizzle) =>
 /**
  * Other members' credentials imported from one old account id or its earlier
  * workspace alias, in the order the old shared read took them: the `accounts`
- * row's `created_at`, then its id (`legacy_id`), oldest first; credentials
- * with no such row (any more) after them, oldest first.
+ * row's creation, then its id, oldest first; the `apiKeys.*` secrets, which had
+ * no row, after them. Destroying the old plaintext copies each row's creation
+ * time onto its credential before the row goes (`store/legacy-plaintext.ts`),
+ * so the order is read from the credential, with its `legacy_id` (the row's id)
+ * breaking ties.
  */
 const legacySharedCandidates = prepared((db: StoreDrizzle) =>
   db
     .select({ id: credentials.id, ownerUserId: credentials.ownerUserId })
     .from(credentials)
-    .leftJoin(accounts, eq(accounts.id, credentials.legacyId))
     .where(
       and(
         or(
@@ -295,10 +297,9 @@ const legacySharedCandidates = prepared((db: StoreDrizzle) =>
       ),
     )
     .orderBy(
-      asc(sql`${accounts.createdAt} is null`),
-      asc(accounts.createdAt),
-      asc(accounts.id),
+      asc(sql`substr(${credentials.legacyId}, 1, 8) = 'apiKeys.'`),
       asc(credentials.createdAt),
+      asc(credentials.legacyId),
       asc(credentials.id),
     )
     .prepare(),

@@ -1,6 +1,6 @@
 /** Old account ids resolve to what they meant (review focus 4). */
 
-import { ALL_MEMBERS_GRANTEE, asAccountId, asUserId, type UserId } from '@podium/model'
+import { ALL_MEMBERS_GRANTEE, asUserId, type UserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
@@ -109,25 +109,20 @@ describe('credentialIdFromLegacy: a key another member shared', () => {
     )
   }
 
-  /** An old `accounts` row and the credential the import made of it. */
-  async function imported(s: SessionStore, owner: UserId, accountKey: string, createdAt: number) {
-    await s.accounts.connect({
-      ownerUserId: owner,
-      accountKey: asAccountId(accountKey),
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: `sk-FAKE-${owner}`,
-      identity: 'masked',
-      scope: 'role',
-      createdAt,
-    })
-    const row = (await s.accounts.ownedBy(owner)).find((r) => r.accountKey === accountKey)
-    if (!row) throw new Error('no accounts row')
+  /**
+   * The credential the import made of an old `accounts` row. Its creation time
+   * stands for the row's: the destruction of the old plaintext copies the row's
+   * onto it before the row goes (`store/legacy-plaintext.test.ts` pins that), so
+   * the old order is read from the credentials. Each is made a little after the
+   * one before, so times do not tie.
+   */
+  async function imported(s: SessionStore, owner: UserId, accountKey: string) {
+    await new Promise((done) => setTimeout(done, 3))
     return await s.credentials.insert({
       ownerUserId: owner,
       label: `${owner} ${accountKey}`,
       type: 'anthropic.api-key',
-      legacyId: row.id,
+      legacyId: `${accountKey}@${owner}`,
       legacyKey: accountKey,
     })
   }
@@ -150,11 +145,10 @@ describe('credentialIdFromLegacy: a key another member shared', () => {
     store = await openTestStore(':memory:')
     const s = store
     for (const id of [ALICE, BOB, CAROL, DAVE]) await member(s, id)
-    // Credentials made newest row first, so their own creation order is the
-    // reverse of the old rows' order: the old order must come from the rows.
-    const daves = await imported(s, DAVE, 'managed:anthropic', 3)
-    const carols = await imported(s, CAROL, 'managed:anthropic:earlier-workspace', 2)
-    const alices = await imported(s, ALICE, 'managed:anthropic', 1)
+    // The old rows' order: Alice's, then Carol's, then Dave's.
+    const alices = await imported(s, ALICE, 'managed:anthropic')
+    const carols = await imported(s, CAROL, 'managed:anthropic:earlier-workspace')
+    const daves = await imported(s, DAVE, 'managed:anthropic')
     await share(s, carols.id, CAROL, BOB)
     await share(s, daves.id, DAVE, ALL_MEMBERS_GRANTEE)
     const read = () => credentialIdFromLegacy(s, 'managed:anthropic', BOB)
@@ -172,7 +166,7 @@ describe('credentialIdFromLegacy: a key another member shared', () => {
     // The owner's own key always comes first, shared keys or not.
     await share(s, alices.id, ALICE, BOB)
     expect(await read()).toBe(alices.id)
-    const bobs = await imported(s, BOB, 'managed:anthropic', 4)
+    const bobs = await imported(s, BOB, 'managed:anthropic')
     expect(await read()).toBe(bobs.id)
     // Alice's own id still names her own key.
     expect(await credentialIdFromLegacy(s, 'managed:anthropic', ALICE)).toBe(alices.id)
@@ -182,10 +176,10 @@ describe('credentialIdFromLegacy: a key another member shared', () => {
     store = await openTestStore(':memory:')
     const s = store
     for (const id of [ALICE, BOB]) await member(s, id)
-    const plain = await imported(s, ALICE, 'managed:anthropic', 1)
+    const plain = await imported(s, ALICE, 'managed:anthropic')
     await share(s, plain.id, ALICE, BOB)
     expect(await credentialIdFromLegacy(s, 'managed:anthropic:earlier-workspace', BOB)).toBeNull()
-    const earlier = await imported(s, ALICE, 'managed:anthropic:earlier-workspace', 2)
+    const earlier = await imported(s, ALICE, 'managed:anthropic:earlier-workspace')
     await share(s, earlier.id, ALICE, BOB)
     expect(await credentialIdFromLegacy(s, 'managed:anthropic:earlier-workspace', BOB)).toBe(
       earlier.id,

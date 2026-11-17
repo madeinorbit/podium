@@ -119,22 +119,25 @@ export function applyLegacyDestruction(
     let deleted = 0
     db.exec('BEGIN IMMEDIATE')
     try {
+      // Every row's creation time onto its credential first, kept rows too.
       const keepOrder = db.prepare(
-        `UPDATE credentials SET created_at = ?
-           WHERE legacy_id = ? AND created_at <> ?`,
+        'UPDATE credentials SET created_at = ? WHERE legacy_id = ? AND created_at <> ?',
       )
-      const createdAt = db.prepare('SELECT created_at AS at FROM accounts WHERE id = ?')
+      for (const row of db.prepare('SELECT id, created_at AS at FROM accounts').all() as {
+        id: string
+        at: number
+      }[]) {
+        const iso = new Date(row.at).toISOString()
+        keepOrder.run(iso, row.id, iso)
+      }
       const sends = db.prepare('DELETE FROM account_machine_sends WHERE account_id = ?')
       const account = db.prepare('DELETE FROM accounts WHERE id = ? AND credential = ?')
       const secret = db.prepare('DELETE FROM server_secrets WHERE key = ? AND value = ?')
       for (const value of values) {
         if (value.kind === 'account-row') {
-          const row = createdAt.get(value.legacyId) as { at: number } | undefined
-          if (!row) continue
-          const iso = new Date(row.at).toISOString()
-          keepOrder.run(iso, value.legacyId, iso)
-          sends.run(value.legacyId)
-          deleted += account.run(value.legacyId, value.value).changes
+          const gone = account.run(value.legacyId, value.value).changes
+          if (gone > 0) sends.run(value.legacyId)
+          deleted += gone
         } else {
           deleted += secret.run(value.legacyId, value.value).changes
         }

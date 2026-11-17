@@ -16,8 +16,8 @@ import { asUserId, firstAdminMemberId, primeFirstAdminMember, type UserId } from
 import { hashPassword } from '@podium/runtime/auth-store'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { credentialIdFromLegacy } from '../modules/credentials/legacy-ids'
 import { SessionStore } from '../store'
-import { newCredentialId } from './credentials'
 import { memberFacts } from './fixtures/test-support'
 import { LEGACY_PLAINTEXT_STATE_KEY, type LegacyPlaintextOptions } from './legacy-plaintext'
 
@@ -38,6 +38,7 @@ const LOGIN_FILE_BASE64 = Buffer.from(
 const BUNDLE = JSON.stringify({ kind: 'codex', contentBase64: LOGIN_FILE_BASE64 })
 const MEMBER = asUserId('user:destroy-member')
 const MEMBER_KEY = 'FAKE-sk-openai-destroy-member-0009'
+const READER = asUserId('user:destroy-reader')
 
 /** Every planted value, as the bytes a search looks for. */
 const PLANTED = [
@@ -323,6 +324,53 @@ describe('the old plaintext keys after the move into the vault', () => {
     expect(store.legacyPlaintextReport?.leftInPlace).toEqual([])
     await close(store)
     expect(accountRows(dbPath)).toEqual([])
+  })
+
+  it('keeps the old shared-key order after the accounts table is emptied', async () => {
+    const { dbPath, keyPath } = place()
+    const admin = await plantOldDatabase(dbPath, keyPath)
+    const setup = await openAt(dbPath, keyPath, { destroy: false })
+    await memberFacts(setup).create(
+      {
+        id: READER,
+        displayName: 'Reader',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      await hashPassword('reader-password'),
+    )
+    await close(setup)
+    // Two OpenRouter keys shared with everyone: the member's row is the older.
+    sql(dbPath, (db) => {
+      const insert = db.prepare(
+        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+           owner_user_id, account_key, ref, shared_with)
+         VALUES (?, 'openrouter', 'api-key', ?, '', 'role', ?, ?, 'managed:openrouter:team', NULL, '["*"]')`,
+      )
+      insert.run(`managed:openrouter:team@${admin}`, 'FAKE-sk-or-order-admin-0011', 9_000, admin)
+      insert.run(`managed:openrouter:team@${MEMBER}`, 'FAKE-sk-or-order-member-0012', 8_000, MEMBER)
+    })
+    const moved = await openAt(dbPath, keyPath, { destroy: false })
+    const adminKey = await moved.credentials.findByLegacyId(`managed:openrouter:team@${admin}`)
+    const memberKey = await moved.credentials.findByLegacyId(`managed:openrouter:team@${MEMBER}`)
+    if (!adminKey || !memberKey) throw new Error('the import made no credentials')
+    await close(moved)
+    // Credentials made in the other order (the old commands could): by their own
+    // creation the admin's comes first.
+    sql(dbPath, (db) => {
+      const at = db.prepare('UPDATE credentials SET created_at = ? WHERE id = ?')
+      at.run('2026-11-01T00:00:00.000Z', adminKey.id)
+      at.run('2026-11-02T00:00:00.000Z', memberKey.id)
+      db.prepare('DELETE FROM meta WHERE key = ?').run(LEGACY_PLAINTEXT_STATE_KEY)
+    })
+
+    const store = await openAt(dbPath, keyPath)
+    expect(accountRows(dbPath)).toEqual([])
+    expect(await credentialIdFromLegacy(store, 'managed:openrouter:team', READER)).toBe(memberKey.id)
+    expect((await store.credentials.get(memberKey.id))?.createdAt).toBe(
+      new Date(8_000).toISOString(),
+    )
   })
 
   it('a second start does nothing', async () => {
