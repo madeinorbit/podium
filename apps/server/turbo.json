@@ -3109,6 +3109,7 @@
         "src/store/postgres-leg-store-opens.test.ts",
         "src/store/prefix-range.ts",
         "src/store/prepared-guard.test.ts",
+        "src/store/query-plan-audit.pg.test.ts",
         "src/store/query-plan-audit.test.ts",
         "src/store/quota-history.ts",
         "src/store/read-watermarks.ts",

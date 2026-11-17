@@ -24,6 +24,8 @@ describe('test-store-engines.json', () => {
     const leg = postgresLegFiles(repositoryRoot)
     expect(leg).toContain('apps/server/src/store/test-store-engines.test.ts')
     expect(leg).toContain('apps/server/src/store/pg-test-database.test.ts')
+    // A Postgres audit from another shard (POD-6992).
+    expect(leg).toContain('apps/server/src/store/query-plan-audit.pg.test.ts')
     const engines = readTestStoreEngines()
     for (const file of leg) {
       expect(engines.pending).not.toContain(file)

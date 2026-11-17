@@ -39,13 +39,31 @@ export function storeShardFiles(repositoryRoot: string): string[] {
   return store.testFiles
 }
 
-/** The files the Postgres leg runs: the store shard minus both lists. */
+/**
+ * The Postgres audits outside the store shard [POD-6992]: `*.pg.test.ts` files of any other
+ * shard. A Postgres audit that reads the source tree (the query-plan audit reads every
+ * definition site) is a boundary-shard file by the shard rules, and it runs only here.
+ */
+export function postgresAuditFiles(repositoryRoot: string): string[] {
+  const manifest = JSON.parse(
+    readFileSync(join(repositoryRoot, 'apps/server/test-shards.json'), 'utf8'),
+  ) as ShardManifest
+  return manifest.shards
+    .filter((shard) => shard.id !== 'store')
+    .flatMap((shard) => shard.testFiles)
+    .filter((file) => file.endsWith('.pg.test.ts'))
+}
+
+/** The files the Postgres leg runs: the store shard minus both lists, and the Postgres audits. */
 export function postgresLegFiles(
   repositoryRoot: string,
   engines: TestStoreEngines = readTestStoreEngines(),
 ): string[] {
   const excluded = new Set([...Object.keys(engines.sqliteOnly), ...engines.pending])
-  return storeShardFiles(repositoryRoot).filter((file) => !excluded.has(file))
+  return [
+    ...storeShardFiles(repositoryRoot).filter((file) => !excluded.has(file)),
+    ...postgresAuditFiles(repositoryRoot),
+  ]
 }
 
 /** What is wrong with the lists, one line per problem; empty when they are sound. */

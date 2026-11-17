@@ -204,7 +204,8 @@ function listingWhere(
     const liveVisibleChild = (extra: SQL) =>
       sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child(t).workspaceId} = ${t.issues.workspaceId} AND ${child(t).parentId} = ${t.issues.id} AND ${child(t).deletedAt} IS NULL AND ${extra})`
     where.push(
-      liveVisibleChild(sql`1`),
+      // Postgres refuses an integer as an AND operand; SQLite keeps its text (POD-6992).
+      liveVisibleChild(dialect === 'pg' ? sql`TRUE` : sql`1`),
       sql`NOT ${liveVisibleChild(sql`NOT ${closedOf(child(t))}`)}`,
     )
   }
