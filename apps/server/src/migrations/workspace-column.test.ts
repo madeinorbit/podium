@@ -21,7 +21,7 @@
  *     and the migration holds only ADD COLUMN and RENAME COLUMN statements.
  */
 
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TABLE_MANIFEST } from '../store/workspace-manifest'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -61,16 +61,16 @@ const columnsOf = (db: SqlDatabase, table: string): Column[] =>
  * column, a 64-character hex string for a digest, otherwise a value naming the
  * table, column and row (so two rows and two tables never hold the same text).
  */
-function valueFor(table: string, ddl: string, column: Column, row: number): unknown {
+function valueFor(table: string, ddl: string, column: Column, row: number): SqlParam {
   // The sync tables' tenant is the one workspace of a self-hosted install.
   if (column.name === 'tenant_id') return 'local'
   if (table === 'machines' && column.name === 'public_key') return null
   if (table === 'machines' && column.name === 'token_hash') return `token-hash-${row}`
   const name = `(?<![\\w])[\`"]?${column.name}[\`"]?`
-  const inList = new RegExp(`${name}\\s+IN\\s*\\(\\s*'([^']*)'`, 'i').exec(ddl)
-  if (inList) return inList[1]
-  const equalsText = new RegExp(`${name}\\s*=\\s*'([^']*)'`, 'i').exec(ddl)
-  if (equalsText) return equalsText[1]
+  const listed = new RegExp(`${name}\\s+IN\\s*\\(\\s*'([^']*)'`, 'i').exec(ddl)?.[1]
+  if (listed !== undefined) return listed
+  const equalsText = new RegExp(`${name}\\s*=\\s*'([^']*)'`, 'i').exec(ddl)?.[1]
+  if (equalsText !== undefined) return equalsText
   const equalsNumber = new RegExp(`${name}\\s*=\\s*(\\d+)`, 'i').exec(ddl)
   if (equalsNumber) return Number(equalsNumber[1])
   if (column.name.endsWith('_digest')) return String(row).repeat(64)
@@ -91,7 +91,7 @@ function seed(db: SqlDatabase, table: string): void {
   )
   for (const row of [1, 2]) {
     const full = columns.map((c) => valueFor(table, ddl, c, row))
-    const sparse = columns.map((c, i) => (c.notnull === 0 && c.pk === 0 ? null : full[i]))
+    const sparse = columns.map((c, i) => (c.notnull === 0 && c.pk === 0 ? null : (full[i] ?? null)))
     try {
       insert.run(...full)
     } catch {
