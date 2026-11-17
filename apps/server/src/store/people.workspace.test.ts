@@ -5,21 +5,25 @@
  * through its own
  * repositories with its own members, machines, grants, repositories, checkouts, managed
  * accounts, old sign-ins, audit rows and agent profiles.
- * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
- * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
- * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
- * both are marked below, and the rest of the conversion is POD-7025's.
+ * Both workspaces hold the SAME ids and natural keys (POD-7025): the same members, emails,
+ * account ids, machines, repository roots, origin and prefix, checkouts, issue, sign-in tokens,
+ * opt-in fingerprint and agent profile. Every key leads with workspace_id (POD-7024), so the
+ * same id is two rows, told apart only by the workspace. The content differs (display names,
+ * machine names and hosts, credentials, identities, branches, which grants and admins a
+ * workspace holds, timestamps, sealed carry records, profile texts), so a read that crossed
+ * over would answer the other workspace's content. Where a case needs an id the other
+ * workspace does not hold, it plants one only the other holds (`only-<tag>…`).
  *
  * For every repository method of the group (machines, machine record context, repos, checkouts,
  * grants, accounts, users, sign-in carry-over, settings audit, agent profiles, identity upgrade):
  *   - a read answers only its own workspace's rows;
- *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, including
- *     a write in A addressed at B's own ids, which must find nothing to change.
+ *   - an update, delete or upsert in one workspace leaves the other's rows unchanged, both for
+ *     the ids the two share and for ids only the other holds, which must find nothing to change.
  * The settings and secrets repositories have their own two-workspace test
  * (`settings.workspace.test.ts`, POD-7013).
  *
  * One machine id enrolled in both workspaces (the daemon's own UUID) and one repository origin
- * registered in both are the cases the composite keys exist for.
+ * registered in both are the cases the composite keys exist for, and every seeded row is one.
  */
 
 import { createHash } from 'node:crypto'
@@ -53,18 +57,48 @@ import type { GrantRow } from './grants'
 
 type Tag = 'a' | 'b'
 const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
-const AT = '2026-11-17T10:00:00.000Z'
+/** Each workspace's own timestamp: content, not a key. */
+const AT_OF: Record<Tag, string> = { a: '2026-11-17T10:00:00.000Z', b: '2026-11-17T10:30:00.000Z' }
+const AT = AT_OF.a
 const LATER = '2099-01-01T00:00:00.000Z'
 const otherOf = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
-
-const user = (tag: Tag, name = 'alice'): UserId => asUserId(`user:${tag}-${name}`)
-const machine = (tag: Tag, n = 1): MachineId => asMachineId(`${tag}-machine-${n}`)
-const root = (tag: Tag) => `/repo-${tag}`
-const origin = (tag: Tag) => `https://example.test/${tag}/project.git`
-const prefixOf = (tag: Tag) => (tag === 'a' ? 'AAA' : 'BBB')
-const token = (tag: Tag) => `${tag}-token`
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 const ANTHROPIC: AccountId = asAccountId('managed:anthropic')
+/** Machine 1's bearer token: content (a credential), so it differs per workspace. */
+const token = (tag: Tag) => SHARED.token(tag)
+
+/**
+ * The ids and natural keys a seed writes. `SHARED` (no prefix) is the set both workspaces
+ * hold; a prefixed set is a plant only one workspace holds.
+ */
+function idsFor(p = '') {
+  return {
+    user: (name = 'alice'): UserId => asUserId(`user:${p}${name}`),
+    machine: (n = 1): MachineId => asMachineId(`${p}machine-${n}`),
+    root: `/${p}repo`,
+    origin: `https://example.test/${p}project.git`,
+    prefix: p === '' ? 'AAA' : 'OBB',
+    issue: `${p}iss-1`,
+    profile: `${p}profile-1`,
+    profileName: `${p}profile`,
+    account: (name: string) => `${p}account-${name}`,
+    email: (name: string) => `${p}${name}@example.test`,
+    signIn: (label: string) => `${p}old-${label}`,
+    carried: `${p}carried`,
+    device: `${p}device-1`,
+    fingerprint: `${p}fingerprint-1`,
+    token: (tag: Tag) => `${p}${tag}-token`,
+  }
+}
+type Ids = ReturnType<typeof idsFor>
+const SHARED = idsFor()
+const user = SHARED.user
+const machine = SHARED.machine
+const ROOT = SHARED.root
+/** The machine-1 grants bob holds: the same issue, different verbs per workspace. */
+const bobVerbs = (tag: Tag): GrantRow['verb'][] => (tag === 'a' ? ['read', 'write'] : ['read'])
+/** Who is an admin: alice in both, bob in B too. */
+const isAdmin = (tag: Tag, name: string) => name === 'alice' || (tag === 'b' && name === 'bob')
 
 let opened: WorkspacePeopleSlice | undefined
 const keyDirs: string[] = []
@@ -129,130 +163,153 @@ async function keyLeadsWithWorkspace(store: Store, table: string): Promise<boole
   return columns.find((column) => Number(column.pk) === 1)?.name === 'workspace_id'
 }
 
-function member(tag: Tag, name: string, patch: Partial<MemberWrite> = {}): MemberWrite {
+function member(
+  tag: Tag,
+  name: string,
+  patch: Partial<MemberWrite> = {},
+  ids: Ids = SHARED,
+): MemberWrite {
   return {
-    memberId: user(tag, name),
+    memberId: ids.user(name),
     version: 1,
     state: 'active',
-    role: name === 'alice' ? 'admin' : 'member',
-    accountId: `${tag}-account-${name}`,
-    profile: { name: `${tag} ${name}`, image: null, email: `${name}@${tag}.test` },
+    role: isAdmin(tag, name) ? 'admin' : 'member',
+    accountId: ids.account(name),
+    profile: { name: `${tag} ${name}`, image: null, email: ids.email(name) },
     actor: { system: 'setup' },
     ...patch,
   }
 }
 
-function grant(tag: Tag, resourceId: string, grantee: UserId, verb: GrantRow['verb']): GrantRow {
+function grant(
+  tag: Tag,
+  resourceId: string,
+  grantee: UserId,
+  verb: GrantRow['verb'],
+  ids: Ids = SHARED,
+): GrantRow {
   return {
     resourceKind: 'issue',
     resourceId,
     grantee,
     verb,
-    owner: user(tag),
+    owner: ids.user(),
     visibility: 'shared',
-    createdAt: AT,
+    createdAt: AT_OF[tag],
     actorKind: 'user',
-    actorId: user(tag),
-    onBehalfOf: user(tag),
+    actorId: ids.user(),
+    onBehalfOf: ids.user(),
   }
 }
 
-function checkout(tag: Tag, path: string, patch: Partial<CheckoutRow> = {}): CheckoutRow {
+function checkout(
+  tag: Tag,
+  path: string,
+  patch: Partial<CheckoutRow> = {},
+  ids: Ids = SHARED,
+): CheckoutRow {
   return {
-    machineId: machine(tag),
+    machineId: ids.machine(),
     path,
-    root: root(tag),
-    kind: path === root(tag) ? 'repository' : 'worktree',
-    repoId: deriveRepoId({ originUrl: origin(tag), machineId: machine(tag), path: root(tag) }),
+    root: ids.root,
+    kind: path === ids.root ? 'repository' : 'worktree',
+    repoId: deriveRepoId({ originUrl: ids.origin, machineId: ids.machine(), path: ids.root }),
     branch: `${tag}-branch`,
-    originUrl: origin(tag),
+    originUrl: ids.origin,
     locked: false,
     prunable: false,
     ...patch,
   }
 }
 
-async function insertOldSignIn(store: Store, tag: Tag, hash: string, label: string) {
+async function insertOldSignIn(store: Store, tag: Tag, hash: string, label: string, ids: Ids) {
   await store.run(
     sql`INSERT INTO client_sessions (workspace_id, token_hash, user_id, created_at, expires_at, label)
-       VALUES (${WS[tag]}, ${hash}, ${user(tag)}, ${AT}, ${LATER}, ${label})`,
+       VALUES (${WS[tag]}, ${hash}, ${ids.user()}, ${AT_OF[tag]}, ${LATER}, ${label})`,
   )
 }
 
 /** An issue row, raw: the issues repository is another task's (B2). */
-async function insertIssue(store: Store, tag: Tag, seq: number, profileId: string) {
+async function insertIssue(store: Store, tag: Tag, profileId: string, ids: Ids) {
   await store.run(
     sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq,
          title, stage, default_agent, agent_profile_id, created_at, updated_at)
-       VALUES (${WS[tag]}, ${asIssueId(`${tag}-iss-${seq}`)}, ${user(tag)}, ${user(tag)}, ${root(tag)},
-         ${`${tag}-repo`}, ${seq}, ${`${tag} issue ${seq}`}, 'backlog', 'codex', ${profileId}, ${AT}, ${AT})`,
+       VALUES (${WS[tag]}, ${asIssueId(ids.issue)}, ${ids.user()}, ${ids.user()}, ${ids.root},
+         ${`${ids.issue}-repo`}, ${1}, ${`${tag} issue 1`}, 'backlog', 'codex', ${profileId}, ${AT_OF[tag]}, ${AT_OF[tag]})`,
   )
 }
 
 /**
- * One workspace's rows, written through its own repositories. Members alice (admin), bob and
- * carol (disabled); machine 1 (alice's custody, bearer token) and machine 2 (bob's); an issue
- * grant to bob; repository root with origin and prefix, a worktree, reach and a lost checkout;
- * alice's managed key, shared with bob and sent to machine 1; old sign-ins and a carry record;
- * an audit row; an agent profile with an issue using it.
+ * One workspace's rows, written through its own repositories, at the ids `ids` names (the
+ * shared set by default). Members alice (admin), bob (an admin in B) and carol (disabled);
+ * machine 1 (alice's custody, bearer token) and machine 2 (bob's); an issue grant to bob;
+ * repository root with origin and prefix, a worktree, reach and a lost checkout; alice's
+ * managed key, shared with bob and sent to machine 1; old sign-ins and a carry record; an audit
+ * row; an agent profile with an issue using it.
  */
-async function seed(store: Store, tag: Tag): Promise<void> {
+async function seed(store: Store, tag: Tag, ids: Ids = SHARED): Promise<void> {
+  const at = AT_OF[tag]
+  const alice = ids.user()
+  const bob = ids.user('bob')
+  const m1 = ids.machine()
+  const root = ids.root
   const rows = store.users.memberRows
-  await rows.write(member(tag, 'alice'))
-  await rows.write(member(tag, 'bob'))
+  await rows.write(member(tag, 'alice', {}, ids))
+  await rows.write(member(tag, 'bob', {}, ids))
   // A member row exists once its membership is active; carol is then disabled.
-  await rows.write(member(tag, 'carol'))
-  await rows.write(member(tag, 'carol', { version: 2, state: 'disabled' }))
+  await rows.write(member(tag, 'carol', {}, ids))
+  await rows.write(member(tag, 'carol', { version: 2, state: 'disabled' }, ids))
 
   await store.machines.enrollMachine({
-    id: machine(tag),
+    id: m1,
     name: `${tag} box`,
     hostname: `${tag}-host`,
-    tokenHash: sha(token(tag)),
-    ownerUserId: user(tag),
+    tokenHash: sha(ids.token(tag)),
+    ownerUserId: alice,
     podiumManaged: true,
     assignment: { server: false, agentExecution: true },
     assignmentEvidence: { version: 1, source: 'enrollment', requestId: `${tag}-enroll` },
   })
   await store.machines.upsertMachine({
-    id: machine(tag, 2),
+    id: ids.machine(2),
     name: `${tag} laptop`,
     hostname: `${tag}-laptop`,
-    tokenHash: sha(`${tag}-token-2`),
-    ownerUserId: user(tag, 'bob'),
+    tokenHash: sha(`${ids.token(tag)}-2`),
+    ownerUserId: bob,
   })
-  await store.machines.renameMachine(machine(tag), `${tag} workstation`)
-  await store.machines.setUpdateChannel(machine(tag), 'stable')
-  await store.machines.setMachineInventory(machine(tag), JSON.stringify({ harnesses: [] }))
+  await store.machines.renameMachine(m1, `${tag} workstation`)
+  await store.machines.setUpdateChannel(m1, 'stable')
+  await store.machines.setMachineInventory(m1, JSON.stringify({ harnesses: [] }))
 
-  await store.grants.upsert(grant(tag, `${tag}-iss-1`, user(tag, 'bob'), 'read'))
-  await store.grants.upsert(grant(tag, `${tag}-iss-1`, user(tag, 'bob'), 'write'))
+  for (const verb of bobVerbs(tag)) await store.grants.upsert(grant(tag, ids.issue, bob, verb, ids))
 
-  await store.repos.addRepo(root(tag), machine(tag), origin(tag), prefixOf(tag))
-  await store.repos.addRepo(`${root(tag)}-scratch`, machine(tag, 2), undefined, `${prefixOf(tag)}S`)
-  await store.repos.setRepoDefaultParentBranch(machine(tag), root(tag), `${tag}-main`)
-  await store.repos.nextDraftSeq(repoIdOf(tag))
+  await store.repos.addRepo(root, m1, ids.origin, ids.prefix)
+  await store.repos.addRepo(`${root}-scratch`, ids.machine(2), undefined, `${ids.prefix}S`)
+  await store.repos.setRepoDefaultParentBranch(m1, root, `${tag}-main`)
+  await store.repos.nextDraftSeq(repoIdOf(ids))
 
   await store.checkouts.apply(
-    [checkout(tag, root(tag)), checkout(tag, `${root(tag)}/w1`), checkout(tag, `${root(tag)}/w2`)],
+    [
+      checkout(tag, root, {}, ids),
+      checkout(tag, `${root}/w1`, {}, ids),
+      checkout(tag, `${root}/w2`, {}, ids),
+    ],
     [],
-    AT,
+    at,
   )
   await store.checkouts.applyReach(
     {
       reach: [
-        { userId: user(tag), machineId: machine(tag), reach: 'all' },
-        { userId: user(tag, 'bob'), machineId: machine(tag), reach: 'roots' },
+        { userId: alice, machineId: m1, reach: tag === 'a' ? 'all' : 'roots' },
+        { userId: bob, machineId: m1, reach: tag === 'a' ? 'roots' : 'all' },
       ],
-      lost: [
-        { userId: user(tag, 'bob'), machineId: machine(tag), path: `${root(tag)}/w0`, root: false },
-      ],
+      lost: [{ userId: bob, machineId: m1, path: `${root}/w0`, root: false }],
     },
-    AT,
+    at,
   )
 
   await store.accounts.connect({
-    ownerUserId: user(tag),
+    ownerUserId: alice,
     accountKey: ANTHROPIC,
     provider: 'anthropic',
     kind: 'api-key',
@@ -261,27 +318,27 @@ async function seed(store: Store, tag: Tag): Promise<void> {
     scope: 'role',
     createdAt: 1,
   })
-  await store.accounts.share(user(tag), ANTHROPIC, [user(tag, 'bob')])
-  await store.accounts.markSent(user(tag), ANTHROPIC, machine(tag), AT)
-  await store.accounts.setOptIn(user(tag), 'claude-code', `${tag}-fingerprint`, true, AT)
-  await store.accounts.recordTransfer(user(tag), {
+  await store.accounts.share(alice, ANTHROPIC, [bob])
+  await store.accounts.markSent(alice, ANTHROPIC, m1, at)
+  await store.accounts.setOptIn(alice, 'claude-code', ids.fingerprint, true, at)
+  await store.accounts.recordTransfer(alice, {
     harness: 'claude-code',
-    fingerprint: `${tag}-fingerprint`,
-    machineId: machine(tag),
+    fingerprint: ids.fingerprint,
+    machineId: m1,
     outcome: 'installed',
-    at: AT,
+    at,
     revision: 1,
   })
 
-  await insertOldSignIn(store, tag, `${tag}-old-login`, 'login')
-  await insertOldSignIn(store, tag, `${tag}-old-mobile`, 'mobile')
-  await insertOldSignIn(store, tag, `${tag}-old-upstream`, 'upstream')
+  for (const label of ['login', 'mobile', 'upstream']) {
+    await insertOldSignIn(store, tag, ids.signIn(label), label, ids)
+  }
   await store.signInCarryOver.record({
-    oldTokenHash: `${tag}-carried`,
-    deviceSignInId: `${tag}-device`,
+    oldTokenHash: ids.carried,
+    deviceSignInId: ids.device,
     sealed: `${tag}-sealed`,
     expiresAt: LATER,
-    memberId: user(tag),
+    memberId: alice,
     oldLabel: 'login',
   })
   await store.signInCarryOver.writePeriodEndIfAbsent(`${tag}-period-end`)
@@ -290,28 +347,28 @@ async function seed(store: Store, tag: Tag): Promise<void> {
     command: 'machines.rename',
     outcome: 'applied',
     actorKind: 'user',
-    actorId: user(tag),
-    onBehalfOf: user(tag),
-    detail: { machineId: machine(tag) },
+    actorId: alice,
+    onBehalfOf: alice,
+    detail: { machineId: m1, name: `${tag} workstation` },
     redactedPaths: [],
-    createdAt: AT,
+    createdAt: at,
   })
 
   await store.agentProfiles.insert({
-    id: `${tag}-profile`,
-    name: `${tag} profile`,
+    id: ids.profile,
+    name: ids.profileName,
     description: `${tag} description`,
     candidates: [],
-    machineId: machine(tag),
+    machineId: m1,
     instructions: `${tag} instructions`,
-    actor: user(tag),
-    now: AT,
+    actor: alice,
+    now: at,
   })
-  await insertIssue(store, tag, 1, `${tag}-profile`)
+  await insertIssue(store, tag, ids.profile, ids)
 }
 
-const repoIdOf = (tag: Tag) =>
-  deriveRepoId({ originUrl: origin(tag), machineId: machine(tag), path: root(tag) })
+const repoIdOf = (ids: Ids = SHARED) =>
+  deriveRepoId({ originUrl: ids.origin, machineId: ids.machine(), path: ids.root })
 
 async function twoSeeded(): Promise<readonly [Store, Store]> {
   const stores = await openPeopleStoreSlices([WS.a, WS.b])
@@ -327,17 +384,17 @@ const pairs = (a: Store, b: Store) =>
     [b, 'b'],
   ] as const
 
-/** Every string in `value` that names a seeded thing starts with its own workspace's tag. */
+/** No content of the other workspace anywhere in `value`. */
 function onlyOwn(value: unknown, tag: Tag): void {
   const other = otherOf(tag)
   const text = JSON.stringify(value)
   expect(text).not.toMatch(
     new RegExp(
-      `\\b${other}-(machine|alice|bob|carol|host|laptop|secret|identity|profile|old|carried|iss)|"${other} `,
+      `"${other} |\\b${other}-(host|laptop|secret|identity|sealed|period-end|main|description|instructions|enroll|branch)|only-${other}|"${WS[other]}"`,
     ),
   )
-  expect(text).not.toContain(`/repo-${other}`)
-  expect(text).not.toContain(`@${other}.test`)
+  expect(text).not.toContain(AT_OF[other])
+  expect(text).not.toContain(sha(token(other)))
 }
 
 describe('every row is written under its own workspace', () => {
@@ -356,60 +413,90 @@ describe('every row is written under its own workspace', () => {
 describe('reads answer only their own workspace', () => {
   it('members', async () => {
     const [a, b] = await twoSeeded()
+    // A disabled member only each workspace holds.
+    const only = (tag: Tag) => asUserId(`user:only-${tag}`)
+    for (const [store, tag] of pairs(a, b)) {
+      const onlyMember = {
+        memberId: only(tag),
+        accountId: `only-${tag}-account`,
+        profile: { name: `${tag} only`, image: null, email: `only-${tag}@example.test` },
+      }
+      await store.users.memberRows.write(member(tag, 'carol', onlyMember))
+      await store.users.memberRows.write(
+        member(tag, 'carol', { ...onlyMember, version: 2, state: 'disabled' }),
+      )
+    }
     for (const [store, tag] of pairs(a, b)) {
       const other = otherOf(tag)
       const users = store.users
-      expect((await users.list()).map((row) => row.id).sort()).toEqual(
-        [user(tag), user(tag, 'bob')].sort(),
+      const listed = await users.list()
+      expect(listed.map((row) => row.id).sort()).toEqual([user(), user('bob')].sort())
+      onlyOwn(listed, tag)
+      const everyone = await users.listIncludingDisabled()
+      expect(everyone.map((row) => row.id).sort()).toEqual(
+        [user(), user('bob'), user('carol'), only(tag)].sort(),
       )
-      expect((await users.listIncludingDisabled()).map((row) => row.id).sort()).toEqual(
-        [user(tag), user(tag, 'bob'), user(tag, 'carol')].sort(),
+      expect((await users.get(user()))?.displayName).toBe(`${tag} alice`)
+      expect(await users.get(only(other))).toBeUndefined()
+      expect(await users.roleOf(user())).toBe('admin')
+      expect(await users.roleOf(user('bob'))).toBe(tag === 'b' ? 'admin' : 'member')
+      expect(await users.roleOf(only(other))).toBeUndefined()
+      expect(await users.authzGenerationOf(only(other))).toBeUndefined()
+      expect(typeof (await users.authzGenerationOf(user()))).toBe('number')
+      expect(await users.queuedBeforeAuthorityChange(only(other), Date.now())).toBe(true)
+      expect([...(await users.activeAdminIds())].sort()).toEqual(
+        tag === 'a' ? [user()] : [user(), user('bob')].sort(),
       )
-      expect((await users.get(user(tag)))?.id).toBe(user(tag))
-      expect(await users.get(user(other))).toBeUndefined()
-      expect(await users.roleOf(user(tag))).toBe('admin')
-      expect(await users.roleOf(user(other))).toBeUndefined()
-      expect(await users.authzGenerationOf(user(other))).toBeUndefined()
-      expect(typeof (await users.authzGenerationOf(user(tag)))).toBe('number')
-      expect(await users.queuedBeforeAuthorityChange(user(other), Date.now())).toBe(true)
-      expect([...(await users.activeAdminIds())]).toEqual([user(tag)])
-      expect((await users.earliestAdmin())?.id).toBe(user(tag))
-      expect((await users.byEmail(`alice@${tag}.test`))?.id).toBe(user(tag))
-      expect(await users.byEmail(`alice@${other}.test`)).toBeUndefined()
-      expect((await users.findMemberByAccount(`${tag}-account-bob`))?.id).toBe(user(tag, 'bob'))
-      expect(await users.findMemberByAccount(`${other}-account-bob`)).toBeUndefined()
-      expect((await users.recordMembers()).map((row) => row.id).sort()).toEqual(
-        [user(tag), user(tag, 'bob')].sort(),
+      expect((await users.earliestAdmin())?.displayName).toBe(`${tag} alice`)
+      expect((await users.byEmail(SHARED.email('alice')))?.displayName).toBe(`${tag} alice`)
+      expect((await users.findMemberByAccount(SHARED.account('bob')))?.displayName).toBe(
+        `${tag} bob`,
       )
+      const recorded = await users.recordMembers()
+      expect(recorded.map((row) => row.id).sort()).toEqual([user(), user('bob')].sort())
+      onlyOwn(recorded, tag)
       expect(await users.hasSeveralActiveMembers()).toBe(true)
       expect(await users.hasSeveralMembers()).toBe(true)
       expect(await users.soleActiveMember()).toBeUndefined()
-      expect(await users.memberRows.exists?.(user(tag, 'carol'))).toBe(true)
-      expect(await users.memberRows.exists?.(user(other, 'carol'))).toBe(false)
+      expect(await users.memberRows.exists?.(user('carol'))).toBe(true)
+      expect(await users.memberRows.exists?.(only(other))).toBe(false)
     }
   })
 
   it('machines', async () => {
     const [a, b] = await twoSeeded()
+    // A machine only each workspace holds.
+    const only = (tag: Tag) => asMachineId(`only-${tag}-machine`)
+    for (const [store, tag] of pairs(a, b)) {
+      await store.machines.upsertMachine({
+        id: only(tag),
+        name: `${tag} only box`,
+        hostname: `${tag}-host-only`,
+        tokenHash: sha(`only-${tag}-token`),
+        ownerUserId: user(),
+      })
+    }
     for (const [store, tag] of pairs(a, b)) {
       const other = otherOf(tag)
       const machines = store.machines
-      const own = [machine(tag), machine(tag, 2)].sort()
-      expect((await machines.listMachines()).map((row) => row.id).sort()).toEqual(own)
+      const own = [machine(), machine(2), only(tag)].sort()
+      const listed = await machines.listMachines()
+      expect(listed.map((row) => row.id).sort()).toEqual(own)
+      onlyOwn(listed, tag)
       expect([...(await machines.recordIds())].sort()).toEqual(own)
-      expect((await machines.getMachine(machine(tag)))?.name).toBe(`${tag} workstation`)
-      expect(await machines.getMachine(machine(other))).toBeUndefined()
-      expect([...(await machines.getMachines([machine(tag), machine(other)])).keys()]).toEqual([
-        machine(tag),
-      ])
-      expect(await machines.getMachineByToken(machine(tag), token(tag))).toBe(true)
-      expect(await machines.getMachineByToken(machine(other), token(other))).toBe(false)
-      expect(await machines.credentialIncarnation(machine(tag))).toBe(sha(token(tag)))
-      expect(await machines.credentialIncarnation(machine(other))).toBeUndefined()
-      expect(await machines.custodian(machine(tag))).toBe(user(tag))
-      expect(await machines.custodian(machine(other))).toBeNull()
-      expect(await machines.custodyMachineIds(user(tag))).toEqual([machine(tag)])
-      expect(await machines.custodyMachineIds(user(other))).toEqual([])
+      expect((await machines.getMachine(machine()))?.name).toBe(`${tag} workstation`)
+      expect(await machines.getMachine(only(other))).toBeUndefined()
+      const got = await machines.getMachines([machine(), only(other)])
+      expect([...got.keys()]).toEqual([machine()])
+      expect(got.get(machine())?.name).toBe(`${tag} workstation`)
+      // The same machine id, each workspace's own token.
+      expect(await machines.getMachineByToken(machine(), token(tag))).toBe(true)
+      expect(await machines.getMachineByToken(machine(), token(other))).toBe(false)
+      expect(await machines.credentialIncarnation(machine())).toBe(sha(token(tag)))
+      expect(await machines.credentialIncarnation(only(other))).toBeUndefined()
+      expect(await machines.custodian(machine())).toBe(user())
+      expect(await machines.custodian(only(other))).toBeNull()
+      expect(await machines.custodyMachineIds(user())).toEqual([machine()])
       expect(await machines.legacyMachineSentinelSites()).toEqual([])
     }
   })
@@ -417,81 +504,79 @@ describe('reads answer only their own workspace', () => {
   it('grants', async () => {
     const [a, b] = await twoSeeded()
     for (const [store, tag] of pairs(a, b)) {
-      const other = otherOf(tag)
       const grants = store.grants
-      const bob = user(tag, 'bob')
+      const bob = user('bob')
+      const issue = SHARED.issue
       const verbs = (rows: GrantRow[]) => rows.map((row) => `${row.grantee}:${row.verb}`).sort()
-      expect(verbs(await grants.listForResource('issue', `${tag}-iss-1`))).toEqual([
-        `${bob}:read`,
-        `${bob}:write`,
+      const bobs = bobVerbs(tag).map((verb) => `${bob}:${verb}`)
+      expect(verbs(await grants.listForResource('issue', issue))).toEqual(bobs)
+      const listed = await grants.listForResources('issue', [issue, 'only-iss'])
+      expect([...listed.keys()]).toEqual([issue])
+      expect(verbs(listed.get(issue) ?? [])).toEqual(bobs)
+      expect(verbs(await grants.loadForResource('machine', machine()))).toEqual([
+        `${user()}:manage`,
+        `${user()}:use`,
       ])
-      expect(await grants.listForResource('issue', `${other}-iss-1`)).toEqual([])
-      expect(await grants.listForResource('machine', machine(other))).toEqual([])
-      expect([
-        ...(await grants.listForResources('issue', [`${tag}-iss-1`, `${other}-iss-1`])).keys(),
-      ]).toEqual([`${tag}-iss-1`])
-      expect(verbs(await grants.loadForResource('machine', machine(tag)))).toEqual([
-        `${user(tag)}:manage`,
-        `${user(tag)}:use`,
-      ])
-      expect(await grants.loadForResource('machine', machine(other))).toEqual([])
-      const loaded = await grants.loadForResources('issue', [`${tag}-iss-1`, `${other}-iss-1`])
-      expect(loaded.get(`${other}-iss-1`)).toEqual([])
+      const loaded = await grants.loadForResources('issue', [issue])
+      expect(verbs(loaded.get(issue) ?? [])).toEqual(bobs)
       const kinds = await grants.loadForResourcesOfKinds({
-        issue: [`${other}-iss-1`],
-        machine: [machine(other), machine(tag, 2)],
+        issue: [issue],
+        machine: [machine(2)],
       })
-      expect(kinds.get('issue')?.get(`${other}-iss-1`)).toEqual([])
-      expect(kinds.get('machine')?.get(machine(other))).toEqual([])
-      expect(verbs(kinds.get('machine')?.get(machine(tag, 2)) ?? [])).toEqual([
+      expect(verbs(kinds.get('issue')?.get(issue) ?? [])).toEqual(bobs)
+      expect(verbs(kinds.get('machine')?.get(machine(2)) ?? [])).toEqual([
         `${bob}:manage`,
         `${bob}:use`,
       ])
-      expect([...new Set(await grants.machineIdsForGrantee(user(tag)))]).toEqual([machine(tag)])
-      expect(await grants.machineIdsForGrantee(user(other))).toEqual([])
-      const audiences = await grants.visibilityAudiencesFor('issue', [
-        `${tag}-iss-1`,
-        `${other}-iss-1`,
-      ])
-      expect(audiences.get(`${tag}-iss-1`)).toEqual([bob])
-      expect(audiences.get(`${other}-iss-1`)).toEqual([])
+      expect(new Set(await grants.machineIdsForGrantee(user()))).toEqual(new Set([machine()]))
+      const audiences = await grants.visibilityAudiencesFor('issue', [issue])
+      expect(audiences.get(issue)).toEqual([bob])
     }
   })
 
   it('repositories', async () => {
     const [a, b] = await twoSeeded()
+    // A repository only each workspace holds, on the machine both hold.
+    const only = (tag: Tag) => ({
+      root: `/only-${tag}`,
+      origin: `https://example.test/only-${tag}.git`,
+      prefix: `ONL${tag.toUpperCase()}`,
+    })
+    const onlyRepoId = (tag: Tag) =>
+      deriveRepoId({ originUrl: only(tag).origin, machineId: machine(), path: only(tag).root })
+    for (const [store, tag] of pairs(a, b)) {
+      await store.repos.addRepo(only(tag).root, machine(), only(tag).origin, only(tag).prefix)
+    }
     for (const [store, tag] of pairs(a, b)) {
       const other = otherOf(tag)
       const repos = store.repos
       const listed = await repos.listRepos()
-      expect(listed.map((row) => row.path).sort()).toEqual([root(tag), `${root(tag)}-scratch`])
-      expect(await repos.listRepos(machine(other))).toEqual([])
-      expect(await repos.listRepoPaths(machine(tag))).toEqual([root(tag)])
-      expect(await repos.prefixForRepoId(repoIdOf(tag))).toBe(prefixOf(tag))
-      expect(await repos.prefixForRepoId(repoIdOf(other))).toBeNull()
-      expect(await repos.prefixForPath(`${root(tag)}/src`)).toBe(prefixOf(tag))
-      expect(await repos.prefixForPath(`${root(other)}/src`)).toBeNull()
-      expect((await repos.prefixResolver())(`${root(other)}/src`)).toBeNull()
-      expect(await repos.isPrefixTaken(prefixOf(tag))).toBe(true)
-      expect(await repos.isPrefixTaken(prefixOf(other))).toBe(false)
-      expect(await repos.repoForPrefix(prefixOf(tag))).toEqual({
-        repoId: repoIdOf(tag),
-        path: root(tag),
-      })
-      expect(await repos.repoForPrefix(prefixOf(other))).toBeNull()
-      expect(await repos.defaultParentBranchForRepoId(repoIdOf(tag))).toBe(`${tag}-main`)
-      expect(await repos.defaultParentBranchForRepoId(repoIdOf(other))).toBeNull()
-      expect(await repos.defaultParentBranchForIssueRepo(root(tag), machine(tag))).toBe(
-        `${tag}-main`,
+      expect(listed.map((row) => row.path).sort()).toEqual(
+        [ROOT, `${ROOT}-scratch`, only(tag).root].sort(),
       )
-      expect(await repos.reportingMachineFor(repoIdOf(tag), root(tag))).toBe(machine(tag))
-      expect(await repos.reportingMachineFor(repoIdOf(other), root(other))).toBeNull()
-      expect(await repos.machineHasRootContaining(`${root(tag)}/x`, machine(tag))).toBe(true)
-      expect(await repos.machineHasRootContaining(`${root(other)}/x`, machine(other))).toBe(false)
-      expect(await repos.resolveRepoIdForPath(`${root(tag)}/x`, machine(tag))).toBe(repoIdOf(tag))
-      expect(await repos.resolveIssueRepoId(root(tag), machine(tag))).toBe(repoIdOf(tag))
-      expect(await repos.resolveRepoIdForPath(`${root(other)}/x`, machine(other))).not.toBe(
-        repoIdOf(other),
+      onlyOwn(listed, tag)
+      expect((await repos.listRepoPaths(machine())).sort()).toEqual([ROOT, only(tag).root].sort())
+      expect(await repos.prefixForRepoId(repoIdOf())).toBe('AAA')
+      expect(await repos.prefixForRepoId(onlyRepoId(other))).toBeNull()
+      expect(await repos.prefixForPath(`${ROOT}/src`)).toBe('AAA')
+      expect(await repos.prefixForPath(`${only(other).root}/src`)).toBeNull()
+      expect((await repos.prefixResolver())(`${only(other).root}/src`)).toBeNull()
+      expect(await repos.isPrefixTaken('AAA')).toBe(true)
+      expect(await repos.isPrefixTaken(only(other).prefix)).toBe(false)
+      expect(await repos.repoForPrefix('AAA')).toEqual({ repoId: repoIdOf(), path: ROOT })
+      expect(await repos.repoForPrefix(only(other).prefix)).toBeNull()
+      // The same repository, each workspace's own default branch.
+      expect(await repos.defaultParentBranchForRepoId(repoIdOf())).toBe(`${tag}-main`)
+      expect(await repos.defaultParentBranchForRepoId(onlyRepoId(other))).toBeNull()
+      expect(await repos.defaultParentBranchForIssueRepo(ROOT, machine())).toBe(`${tag}-main`)
+      expect(await repos.reportingMachineFor(repoIdOf(), ROOT)).toBe(machine())
+      expect(await repos.reportingMachineFor(onlyRepoId(other), only(other).root)).toBeNull()
+      expect(await repos.machineHasRootContaining(`${ROOT}/x`, machine())).toBe(true)
+      expect(await repos.machineHasRootContaining(`${only(other).root}/x`, machine())).toBe(false)
+      expect(await repos.resolveRepoIdForPath(`${ROOT}/x`, machine())).toBe(repoIdOf())
+      expect(await repos.resolveIssueRepoId(ROOT, machine())).toBe(repoIdOf())
+      expect(await repos.resolveRepoIdForPath(`${only(other).root}/x`, machine())).not.toBe(
+        onlyRepoId(other),
       )
       expect(await repos.legacyRepoResidue()).toEqual({ repoIdsMissing: 0, prefixesMissing: 0 })
       // The places name own machines only (a range's upper bound may spell another path).
@@ -499,7 +584,7 @@ describe('reads answer only their own workspace', () => {
       expect(places).not.toBe('everywhere')
       if (places !== 'everywhere') {
         const named = [...places.bounded, ...places.open].map(([machineId]) => machineId)
-        expect(new Set(named)).toEqual(new Set([machine(tag), machine(tag, 2)]))
+        expect(new Set(named)).toEqual(new Set([machine(), machine(2)]))
       }
     }
   })
@@ -507,84 +592,109 @@ describe('reads answer only their own workspace', () => {
   it('checkouts', async () => {
     const [a, b] = await twoSeeded()
     for (const [store, tag] of pairs(a, b)) {
-      const other = otherOf(tag)
       const checkouts = store.checkouts
-      const paths = [root(tag), `${root(tag)}/w1`, `${root(tag)}/w2`]
-      expect((await checkouts.all()).map((row) => row.path)).toEqual(paths)
-      expect((await checkouts.ofMachine(machine(tag))).map((row) => row.path)).toEqual(paths)
-      expect(await checkouts.ofMachine(machine(other))).toEqual([])
-      expect((await checkouts.ofMachines([machine(tag), machine(other)])).length).toBe(3)
-      expect([...(await checkouts.pathsOfMachines([machine(tag), machine(other)])).keys()]).toEqual(
-        [machine(tag)],
+      const paths = [ROOT, `${ROOT}/w1`, `${ROOT}/w2`]
+      const all = await checkouts.all()
+      expect(all.map((row) => [row.path, row.branch])).toEqual(
+        paths.map((path) => [path, `${tag}-branch`]),
       )
-      expect([
-        ...(await checkouts.rootPathsOfMachines([machine(tag), machine(other)])).keys(),
-      ]).toEqual([machine(tag)])
-      const reach = await checkouts.reachOfMachines([machine(tag), machine(other)])
-      expect([...reach.keys()]).toEqual([machine(tag)])
-      expect([...(reach.get(machine(tag))?.keys() ?? [])].sort()).toEqual(
-        [user(tag), user(tag, 'bob')].sort(),
-      )
-      const lost = await checkouts.lostOfMachines([machine(tag), machine(other)])
-      expect([...lost.keys()]).toEqual([machine(tag)])
+      const ofMachine = await checkouts.ofMachine(machine())
+      expect(ofMachine.map((row) => row.path)).toEqual(paths)
+      onlyOwn(ofMachine, tag)
+      const ofMachines = await checkouts.ofMachines([machine()])
+      expect(ofMachines.length).toBe(3)
+      onlyOwn(ofMachines, tag)
+      const pathsOf = await checkouts.pathsOfMachines([machine()])
+      expect([...pathsOf.keys()]).toEqual([machine()])
+      expect([...(pathsOf.get(machine()) ?? [])].sort()).toEqual(paths)
+      expect([...(await checkouts.rootPathsOfMachines([machine()])).keys()]).toEqual([machine()])
+      // The same people on the same machine, each workspace's own reach.
+      const reach = await checkouts.reachOfMachines([machine()])
+      expect([...reach.keys()]).toEqual([machine()])
+      expect(Object.fromEntries(reach.get(machine()) ?? [])).toEqual({
+        [user()]: tag === 'a' ? 'all' : 'roots',
+        [user('bob')]: tag === 'a' ? 'roots' : 'all',
+      })
+      const lost = await checkouts.lostOfMachines([machine()])
+      expect([...lost.keys()]).toEqual([machine()])
+      onlyOwn([...lost.values()], tag)
     }
   })
 
   it('managed accounts and native logins', async () => {
     const [a, b] = await twoSeeded()
     for (const [store, tag] of pairs(a, b)) {
-      const other = otherOf(tag)
       const accounts = store.accounts
-      expect((await accounts.list()).map((row) => row.ownerUserId)).toEqual([user(tag)])
+      const alice = user()
+      const bob = user('bob')
+      expect((await accounts.list()).map((row) => [row.ownerUserId, row.credential])).toEqual([
+        [alice, `${tag}-secret`],
+      ])
       expect((await accounts.summaries()).map((row) => row.identity)).toEqual([`${tag}-identity`])
-      expect((await accounts.listFor(user(tag))).map((row) => row.credential)).toEqual([
+      expect((await accounts.listFor(alice)).map((row) => row.credential)).toEqual([
         `${tag}-secret`,
       ])
-      expect(await accounts.listFor(user(other))).toEqual([])
-      expect(await accounts.ownedBy(user(other))).toEqual([])
-      expect((await accounts.getFor(user(tag), ANTHROPIC))?.credential).toBe(`${tag}-secret`)
-      expect(await accounts.getFor(user(other), ANTHROPIC)).toBeUndefined()
-      expect(await accounts.own(user(other), ANTHROPIC)).toBeUndefined()
-      expect((await accounts.sharedWith(user(tag, 'bob'), ANTHROPIC)).length).toBe(1)
-      expect(await accounts.sharedWith(user(other, 'bob'), ANTHROPIC)).toEqual([])
-      expect((await accounts.sharedWithUser(user(tag, 'bob'))).length).toBe(1)
-      expect(await accounts.sharedWithUser(user(other, 'bob'))).toEqual([])
-      expect(await accounts.sentTo(user(tag), ANTHROPIC)).toEqual([machine(tag)])
-      expect(await accounts.sentTo(user(other), ANTHROPIC)).toEqual([])
-      expect([...(await accounts.sendsOf(user(tag))).keys()]).toEqual([ANTHROPIC])
-      expect([...(await accounts.sendsOf(user(other))).keys()]).toEqual([])
-      expect((await accounts.optInsFor(user(tag))).map((row) => row.fingerprint)).toEqual([
-        `${tag}-fingerprint`,
+      expect((await accounts.ownedBy(alice)).map((row) => row.credential)).toEqual([
+        `${tag}-secret`,
       ])
-      expect(await accounts.optInsFor(user(other))).toEqual([])
-      expect(
-        await accounts.optInFor(user(other), 'claude-code', `${other}-fingerprint`),
-      ).toBeUndefined()
-      expect((await accounts.transfersFor(user(tag))).map((row) => row.machineId)).toEqual([
-        machine(tag),
-      ])
-      expect(await accounts.transfersFor(user(other))).toEqual([])
+      expect((await accounts.getFor(alice, ANTHROPIC))?.credential).toBe(`${tag}-secret`)
+      expect((await accounts.own(alice, ANTHROPIC))?.credential).toBe(`${tag}-secret`)
+      const shared = await accounts.sharedWith(bob, ANTHROPIC)
+      expect(shared.map((row) => row.credential)).toEqual([`${tag}-secret`])
+      const sharedWithBob = await accounts.sharedWithUser(bob)
+      expect(sharedWithBob.map((row) => row.credential)).toEqual([`${tag}-secret`])
+      expect(await accounts.sentTo(alice, ANTHROPIC)).toEqual([machine()])
+      const sends = await accounts.sendsOf(alice)
+      expect([...sends.keys()]).toEqual([ANTHROPIC])
+      onlyOwn([...sends.values()], tag)
+      const optIns = await accounts.optInsFor(alice)
+      expect(optIns.map((row) => row.fingerprint)).toEqual([SHARED.fingerprint])
+      onlyOwn(optIns, tag)
+      const optIn = await accounts.optInFor(alice, 'claude-code', SHARED.fingerprint)
+      expect(optIn).toBeDefined()
+      onlyOwn(optIn, tag)
+      const transfers = await accounts.transfersFor(alice)
+      expect(transfers.map((row) => row.machineId)).toEqual([machine()])
+      onlyOwn(transfers, tag)
     }
   })
 
   it('old sign-ins, carry records and the period end', async () => {
     const [a, b] = await twoSeeded()
+    // An old sign-in only each workspace holds.
+    for (const [store, tag] of pairs(a, b)) {
+      await insertOldSignIn(store, tag, `only-${tag}-login`, 'login', SHARED)
+    }
     for (const [store, tag] of pairs(a, b)) {
       const other = otherOf(tag)
       const carry = store.signInCarryOver
-      expect(await carry.matches(`${tag}-old-login`, AT)).toBe(true)
-      expect(await carry.matches(`${tag}-carried`, AT)).toBe(true)
-      expect(await carry.matches(`${other}-old-login`, AT)).toBe(false)
-      expect(await carry.matches(`${other}-carried`, AT)).toBe(false)
-      expect(await carry.sealedOf(`${tag}-carried`, AT)).toBe(`${tag}-sealed`)
-      expect(await carry.sealedOf(`${other}-carried`, AT)).toBeUndefined()
-      expect(await carry.countHonoured()).toBe(2)
+      expect(await carry.matches(SHARED.signIn('login'), AT)).toBe(true)
+      expect(await carry.matches(SHARED.carried, AT)).toBe(true)
+      expect(await carry.matches(`only-${tag}-login`, AT)).toBe(true)
+      expect(await carry.matches(`only-${other}-login`, AT)).toBe(false)
+      // The same carried token, each workspace's own sealed record.
+      expect(await carry.sealedOf(SHARED.carried, AT)).toBe(`${tag}-sealed`)
+      expect(await carry.countHonoured()).toBe(3)
       expect(await carry.periodEnd()).toBe(`${tag}-period-end`)
     }
   })
 
   it('the audit trail, agent profiles and the fleet channel', async () => {
     const [a, b] = await twoSeeded()
+    // A profile only each workspace holds.
+    const only = (tag: Tag) => `only-${tag}-profile`
+    for (const [store, tag] of pairs(a, b)) {
+      await store.agentProfiles.insert({
+        id: only(tag),
+        name: `only ${tag}`,
+        description: '',
+        candidates: [],
+        machineId: null,
+        instructions: '',
+        actor: user(),
+        now: AT_OF[tag],
+      })
+    }
     for (const [store, tag] of pairs(a, b)) {
       const other = otherOf(tag)
       const trail = await store.settingsAudit.list()
@@ -594,18 +704,25 @@ describe('reads answer only their own workspace', () => {
       expect(events.some((row) => row.command === 'machines.rename')).toBe(true)
       onlyOwn(events, tag)
       onlyOwn(await store.settingsAudit.securityEvents(100, undefined, { kind: 'people' }), tag)
-      expect(
-        await store.settingsAudit.securityEvents(100, undefined, { actor: user(other) }),
-      ).toEqual([])
+      const byAlice = await store.settingsAudit.securityEvents(100, undefined, { actor: user() })
+      expect(byAlice.length).toBeGreaterThan(0)
+      onlyOwn(byAlice, tag)
 
       const profiles = store.agentProfiles
-      expect((await profiles.list()).map((row) => row.id)).toEqual([`${tag}-profile`])
-      expect((await profiles.get(`${tag}-profile`))?.name).toBe(`${tag} profile`)
-      expect(await profiles.get(`${other}-profile`)).toBeNull()
-      expect((await profiles.getByName(`${tag.toUpperCase()} PROFILE`))?.id).toBe(`${tag}-profile`)
-      expect(await profiles.getByName(`${other} profile`)).toBeNull()
-      expect(await profiles.openIssueSeqsUsing(`${tag}-profile`)).toEqual([1])
-      expect(await profiles.openIssueSeqsUsing(`${other}-profile`)).toEqual([])
+      expect((await profiles.list()).map((row) => [row.id, row.description]).sort()).toEqual(
+        [
+          [SHARED.profile, `${tag} description`],
+          [only(tag), ''],
+        ].sort(),
+      )
+      expect((await profiles.get(SHARED.profile))?.description).toBe(`${tag} description`)
+      expect(await profiles.get(only(other))).toBeNull()
+      expect((await profiles.getByName(SHARED.profileName.toUpperCase()))?.description).toBe(
+        `${tag} description`,
+      )
+      expect(await profiles.getByName(`only ${other}`)).toBeNull()
+      expect(await profiles.openIssueSeqsUsing(SHARED.profile)).toEqual([1])
+      expect(await profiles.openIssueSeqsUsing(only(other))).toEqual([])
     }
     // The fleet channel and the update execution are the install's (install keys of meta):
     // one value for every workspace, by design.
@@ -615,12 +732,15 @@ describe('reads answer only their own workspace', () => {
 })
 
 describe('writes in one workspace leave the other unchanged', () => {
-  it("A's writes aimed at B's ids change nothing in B", async () => {
+  it("A's writes aimed at ids only B holds change nothing in B", async () => {
     const [a, b] = await twoSeeded()
+    // A whole set of ids only B holds, seeded as the shared ones are.
+    const O = idsFor('only-b-')
+    await seed(b, 'b', O)
     const before = await rowsOf(a, 'b')
 
-    // Machines: every writer addressed at B's machine finds no row in A.
-    const m = machine('b')
+    // Machines: every writer addressed at a machine only B holds finds no row in A.
+    const m = O.machine()
     const am = a.machines
     await am.renameMachine(m, 'taken over')
     await am.setUpdateChannel(m, 'edge')
@@ -645,7 +765,7 @@ describe('writes in one workspace leave the other unchanged', () => {
         { version: 1, source: 's', requestId: 'r' },
       ),
     ).toBe('missing')
-    await expect(am.transferServerAssignment(m, machine('b', 2), 'r')).rejects.toThrow()
+    await expect(am.transferServerAssignment(m, O.machine(2), 'r')).rejects.toThrow()
     expect(
       await am.adoptLegacyHostCredential(
         m,
@@ -654,11 +774,11 @@ describe('writes in one workspace leave the other unchanged', () => {
         { version: 1, source: 's', requestId: 'r' },
       ),
     ).toBe(false)
-    await am.setMachineOwner(m, user('a'))
+    await am.setMachineOwner(m, user())
     await am.touchMachine(m, 'taken-host')
-    await am.supersedeMachine(m, machine('a'))
+    await am.supersedeMachine(m, machine())
     await am.revokeMachine(m)
-    await am.deleteMachine(machine('b', 2))
+    await am.deleteMachine(O.machine(2))
     expect(
       await am.enrollMachine(
         {
@@ -666,66 +786,66 @@ describe('writes in one workspace leave the other unchanged', () => {
           name: 'replaced',
           hostname: 'replaced',
           tokenHash: sha('replaced'),
-          ownerUserId: user('a'),
+          ownerUserId: user(),
           podiumManaged: true,
           assignment: { server: false, agentExecution: true },
           assignmentEvidence: { version: 1, source: 'enrollment', requestId: 'r' },
         },
         AT,
-        sha(token('b')),
+        sha(O.token('b')),
       ),
     ).toBe(false)
 
     // Grants.
-    expect(await a.grants.remove('issue', 'b-iss-1', user('b', 'bob'), 'read')).toBe(false)
-    await a.grants.removeAllForGrantee(user('b', 'bob'))
+    expect(await a.grants.remove('issue', O.issue, O.user('bob'), 'read')).toBe(false)
+    await a.grants.removeAllForGrantee(O.user('bob'))
     await a.grants.removeAllForResource('machine', m)
-    await a.grants.removeAllForResource('issue', 'b-iss-1')
+    await a.grants.removeAllForResource('issue', O.issue)
 
     // Repositories: B's roots are not A's to rename, re-origin or remove.
-    await a.repos.updateRepoOrigin(m, root('b'), 'https://example.test/other.git')
-    await a.repos.removeRepo(root('b'), m)
-    await a.repos.removeRepo(`${root('b')}-scratch`, machine('b', 2))
+    await a.repos.updateRepoOrigin(m, O.root, 'https://example.test/other.git')
+    await a.repos.removeRepo(O.root, m)
+    await a.repos.removeRepo(`${O.root}-scratch`, O.machine(2))
 
     // Checkouts: removals, reach drops and found lost checkouts of B's keys.
     await a.checkouts.apply(
       [],
       [
-        { machineId: m, path: root('b'), root: root('b') },
-        { machineId: m, path: `${root('b')}/w1`, root: root('b') },
+        { machineId: m, path: O.root, root: O.root },
+        { machineId: m, path: `${O.root}/w1`, root: O.root },
       ],
       AT,
     )
     await a.checkouts.applyReach(
       {
-        reach: [{ userId: user('b'), machineId: m, reach: 'none' }],
-        found: [{ userId: user('b', 'bob'), machineId: m, path: `${root('b')}/w0` }],
+        reach: [{ userId: O.user(), machineId: m, reach: 'none' }],
+        found: [{ userId: O.user('bob'), machineId: m, path: `${O.root}/w0` }],
       },
       AT,
     )
 
     // Managed accounts.
-    expect(await a.accounts.share(user('b'), ANTHROPIC, [])).toBe(false)
-    expect(await a.accounts.unmarkSent(user('b'), ANTHROPIC, m)).toBe(false)
-    await a.accounts.markSent(user('b'), ANTHROPIC, machine('a'), AT)
-    expect(await a.accounts.disconnect(user('b'), ANTHROPIC)).toBe(false)
-    await a.accounts.removeFor(user('b'), ANTHROPIC)
+    expect(await a.accounts.share(O.user(), ANTHROPIC, [])).toBe(false)
+    expect(await a.accounts.unmarkSent(O.user(), ANTHROPIC, m)).toBe(false)
+    await a.accounts.markSent(O.user(), ANTHROPIC, machine(), AT)
+    expect(await a.accounts.disconnect(O.user(), ANTHROPIC)).toBe(false)
+    await a.accounts.removeFor(O.user(), ANTHROPIC)
 
     // Members.
-    await expect(a.users.writeProfile(user('b'), 'taken over', null)).rejects.toThrow(
+    await expect(a.users.writeProfile(O.user(), 'taken over', null)).rejects.toThrow(
       'Member unavailable',
     )
-    await a.users.endOldSignIns(user('b'))
+    await a.users.endOldSignIns(O.user())
 
     // The boot upgrade's retirement of the old upstream sign-ins: A's one row only.
     expect(await a.identityUpgrade.retireSessions()).toBe(1)
 
     // Old sign-ins: by token, member, label, expiry and the end of the period.
     const carry = a.signInCarryOver
-    expect(await carry.consume('b-old-login', AT)).toBeUndefined()
-    await carry.forget('b-carried')
-    await carry.endForToken('b-old-mobile')
-    await carry.endForMember(user('b'))
+    expect(await carry.consume(O.signIn('login'), AT)).toBeUndefined()
+    await carry.forget(O.carried)
+    await carry.endForToken(O.signIn('mobile'))
+    await carry.endForMember(O.user())
     await carry.endByLabel('login')
     // Just after every seeded expiry, so every row of A's is expired.
     await carry.deleteExpired(new Date(Date.parse(LATER) + 1).toISOString())
@@ -735,68 +855,68 @@ describe('writes in one workspace leave the other unchanged', () => {
     // Agent profiles.
     expect(
       await a.agentProfiles.update({
-        id: 'b-profile',
+        id: O.profile,
         name: 'taken over',
         description: '',
         candidates: [],
         machineId: null,
         instructions: '',
-        actor: user('a'),
+        actor: user(),
         now: AT,
       }),
     ).toBe(false)
-    expect(await a.agentProfiles.delete('b-profile')).toBe(false)
+    expect(await a.agentProfiles.delete(O.profile)).toBe(false)
 
     expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await b.signInCarryOver.periodEnd()).toBe('b-period-end')
   })
 
-  it("A's own writes, upserts and deletes leave B's rows unchanged", async () => {
+  it("A's own writes, upserts and deletes of the ids both hold leave B's rows unchanged", async () => {
     const [a, b] = await twoSeeded()
     const before = await rowsOf(a, 'b')
 
     await a.users.memberRows.write(member('a', 'dave'))
     await a.users.memberRows.write(member('a', 'bob', { version: 2, role: 'admin' }))
     await a.users.memberRows.write(member('a', 'carol', { version: 3, state: 'removed' }))
-    await a.users.writeProfile(user('a'), 'renamed', null)
-    await a.users.audit('members.join', user('a'), { memberId: user('a', 'dave') })
+    await a.users.writeProfile(user(), 'renamed', null)
+    await a.users.audit('members.join', user(), { memberId: user('dave') })
 
-    await a.machines.renameMachine(machine('a'), 'renamed')
-    await a.machines.setMachineOwner(machine('a', 2), user('a'))
-    await a.machines.revokeMachine(machine('a'))
-    await a.machines.deleteMachine(machine('a', 2))
+    await a.machines.renameMachine(machine(), 'renamed')
+    await a.machines.setMachineOwner(machine(2), user())
+    await a.machines.revokeMachine(machine())
+    await a.machines.deleteMachine(machine(2))
 
-    await a.grants.upsert(grant('a', 'a-iss-2', user('a', 'bob'), 'read'))
-    await a.grants.removeAllForGrantee(user('a', 'bob'))
+    await a.grants.upsert(grant('a', 'iss-2', user('bob'), 'read'))
+    await a.grants.removeAllForGrantee(user('bob'))
 
-    await a.repos.setRepoPrefix(machine('a'), root('a'), 'AAB')
-    await a.repos.setRepoDefaultParentBranch(machine('a'), root('a'), 'a-next')
-    expect(await a.repos.nextDraftSeq(repoIdOf('a'))).toBe(2)
-    await a.repos.removeRepo(`${root('a')}-scratch`, machine('a', 2))
+    await a.repos.setRepoPrefix(machine(), ROOT, 'AAB')
+    await a.repos.setRepoDefaultParentBranch(machine(), ROOT, 'a-next')
+    expect(await a.repos.nextDraftSeq(repoIdOf())).toBe(2)
+    await a.repos.removeRepo(`${ROOT}-scratch`, machine(2))
 
     await a.checkouts.apply(
-      [checkout('a', `${root('a')}/w3`)],
+      [checkout('a', `${ROOT}/w3`)],
       [
-        { machineId: machine('a'), path: root('a'), root: root('a') },
-        { machineId: machine('a'), path: `${root('a')}/w1`, root: root('a') },
+        { machineId: machine(), path: ROOT, root: ROOT },
+        { machineId: machine(), path: `${ROOT}/w1`, root: ROOT },
       ],
       AT,
     )
     await a.checkouts.applyReach(
       {
-        reach: [{ userId: user('a'), machineId: machine('a'), reach: 'none' }],
-        found: [{ userId: user('a', 'bob'), machineId: machine('a'), path: `${root('a')}/w0` }],
+        reach: [{ userId: user(), machineId: machine(), reach: 'none' }],
+        found: [{ userId: user('bob'), machineId: machine(), path: `${ROOT}/w0` }],
       },
       AT,
     )
 
-    expect(await a.accounts.disconnect(user('a'), ANTHROPIC)).toBe(true)
-    await a.accounts.setOptIn(user('a'), 'claude-code', 'a-fingerprint', false, AT)
+    expect(await a.accounts.disconnect(user(), ANTHROPIC)).toBe(true)
+    await a.accounts.setOptIn(user(), 'claude-code', SHARED.fingerprint, false, AT)
 
     await a.signInCarryOver.endByLabel('login')
     await a.signInCarryOver.deleteEverything()
 
-    expect(await a.agentProfiles.delete('a-profile')).toBe(true)
+    expect(await a.agentProfiles.delete(SHARED.profile)).toBe(true)
     await a.settingsAudit.append({
       command: 'members.remove',
       outcome: 'applied',
@@ -814,7 +934,15 @@ describe('writes in one workspace leave the other unchanged', () => {
     expect(after.carried_sign_ins).toEqual([])
     expect(after.agent_profiles).toEqual([])
     expect(after.accounts).toEqual([])
-    expect((await b.users.get(user('b')))?.displayName).toBe('b alice')
+    // B reads its own rows of the same ids as they were.
+    expect((await b.users.get(user()))?.displayName).toBe('b alice')
+    expect((await b.machines.getMachine(machine()))?.name).toBe('b workstation')
+    expect((await b.machines.getMachine(machine()))?.revokedAt).toBeNull()
+    expect(await b.repos.prefixForRepoId(repoIdOf())).toBe('AAA')
+    expect(await b.repos.defaultParentBranchForRepoId(repoIdOf())).toBe('b-main')
+    expect((await b.accounts.getFor(user(), ANTHROPIC))?.credential).toBe('b-secret')
+    expect((await b.agentProfiles.get(SHARED.profile))?.description).toBe('b description')
+    expect(await b.signInCarryOver.sealedOf(SHARED.carried, AT)).toBe('b-sealed')
   })
 
   it("the sentinel scan and the credential checks see only their own workspace's rows", async () => {
@@ -825,28 +953,29 @@ describe('writes in one workspace leave the other unchanged', () => {
     expect(await a.machines.legacyMachineSentinelSites()).toEqual([])
     expect(await b.machines.legacyMachineSentinelSites()).toEqual(['repos.machine_id'])
 
-    // A machine key adopted in B verifies in B only, and A cannot rotate it.
+    // A machine key adopted in B for the machine id both hold verifies in B only, and A
+    // cannot rotate it.
     const dir = mkdtempSync(join(tmpdir(), 'people-ws-key-'))
     keyDirs.push(dir)
     const key = createMachineCredential(dir)
     const wire = machinePublicKeyWire(key)
     expect(
       await b.machines.adoptLegacyHostCredential(
-        machine('b'),
+        machine(),
         wire,
         { server: false, agentExecution: true },
         { version: 1, source: 'adopt', requestId: 'b-adopt' },
       ),
     ).toBe(true)
     const signature = signWithMachine(key, 'hello')
-    expect(await b.machines.verifyMachineSignature(machine('b'), 'hello', signature)).toBe(true)
-    expect(await a.machines.verifyMachineSignature(machine('b'), 'hello', signature)).toBe(false)
+    expect(await b.machines.verifyMachineSignature(machine(), 'hello', signature)).toBe(true)
+    expect(await a.machines.verifyMachineSignature(machine(), 'hello', signature)).toBe(false)
     const next = createMachineCredential(join(dir, 'next'))
     const nextWire = machinePublicKeyWire(next)
     const before = await rowsOf(a, 'b')
     expect(
       await a.machines.rotateCredential(
-        machine('b'),
+        machine(),
         {
           newKeyId: nextWire,
           newPublicKey: nextWire,
@@ -864,36 +993,36 @@ describe('one machine and one repository in both workspaces', () => {
   it('one repository origin gives the same repo_id in both, and they do not interfere', async () => {
     const [a, b] = await twoSeeded()
     const shared = 'https://example.test/shared/project.git'
-    const sharedId = deriveRepoId({ originUrl: shared, machineId: machine('a'), path: '/shared-a' })
-    expect(deriveRepoId({ originUrl: shared, machineId: machine('b'), path: '/shared-b' })).toBe(
-      sharedId,
-    )
-    await a.repos.addRepo('/shared-a', machine('a'), shared, 'SHA')
-    await b.repos.addRepo('/shared-b', machine('b'), shared)
-    expect(await a.repos.resolveRepoIdForPath('/shared-a/x', machine('a'))).toBe(sharedId)
-    expect(await b.repos.resolveRepoIdForPath('/shared-b/x', machine('b'))).toBe(sharedId)
+    const sharedId = deriveRepoId({ originUrl: shared, machineId: machine(), path: '/shared' })
+    await a.repos.addRepo('/shared', machine(), shared, 'SHA')
+    await b.repos.addRepo('/shared', machine(), shared)
+    await b.repos.setRepoDefaultParentBranch(machine(), '/shared', 'b-shared-main')
+    expect(await a.repos.resolveRepoIdForPath('/shared/x', machine())).toBe(sharedId)
+    expect(await b.repos.resolveRepoIdForPath('/shared/x', machine())).toBe(sharedId)
     expect((await a.repos.listRepos()).filter((row) => row.repoId === sharedId)).toHaveLength(1)
     expect(
       (await b.repos.listRepos()).filter((row) => row.repoId === sharedId).map((row) => row.path),
-    ).toEqual(['/shared-b'])
-    expect(await a.repos.reportingMachineFor(sharedId, '/shared-a')).toBe(machine('a'))
-    expect(await b.repos.reportingMachineFor(sharedId, '/shared-b')).toBe(machine('b'))
-    expect(await a.repos.repoForPrefix('SHA')).toEqual({ repoId: sharedId, path: '/shared-a' })
+    ).toEqual(['/shared'])
+    expect(await a.repos.reportingMachineFor(sharedId, '/shared')).toBe(machine())
+    expect(await b.repos.reportingMachineFor(sharedId, '/shared')).toBe(machine())
+    expect(await a.repos.defaultParentBranchForRepoId(sharedId)).toBeNull()
+    expect(await b.repos.defaultParentBranchForRepoId(sharedId)).toBe('b-shared-main')
+    expect(await a.repos.repoForPrefix('SHA')).toEqual({ repoId: sharedId, path: '/shared' })
     // Prefixes are unique per workspace (POD-7024): B derives its own, which may be the same
-    // letters, and it names B's root, never A's.
+    // letters, and it names B's root.
     const prefixOfB = await b.repos.prefixForRepoId(sharedId)
     expect(prefixOfB).not.toBeNull()
     expect(await b.repos.repoForPrefix(prefixOfB as string)).toEqual({
       repoId: sharedId,
-      path: '/shared-b',
+      path: '/shared',
     })
 
     // A's removal of its root leaves B's root of the same repository.
-    await a.repos.removeRepo('/shared-a', machine('a'))
+    await a.repos.removeRepo('/shared', machine())
     expect((await a.repos.listRepos()).some((row) => row.repoId === sharedId)).toBe(false)
     expect(
       (await b.repos.listRepos()).filter((row) => row.repoId === sharedId).map((row) => row.path),
-    ).toEqual(['/shared-b'])
+    ).toEqual(['/shared'])
 
     // Each workspace holds its own prefix row for the shared id (POD-7024).
     expect(await keyLeadsWithWorkspace(a, 'repo_prefixes')).toBe(true)
@@ -912,33 +1041,33 @@ describe('one machine and one repository in both workspaces', () => {
           name: `${tag} shared box`,
           hostname: `${tag}-shared`,
           tokenHash: sha(`${tag}-shared-token`),
-          ownerUserId: user(tag),
+          ownerUserId: tag === 'a' ? user() : user('bob'),
           podiumManaged: true,
           assignment: { server: false, agentExecution: true },
           assignmentEvidence: { version: 1, source: 'enrollment', requestId: `${tag}-shared` },
         }),
       ).toBe(true)
-      await store.checkouts.apply([checkout(tag, `/shared-${tag}`, { machineId: daemon })], [], AT)
+      await store.checkouts.apply([checkout(tag, '/shared', { machineId: daemon })], [], AT)
     }
     for (const [store, tag] of pairs(a, b)) {
       expect((await store.machines.getMachine(daemon))?.name).toBe(`${tag} shared box`)
-      expect(await store.machines.custodian(daemon)).toBe(user(tag))
+      expect(await store.machines.custodian(daemon)).toBe(tag === 'a' ? user() : user('bob'))
       expect(await store.machines.getMachineByToken(daemon, `${tag}-shared-token`)).toBe(true)
       expect(await store.machines.getMachineByToken(daemon, `${otherOf(tag)}-shared-token`)).toBe(
         false,
       )
-      expect((await store.checkouts.ofMachine(daemon)).map((row) => row.path)).toEqual([
-        `/shared-${tag}`,
-      ])
+      expect(
+        (await store.checkouts.ofMachine(daemon)).map((row) => [row.path, row.branch]),
+      ).toEqual([['/shared', `${tag}-branch`]])
     }
     await a.machines.revokeMachine(daemon)
     expect((await b.machines.getMachine(daemon))?.revokedAt).toBeNull()
-    expect(await b.machines.custodian(daemon)).toBe(user('b'))
+    expect(await b.machines.custodian(daemon)).toBe(user('bob'))
   })
 })
 
 /**
- * THE SAME ID IN BOTH WORKSPACES (POD-7024): every ON CONFLICT target leads with workspace_id,
+ * THE SAME ID UPSERTED FIRST IN THE OTHER WORKSPACE (POD-7024): every ON CONFLICT target leads with workspace_id,
  * so an upsert in A of an id B already holds makes A its own row, B's row stays byte for byte
  * as it was, and A's second upsert of the id updates A's row only.
  */
@@ -956,7 +1085,7 @@ describe('the same id in both workspaces, upserted through the repository (POD-7
         name,
         hostname: `${tag}-same-host`,
         tokenHash: sha(`${tag}-same-token`),
-        ownerUserId: user(tag),
+        ownerUserId: user(),
       })
     await upsert(b, 'b', 'b box')
     const before = await rowsIn(b, 'b')
