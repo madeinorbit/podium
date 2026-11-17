@@ -400,6 +400,34 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/issues.ts:IssuesRepository.legacyMachine',
     'One-time backfill: runs once per database, behind the legacy_worktree_machine_ids_v1 receipt.',
   ],
+  // The janitor's reads (POD-6993): its raw reads moved into the store with their plans
+  // unchanged. Each runs once per janitor tick, in the janitor's worker on a read session
+  // of its own, never on the server's request path.
+  [
+    'apps/server/src/store/janitor-reads.ts:listWorkspacesWithFeed',
+    'The cross-workspace read of the allowlist: one row per workspace, read along the sync_feed primary key.',
+  ],
+  ['apps/server/src/store/janitor-reads.ts:maxEventIdOf', MIN_MAX_SEEK],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneHeadOf',
+    "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventCapOf',
+    'Walks podium_events newest first along the key to the retention cap (OFFSET maxRows): bounded by the cap, not by the log.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
+    'Counts the prunable events (too old, or over the cap): the OR of age and cap has no one index, and the log is bounded by the retention policy it prunes to.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcFirst',
+    'Sorts the finished issues still holding a checkout, found through idx_issues_worktree (worktree_path set): bounded by the checkouts on disk.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcAfter',
+    'Sorts the finished issues still holding a checkout, found through idx_issues_worktree (worktree_path set): bounded by the checkouts on disk.',
+  ],
 ])
 
 /**
@@ -589,6 +617,22 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/transcript-costs.ts:ownCohortFolds',
     "Whole-table read (POD-6172): the rate cohort is a statistic over every qualifying, surviving issue: one grouped SQL aggregate, read when one task's comparison is asked for.",
+  ],
+  // The janitor's auto-archive candidates (POD-6993): its raw reads since POD-1210,
+  // moved into the store with their plans unchanged, read once per janitor tick in its
+  // worker. Serving their order needs a read_at index on the read state tables, a
+  // schema change for the key and index owner (POD-6959 side); until then they sweep.
+  [
+    'apps/server/src/store/janitor-reads.ts:sessionArchiveOf',
+    "Sweeps session_user_state for owners' reads of stopped sessions, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveFirst',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveAfter',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
   ],
   [
     'apps/server/src/store/transcript-costs.ts:costCount',

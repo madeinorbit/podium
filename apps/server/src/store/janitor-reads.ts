@@ -408,12 +408,12 @@ const issueArchiveAfter = prepared((db, t) =>
  * count (POD-567 frees on archive, so one with a path is one whose free was refused).
  * The live-session clause is a durable approximation of `isMemberCwd`'s prefix rule; the
  * server re-reads the live registry at apply time. SQLite's LIKE folds ASCII case, so
- * Postgres matches it with ILIKE.
+ * Postgres matches it with ILIKE, its pattern in SQLite's byte order (`COLLATE "C"`).
  */
 const worktreeGcTerms = (db: StoreDrizzle, t: StoreTables, ...after: SQL[]) => {
   const under =
     dialectOf(db) === 'pg'
-      ? sql`${t.sessions.cwd} ILIKE ${t.issues.worktreePath} || '/%'`
+      ? sql`${t.sessions.cwd} ILIKE (${t.issues.worktreePath} || '/%') COLLATE "C"`
       : sql`${t.sessions.cwd} LIKE ${t.issues.worktreePath} || '/%'`
   return inWorkspace(
     t.issues,
@@ -501,7 +501,9 @@ const stewardCursorOf = prepared((db, t) =>
 
 const maxEventIdOf = prepared((db, t) =>
   db
-    .select({ max: sql<number>`COALESCE(MAX(${t.podiumEvents.id}), 0)`.mapWith(Number) })
+    // A bare MAX over the key (workspace_id, id): SQLite's min/max optimization reads
+    // the one entry at the end; the 0 for an empty log is added in TypeScript.
+    .select({ max: sql<number | null>`MAX(${t.podiumEvents.id})`.mapWith(asNumber) })
     .from(t.podiumEvents)
     .where(inWorkspace(t.podiumEvents))
     .prepare(),
