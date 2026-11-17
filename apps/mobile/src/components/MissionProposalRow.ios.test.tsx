@@ -12,7 +12,13 @@ import { ReducedMotionContext } from '../hooks/useReduceMotion'
 import { ROW_PRIME_MS } from '../lib/use-row-prime'
 
 const native = vi.hoisted(() => ({
+  fontScale: 1,
   measure: new Map<string, (geometry: { height: number }) => void>(),
+}))
+
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: native.fontScale }),
 }))
 
 vi.mock('@expo/ui/swift-ui/modifiers', () => ({
@@ -154,6 +160,8 @@ vi.mock('@expo/ui/swift-ui', () => {
     ),
     Text: ({ children, modifiers }: Props) => (
       <div
+        data-layout-priority={modifiers?.find((m) => m.name === 'layoutPriority')?.value as number}
+        data-fixed-size={JSON.stringify(modifiers?.find((m) => m.name === 'fixedSize')?.value)}
         data-working-word={modifiers?.some((m) => m.name === 'podiumWorkingWordGlint') || undefined}
         data-line-limit={modifiers?.find((m) => m.name === 'lineLimit')?.value as number}
         data-fills-width={
@@ -241,6 +249,7 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   native.measure.clear()
+  native.fontScale = 1
 })
 
 /** The proposals Section, the deck's last: it carries no identifier, which
@@ -664,10 +673,12 @@ it('draws each accepted task as its own native row and keeps the gauge outside r
 })
 
 it.each([
-  ['working', true],
-  ['idle', false],
-  ['errored', false],
-])('native task and seat words only glint in the shared working state, phase=%s', async (phase, working) => {
+  ['working', true, 'Working'],
+  ['idle', false, 'Idle'],
+  ['errored', false, 'Error'],
+  ['needs-you', false, 'Needs you'],
+] as const)('native task and seat words only glint in the shared working state, phase=%s', async (phase, working, label) => {
+  native.fontScale = 2.35
   const root = {
     id: asIssueId('root'),
     seq: 1,
@@ -689,7 +700,8 @@ it.each([
     ({
       sessionId: asSessionId(id),
       issueId,
-      agentKind: 'codex',
+      agentKind: 'claude-code',
+      observedModel: 'claude-opus-5-5',
       title: id,
       name: id,
       cwd: '/fixture',
@@ -697,7 +709,10 @@ it.each([
       archived: false,
       origin: { kind: 'spawn' },
       createdAt: '2026-11-11T00:00:00Z',
-      agentState: { phase },
+      agentState: { phase: phase === 'needs-you' ? 'idle' : phase },
+      ...(phase === 'needs-you'
+        ? { offer: { message: 'Review', actions: [{ label: 'Accept', prompt: 'accept' }] } }
+        : {}),
     }) as unknown as SessionView
   await renderWithMobileStore(
     <ReducedMotionContext value={true}>
@@ -716,6 +731,17 @@ it.each([
   expect(Boolean(screen.getByTestId('deck-agent').querySelector('[data-working-word]'))).toBe(
     working,
   )
+  for (const row of [seatRow, screen.getByTestId('deck-agent')]) {
+    const state = within(row).getByText(label)
+    const model = within(row).getByText(/Opus 5\.5/)
+    expect(state.dataset.layoutPriority).toBe('1')
+    expect(JSON.parse(state.dataset.fixedSize ?? 'null')).toEqual({
+      horizontal: true,
+      vertical: false,
+    })
+    expect(model.dataset.layoutPriority).toBe('-1')
+    expect(model.dataset.lineLimit).toBe('1')
+  }
   expect(taskRow.querySelector('[data-native-rn-host] [data-working-word]')).toBeNull()
   expect(screen.queryByTestId('working-word-glint')).toBeNull()
 })

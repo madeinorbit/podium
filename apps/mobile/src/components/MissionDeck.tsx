@@ -103,6 +103,9 @@ export const MissionDeck = observer(function MissionDeck({
   const stackedVitals = useWindowDimensions().fontScale > SEGMENT_MAX_SCALE
   const [proposalsOpen, setProposalsOpen] = useState(true)
   const acceptedTree = full.ready ? submissions.acceptedTree : null
+  // Beside Done, spend the available width on attention and working first.
+  // At accessibility sizes the toggle is on its own line, leaving the full summary.
+  const compactVitals = !stackedVitals && acceptedTree?.filterable === true
   const rowIds = acceptedTree?.rowIds ?? []
   const proposalIds = full.ready ? submissions.ids : []
   const seatIds = full.ready ? settled(() => full.root.sessionIds) : []
@@ -138,8 +141,13 @@ export const MissionDeck = observer(function MissionDeck({
         <>
           <DeckGauge vitals={vitals} />
           <View style={stackedVitals ? styles.vitalsStacked : styles.vitalsRow}>
-            <View style={styles.vitalsText}>
-              <DeckVitalsLine vitals={vitals} />
+            <View style={styles.vitalsText} testID="deck-vitals-text">
+              <DeckVitalsLine
+                vitals={vitals}
+                numberOfLines={stackedVitals ? undefined : 1}
+                showUpNext={!compactVitals}
+                showProgress={!compactVitals || vitals.needsYou === 0 || vitals.working === 0}
+              />
             </View>
             {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
           </View>
@@ -546,7 +554,7 @@ const styles = StyleSheet.create({
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
   vitalsRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   vitalsStacked: { alignItems: 'flex-start', gap: space.xs },
-  vitalsText: { flex: 1, minWidth: 0 },
+  vitalsText: { flex: 1, flexShrink: 1, minWidth: 0 },
   doneToggle: { flexShrink: 0, minHeight: 20, justifyContent: 'center' },
   doneToggleLabel: { ...sans(400), color: deckColor.live, fontSize: font.tiny },
   dimmed: { opacity: 0.5 },

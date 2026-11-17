@@ -88,7 +88,7 @@ function Glint({
 }
 
 const styles = StyleSheet.create({
-  word: { minWidth: 0, overflow: 'hidden' },
+  word: { flexShrink: 1, minWidth: 0, overflow: 'hidden' },
   window: {
     ...StyleSheet.absoluteFill,
     width: '40%',

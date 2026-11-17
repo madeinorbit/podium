@@ -6,6 +6,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
+import type { ViewProps } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useMissionOpening } from '../client/hooks'
 import { renderWithMobileStore } from '../client/test-support'
@@ -13,10 +14,20 @@ import { renderWithMobileStore } from '../client/test-support'
 afterEach(cleanup)
 
 const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
-vi.mock('react-native', async (original) => ({
-  ...(await original<object>()),
-  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, ...dimensions }),
-}))
+const nativeShrink = vi.hoisted(() => new Map<string, number | undefined>())
+vi.mock('react-native', async (original) => {
+  const actual = await original<typeof import('react-native')>()
+  return {
+    ...actual,
+    useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, ...dimensions }),
+    View: (props: ViewProps) => {
+      if (props.testID === 'deck-vitals-text') {
+        nativeShrink.set(props.testID, actual.StyleSheet.flatten(props.style)?.flexShrink)
+      }
+      return <actual.View {...props} />
+    },
+  }
+})
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   NotificationFeedbackType: { Error: 'error' },
@@ -506,4 +517,34 @@ it('keeps attention on a task while its working seat still gets the indicator', 
 it('uses the task word for shipping, even without a computing seat', async () => {
   await mount([root, { ...quiet, stage: 'shipping' }])
   expect(within(screen.getByTestId('deck-task')).getByTestId('working-word')).toBeTruthy()
+})
+
+it.each([
+  1, 2.35,
+])('shares vitals width with the done toggle while preserving priority words at scale %s', async (scale) => {
+  dimensions.fontScale = scale
+  const ready = issue({
+    id: asIssueId('ready'),
+    parentId: root.id,
+    seq: 4,
+    stage: 'backlog',
+    title: 'Ready later',
+  })
+  try {
+    await mount([root, quiet, asking, ready], [agent('worker', quiet.id, 'Worker', 'working')])
+    const column = screen.getByTestId('deck-vitals-text')
+    const word = within(column).getByTestId('working-word')
+    const text = word.firstElementChild
+    if (!(text instanceof HTMLElement)) throw new Error('Missing vitals text')
+    expect(nativeShrink.get('deck-vitals-text')).toBe(1)
+    expect(getComputedStyle(word).flexShrink).toBe('1')
+    expect(getComputedStyle(text).whiteSpace).toBe(scale === 1 ? 'nowrap' : 'pre-wrap')
+    expect(getComputedStyle(screen.getByTestId('deck-filter-done')).flexShrink).toBe('0')
+    expect(column.textContent).toContain('1 needs you')
+    expect(column.textContent).toContain('1 working')
+    expect(column.textContent?.includes('up next')).toBe(scale > 1)
+    expect(/\d+\/\d+/.test(column.textContent ?? '')).toBe(scale > 1)
+  } finally {
+    dimensions.fontScale = 1
+  }
 })

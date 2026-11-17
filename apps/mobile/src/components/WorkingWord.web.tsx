@@ -56,4 +56,4 @@ export const WorkingWord = memo(function WorkingWord({
   )
 })
 
-const styles = StyleSheet.create({ word: { minWidth: 0, overflow: 'hidden' } })
+const styles = StyleSheet.create({ word: { flexShrink: 1, minWidth: 0, overflow: 'hidden' } })

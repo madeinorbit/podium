@@ -10,9 +10,11 @@ import {
   alignmentGuide,
   buttonStyle,
   contentShape,
+  fixedSize,
   font,
   foregroundStyle,
   frame,
+  layoutPriority,
   lineLimit,
   listRowBackground,
   listRowInsets,
@@ -500,9 +502,17 @@ function SessionMeta({
   seed: string
 }) {
   return (
-    <HStack spacing={0}>
-      <StateWord word={word} seed={seed} label={SESSION_WORD_LABEL[word]} />
-      {model ? <Text modifiers={metaText(color.textDim)}>{` · ${model}`}</Text> : null}
+    <HStack spacing={0} modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+      <StateWord word={word} seed={seed} label={SESSION_WORD_LABEL[word]} preserve />
+      {model ? (
+        <Text
+          modifiers={[
+            ...metaText(color.textDim),
+            frame({ maxWidth: Infinity, alignment: 'leading' }),
+            layoutPriority(-1),
+          ]}
+        >{` · ${model}`}</Text>
+      ) : null}
     </HStack>
   )
 }
@@ -512,16 +522,20 @@ function StateWord({
   word,
   seed,
   label,
+  preserve = false,
 }: {
   word: Parameters<typeof deckWordColor>[0]
   seed: string
   label: string
+  preserve?: boolean
 }) {
   return (
     <Text
       modifiers={[
         ...metaText(deckWordColor(word)),
         ...(word === 'working' ? [workingWordGlint(seed)] : []),
+        // Seat metadata gives the state its natural width; the model takes the rest.
+        ...(preserve ? [fixedSize({ horizontal: true, vertical: false }), layoutPriority(1)] : []),
       ]}
     >
       {label}
