@@ -42,6 +42,7 @@ const cases: { kind: PublishingEffectKind; input: Record<string, unknown>; expec
       draftIssue: { title: 'Draft issue' },
       prompt: 'private prompt',
       model: undefined,
+      credentialId: 'cred_chosen',
     },
     expected: {
       agentKind: 'codex',
@@ -49,7 +50,15 @@ const cases: { kind: PublishingEffectKind; input: Record<string, unknown>; expec
       title: 'Draft session',
       wake: false,
       draftIssue: { title: 'Draft issue' },
+      // A refused start's session is painted from this record alone (POD-7069).
+      credentialId: 'cred_chosen',
     },
+  },
+  {
+    // Its harness's own login is a choice too: null, carried as null.
+    kind: 'session.launch',
+    input: { agentKind: 'codex', cwd: '/repo', credentialId: null },
+    expected: { agentKind: 'codex', cwd: '/repo', credentialId: null },
   },
 ]
 

@@ -76,6 +76,11 @@ export const EFFECT_PUBLISHED_INPUT = {
       effort: defined('effort'),
       wake: defined('wake'),
       draftIssue: defined('draftIssue'),
+      // The credential chosen, or null for its harness's own login (POD-7069):
+      // a start refused for its credential gets no session row, so a device
+      // names the credential from this record alone. An id, never a secret,
+      // and the session row carries it too once one is born.
+      credentialId: defined('credentialId'),
     },
   },
 } as const satisfies Record<string, PublicationRule>
