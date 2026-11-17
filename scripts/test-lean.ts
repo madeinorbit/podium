@@ -89,9 +89,13 @@ export const LEAN_GATE_FILES: readonly string[] = [
   'apps/server/src/router.setup.test.ts',
   'apps/daemon/src/connection-state.test.ts',
   'scripts/test-configuration.test.ts',
+  // The Postgres twin's database-free checks [POD-6978]: its structure and types against the
+  // SQLite schema, and every store query built on it.
+  'apps/server/src/migrations/pg/schema-parity.test.ts',
+  'apps/server/src/store/dialect-census.test.ts',
 ]
 
-/** The lane the gate takes its four files from, and whose size it reports against. */
+/** The lane the gate takes its files from, and whose size it reports against. */
 export const LEAN_GATE_CONFIG = 'vitest.unit.config.ts'
 export const LEAN_GATE_PROJECT = 'node'
 

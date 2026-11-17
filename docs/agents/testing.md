@@ -11,8 +11,9 @@ At the end of an ordinary runtime-affecting task, run:
     bun run test
 
 This is the lean confidence gate. The root `test` script in `package.json` runs cached,
-lock-free typecheck and static checks, including the span-effect lint, then four exact hermetic
-boot/configuration files with one worker:
+lock-free typecheck and static checks, including the span-effect lint, then six exact hermetic
+files with one worker: four boot/configuration probes and the Postgres twin's two
+database-free checks:
 
 | Test file | What it cheaply protects |
 | --- | --- |
@@ -20,6 +21,8 @@ boot/configuration files with one worker:
 | `apps/server/src/router.setup.test.ts` | Server router construction and required wiring |
 | `apps/daemon/src/connection-state.test.ts` | Daemon connection-state startup contract |
 | `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
+| `apps/server/src/migrations/pg/schema-parity.test.ts` | The Postgres schema twin matches the SQLite schema table for table, in the native types of each column's class (POD-6978) |
+| `apps/server/src/store/dialect-census.test.ts` | Every store query definition builds on the Postgres tables; the ones that still need a Postgres form are listed with their task (POD-6978) |
 
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
@@ -32,11 +35,13 @@ and closes with the ratio it actually covered:
     ────────────────────────────────────────────────
     LEAN GATE PASSED — this is NOT the test suite.
 
-    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%), 79 tests executed:
+    Ran 6 of the 955 files vitest.unit.config.ts collects in its `node` project (0.6%), 102 tests executed:
       packages/runtime/src/boot.test.ts — 16 tests
       apps/server/src/router.setup.test.ts — 19 tests
       apps/daemon/src/connection-state.test.ts — 11 tests
       scripts/test-configuration.test.ts — 33 tests
+      apps/server/src/migrations/pg/schema-parity.test.ts — 15 tests
+      apps/server/src/store/dialect-census.test.ts — 8 tests
     ...
 
 (955 is illustrative — every number in that footer is read back out of the runner's own
@@ -45,7 +50,7 @@ reconcile against Vitest's `Tests N passed (N)` line directly above them; if the
 disagree, trust neither and say so.)
 
 **`LEAN GATE INCOMPLETE` means you have no gate result at all**, and it exits non-zero.
-The run was narrower than the four files — a `--shard`, a `-t` filter that matched nothing,
+The run was narrower than the gate's files — a `--shard`, a `-t` filter that matched nothing,
 or a `.skip` sitting in one of them. Vitest exits 0 for all three, which is why this is
 checked against what executed rather than against what was asked for. Re-run as plain
 `bun run test`; do not report the partial run.
@@ -54,7 +59,7 @@ That footer exists because agents were reporting `bun run test` green — correc
 faith — as though the trailing `Tests 76 passed (76)` were a suite result. It is not. Report
 a green here as **“lean gate green”**, never as “tests pass”; if a change needs suite-level
 evidence, the sweep is `bun run test:full` and the lane map is below. The same runner
-**refuses to start** when any of its four files is no longer collected by that config — a
+**refuses to start** when any of its files is no longer collected by that config — a
 gate that had silently narrowed to three files used to exit 0, and one that had lost all
 four printed `No test files found, exiting with code 0`.
 Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
@@ -161,7 +166,7 @@ diagnostics before attributing it to the change.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of them is no longer collected, and a non-zero exit if the run executed less than all of them | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
 | `bun run test:full -- --full-because="<reason>"` | Cached typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, `scripts/*`, and `tests/worklist`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts`. **A bare `test:full` is refused**: it prints every task the sweep would run and the focused lane that usually answers instead, and runs only once the reason is stated (same shape as `--uncached-because`) | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit -- --full-because="<reason>"` | The exhaustive package sweep without the leading typecheck; same refusal | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |

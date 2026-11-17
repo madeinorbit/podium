@@ -83,9 +83,9 @@ its job, a session title, who else is on the issue, and who owns which files
 This host is shared by many agents, and test lanes compete for its CPU and memory. That is why
 validation is budgeted:
 
-- **Default final check:** `bun run test` runs cached typecheck and static checks, then four
-  hermetic boot-wiring files. Report a pass as "lean gate green"; `LEAN GATE INCOMPLETE` is no
-  result. After a fix, rerun affected checks; don't repeat a green on an unchanged candidate.
+- **Default final check:** `bun run test` runs cached typecheck and static checks, then six
+  hermetic files (four boot-wiring probes, two Postgres schema checks). Report a pass as "lean
+  gate green"; `LEAN GATE INCOMPLETE` is no result. After a fix, rerun affected checks; don't repeat a green on an unchanged candidate.
 - **While working:** use `bun run test:file -- <paths> [-t "name"]` when focused tests answer
   a concrete question. Don't rerun broad lanes after every edit.
 - **Risky areas:** choose the specialized lane matching the change: the store shard for
