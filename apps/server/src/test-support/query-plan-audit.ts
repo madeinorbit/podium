@@ -15,8 +15,9 @@
  * live database.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { relative } from 'node:path'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { is, Param, Placeholder } from 'drizzle-orm'
 import type { QueryClient } from '../store/executor/driver'
 import { type StoreDrizzle, storeQueriesOver } from '../store/executor/sync-drizzle'
 
@@ -57,6 +58,23 @@ function isQueryLike(value: unknown): value is QueryLike {
 export interface BuiltStatement {
   readonly sql: string
   readonly params: number
+  /**
+   * The placeholder name behind each bound value, in binding order; undefined
+   * for a value the definition fixed (a literal). The workspace-scope audit
+   * (POD-7014) reads which `?` is the `workspaceId` placeholder from it.
+   */
+  readonly placeholders: readonly (string | undefined)[]
+}
+
+/**
+ * The name of one bound value of a built query: drizzle keeps a
+ * `sql.placeholder(name)` as a `Placeholder`, and a `param(column, name)` (or a
+ * `.values()` entry, which the builder wraps) as a column `Param` around one.
+ */
+function placeholderName(value: unknown): string | undefined {
+  if (is(value, Placeholder)) return value.name
+  if (is(value, Param) && is(value.value, Placeholder)) return value.value.name
+  return undefined
 }
 
 /**
@@ -66,7 +84,13 @@ export interface BuiltStatement {
 export function statementsOf(built: unknown, depth = 0): BuiltStatement[] {
   if (isQueryLike(built)) {
     const query = built.getQuery()
-    return [{ sql: query.sql, params: query.params.length }]
+    return [
+      {
+        sql: query.sql,
+        params: query.params.length,
+        placeholders: query.params.map(placeholderName),
+      },
+    ]
   }
   if (depth < 2 && built !== null && typeof built === 'object') {
     return Object.values(built).flatMap((value) => statementsOf(value, depth + 1))
@@ -146,7 +170,10 @@ export function tablesOf(database: SqlDatabase): Set<string> {
 }
 
 /** `EXPLAIN QUERY PLAN` of one statement, every unbound value NULL. */
-export function explain(database: SqlDatabase, statement: BuiltStatement): string[] {
+export function explain(
+  database: SqlDatabase,
+  statement: Pick<BuiltStatement, 'sql' | 'params'>,
+): string[] {
   const nulls = Array.from({ length: statement.params }, () => null)
   const rows = database.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...nulls) as {
     detail: string

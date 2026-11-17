@@ -40,7 +40,12 @@ const BUILDER_STARTS = new Set([
   'with',
 ])
 const RAW_TERMINALS = new Set(['all', 'get', 'run', 'values'])
-const DEFINERS = new Set(['prepared', 'preparedFamily'])
+/**
+ * The calls that make a query definition: a workspace definition (`prepared`,
+ * `preparedFamily`), a global one (`preparedGlobal`) and a cross-workspace one
+ * (`preparedAcross(entry, build)`, whose build is its second argument) [POD-6959 design 2.4].
+ */
+const DEFINERS = new Set(['prepared', 'preparedFamily', 'preparedGlobal', 'preparedAcross'])
 
 function isDrizzleHandle(expression: ts.Expression): boolean {
   if (ts.isIdentifier(expression)) {
@@ -57,7 +62,9 @@ function insideDefinition(node: ts.Node): boolean {
   for (let current = node.parent; current; current = current.parent) {
     if (!ts.isArrowFunction(current) && !ts.isFunctionExpression(current)) continue
     const call = current.parent
-    if (!call || !ts.isCallExpression(call) || call.arguments[0] !== current) continue
+    if (!call || !ts.isCallExpression(call)) continue
+    // The build callback: the first argument, or the second of `preparedAcross(entry, build)`.
+    if (call.arguments[call.arguments.length - 1] !== current) continue
     const callee = call.expression
     const name = ts.isIdentifier(callee)
       ? callee.text
@@ -190,7 +197,10 @@ export function censusScope(paths: readonly string[]): string[] {
   )
 }
 
-/** One `prepared(...)` / `preparedFamily(...)` call in the source [POD-6148]. */
+/**
+ * One `prepared(...)`, `preparedFamily(...)`, `preparedGlobal(...)` or
+ * `preparedAcross(...)` call in the source [POD-6148].
+ */
 export interface QueryDefinitionSite {
   readonly file: string
   /**
@@ -261,7 +271,7 @@ export function queryDefinitionSites(file: string, source: string): QueryDefinit
       found.push({
         file,
         name: definitionName(node),
-        kind: callee.text === 'prepared' ? 'prepared' : 'family',
+        kind: callee.text === 'preparedFamily' ? 'family' : 'prepared',
         startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
         endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
         moduleLevel: atModuleLevel(node),

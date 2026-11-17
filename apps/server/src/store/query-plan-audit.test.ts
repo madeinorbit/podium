@@ -26,320 +26,41 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { asIssueId, asMachineId, asRepoId, firstAdminMemberId } from '@podium/model'
+import { join, relative } from 'node:path'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import {
   PREPARED_DEFINITION_LIMIT,
-  type PreparedDefinition,
   preparedDefinitions,
 } from '@podium/sync/adapters/sqlite/prepared'
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { messages } from '../migrations/schema'
 import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 import type { SessionStore } from '../store'
-import { issueRowFixture } from '../test-support/issue-row'
-import { openTestStore } from '../test-support/open-test-store'
 import {
-  censusScope,
-  type QueryDefinitionSite,
-  queryDefinitionSites,
-  type RawSqlSite,
-  rawSqlScope,
-  rawSqlSites,
-} from '../test-support/prepared-census'
+  builtStatements,
+  type KeyedDefinition,
+  keyedDefinitions,
+  RAW_SQL_EXEMPT,
+  RAW_SQL_PLANNED,
+  REPO_ROOT,
+  rawExemption,
+  rawKey,
+  rawSqlCensus,
+  reachMethodDefinitions,
+  type SourceTree,
+  trackedSources,
+} from '../test-support/definition-census'
+import { openTestStore } from '../test-support/open-test-store'
+import { type RawSqlSite, rawSqlSites } from '../test-support/prepared-census'
 import {
   type BuiltStatement,
-  definitionFrame,
   explain,
-  matchSites,
   type PlanFinding,
   planFindings,
-  recordingDrizzle,
-  statementsOf,
   tablesOf,
 } from '../test-support/query-plan-audit'
-import { param, prepared, type StoreDrizzle, shapeOf } from './executor/sync-drizzle'
-import { type IssueListingShape, listingKey } from './issue-listings'
-import { LEGACY_WORKTREE_MIGRATION } from './issues'
-
-const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
-
-const SIZES = [1, 4] as const
-
-/**
- * The shapes each family is audited at, keyed `file:name`. A family's key
- * comes from a finite domain; list each value whose SQL differs in a way the
- * plan can see (each optional filter on its own, each principal shape). A
- * family missing here fails the audit.
- */
-/**
- * The issue listing shapes the reports use (POD-6191, `modules/issues/service/
- * reads.ts`), each scoped to a repository and filtered for a reader, and each
- * across every repository unrestricted; the search shape with every filter.
- */
-const LISTING_BASES: readonly Omit<IssueListingShape, 'repo'>[] = [
-  { live: false, order: 'repo-seq' },
-  { live: true, state: 'ready', order: 'priority-seq' },
-  { live: true, state: 'blocked', order: 'priority-seq' },
-  { live: true, order: 'path-seq' },
-  { live: true, parents: 1, order: 'path-seq' },
-  { live: true, unarchived: true, parents: 1, order: 'path-seq' },
-  { live: true, state: 'open', completeParent: true, order: 'path-seq' },
-  { live: true, state: 'open', order: 'seq' },
-  { live: true, state: 'open', updatedBefore: true, order: 'updated' },
-  { live: false, state: 'open', parents: 1, order: 'repo-seq' },
-  { live: true, state: 'ready', order: 'repo-seq' },
-  { live: true, state: 'closed', hasWorktree: true, order: 'repo-seq' },
-  { live: true, state: 'closed', ids: 1, order: 'repo-seq' },
-  {
-    live: true,
-    state: 'open',
-    stage: true,
-    priority: true,
-    type: true,
-    assignee: true,
-    parent: true,
-    label: true,
-    text: true,
-    order: 'priority-seq',
-  },
-  { live: true, deferred: true, order: 'priority-seq' },
-  { live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
-  { live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq' },
-  { live: false, hasWorktree: true, order: 'path-seq' },
-  { live: true, deferred: true, order: 'path-seq' },
-  { live: true, unarchived: true, hasWorktree: true, order: 'path-seq' },
-  { live: true, text: true, order: 'path-seq' },
-]
-const LISTING_KEYS = LISTING_BASES.flatMap((base) => [
-  listingKey({ ...base, repo: true }),
-  listingKey({ ...base, repo: false }),
-])
-const SCOPE_KEYS = [
-  listingKey({ live: true, order: 'path-seq', repo: true }),
-  listingKey({ live: true, order: 'path-seq', repo: false }),
-]
-
-const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
-  string,
-  readonly (string | number)[]
->([
-  [
-    'apps/server/src/store/settings-audit.ts:securityEventsNewestFirst',
-    ['all', 'people', 'machines', 'credentials', 'comments'].flatMap((kind) =>
-      [0, 1].flatMap((actor) => [0, 1].map((refused) => `${kind}|${actor}|${refused}`)),
-    ),
-  ],
-  // The record builders' by-id reads (POD-6763).
-  ['apps/server/src/store/automations.ts:liveAutomationsOfIds', SIZES],
-  ['apps/server/src/store/automations.ts:liveRunsOfIds', SIZES],
-  // The windowed kinds' reads (POD-6766).
-  ['apps/server/src/store/messages.ts:confirmedChatTail', ['live|1', 'live|4', 'any|1', 'any|4']],
-  ['apps/server/src/store/interactions.ts:openInteractionsOfIds', SIZES],
-  ['apps/server/src/store/events.ts:feedEventsOfSubjects', SIZES],
-  ['apps/server/src/store/events.ts:feedEventsOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:pinsOfUsers', SIZES],
-  // The change capture's mappings (POD-6920): a captured row to its records.
-  ['apps/server/src/store/sessions.ts:personalRecordKeysOfUsers', SIZES],
-  ['apps/server/src/store/issues.ts:issuesOfLabels', SIZES],
-  ['apps/server/src/store/workflows.ts:runIdsOfRevisions', SIZES],
-  ['apps/server/src/store/sessions.ts:tabOrdersOfUsers', SIZES],
-  ['apps/server/src/store/superagent.ts:threadsOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:workflowsOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:revisionsOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:runsOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:stepsOfRuns', SIZES],
-  ['apps/server/src/store/events.ts:subscriptionsOfIds', SIZES],
-  ['apps/server/src/store/checkouts.ts:checkoutsOfMachines', SIZES],
-  ['apps/server/src/store/user-read-position.ts:positionRowsPage', ['start', 'after']],
-  ['apps/server/src/store/effects.ts:liveEffectsOfIds', SIZES],
-  ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', SIZES],
-  ['apps/server/src/store/shipping.ts:ordersOfIds', SIZES],
-  ['apps/server/src/store/shipping.ts:shippedPredecessorsPage', [0, 1, 4]],
-  ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', SIZES],
-  ['apps/server/src/store/shipping.ts:stackEdgesFromUppers', SIZES],
-  ['apps/server/src/store/shipping.ts:openHoldsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:receiptsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:issueIdsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:orderIdsOfIssues', SIZES],
-  ['apps/server/src/store/shipping.ts:queuedOrdersOfLanes', ['1x1', '1x4', '4x4']],
-  ['apps/server/src/store/automations.ts:automationOwnersOfIds', SIZES],
-  ['apps/server/src/store/automations.ts:runOwnersOfIds', SIZES],
-  ['apps/server/src/store/effects.ts:audiencesOfIds', SIZES],
-  [
-    'apps/server/src/store/effects.ts:settleEffect',
-    ['running', 'succeeded', 'failed', 'cancelled', 'expired', 'unknown'],
-  ],
-  ['apps/server/src/store/effects.ts:effectsInStatus', ['pending', 'running']],
-  ['apps/server/src/store/effects.ts:decideEffect', ['approve', 'deny']],
-  ['apps/server/src/store/effects.ts:newestOnTargetIn', ['active', 'succeeded']],
-  ['apps/server/src/store/effects.ts:liveOnTargetKeys', ['1x1', '2x4', '2x512', '4x512']],
-  ['apps/server/src/store/user-layout.ts:layoutRowsPage', ['start', 'after']],
-  ['apps/server/src/store/users.ts:insertInvite', ['id']],
-  ['apps/server/src/store/conversations/registry.ts:segmentsWithPaths', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:parentsOf', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:nativeIdsOf', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
-  ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
-  ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
-  ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
-  ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
-  ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
-  ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
-  // A machine's checkouts, its roots, and each member's reach and lost
-  // checkouts on it, for a batch of machines (POD-6644).
-  ['apps/server/src/store/checkouts.ts:pathsOfMachines', SIZES],
-  ['apps/server/src/store/checkouts.ts:rootPathsOfMachines', SIZES],
-  ['apps/server/src/store/checkouts.ts:reachOfMachines', SIZES],
-  ['apps/server/src/store/checkouts.ts:lostOfMachines', SIZES],
-  // Reach writes use bounded power-of-two shapes; include the padded maximum.
-  ['apps/server/src/store/checkouts.ts:upsertReach', [1, 4, 512]],
-  ['apps/server/src/store/checkouts.ts:deleteReach', [1, 4, 512]],
-  ['apps/server/src/store/checkouts.ts:insertLost', [1, 4, 512]],
-  ['apps/server/src/store/checkouts.ts:deleteLost', [1, 4, 512]],
-  ['apps/server/src/store/users.ts:accountsByIds', SIZES],
-  ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
-  ['apps/server/src/store/issues.ts:liveWorktreesOnMachines', SIZES],
-  ['apps/server/src/store/issues.ts:issueClosureRowsOf', SIZES],
-  ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
-  ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
-  ['apps/server/src/store/sessions.ts:personalRecordKeys', SIZES],
-  ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:bindingFactsOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:sessionsOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:publishSessionActivity', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfResumeValues', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfIssueIds', SIZES],
-  ['apps/server/src/store/sessions.ts:upsertSessionOfShape', ['0|id', '31|id']],
-  ['apps/server/src/store/sessions.ts:offersOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:draftTimesOfIds', SIZES],
-  ['apps/server/src/store/observation-checkpoints.ts:checkpointedLeasesOfIds', SIZES],
-  ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
-  ['apps/server/src/store/conversations/index.ts:curatedConversationsOf', SIZES],
-  ['apps/server/src/store/conversations/index.ts:recordRows', SIZES],
-  ['apps/server/src/store/conversations/index.ts:recordPage', ['start', 'after']],
-  ['apps/server/src/store/issue-git-states.ts:byIds', SIZES],
-  ['apps/server/src/store/issue-git-states.ts:pageOf', ['start', 'after']],
-  ['apps/server/src/store/issue-panel.ts:todoPage', ['start', 'after']],
-  ['apps/server/src/store/issue-panel.ts:todoByIds', SIZES],
-  ['apps/server/src/store/issue-panel.ts:todoOfIssues', SIZES],
-  ['apps/server/src/store/issue-panel.ts:artifactPage', ['start', 'after']],
-  ['apps/server/src/store/issue-panel.ts:artifactByIds', SIZES],
-  ['apps/server/src/store/issue-panel.ts:artifactOfIssues', SIZES],
-  ['apps/server/src/store/issue-panel.ts:deferredPage', ['start', 'after']],
-  ['apps/server/src/store/issue-panel.ts:deferredByIds', SIZES],
-  ['apps/server/src/store/issue-panel.ts:deferredOfIssues', SIZES],
-  ['apps/server/src/store/issue-panel.ts:statePage', ['start', 'after']],
-  ['apps/server/src/store/issue-panel.ts:stateByIds', SIZES],
-  ['apps/server/src/store/issue-panel.ts:stateOfIssues', SIZES],
-  ['apps/server/src/store/machines.ts:machineRecordPage', ['start', 'after']],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsReferencingIssues', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsSpawnedBy', SIZES],
-  ['apps/server/src/store/sessions.ts:readAtOfUserSessions', SIZES],
-  ['apps/server/src/store/sessions.ts:snoozesOfUserSessions', SIZES],
-  ['apps/server/src/store/events.ts:turnStatesOfIds', SIZES],
-  ['apps/server/src/store/events.ts:relationshipSubscriptionFor', SIZES],
-  ['apps/server/src/store/events.ts:matchingSubscriptions', ['r|1', 'a|1', 'ra|4']],
-  ['apps/server/src/store/sessions.ts:upsertSessionsOfShape', ['2|0|id', '4|1|id', '4|31|id']],
-  ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
-  ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],
-  ['apps/server/src/store/issues.ts:issuesByIds', SIZES],
-  ['apps/server/src/store/issues.ts:issueUserStatesOf', SIZES],
-  ['apps/server/src/store/issues.ts:issueRefsAtSeqsOf', SIZES],
-  ['apps/server/src/store/issue-listings.ts:issueListing', LISTING_KEYS],
-  ['apps/server/src/store/issue-listings.ts:issueCountGroups', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:issueStatTotals', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:deferralsOf', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:labelsOfIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:depsFromIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:depsToIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:commentCountsOfIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:liveChildrenOf', SIZES],
-  ['apps/server/src/store/issue-listings.ts:sortScopeOf', ['parent', 'top', 'top-unpinned']],
-  ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
-  ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],
-  ['apps/server/src/store/issues.ts:commentSearch', ['all', 'limited']],
-  ['apps/server/src/store/issues.ts:issueRowsPage', ['start', 'after']],
-  ['apps/server/src/store/issues.ts:IssuesRepository.upsert', [shapeOf(issueRowFixture())]],
-  [
-    'apps/server/src/store/events.ts:eventsSince',
-    [
-      'b0|k0|x0|r0|s0|asc',
-      'b0|k0|x0|r0|s0|desc',
-      'b1|k0|x0|r0|s0|desc',
-      'b0|k2|x0|r0|s0|asc',
-      'b0|k0|x2|r0|s0|asc',
-      'b0|k0|x0|r1|s0|asc',
-      'b0|k0|x0|r0|s1|asc',
-    ],
-  ],
-  ['apps/server/src/store/messages.ts:insertMessage', ['id']],
-  ['apps/server/src/store/messages.ts:messagesWithIds', SIZES],
-  ['apps/server/src/store/messages.ts:attachmentMessagesOfItems', SIZES],
-  ['apps/server/src/store/messages.ts:messagesAddressedTo', ['no-id', 'id']],
-  ['apps/server/src/store/messages.ts:ledger', ['issue', 'session', 'both']],
-  ['apps/server/src/store/messages.ts:pendingPages', SIZES],
-  ['apps/server/src/store/messages.ts:pendingTargetsAmong', SIZES],
-  [
-    'apps/server/src/store/messages.ts:pendingSummaryOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingSendersOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
-  ['apps/server/src/store/messages.ts:pendingCountOf', ['no-id', 'id', 'session', 'session-blank']],
-  ['apps/server/src/store/messages.ts:existingIdsAmong', SIZES],
-  ['apps/server/src/store/messages.ts:receiptsAmong', SIZES],
-  ['apps/server/src/store/messages.ts:sentAmong', SIZES],
-  ['apps/server/src/store/messages.ts:communicatedSince', ['no-id', 'id']],
-  ['apps/server/src/store/messages.ts:swapHarnessRef', ['null', 'text']],
-  ['apps/server/src/store/messages.ts:openBoundTo', ['1', '4', '1|issue', '4|issue']],
-  ['apps/server/src/store/messages.ts:queuedPage', ['start', 'after']],
-  ['apps/server/src/store/messages.ts:wakeCooldownsOf', SIZES],
-  ['apps/server/src/store/messages.ts:pendingDeliveredToPage', ['start', 'after']],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedRowsOfKeys', SIZES],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:changesWithPrior', SIZES],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedIdsUnderPrefixes', SIZES],
-  [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
-    ['all', 'one', ...SIZES],
-  ],
-  [
-    'apps/server/src/store/workflows.ts:workflowsWhere',
-    ['a1|s0|r0', 'a0|s0|r0', 'a0|s1|r0', 'a0|s1|r1', 'a1|s0|r1'],
-  ],
-  ['apps/server/src/store/workflows.ts:insertRunSteps', SIZES],
-  // The feed's visibility facts for a batch of workflow-family rows (POD-6676).
-  ['apps/server/src/store/workflows.ts:workflowOwnersOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:revisionWorkflowsOfIds', SIZES],
-  ['apps/server/src/store/workflows.ts:bindingOwnersOfTargets', SIZES],
-  ['apps/server/src/store/workflows.ts:runOwnersOfIds', SIZES],
-  [
-    'apps/server/src/store/conversations/index.ts:recentConversations',
-    [
-      'dated|any',
-      'dated|posix',
-      'dated|windows',
-      'undated|any',
-      'undated|posix',
-      'undated|windows',
-    ],
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:searchConversations',
-    ['fts|any', 'fts|posix', 'fts|windows', 'like|any', 'like|posix', 'like|windows'],
-  ],
-  ['apps/server/src/store/conversations/mirror.ts:segmentsToMirror', ['all', 'dirty']],
-])
+import { param, prepared, type StoreDrizzle } from './executor/sync-drizzle'
 
 /**
  * Columns whose value most rows share, as `table.column`. A plan that seeks
@@ -815,62 +536,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
 ])
 
 /**
- * RAW SQL OUTSIDE THE REPOSITORIES [POD-6227]. A statement handed straight to
- * a database handle (`db.prepare(sql)`) is no `prepared(...)` definition, so
- * the census above never sees it. The raw census (`rawSqlSites`) lists every
- * such statement in the server's and the sync package's production source,
- * and each must be on one of these two lists, keyed `file:sql` (the SQL with
- * its whitespace folded):
- * - PLANNED: run against this database's schema, so the audit plans it like a
- *   repository query and the same lists explain a scan or a sort. The value
- *   says why it is raw rather than a repository query.
- * - EXEMPT (by key, by file, or by directory with a trailing `/`): not a
- *   query on the server's tables at run time, with the reason.
- * A raw statement added anywhere in that source fails the census until it is
- * listed, and a listed key with no site left fails it too.
- */
-const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([])
-
-const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
-  [
-    'apps/server/src/store/executor/',
-    'The drivers: they prepare the statements the repositories built, which the audit plans at their definitions.',
-  ],
-  [
-    'apps/server/src/migrations/',
-    'Migration bookkeeping and boot repair (sqlite_master, the migration ledger, VACUUM INTO, quick_check): run once at boot or by a maintenance command before the server serves, on the schema the migrations are building.',
-  ],
-  [
-    'packages/sync/src/adapters/mobile-sqlite/',
-    "The phone replica's own database (its outbox and meta tables), not the server's.",
-  ],
-  [
-    'apps/server/src/installation-identity-import.ts',
-    'One-time data migration at boot, on the exclusive migration connection, behind its receipt (installation_identity_import_v1): meta and server_secrets by primary key.',
-  ],
-  [
-    'apps/server/src/settings-config-import.ts',
-    'One-time data migration at boot of the legacy config.json settings, on the exclusive migration connection, behind its receipt (settings_config_import_v1).',
-  ],
-  [
-    'apps/server/src/enrollment-ledger-import.ts',
-    'One-time data migration at boot of the legacy enrollment ledger file, on the exclusive migration connection, behind its marker (enrollment_ledger_imported).',
-  ],
-  [
-    'apps/server/src/fingerprint-key-import.ts',
-    'One-time data migration at boot of the legacy fingerprint key file, on the exclusive migration connection, behind its receipt (secret_fingerprint_import_v1).',
-  ],
-  [
-    'apps/server/src/relay.ts:input',
-    "Not SQL: the session instruction registry's `prepare(input)`, which builds a session's start instructions.",
-  ],
-  [
-    'apps/server/src/modules/sessions/instructions.ts:context',
-    "Not SQL: an instruction provider's `prepare(context)`, which builds a session's start instructions.",
-  ],
-])
-
-/**
  * Lookups an index could serve but whose SQL prevents it (a LIKE on a bound
  * prefix, a literal turned into a parameter, an expression over the column).
  * POD-6173 rewrote the rest; what is left needs full-text search, and each
@@ -895,51 +560,12 @@ const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
   ],
 ])
 
-function trackedSources(): string[] {
-  const out: string[] = []
-  for (const dir of ['apps/server/src/store', 'packages/sync/src/adapters/sqlite']) {
-    for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
-      out.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))))
-    }
-  }
-  return censusScope(out.map((path) => path.split('\\').join('/')))
-}
-
 interface AuditedStatement {
   readonly key: string
   readonly shape: string | number | undefined
   readonly statement: BuiltStatement
   readonly plan: readonly string[]
   readonly findings: readonly PlanFinding[]
-}
-
-/** Every raw SQL statement in the server's and the sync package's production source [POD-6227]. */
-function rawSqlCensus(): RawSqlSite[] {
-  const paths: string[] = []
-  for (const dir of ['apps/server/src', 'packages/sync/src']) {
-    for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
-      paths.push(
-        relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry)))
-          .split('\\')
-          .join('/'),
-      )
-    }
-  }
-  return rawSqlScope(paths).flatMap((file) =>
-    rawSqlSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
-  )
-}
-
-const rawKey = (site: RawSqlSite): string => `${site.file}:${site.sql}`
-
-/** Why a raw statement is not planned, or undefined when nothing exempts it. */
-function rawExemption(site: RawSqlSite): string | undefined {
-  const byKey = RAW_SQL_EXEMPT.get(rawKey(site))
-  if (byKey !== undefined) return byKey
-  for (const [key, reason] of RAW_SQL_EXEMPT) {
-    if (key === site.file || (key.endsWith('/') && site.file.startsWith(key))) return reason
-  }
-  return undefined
 }
 
 /** Plan each PLANNED raw statement on the migrated schema, like a repository query. */
@@ -951,6 +577,7 @@ function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
       const statement: BuiltStatement = {
         sql: site.sql,
         params: (site.sql.match(/\?/g) ?? []).length,
+        placeholders: [],
       }
       const plan = explain(database, statement)
       return {
@@ -963,144 +590,22 @@ function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
     })
 }
 
+/**
+ * The repository as this audit reads it. It reads source it does not import (every
+ * definition site, every raw statement), so it sits in the shard keyed on the whole tree.
+ */
+const SOURCE: SourceTree = {
+  list: (dir) =>
+    readdirSync(join(REPO_ROOT, dir), { recursive: true }).map((entry) =>
+      relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry)))
+        .split('\\')
+        .join('/'),
+    ),
+  read: (file) => readFileSync(join(REPO_ROOT, file), 'utf8'),
+}
+
 let store: SessionStore
 let database: SqlDatabase
-
-/** Run, ignoring the outcome: a definition registers before its statement runs. */
-async function attempt(fn: () => Promise<unknown>): Promise<void> {
-  try {
-    await fn()
-  } catch {
-    // The statement may refuse on these planted rows; the definition was made.
-  }
-}
-
-/**
- * Reach the definitions made inside a method rather than at module level.
- *
- * `IssuesRepository` and `ReposRepository` define their writes inside the
- * method that invalidates their read cache first (see `issueWrites` and
- * `repoWrites`), and `MessagesRepository` defines one status write per move.
- * Such a definition is made the first time its method reaches it, so the
- * audit drives each method once, with rows planted to take the branch that
- * holds it. A new method-level definition that this does not reach fails the
- * coverage check by name.
- */
-async function reachMethodDefinitions(target: SessionStore): Promise<void> {
-  // The full-text tables are made at runtime when search is enabled, not by a migration.
-  await target.conversations.ensureFts(true)
-  const machineId = asMachineId(target.hostMachineId)
-  const now = new Date().toISOString()
-  database
-    .prepare(
-      'INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-    .run(machineId, 'audit', 'audit', 'audit-token-hash', now, now)
-  const auditIssue = (over: Parameters<typeof issueRowFixture>[0]) =>
-    issueRowFixture({
-      machineId,
-      ownerUserId: firstAdminMemberId(),
-      createdByOnBehalfOf: null,
-      parentId: null,
-      supersededBy: null,
-      duplicateOf: null,
-      coordinatorSessionId: null,
-      startedBySession: null,
-      humanQuestionAskedBy: null,
-      ...over,
-    })
-  await attempt(() =>
-    target.repos.addRepo('/audit/one', machineId, 'https://example.invalid/one.git', 'AUD'),
-  )
-  const issue = auditIssue({
-    id: 'iss_audit',
-    stage: 'review',
-    repoPath: '/audit/repo',
-    repoId: 'repo_audit',
-  })
-  await attempt(() => target.issues.upsertIssue(fixtureWriteScope(), issue))
-  await attempt(() =>
-    target.issues.transitionShippingStage(
-      asIssueId('iss_audit'),
-      'review',
-      'shipping',
-      issue.createdAt,
-    ),
-  )
-  // Two rows with no repo id and one seq: the legacy collision `renumberCollidingIssueSeqs`
-  // repairs. A write through the repository resolves the repo id, so they are planted.
-  database.exec(`
-    CREATE TEMP TABLE audit_issue AS SELECT * FROM issues WHERE id = 'iss_audit';
-    UPDATE audit_issue SET id = 'iss_audit_a', repo_id = NULL, seq = 7, repo_path = '/audit/one';
-    INSERT INTO issues SELECT * FROM audit_issue;
-    UPDATE audit_issue SET id = 'iss_audit_b';
-    INSERT INTO issues SELECT * FROM audit_issue;
-    DROP TABLE audit_issue;
-  `)
-  await attempt(() => target.issues.renumberCollidingIssueSeqs())
-  // A row under the path whose repo id differs: the one `assignRepoIdToIssuesUnder` moves.
-  await attempt(() =>
-    target.issues.assignRepoIdToIssuesUnder(asRepoId('repo_audit_other'), '/audit/repo'),
-  )
-  // Boot already ran the legacy backfill and left its receipt; remove it so the backfill runs again.
-  database.prepare('DELETE FROM meta WHERE key = ?').run(LEGACY_WORKTREE_MIGRATION)
-  await attempt(() => target.issues.backfillLegacyWorktreeMachineIds(machineId))
-  await attempt(() => target.issues.deleteIssue('iss_audit_b'))
-
-  await attempt(() => target.repos.addRepo('/audit/two', machineId))
-  await attempt(() => target.repos.setRepoPrefix(machineId, '/audit/two', 'AUDB'))
-  // A row stored with a trailing slash: `updateRepoOrigin` renames it to the normalized path.
-  database
-    .prepare('INSERT OR IGNORE INTO repos (machine_id, path, added_at) VALUES (?, ?, ?)')
-    .run(machineId, '/audit/three/', new Date().toISOString())
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/three', 'https://example.invalid/three.git'),
-  )
-  // A repo on its path-derived id, with a prefix: gaining an origin re-keys the prefix.
-  await attempt(() => target.repos.addRepo('/audit/four', machineId))
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/four', 'https://example.invalid/four.git'),
-  )
-  // A base branch set on a path-derived id whose origin already has a prefix
-  // row elsewhere: gaining that origin carries the base branch across.
-  await attempt(() => target.repos.addRepo('/audit/five', machineId))
-  await attempt(() => target.repos.setRepoDefaultParentBranch(machineId, '/audit/five', 'develop'))
-  await attempt(() =>
-    target.repos.addRepo('/audit/six', machineId, 'https://example.invalid/five.git', 'AUDF'),
-  )
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/five', 'https://example.invalid/five.git'),
-  )
-  await attempt(() => target.repos.removeRepo('/audit/one', machineId))
-
-  await attempt(() =>
-    target.messages.addMessage(fixtureWriteScope(), {
-      id: 'msg_audit',
-      threadId: 'msg_audit',
-      fromKind: 'operator',
-      fromId: null,
-      toKind: 'issue',
-      toId: 'iss_audit',
-      body: 'audit',
-      createdAt: issue.createdAt,
-      deliveryStatus: 'stored',
-    } as unknown as Parameters<typeof target.messages.addMessage>[1]),
-  )
-  await attempt(() => target.messages.markCancelled(fixtureWriteScope(), 'msg_audit'))
-
-  // Two `ReposRepository` methods each define the same statement into one slot
-  // (`insertPrefixIfAbsent`, `deleteRow`), so whichever runs first makes it and
-  // the other site is never evaluated. Empty those two slots and run the other
-  // method. (Not a second store: every definition site must run exactly once,
-  // because a site evaluated again later may report a different position.)
-  const repoWrites = (target.repos as unknown as { repoWrites: Record<string, unknown> }).repoWrites
-  delete repoWrites.insertPrefixIfAbsent
-  delete repoWrites.deleteRow
-  await attempt(() =>
-    target.repos.ensurePrefixForRepoId(asRepoId('repo_audit_prefix'), 'auditprefix'),
-  )
-  await attempt(() => target.repos.removeRepo('/audit/two', machineId))
-}
 
 /**
  * THE PLANNER'S PICTURE OF A LARGE DATABASE. With no statistics SQLite takes
@@ -1155,103 +660,13 @@ function writeStatistics(
 beforeAll(async () => {
   store = await openTestStore(':memory:')
   database = (store as unknown as { db: SqlDatabase }).db
-  await reachMethodDefinitions(store)
+  await reachMethodDefinitions(store, database)
   modelLowSelectivity(database)
 })
 
 afterAll(async () => {
   await store?.close()
 })
-
-/** A query builder that is not a statement: a subquery another definition embeds. */
-function isFragment(value: unknown): boolean {
-  if (value === null || typeof value !== 'object') return false
-  if (typeof (value as { getSQL?: unknown }).getSQL === 'function') return true
-  const parts = Object.values(value)
-  return parts.length > 0 && parts.every(isFragment)
-}
-
-/** A definition the audit checks, by the key its lists use. */
-interface KeyedDefinition {
-  readonly key: string
-  readonly definition: PreparedDefinition
-}
-
-/**
- * Every registered definition paired with its source site, plus the coverage
- * facts: sites never reached, files whose positions could not be paired.
- */
-function keyedDefinitions(sources: readonly string[]): {
-  sites: QueryDefinitionSite[]
-  keyed: KeyedDefinition[]
-  unregisteredSites: string[]
-  unmapped: string[]
-} {
-  const sites = sources.flatMap((file) =>
-    queryDefinitionSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
-  )
-  const sitesByFile = new Map<string, QueryDefinitionSite[]>()
-  for (const site of sites)
-    sitesByFile.set(site.file, [...(sitesByFile.get(site.file) ?? []), site])
-  const definitions = preparedDefinitions().map((definition) => ({
-    definition,
-    frame: definitionFrame(definition.site, REPO_ROOT),
-  }))
-  const positionsByFile = new Map<string, { line: number; column: number }[]>()
-  for (const { frame } of definitions) {
-    if (frame && sitesByFile.has(frame.file)) {
-      positionsByFile.set(frame.file, [...(positionsByFile.get(frame.file) ?? []), frame])
-    }
-  }
-  const unmapped: string[] = []
-  const siteAt = new Map<string, Map<string, QueryDefinitionSite>>()
-  for (const [file, fileSites] of sitesByFile) {
-    const matched = matchSites(positionsByFile.get(file) ?? [], fileSites)
-    if (matched) siteAt.set(file, matched)
-    else {
-      const reached = new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`))
-        .size
-      const methodSites = fileSites.filter((site) => !site.moduleLevel).map((site) => site.name)
-      const frames = [
-        ...new Set(
-          definitions
-            .filter(({ frame }) => frame?.file === file)
-            .map(
-              ({ definition }) =>
-                (definition.site.stack ?? '').split('\n').find((line) => line.includes(file)) ?? '',
-            ),
-        ),
-      ].slice(0, 6)
-      unmapped.push(
-        `${file}: ${fileSites.length} definition sites, ${reached} positions reached; ` +
-          `method-level sites: ${methodSites.join(', ')}; positions: ${[
-            ...new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`)),
-          ].join(
-            ' ',
-          )}; site lines: ${fileSites.map((site) => site.startLine).join(' ')}; sample frames: ${frames.join(' || ')}`,
-      )
-    }
-  }
-  const registered = new Set<QueryDefinitionSite>()
-  const keyed: KeyedDefinition[] = []
-  for (const { definition, frame } of definitions) {
-    const site = frame && siteAt.get(frame.file)?.get(`${frame.line}:${frame.column}`)
-    if (!site) continue
-    registered.add(site)
-    keyed.push({ key: `${site.file}:${site.name}`, definition })
-  }
-  return {
-    sites,
-    keyed,
-    unregisteredSites:
-      siteAt.size === sitesByFile.size
-        ? sites
-            .filter((site) => !registered.has(site))
-            .map((site) => `${site.file}:${site.startLine} ${site.name}`)
-        : [],
-    unmapped,
-  }
-}
 
 /** Build each definition at each of its shapes and read every statement's plan. */
 function auditDefinitions(keyed: readonly KeyedDefinition[]): {
@@ -1261,62 +676,29 @@ function auditDefinitions(keyed: readonly KeyedDefinition[]): {
   buildErrors: string[]
   explainErrors: string[]
 } {
-  const recording = recordingDrizzle()
   const tables = tablesOf(database)
+  const { built, fragments, missingShapes, buildErrors } = builtStatements(keyed)
   const audited: AuditedStatement[] = []
-  const fragments = new Set<string>()
-  const missingShapes = new Set<string>()
-  const buildErrors: string[] = []
   const explainErrors: string[] = []
-  const seen = new Set<string>()
-  for (const { key, definition } of keyed) {
-    if (definition.kind === 'family' && !FAMILY_SHAPES.has(key)) missingShapes.add(key)
-    const shapes: readonly (string | number | undefined)[] =
-      definition.kind === 'family' ? (FAMILY_SHAPES.get(key) ?? []) : [undefined]
-    for (const shape of shapes) {
-      let built: unknown
-      let statements: BuiltStatement[]
-      try {
-        built = (definition.build as (db: unknown, key: unknown) => unknown)(recording, shape)
-        statements = statementsOf(built)
-      } catch (error) {
-        buildErrors.push(`${key} [${String(shape)}]: ${(error as Error).message}`)
-        continue
-      }
-      if (statements.length === 0) {
-        if (isFragment(built)) fragments.add(key)
-        else buildErrors.push(`${key} [${String(shape)}]: built no statement`)
-      }
-      for (const statement of statements) {
-        const dedupe = `${key}\u0000${statement.sql}`
-        if (seen.has(dedupe)) continue
-        seen.add(dedupe)
-        let plan: string[]
-        try {
-          plan = explain(database, statement)
-        } catch (error) {
-          explainErrors.push(
-            `${key} [${String(shape)}]: ${(error as Error).message} :: ${statement.sql}`,
-          )
-          continue
-        }
-        audited.push({
-          key,
-          shape,
-          statement,
-          plan,
-          findings: planFindings(plan, statement.sql, tables, LOW_SELECTIVITY),
-        })
-      }
+  for (const { key, shape, statement } of built) {
+    let plan: string[]
+    try {
+      plan = explain(database, statement)
+    } catch (error) {
+      explainErrors.push(
+        `${key} [${String(shape)}]: ${(error as Error).message} :: ${statement.sql}`,
+      )
+      continue
     }
+    audited.push({
+      key,
+      shape,
+      statement,
+      plan,
+      findings: planFindings(plan, statement.sql, tables, LOW_SELECTIVITY),
+    })
   }
-  return {
-    audited,
-    fragments: [...fragments],
-    missingShapes: [...missingShapes],
-    buildErrors,
-    explainErrors,
-  }
+  return { audited, fragments, missingShapes, buildErrors, explainErrors }
 }
 
 /** The tables a plan reads, by name. */
@@ -1360,7 +742,10 @@ const describeEntry = (entry: AuditedStatement): string =>
 
 describe('POD-6148 — every repository query is served by an index', () => {
   it('reaches and builds every query definition in the repositories', () => {
-    const { sites, keyed, unregisteredSites, unmapped } = keyedDefinitions(trackedSources())
+    const { sites, keyed, unregisteredSites, unmapped } = keyedDefinitions(
+      trackedSources(SOURCE),
+      SOURCE,
+    )
     const { audited, fragments, missingShapes, buildErrors, explainErrors } =
       auditDefinitions(keyed)
     // THE REPORT: how much the audit checked.
@@ -1380,8 +765,8 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('finds no scan or sort that is not explained', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
-    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
     const flagged = audited.filter((entry) => entry.findings.length > 0)
     const unexplained = flagged.filter((entry) => explanation(entry) === undefined)
     console.log(
@@ -1395,7 +780,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the open chat through its partial index (POD-6173)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const openChat = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/messages.ts:openChat',
@@ -1406,7 +791,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the boot ref backfill candidates by index ranges on the ref-less partial indexes (POD-6222)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const candidates = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates',
@@ -1431,7 +816,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the active ship orders through their partial index (POD-6172)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const active = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo',
@@ -1445,7 +830,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the open trains of shipped leaders through their partial index (POD-6207)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const open = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains',
@@ -1459,7 +844,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the subscriptions a steward poll can match, each arm on its own index (POD-6208)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const searches = (name: string, shape: string | number) =>
       audited
@@ -1488,7 +873,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads each history page through its index, with no scan and no sort (POD-6209)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const plans = (key: string) =>
       audited
@@ -1509,8 +894,8 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('keeps no stale entry: every listed query still scans or sorts, every small table exists', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
-    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
     const flaggedKeys = new Set(
       audited
         .filter((entry) => entry.findings.length > 0)
@@ -1533,7 +918,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('lists every raw SQL statement outside the repositories, and plans the ones on the server schema (POD-6227)', () => {
-    const sites = rawSqlCensus()
+    const sites = rawSqlCensus(SOURCE)
     const planned = sites.filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
     console.log(
       `raw SQL census: ${sites.length} raw statements in ${new Set(sites.map((s) => s.file)).size} files, ` +
@@ -1645,7 +1030,7 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
       ].join(' ')
 
   const unexplained = (): string[] => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     return audited
       .filter((entry) => entry.findings.length > 0 && explanation(entry) === undefined)
@@ -1709,7 +1094,7 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     // `limit` rows back oldest first; that listing must not hide a sort of the
     // session's whole history before the limit.
     const runtimePlans = () => {
-      const { keyed } = keyedDefinitions(trackedSources())
+      const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
       const plans = new Map(
         auditDefinitions(keyed)
           .audited.filter((entry) =>

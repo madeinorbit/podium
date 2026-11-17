@@ -471,3 +471,24 @@ export function classifyTable(name: string): ManifestEntry | undefined {
   const parent = (TABLE_MANIFEST as Record<string, ManifestEntry>)[shadow[1] as string]
   return parent?.fts5 ? parent : undefined
 }
+
+/**
+ * The files that hold global repositories: repositories over install tables only, built with
+ * the global context. They are the only files that may define a query with `preparedGlobal`
+ * (the source guard, `workspace-scope-guard.test.ts`, POD-7014). A file a task has not created
+ * yet carries that task in `plannedBy`; the guard fails once the file exists and the field is
+ * still set.
+ */
+export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
+  string,
+  { readonly reason: string; readonly plannedBy?: string }
+> = new Map([
+  [
+    'apps/server/src/store/database.ts',
+    {
+      reason:
+        "the store database (POD-7010): install meta, migrations, and each workspace's provisioning insert",
+      plannedBy: 'POD-7010',
+    },
+  ],
+])
