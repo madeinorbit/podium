@@ -137,55 +137,6 @@ function taskOfFile(file: string): string | undefined {
  * {@link taskOfFile}. Only shrinks: a binding task removes its entries as it adds forms.
  */
 const NEEDS_PG_FORM: ReadonlyMap<string, string> = new Map<string, string>([
-  ['apps/server/src/store/conversations/index.ts:createFtsDeleteTrigger', 'SQLite-only rowid'],
-  ['apps/server/src/store/conversations/index.ts:createFtsInsertTrigger', 'SQLite-only rowid'],
-  ['apps/server/src/store/conversations/index.ts:createFtsUpdateTrigger', 'SQLite-only rowid'],
-  [
-    'apps/server/src/store/conversations/index.ts:deleteMachineConversations',
-    'SQLite-only json_each()',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:recentConversations',
-    'computed text (lower()) without COLLATE "C"',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:searchConversations',
-    'SQLite-only MATCH, SQLite-only rowid, computed text (lower()) without COLLATE "C"',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:upsertConversations',
-    "SQLite-only a '$.path' JSON path, SQLite-only json_each()",
-  ],
-  [
-    'apps/server/src/store/conversations/registry.ts:adoptParents',
-    'SQLite-only json_each(), computed text (->>) without COLLATE "C"',
-  ],
-  [
-    'apps/server/src/store/conversations/registry.ts:insertDiscoveredSegments',
-    'SQLite-only json_each()',
-  ],
-  ['apps/server/src/store/conversations/registry.ts:insertIdentities', 'SQLite-only json_each()'],
-  [
-    'apps/server/src/store/conversations/registry.ts:refreshSegmentFiles',
-    'SQLite-only json_each(), computed text (->>) without COLLATE "C"',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:catchUpKeys',
-    'SQLite-only INSERT OR, SQLite-only REPLACE INTO, SQLite-only rowid',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:deleteTranscriptRows',
-    'SQLite-only rowid',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:insertTranscriptKey',
-    'SQLite-only INSERT OR, SQLite-only REPLACE INTO, SQLite-only last_insert_rowid()',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:searchTranscripts',
-    'SQLite-only MATCH, SQLite-only rowid',
-  ],
-  ['apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf', 'SQLite-only rowid'],
   ['apps/server/src/store/shipping.ts:activeOrdersFifo', 'SQLite-only INDEXED BY'],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', 'SQLite-only json_each()'],
   ['apps/server/src/store/shipping.ts:resumableOrdersFifo', 'SQLite-only INDEXED BY'],

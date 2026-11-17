@@ -2,7 +2,10 @@
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import { and, eq, isNotNull, isNull, max, type SQL, sql } from 'drizzle-orm'
+import { captureWrite } from '../../sync/capture-pg'
+import { dialectOf } from '../executor/dialect-prepared'
 import type {
+  StoreDrizzle,
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
@@ -147,6 +150,10 @@ const adoptParent = prepared((db, t) =>
     .prepare(),
 )
 
+/** `IS NOT` as a comparison of two values that may be NULL: Postgres spells it `IS DISTINCT FROM`. */
+const isNot = (db: StoreDrizzle): SQL =>
+  sql.raw(dialectOf(db) === 'pg' ? 'IS DISTINCT FROM' : 'IS NOT')
+
 // The trailing predicate is what keeps a re-discovery of an UNCHANGED
 // segment free. Every sweep re-offers the whole corpus, so this matched
 // its row and rewrote the same two values ~1656 times per 4 minutes on
@@ -156,6 +163,7 @@ const adoptParent = prepared((db, t) =>
 const refreshSegmentFile = prepared((db, t) => {
   const path = sql.placeholder('path')
   const reportedBytes = sql.placeholder('reportedBytes')
+  const differs = isNot(db)
   return db
     .update(t.conversationSegments)
     .set({
@@ -165,8 +173,8 @@ const refreshSegmentFile = prepared((db, t) => {
     .where(
       and(
         segmentKey(t),
-        sql`(${t.conversationSegments.path} IS NOT COALESCE(${path}, ${t.conversationSegments.path})
-                   OR ${t.conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes}))`,
+        sql`(${t.conversationSegments.path} ${differs} COALESCE(${path}, ${t.conversationSegments.path})
+                   OR ${t.conversationSegments.reportedBytes} ${differs} COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes}))`,
       ),
     )
     .prepare()
@@ -185,9 +193,8 @@ const insertIdentity = prepared((db, t) =>
 )
 
 const insertDiscoveredSegment = prepared((db, t) =>
-  db
-    .insert(t.conversationSegments)
-    .values({
+  captureWrite(
+    db.insert(t.conversationSegments).values({
       workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -198,8 +205,8 @@ const insertDiscoveredSegment = prepared((db, t) =>
       seqInConv: 1,
       linkedBy: 'discovery',
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 // THE MANY-CONVERSATION FORMS OF `ensure` [POD-6227]: a discovery reports a
@@ -208,6 +215,12 @@ const insertDiscoveredSegment = prepared((db, t) =>
 // 1,656 conversations a live sweep re-offered every four minutes). Each takes
 // its rows as ONE bound JSON array, `rows`, read with json_each, so a statement
 // has one shape for any number of rows, in the array's order.
+//
+// ON POSTGRES the array is read with `json_array_elements`, and a field with
+// `->>`, which gives text there (SQLite's gives the JSON value's own type): a
+// number field is cast to its column's type, a bound timestamp names its type
+// (a bare placeholder in a select list has none), and a field compared with a
+// column is compared in byte order (`COLLATE "C"`, design 2.3 rule 13).
 
 /**
  * The workspace as an INSERT ... SELECT item, BARE: the insert names its columns
@@ -218,9 +231,29 @@ const insertDiscoveredSegment = prepared((db, t) =>
  */
 const workspaceItem = sql`${WORKSPACE}` as unknown as SQL.Aliased<unknown>
 
-/** The rows of the bound JSON array `rows`, and one field of the row a statement is reading. */
-const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
-const offered = (field: string) => sql`value ->> ${`$.${field}`}`
+/** The rows of the bound JSON array `rows`, as the engine reads a JSON array. */
+const offeredRows = (db: StoreDrizzle) =>
+  dialectOf(db) === 'pg'
+    ? sql`json_array_elements(CAST(${sql.placeholder('rows')} AS json)) AS r(value)`
+    : sql`json_each(${sql.placeholder('rows')})`
+
+/** One field of the row a statement is reading, as text, or cast to `type` on Postgres. */
+const offered = (db: StoreDrizzle, field: string, type?: 'bigint') =>
+  dialectOf(db) !== 'pg'
+    ? sql`value ->> ${`$.${field}`}`
+    : type === undefined
+      ? sql.raw(`(value ->> '${field}')`)
+      : sql.raw(`CAST(value ->> '${field}' AS ${type})`)
+
+/** {@link offered}, compared with a column: in byte order on Postgres. */
+const offeredKey = (db: StoreDrizzle, field: string) =>
+  dialectOf(db) === 'pg' ? sql`${offered(db, field)} COLLATE "C"` : offered(db, field)
+
+/** The bound timestamp `createdAt` as a select item, typed on Postgres. */
+const createdAtItem = (db: StoreDrizzle) =>
+  dialectOf(db) === 'pg'
+    ? sql`CAST(${sql.placeholder('createdAt')} AS timestamptz)`
+    : sql`${sql.placeholder('createdAt')}`
 
 const insertIdentities = prepared((db, t) =>
   db
@@ -229,35 +262,34 @@ const insertIdentities = prepared((db, t) =>
       db
         .select({
           workspaceId: workspaceItem,
-          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
-          parentPodiumId: sql`${offered('parentPodiumId')}`.as('parent_podium_id'),
-          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+          podiumId: sql`${offered(db, 'podiumId')}`.as('podium_id'),
+          parentPodiumId: sql`${offered(db, 'parentPodiumId')}`.as('parent_podium_id'),
+          createdAt: sql`${createdAtItem(db)}`.as('created_at'),
         })
-        .from(offeredRows()),
+        .from(offeredRows(db)),
     )
     .prepare(),
 )
 
 const insertDiscoveredSegments = prepared((db, t) =>
-  db
-    .insert(t.conversationSegments)
-    .select(
+  captureWrite(
+    db.insert(t.conversationSegments).select(
       db
         .select({
           workspaceId: workspaceItem,
           machineId: sql`${sql.placeholder('machineId')}`.as('machine_id'),
-          nativeId: sql`${offered('nativeId')}`.as('native_id'),
-          providerId: sql`${offered('providerId')}`.as('provider_id'),
-          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
-          path: sql`${offered('path')}`.as('path'),
-          reportedBytes: sql`${offered('reportedBytes')}`.as('reported_bytes'),
+          nativeId: sql`${offered(db, 'nativeId')}`.as('native_id'),
+          providerId: sql`${offered(db, 'providerId')}`.as('provider_id'),
+          podiumId: sql`${offered(db, 'podiumId')}`.as('podium_id'),
+          path: sql`${offered(db, 'path')}`.as('path'),
+          reportedBytes: sql`${offered(db, 'reportedBytes', 'bigint')}`.as('reported_bytes'),
           seqInConv: sql`1`.as('seq_in_conv'),
           linkedBy: sql`'discovery'`.as('linked_by'),
-          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+          createdAt: sql`${createdAtItem(db)}`.as('created_at'),
         })
-        .from(offeredRows()),
-    )
-    .prepare(),
+        .from(offeredRows(db)),
+    ),
+  ).prepare(),
 )
 
 /** {@link adoptParent} for many identities, one row each, for those that have none. */
@@ -265,14 +297,14 @@ const adoptParents = prepared((db, t) =>
   db
     .update(t.conversationIdentities)
     .set({
-      parentPodiumId: sql`(SELECT ${offered('parentPodiumId')} FROM ${offeredRows()}
-        WHERE ${offered('podiumId')} = ${t.conversationIdentities.podiumId})`,
+      parentPodiumId: sql`(SELECT ${offered(db, 'parentPodiumId')} FROM ${offeredRows(db)}
+        WHERE ${offeredKey(db, 'podiumId')} = ${t.conversationIdentities.podiumId})`,
     })
     .where(
       inWorkspace(
         t.conversationIdentities,
         isNull(t.conversationIdentities.parentPodiumId),
-        sql`${t.conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
+        sql`${t.conversationIdentities.podiumId} IN (SELECT ${offeredKey(db, 'podiumId')} FROM ${offeredRows(db)})`,
       ),
     )
     .prepare(),
@@ -284,10 +316,11 @@ const adoptParents = prepared((db, t) =>
  * is not rewritten.
  */
 const refreshSegmentFiles = prepared((db, t) => {
-  const of = (field: string) =>
-    sql`(SELECT ${offered(field)} FROM ${offeredRows()} WHERE ${offered('nativeId')} = ${t.conversationSegments.nativeId})`
+  const of = (field: string, type?: 'bigint') =>
+    sql`(SELECT ${offered(db, field, type)} FROM ${offeredRows(db)} WHERE ${offeredKey(db, 'nativeId')} = ${t.conversationSegments.nativeId})`
   const path = sql`COALESCE(${of('path')}, ${t.conversationSegments.path})`
-  const reportedBytes = sql`COALESCE(${of('reportedBytes')}, ${t.conversationSegments.reportedBytes})`
+  const reportedBytes = sql`COALESCE(${of('reportedBytes', 'bigint')}, ${t.conversationSegments.reportedBytes})`
+  const differs = isNot(db)
   return db
     .update(t.conversationSegments)
     .set({ path, reportedBytes })
@@ -295,8 +328,8 @@ const refreshSegmentFiles = prepared((db, t) => {
       inWorkspace(
         t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
-        sql`${t.conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
-        sql`(${t.conversationSegments.path} IS NOT ${path} OR ${t.conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
+        sql`${t.conversationSegments.nativeId} IN (SELECT ${offeredKey(db, 'nativeId')} FROM ${offeredRows(db)})`,
+        sql`(${t.conversationSegments.path} ${differs} ${path} OR ${t.conversationSegments.reportedBytes} ${differs} ${reportedBytes})`,
       ),
     )
     .prepare()
@@ -316,9 +349,8 @@ const highestSeqInConversation = prepared((db, t) =>
 )
 
 const insertRolledSegment = prepared((db, t) =>
-  db
-    .insert(t.conversationSegments)
-    .values({
+  captureWrite(
+    db.insert(t.conversationSegments).values({
       workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
@@ -328,8 +360,8 @@ const insertRolledSegment = prepared((db, t) =>
       seqInConv: sql.placeholder('seqInConv'),
       linkedBy: 'live-roll',
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 const segmentsOfConversation = prepared((db, t) =>

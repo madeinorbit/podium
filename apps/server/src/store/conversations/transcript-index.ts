@@ -2,7 +2,9 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, type SQL, sql } from 'drizzle-orm'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { dialectOf } from '../executor/dialect-prepared'
 import type {
+  StoreDrizzle,
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
@@ -16,10 +18,23 @@ import {
   preparedFamily,
   WORKSPACE,
 } from '../executor/sync-drizzle'
+import { withoutNul } from '../messages'
+import { onSqliteOnly, transcriptHeadline, tsqueryOf } from './search-pg'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 // `transcript_fts` is the virtual table this port owns; there is no schema
 // model to build against, so its statements stay whole raw SQL.
+//
+// ON POSTGRES the rows are in the plain table `transcript_text`, which the
+// baseline made with a generated `tsvector` and its own `workspace_id`
+// (`migrations/pg/pg-only-tables.ts`, `search-pg.ts`): a row, a read, a delete
+// and a search are held to the workspace by that column, so there is no key
+// table, no catch-up and no FTS5 table to make. The statements that exist only
+// for those are SQLite only ({@link sqliteOnly}).
+
+const TRANSCRIPT_TABLE = 'transcript_text'
+const sqliteOnly = (db: StoreDrizzle, statement: SQL): SQL =>
+  onSqliteOnly(db, TRANSCRIPT_TABLE, statement)
 
 /** One segment by its key, over the `machineId` / `nativeId` placeholders, in the workspace. */
 const segmentKey = (t: StoreTables) =>
@@ -30,8 +45,13 @@ const segmentKey = (t: StoreTables) =>
   )
 
 const createTranscriptFts = prepared((db) =>
-  db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
-        content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`),
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+        content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`,
+    ),
+  ),
 )
 
 /*
@@ -60,24 +80,37 @@ const createTranscriptFts = prepared((db) =>
  * query-plan audit cannot compile it against a table that has the column.
  */
 const createTranscriptKeys = preparedFamily((db, _t, step: 'table' | 'drop') =>
-  step === 'table'
-    ? db.run(sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
+  db.run(
+    sqliteOnly(
+      db,
+      step === 'table'
+        ? sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
         fts_rowid INTEGER PRIMARY KEY, workspace_id TEXT NOT NULL, machine_id TEXT NOT NULL,
-        native_id TEXT NOT NULL)`)
-    : db.run(sql`DROP TABLE transcript_fts_keys`),
+        native_id TEXT NOT NULL)`
+        : sql`DROP TABLE transcript_fts_keys`,
+    ),
+  ),
 )
 
 /** Whether the key table has its `workspace_id` column: 1 or 0. */
 const keysWorkspaceColumn = prepared((db) =>
   db.all<{ present: number }>(
-    sql`SELECT count(*) AS present FROM pragma_table_info('transcript_fts_keys')
+    sqliteOnly(
+      db,
+      sql`SELECT count(*) AS present FROM pragma_table_info('transcript_fts_keys')
       WHERE name = 'workspace_id'`,
+    ),
   ),
 )
 
 const createTranscriptKeysIndex = prepared((db) =>
-  db.run(sql`CREATE INDEX IF NOT EXISTS idx_transcript_fts_keys_segment
-        ON transcript_fts_keys (machine_id, native_id)`),
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE INDEX IF NOT EXISTS idx_transcript_fts_keys_segment
+        ON transcript_fts_keys (machine_id, native_id)`,
+    ),
+  ),
 )
 
 /**
@@ -96,7 +129,10 @@ const createTranscriptKeysIndex = prepared((db) =>
  *     (they matched a search before the workspace column, and still do).
  */
 type CatchUpShape = `${'all' | 'after-last'}|${'owned' | 'every'}`
-const catchUpKeys = preparedFamily((db, _t, shape: CatchUpShape) => {
+const catchUpKeys = preparedFamily((db, _t, shape: CatchUpShape) =>
+  db.run(sqliteOnly(db, catchUpKeysSql(shape))),
+)
+function catchUpKeysSql(shape: CatchUpShape): SQL {
   const [range, rows] = shape.split('|')
   const terms: SQL[] = []
   if (range === 'after-last') {
@@ -108,9 +144,9 @@ const catchUpKeys = preparedFamily((db, _t, shape: CatchUpShape) => {
           WHERE s.workspace_id = ${WORKSPACE} AND s.machine_id = f.machine_id AND s.native_id = f.native_id)`)
   }
   const where = terms.length === 0 ? sql`` : sql` WHERE ${sql.join(terms, sql` AND `)}`
-  return db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
-        SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f${where}`)
-})
+  return sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+        SELECT f.rowid, ${WORKSPACE}, f.machine_id, f.native_id FROM transcript_fts f${where}`
+}
 
 const segmentsBehindMirror = prepared((db, t) =>
   db
@@ -138,11 +174,17 @@ const segmentIndexedCursor = prepared((db, t) =>
     .prepare(),
 )
 
+/** One transcript row: into `transcript_fts` on SQLite (its key follows), `transcript_text` on Postgres. */
 const insertTranscriptRow = prepared((db) =>
-  db.run(
-    sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
+  dialectOf(db) === 'pg'
+    ? db.run(
+        sql`INSERT INTO transcript_text (workspace_id,machine_id,native_id,item_uuid,ts,content)
+              VALUES(${WORKSPACE},${sql.placeholder('machineId')},${sql.placeholder('nativeId')},${sql.placeholder('itemUuid')},${sql.placeholder('ts')},${sql.placeholder('content')})`,
+      )
+    : db.run(
+        sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
               VALUES(${sql.placeholder('content')},${sql.placeholder('machineId')},${sql.placeholder('nativeId')},${sql.placeholder('itemUuid')},${sql.placeholder('ts')})`,
-  ),
+      ),
 )
 
 /**
@@ -153,8 +195,11 @@ const insertTranscriptRow = prepared((db) =>
  */
 const insertTranscriptKey = prepared((db) =>
   db.run(
-    sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
+    sqliteOnly(
+      db,
+      sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, workspace_id, machine_id, native_id)
               VALUES(last_insert_rowid(),${WORKSPACE},${sql.placeholder('machineId')},${sql.placeholder('nativeId')})`,
+    ),
   ),
 )
 
@@ -191,26 +236,45 @@ const segmentKeys = () =>
   sql`SELECT fts_rowid FROM transcript_fts_keys
       WHERE workspace_id=${WORKSPACE} AND machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`
 
-/** One segment's FTS rows, each found by rowid; then {@link deleteTranscriptKeys}. */
+/** One segment of the workspace in `transcript_text` (Postgres), over the same placeholders. */
+const textSegment = () =>
+  sql`f.workspace_id=${WORKSPACE} AND f.machine_id=${sql.placeholder('machineId')} AND f.native_id=${sql.placeholder('nativeId')}`
+
+/**
+ * One segment's FTS rows, each found by rowid; then {@link deleteTranscriptKeys}.
+ * On Postgres the segment's rows, through `idx_transcript_text_segment`.
+ */
 const deleteTranscriptRows = prepared((db) =>
-  db.run(sql`DELETE FROM transcript_fts WHERE rowid IN (${segmentKeys()})`),
+  dialectOf(db) === 'pg'
+    ? db.run(sql`DELETE FROM transcript_text f WHERE ${textSegment()}`)
+    : db.run(sql`DELETE FROM transcript_fts WHERE rowid IN (${segmentKeys()})`),
 )
 
 const deleteTranscriptKeys = prepared((db) =>
   db.run(
-    sql`DELETE FROM transcript_fts_keys
+    sqliteOnly(
+      db,
+      sql`DELETE FROM transcript_fts_keys
       WHERE workspace_id=${WORKSPACE} AND machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
+    ),
   ),
 )
 
-/** One segment's rows in insertion order, each found by rowid from its key. */
+/**
+ * One segment's rows in insertion order, each found by rowid from its key. On
+ * Postgres in `id` order, the insertion order the identity gives.
+ */
 const transcriptRowsOf = prepared((db) =>
-  db.all<Record<string, unknown>>(
-    sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_fts_keys k
+  dialectOf(db) === 'pg'
+    ? db.all<Record<string, unknown>>(
+        sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_text f WHERE ${textSegment()} ORDER BY f.id`,
+      )
+    : db.all<Record<string, unknown>>(
+        sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_fts_keys k
       CROSS JOIN transcript_fts f ON f.rowid=k.fts_rowid
       WHERE k.workspace_id=${WORKSPACE} AND k.machine_id=${sql.placeholder('machineId')} AND k.native_id=${sql.placeholder('nativeId')}
       ORDER BY k.fts_rowid`,
-  ),
+      ),
 )
 
 /**
@@ -220,8 +284,10 @@ const transcriptRowsOf = prepared((db) =>
  * MATCH the outer loop, each key found by its rowid.
  */
 const searchTranscripts = prepared((db) =>
-  db.all<Record<string, unknown>>(
-    sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
+  dialectOf(db) === 'pg'
+    ? searchTranscriptText(db)
+    : db.all<Record<string, unknown>>(
+        sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
       s.podium_id,c.title,c.name,c.updated_at
       FROM transcript_fts f
@@ -230,8 +296,28 @@ const searchTranscripts = prepared((db) =>
         AND s.machine_id=f.machine_id AND s.native_id=f.native_id
       LEFT JOIN conversations c ON c.workspace_id=k.workspace_id AND c.id=f.native_id
       WHERE k.workspace_id=${WORKSPACE} AND transcript_fts MATCH ${sql.placeholder('fts')} ORDER BY rank`,
-  ),
+      ),
 )
+
+/**
+ * {@link searchTranscripts} on Postgres: the `tsquery` `fts` (`search-pg.ts`)
+ * against the generated vector, through its GIN index, held to the workspace by
+ * the row's own `workspace_id`. The rank is `ts_rank_cd` negated, so the best
+ * match sorts first as `bm25`'s does on SQLite (lower is better), ties in
+ * insertion order; the snippet is `ts_headline`'s.
+ */
+const searchTranscriptText = (db: StoreDrizzle) =>
+  db.all<Record<string, unknown>>(
+    sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
+      ${transcriptHeadline()} AS snip, -ts_rank_cd(f.search, q) AS rank,
+      s.podium_id,c.title,c.name,c.updated_at
+      FROM transcript_text f
+      CROSS JOIN to_tsquery('simple', ${sql.placeholder('fts')}) AS q
+      LEFT JOIN conversation_segments s ON s.workspace_id=f.workspace_id
+        AND s.machine_id=f.machine_id AND s.native_id=f.native_id
+      LEFT JOIN conversations c ON c.workspace_id=f.workspace_id AND c.id=f.native_id
+      WHERE f.workspace_id=${WORKSPACE} AND f.search @@ q ORDER BY rank, f.id`,
+  )
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -254,10 +340,14 @@ export class TranscriptIndexRepository {
   /** Whether this is the self-hosted workspace, which keys every FTS row (see {@link catchUpKeys}). */
   private readonly ownsEveryRow: boolean
 
+  /** Whether this store is on Postgres, whose rows carry their workspace (`transcript_text`). */
+  private readonly pg: boolean
+
   constructor(queries: WorkspaceQueries) {
     this.scope = queries.db
     this.ownsEveryRow = queries.db.context.workspaceId === SELF_HOSTED_WORKSPACE_ID
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+    this.pg = dialectOf(queries.db.drizzle) === 'pg'
   }
 
   /**
@@ -273,9 +363,16 @@ export class TranscriptIndexRepository {
    * Create the transcript FTS5 table. Called at boot only when the
    * `command-palette` flag is on; a build without FTS5 falls into the catch and
    * every read and write below turns into a no-op through `isAvailable`.
+   *
+   * On Postgres `transcript_text` is the baseline's: this checks it is there.
    */
   async enableFts(): Promise<void> {
     try {
+      if (this.pg) {
+        await executeRaw(createTranscriptFts(this.db))
+        this.available = true
+        return
+      }
       await this.createOrJoinTransaction(async () => {
         await executeRaw(createTranscriptFts(this.db))
         await executeRaw(createTranscriptKeys(this.db, 'table'))
@@ -333,14 +430,15 @@ export class TranscriptIndexRepository {
     if (!this.available) return
     await this.createOrJoinTransaction(async () => {
       for (const row of rows) {
+        // A transcript's text, without U+0000 (POD-6958 design 2.3 rule 9).
         await executeRaw(insertTranscriptRow(this.db), {
-          content: row.content,
+          content: withoutNul(row.content),
           machineId,
           nativeId,
-          itemUuid: row.itemUuid ?? null,
-          ts: row.ts ?? null,
+          itemUuid: row.itemUuid === undefined ? null : withoutNul(row.itemUuid),
+          ts: row.ts === undefined ? null : withoutNul(row.ts),
         })
-        await executeRaw(insertTranscriptKey(this.db), { machineId, nativeId })
+        if (!this.pg) await executeRaw(insertTranscriptKey(this.db), { machineId, nativeId })
       }
       await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes })
     })
@@ -393,11 +491,15 @@ export class TranscriptIndexRepository {
   async searchCandidates(query: string): Promise<TranscriptSearchCandidate[]> {
     const trimmed = query.trim()
     if (!trimmed || !this.available) return []
-    const fts = trimmed
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((token) => `"${token.replace(/"/g, '""')}"*`)
-      .join(' ')
+    const fts = this.pg
+      ? tsqueryOf(trimmed)
+      : trimmed
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((token) => `"${token.replace(/"/g, '""')}"*`)
+          .join(' ')
+    // A term with no word in it matches nothing, as FTS5 reads it (`search-pg.ts`).
+    if (fts === undefined) return []
     const rows: Record<string, unknown>[] = await executeRaw(searchTranscripts(this.db), { fts })
     return rows.map((row) => ({
       // EXTERNAL ROW BRAND DECODE: FTS rows bypass the drizzle schema, so this
@@ -407,7 +509,7 @@ export class TranscriptIndexRepository {
       itemUuid: (row.item_uuid as string | null) ?? undefined,
       ts: (row.ts as string | null) ?? undefined,
       snippet: row.snip as string,
-      rank: row.rank as number,
+      rank: Number(row.rank),
       podiumId: (row.podium_id as string | null) ?? undefined,
       title: (row.name as string | null) ?? (row.title as string | null) ?? undefined,
       updatedAt: (row.updated_at as string | null) ?? undefined,
@@ -424,6 +526,6 @@ export class TranscriptIndexRepository {
   /** One segment's FTS rows and their keys; the caller holds the transaction. */
   private async deleteSegmentRows(machineId: MachineId, nativeId: string): Promise<void> {
     await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
-    await executeRaw(deleteTranscriptKeys(this.db), { machineId, nativeId })
+    if (!this.pg) await executeRaw(deleteTranscriptKeys(this.db), { machineId, nativeId })
   }
 }

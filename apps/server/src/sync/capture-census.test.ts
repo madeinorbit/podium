@@ -89,11 +89,7 @@ function sqlOf(built: unknown, depth = 0): string[] {
  * and a write in a file not listed fails at once.
  */
 const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly writes: number }> =
-  new Map([
-    ['apps/server/src/store/shipping.ts', { task: 'POD-6986', writes: 12 }],
-    ['apps/server/src/store/conversations/index.ts', { task: 'POD-6990', writes: 4 }],
-    ['apps/server/src/store/conversations/registry.ts', { task: 'POD-6990', writes: 3 }],
-  ])
+  new Map([['apps/server/src/store/shipping.ts', { task: 'POD-6986', writes: 12 }]])
 
 /** One definition's plain writes on source tables, as the census reports them. */
 function uncapturedOf(
