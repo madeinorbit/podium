@@ -116,6 +116,8 @@ export function definitionFrame(
     if (file.endsWith('adapters/sqlite/prepared.ts')) continue
     // A two-form definition registers through `prepared` from here [POD-6995].
     if (file.endsWith('store/executor/dialect-prepared.ts')) continue
+    // The sync package's two-form definitions register from its own helper [POD-6984].
+    if (file.endsWith('adapters/pg/dialect.ts')) continue
     return { file, line: Number(match[2]), column: Number(match[3]) }
   }
   return undefined

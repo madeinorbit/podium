@@ -7,29 +7,31 @@
  * repository so a reviewer sees both:
  *
  * ```ts
- * const newestAgedSeq = prepared(
- *   dialectForms({
- *     sqlite: (db, t) => … .from(sql`${t.changes} indexed by …`) …,
- *     pg: (db, t) => … .from(t.changes) …,
- *   }),
- * )
+ * const newestAgedSeq = dialectPrepared()({
+ *   sqlite: (db, t) => … .from(sql`${t.changes} indexed by …`) … .prepare(),
+ *   pg: (db, t) => … .from(t.changes) … .prepare(),
+ * })
  * ```
  *
  * This is the package's counterpart of the server's `dialectPrepared`
  * (`apps/server/src/store/executor/dialect-prepared.ts`), which a package may not
- * import. Both forms are built on the same typed drizzle instance (a Postgres store
- * binds its instance to the SQLite types, design 2.1 step 2), so they share one
- * statement type and the repository sees one signature.
+ * import, and it is spelled the same way so the prepared-statement census and the
+ * definition census read both alike. Both forms are built on the same typed drizzle
+ * instance (a Postgres store binds its instance to the SQLite types, design 2.1 step 2),
+ * so they share one statement type and the repository sees one signature.
  *
- * WHICH FORM RUNS is decided per drizzle instance, by the instance's own dialect, read
- * off its drizzle entity kind rather than by `instanceof`, so a SQLite store never loads
- * drizzle's Postgres modules. The definition registers as one ordinary definition, so
- * the audits and censuses build it like any other: the dialect census builds the `pg`
- * form, the query-plan audit the `sqlite` one. Deleting SQLite later means deleting the
- * `sqlite:` arms (design 2.12).
+ * ONE DEFINITION, PREPARED ONCE PER DRIZZLE INSTANCE. The two forms register as one
+ * ordinary `prepared` definition, so its statement is built once per instance and only
+ * filled and run per call (server-data rule 1, POD-6147). WHICH FORM it builds is decided
+ * by the instance's own dialect, read off its drizzle entity kind rather than by
+ * `instanceof`, so a SQLite store never loads drizzle's Postgres modules. The audits and
+ * censuses build it like any other: the dialect census builds the `pg` form, the
+ * query-plan audit the `sqlite` one. Deleting SQLite later means deleting the `sqlite:`
+ * arms (design 2.12).
  */
 
 import { entityKind } from 'drizzle-orm'
+import { type PreparedAccessor, prepared } from '../sqlite/prepared'
 
 /** The engines a sync repository can run on. */
 export type SyncDialect = 'sqlite' | 'pg'
@@ -47,18 +49,23 @@ export function dialectOf(db: object): SyncDialect {
     if (name === 'PgDialect') return 'pg'
     if (name === 'SQLiteDialect') return 'sqlite'
   }
-  throw new Error('dialectForms: this drizzle instance has neither a SQLite nor a Postgres dialect')
+  throw new Error(
+    'dialectPrepared: this drizzle instance has neither a SQLite nor a Postgres dialect',
+  )
 }
 
-/** The two forms of one definition's build. */
+/** The two forms of one definition. */
 export interface DialectForms<D, T, P> {
   readonly sqlite: (db: D, t: T) => P
   readonly pg: (db: D, t: T) => P
 }
 
-/** A definition build that takes the form of the instance it is built on. */
-export function dialectForms<D extends object, T, P>(
-  forms: DialectForms<D, T, P>,
-): (db: D, t: T) => P {
-  return (db, t) => (dialectOf(db) === 'pg' ? forms.pg(db, t) : forms.sqlite(db, t))
+/**
+ * A definition with a SQLite form and a Postgres form; see the module comment. The first
+ * call fixes the instance and table types (a repository rebinds it once with its own),
+ * the second takes the two forms.
+ */
+export function dialectPrepared<D extends object, T>() {
+  return <P>(forms: DialectForms<D, T, P>): PreparedAccessor<D, P> =>
+    prepared<D, T, P>((db, t) => (dialectOf(db) === 'pg' ? forms.pg(db, t) : forms.sqlite(db, t)))
 }

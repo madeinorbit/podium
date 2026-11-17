@@ -60,7 +60,7 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import type { AppliedMutationFallback } from '../../mutation-ledger'
-import { dialectForms, dialectOf } from '../pg/dialect'
+import { type DialectForms, dialectOf, dialectPrepared as dialectPreparedOn } from '../pg/dialect'
 import type { SyncTables } from './binding'
 import {
   inListOf,
@@ -91,6 +91,9 @@ export { type SyncTables, sqliteSyncTables } from './binding'
 const prepared: <P>(
   build: (db: StoreDrizzle, t: SyncTables) => P,
 ) => PreparedAccessor<StoreDrizzle, P> = preparedOn
+const dialectPrepared: () => <P>(
+  forms: DialectForms<StoreDrizzle, SyncTables, P>,
+) => PreparedAccessor<StoreDrizzle, P> = dialectPreparedOn
 const preparedFamily: <K extends string | number, P>(
   build: (db: StoreDrizzle, t: SyncTables, key: K) => P,
 ) => PreparedFamilyAccessor<StoreDrizzle, K, P> = preparedFamilyOn
@@ -267,22 +270,20 @@ const agedBefore = (t: SyncTables) =>
 // fragment — see {@link SyncRepository.planChangePrune}. Postgres has no index
 // hints: its planner takes `changes_event_time (workspace_id, event_time, seq)`
 // for the range on its own, and the Postgres query-plan audit (POD-6992) proves it.
-const newestAgedSeq = prepared(
-  dialectForms({
-    sqlite: (db: StoreDrizzle, t: SyncTables) =>
-      db
-        .select({ seq: max(t.changes.seq) })
-        .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
-        .where(agedBefore(t))
-        .prepare(),
-    pg: (db: StoreDrizzle, t: SyncTables) =>
-      db
-        .select({ seq: max(t.changes.seq) })
-        .from(t.changes)
-        .where(agedBefore(t))
-        .prepare(),
-  }),
-)
+const newestAgedSeq = dialectPrepared()({
+  sqlite: (db, t) =>
+    db
+      .select({ seq: max(t.changes.seq) })
+      .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
+      .where(agedBefore(t))
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .select({ seq: max(t.changes.seq) })
+      .from(t.changes)
+      .where(agedBefore(t))
+      .prepare(),
+})
 
 const deleteChangeHead = prepared((db, t) =>
   db
@@ -473,12 +474,6 @@ function serverTableQueries(
   upstream: UpstreamOutboxTable,
   captureWrite: CaptureWrite,
 ) {
-  const reserveDelivery = (db: StoreDrizzle, attempts: SQL) =>
-    db
-      .update(queued)
-      .set({ deliveryOwner: 'daemon', attempts })
-      .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
-      .prepare()
   return {
     insertQueued: prepared((db) =>
       captureWrite(
@@ -594,12 +589,20 @@ function serverTableQueries(
     ),
 
     // Two-argument `MAX` is SQLite's scalar maximum; Postgres spells it `GREATEST`.
-    reserveQueuedDelivery: prepared(
-      dialectForms({
-        sqlite: (db: StoreDrizzle) => reserveDelivery(db, sql`max(${queued.attempts}, 1)`),
-        pg: (db: StoreDrizzle) => reserveDelivery(db, sql`greatest(${queued.attempts}, 1)`),
-      }),
-    ),
+    reserveQueuedDelivery: dialectPrepared()({
+      sqlite: (db) =>
+        db
+          .update(queued)
+          .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
+          .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+          .prepare(),
+      pg: (db) =>
+        db
+          .update(queued)
+          .set({ deliveryOwner: 'daemon', attempts: sql`greatest(${queued.attempts}, 1)` })
+          .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+          .prepare(),
+    }),
 
     releaseQueuedDelivery: prepared((db) =>
       db
