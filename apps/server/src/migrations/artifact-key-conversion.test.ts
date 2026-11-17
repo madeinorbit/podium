@@ -62,8 +62,10 @@ const store = () =>
     listDir: async () => ({ ok: false, path: '', entries: [], error: 'unused' }),
   })
 
-const served = async (rel: string) =>
-  (await store().read(ISSUE, ART, rel))?.bytes.toString() ?? null
+const served = async (rel: string) => {
+  const found = await store().readStream(ISSUE, ART, rel)
+  return found ? await new Response(found.body).text() : null
+}
 
 describe('convertArtifactKeys', () => {
   it('leaves plain names alone and converts names with spaces and non-ASCII', async () => {
