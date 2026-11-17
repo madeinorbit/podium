@@ -11,7 +11,7 @@ const shell = readdirSync(cache)
   .sort()
   .at(-1)
 const server = Bun.spawn(
-  ['bun', 'x', 'vite', '--config', 'vite.settings-frame-harness.config.ts', '--host', '127.0.0.1', '--port', '55765'],
+  ['bun', 'x', '--bun', 'vite', '--config', 'vite.settings-frame-harness.config.ts', '--host', '127.0.0.1', '--port', '55765'],
   {
     cwd: resolve(import.meta.dir, '..'),
     stdout: 'ignore',
