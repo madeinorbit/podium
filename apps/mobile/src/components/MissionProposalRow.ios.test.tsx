@@ -71,6 +71,8 @@ vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: Props) => <div>{children}</div>
   return {
     List: Box,
+    Menu: Box,
+    Toggle: Box,
     RNHostView: ({ children, matchContents }: Props & { matchContents: unknown }) => (
       <div data-native-rn-host data-sizing={JSON.stringify(matchContents)}>
         {children}

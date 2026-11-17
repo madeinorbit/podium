@@ -22,7 +22,7 @@ export const WorkingWord = memo(function WorkingWord({
     sheet.textContent = `
       .deck-word-window { position: absolute; inset: 0; width: 40%; overflow: hidden;
         opacity: .75; pointer-events: none; animation: deck-word-window 2.2s ease-in-out infinite; }
-      .deck-word-copy { display: block; width: 250%; animation: deck-word-copy 2.2s ease-in-out infinite; }
+      .deck-word-copy { display: flex; flex-direction: column; width: 250%; animation: deck-word-copy 2.2s ease-in-out infinite; }
       @keyframes deck-word-window { 0% { transform: translateX(-100%); }
         66%, 100% { transform: translateX(250%); } }
       @keyframes deck-word-copy { 0% { transform: translateX(40%); }
