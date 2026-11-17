@@ -1,81 +1,160 @@
+/**
+ * `/files/artifact` OVER A WORKSPACE'S BLOB STORE (POD-6963 design 2.7).
+ *
+ * The route runs against the real `IssueArtifactStore` over the in-memory blob
+ * store, which has object-store range semantics (a range past the end is an
+ * empty body with the real size). Members are written straight to their keys;
+ * snapshotting is the store's own test file.
+ */
+
+import { type BlobStore, joinKey, keySegment } from '@podium/blob-store'
+import { MemoryBlobStorage } from '@podium/blob-store/memory'
+import { asWorkspaceId, type WorkspaceId } from '@podium/model'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
-import { type ArtifactBundleReader, registerArtifactRoute } from './file-artifact-route'
+import {
+  type ArtifactStreamReader,
+  registerArtifactRoute,
+  selfHostedArtifacts,
+  type WorkspaceArtifacts,
+} from './file-artifact-route'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 
-function appWith(reader: ArtifactBundleReader): Hono {
+const storeOver = (files: BlobStore): IssueArtifactStore =>
+  // Only reads run here: the upload rows and the daemon are never reached.
+  new IssueArtifactStore({ files, uploads: {} as never, rpc: {} as never })
+
+async function put(files: BlobStore, rel: string, bytes: string | Uint8Array): Promise<void> {
+  const body = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes
+  await files.put(joinKey('artifacts', 'iss_1', 'abc123', ...rel.split('/').map(keySegment)), body)
+}
+
+/** A self-hosted app whose one workspace holds `members`. */
+async function selfHostedApp(members: Record<string, string | Uint8Array>): Promise<Hono> {
+  const files = new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  for (const [rel, bytes] of Object.entries(members)) await put(files, rel, bytes)
   const app = new Hono()
-  registerArtifactRoute(app, reader)
+  registerArtifactRoute(app, selfHostedArtifacts(storeOver(files)))
   return app
 }
 
+const url = (rel: string) => `/files/artifact/iss_1/abc123/${rel}`
+const ranged = (range: string) => ({ headers: { range } })
+
 describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
-  it('serves stored bytes with content-type + immutable cache-control', async () => {
-    const seen: string[][] = []
-    const app = appWith({
-      read: async (issueId, artifactId, rel) => {
-        seen.push([issueId, artifactId, rel])
-        return { bytes: Buffer.from('PNGDATA'), contentType: 'image/png', size: 7 }
-      },
-    })
-    const res = await app.request('/files/artifact/iss_1/abc123/shots/a.png')
+  it('streams a whole member with its type, length and immutable cache-control', async () => {
+    const app = await selfHostedApp({ 'shots/a.png': 'PNGDATA' })
+    const res = await app.request(url('shots/a.png'))
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('PNGDATA')
     expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('content-length')).toBe('7')
     expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
     expect(res.headers.get('accept-ranges')).toBe('bytes')
-    expect(seen).toEqual([['iss_1', 'abc123', 'shots/a.png']])
+    expect(res.headers.get('content-range')).toBeNull()
   })
 
-  it('serves the workspace-prefixed route and keeps its selector out of the bundle path', async () => {
-    const seen: string[][] = []
-    const app = appWith({
-      read: async (issueId, artifactId, rel) => {
-        seen.push([issueId, artifactId, rel])
-        return { bytes: Buffer.from('HTML'), contentType: 'text/html; charset=utf-8', size: 4 }
-      },
-    })
-    const res = await app.request('/files/artifact/workspace/second/iss_1/abc123/site/index.html')
+  it('streams a large member byte for byte', async () => {
+    const big = new Uint8Array(3 * 1024 * 1024 + 17)
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31) % 251
+    const app = await selfHostedApp({ 'video.mp4': big })
+    const res = await app.request(url('video.mp4'))
     expect(res.status).toBe(200)
-    expect(await res.text()).toBe('HTML')
-    expect(seen).toEqual([['iss_1', 'abc123', 'site/index.html']])
-    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+    expect(res.headers.get('content-length')).toBe(String(big.length))
+    expect(Buffer.from(await res.arrayBuffer()).equals(Buffer.from(big))).toBe(true)
   })
 
-  it('404s a missing snapshot', async () => {
-    const app = appWith({ read: async () => null })
-    const res = await app.request('/files/artifact/iss_1/dead/entry.html')
-    expect(res.status).toBe(404)
-  })
-
-  it('decodes encoded relpath segments', async () => {
-    let got = ''
-    const app = appWith({
-      read: async (_i, _a, rel) => {
-        got = rel
-        return { bytes: Buffer.from('x'), contentType: 'text/plain; charset=utf-8', size: 1 }
-      },
-    })
-    const res = await app.request('/files/artifact/iss_1/abc/my%20file.txt')
+  it('answers before the store has produced the whole body', async () => {
+    let finish: (() => void) | undefined
+    const reader: ArtifactStreamReader = {
+      readStream: async () => ({
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('first'))
+            finish = () => {
+              controller.enqueue(new TextEncoder().encode('-last'))
+              controller.close()
+            }
+          },
+        }),
+        contentType: 'text/plain; charset=utf-8',
+        size: 10,
+        etag: 'e',
+      }),
+    }
+    const app = new Hono()
+    registerArtifactRoute(app, selfHostedArtifacts(reader))
+    const res = await app.request(url('log.txt'))
     expect(res.status).toBe(200)
-    expect(got).toBe('my file.txt')
+    const body = res.body?.getReader()
+    if (!body) throw new Error('no body')
+    const first = await body.read()
+    expect(new TextDecoder().decode(first.value)).toBe('first')
+    finish?.()
+    const rest = await body.read()
+    expect(new TextDecoder().decode(rest.value)).toBe('-last')
+    expect((await body.read()).done).toBe(true)
   })
 
-  it('serves suffix ranges without loading the complete stored artifact', async () => {
-    const source = Buffer.from('0123456789')
+  it('serves a bounded range as one partial stream', async () => {
     const reads: Array<{ offset: number; length: number } | undefined> = []
-    const app = appWith({
-      read: async (_issueId, _artifactId, _rel, range) => {
+    const files = new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+    await put(files, 'video.mp4', '0123456789')
+    const store = storeOver(files)
+    const counting: ArtifactStreamReader = {
+      readStream: (i, a, rel, range) => {
         reads.push(range)
-        const bytes = range ? source.subarray(range.offset, range.offset + range.length) : source
-        return { bytes, contentType: 'video/mp4', size: source.length }
+        return store.readStream(i, a, rel, range)
       },
-    })
-    const res = await app.request('/files/artifact/iss_1/abc/video.mp4', {
-      headers: { range: 'bytes=-4' },
-    })
+    }
+    const app = new Hono()
+    registerArtifactRoute(app, selfHostedArtifacts(counting))
+    const res = await app.request(url('video.mp4'), ranged('bytes=3-5'))
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 3-5/10')
+    expect(res.headers.get('content-length')).toBe('3')
+    expect(await res.text()).toBe('345')
+    expect(reads).toEqual([{ offset: 3, length: 3 }])
+  })
 
+  it('serves an open range to the end of the member', async () => {
+    const app = await selfHostedApp({ 'video.mp4': '0123456789' })
+    const res = await app.request(url('video.mp4'), ranged('bytes=7-'))
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 7-9/10')
+    expect(res.headers.get('content-length')).toBe('3')
+    expect(await res.text()).toBe('789')
+  })
+
+  it('clips a range that runs past the end to the member', async () => {
+    const app = await selfHostedApp({ 'video.mp4': '0123456789' })
+    const res = await app.request(url('video.mp4'), ranged('bytes=8-40'))
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe('bytes 8-9/10')
+    expect(res.headers.get('content-length')).toBe('2')
+    expect(await res.text()).toBe('89')
+  })
+
+  it('serves a suffix range from a one-byte probe and one partial stream', async () => {
+    const reads: Array<{ offset: number; length: number } | undefined> = []
+    const files = new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+    await put(files, 'video.mp4', '0123456789')
+    const store = storeOver(files)
+    const app = new Hono()
+    registerArtifactRoute(
+      app,
+      selfHostedArtifacts({
+        readStream: (i, a, rel, range) => {
+          reads.push(range)
+          return store.readStream(i, a, rel, range)
+        },
+      }),
+    )
+    const res = await app.request(url('video.mp4'), ranged('bytes=-4'))
     expect(res.status).toBe(206)
     expect(res.headers.get('content-range')).toBe('bytes 6-9/10')
+    expect(res.headers.get('content-length')).toBe('4')
     expect(await res.text()).toBe('6789')
     expect(reads).toEqual([
       { offset: 0, length: 1 },
@@ -83,51 +162,136 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
     ])
   })
 
-  it('serves bounded ranges with one partial store read', async () => {
-    const source = Buffer.from('0123456789')
-    const reads: Array<{ offset: number; length: number } | undefined> = []
-    const app = appWith({
-      read: async (_issueId, _artifactId, _rel, range) => {
-        reads.push(range)
-        return {
-          bytes: range ? source.subarray(range.offset, range.offset + range.length) : source,
-          contentType: 'video/mp4',
-          size: source.length,
-        }
-      },
-    })
-    const res = await app.request('/files/artifact/iss_1/abc/video.mp4', {
-      headers: { range: 'bytes=3-5' },
-    })
-
+  it('serves a suffix longer than the member as the whole member', async () => {
+    const app = await selfHostedApp({ 'video.mp4': '0123456789' })
+    const res = await app.request(url('video.mp4'), ranged('bytes=-40'))
     expect(res.status).toBe(206)
-    expect(res.headers.get('content-range')).toBe('bytes 3-5/10')
-    expect(await res.text()).toBe('345')
-    expect(reads).toEqual([{ offset: 3, length: 3 }])
+    expect(res.headers.get('content-range')).toBe('bytes 0-9/10')
+    expect(await res.text()).toBe('0123456789')
   })
 
-  it('returns the stored artifact size for an unsatisfiable range', async () => {
-    const app = appWith({
-      read: async () => ({ bytes: Buffer.from('0'), contentType: 'video/mp4', size: 10 }),
-    })
-    const res = await app.request('/files/artifact/iss_1/abc/video.mp4', {
-      headers: { range: 'bytes=10-' },
-    })
-    expect(res.status).toBe(416)
-    expect(res.headers.get('content-range')).toBe('bytes */10')
+  it('answers 416 with the member size for a range starting at or past the end', async () => {
+    const app = await selfHostedApp({ 'video.mp4': '0123456789' })
+    for (const range of ['bytes=10-', 'bytes=25-30']) {
+      const res = await app.request(url('video.mp4'), ranged(range))
+      expect(res.status).toBe(416)
+      expect(res.headers.get('content-range')).toBe('bytes */10')
+    }
   })
 
-  it('serves a snapshot file as a download named after its basename when asked', async () => {
-    const app = appWith({
-      read: async () => ({
-        bytes: Buffer.from('<h1>hi</h1>'),
-        contentType: 'text/html; charset=utf-8',
-        size: 11,
-      }),
-    })
-    const res = await app.request('/files/artifact/iss_1/abc123/site/index.html?download=1')
+  it('answers 416 for a malformed range and for any range of an empty member', async () => {
+    const app = await selfHostedApp({ 'empty.txt': '' })
+    expect((await app.request(url('empty.txt'), ranged('bytes=5-2'))).status).toBe(416)
+    const suffix = await app.request(url('empty.txt'), ranged('bytes=-3'))
+    expect(suffix.status).toBe(416)
+    expect(suffix.headers.get('content-range')).toBe('bytes */0')
+    const whole = await app.request(url('empty.txt'))
+    expect(whole.status).toBe(200)
+    expect(await whole.text()).toBe('')
+  })
+
+  it('404s a missing member, also for ranged reads', async () => {
+    const app = await selfHostedApp({ 'entry.html': '<p>x</p>' })
+    expect((await app.request(url('gone.html'))).status).toBe(404)
+    expect((await app.request(url('gone.html'), ranged('bytes=0-1'))).status).toBe(404)
+    expect((await app.request(url('gone.html'), ranged('bytes=-1'))).status).toBe(404)
+    expect((await app.request('/files/artifact/iss_1/dead/entry.html')).status).toBe(404)
+  })
+
+  it('decodes encoded relpath segments and refuses undecodable ones', async () => {
+    const app = await selfHostedApp({ 'notes/my file.txt': 'spaced' })
+    const res = await app.request(url('notes/my%20file.txt'))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('spaced')
+    expect((await app.request(url('bad%E0%A4%A.txt'))).status).toBe(400)
+  })
+
+  it('sandboxes an HTML member rendered as a page', async () => {
+    const app = await selfHostedApp({ 'site/index.html': '<h1>hi</h1>' })
+    const res = await app.request(url('site/index.html'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    expect(res.headers.get('content-security-policy')).toMatch(/^sandbox allow-scripts/)
+    expect(res.headers.get('content-security-policy')).not.toContain('allow-same-origin')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(await res.text()).toBe('<h1>hi</h1>')
+  })
+
+  it('serves a member as a download named after its basename when asked', async () => {
+    const app = await selfHostedApp({ 'site/index.html': '<h1>hi</h1>' })
+    const res = await app.request(url('site/index.html?download=1'))
     expect(res.status).toBe(200)
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="index.html"')
     expect(res.headers.get('content-security-policy')).toBeNull()
+  })
+})
+
+describe('the workspace bound to the request (POD-6963 design 2.7)', () => {
+  const OTHER = asWorkspaceId('ws_other')
+
+  /** Two workspaces over one bucket, holding different bytes under the same ids. */
+  async function twoWorkspaces(): Promise<Record<string, IssueArtifactStore>> {
+    const storage = new MemoryBlobStorage()
+    const local = storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+    const other = storage.forWorkspace(OTHER)
+    await put(local, 'site/index.html', 'LOCAL')
+    await put(other, 'site/index.html', 'OTHER')
+    return { [SELF_HOSTED_WORKSPACE_ID]: storeOver(local), [OTHER]: storeOver(other) }
+  }
+
+  const appBoundTo = (bound: WorkspaceId, stores: Record<string, IssueArtifactStore>): Hono => {
+    const app = new Hono()
+    const artifactsOf: WorkspaceArtifacts = (ws) => stores[ws]
+    registerArtifactRoute(app, artifactsOf, () => bound)
+    return app
+  }
+
+  const prefixed = (ws: string) => `/files/artifact/workspace/${ws}/iss_1/abc123/site/index.html`
+
+  it('serves the prefixed path when it names the bound workspace, keeping it out of the bundle path', async () => {
+    const app = await selfHostedApp({ 'site/index.html': 'HTML' })
+    const res = await app.request(prefixed(SELF_HOSTED_WORKSPACE_ID))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('HTML')
+    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+  })
+
+  it('does not find a path naming another workspace on a self-hosted install', async () => {
+    const app = await selfHostedApp({ 'site/index.html': 'HTML' })
+    expect((await app.request(prefixed('second'))).status).toBe(404)
+    expect((await app.request(prefixed('%E0%A4%A'))).status).toBe(404)
+    // The segment is compared decoded once, as Hono hands it over.
+    expect((await app.request(prefixed('%6Cocal'))).status).toBe(200)
+  })
+
+  it('reads the bound workspace store for both path forms', async () => {
+    const stores = await twoWorkspaces()
+    const app = appBoundTo(OTHER, stores)
+    expect(await (await app.request(prefixed(OTHER))).text()).toBe('OTHER')
+    expect(await (await app.request(url('site/index.html'))).text()).toBe('OTHER')
+  })
+
+  it('refuses a path workspace that differs from the bound one, even when it exists', async () => {
+    const stores = await twoWorkspaces()
+    const boundToLocal = appBoundTo(SELF_HOSTED_WORKSPACE_ID, stores)
+    const res = await boundToLocal.request(prefixed(OTHER))
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('OTHER')
+    const boundToOther = appBoundTo(OTHER, stores)
+    expect((await boundToOther.request(prefixed(SELF_HOSTED_WORKSPACE_ID))).status).toBe(404)
+  })
+
+  it('does not find anything for a bound workspace this process holds no store for', async () => {
+    const stores = await twoWorkspaces()
+    const app = appBoundTo(asWorkspaceId('ws_unknown'), stores)
+    expect((await app.request(url('site/index.html'))).status).toBe(404)
+    expect((await app.request(prefixed('ws_unknown'))).status).toBe(404)
+  })
+
+  it('gives the self-hosted resolver no store for any other workspace', () => {
+    const store = storeOver(new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID))
+    const artifactsOf = selfHostedArtifacts(store)
+    expect(artifactsOf(SELF_HOSTED_WORKSPACE_ID)).toBe(store)
+    expect(artifactsOf(OTHER)).toBeUndefined()
   })
 })

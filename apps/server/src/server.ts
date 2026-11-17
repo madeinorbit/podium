@@ -95,7 +95,7 @@ import { captureServerBuildVersion, serverBuildSourceDigest } from './build-vers
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { controlSocketHandler } from './control-socket'
-import { registerArtifactRoute } from './file-artifact-route'
+import { registerArtifactRoute, selfHostedArtifacts } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { createServerFileStorage } from './file-storage'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
@@ -1900,7 +1900,7 @@ export async function startServer(
       )) !== undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
-  registerArtifactRoute(app, registry.modules.issueArtifacts)
+  registerArtifactRoute(app, selfHostedArtifacts(registry.modules.issueArtifacts))
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win

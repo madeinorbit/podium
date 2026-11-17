@@ -45,14 +45,20 @@ export const FILE_QUERIES = {
       z.object({ machineId: MachineIdField.optional(), root: z.string(), path: z.string() }),
     ]),
     async (state, input): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
-      // Artifact snapshots ([spec:SP-0fc9] #441) serve from the server-local
-      // store — no daemon round-trip, no root allowlist (there is no root), and
+      // Artifact snapshots ([spec:SP-0fc9] #441) serve from this workspace's
+      // artifact store, the one `/files/artifact` streams from (POD-6963 design
+      // 2.7) — no daemon round-trip, no root allowlist (there is no root), and
       // no baseHash: snapshots are immutable and writes against them are
-      // rejected. Moved verbatim from the router procedure.
+      // rejected. The editor needs the text whole, so the stream is read out.
       if ('artifactId' in input) {
-        const r = await state.artifacts.read(input.issueId, input.artifactId, input.path)
+        const r = await state.artifacts.readStream(input.issueId, input.artifactId, input.path)
         return r
-          ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
+          ? {
+              ok: true,
+              path: input.path,
+              // Buffer decoding keeps a leading BOM, as the editor always got it.
+              content: Buffer.from(await new Response(r.body).arrayBuffer()).toString('utf8'),
+            }
           : { ok: false, path: input.path, error: 'artifact file not found' }
       }
       if ('root' in input) {
