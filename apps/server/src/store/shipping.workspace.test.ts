@@ -8,17 +8,21 @@
  * train that shipped (manifest, members, claims, lane revision, effect envelope, both delivery
  * receipts, the covered completion); shipwright evidence, a root integration receipt and
  * recovery work.
- * The ids differ between the workspaces, so a read or write aimed at the other workspace's ids
- * has ids only that workspace holds to miss. Since the key migration (POD-7024) every key
- * leads with workspace_id and the same id is two rows; the cases that hold the same ids in
- * both are marked below, and the rest of the conversion is POD-7025's.
+ * Both workspaces hold the SAME ids and natural keys (POD-7025): the same issues, orders,
+ * repository, path, machine, lane, attempt, step, hold, receipt, repair token and evidence
+ * source. Every key leads with workspace_id (POD-7024), so the same id is two rows, told apart
+ * only by the workspace. The content differs (the approved and target shas, summaries, hold
+ * headlines, repair candidates, evidence), so a read that crossed over would answer the other
+ * workspace's content. For the misses, the other workspace also holds a whole lane of ids only
+ * it holds (`only-…`, seeded as the shared one is).
  *
  * For every repository method of `store/shipping.ts`:
  *   - a read answers only its own workspace's rows, including the whole-table listings, the
  *     scheduler's FIFO walks, the lane reads and the joins (train authority, claims, leaders);
- *   - a write in one workspace aimed at the other's ids (transition, claim, hold, resolve,
- *     cancel, finish, complete, release, isolate, stack edge, recovery work) finds nothing of
- *     the other's, and the other's rows stay byte for byte as they were.
+ *   - a write in one workspace aimed at ids only the other holds (transition, claim, hold,
+ *     resolve, cancel, finish, complete, release, isolate, stack edge, recovery work) finds
+ *     nothing of the other's, a write of the ids both hold changes its own rows only, and the
+ *     other's rows stay byte for byte as they were.
  *
  * `store/guarded-move.ts` holds no statement of its own: its callers own the UPDATE.
  *
@@ -70,11 +74,30 @@ const VALIDATION_PROFILE = {
   resourceLocks: [] as string[],
 }
 
-const issueId = (tag: Tag, name: string): IssueId => asIssueId(`${tag}-iss-${name}`)
-const orderId = (tag: Tag, name: string) => asShipOrderId(`${tag}-order-${name}`)
-const machine = (tag: Tag) => asMachineId(`${tag}-machine`)
-const repo = (tag: Tag) => asRepoId(`${tag}-repo`)
-const repoPath = (tag: Tag) => `/r-${tag}`
+/**
+ * The ids and natural keys a seed writes. `SHARED` (no prefix) is the set both workspaces
+ * hold; `ONLY` is a lane of ids only the workspace it is seeded into holds.
+ */
+function idsFor(p: string) {
+  return {
+    issueId: (name: string): IssueId => asIssueId(`${p}iss-${name}`),
+    orderId: (name: string) => asShipOrderId(`${p}order-${name}`),
+    machine: asMachineId(`${p}machine-1`),
+    repo: asRepoId(`${p}repo-1`),
+    repoPath: `/${p}r`,
+    attempt: asShipAttemptId(`${p}attempt-one`),
+    step: asShipStepId(`${p}step-planned`),
+    effectKey: `${p}validation`,
+    hold: (generation: number) => asShipHoldId(`${p}hold-${generation}`),
+    receipt: (name: string) => asDeliveryReceiptId(`${p}receipt-${name}`),
+    token: `${p}token-1`,
+    custody: `${p}custody`,
+    source: `${p}source`,
+  }
+}
+type Ids = ReturnType<typeof idsFor>
+const SHARED = idsFor('')
+const ONLY = idsFor('only-')
 const DESTINATION = 'origin/main'
 /** The lane's canonical destination, as lane ids and lane reads name it. */
 const LANE_DESTINATION = canonicalShippingDestination(DESTINATION, 'main')
@@ -121,24 +144,30 @@ async function insertIssue(
   tag: Tag,
   name: string,
   seq: number,
+  ids: Ids,
 ): Promise<void> {
   await store.run(
     sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
          machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
-       VALUES (${WS[tag]}, ${issueId(tag, name)}, ${firstAdminMemberId()}, ${firstAdminMemberId()},
-         ${repoPath(tag)}, ${repo(tag)}, ${machine(tag)}, ${`issue/${tag}-${name}`}, ${seq},
+       VALUES (${WS[tag]}, ${ids.issueId(name)}, ${firstAdminMemberId()}, ${firstAdminMemberId()},
+         ${ids.repoPath}, ${ids.repo}, ${ids.machine}, ${`issue/${tag}-${name}`}, ${seq},
          ${`${tag} issue ${name}`}, 'review', 'codex', ${AT}, ${AT})`,
   )
 }
 
-function shipOrder(tag: Tag, name: string, overrides: Partial<ShipOrder> = {}): ShipOrder {
+function shipOrder(
+  tag: Tag,
+  name: string,
+  overrides: Partial<ShipOrder> = {},
+  ids: Ids = SHARED,
+): ShipOrder {
   return {
-    id: orderId(tag, name),
-    issueId: issueId(tag, name),
+    id: ids.orderId(name),
+    issueId: ids.issueId(name),
     descendantManifest: [],
-    repoId: repo(tag),
-    repoPath: repoPath(tag),
-    machineId: machine(tag),
+    repoId: ids.repo,
+    repoPath: ids.repoPath,
+    machineId: ids.machine,
     targetBranch: 'main',
     destination: DESTINATION,
     approvedBaseSha: `${tag}-base`,
@@ -163,6 +192,7 @@ function shipOrder(tag: Tag, name: string, overrides: Partial<ShipOrder> = {}): 
 
 /** What one workspace's seed made, by id, for the reads and the aimed writes. */
 interface Seeded {
+  ids: Ids
   one: ShipOrder
   queued: ShipOrder
   lower: ShipOrder
@@ -179,35 +209,36 @@ interface Seeded {
   evidenceSource: string
 }
 
-async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
+/** One workspace's lane of shipping, at the ids `ids` names (the shared set by default). */
+async function seed(store: WorkspaceShippingSlice, tag: Tag, ids: Ids = SHARED): Promise<Seeded> {
   const s = store.shipping
-  await insertIssue(store, tag, 'one', 1)
-  await insertIssue(store, tag, 'queued', 2)
-  await insertIssue(store, tag, 'lower', 3)
-  await insertIssue(store, tag, 'covering', 4)
+  await insertIssue(store, tag, 'one', 1, ids)
+  await insertIssue(store, tag, 'queued', 2, ids)
+  await insertIssue(store, tag, 'lower', 3, ids)
+  await insertIssue(store, tag, 'covering', 4, ids)
 
   // The single-order arm: order `one` held with an attempt, steps, two holds (one
   // resolved, one open) and a repair candidate.
-  const one = shipOrder(tag, 'one')
+  const one = shipOrder(tag, 'one', {}, ids)
   await s.createOrder(scope, one)
   const attempt: ShipAttempt = {
-    id: asShipAttemptId(`${tag}-attempt-one`),
+    id: ids.attempt,
     orderId: one.id,
     expectedSourceBaseSha: one.approvedBaseSha,
     approvedHeadSha: one.approvedHeadSha,
     expectedTargetSha: `${tag}-target`,
-    machineId: machine(tag),
+    machineId: ids.machine,
     leaseGeneration: 1,
     startedAt: '2026-11-17T09:01:00.000Z',
     submittedHeadSha: one.approvedHeadSha,
   }
   await s.createAttempt(scope, attempt)
   const plannedStep: ShipStep = {
-    id: asShipStepId(`${tag}-step-planned`),
+    id: ids.step,
     orderId: one.id,
     attemptId: attempt.id,
-    effectKey: `${tag}-validation`,
-    idempotencyKey: `${tag}-validate:planned`,
+    effectKey: ids.effectKey,
+    idempotencyKey: `${ids.effectKey}:planned`,
     generation: attempt.leaseGeneration,
     inputFence: {
       sourceBaseSha: attempt.expectedSourceBaseSha,
@@ -220,19 +251,19 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
     recordedAt: '2026-11-17T09:02:00.000Z',
   }
   await s.appendStep(scope, plannedStep)
-  await s.raiseHold(scope, hold(tag, one.id, 1))
+  await s.raiseHold(scope, hold(tag, one.id, 1, ids))
   await s.resolveHold(scope, one.id, 1, 'retry', 'queued', '2026-11-17T09:03:30.000Z')
-  await s.raiseHold(scope, hold(tag, one.id, 2))
+  await s.raiseHold(scope, hold(tag, one.id, 2, ids))
   await store.run(
     sql`INSERT INTO ship_repair_candidates (workspace_id, order_id, attempt_id, generation, sequence,
          round, context_digest, repair_ref, candidate_head_sha, result_token, recorded_at)
        VALUES (${WS[tag]}, ${one.id}, ${attempt.id}, 1, 1, 1, ${'c'.repeat(64)},
-         ${`refs/repair/${tag}`}, ${`${tag}-candidate`}, ${`${tag}-token`}, ${AT})`,
+         ${`refs/repair/${tag}`}, ${`${tag}-candidate`}, ${ids.token}, ${AT})`,
   )
 
   // The queued order: depends on `one` and stacks on it, so the dependents and stack reads
   // have rows.
-  const queued = shipOrder(tag, 'queued', { deliveryDependsOn: [one.id] })
+  const queued = shipOrder(tag, 'queued', { deliveryDependsOn: [one.id] }, ids)
   await s.createOrder(scope, queued)
   await s.recordNativeStackEdge(scope, {
     upperOrderId: queued.id,
@@ -241,8 +272,8 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
   })
 
   // The shipped train: lower + covering, the covering leader verified, lower covered by it.
-  const lower = shipOrder(tag, 'lower')
-  const covering = shipOrder(tag, 'covering', { deliveryDependsOn: [lower.id] })
+  const lower = shipOrder(tag, 'lower', {}, ids)
+  const covering = shipOrder(tag, 'covering', { deliveryDependsOn: [lower.id] }, ids)
   await s.createOrder(scope, lower)
   await s.createOrder(scope, covering)
   const train = await s.claimTrain(scope, {
@@ -273,7 +304,7 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
     validationResult: 'passed',
   })
   const coveringReceipt: DeliveryReceipt = {
-    id: asDeliveryReceiptId(`${tag}-receipt-covering`),
+    id: ids.receipt('covering'),
     orderId: covering.id,
     approvedBaseSha: covering.approvedBaseSha,
     approvedHeadSha: covering.approvedHeadSha,
@@ -289,7 +320,7 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
   await s.completeVerifiedOrder(scope, coveringReceipt)
   const lowerReceipt: DeliveryReceipt = {
     ...coveringReceipt,
-    id: asDeliveryReceiptId(`${tag}-receipt-lower`),
+    id: ids.receipt('lower'),
     orderId: lower.id,
     approvedHeadSha: lower.approvedHeadSha,
     resultCommitSha: lower.approvedHeadSha,
@@ -366,8 +397,8 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
 
   // Evidence, the root integration receipt and one admission invalidation.
   const content = `${tag} evidence`
-  const evidenceCustody = createHash('sha256').update(`${tag}-custody`).digest('hex')
-  const evidenceSource = `${tag}-source`
+  const evidenceCustody = createHash('sha256').update(ids.custody).digest('hex')
+  const evidenceSource = ids.source
   const contentDigest = createHash('sha256').update(content).digest('hex')
   const evidenceRef = `artifact://shipwright/${createHash('sha256')
     .update(`${evidenceCustody}\0${evidenceSource}\0${contentDigest}`)
@@ -388,6 +419,7 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
   await s.queueAdmissionInvalidation(scope, queued.id, covering.id, landed)
 
   return {
+    ids,
     one,
     queued,
     lower,
@@ -405,9 +437,9 @@ async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
   }
 }
 
-function hold(tag: Tag, order: ShipOrder['id'], generation: number) {
+function hold(tag: Tag, order: ShipOrder['id'], generation: number, ids: Ids = SHARED) {
   return {
-    id: asShipHoldId(`${tag}-hold-${generation}`),
+    id: ids.hold(generation),
     orderId: order,
     generation,
     reasonCode: 'validation-failed' as const,
@@ -432,18 +464,37 @@ afterEach(async () => {
   await stores.a.close()
 })
 
-const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id).sort()
+/** No content of the other workspace, and no id only it holds, anywhere in `value`. */
+function onlyOwn(value: unknown, tag: Tag): void {
+  const o = other(tag)
+  expect(JSON.stringify(value)).not.toMatch(
+    new RegExp(`\\b${o}-|"${o} |${o} (evidence|planned|hold)|only-|"${WS[o]}"`),
+  )
+}
+
+/** The sorted ids of `rows`, which hold no content of the other workspace: the ids are the
+ *  same in both, so the content is what tells a crossed-over row. */
+function idsOf(rows: readonly { id: string }[], tag: Tag): string[] {
+  onlyOwn(rows, tag)
+  return rows.map((row) => row.id).sort()
+}
 
 describe('shipping reads answer only their own workspace', () => {
   for (const tag of ['a', 'b'] as const) {
     it(`workspace ${tag} reads its own orders, attempts, steps, holds and receipts`, async () => {
       const s = stores[tag].shipping
       const mine = seeded[tag]
-      const theirs = seeded[other(tag)]
+      // The other workspace holds the same ids (seeded) and a lane only it holds (planted).
+      const theirs = await seed(stores[other(tag)], other(tag), ONLY)
+      const ids = (rows: readonly { id: string }[]) => idsOf(rows, tag)
       const mineIds = [mine.one.id, mine.queued.id, mine.lower.id, mine.covering.id].sort()
 
       expect(ids(await s.listOrders())).toEqual(mineIds)
-      expect(await s.getOrder(mine.one.id)).toMatchObject({ id: mine.one.id, state: 'held' })
+      expect(await s.getOrder(mine.one.id)).toMatchObject({
+        id: mine.one.id,
+        state: 'held',
+        approvedBaseSha: `${tag}-base`,
+      })
       expect(await s.getOrder(theirs.one.id)).toBeNull()
       expect((await s.activeOrderForIssue(mine.queued.issueId))?.id).toBe(mine.queued.id)
       expect(await s.activeOrderForIssue(theirs.queued.issueId)).toBeNull()
@@ -491,14 +542,20 @@ describe('shipping reads answer only their own workspace', () => {
           .sort(),
       ).toEqual([mine.one.id])
 
-      expect(await s.getAttempt(mine.attempt.id)).toMatchObject({ id: mine.attempt.id })
+      expect(await s.getAttempt(mine.attempt.id)).toMatchObject({
+        id: mine.attempt.id,
+        expectedTargetSha: `${tag}-target`,
+      })
       expect(await s.getAttempt(theirs.attempt.id)).toBeNull()
       expect((await s.latestAttemptForOrder(mine.one.id))?.id).toBe(mine.attempt.id)
       expect(await s.latestAttemptForOrder(theirs.one.id)).toBeNull()
       expect(ids(await s.attemptsForOrder(mine.one.id))).toEqual([mine.attempt.id])
       expect(await s.attemptsForOrder(theirs.one.id)).toEqual([])
 
-      expect(await s.stepById(mine.plannedStep.id)).toMatchObject({ id: mine.plannedStep.id })
+      expect(await s.stepById(mine.plannedStep.id)).toMatchObject({
+        id: mine.plannedStep.id,
+        summary: `${tag} planned`,
+      })
       expect(await s.stepById(theirs.plannedStep.id)).toBeNull()
       expect(ids(await s.stepsForAttempt(mine.attempt.id))).toContain(mine.plannedStep.id)
       expect(await s.stepsForAttempt(theirs.attempt.id)).toEqual([])
@@ -514,7 +571,7 @@ describe('shipping reads answer only their own workspace', () => {
       expect(await s.highestHoldGeneration(theirs.one.id)).toBe(0)
       expect((await s.openHoldForOrder(mine.one.id))?.generation).toBe(2)
       expect(await s.openHoldForOrder(theirs.one.id)).toBeNull()
-      expect(ids(await s.listHolds())).toEqual([`${tag}-hold-1`, `${tag}-hold-2`])
+      expect(ids(await s.listHolds())).toEqual([SHARED.hold(1), SHARED.hold(2)])
       expect([...(await s.openHoldsForOrders([mine.one.id, theirs.one.id])).keys()]).toEqual([
         mine.one.id,
       ])
@@ -532,7 +589,8 @@ describe('shipping reads answer only their own workspace', () => {
     it(`workspace ${tag} reads its own trains, stack edges, evidence and recovery work`, async () => {
       const s = stores[tag].shipping
       const mine = seeded[tag]
-      const theirs = seeded[other(tag)]
+      // The other workspace holds the same ids (seeded) and a lane only it holds (planted).
+      const theirs = await seed(stores[other(tag)], other(tag), ONLY)
 
       expect(await s.trainManifestForAttempt(mine.coveringAttempt.id)).toEqual(mine.manifest)
       expect(await s.trainManifestForAttempt(theirs.coveringAttempt.id)).toBeNull()
@@ -550,7 +608,10 @@ describe('shipping reads answer only their own workspace', () => {
       expect(await s.hasNativeStackEdge(mine.queued.id, mine.one.id)).toBe(true)
       expect(await s.hasNativeStackEdge(theirs.queued.id, theirs.one.id)).toBe(false)
 
+      // The same custody and source, each workspace's own content (so its own ref).
+      expect(mine.evidenceRef).not.toBe(seeded[other(tag)].evidenceRef)
       expect((await s.shippingEvidence(mine.evidenceRef))?.ref).toBe(mine.evidenceRef)
+      expect(await s.shippingEvidence(seeded[other(tag)].evidenceRef)).toBeNull()
       expect(await s.shippingEvidence(theirs.evidenceRef)).toBeNull()
       expect(
         (await s.shippingEvidenceForSource(mine.evidenceCustody, mine.evidenceSource))?.ref,
@@ -560,11 +621,11 @@ describe('shipping reads answer only their own workspace', () => {
       ).toBeNull()
 
       expect(
-        (await s.repairCandidatesForAttempt(mine.attempt.id)).map((c) => c.resultToken),
-      ).toEqual([`${tag}-token`])
+        (await s.repairCandidatesForAttempt(mine.attempt.id)).map((c) => c.candidateHeadSha),
+      ).toEqual([`${tag}-candidate`])
       expect(await s.repairCandidatesForAttempt(theirs.attempt.id)).toEqual([])
-      expect((await s.repairCandidateAtSequence(mine.attempt.id, 1))?.resultToken).toBe(
-        `${tag}-token`,
+      expect((await s.repairCandidateAtSequence(mine.attempt.id, 1))?.candidateHeadSha).toBe(
+        `${tag}-candidate`,
       )
       expect(await s.repairCandidateAtSequence(theirs.attempt.id, 1)).toBeUndefined()
 
@@ -622,10 +683,11 @@ describe('shipping reads answer only their own workspace', () => {
 
 describe("shipping writes in one workspace leave the other's rows unchanged", () => {
   for (const tag of ['a', 'b'] as const) {
-    it(`writes in workspace ${tag} aimed at the other workspace's ids change nothing there`, async () => {
+    it(`writes in workspace ${tag} aimed at ids only the other workspace holds change nothing there`, async () => {
       const s = stores[tag].shipping
       const theirTag = other(tag)
-      const theirs = seeded[theirTag]
+      // A lane of ids only the other workspace holds, seeded as the shared one is.
+      const theirs = await seed(stores[theirTag], theirTag, ONLY)
       const before = await rowsOf(stores[theirTag], theirTag)
       const at = '2026-11-17T11:00:00.000Z'
       const attemptOf = (order: ShipOrder, attempt: ShipAttempt) => ({
@@ -645,7 +707,7 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
           expectedState: 'queued',
           expectedAttemptId: null,
           expectedGeneration: 0,
-          machineId: machine(theirTag),
+          machineId: theirs.ids.machine,
           startedAt: at,
         }),
       ).rejects.toThrow(/unknown ship order/)
@@ -689,14 +751,14 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
       )
 
       // Holds on the other's order.
-      await expect(s.raiseHold(scope, hold(theirTag, theirs.one.id, 3))).rejects.toThrow(
+      await expect(s.raiseHold(scope, hold(theirTag, theirs.one.id, 3, ONLY))).rejects.toThrow(
         /unknown ship order/,
       )
       await expect(s.resolveHold(scope, theirs.one.id, 2, 'retry', 'queued', at)).rejects.toThrow()
       await expect(
         s.commitCustodyHold(scope, {
           ...attemptOf(theirs.one, theirs.attempt),
-          hold: hold(theirTag, theirs.one.id, 3),
+          hold: hold(theirTag, theirs.one.id, 3, ONLY),
           attemptFinishedAt: at,
         }),
       ).rejects.toThrow(/fence failed/)
@@ -705,7 +767,7 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
           ...attemptOf(theirs.one, theirs.attempt),
           intentKey: 'cancel:1',
           terminalStep: theirs.plannedStep,
-          hold: hold(theirTag, theirs.one.id, 3),
+          hold: hold(theirTag, theirs.one.id, 3, ONLY),
           attemptFinishedAt: at,
         }),
       ).rejects.toThrow()
@@ -767,22 +829,22 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
         }),
       ).rejects.toThrow(/invalid native stack edge/)
       await expect(
-        s.createOrder(scope, shipOrder(theirTag, 'aimed', { issueId: theirs.one.issueId })),
+        s.createOrder(scope, shipOrder(theirTag, 'aimed', { issueId: theirs.one.issueId }, ONLY)),
       ).rejects.toThrow()
       await expect(
         s.createOrReturnActiveOrder(
           scope,
-          shipOrder(theirTag, 'aimed', { issueId: theirs.queued.issueId }),
+          shipOrder(theirTag, 'aimed', { issueId: theirs.queued.issueId }, ONLY),
         ),
       ).rejects.toThrow()
       await s.completeRecoveryWork(scope, `admission:${theirs.queued.id}:new`)
-      await s.completeRepairAcknowledgement(scope, `${theirTag}-token`)
+      await s.completeRepairAcknowledgement(scope, ONLY.token)
 
       expect(await rowsOf(stores[theirTag], theirTag)).toEqual(before)
     })
   }
 
-  it("writes in their own workspace land there and leave the other's rows unchanged", async () => {
+  it("writes of the ids both hold land in their own workspace and leave the other's rows unchanged", async () => {
     const beforeB = await rowsOf(stores.b, 'b')
     const s = stores.a.shipping
     const mine = seeded.a
@@ -792,16 +854,21 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
     await s.completeRecoveryWork(scope, `admission:${mine.queued.id}:new`)
     await s.queueAdmissionInvalidation(scope, mine.one.id, mine.covering.id, 'sha', 'again')
     await s.resolveHold(scope, mine.one.id, 2, 'retry', 'queued', at)
+    await s.completeRepairAcknowledgement(scope, SHARED.token)
     expect((await s.getOrder(mine.queued.id))?.state).toBe('cancelled')
     expect((await s.getOrder(mine.one.id))?.state).toBe('queued')
     expect(await s.shippedLeadersOfOpenTrains()).toEqual([])
     expect(await rowsOf(stores.b, 'b')).toEqual(beforeB)
     expect(await stores.b.shipping.shippedLeadersOfOpenTrains()).toEqual([seeded.b.covering.id])
+    // B's rows of the same ids read as they were.
+    expect((await stores.b.shipping.getOrder(mine.queued.id))?.state).toBe('queued')
+    expect((await stores.b.shipping.getOrder(mine.one.id))?.state).toBe('held')
+    expect((await stores.b.shipping.openHoldForOrder(mine.one.id))?.generation).toBe(2)
   })
 })
 
 /**
- * THE SAME ID IN BOTH WORKSPACES (POD-7024): every key and ON CONFLICT target leads with
+ * THE SAME ID CREATED FIRST IN THE OTHER WORKSPACE (POD-7024): every key and ON CONFLICT target leads with
  * workspace_id, so an order A creates with an id B already holds is A's own row in a lane
  * both workspaces name alike, B's rows stay byte for byte as they were, and A's next writes
  * of that id and that lane (the lane-revision upsert, a transition) change A's rows only.
