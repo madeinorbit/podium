@@ -7,10 +7,12 @@
  * that workspace's, so work of another workspace cannot join it.
  */
 
-import { asWorkspaceId } from '@podium/model'
+import { existsSync } from 'node:fs'
+import { asMachineId, asWorkspaceId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import type { SessionStore } from '../store'
+import { type SessionStore, StoreDatabase } from '../store'
+import { PostgresStoreBootError } from '../store-database'
 import { openTestStore } from '../test-support/open-test-store'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import {
@@ -158,5 +160,17 @@ describe('a workspace store opens its own workspace transactions', () => {
     await expect(
       a.database.queries.createOrJoinTransaction(async () => await a.transact(() => 'joined')),
     ).rejects.toBeInstanceOf(WorkspaceTransactionInGlobalFrameError)
+  })
+})
+
+describe('StoreDatabase.open on a Postgres URL [POD-6979]', () => {
+  it('chooses the engine from the location and refuses before it touches the disk', async () => {
+    await expect(
+      StoreDatabase.open('postgres://podium@127.0.0.1:9/nowhere', asMachineId('m_test'), {
+        bootWorkspace: asWorkspaceId('local'),
+      }),
+    ).rejects.toBeInstanceOf(PostgresStoreBootError)
+    // A path would have had its directory made; a URL's "directory" must not exist.
+    expect(existsSync('postgres:')).toBe(false)
   })
 })

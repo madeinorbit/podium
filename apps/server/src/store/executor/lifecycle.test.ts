@@ -49,8 +49,10 @@ async function fixture() {
   return createStoreExecutor({
     driver: await fixtureDriver(),
     startOpen: true,
-    drainGraceMs: 10,
-    effectDrainGraceMs: 20,
+    // A Postgres write is round trips, not microseconds: on a loaded host 10 ms can
+    // pass before a released holder commits, and the drain would revoke it.
+    drainGraceMs: engine === 'pg' ? 1_000 : 10,
+    effectDrainGraceMs: engine === 'pg' ? 2_000 : 20,
   })
 }
 

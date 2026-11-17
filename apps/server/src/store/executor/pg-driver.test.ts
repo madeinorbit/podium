@@ -10,7 +10,7 @@
  */
 
 import { createServer, type Server, type Socket, connect as tcpConnect } from 'node:net'
-import { asMachineId, asWorkspaceId } from '@podium/model'
+import { asWorkspaceId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
 import { pgTable, text as pgText } from 'drizzle-orm/pg-core'
@@ -180,18 +180,6 @@ describe('Postgres store driver, without a database', () => {
     const driver = await openPgStoreDriver(nowhere)
     expect(driver.dialect).toBe('pg')
     await driver.close()
-  })
-
-  it('refuses to boot a StoreDatabase on a Postgres URL before it touches the disk', async () => {
-    const { StoreDatabase } = await import('../../store')
-    const { PostgresStoreBootError } = await import('../../store-database')
-    const { existsSync } = await import('node:fs')
-    await expect(
-      StoreDatabase.open('postgres://podium@127.0.0.1:9/nowhere', asMachineId('m_test'), {
-        bootWorkspace: asWorkspaceId('local'),
-      }),
-    ).rejects.toBeInstanceOf(PostgresStoreBootError)
-    expect(existsSync('postgres:')).toBe(false)
   })
 })
 
@@ -540,7 +528,8 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
     })
 
     it('is busy when no pooled connection frees up in time', async () => {
-      const driver = createPgStoreDriver({ url, poolSize: 1, acquireTimeoutMs: 50 })
+      // Long enough to open the first connection on a loaded host; the refusal waits it out.
+      const driver = createPgStoreDriver({ url, poolSize: 1, acquireTimeoutMs: 1_000 })
       opened.push(driver)
       const holding: DriverSession = await driver.open('read')
       const refused = await driver.open('read').catch((error: unknown) => error)
