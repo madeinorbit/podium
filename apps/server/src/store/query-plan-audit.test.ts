@@ -195,6 +195,8 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/credentials.ts:credentialsByIds', SIZES],
   ['apps/server/src/store/credentials.ts:allowedMachinesOfMany', SIZES],
   ['apps/server/src/store/grants.ts:grantsToGrantees', SIZES],
+  // The notice inbox (POD-6881): the open notices a record build names, chunked at 500.
+  ['apps/server/src/store/notices.ts:openOfIds', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
   ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
@@ -890,6 +892,22 @@ const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/fingerprint-key-import.ts',
     'One-time data migration at boot of the legacy fingerprint key file, on the exclusive migration connection, behind its receipt (secret_fingerprint_import_v1).',
+  ],
+  [
+    'apps/server/src/store/legacy-plaintext.ts',
+    "Boot-only legacy step that destroys the old plaintext keys once the vault holds them, on the store's exclusive lane before the server serves, and skipped once its state row in meta says done with no old row left: meta by primary key, and accounts and server_secrets, both small tables. PRAGMAs and VACUUM are no queries.",
+  ],
+  [
+    'apps/server/src/store/native-login-transfer-sweep.ts',
+    'Boot-only legacy sweep on the migration connection, before anything else opens the file: one count of the leftover login transfer rows in server_secrets (a small table), and the delete with its secure_delete and WAL checkpoint PRAGMAs only when one is left.',
+  ],
+  [
+    'apps/server/src/store.ts:SELECT value FROM meta WHERE key = ?',
+    'The legacy plaintext step reads its scrubbed-snapshot stamps from meta by primary key, at boot on the exclusive lane, only while the step still runs.',
+  ],
+  [
+    'apps/server/src/store.ts:INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    'The legacy plaintext step writes its scrubbed-snapshot stamps to meta by primary key, at boot on the exclusive lane, only while the step still runs.',
   ],
   [
     'apps/server/src/relay.ts:input',

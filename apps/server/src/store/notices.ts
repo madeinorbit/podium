@@ -59,7 +59,9 @@ const openOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-/** Every open notice, in id order: the record builder's full stream. */
+/** Every open notice, in id order: the record builder's full stream. A seek on
+ *  `idx_notices_open` (resolved_at, id) reads only the open rows, already in id
+ *  order, however long the resolved history. */
 const allOpen = prepared((db: StoreDrizzle) =>
   db.select().from(notices).where(isNull(notices.resolvedAt)).orderBy(notices.id).prepare(),
 )

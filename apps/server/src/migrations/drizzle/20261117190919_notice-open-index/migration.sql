@@ -1,0 +1,1 @@
+CREATE INDEX `idx_notices_open` ON `notices` (`resolved_at`,`id`);

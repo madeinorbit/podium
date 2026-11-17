@@ -3816,6 +3816,9 @@ export const notices = sqliteTable(
       .where(sql`${table.resolvedAt} IS NULL`),
     // resolveNotices(key) across every recipient.
     index('idx_notices_dedupe_key').on(table.dedupeKey),
+    // Every open notice in id order: the record builder's full stream (`allOpen`)
+    // seeks the open ones and reads them in order, never the resolved history.
+    index('idx_notices_open').on(table.resolvedAt, table.id),
     // A person's open notices, newest first.
     index('idx_notices_recipient_open').on(
       table.recipientUserId,
