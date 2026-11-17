@@ -1691,6 +1691,34 @@ export interface HarnessHandoffTranscript {
     homeDir: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
+  /**
+   * WHERE THE CONVERSATION IS IN ONE CONFIGURATION DIRECTORY (credential
+   * management §9 "Switching", §10 "Homes"; epic Task 11). `stateDir` is the
+   * harness's state root for a home (`roots(home, { VAR: dir }).state`). The
+   * answer is a file inside `stateDir`, or undefined: never a path elsewhere
+   * that an index there points at. Absent: a switch cannot move this harness's
+   * conversation between homes.
+   */
+  locateInHome?(input: {
+    stateDir: string
+    cwd: string
+    resumeValue: string
+  }): Promise<string | undefined>
+  /** Other files of the conversation to copy beside it (absolute, may not exist). */
+  companions?(path: string): string[]
+  /**
+   * One record of a conversation that continues on another account or model
+   * provider: undefined leaves it out, the same object keeps it as it was, a
+   * new object replaces it. Codex leaves out encrypted reasoning when the
+   * account changes (POD-6893 §3: a foreign one is refused with 400) and
+   * records the provider the target runs on. Absent: every record carries over.
+   */
+  carryRecord?(
+    record: unknown,
+    change: { accountChanged: boolean; modelProvider?: string },
+  ): unknown
+  /** After the file was placed or rewritten: the harness's own bookkeeping. */
+  afterPlace?(input: { stateDir: string; resumeValue: string; path: string }): Promise<void>
 }
 
 // ---------------------------------------------------------------------------

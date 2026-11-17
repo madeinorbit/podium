@@ -24,6 +24,7 @@ import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.j
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'
 import { claudeComposer } from './composer.js'
+import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
 import { createClaudeCodeConversationProvider } from './discovery.js'
@@ -389,6 +390,7 @@ export const claudeCodeManifest: AgentManifest = {
       if (!path) throw new Error('Claude transcript not found')
       return { path }
     },
+    ...claudeConversationFile,
   }),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every

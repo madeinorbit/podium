@@ -24,6 +24,7 @@ import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.
 import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
 import { codexCatalog } from './catalog.js'
 import { codexComposer } from './composer.js'
+import { codexConversationFile } from './conversation-file.js'
 import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { codexCredentials } from './credentials.js'
 import { codexDescriptor } from './descriptor.js'
@@ -830,6 +831,7 @@ export const codexManifest: AgentManifest = {
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },
+    ...codexConversationFile,
   }),
 
   transcript: codexTranscript,
