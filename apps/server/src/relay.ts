@@ -119,6 +119,7 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
+import type { AttachAccessDeps } from './modules/credentials/attach-access'
 import {
   type ChatgptPlanService,
   composeChatgptPlan,
@@ -129,7 +130,6 @@ import {
   realTimer,
   SESSION_TOKEN_MIN_LEFT_MS,
 } from './modules/credentials/chatgpt-plan/session-renewal'
-import type { AttachAccessDeps } from './modules/credentials/attach-access'
 import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,

@@ -15,20 +15,20 @@
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { streamItemIdOf } from '../../../store/index.js'
 import { describe, expect, it } from 'vitest'
+import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
+import { streamItemIdOf } from '../../../store/index.js'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
-import { testHarnessContext, testEngineTerms, testSessionTerms } from '../../testing/harness-context.js'
-import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
-import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
-import { codexAppServerCapabilities } from './capabilities.js'
-import { PLAN_TOKEN_EXPIRED_TEXT } from './map.js'
-import { createCodexClient } from './client.js'
-import { type CodexJournalEntry, type CodexRuntimeHost, createCodexRuntime } from './runtime.js'
-import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
+import { testEngineTerms, testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
+import { codexAppServerCapabilities } from './capabilities.js'
+import { createCodexClient } from './client.js'
+import { PLAN_TOKEN_EXPIRED_TEXT } from './map.js'
+import { type CodexJournalEntry, type CodexRuntimeHost, createCodexRuntime } from './runtime.js'
+import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 
 interface World {
   handle: AgentSessionHandle

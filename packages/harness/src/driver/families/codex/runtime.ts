@@ -1,4 +1,5 @@
 import { withDeliveryQueue } from '../../delivery-queue.js'
+
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
  *
@@ -55,8 +56,6 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * would be fabricating exactly the state the house rules forbid.
  */
 
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -77,7 +76,10 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { reduceAgentState } from '../../../observer.js'
 import type { PodiumGrants } from '../../../posture-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
@@ -123,14 +125,13 @@ import {
   type Refusal,
   type SendOptions,
   splitAttachments,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
-import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { type CodexClient, type CodexClientConfig, createCodexClient } from './client.js'
 import {
@@ -2014,8 +2015,12 @@ export function createCodexRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (
+          options.deliveryAttempt &&
+          (busy(session) || session.lease?.kind === 'human-controller')
+        ) {
           return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -2557,8 +2562,13 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed,
-      slots.deliveryJournal?.(session.sessionId))
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, iso()),
+      undefined,
+      () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
+    )
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure

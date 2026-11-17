@@ -6,6 +6,7 @@
  * planted secret, after a canary proves the search finds it where it is.
  */
 
+import { harnessTerminalDriverId } from '@podium/harness'
 import {
   type AgentKind,
   asMachineId,
@@ -15,7 +16,6 @@ import {
   type MachineId,
   type UserId,
 } from '@podium/model'
-import { harnessTerminalDriverId } from '@podium/harness'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'

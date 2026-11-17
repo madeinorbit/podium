@@ -5,7 +5,11 @@
  */
 import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { PlanSessionRenewal, RESTART_WHEN_LEFT_MS, SESSION_TOKEN_MIN_LEFT_MS } from './session-renewal'
+import {
+  PlanSessionRenewal,
+  RESTART_WHEN_LEFT_MS,
+  SESSION_TOKEN_MIN_LEFT_MS,
+} from './session-renewal'
 
 const T0 = Date.parse('2026-11-17T09:00:00Z')
 const MIN = 60_000

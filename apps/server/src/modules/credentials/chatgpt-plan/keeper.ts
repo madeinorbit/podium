@@ -147,7 +147,10 @@ export class ChatgptPlanKeeper {
     return revoked ? 'confirmed' : 'not-confirmed'
   }
 
-  private async renewUnderLock(credentialId: CredentialId, minLeftMs: number): Promise<IssuedToken> {
+  private async renewUnderLock(
+    credentialId: CredentialId,
+    minLeftMs: number,
+  ): Promise<IssuedToken> {
     // Read again inside the lock: a renewal that just finished made this one moot.
     const set = await this.read(credentialId)
     if (set.expiresAt - this.now() >= minLeftMs) return issued(set)

@@ -245,7 +245,10 @@ describe('attachAccess for a type Podium renews (the ChatGPT plan, epic Task 15)
     )
     expect(result).toEqual({
       ok: true,
-      access: { credentialId: id, delivery: { kind: 'env', variable: 'ACCESS_TOKEN', secret: ISSUED } },
+      access: {
+        credentialId: id,
+        delivery: { kind: 'env', variable: 'ACCESS_TOKEN', secret: ISSUED },
+      },
     })
     expect(asked).toEqual([{ credentialId: id, target: { ...to, refresh: true } }])
     // Canary, then the search: the sealed set's token is not in the result.

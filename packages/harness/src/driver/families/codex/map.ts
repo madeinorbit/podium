@@ -320,7 +320,10 @@ export function describeTurnError(
       return {
         reason: 'provider-error',
         disposition: 'retryable',
-        text: truncate(text ? `${PLAN_TOKEN_EXPIRED_TEXT} (${text})` : PLAN_TOKEN_EXPIRED_TEXT, 500),
+        text: truncate(
+          text ? `${PLAN_TOKEN_EXPIRED_TEXT} (${text})` : PLAN_TOKEN_EXPIRED_TEXT,
+          500,
+        ),
       }
     }
     return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
