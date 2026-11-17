@@ -1,7 +1,8 @@
 /**
  * SHIPPING IS A WORKSPACE'S (POD-6959 design 2.4, 2.5; task POD-7018).
  *
- * Two workspaces over one database (`openWorkspaceStores`), each seeded through its own
+ * Two workspaces over one database of the run's engine (`openShippingStoreSlices`), each
+ * seeded through its own
  * `ShippingRepository` with one lane's worth of shipping: a held order with an attempt, steps,
  * holds and a repair candidate; a queued order that depends on it and stacks on it; a two-member
  * train that shipped (manifest, members, claims, lane revision, effect envelope, both delivery
@@ -48,9 +49,12 @@ import {
 } from '@podium/model'
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openWorkspaceStores } from '../test-support/workspace-stores'
+import {
+  openShippingStoreSlices,
+  type WorkspaceShippingSlice,
+} from '../test-support/shipping-store-slice'
 
 type Tag = 'a' | 'b'
 const WS: Record<Tag, string> = { a: 'local', b: 'ws_b' }
@@ -75,15 +79,6 @@ const DESTINATION = 'origin/main'
 /** The lane's canonical destination, as lane ids and lane reads name it. */
 const LANE_DESTINATION = canonicalShippingDestination(DESTINATION, 'main')
 
-interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    get(...params: unknown[]): unknown
-    run(...params: unknown[]): unknown
-  }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
 /** The tables `store/shipping.ts` reads and writes, read raw per workspace. */
 const TABLES = [
   'ship_orders',
@@ -105,38 +100,35 @@ const TABLES = [
   'issues',
 ] as const
 
-function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/** Each table's rows of the workspace, in one order on either engine (by their text). */
+async function rowsOf(store: WorkspaceShippingSlice, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) {
+    const rows = await store.all<Record<string, unknown>>(
+      sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${WS[tag]}`,
+    )
+    out[table] = rows
+      .map((row) => [JSON.stringify(row), row] as const)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, row]) => row)
+  }
+  return out
 }
 
 /** An issue row, raw: the issues repository is another task's (B2). */
-function insertIssue(store: SessionStore, tag: Tag, name: string, seq: number): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
+async function insertIssue(
+  store: WorkspaceShippingSlice,
+  tag: Tag,
+  name: string,
+  seq: number,
+): Promise<void> {
+  await store.run(
+    sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
          machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'review', 'codex', ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      issueId(tag, name),
-      firstAdminMemberId(),
-      firstAdminMemberId(),
-      repoPath(tag),
-      repo(tag),
-      machine(tag),
-      `issue/${tag}-${name}`,
-      seq,
-      `${tag} issue ${name}`,
-      AT,
-      AT,
-    )
+       VALUES (${WS[tag]}, ${issueId(tag, name)}, ${firstAdminMemberId()}, ${firstAdminMemberId()},
+         ${repoPath(tag)}, ${repo(tag)}, ${machine(tag)}, ${`issue/${tag}-${name}`}, ${seq},
+         ${`${tag} issue ${name}`}, 'review', 'codex', ${AT}, ${AT})`,
+  )
 }
 
 function shipOrder(tag: Tag, name: string, overrides: Partial<ShipOrder> = {}): ShipOrder {
@@ -187,12 +179,12 @@ interface Seeded {
   evidenceSource: string
 }
 
-async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
+async function seed(store: WorkspaceShippingSlice, tag: Tag): Promise<Seeded> {
   const s = store.shipping
-  insertIssue(store, tag, 'one', 1)
-  insertIssue(store, tag, 'queued', 2)
-  insertIssue(store, tag, 'lower', 3)
-  insertIssue(store, tag, 'covering', 4)
+  await insertIssue(store, tag, 'one', 1)
+  await insertIssue(store, tag, 'queued', 2)
+  await insertIssue(store, tag, 'lower', 3)
+  await insertIssue(store, tag, 'covering', 4)
 
   // The single-order arm: order `one` held with an attempt, steps, two holds (one
   // resolved, one open) and a repair candidate.
@@ -231,22 +223,12 @@ async function seed(store: SessionStore, tag: Tag): Promise<Seeded> {
   await s.raiseHold(scope, hold(tag, one.id, 1))
   await s.resolveHold(scope, one.id, 1, 'retry', 'queued', '2026-11-17T09:03:30.000Z')
   await s.raiseHold(scope, hold(tag, one.id, 2))
-  rawDb(store)
-    .prepare(
-      `INSERT INTO ship_repair_candidates (workspace_id, order_id, attempt_id, generation, sequence,
+  await store.run(
+    sql`INSERT INTO ship_repair_candidates (workspace_id, order_id, attempt_id, generation, sequence,
          round, context_digest, repair_ref, candidate_head_sha, result_token, recorded_at)
-       VALUES (?, ?, ?, 1, 1, 1, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      one.id,
-      attempt.id,
-      'c'.repeat(64),
-      `refs/repair/${tag}`,
-      `${tag}-candidate`,
-      `${tag}-token`,
-      AT,
-    )
+       VALUES (${WS[tag]}, ${one.id}, ${attempt.id}, 1, 1, 1, ${'c'.repeat(64)},
+         ${`refs/repair/${tag}`}, ${`${tag}-candidate`}, ${`${tag}-token`}, ${AT})`,
+  )
 
   // The queued order: depends on `one` and stacks on it, so the dependents and stack reads
   // have rows.
@@ -437,11 +419,11 @@ function hold(tag: Tag, order: ShipOrder['id'], generation: number) {
   }
 }
 
-let stores: Record<Tag, SessionStore>
+let stores: Record<Tag, WorkspaceShippingSlice>
 let seeded: Record<Tag, Seeded>
 
 beforeEach(async () => {
-  const [a, b] = await openWorkspaceStores([WS.a, WS.b], { path: ':memory:' })
+  const [a, b] = await openShippingStoreSlices([WS.a, WS.b])
   stores = { a, b }
   seeded = { a: await seed(a, 'a'), b: await seed(b, 'b') }
 })
@@ -621,9 +603,11 @@ describe('shipping reads answer only their own workspace', () => {
     await stores.a.shipping.resolveHold(scope, seeded.a.one.id, 2, 'retry', 'queued', at)
     expect(await revisionOf('a')).toBe(a0 + 1)
     expect(await revisionOf('b')).toBe(b0 + 1)
-    const rows = rawDb(stores.a)
-      .prepare('SELECT workspace_id AS workspaceId, revision FROM ship_recovery_revision')
-      .all() as { workspaceId: string; revision: number }[]
+    const rows = (
+      await stores.a.all<{ workspaceId: string; revision: number }>(
+        sql`SELECT workspace_id AS "workspaceId", revision FROM ship_recovery_revision`,
+      )
+    ).map((row) => ({ ...row, revision: Number(row.revision) }))
     expect(rows.sort((x, y) => x.workspaceId.localeCompare(y.workspaceId))).toEqual(
       [
         { workspaceId: WS.a, revision: a0 + 1 },
@@ -642,7 +626,7 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
       const s = stores[tag].shipping
       const theirTag = other(tag)
       const theirs = seeded[theirTag]
-      const before = rowsOf(stores[theirTag], theirTag)
+      const before = await rowsOf(stores[theirTag], theirTag)
       const at = '2026-11-17T11:00:00.000Z'
       const attemptOf = (order: ShipOrder, attempt: ShipAttempt) => ({
         orderId: order.id,
@@ -794,12 +778,12 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
       await s.completeRecoveryWork(scope, `admission:${theirs.queued.id}:new`)
       await s.completeRepairAcknowledgement(scope, `${theirTag}-token`)
 
-      expect(rowsOf(stores[theirTag], theirTag)).toEqual(before)
+      expect(await rowsOf(stores[theirTag], theirTag)).toEqual(before)
     })
   }
 
   it("writes in their own workspace land there and leave the other's rows unchanged", async () => {
-    const beforeB = rowsOf(stores.b, 'b')
+    const beforeB = await rowsOf(stores.b, 'b')
     const s = stores.a.shipping
     const mine = seeded.a
     const at = '2026-11-17T11:00:00.000Z'
@@ -811,7 +795,7 @@ describe("shipping writes in one workspace leave the other's rows unchanged", ()
     expect((await s.getOrder(mine.queued.id))?.state).toBe('cancelled')
     expect((await s.getOrder(mine.one.id))?.state).toBe('queued')
     expect(await s.shippedLeadersOfOpenTrains()).toEqual([])
-    expect(rowsOf(stores.b, 'b')).toEqual(beforeB)
+    expect(await rowsOf(stores.b, 'b')).toEqual(beforeB)
     expect(await stores.b.shipping.shippedLeadersOfOpenTrains()).toEqual([seeded.b.covering.id])
   })
 })
@@ -831,23 +815,13 @@ describe('the same id in both workspaces, upserted through the repository (POD-7
         ['one', 101],
         ['two', 102],
       ] as const) {
-        rawDb(stores[tag])
-          .prepare(
-            `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
+        await stores[tag].run(
+          sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
                machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
-             VALUES (?, ?, ?, ?, '/r-same', 'same-repo', 'same-machine', ?, ?, ?, 'review', 'codex', ?, ?)`,
-          )
-          .run(
-            WS[tag],
-            sameIssue(name),
-            firstAdminMemberId(),
-            firstAdminMemberId(),
-            `issue/same-${name}`,
-            seq,
-            `same issue ${name}`,
-            AT,
-            AT,
-          )
+             VALUES (${WS[tag]}, ${sameIssue(name)}, ${firstAdminMemberId()}, ${firstAdminMemberId()},
+               '/r-same', 'same-repo', 'same-machine', ${`issue/same-${name}`}, ${seq},
+               ${`same issue ${name}`}, 'review', 'codex', ${AT}, ${AT})`,
+        )
       }
     }
     const sameOrder = (id: ShipOrder['id'], name: string) =>
@@ -860,33 +834,35 @@ describe('the same id in both workspaces, upserted through the repository (POD-7
         approvedBaseSha: 'same-base',
         approvedHeadSha: `same-${name}-head`,
       })
-    const laneRows = (tag: Tag) =>
-      rawDb(stores[tag])
-        .prepare('SELECT * FROM ship_lane_revisions WHERE workspace_id = ? ORDER BY rowid')
-        .all(WS[tag]) as { lane_key: string; revision: number }[]
-    const ordersOf = (tag: Tag) =>
-      rawDb(stores[tag])
-        .prepare('SELECT * FROM ship_orders WHERE workspace_id = ? AND id = ?')
-        .all(WS[tag], SAME)
+    const laneRows = async (tag: Tag) =>
+      (
+        await stores[tag].all<{ lane_key: string; revision: number }>(
+          sql`SELECT lane_key, revision FROM ship_lane_revisions WHERE workspace_id = ${WS[tag]}`,
+        )
+      ).map((row) => ({ ...row, revision: Number(row.revision) }))
+    const ordersOf = async (tag: Tag) =>
+      await stores[tag].all(
+        sql`SELECT id FROM ship_orders WHERE workspace_id = ${WS[tag]} AND id = ${SAME}`,
+      )
 
-    const lanesBefore = new Set(laneRows('b').map((row) => row.lane_key))
+    const lanesBefore = new Set((await laneRows('b')).map((row) => row.lane_key))
     await stores.b.shipping.createOrder(scope, sameOrder(SAME, 'one'))
-    const lane = laneRows('b').find((row) => !lanesBefore.has(row.lane_key))?.lane_key
+    const lane = (await laneRows('b')).find((row) => !lanesBefore.has(row.lane_key))?.lane_key
     expect(lane).toBeDefined()
-    const before = rowsOf(stores.b, 'b')
+    const before = await rowsOf(stores.b, 'b')
 
     await stores.a.shipping.createOrder(scope, sameOrder(SAME, 'one'))
-    expect(ordersOf('a')).toHaveLength(1)
-    expect(laneRows('a').find((row) => row.lane_key === lane)?.revision).toBe(1)
-    expect(rowsOf(stores.b, 'b')).toEqual(before)
+    expect(await ordersOf('a')).toHaveLength(1)
+    expect((await laneRows('a')).find((row) => row.lane_key === lane)?.revision).toBe(1)
+    expect(await rowsOf(stores.b, 'b')).toEqual(before)
 
     // The lane-revision upsert hits A's row of the lane, and the transition A's order.
     await stores.a.shipping.createOrder(scope, sameOrder(asShipOrderId('same-order-2'), 'two'))
     await stores.a.shipping.transitionOrder(scope, SAME, 'queued', 'cancelled', AT)
-    expect(laneRows('a').find((row) => row.lane_key === lane)?.revision).toBe(2)
+    expect((await laneRows('a')).find((row) => row.lane_key === lane)?.revision).toBe(2)
     expect((await stores.a.shipping.getOrder(SAME))?.state).toBe('cancelled')
     expect((await stores.b.shipping.getOrder(SAME))?.state).toBe('queued')
-    expect(laneRows('b').find((row) => row.lane_key === lane)?.revision).toBe(1)
-    expect(rowsOf(stores.b, 'b')).toEqual(before)
+    expect((await laneRows('b')).find((row) => row.lane_key === lane)?.revision).toBe(1)
+    expect(await rowsOf(stores.b, 'b')).toEqual(before)
   })
 })

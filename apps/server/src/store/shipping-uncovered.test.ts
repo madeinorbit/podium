@@ -35,8 +35,10 @@ import {
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import {
+  openShippingStoreSlice,
+  type ShippingStoreSlice,
+} from '../test-support/shipping-store-slice'
 
 const VALIDATION_PROFILE = {
   id: 'default',
@@ -89,8 +91,8 @@ const baseIssue = () => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-08-12T09:00:00.000Z',
+  updatedAt: '2026-08-12T09:00:00.000Z',
   archived: false,
 })
 
@@ -125,7 +127,7 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
 
 describe('shipping: the order-to-issue lookups', () => {
   it('answers null for an order it does not hold, and the issue id for one it does', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     await s.issues.upsertIssue(fixtureWriteScope(), baseIssue())
     const order = shipOrder()
     await s.shipping.createOrder(fixtureWriteScope(), order)
@@ -138,7 +140,7 @@ describe('shipping: the order-to-issue lookups', () => {
   })
 
   it('maps many order ids in one pass, skipping the ones it does not hold', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     const known: string[] = []
     for (let index = 0; index < 3; index += 1) {
       const issueId = asIssueId(`iss_many_${index}`)
@@ -179,7 +181,7 @@ describe('shipping: the order-to-issue lookups', () => {
     // but drops the accumulation across chunks — or drops the chunk and hands
     // SQLite 501 parameters — is only visible on the far side of that boundary,
     // so the fixture straddles it: 501 real orders, plus one id that is not.
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     const total = 501
     const ids: string[] = []
     for (let index = 0; index < total; index += 1) {
@@ -211,7 +213,7 @@ describe('shipping: the order-to-issue lookups', () => {
  * A claimed two-member train on one lane, plus a third order that is NOT in it.
  * Returns everything the isolation call needs to be driven and read back.
  */
-async function claimedTrain(s: SessionStore) {
+async function claimedTrain(s: ShippingStoreSlice) {
   const suffixes = ['a', 'b'] as const
   const orders: ShipOrder[] = []
   for (const [index, suffix] of suffixes.entries()) {
@@ -288,7 +290,7 @@ function stepsFor(orderId: ShipOrder['id'], attempt: ShipAttempt) {
 
 describe('shipping: isolating a failed train', () => {
   it('holds the failing member, resets the green one, and releases the train', async () => {
-    const s = await openTestStore(':memory:', asMachineId('machine-1'))
+    const s = await openShippingStoreSlice()
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
     await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
@@ -341,7 +343,7 @@ describe('shipping: isolating a failed train', () => {
   })
 
   it('calls two failures an interaction, and leaves nothing behind when it refuses', async () => {
-    const s = await openTestStore(':memory:', asMachineId('machine-1'))
+    const s = await openShippingStoreSlice()
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
     await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
