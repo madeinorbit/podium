@@ -33,7 +33,9 @@
 
 import { createLogger } from '@podium/logger'
 import type { TranscriptItem } from '@podium/model'
+import { interruptFirstTaskDraftUploads } from '../../first-task-draft'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '../../ui-state'
 import {
   LEGACY_UI_KEYS,
   LEGACY_UI_MAP_PREFIXES,
@@ -316,6 +318,13 @@ export function createSideCache(init: SideCacheInit): SideCache {
   let ui = readJson<Record<string, string>>(storage, uiKey, {})
   const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
   migrateLegacyUiKeys()
+  // Recover only on cold hydration, after legacy keys have reached this owner.
+  // Reopening a composer in this process can still have an active upload.
+  const recoveredDraft = interruptFirstTaskDraftUploads(ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] ?? null)
+  if (recoveredDraft !== null && recoveredDraft !== ui[FIRST_TASK_ACTIVATION_DRAFT_KEY]) {
+    ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] = recoveredDraft
+    writeJson(storage, uiKey, ui)
+  }
 
   function migrateLegacyUiKeys(): void {
     if (storage.getItem(`${uiKey}.migrated`) !== null) return

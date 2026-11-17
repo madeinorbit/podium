@@ -3,7 +3,12 @@ import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { readFirstTaskDraft } from '@podium/client-core/first-task-draft'
+import {
+  EMPTY_FIRST_TASK_DRAFT,
+  readFirstTaskDraft,
+  serializeFirstTaskDraft,
+} from '@podium/client-core/first-task-draft'
+import { createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   asIssueId,
@@ -883,6 +888,55 @@ describe('ColdStartComposer', () => {
    * whole point is that the agent receives it — a chip that only ever decorated
    * this screen would be worse than no affordance at all. */
   describe('attachments', () => {
+    it('allows starting after a cold restart with an interrupted upload and reuses ready refs', async () => {
+      const storage = memoryStorage()
+      const completed = heldRef('completed.png', 'image/png')
+      storage.setItem(
+        'podium.kernel-replica.uistate.v1',
+        JSON.stringify({
+          [FIRST_TASK_ACTIVATION_DRAFT_KEY]: serializeFirstTaskDraft({
+            ...EMPTY_FIRST_TASK_DRAFT,
+            repoPath: initialRepo.path,
+            title: 'Keep the completed attachment',
+            attachments: [
+              { id: 'orphan', name: 'interrupted.pdf', previewUri: '', state: 'uploading' },
+              {
+                id: 'completed',
+                name: completed.filename,
+                previewUri: '',
+                state: 'ready',
+                ref: completed,
+              },
+            ],
+          }),
+        }),
+      )
+      const side = createSideCache({ storage, enumerateKeys: () => [] })
+      try {
+        store.uiState.set(
+          FIRST_TASK_ACTIVATION_DRAFT_KEY,
+          side.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY),
+        )
+      } finally {
+        side.dispose()
+      }
+      render(<ColdStartComposer first />)
+      expect(screen.queryByText('Uploading')).toBeNull()
+      expect(screen.getByText('Upload interrupted. Remove and attach the file again.')).toBeTruthy()
+      expect(
+        (screen.getByRole('button', { name: 'Start task' }) as HTMLButtonElement).disabled,
+      ).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove interrupted.pdf' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(spawnDraftAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstPrompt: 'Keep the completed attachment',
+          attachments: [completed],
+        }),
+      )
+      expect(uploadImage).not.toHaveBeenCalled()
+    })
+
     it('keeps attachment writes on chip changes and does not rewrite them on prompt renders', async () => {
       const writes = vi.spyOn(store.uiState, 'set')
       try {
@@ -1003,6 +1057,69 @@ describe('ColdStartComposer', () => {
           createMutationId: '',
         }),
       )
+    })
+
+    it.each([
+      { settled: false, replacement: false },
+      { settled: false, replacement: true },
+      { settled: true, replacement: false },
+      { settled: true, replacement: true },
+    ])('keeps newer attachment edits after reopening before an old launch settles: %j', async ({
+      settled,
+      replacement,
+    }) => {
+      uploadImage.mockImplementation(async (input: { filename: string; mimeType: string }) => ({
+        path: '',
+        attachment: heldRef(input.filename, input.mimeType),
+      }))
+      let settle!: (accepted: boolean) => void
+      spawnDraftAgent.mockReturnValueOnce({
+        sessionId: asSessionId('old-session'),
+        issueId: asIssueId('old-issue'),
+        settled: new Promise<boolean>((resolve) => {
+          settle = resolve
+        }),
+      })
+      const mounted = render(<ColdStartComposer first />)
+      fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+        target: { value: 'Original prompt' },
+      })
+      attach(new File(['old bytes'], 'old.png', { type: 'image/png' }))
+      await waitForAttachment('old.png')
+      expect(screen.getByRole('img', { name: 'old.png' })).toBeTruthy()
+      setView.mockImplementationOnce(() => mounted.unmount())
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+
+      render(<ColdStartComposer first />)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove old.png' }))
+      fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+        target: { value: 'Newer prompt' },
+      })
+      if (replacement) {
+        attach(new File(['new bytes'], 'new.png', { type: 'image/png' }))
+        await waitForAttachment('new.png')
+      }
+      const current = uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)
+      expect(readFirstTaskDraft(current ?? null)).toMatchObject({
+        title: 'Newer prompt',
+        createMutationId: '',
+        attachments: replacement ? [expect.objectContaining({ name: 'new.png' })] : [],
+      })
+      await act(async () => settle(settled))
+
+      expect(uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).toBe(current)
+      expect(screen.queryByRole('button', { name: 'Remove old.png' })).toBeNull()
+      expect(
+        (screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement).value,
+      ).toBe('Newer prompt')
+      expect(screen.queryByText(/Couldn't start the agent/)).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      const next = spawnDraftAgent.mock.calls[1]?.[0]
+      expect(next).toMatchObject({ firstPrompt: 'Newer prompt' })
+      expect(next?.mutationId).not.toBe(spawnDraftAgent.mock.calls[0]?.[0]?.mutationId)
+      expect(next?.attachments).toEqual(replacement ? [heldRef('new.png', 'image/png')] : undefined)
+      expect(uploadImage).toHaveBeenCalledTimes(replacement ? 2 : 1)
     })
 
     it('refuses to launch until the browser has read the attachment bytes', async () => {

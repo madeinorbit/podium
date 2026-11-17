@@ -795,11 +795,15 @@ export function ColdStartComposer({
       // draft vessel and its first session. The mutation and client-minted ids
       // make an ambiguous retry duplicate-safe.
       void started.settled.then((settled) => {
+        const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
         if (settled) {
-          clearFirstTaskDraft(uiState)
+          if (current.createMutationId === launchDraft.createMutationId)
+            clearFirstTaskDraft(uiState)
           return
         }
-        setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
+        if (current.createMutationId === launchDraft.createMutationId) {
+          setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
+        }
         setBusy(false)
       })
       // First Flights: the task this first launch opens gets the list tip.

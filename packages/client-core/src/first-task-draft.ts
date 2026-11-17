@@ -173,6 +173,24 @@ export function serializeFirstTaskDraft(draft: FirstTaskDraft): string {
   return JSON.stringify({ ...draft, attachments: boundedAttachmentPreviews(draft.attachments) })
 }
 
+/** Cold storage has no upload promises. Live draft reads must leave them alone. */
+export function interruptFirstTaskDraftUploads(raw: string | null): string | null {
+  const draft = readFirstTaskDraft(raw)
+  if (!draft.attachments.some((attachment) => attachment.state === 'uploading')) return raw
+  return serializeFirstTaskDraft({
+    ...draft,
+    attachments: draft.attachments.map((attachment) =>
+      attachment.state === 'uploading'
+        ? {
+            ...attachment,
+            state: 'failed',
+            error: 'Upload interrupted. Remove and attach the file again.',
+          }
+        : attachment,
+    ),
+  })
+}
+
 export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: FirstTaskDraft): void {
   uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, serializeFirstTaskDraft(draft))
 }

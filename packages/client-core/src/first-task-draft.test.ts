@@ -9,6 +9,7 @@ import {
   updateFirstTaskDraftAttachments,
   withoutCreateReservation,
 } from './first-task-draft'
+import { memoryStorage } from './replica/contract'
 import { createSideCache } from './replica/kernel/side-cache'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
 
@@ -22,6 +23,53 @@ const image: ComposerAttachment = {
 }
 
 describe('first-task attachment recovery', () => {
+  it('marks orphan uploads as removable failures on cold hydration and retains ready refs', () => {
+    const storage = memoryStorage()
+    const uploading: ComposerAttachment = {
+      id: 'interrupted-chip',
+      name: 'unfinished.pdf',
+      previewUri: '',
+      state: 'uploading',
+    }
+    const before = createSideCache({ storage, enumerateKeys: () => [] })
+    persistFirstTaskDraft(before.uiState(), {
+      ...EMPTY_FIRST_TASK_DRAFT,
+      title: 'Keep this prompt and the completed image',
+      attachments: [uploading, image],
+    })
+    // Ordinary reads during a live upload must keep waiting for its promise.
+    expect(
+      readFirstTaskDraft(before.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).attachments,
+    ).toEqual([uploading, image])
+    before.dispose()
+
+    const reopened = createSideCache({ storage, enumerateKeys: () => [] })
+    try {
+      const ui = reopened.uiState()
+      const recovered = readFirstTaskDraft(ui.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+      expect(recovered).toMatchObject({
+        title: 'Keep this prompt and the completed image',
+        attachments: [
+          {
+            ...uploading,
+            state: 'failed',
+            error: 'Upload interrupted. Remove and attach the file again.',
+          },
+          image,
+        ],
+      })
+      updateFirstTaskDraftAttachments(ui, (current) =>
+        current.filter((chip) => chip.id !== uploading.id),
+      )
+      expect(readFirstTaskDraft(ui.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toEqual({
+        ...recovered,
+        attachments: [image],
+      })
+    } finally {
+      reopened.dispose()
+    }
+  })
+
   it('round-trips the uploaded ref and image chip with the reserved launch', () => {
     const draft = {
       ...EMPTY_FIRST_TASK_DRAFT,
@@ -131,6 +179,7 @@ describe('first-task attachment recovery', () => {
         raw = value ?? ''
       },
     }
+    expect(readFirstTaskDraft(raw).attachments[0]?.state).toBe('uploading')
     updateFirstTaskDraftAttachments(ui, (current) =>
       current.map((chip) => ({ ...chip, ref: image.ref, state: 'ready' })),
     )
