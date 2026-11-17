@@ -31,6 +31,7 @@
 
 import { queryCallerStacksEnabled } from '@podium/runtime/query-attribution'
 import type { SqlParam, SqlRunResult } from '@podium/runtime/sqlite'
+import type { StoreDialect } from './binding'
 
 export type { SqlParam, SqlRunResult }
 
@@ -224,6 +225,12 @@ export interface DriverSession {
 
 export interface StoreDriver<TClient = QueryClient> {
   readonly kind: string
+  /**
+   * The engine's SQL dialect [POD-6979]: which drizzle dialect and table set the
+   * store's query layer builds on. Absent means `sqlite`, so the bun:sqlite driver and
+   * every test double keep their shape.
+   */
+  readonly dialect?: StoreDialect
   readonly lanes: LanePolicy
   readonly limits: DriverLimits
   /**
