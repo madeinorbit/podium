@@ -2,6 +2,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
+import { CollectionsRepository } from '../store/collections'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
@@ -46,6 +47,8 @@ export function bootstrapVisibility(
       anchors: visibility.anchors,
       sync,
       records,
+      // The collection fetch's reads (POD-7085), on the same snapshot.
+      collections: new CollectionsRepository(executor.queries),
     }
   })()
   // Return ownership before the first async read can fail, so the caller always closes it.

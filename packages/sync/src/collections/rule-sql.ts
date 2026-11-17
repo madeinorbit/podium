@@ -3,14 +3,13 @@
  *
  * A collection rule (`@podium/model`'s `records/rule.ts`) is data, so the
  * server answers it in SQL and the client in JavaScript (`matchesWhere`).
- * This compiles one rule into a WHERE fragment for SQLite or Postgres, with
+ * This compiles one rule into a WHERE fragment for the store's SQLite, with
  * positional parameters, over the columns a caller maps each field to. It
  * answers exactly what `matchesWhere` answers: the shared corpus
- * (`RULE_CORPUS`) holds both to the same records on both engines
- * (`rule-sql.test.ts`).
+ * (`RULE_CORPUS`) holds both to the same records (`rule-sql.test.ts`).
  *
- * The SQL is portable (no engine-only function outside the JSON path
- * helper), and NULL-safe where JavaScript compares `undefined`: a negated test
+ * The SQL is as plain as the rest of the store, and NULL-safe where
+ * JavaScript compares `undefined`: a negated test
  * holds for a NULL value, as `!==` holds for `undefined`. `descendantsOf` is
  * one recursive query down the table's parent column from the root (the root
  * included), which ends on a cycle because UNION drops rows it has.
@@ -40,8 +39,6 @@ import {
   type Where,
 } from '@podium/model'
 
-export type SqlDialect = 'sqlite' | 'postgres'
-
 /** How a field's value is held: `text` decides what "is empty" means, `boolean` how a value binds. */
 export type SqlValueType = 'text' | 'number' | 'boolean' | 'json'
 
@@ -53,7 +50,6 @@ export interface FieldSql {
 
 /** The table a rule reads, and how each field read maps onto it. */
 export interface RuleSqlTarget {
-  readonly dialect: SqlDialect
   /** The table, for `descendantsOf`'s walk. */
   readonly table: string
   /** The table's id and parent columns, for `descendantsOf`'s walk. */
@@ -75,22 +71,18 @@ export interface RuleSql {
 
 export class RuleSqlError extends Error {}
 
-/** A JSON path into a JSON text column, as text, on either engine. */
-export function jsonTextPath(dialect: SqlDialect, column: string, path: readonly string[]): string {
+/** A JSON path into a JSON text column, as text. */
+export function jsonTextPath(column: string, path: readonly string[]): string {
   for (const part of path) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
       throw new RuleSqlError(`not a plain JSON key: ${part}`)
   }
-  return dialect === 'sqlite'
-    ? `json_extract(${column}, '$.${path.join('.')}')`
-    : `((${column})::jsonb #>> '{${path.join(',')}}')`
+  return `json_extract(${column}, '$.${path.join('.')}')`
 }
 
-/** Whether a text expression holds valid JSON, on either engine (NULL reads as not valid). */
-export function jsonValidSql(dialect: SqlDialect, expr: string): string {
-  return dialect === 'sqlite'
-    ? `coalesce(json_valid(${expr}), 0) = 1`
-    : `coalesce(pg_input_is_valid(${expr}, 'jsonb'), false)`
+/** Whether a text expression holds valid JSON (NULL reads as not valid). */
+export function jsonValidSql(expr: string): string {
+  return `coalesce(json_valid(${expr}), 0) = 1`
 }
 
 /**
@@ -98,31 +90,26 @@ export function jsonValidSql(dialect: SqlDialect, expr: string): string {
  * the text is not valid JSON or the member is not an object: what a reader
  * that parses the text and takes `.key` sees.
  */
-export function jsonObjectMemberSql(dialect: SqlDialect, expr: string, key: string): string {
+export function jsonObjectMemberSql(expr: string, key: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new RuleSqlError(`not a plain JSON key: ${key}`)
-  // Nested CASE: neither engine promises to test the validity before the cast.
-  return dialect === 'sqlite'
-    ? `CASE WHEN ${jsonValidSql(dialect, expr)} THEN CASE WHEN json_type(${expr}, '$.${key}') = 'object' THEN json_extract(${expr}, '$.${key}') END END`
-    : `CASE WHEN ${jsonValidSql(dialect, expr)} THEN CASE WHEN jsonb_typeof((${expr})::jsonb -> '${key}') = 'object' THEN ((${expr})::jsonb -> '${key}')::text END END`
+  // Nested CASE: the validity is tested before the member is read.
+  return `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}, '$.${key}') = 'object' THEN json_extract(${expr}, '$.${key}') END END`
 }
 
 /** A JSON text expression when it holds a JSON object, else NULL. */
-export function jsonObjectSql(dialect: SqlDialect, expr: string): string {
-  return dialect === 'sqlite'
-    ? `CASE WHEN ${jsonValidSql(dialect, expr)} THEN CASE WHEN json_type(${expr}) = 'object' THEN ${expr} END END`
-    : `CASE WHEN ${jsonValidSql(dialect, expr)} THEN CASE WHEN jsonb_typeof((${expr})::jsonb) = 'object' THEN ${expr} END END`
+export function jsonObjectSql(expr: string): string {
+  return `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}) = 'object' THEN ${expr} END END`
 }
 
 class Params {
   readonly values: SqlValue[] = []
-  constructor(private readonly dialect: SqlDialect) {}
   add(value: SqlValue, type: SqlValueType): string {
-    const bound = typeof value === 'boolean' && this.dialect === 'sqlite' ? (value ? 1 : 0) : value
     if (typeof value === 'boolean' && type !== 'boolean') {
       throw new RuleSqlError(`a boolean compared with a ${type} field`)
     }
-    this.values.push(bound)
-    return this.dialect === 'sqlite' ? '?' : `$${this.values.length}`
+    // SQLite stores a boolean as 0 or 1.
+    this.values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)
+    return '?'
   }
 }
 
@@ -254,7 +241,7 @@ export function ruleSql(
   args: RuleArgs = {},
   now = Date.now(),
 ): RuleSql {
-  const params = new Params(target.dialect)
+  const params = new Params()
   const clauses = clausesOf(where).map((clause) => clauseSql(clause, target, args, now, params))
   const sql =
     clauses.length === 1 ? `(${clauses[0]})` : `(${clauses.map((c) => `(${c})`).join(' OR ')})`

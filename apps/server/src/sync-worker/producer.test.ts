@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asMachineId, asUserId } from '@podium/model'
+import { asIssueId, asMachineId, asUserId, RECORD_KINDS } from '@podium/model'
 import { SYNC_LINE_MAX_BYTES, SyncComplete, SyncMeta } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
@@ -25,6 +25,8 @@ const job = (user: string): BootstrapJob => ({
   feedId: 'feed',
   epoch: 'epoch',
   encoding: 'identity',
+  // Every kind, whole: the stream the Authority's bootstrap is held to (POD-7085).
+  kinds: [...RECORD_KINDS] as unknown as BootstrapJob['kinds'],
   deadlineMs: Date.now() + 60_000,
 })
 const issue = (id: string) => ({
@@ -142,7 +144,11 @@ describe('snapshot bootstrap producer', () => {
           }),
         )
         const rows = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
-        expect(rows).toEqual(expected.changes)
+        // The same rows; a load that names its kinds streams them kind by kind.
+        const order = (r: { entity: string; entityId: string }) => `${r.entity}\u0000${r.entityId}`
+        const sorted = <T extends { entity: string; entityId: string }>(list: readonly T[]) =>
+          [...list].sort((x, y) => (order(x) < order(y) ? -1 : order(x) > order(y) ? 1 : 0))
+        expect(sorted(rows)).toEqual(sorted(expected.changes))
         // The brief and description load at start as records of their own (POD-6921).
         expect(rows.filter((r) => r.entity === 'issueBrief').map((r) => r.value)).toEqual([
           { id: 'private', text: 'Issue brief' },

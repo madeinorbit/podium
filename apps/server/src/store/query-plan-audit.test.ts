@@ -66,6 +66,7 @@ import {
   statementsOf,
   tablesOf,
 } from '../test-support/query-plan-audit'
+import { auditedCollectionShapes } from './collections'
 import { param, prepared, type StoreDrizzle, shapeOf } from './executor/sync-drizzle'
 import { type IssueListingShape, listingKey } from './issue-listings'
 import { LEGACY_WORKTREE_MIGRATION } from './issues'
@@ -132,6 +133,8 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   string,
   readonly (string | number)[]
 >([
+  // The collection fetch (POD-7085): every shape the record declarations can ask.
+  ['apps/server/src/store/collections.ts:collectionRows', auditedCollectionShapes()],
   [
     'apps/server/src/store/settings-audit.ts:securityEventsNewestFirst',
     ['all', 'people', 'machines', 'credentials', 'comments'].flatMap((kind) =>
@@ -891,6 +894,10 @@ const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
  * reason names the decision that defers it. The list may only shrink.
  */
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|session.asking#ids#]',
+    "Query shape: the sessions that ask (POD-7085) read the agent state each record carries, the runtime turn state over the observation checkpoint over the row, and the offer unless a later input made it stale; no index serves an expression over three tables. Stored as one derived column on the session row it would be an index seek; reported to POD-5910 as the follow-up.",
+  ],
   [
     'apps/server/src/store/issues.ts:commentSearch',
     'Query shape: substring LIKE over comment bodies; needs server full-text search, which the operator deferred (POD-5617).',

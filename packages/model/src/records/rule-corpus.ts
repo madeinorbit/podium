@@ -1,7 +1,7 @@
 /**
  * THE SHARED RULE CORPUS (POD-7084): records and the expected answer of every
  * declared rule over them. The JavaScript evaluator is held to it in
- * `records.test.ts`; the SQL evaluator, on SQLite and Postgres, in
+ * `records.test.ts`; the SQL evaluator, on SQLite, in
  * `@podium/sync`'s `rule-sql.test.ts`. A new rule without a case fails both.
  *
  * Records carry only the fields the rules read, plus their ids, as wire

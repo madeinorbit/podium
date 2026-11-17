@@ -12,6 +12,7 @@ import {
   type FeedFrameViolation,
 } from './feed'
 import { MetadataEntityKind } from './sync'
+import { SyncPolicy } from './collections'
 
 // Structural WHATWG contracts keep this package's ES-only typecheck DOM-free.
 const utf8 = globalThis as unknown as { TextEncoder: new () => { encode(input: string): Uint8Array } }
@@ -66,6 +67,8 @@ const SyncMetaShape = z.object({
   kindTokens: SyncKindTokens,
   /** Present only when the snapshot covers a requested subset. */
   kinds: z.array(z.string().min(1)).nonempty().optional(),
+  /** The first download (POD-7085): the client type's policy, which orders what follows. */
+  policy: SyncPolicy.optional(),
 })
 export type SyncMeta = z.infer<typeof SyncMetaShape>
 export const SyncMeta = SyncMetaShape.refine(validMeta, { message: 'invalid meta range or mode' })

@@ -166,6 +166,48 @@ describe('real sync worker boundary', () => {
       await f.close()
     }
   }, 30_000)
+  it('answers a collection fetch in one snapshot while appends commit (POD-7085)', async () => {
+    const f = await fixture()
+    let timer: ReturnType<typeof setInterval> | undefined
+    try {
+      for (let i = 0; i < 600; i++) append(f.writer, String(i), 'x'.repeat(1024))
+      const transfer = f.client.collections({
+        ...job('collections'),
+        mode: 'collections',
+        instances: [{ collection: 'agentProfile.all' }],
+      })
+      let next = 600
+      timer = setInterval(() => append(f.writer, String(next++)), 1)
+      const meta = await transfer.meta
+      const output = (await text(transfer.body))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+      clearInterval(timer)
+      timer = undefined
+      expect(next).toBeGreaterThan(600)
+      const actual = fixtureRows(
+        output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes),
+      ) as { entityId: string; seq: number }[]
+      // Every change at or below the answer's feed number is in it, none above.
+      const expected = f.writer
+        .prepare('SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id')
+        .all(meta.seq) as { entity_id: string }[]
+      expect(actual.map((r) => r.entityId).sort()).toEqual(expected.map((r) => r.entity_id))
+      expect(actual.every((r) => r.seq === meta.seq)).toBe(true)
+      // The instance is closed by its marker, at the same feed number.
+      expect(output.find((r) => r.type === 'collectionComplete')).toMatchObject({
+        seq: meta.seq,
+        instances: [{ collection: 'agentProfile.all', part: 'main' }],
+      })
+      expect(output.at(-1)).toMatchObject({ type: 'syncComplete', seq: meta.seq })
+      await checkpoint(f.writer)
+    } finally {
+      clearInterval(timer)
+      await f.close()
+    }
+  }, 30_000)
+
   it('aborts mid-pass-2 and expires a stalled transfer, releasing both snapshots', async () => {
     const f = await fixture()
     try {

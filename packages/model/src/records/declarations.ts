@@ -117,7 +117,14 @@ const historyCollections = (time: string, key: string, what: string) =>
     },
     page: {
       part: 'main',
-      page: { sort: [{ field: time, direction: 'desc' }], size: 50 },
+      // The id breaks ties, so the order is total and a page boundary loses nothing.
+      page: {
+        sort: [
+          { field: time, direction: 'desc' },
+          { field: key, direction: 'desc' },
+        ],
+        size: 50,
+      },
       why: `Older ${what}, newest first, one page at a time.`,
     },
     one: one(key),

@@ -6,13 +6,11 @@
  * observation checkpoint and a runtime turn state over the row's agent state,
  * and an offer made stale by a later input. Their records are built by the
  * real record builders. Then every declared rule over sessions and issues
- * must answer in SQL (`collection-sql.ts`, on this SQLite schema and on the
- * same rows copied into Postgres) exactly what it answers in JavaScript over
- * the built records. "Asking" is pinned on top: a checkpoint turns it on and
+ * must answer in SQL (`collection-sql.ts`, on this SQLite schema) exactly
+ * what it answers in JavaScript over the built records. "Asking" is pinned on top: a checkpoint turns it on and
  * off against the row's own agent state.
  */
 
-import { PGlite } from '@electric-sql/pglite'
 import {
   type AgentRuntimeState,
   actorUser,
@@ -29,13 +27,7 @@ import { collectRecords } from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableName } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import {
-  issues,
-  offers,
-  runtimeEventCheckpoints,
-  sessionObservationCheckpoints,
-  sessions,
-} from '../migrations/schema'
+import { sessions } from '../migrations/schema'
 import type { SessionStore } from '../store'
 import type { SessionRow } from '../store/types'
 import { issueRowFixture } from '../test-support/issue-row'
@@ -236,70 +228,10 @@ async function plant(store: SessionStore): Promise<void> {
   }
 }
 
-/** The columns `collection-sql.ts` reads, per table, copied into Postgres. */
-const COPIED: readonly {
-  table: { name: string }
-  name: string
-  columns: readonly { name: string; bool?: true }[]
-}[] = [
-  {
-    table: { name: getTableName(sessions) },
-    name: getTableName(sessions),
-    columns: [
-      sessions.id,
-      sessions.status,
-      { name: sessions.archived.name, bool: true },
-      sessions.issueId,
-      sessions.agentKind,
-      { name: sessions.headless.name, bool: true },
-      sessions.publishedLastActiveAt,
-      sessions.lastInputAt,
-      sessions.agentStateJson,
-      sessions.deletedAt,
-    ],
-  },
-  {
-    table: { name: getTableName(offers) },
-    name: getTableName(offers),
-    columns: [offers.sessionId, offers.createdAt],
-  },
-  {
-    table: { name: getTableName(sessionObservationCheckpoints) },
-    name: getTableName(sessionObservationCheckpoints),
-    columns: [
-      sessionObservationCheckpoints.sessionId,
-      sessionObservationCheckpoints.checkpointJson,
-    ],
-  },
-  {
-    table: { name: getTableName(runtimeEventCheckpoints) },
-    name: getTableName(runtimeEventCheckpoints),
-    columns: [runtimeEventCheckpoints.sessionId, runtimeEventCheckpoints.turnStateJson],
-  },
-  {
-    table: { name: getTableName(issues) },
-    name: getTableName(issues),
-    columns: [
-      issues.id,
-      issues.repoId,
-      issues.seq,
-      issues.parentId,
-      issues.stage,
-      issues.closedReason,
-      { name: issues.archived.name, bool: true },
-      issues.deletedAt,
-      { name: issues.draft.name, bool: true },
-      issues.audience,
-      issues.updatedAt,
-    ],
-  },
-]
-
 const KINDS: readonly CollectionKind[] = ['session', 'issueProjection']
 
 describe('collection rules over the server tables', () => {
   let store: SessionStore
-  let postgres: PGlite
   const built = new Map<CollectionKind, Readonly<Record<string, unknown>>[]>()
 
   beforeAll(async () => {
@@ -317,28 +249,9 @@ describe('collection rules over the server tables', () => {
         records.map(({ value }) => value as Record<string, unknown>),
       )
     }
-    postgres = await PGlite.create()
-    for (const { name, columns } of COPIED) {
-      await postgres.exec(
-        `CREATE TABLE ${name} (${columns.map((c) => `${c.name} ${'bool' in c && c.bool ? 'BOOLEAN' : c.name === 'seq' ? 'INTEGER' : 'TEXT'}`).join(', ')})`,
-      )
-      const rows = rawDb(store)
-        .prepare(`SELECT ${columns.map((c) => c.name).join(', ')} FROM ${name}`)
-        .all() as Record<string, unknown>[]
-      const marks = columns.map((_, at) => `$${at + 1}`).join(', ')
-      for (const row of rows) {
-        await postgres.query(
-          `INSERT INTO ${name} (${columns.map((c) => c.name).join(', ')}) VALUES (${marks})`,
-          columns.map((c) =>
-            'bool' in c && c.bool ? Boolean(row[c.name]) : (row[c.name] ?? null),
-          ),
-        )
-      }
-    }
   })
 
   afterAll(async () => {
-    await postgres?.close()
     await store?.close()
   })
 
@@ -367,24 +280,19 @@ describe('collection rules over the server tables', () => {
       .sort()
   }
 
-  async function sqlAnswers(
+  function sqlAnswer(
     kind: CollectionKind,
     where: Parameters<typeof matchesWhere>[0],
     args: RuleArgs,
-  ) {
-    const lite = collectionQuery(kind, where, args, NOW, 'sqlite')
-    const onSqlite = (
+  ): string[] {
+    const query = collectionQuery(kind, where, args, NOW)
+    return (
       rawDb(store)
-        .prepare(lite.sql)
-        .all(...lite.params) as { id: string }[]
+        .prepare(query.sql)
+        .all(...query.params) as { id: string }[]
     )
       .map((r) => r.id)
       .sort()
-    const pg = collectionQuery(kind, where, args, NOW, 'postgres')
-    const onPostgres = (await postgres.query<{ id: string }>(pg.sql, [...pg.params])).rows
-      .map((r) => r.id)
-      .sort()
-    return { onSqlite, onPostgres }
   }
 
   it('builds the planted records, without the deleted session', () => {
@@ -405,7 +313,7 @@ describe('collection rules over the server tables', () => {
     for (const rule of declaredRules()) {
       if (!(KINDS as readonly string[]).includes(rule.of)) continue
       expect(
-        () => collectionQuery(rule.of as CollectionKind, rule.where, ARGS[0]!, NOW, 'sqlite'),
+        () => collectionQuery(rule.of as CollectionKind, rule.where, ARGS[0]!, NOW),
         rule.id,
       ).not.toThrow()
     }
@@ -414,23 +322,18 @@ describe('collection rules over the server tables', () => {
 
   for (const rule of declaredRules().filter((r) => (KINDS as readonly string[]).includes(r.of))) {
     for (const [at, args] of ARGS.entries()) {
-      it(`${rule.id} (arguments ${at + 1}) answers as its records do`, async () => {
+      it(`${rule.id} (arguments ${at + 1}) answers as its records do`, () => {
         const kind = rule.of as CollectionKind
-        const expected = jsAnswer(kind, rule.where, args)
-        const { onSqlite, onPostgres } = await sqlAnswers(kind, rule.where, args)
-        expect(onSqlite, 'SQLite').toEqual(expected)
-        expect(onPostgres, 'Postgres').toEqual(expected)
+        expect(sqlAnswer(kind, rule.where, args)).toEqual(jsAnswer(kind, rule.where, args))
       })
     }
   }
 
-  it('reads asking from the checkpoint and the runtime state over the row, and drops a stale offer', async () => {
+  it('reads asking from the checkpoint and the runtime state over the row, and drops a stale offer', () => {
     const asking = declaredRules().find((rule) => rule.id === 'session.asking')!
     const want = ['s-checkpoint-asks', 's-idle-question', 's-offer', 's-row-asks']
     expect(jsAnswer('session', asking.where, {})).toEqual(want)
-    const { onSqlite, onPostgres } = await sqlAnswers('session', asking.where, {})
-    expect(onSqlite).toEqual(want)
-    expect(onPostgres).toEqual(want)
+    expect(sqlAnswer('session', asking.where, {})).toEqual(want)
   })
 
   it('would answer differently if it read the row alone', async () => {

@@ -19,13 +19,77 @@ import {
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import { CollectionAnswer, type FetchOutput, resolveInstance } from '../sync/collection-fetch'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
+import { firstDownload, policyFor } from '../sync/policy'
 import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
 import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
+/** The range every line of one snapshot answer carries. */
+interface AnswerRange {
+  readonly feedId: string
+  readonly epoch: string
+  readonly fromSeq: number
+  readonly seq: number
+  readonly minAvailableSeq: number
+}
+
+/**
+ * One output of the collection fetch as wire lines (POD-7085): whole records
+ * in `feedBootstrap` chunks, issue stubs in `feedStubs` chunks, markers in a
+ * `collectionComplete` line, every one stamped with the answer's feed number.
+ */
+function outputLines(output: FetchOutput, range: AnswerRange): unknown[] {
+  if (output.type === 'complete') {
+    return [
+      {
+        type: 'collectionComplete',
+        feedId: range.feedId,
+        epoch: range.epoch,
+        seq: range.seq,
+        instances: output.instances,
+      },
+    ]
+  }
+  const stub = output.type === 'stubs'
+  const lines: unknown[] = []
+  let batch: unknown[] = []
+  let bytes = 0
+  const close = () => {
+    if (batch.length === 0) return
+    lines.push(
+      stub
+        ? { type: 'feedStubs', ...range, changes: batch }
+        : { type: 'feedBootstrap', ...range, changes: batch, last: false },
+    )
+    batch = []
+    bytes = 0
+  }
+  for (const record of output.records) {
+    const change = {
+      seq: range.seq,
+      entity: record.entity,
+      entityId: record.entityId,
+      op: 'upsert',
+      ...(stub ? { part: 'stub' } : {}),
+      value: record.value,
+    }
+    const size = utf8.encode(JSON.stringify(change)).byteLength
+    if (
+      batch.length > 0 &&
+      (batch.length >= SYNC_BATCH_MAX_ROWS || bytes + size > SYNC_BATCH_TARGET_BYTES)
+    )
+      close()
+    batch.push(change)
+    bytes += size + 1
+  }
+  close()
+  return lines
+}
+
 /** Full loads share grouped reads; filtered loads read only the requested kinds. */
 async function* bootstrapPages(
   source: RecordSourcePort,
@@ -94,6 +158,8 @@ async function* produceRecords(
     return bytes
   }
   try {
+    // One snapshot per answer (POD-7085): the collections and the feed number
+    // they are complete as of are read in this one read transaction.
     db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN')
     transaction = true
     const capture = performance.now()
@@ -187,11 +253,16 @@ async function* produceRecords(
         await iterator.return?.()
       }
     }
-    // Stream the model tables a page at a time inside the snapshot fixed by
-    // the head read (design POD-6253 §4). Every row carries that head number.
-    const { policy: world, records: source, sync } = context
+    // Everything below reads inside the snapshot fixed by the head read
+    // (design POD-6253 §4, POD-7059 "One snapshot per answer"): every record
+    // and every marker is stamped with that head number.
+    const { policy: world, records: source, sync, collections } = context
     const kindTokens = await readKindTokens(sync, options.effectKinds)
     check()
+    // The first download is the policy's collections in its order (POD-7085);
+    // a request that names kinds still streams those kinds whole.
+    const fetch = job.mode === 'collections' || job.kinds === undefined
+    const syncPolicy = fetch ? policyFor(job.clientType) : undefined
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
       formatVersion: 1,
@@ -204,7 +275,8 @@ async function* produceRecords(
       seq,
       minAvailableSeq,
       kindTokens,
-      ...(job.kinds && { kinds: job.kinds }),
+      ...(job.mode !== 'collections' && job.kinds && { kinds: job.kinds }),
+      ...(job.mode !== 'collections' && syncPolicy && { policy: syncPolicy }),
       // No `totalRows`: the count is known only once every table is read, and
       // the load streams in one pass.
     }
@@ -224,6 +296,44 @@ async function* produceRecords(
       ...(last ? { totalRows: rows } : {}),
     })
     const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
+    if (fetch) {
+      const answer = new CollectionAnswer({
+        collections,
+        records: source,
+        visibility: world,
+        principal: job.principal,
+        now: options.now?.() ?? Date.now(),
+        policyArgs: { recentDays: syncPolicy!.recentDays },
+      })
+      const instances =
+        job.mode === 'collections' ? job.instances : firstDownload(syncPolicy!, job.view ?? [])
+      for (const instance of instances) {
+        const outputs = answer.instance(resolveInstance(instance))
+        for await (const output of outputs) {
+          check()
+          for (const object of outputLines(output, range)) yield line(object)
+          if (output.type !== 'complete') {
+            rows += output.records.length
+            refCount += output.records.length
+          }
+          await yieldLoop()
+          check()
+        }
+      }
+      heapAfterPrefetch = process.memoryUsage().heapUsed
+      // The first download ends as a start-up load does: one last chunk.
+      if (job.mode !== 'collections') yield line(frame([], true))
+      check()
+      yield line({
+        type: 'syncComplete',
+        transferId: job.transferId,
+        seq,
+        records: records - 1,
+        rows,
+      } satisfies SyncComplete)
+      outcome = 'complete'
+      return
+    }
     const pages = bootstrapPages(source, job.kinds)[Symbol.asyncIterator]()
     try {
       for (;;) {

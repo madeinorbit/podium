@@ -1,4 +1,6 @@
 import type {
+  ClientType,
+  CollectionInstance,
   MetadataEntityKind,
   Principal,
   SyncMeta,
@@ -18,17 +20,26 @@ export interface BootstrapJob {
   epoch: string
   encoding: 'identity' | 'gzip' | 'zstd'
   kinds?: [MetadataEntityKind, ...MetadataEntityKind[]]
+  /** Whose policy orders the first download (POD-7085); absent is a browser's. */
+  clientType?: ClientType
+  /** What the visible view asked for: the first download's second step. */
+  view?: readonly CollectionInstance[]
   /** Absolute epoch milliseconds; omitted means ten minutes from admission. */
   deadlineMs?: number
 }
-export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
+/** A fetch of named collection instances (`POST /sync/collections`, POD-7085). */
+export interface CollectionsJob extends Omit<BootstrapJob, 'kinds' | 'mode' | 'view'> {
+  mode: 'collections'
+  instances: readonly CollectionInstance[]
+}
+export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode' | 'clientType' | 'view'> {
   mode: 'delta'
   from: number
   to?: number
   pageRows?: number
   omitKinds?: readonly MetadataEntityKind[]
 }
-export type SyncJob = BootstrapJob | DeltaJob
+export type SyncJob = BootstrapJob | DeltaJob | CollectionsJob
 export type SyncMetaSummary = SyncMeta
 export type SyncFailureReason = SyncBootstrapRequiredReason | 'queue-full' | 'cancelled' | 'deadline' | 'worker-crashed' | 'shutdown' | 'row-too-large' | 'producer-failed' | 'unavailable'
 export class SyncWorkerError extends Error {

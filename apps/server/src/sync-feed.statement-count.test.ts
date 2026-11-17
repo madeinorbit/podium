@@ -19,7 +19,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -99,6 +99,13 @@ async function world(size: number, delta = false): Promise<World> {
     issues.push(created.id)
     await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/other/w${i}` })
   }
+  await settle(reg)
+  // The registered repository's checkout at every size, written as a
+  // registration change writes it: the host daemon's inventory writes it only
+  // when it runs, which a short setup can finish before. The first download
+  // holds every checkout (POD-7085), so the load must not see one at one size
+  // and none at the other.
+  await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachineId))
   await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
@@ -284,11 +291,11 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // `change_latest` and one prefetch for the whole world.
   // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 64)
+    await expectConstantStatements(bootstrap, 89)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 64, plantPerSessionRead)
+    await expectArmed(bootstrap, 89, plantPerSessionRead)
   })
 
   it('reads a filtered bootstrap with the same statement count at both sizes', async () => {

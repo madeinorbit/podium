@@ -41,6 +41,41 @@ If transport or compressor failure prevents sending even the error, premature EO
 fails the transfer. A client must treat every stream without `syncComplete` as failed,
 regardless of rows received or a bootstrap chunk's `last` flag.
 
+## Collections (POD-7085)
+
+The device holds declared collections (design POD-7059; the declarations are
+`packages/model/src/records/declarations.ts`). The server answers them on two routes, both
+produced by the sync worker in one read transaction, so every record and every marker is
+complete as of the answer's `seq`:
+
+- `GET /sync/bootstrap` without `kinds` is the **first download**: the client type's policy
+  (`SyncPolicy`, sent as `syncMeta.policy`) in its order. Always and live (with the sessions
+  that ask and the server's windows); what the visible view asked for (`view`, a JSON array
+  of instances, at most 50); recent; the sidebar with what it comes with, and the sessions
+  with no issue; the issue stubs last. It ends with an empty `feedBootstrap` chunk with
+  `last: true` and `syncComplete`. With `kinds`, the route still streams those kinds whole.
+- `POST /sync/collections` with `{ instances: CollectionInstance[] }` (at most 200) answers
+  the named instances. No final `last: true` chunk.
+
+The client names its type in the `Podium-Client-Type` header (`phone`, `browser`,
+`desktop`; absent is a browser). An instance is `{ collection, args?, part?, via?, after? }`:
+a declared collection id, exactly its arguments, `part: 'stub'` for an issue collection at
+stub level, `via` for the holder whose "comes with" narrows it, and `after` to continue a
+paged collection below a sort position. Anything else is refused with 400 before a job is
+admitted.
+
+| Type | Fields and meaning |
+| --- | --- |
+| `feedStubs` | Issue stubs: the certified range and `changes` whose rows are `{ seq, entity: 'issueProjection', entityId, op: 'upsert', part: 'stub', value }`, `value` the declared stub fields picked from the record. Not a record kind. |
+| `collectionComplete` | The marker: `feedId`, `epoch`, `seq` and `instances`, each `{ collection, args?, part, via?, range?, total? }`. Every record of those instances this viewer may see was sent at or before this line. A paged instance carries `range: { through?, end }`; its first page carries `total`, counted over the records this viewer may see. |
+
+Whole records travel in `feedBootstrap` chunks with `last: false`. A record goes out once per
+answer; a later instance that holds it names it only in its marker. What a record comes with
+(an issue's parents, read state, git state and dependencies; a session's issue and state; a
+pin's or an ask's target; the sidebar's sessions) follows its instance in the same answer,
+each keyed instance with its own marker (`via` names the holder). A stub brings nothing
+along. Older parsers ignore `feedStubs` and `collectionComplete` as unknown types.
+
 ## Snapshot replacement and authorization
 
 The snapshot is one consistent scoped world at cursor S. Every chunk carries the same

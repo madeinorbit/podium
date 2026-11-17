@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
-import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
+import { asIssueId, asMachineId, asUserId, issueEventRowId, RECORD_KINDS } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { Hono } from 'hono'
@@ -180,7 +180,7 @@ describe('cursor expiry worker reload', () => {
         origin: 'https://example.test',
         streamingFetch: {
           fetch: async (url: string, init: RequestInit) => {
-            requests.push(new URL(url).pathname)
+            requests.push(`${new URL(url).pathname}${new URL(url).search}`)
             // Hono's in-process fetch does not decompress response bodies.
             const headers = new Headers(init.headers)
             headers.set('accept-encoding', 'identity')
@@ -200,8 +200,14 @@ describe('cursor expiry worker reload', () => {
       })
       replica.connect()
       await replica.settled()
-      expect(requests).toEqual(['/sync/delta', '/sync/bootstrap'])
-      expect(admitted).toHaveBeenCalledTimes(1)
+      // The delta is refused, then the first download (POD-7085) is the
+      // policy's collections. Today's client then reloads by name the kinds
+      // the first download does not hold (its kind-token check); that path
+      // moves to collections with POD-7086.
+      expect(requests.slice(0, 2).map((r) => r.split('?')[0])).toEqual(['/sync/delta', '/sync/bootstrap'])
+      expect(requests[1]).toBe('/sync/bootstrap')
+      for (const request of requests.slice(2)) expect(request).toStartWith('/sync/bootstrap?kinds=')
+      expect(admitted).toHaveBeenCalledTimes(requests.length - 1)
       expect(builds).not.toHaveBeenCalled()
       expect(replica.posture).toBe('live')
       expect(replica.cursor).toEqual({ ...oldCursor, seq: 2 })
@@ -282,7 +288,9 @@ it.each([
     await f.moveHead()
     const expected = await f.authority.bootstrap(principal)
     const head = await f.store.sync.maxChangeSeq()
-    const response = await f.app.request('/sync/bootstrap', {
+    // Every kind, whole: the stream the Authority's bootstrap is held to. The
+    // first download without kinds is the policy's collections (POD-7085).
+    const response = await f.app.request(`/sync/bootstrap?kinds=${RECORD_KINDS.join(',')}`, {
       headers: { 'accept-encoding': coding },
     })
     expect(response.status).toBe(200)
@@ -302,9 +310,13 @@ it.each([
       epoch: 'fixture-epoch',
     })
     expect(records.at(-1)).toMatchObject({ type: 'syncComplete', seq: head })
-    expect(records.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)).toEqual(
-      expected.changes,
-    )
+    // The same rows; a load that names its kinds streams them kind by kind.
+    const order = (r: { entity: string; entityId: string }) => `${r.entity}\u0000${r.entityId}`
+    const sorted = <T extends { entity: string; entityId: string }>(list: readonly T[]) =>
+      [...list].sort((x, y) => (order(x) < order(y) ? -1 : order(x) > order(y) ? 1 : 0))
+    expect(
+      sorted(records.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)),
+    ).toEqual(sorted(expected.changes))
     // Every member reads every task (POD-6288): the reader gets both issues
     // and the state paragraph, each row stamped with the head number.
     expect(
@@ -432,7 +444,9 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
       }
     }
     probes = Promise.all([healthLoop(), pingLoop()])
-    const response = await fetch(`${origin}/sync/bootstrap`, {
+    // Every kind, whole: the large stream this measures (the first download is
+    // the policy set, POD-7085).
+    const response = await fetch(`${origin}/sync/bootstrap?kinds=${RECORD_KINDS.join(',')}`, {
       headers: { 'accept-encoding': 'identity' },
     })
     expect(response.status).toBe(200)

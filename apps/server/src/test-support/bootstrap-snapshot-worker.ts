@@ -1,6 +1,7 @@
 /** Bun entry for snapshot fixtures: Vitest's resolver conditions do not reach workers. */
 
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import { RECORD_KINDS } from '@podium/model'
 import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import { Hono } from 'hono'
 import { registerSyncRoutes } from '../sync/routes'
@@ -45,7 +46,16 @@ try {
     },
   })
   process.stdout.write(
-    JSON.stringify(await snapshotFromBootstrap(source.bootstrap(undefined, input.kinds))),
+    // Every kind, whole: the fixture's world. The first download without kinds
+    // is the policy's collections (POD-7085), which these assertions do not ask about.
+    JSON.stringify(
+      await snapshotFromBootstrap(
+        source.bootstrap(
+          undefined,
+          input.kinds ?? (RECORD_KINDS as unknown as MetadataEntityKind[]),
+        ),
+      ),
+    ),
   )
 } finally {
   await worker.close()

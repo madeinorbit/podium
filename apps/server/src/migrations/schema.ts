@@ -431,6 +431,10 @@ export const sessions = sqliteTable(
     // Sessions by status (POD-6160): the running ones a boot restores, the
     // not-exited ones the concierge digest reports.
     index('idx_sessions_status').on(table.status),
+    // The collection fetch (POD-7085): recent sessions by the activity time the
+    // record carries, and sessions with no issue that are not archived.
+    index('idx_sessions_published_active').on(table.publishedLastActiveAt),
+    index('idx_sessions_issue_archived').on(table.issueId, table.archived),
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
     index('idx_sessions_headless').on(table.headless).where(sql`${table.headless} = 1`),
@@ -857,6 +861,8 @@ export const conversations = sqliteTable(
   (table) => [
     index('idx_conversations_project_path').on(table.projectPath),
     index('idx_conversations_updated_at').on(table.updatedAt),
+    // Recent conversations by their creation time (POD-7085).
+    index('idx_conversations_created_at').on(table.createdAt, table.id),
     // The recent top-level conversations, one keyset page at a time, newest
     // first, when memory search has no term (POD-6209).
     index('idx_conversations_top_level_updated')
@@ -1926,6 +1932,11 @@ export const issues = sqliteTable(
     // they are reported without a sort.
     index('idx_issues_seq').on(table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.repoPath),
+    // The collection fetch (POD-7085): the open stages of the sidebar, and one
+    // stage's page newest first with the id breaking ties, both off one index;
+    // and issues changed in the last N days.
+    index('idx_issues_stage_updated').on(table.stage, desc(table.updatedAt), table.id),
+    index('idx_issues_updated').on(table.updatedAt),
     // WHICH LIVE ISSUE OWNS THIS FOLDER (POD-6148): the lookup that replaces the
     // world index's in-memory folder scan (POD-6140). Only live issues with a
     // worktree are in it; a reader must say `worktree_path = ? AND deleted_at
@@ -3261,6 +3272,8 @@ export const automationRuns = sqliteTable(
   },
   (table) => [
     index('idx_automation_runs_automation').on(table.automationId, table.firedAt),
+    // Recent runs by their firing time (POD-7085).
+    index('idx_automation_runs_fired').on(table.firedAt, table.id),
     check(
       'automation_runs_check_20',
       sql`outcome IN ('spawned','missed','skipped_overlap','error')`,
