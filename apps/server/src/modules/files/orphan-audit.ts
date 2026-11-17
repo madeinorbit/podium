@@ -6,6 +6,7 @@ import {
   decodeKeySegment,
   parsePadded,
 } from '@podium/blob-store'
+import { createLogger } from '@podium/logger'
 import {
   asIssueId,
   type IssueId,
@@ -54,15 +55,35 @@ import { isPendingUploadId, pendingUploadKey } from '../issues/pending-uploads'
  * listing and the delete; the mirror's shorter-than-cursor guard repairs that
  * by re-pulling the bytes, which is what it does for a crash.
  *
+ * A DELETION CEILING PER ROOT. A reference read that comes back empty or short
+ * (a bug, a scoping mistake, a database restored from a backup older than the
+ * files) would make every listed key look unreferenced. So the audit first
+ * plans a whole root, then deletes nothing under it when the plan would remove
+ * more than {@link ORPHAN_DELETE_CEILING_SHARE} of the keys it listed there,
+ * unless the plan is at most {@link ORPHAN_DELETE_FLOOR} keys (so one stray file
+ * in a nearly empty root is not blocked). A refused root is logged once with its
+ * counts and a few sample keys and reported as `refused`; `overrideCeiling`
+ * lets a later operator command delete it anyway, per root. `dryRun` plans
+ * every root and deletes nothing. A plan holds its keys in memory: the orphans
+ * of one root, which the ceiling keeps to a share of the listing.
+ *
  * The handle is the workspace's own (`BlobStorage.forWorkspace`), so the audit
  * cannot list or delete outside the workspace's prefix; the records are that
  * workspace's repositories.
  */
 
+const log = createLogger('server:orphan-audit')
+
 /** Keys written less than this long ago are never judged. */
 export const ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000
 /** How often a server audits its workspace: rarely, the design says; daily. */
 export const ORPHAN_AUDIT_EVERY_MS = 24 * 60 * 60 * 1000
+/** A root whose plan removes more than this share of its listed keys is refused. */
+export const ORPHAN_DELETE_CEILING_SHARE = 0.2
+/** A plan of at most this many keys is never refused, whatever its share. */
+export const ORPHAN_DELETE_FLOOR = 10
+/** Keys a refusal names in its log line and report. */
+const REFUSAL_SAMPLES = 5
 
 /** Rows read per page of a reference table. */
 const PAGE = 500
@@ -77,6 +98,7 @@ const PENDING_UPLOADS = 'pending-uploads'
 const TRANSCRIPTS = 'transcripts'
 /** The roots the audit lists, in the order it lists them. */
 export const AUDITED_ROOTS = [ARTIFACTS, PENDING_UPLOADS, TRANSCRIPTS] as const
+export type AuditedRoot = (typeof AUDITED_ROOTS)[number]
 
 /** The artifact store's id rule: dot-prefixed names are staging, never refs. */
 const ID_RE = /^(?!\.)[A-Za-z0-9._-]+$/
@@ -100,6 +122,10 @@ export interface OrphanAuditOptions {
   minAgeMs?: number
   /** The lake's part size (P); the parted lake's own by default. */
   partBytes?: number
+  /** Plan every root and delete nothing. */
+  dryRun?: boolean
+  /** Roots whose plan is deleted even past the ceiling: an operator's override. */
+  overrideCeiling?: readonly AuditedRoot[]
 }
 
 /** What one pass saw, per root. */
@@ -108,18 +134,42 @@ export interface OrphanAuditRootReport {
   /** Younger than the age rule: not judged. */
   young: number
   referenced: number
-  deleted: number
   /** Under `transcripts/` only: keys not in the lake's shape, left alone. */
   foreign: number
+  /** Old keys nothing references: the plan's deletions. */
+  orphans: number
+  /** Deleted by this pass: `orphans`, or none when refused or a dry run. */
+  deleted: number
+  /** The ceiling refused the plan; nothing under this root was deleted. */
+  refused: boolean
+  /** A few of a refused plan's keys, for the operator. */
+  samples: readonly BlobKey[]
 }
 
 export interface OrphanAuditReport {
   workspaceId: WorkspaceId
-  roots: Record<(typeof AUDITED_ROOTS)[number], OrphanAuditRootReport>
+  dryRun: boolean
+  roots: Record<AuditedRoot, OrphanAuditRootReport>
+  /** Each root's planned deletions, in key order. */
+  plan: Record<AuditedRoot, readonly BlobKey[]>
 }
 
 function emptyRoot(): OrphanAuditRootReport {
-  return { listed: 0, young: 0, referenced: 0, deleted: 0, foreign: 0 }
+  return {
+    listed: 0,
+    young: 0,
+    referenced: 0,
+    foreign: 0,
+    orphans: 0,
+    deleted: 0,
+    refused: false,
+    samples: [],
+  }
+}
+
+/** Whether the ceiling refuses a plan of `orphans` keys out of `listed`. */
+export function ceilingRefuses(orphans: number, listed: number): boolean {
+  return orphans > ORPHAN_DELETE_FLOOR && orphans > ORPHAN_DELETE_CEILING_SHARE * listed
 }
 
 const pair = (a: string, b: string) => `${a}\0${b}`
@@ -148,6 +198,10 @@ export class OrphanAudit {
   private readonly now: () => number
   private readonly minAgeMs: number
   private readonly partBytes: number
+  private readonly dryRun: boolean
+  private readonly overrideCeiling: ReadonlySet<AuditedRoot>
+  /** The root being planned: its orphan keys, in listing order. */
+  private planned: BlobKey[] = []
 
   constructor(
     /** This workspace's handle (`forWorkspace(workspaceId)`). */
@@ -159,19 +213,62 @@ export class OrphanAudit {
     this.now = options.now ?? Date.now
     this.minAgeMs = options.minAgeMs ?? ORPHAN_MIN_AGE_MS
     this.partBytes = options.partBytes ?? LAKE_PART_BYTES
+    this.dryRun = options.dryRun ?? false
+    this.overrideCeiling = new Set(options.overrideCeiling ?? [])
   }
 
   async run(): Promise<OrphanAuditReport> {
     const cutoff = this.now() - this.minAgeMs
     const report: OrphanAuditReport = {
       workspaceId: this.workspaceId,
+      dryRun: this.dryRun,
       roots: { artifacts: emptyRoot(), 'pending-uploads': emptyRoot(), transcripts: emptyRoot() },
+      plan: { artifacts: [], 'pending-uploads': [], transcripts: [] },
     }
     const pending = await this.pendingRows()
-    await this.auditArtifacts(cutoff, pending, report.roots.artifacts)
-    await this.auditPendingUploads(cutoff, pending, report.roots['pending-uploads'])
-    if (this.records.lake) await this.auditLake(cutoff, this.records.lake, report.roots.transcripts)
+    // Each root is planned whole, then settled: deleted, or refused by the ceiling.
+    const plan = async (
+      root: AuditedRoot,
+      audit: (into: OrphanAuditRootReport) => Promise<void>,
+    ) => {
+      this.planned = []
+      await audit(report.roots[root])
+      // Members are judged a batch of issues at a time; the plan reads in key order.
+      report.plan[root] = this.planned.sort()
+      await this.settle(root, report.roots[root], this.planned)
+    }
+    await plan(ARTIFACTS, (into) => this.auditArtifacts(cutoff, pending, into))
+    await plan(PENDING_UPLOADS, (into) => this.auditPendingUploads(cutoff, pending, into))
+    const lake = this.records.lake
+    if (lake) await plan(TRANSCRIPTS, (into) => this.auditLake(cutoff, lake, into))
     return report
+  }
+
+  /** Delete a root's plan unless this is a dry run or the ceiling refuses it. */
+  private async settle(
+    root: AuditedRoot,
+    report: OrphanAuditRootReport,
+    keys: readonly BlobKey[],
+  ): Promise<void> {
+    if (ceilingRefuses(keys.length, report.listed) && !this.overrideCeiling.has(root)) {
+      report.refused = true
+      report.samples = keys.slice(0, REFUSAL_SAMPLES)
+      log.warn('orphan audit refused a root: its plan deletes too much of what it listed', {
+        workspaceId: this.workspaceId,
+        root,
+        listed: report.listed,
+        orphans: keys.length,
+        ceilingShare: ORPHAN_DELETE_CEILING_SHARE,
+        floor: ORPHAN_DELETE_FLOOR,
+        samples: report.samples,
+      })
+      return
+    }
+    if (this.dryRun) return
+    for (const key of keys) {
+      await this.files.delete(key)
+      report.deleted += 1
+    }
   }
 
   /** Every composer upload's row: about a day of uploads, read in pages. */
@@ -224,7 +321,7 @@ export class OrphanAudit {
       }
       for (const member of held) {
         if (named.has(pair(member.issueId, member.artifactId))) root.referenced += 1
-        else await this.remove(member.key, root)
+        else this.orphan(member.key, root)
       }
       held = []
       heldIssues = new Set()
@@ -245,7 +342,7 @@ export class OrphanAudit {
           ID_RE.test(issueId) &&
           ID_RE.test(uploadId)
         if (isChunk && staged.has(pair(issueId, uploadId))) root.referenced += 1
-        else await this.remove(entry.key, root)
+        else this.orphan(entry.key, root)
         continue
       }
       const [, issueId, artifactId] = parts
@@ -256,7 +353,7 @@ export class OrphanAudit {
         !ID_RE.test(issueId) ||
         !ID_RE.test(artifactId)
       ) {
-        await this.remove(entry.key, root)
+        this.orphan(entry.key, root)
         continue
       }
       const issue = asIssueId(issueId)
@@ -286,7 +383,7 @@ export class OrphanAudit {
       if (row !== undefined && isPendingUploadId(row.id) && namesKey(row, entry.key)) {
         root.referenced += 1
       } else {
-        await this.remove(entry.key, root)
+        this.orphan(entry.key, root)
       }
     }
   }
@@ -316,7 +413,7 @@ export class OrphanAudit {
       }
       const cursor = cursors.get(triple(part.machineId, part.nativeId, part.incarnation)) ?? 0
       if (part.part * this.partBytes < cursor) root.referenced += 1
-      else await this.remove(entry.key, root)
+      else this.orphan(entry.key, root)
     }
   }
 
@@ -349,9 +446,10 @@ export class OrphanAudit {
     return cursors
   }
 
-  private async remove(key: BlobKey, root: OrphanAuditRootReport): Promise<void> {
-    await this.files.delete(key)
-    root.deleted += 1
+  /** Plan `key` for deletion: old, and nothing references it. */
+  private orphan(key: BlobKey, root: OrphanAuditRootReport): void {
+    this.planned.push(key)
+    root.orphans += 1
   }
 }
 

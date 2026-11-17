@@ -33,8 +33,11 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { expectArmed, expectConstantStatements } from '../../test-support/statement-count'
 import { PendingUploadStore } from '../issues/pending-uploads'
 import {
+  type AuditedRoot,
   auditWorkspaceFiles,
   lakePart,
+  ORPHAN_DELETE_CEILING_SHARE,
+  ORPHAN_DELETE_FLOOR,
   ORPHAN_MIN_AGE_MS,
   OrphanAudit,
   type OrphanAuditRecords,
@@ -87,7 +90,12 @@ interface Fixture {
   rotate(nativeId: string, archived: number, cursor: number): Promise<void>
   /** Write `count` parts of an incarnation. */
   parts(segment: LakeSegment, from: number, to: number): Promise<void>
-  audit(options?: { lake?: boolean }): ReturnType<OrphanAudit['run']>
+  audit(options?: {
+    lake?: boolean
+    dryRun?: boolean
+    overrideCeiling?: AuditedRoot[]
+    records?: OrphanAuditRecords
+  }): ReturnType<OrphanAudit['run']>
 }
 
 async function fixture(): Promise<Fixture> {
@@ -186,10 +194,12 @@ async function fixture(): Promise<Fixture> {
       return await new OrphanAudit(
         files,
         LOCAL_WORKSPACE_ID,
-        auditRecords(store, options.lake ?? true),
+        options.records ?? auditRecords(store, options.lake ?? true),
         {
           now: () => clock,
           partBytes: P,
+          ...(options.dryRun ? { dryRun: true } : {}),
+          ...(options.overrideCeiling ? { overrideCeiling: options.overrideCeiling } : {}),
         },
       ).run()
     },
@@ -225,6 +235,18 @@ describe('the orphan audit', () => {
     await f.put('artifacts/~mfrgg/a1/x.md')
     f.at(DAY + HOUR)
     await f.put('artifacts/iss_1/fresh/a.png')
+    const before = f.keys()
+
+    const planned = await f.audit({ dryRun: true })
+    expect(planned.dryRun).toBe(true)
+    expect(planned.plan.artifacts).toEqual([
+      'artifacts/iss_1/replaced/a.png',
+      'artifacts/iss_1/stray',
+      'artifacts/iss_gone/a1/x.md',
+      'artifacts/~mfrgg/a1/x.md',
+    ])
+    expect(planned.roots.artifacts).toMatchObject({ orphans: 4, deleted: 0, refused: false })
+    expect(f.keys()).toEqual(before)
 
     const report = await f.audit()
 
@@ -238,8 +260,11 @@ describe('the orphan audit', () => {
       listed: 8,
       young: 1,
       referenced: 3,
-      deleted: 4,
       foreign: 0,
+      orphans: 4,
+      deleted: 4,
+      refused: false,
+      samples: [],
     })
   })
 
@@ -300,6 +325,18 @@ describe('the orphan audit', () => {
     // Written since: a pull in flight past the cursor, not yet advanced.
     await f.parts(seg('s1', 2), 5, 6)
 
+    const planned = await f.audit({ dryRun: true })
+    expect(planned.plan.transcripts).toEqual([
+      f.lake.partKey(seg('ghost'), 0),
+      f.lake.partKey(seg('s1', 1), 1),
+      f.lake.partKey(seg('s1', 2), 3),
+      f.lake.partKey(seg('s1', 2), 4),
+      f.lake.partKey(seg('s1', 7), 0),
+      f.lake.partKey(seg('s2'), 1),
+      f.lake.partKey(seg('s2'), 2),
+    ])
+    expect(f.keys()).toHaveLength(14)
+
     const report = await f.audit()
 
     expect(f.keys()).toEqual([
@@ -311,12 +348,14 @@ describe('the orphan audit', () => {
       f.lake.partKey(seg('s1', 2), 2),
       f.lake.partKey(seg('s1', 2), 5),
     ])
-    expect(report.roots.transcripts).toEqual({
+    expect(report.roots.transcripts).toMatchObject({
       listed: 14,
       young: 1,
       referenced: 4,
-      deleted: 7,
       foreign: 2,
+      orphans: 7,
+      deleted: 7,
+      refused: false,
     })
   })
 
@@ -333,13 +372,16 @@ describe('the orphan audit', () => {
     const f = await fixture()
     await f.issue('iss_1', ['kept'])
     await f.put('artifacts/iss_1/kept/a.png')
-    for (let n = 0; n < 20; n++) await f.put(`artifacts/iss_1/orphan${n}/a.png`)
+    // Within the floor, so the ceiling does not refuse it.
+    for (let n = 0; n < ORPHAN_DELETE_FLOOR; n++) await f.put(`artifacts/iss_1/orphan${n}/a.png`)
     await f.segment('s1', 15)
     await f.parts(seg('s1'), 0, 6)
     f.at(DAY + HOUR)
 
     const [one, two] = await Promise.all([f.audit(), f.audit()])
-    expect(one.roots.artifacts.deleted + two.roots.artifacts.deleted).toBeGreaterThanOrEqual(20)
+    expect(one.roots.artifacts.deleted + two.roots.artifacts.deleted).toBeGreaterThanOrEqual(
+      ORPHAN_DELETE_FLOOR,
+    )
     const after = f.keys()
     expect(after).toEqual([
       'artifacts/iss_1/kept/a.png',
@@ -397,6 +439,110 @@ describe('the orphan audit', () => {
 })
 
 /**
+ * THE DELETION CEILING: a root is planned whole, and a plan that would delete
+ * more than a share of what the root listed (past a small floor) deletes
+ * nothing and says so, because a short or empty reference read looks exactly
+ * like a workspace of orphans.
+ */
+describe('the orphan audit deletion ceiling', () => {
+  /** `referenced` artifacts with panel entries, and `orphans` no panel names. */
+  async function artifacts(referenced: number, orphans: number) {
+    const f = await fixture()
+    const names = Array.from({ length: referenced }, (_, n) => `kept${n}`)
+    await f.issue('iss_1', names)
+    for (const name of names) await f.put(`artifacts/iss_1/${name}/a.png`)
+    for (let n = 0; n < orphans; n++) await f.put(`artifacts/iss_1/orphan${n}/a.png`)
+    f.at(DAY + HOUR)
+    return f
+  }
+
+  it('deletes nothing and reports the refusal when the reference reads come back empty', async () => {
+    const f = await artifacts(30, 0)
+    f.at(0)
+    await f.segment('s1', 3 * P)
+    await f.parts(seg('s1'), 0, 30)
+    f.at(DAY + HOUR)
+    const before = f.keys()
+    const empty: OrphanAuditRecords = {
+      pendingUploads: { page: async () => [] },
+      artifactUploads: { page: async () => [] },
+      panelArtifacts: async () => [],
+      lake: {
+        lakeConversionSegments: async () => [],
+        lakeConversionArchived: async () => [],
+      },
+    }
+
+    const report = await f.audit({ records: empty })
+
+    expect(f.keys()).toEqual(before)
+    for (const root of ['artifacts', 'transcripts'] as const) {
+      expect(report.roots[root]).toMatchObject({
+        listed: 30,
+        orphans: 30,
+        deleted: 0,
+        refused: true,
+      })
+      expect(report.roots[root].samples).toHaveLength(5)
+      expect(report.plan[root]).toHaveLength(30)
+    }
+    expect(report.roots.artifacts.samples[0]).toBe('artifacts/iss_1/kept0/a.png')
+  })
+
+  it('deletes an ordinary share of orphans past the floor', async () => {
+    const orphans = ORPHAN_DELETE_FLOOR + 5
+    // A sixth of the listing: under the ceiling's share.
+    const referenced = orphans * 5
+    expect(orphans / (referenced + orphans)).toBeLessThan(ORPHAN_DELETE_CEILING_SHARE)
+    const f = await artifacts(referenced, orphans)
+
+    const report = await f.audit()
+
+    expect(report.roots.artifacts).toMatchObject({
+      listed: referenced + orphans,
+      orphans,
+      deleted: orphans,
+      refused: false,
+    })
+    expect(f.keys().filter((k) => k.includes('orphan'))).toEqual([])
+  })
+
+  it('refuses a plan past the share, and deletes it on the operator’s override', async () => {
+    const orphans = ORPHAN_DELETE_FLOOR + 5
+    // A quarter of the listing: over the ceiling's share.
+    const referenced = orphans * 3
+    expect(orphans / (referenced + orphans)).toBeGreaterThan(ORPHAN_DELETE_CEILING_SHARE)
+    const f = await artifacts(referenced, orphans)
+
+    expect((await f.audit()).roots.artifacts).toMatchObject({ refused: true, deleted: 0 })
+    expect(f.keys()).toHaveLength(referenced + orphans)
+
+    const overridden = await f.audit({ overrideCeiling: ['artifacts'] })
+    expect(overridden.roots.artifacts).toMatchObject({ refused: false, deleted: orphans })
+    expect(f.keys()).toHaveLength(referenced)
+  })
+
+  it('never refuses a plan within the floor, whatever its share', async () => {
+    const f = await artifacts(1, ORPHAN_DELETE_FLOOR)
+    const report = await f.audit()
+    expect(report.roots.artifacts).toMatchObject({
+      listed: ORPHAN_DELETE_FLOOR + 1,
+      orphans: ORPHAN_DELETE_FLOOR,
+      deleted: ORPHAN_DELETE_FLOOR,
+      refused: false,
+    })
+    expect(f.keys()).toEqual(['artifacts/iss_1/kept0/a.png'])
+  })
+
+  it('reports a refusal in a dry run too, and deletes nothing either way', async () => {
+    const f = await artifacts(0, ORPHAN_DELETE_FLOOR + 1)
+    const report = await f.audit({ dryRun: true })
+    expect(report.roots.artifacts).toMatchObject({ refused: true, deleted: 0 })
+    expect(f.keys()).toHaveLength(ORPHAN_DELETE_FLOOR + 1)
+  })
+})
+
+/**
  * The audit's statements do not grow with the workspace (server-data rule 8):
  * one page of each upload table, one panel read for the issues the listing met,
  * one page of segments and one of archived incarnations.
@@ -437,8 +583,9 @@ describe('the orphan audit statement count', () => {
     run: async (fixture: PinFixture) => await fixture.audit.run(),
     check(result: unknown, _fixture: PinFixture, size: number) {
       const report = result as Awaited<ReturnType<OrphanAudit['run']>>
-      expect(report.roots.artifacts).toMatchObject({ referenced: size, deleted: size })
-      expect(report.roots.transcripts).toMatchObject({ referenced: size, deleted: size })
+      // Half of each root is orphaned: deleted at 5 (the floor), refused at 200.
+      expect(report.roots.artifacts).toMatchObject({ referenced: size, orphans: size })
+      expect(report.roots.transcripts).toMatchObject({ referenced: size, orphans: size })
       expect(report.roots['pending-uploads']).toMatchObject({ young: 0, referenced: size })
     },
   }

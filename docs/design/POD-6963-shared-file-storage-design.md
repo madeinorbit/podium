@@ -472,7 +472,11 @@ written more than a day ago, so `BlobListEntry` carries `modifiedAt` (file mtime
 artifact, staging and composer files while their rows exist, and a lake part while its
 incarnation's cursor reaches into it. Other keys under the first two roots go; under
 `transcripts/` only keys of the lake's own shape are judged, since a co-located daemon writes
-there too. Its reads are one page per upload table, one panel read per 500 issues met, and the
+there too. Each root is planned whole before anything goes: a plan that would delete more
+than 20 percent of the keys listed under its root (and more than 10 keys) is refused, deletes
+nothing, is logged with sample keys and reported, so a reference read that came back empty or
+short (a bug, a restored older database) cannot empty a workspace; an override per root and a
+dry run exist for an operator command. Its reads are one page per upload table, one panel read per 500 issues met, and the
 lake conversion's two cursor pages, pinned by a statement-count test. All three jobs run in
 each server process, hourly sweeps and a daily audit an hour after boot, through
 `modules/files/file-jobs.ts`, the seam POD-6962's leases replace.
