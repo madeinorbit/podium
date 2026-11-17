@@ -13,10 +13,9 @@ vi.mock('../../client/server-profile-context', () => ({ useOptionalServerProfile
 vi.mock('../ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('../SessionActionCard', () => ({ composeOfferPrompt: () => '' }))
 vi.mock('./PromptSheet', () => ({ PromptSheet: () => null }))
-vi.mock('./chrome', () => ({ Disclosure: () => null }))
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' }, impactAsync: vi.fn() }))
 
-const { TaskSessions } = await import('./TaskOverview')
+const { TaskSessions } = await import('./TaskSessions')
 afterEach(() => {
   cleanup()
   state.pool?.dispose()
@@ -62,7 +61,7 @@ it('reads live state words and observed/requested models from the shared session
     <TaskSessions issue={issue} sessions={[session as SessionView]} onOpenSession={() => {}} />,
   )
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    `Worker, ${modelName('codex', 'requested-model')} · Error`,
+    `Worker, Codex · Agent, ${modelName('codex', 'requested-model')} · Error`,
   )
   act(() =>
     pool.apply({
@@ -82,7 +81,7 @@ it('reads live state words and observed/requested models from the shared session
     }),
   )
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    `Worker, ${modelName('codex', 'observed-model')} · Needs you`,
+    `Worker, Codex · Agent, ${modelName('codex', 'observed-model')} · Needs you`,
   )
 })
 
@@ -123,9 +122,7 @@ it('opens every agent from the visible roster without opening Details', () => {
   })
   const onOpenSession = vi.fn()
   render(<TaskSessions issue={issue} sessions={sessions} onOpenSession={onOpenSession} />)
-  expect(screen.queryByRole('button', { name: /^Agent 4,/ })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Show all agents' }))
+  expect(screen.getAllByRole('button')).toHaveLength(4)
   fireEvent.click(screen.getByRole('button', { name: /^Agent 4,/ }))
   expect(onOpenSession).toHaveBeenCalledExactlyOnceWith('seat-3')
-  expect(screen.queryByRole('button', { name: 'Show all agents' })).toBeNull()
 })
