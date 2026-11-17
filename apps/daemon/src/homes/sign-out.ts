@@ -60,15 +60,12 @@ export async function signOutOfHome(
       id: home.homeId,
       dir: home.dir,
     })
-    const { stdin, env: execEnv, ...command } = harnessCommand(context, {
-      args: [...declared.args],
-      cwd: home.dir,
-    })
-    const { env } = harnessChildEnv(context, { ...(execEnv ? { wiringEnv: execEnv } : {}) })
+    const command = harnessCommand(context, { args: [...declared.args], cwd: home.dir })
+    const { env } = harnessChildEnv(context, {})
     await (io.runChild ?? defaultRunChild)(
       command,
       { timeout: HOME_SIGN_OUT_TIMEOUT_MS, maxBuffer: 1024 * 1024, cwd: home.dir, env },
-      stdin ?? '',
+      '',
     )
     return { ok: true }
   } catch (error) {

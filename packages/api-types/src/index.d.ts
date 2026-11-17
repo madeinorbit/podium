@@ -1312,6 +1312,41 @@ type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed
 
 type ChatgptSignInVia = 'machine' | 'paste';
 
+/**
+ * ADDING A SUBSCRIPTION BY SIGNING IN ON A MACHINE (credential management §6
+ * way 2, §10 "Homes"; epic plan Task 9).
+ *
+ * The person picks a machine and a harness's login type. Podium makes a home
+ * for the login on that machine and opens the vendor's own sign-in in a
+ * terminal there, with the harness's directory variable pointed at the home:
+ * `claude auth login` (a link, then a code pasted back) or
+ * `codex login --device-auth` (a link and a one-time code). Podium never sees
+ * the login: the home keeps it, and the machine's inventory reports only who
+ * it is (`AgentInventory.logins`).
+ *
+ * The credential row is written when that report arrives, not before, so a
+ * sign-in that is cancelled, fails or is abandoned leaves no credential, and
+ * the home it made is removed again. A home is only ever made on a machine
+ * the person holds custody of or sent the credential to (§8).
+ *
+ * WHO SIGNED IN DECIDES (review focus 5). The identity the home reports is
+ * the one the credential gets. If the person signed in as an account they
+ * already hold a credential for, the home is attached to that credential; if
+ * they re-signed a credential with another account and hold none for it, that
+ * credential now names the account that signed in. Either way the result
+ * names the account, so the switch is shown, not hidden.
+ */
+
+type SignInOutcome = 
+/** A new credential for the account that signed in. */
+'new'
+/** The credential signed in again as the account it already named. */
+ | 'same'
+/** The account already had a credential: the home now belongs to it. */
+ | 'attached'
+/** The credential named another account; it now names the one that signed in. */
+ | 'identity-changed';
+
 type ReclaimDiskEstimateState = {
     status: 'unknown';
     recoverableBytes: null;
@@ -1874,6 +1909,12 @@ type Input_credentials_share = {
         userId: string;
     };
     verb: "manage" | "use";
+};
+type Input_credentials_signInStart = {
+    credentialId?: string | undefined;
+    label?: string | undefined;
+    machineId: string;
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
 };
 type Input_files_read = ({
     artifactId: string;
@@ -3054,6 +3095,24 @@ type Output_credentials_chatgptSignInStatus = ({
     state: "failed";
 }) | ({
     state: "waiting";
+});
+type Output_credentials_signInStatus = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    outcome: SignInOutcome;
+    previousEmail?: string;
+    state: "signed-in";
+}) | ({
+    machineId: _podium_model.MachineId;
+    state: "waiting";
+    terminalSessionId: _podium_model.SessionId;
+}) | ({
+    readonly reason: "Signing in on a machine is not available on this server.";
+    readonly state: "failed";
+}) | ({
+    reason: string;
+    state: "failed";
 });
 type Output_discovery_lastMachineScan = (null) | ({
     deep: boolean;
@@ -7113,6 +7172,30 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 ok: true;
             };
+            meta: unknown;
+        }>;
+        "signInCancel": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "signInStart": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_signInStart;
+            output: {
+                credentialId: _podium_model.CredentialId;
+                terminalSessionId: _podium_model.SessionId;
+            };
+            meta: unknown;
+        }>;
+        "signInStatus": TRPC.TRPCQueryProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: Output_credentials_signInStatus;
             meta: unknown;
         }>;
         "unshare": TRPC.TRPCMutationProcedure<{

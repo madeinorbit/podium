@@ -184,6 +184,10 @@ function invoke(
         attemptId: 'chatgpt_not-an-attempt',
         pastedUrl: 'http://127.0.0.1:1455/auth/callback?code=FAKE-code&state=FAKE-state',
       })
+    case 'signInStart':
+      return caller.credentials.signInStart({ type: 'anthropic.claude-login', machineId: MACHINE })
+    case 'signInCancel':
+      return caller.credentials.signInCancel({ credentialId })
   }
 }
 
@@ -221,12 +225,22 @@ describe('acceptance 1: who may run which command', () => {
       name,
       // `add` and a ChatGPT sign-in name no credential: every person may add
       // their own. Completing an attempt nobody started is refused for all.
+      // A sign-in on a machine (Task 9): MACHINE is the stranger's, so it is
+      // `machine-not-allowed` for everyone else and, for its custodian, refused
+      // because it is not connected; cancelling a sign-in nobody started is
+      // not found for all.
       expected:
         name === 'add' || name === 'chatgptSignInStart'
           ? 'applied'
           : name === 'chatgptSignInComplete'
             ? 'BAD_REQUEST'
-            : WRITES_ON_TARGET[who],
+            : name === 'signInStart'
+              ? who === 'no grant'
+                ? 'BAD_REQUEST'
+                : 'FORBIDDEN'
+              : name === 'signInCancel'
+                ? 'NOT_FOUND'
+                : WRITES_ON_TARGET[who],
     })),
   )
 
