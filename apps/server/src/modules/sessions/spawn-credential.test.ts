@@ -185,6 +185,39 @@ async function wake(reg: SessionRegistry, daemon: ControlMessage[], sessionId: S
 }
 
 describe('a new session', () => {
+  it('a sign-in pane names the home its login goes into, and nothing secret (Task 9)', async () => {
+    const store = await openTestStore(':memory:')
+    const { reg, daemon } = await makeRegistry(store)
+    const credentialId = 'cred_00000000-0000-4000-8000-0000000000c1' as CredentialId
+    const spawned = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/p',
+      loginHarness: 'claude-code',
+      loginHome: { credentialId, homeId: `${credentialId}:claude-code` },
+    })
+    const frame = spawns(daemon).at(-1)
+    expect(frame?.loginHarness).toBe('claude-code')
+    expect(frame?.access).toEqual({
+      credentialId,
+      delivery: { kind: 'home', homeId: `${credentialId}:claude-code` },
+    })
+    // The pane runs on no credential: it is how one comes into being.
+    expect((await store.sessions.getSession(spawned.sessionId))?.credentialId).toBeFalsy()
+  })
+
+  it('a sign-in home without a sign-in harness is refused', async () => {
+    const store = await openTestStore(':memory:')
+    const { reg } = await makeRegistry(store)
+    const credentialId = 'cred_00000000-0000-4000-8000-0000000000c2' as CredentialId
+    await expect(
+      reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/p',
+        loginHome: { credentialId, homeId: `${credentialId}:claude-code` },
+      }),
+    ).rejects.toThrow(/sign-in pane/)
+  })
+
   it('runs on the default for its harness, delivered as the declared variable', async () => {
     const store = await openTestStore(':memory:')
     const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })

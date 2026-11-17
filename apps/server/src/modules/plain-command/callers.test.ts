@@ -43,7 +43,7 @@ import {
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
-import { NativeLoginService } from '../accounts/native-login'
+import { NativeLoginService } from '../credentials/native-login'
 import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'

@@ -272,6 +272,10 @@ export interface SessionStartInput {
   use?: MachineUseResolver
   binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
   loginHarness?: Exclude<AgentKind, 'shell'>
+  /** A sign-in pane's home (credential management §6 way 2; Task 9): the
+   *  vendor's sign-in runs with the harness's directory variable on it. Only
+   *  with `loginHarness`. */
+  loginHome?: LoginHome
   /** Explicit driver request from a picker or API caller: a concrete driver
    * id selects that driver; absent is the manifest's headed terminal
    * default. Non-picker producers use requestTerminalDriver to resolve an
@@ -279,6 +283,12 @@ export interface SessionStartInput {
   requestedDriverId?: string
   /** Non-picker producers request the advertised headed driver after placement. */
   requestTerminalDriver?: boolean
+}
+
+/** The home a sign-in pane runs in: the credential it is for and the daemon's home id. */
+export interface LoginHome {
+  credentialId: CredentialId
+  homeId: string
 }
 
 export class SessionStart {
@@ -404,6 +414,9 @@ export class SessionStart {
     if (input.loginHarness && agentKind !== 'shell') {
       throw new Error('loginHarness is only valid for shell sessions')
     }
+    if (input.loginHome && !input.loginHarness) {
+      throw new Error('loginHome is only valid for a sign-in pane')
+    }
     const machineId = await this.ports.resolveMachineForAgent(
       input.machineId ?? profileMachineId,
       input.cwd,
@@ -498,6 +511,7 @@ export class SessionStart {
       launchSelection: selection,
       ...(input.credentialId !== undefined ? { credentialId: input.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
+      ...(input.loginHome ? { loginHome: input.loginHome } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -598,6 +612,7 @@ export class SessionStart {
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
     loginHarness?: Exclude<AgentKind, 'shell'>
+    loginHome?: LoginHome
     /** The attribution pair, already derived from the binding principal by the
      *  caller. Optional only for the in-process spawn paths that predate it. */
     createdBy?: Attribution
@@ -782,6 +797,15 @@ export class SessionStart {
       // management §8): read from the vault above, before the row was
       // written, and held in memory until this frame goes out.
       ...(access.access ? { access: access.access } : {}),
+      // A sign-in pane names the home its login goes into; nothing secret.
+      ...(input.loginHome
+        ? {
+            access: {
+              credentialId: input.loginHome.credentialId,
+              delivery: { kind: 'home' as const, homeId: input.loginHome.homeId },
+            },
+          }
+        : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.requestedDriverId !== undefined
         ? { requestedDriverId: input.requestedDriverId }

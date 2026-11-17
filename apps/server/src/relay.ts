@@ -112,7 +112,7 @@ import {
 } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
-import { NativeLoginService } from './modules/accounts/native-login'
+import { NativeLoginService } from './modules/credentials/native-login'
 import { AgentProfileService } from './modules/agent-profiles/service'
 import { ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'

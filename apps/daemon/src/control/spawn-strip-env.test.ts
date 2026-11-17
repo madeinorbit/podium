@@ -152,7 +152,7 @@ it('deletes what would outrank a claude session’s own login, and what would ma
 })
 
 it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () => {
-  // THE ONE THAT WOULD HAVE BEEN MISSED. `accounts/native-login.ts` creates the
+  // THE ONE THAT WOULD HAVE BEEN MISSED. `credentials/native-login.ts` creates the
   // session with agentKind 'shell' and loginHarness set — so reading agentKind
   // alone would exempt the exact pane whose purpose is to establish an account,
   // and `claude login` would run under the inherited key it is meant to replace.
