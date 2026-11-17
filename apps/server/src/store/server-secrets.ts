@@ -30,16 +30,9 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import {
-  SERVER_SECRET_KEYS,
-  type SecretPresenceWire,
-  type ServerSecretKey,
-  type UserId,
-} from '@podium/model'
-import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
-import { PortableCredentialBundle } from '@podium/protocol'
+import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
 import {
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
@@ -55,11 +48,6 @@ import { param, prepared } from './executor/sync-drizzle'
 
 /** Internal key of the sign-in signing secret; not a settings secret. */
 export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
-
-function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
-  const principal = createHash('sha256').update(principalUserId).digest('hex')
-  return 'native-login-transfer:' + principal + ':' + transferId
-}
 
 const log = createLogger('server:secrets')
 
@@ -183,55 +171,6 @@ export class ServerSecretsRepository {
    * at the moment of injection rather than holding a copy, so a rotation takes
    * effect on the next use rather than on the next restart.
    */
-  /**
-   * Store one native login snapshot for the duration of a server-side transfer.
-   * The principal is hashed into the private key, so a different principal can
-   * never retrieve the row. These rows are intentionally outside the closed
-   * settings-secret vocabulary and are never part of presence().
-   */
-  async putNativeLoginTransfer(
-    principalUserId: UserId,
-    bundle: PortableCredentialBundleValue,
-    updatedAt = new Date().toISOString(),
-  ): Promise<string> {
-    const transferId = randomUUID()
-    await this.writeNativeLoginTransfer(principalUserId, transferId, bundle, updatedAt)
-    return transferId
-  }
-
-  async getNativeLoginTransfer(
-    principalUserId: UserId,
-    transferId: string,
-  ): Promise<PortableCredentialBundleValue | undefined> {
-    const row = await secretValue(this.db).get({
-      key: nativeLoginTransferKey(principalUserId, transferId),
-    })
-    if (!row) return undefined
-    try {
-      const parsed = PortableCredentialBundle.safeParse(JSON.parse(row.value))
-      return parsed.success ? parsed.data : undefined
-    } catch {
-      return undefined
-    }
-  }
-
-  async clearNativeLoginTransfer(principalUserId: UserId, transferId: string): Promise<void> {
-    await deleteSecret(this.db).run({ key: nativeLoginTransferKey(principalUserId, transferId) })
-  }
-
-  private async writeNativeLoginTransfer(
-    principalUserId: UserId,
-    transferId: string,
-    bundle: PortableCredentialBundleValue,
-    updatedAt: string,
-  ): Promise<void> {
-    await upsertSecret(this.db).run({
-      key: nativeLoginTransferKey(principalUserId, transferId),
-      value: JSON.stringify(bundle),
-      updatedAt,
-    })
-  }
-
   /** Installation key is outside the settings-secret vocabulary and presence projection.
    * Read both rows in one statement so callers never observe mismatched halves. */
   async installationIdentity(): Promise<InstallationIdentity> {

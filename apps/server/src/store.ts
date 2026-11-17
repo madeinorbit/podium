@@ -99,6 +99,7 @@ import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingSessionAttachmentsRepository } from './store/messaging-session-attachments'
 import { MessagingTopicsRepository } from './store/messaging-topics'
+import { sweepOldNativeLoginTransfers } from './store/native-login-transfer-sweep'
 import { NoticesRepository } from './store/notices'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
@@ -366,6 +367,8 @@ export class SessionStore {
           importEnrollmentLedger(database, dirname(path))
           importUpdateSigningKey(database, dirname(path))
         }
+        // Before anything else opens the file: the sweep checkpoints the WAL.
+        if (!options.queryOnly) sweepOldNativeLoginTransfers(database)
         bootStage('imports', importsStarted)
         return result
       })

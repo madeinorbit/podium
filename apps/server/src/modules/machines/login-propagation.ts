@@ -99,8 +99,9 @@ function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): st
 
 /**
  * Server-owned coordinator for native login bytes. The only raw bundle lifetime
- * here is the export → server-secret row → install turn; no client projection
- * or replicated settings path receives it.
+ * here is the export → install turn, held in memory by that one call and never
+ * written to the database [POD-7044]; no client projection or replicated
+ * settings path receives it.
  *
  * WHAT IS COPIED, AND WHERE (POD-6301; design §2.5, D11; September addendum
  * §4-5). Only a login its owner ticked ("use this connection on all machines I
@@ -413,59 +414,49 @@ export class LoginPropagationService {
     const bundle = exported.bundles.find((candidate) => candidate.kind === kind)
     if (!bundle) return { status: 'failed', reason: 'donor credential unavailable' }
 
-    const transferId = await this.deps.store.secrets.putNativeLoginTransfer(
-      input.ownerUserId,
-      bundle,
-      new Date(this.now()).toISOString(),
-    )
-    try {
-      // INSTALL, after re-reading the owner's choice and the target's custody.
-      // A transfer that outlived either, or its age limit, is stale.
-      if (this.now() - readAt > LOGIN_TRANSFER_MAX_AGE_MS) {
-        return { status: 'skipped', reason: 'stale transfer refused: it waited too long' }
-      }
-      if (!(await this.stillTicked(input.ownerUserId, choice))) {
-        return { status: 'skipped', reason: 'stale transfer refused: the choice changed' }
-      }
-      if ((await this.deps.store.machines.custodian(targetId)) !== input.ownerUserId) {
-        return { status: 'skipped', reason: 'stale transfer refused: the target owner changed' }
-      }
-      if ((await this.deps.store.machines.getMachine(targetId))?.podiumManaged === false) {
-        return { status: 'skipped', reason: 'stale transfer refused: target keeps its own logins' }
-      }
-      const serverBundle = await this.deps.store.secrets.getNativeLoginTransfer(
-        input.ownerUserId,
-        transferId,
-      )
-      if (!serverBundle) return { status: 'failed', reason: 'transfer secret unavailable' }
-      // A reconnect during export may have replaced the capable target with an
-      // older daemon. Recheck the live socket immediately before installation.
-      if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
-        return {
-          status: 'failed',
-          reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
-          upgradeRequired: true,
-        }
-      }
-      // The target may have reconnected over another link during the export.
-      const installUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
-      if (installUnsafe) return refuseLink('target', targetId, installUnsafe, input.input)
-      const installed = await this.deps.rpc.credentialInstall([serverBundle], targetId, {
-        propagation: true,
-        expectedFingerprint: choice.fingerprint,
-      })
-      if (installed.preserved?.includes(kind)) {
-        await this.record(input.ownerUserId, choice, targetId, 'preserved')
-        return { status: 'preserved', reason: 'the target holds a different login, which was kept' }
-      }
-      if (!installed.installed.includes(kind)) {
-        return { status: 'failed', reason: 'target refused credential propagation' }
-      }
-      await this.record(input.ownerUserId, choice, targetId, 'installed')
-      await this.recordPlacement(input.ownerUserId, input.harness, choice.fingerprint, targetId)
-      return { status: 'propagated', donorMachineId: donor, fingerprint: choice.fingerprint }
-    } finally {
-      await this.deps.store.secrets.clearNativeLoginTransfer(input.ownerUserId, transferId)
+    // The bundle stays in this call's memory until install [POD-7044]. It was
+    // once parked in a plain server_secrets row, which a crash left behind and
+    // a delete left in free pages; no copy of the database may hold a login.
+    //
+    // INSTALL, after re-reading the owner's choice and the target's custody.
+    // A transfer that outlived either, or its age limit, is stale.
+    if (this.now() - readAt > LOGIN_TRANSFER_MAX_AGE_MS) {
+      return { status: 'skipped', reason: 'stale transfer refused: it waited too long' }
     }
+    if (!(await this.stillTicked(input.ownerUserId, choice))) {
+      return { status: 'skipped', reason: 'stale transfer refused: the choice changed' }
+    }
+    if ((await this.deps.store.machines.custodian(targetId)) !== input.ownerUserId) {
+      return { status: 'skipped', reason: 'stale transfer refused: the target owner changed' }
+    }
+    if ((await this.deps.store.machines.getMachine(targetId))?.podiumManaged === false) {
+      return { status: 'skipped', reason: 'stale transfer refused: target keeps its own logins' }
+    }
+    // A reconnect during export may have replaced the capable target with an
+    // older daemon. Recheck the live socket immediately before installation.
+    if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
+      return {
+        status: 'failed',
+        reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
+        upgradeRequired: true,
+      }
+    }
+    // The target may have reconnected over another link during the export.
+    const installUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    if (installUnsafe) return refuseLink('target', targetId, installUnsafe, input.input)
+    const installed = await this.deps.rpc.credentialInstall([bundle], targetId, {
+      propagation: true,
+      expectedFingerprint: choice.fingerprint,
+    })
+    if (installed.preserved?.includes(kind)) {
+      await this.record(input.ownerUserId, choice, targetId, 'preserved')
+      return { status: 'preserved', reason: 'the target holds a different login, which was kept' }
+    }
+    if (!installed.installed.includes(kind)) {
+      return { status: 'failed', reason: 'target refused credential propagation' }
+    }
+    await this.record(input.ownerUserId, choice, targetId, 'installed')
+    await this.recordPlacement(input.ownerUserId, input.harness, choice.fingerprint, targetId)
+    return { status: 'propagated', donorMachineId: donor, fingerprint: choice.fingerprint }
   }
 }
