@@ -18,7 +18,9 @@ const fixture = vi.hoisted(() => ({
   catalog: {} as ModelCatalogState['catalog'],
   byMachine: {} as Record<string, ModelCatalogState>,
 }))
-vi.mock('@/features/credentials/use-server-ai-status', () => ({ useServerAiStatus: () => undefined }))
+vi.mock('@/features/credentials/use-server-ai-status', () => ({
+  useServerAiStatus: () => undefined,
+}))
 vi.mock('../readers', () => ({
   useSettingsAuthorizedMachines: () =>
     fixture.machines.filter((machine) => machine.use === 'granted'),

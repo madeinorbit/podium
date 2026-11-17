@@ -1,16 +1,33 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import { type CredentialView, asAccountId } from '@podium/model/browser'
+import { asAccountId, type CredentialView } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { agentOptions, backendForAgent } from './agent-options'
 
-const accounts: CredentialView[] = [{
-  id: 'cred_found-codex', ownerUserId: 'user:me', label: 'Codex', type: 'openai.chatgpt-login',
-  identity: { email: 'person@example.com' }, status: 'ok', access: 'owner', homes: [],
-  allowedMachines: [], sessionCount: 0,
-  nativeLogin: { harness: 'codex', required: false, keptOn: [], useOnMyMachines: false,
-    machines: [{ id: 'workstation', name: 'Workstation', state: 'in' }, { id: 'laptop', name: 'Laptop', state: 'in' }] },
-}] as CredentialView[]
+const accounts: CredentialView[] = [
+  {
+    id: 'cred_found-codex',
+    ownerUserId: 'user:me',
+    label: 'Codex',
+    type: 'openai.chatgpt-login',
+    identity: { email: 'person@example.com' },
+    status: 'ok',
+    access: 'owner',
+    homes: [],
+    allowedMachines: [],
+    sessionCount: 0,
+    nativeLogin: {
+      harness: 'codex',
+      required: false,
+      keptOn: [],
+      useOnMyMachines: false,
+      machines: [
+        { id: 'workstation', name: 'Workstation', state: 'in' },
+        { id: 'laptop', name: 'Laptop', state: 'in' },
+      ],
+    },
+  },
+] as CredentialView[]
 
 describe('Agent choices', () => {
   it('offers every agent program the fleet serves, once, by harness', () => {

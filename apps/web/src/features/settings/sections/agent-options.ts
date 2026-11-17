@@ -1,5 +1,5 @@
 import { AUTO, type ModelChoice } from '@podium/client-core/agent-models'
-import { type CredentialView, asAccountId } from '@podium/model/browser'
+import { asAccountId, type CredentialView } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { HarnessAgent, RoleBackend } from '@podium/runtime'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
@@ -26,13 +26,24 @@ export function agentOptions(
   return issueAgentDescriptors(served).map((descriptor) => {
     const harness = descriptor.kind as HarnessAgent
     const logins = accounts.filter(
-      (view) => view.access === 'owner' && view.nativeLogin?.harness === harness &&
+      (view) =>
+        view.access === 'owner' &&
+        view.nativeLogin?.harness === harness &&
         view.nativeLogin.machines.some((machine) => machine.state === 'in'),
     )
-    const hint = [...new Set(logins.flatMap((view) => [
-      view.identity.email,
-      view.nativeLogin?.machines.filter((machine) => machine.state === 'in').map((machine) => machine.name).join(', '),
-    ]))].filter(Boolean).join(' · ')
+    const hint = [
+      ...new Set(
+        logins.flatMap((view) => [
+          view.identity.email,
+          view.nativeLogin?.machines
+            .filter((machine) => machine.state === 'in')
+            .map((machine) => machine.name)
+            .join(', '),
+        ]),
+      ),
+    ]
+      .filter(Boolean)
+      .join(' · ')
     return {
       value: harness,
       harness,

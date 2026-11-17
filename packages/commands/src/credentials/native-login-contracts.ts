@@ -162,4 +162,3 @@ export const credentialsUseOnMyMachinesContract = {
   conflictRule:
     'Last write wins per (member, harness, fingerprint); every change bumps the revision, so a copy exported under the old choice is refused as stale',
 } as const satisfies CommandContract<typeof credentialsUseOnMyMachinesInput>
-

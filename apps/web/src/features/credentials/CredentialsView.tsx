@@ -91,8 +91,12 @@ export const CredentialsView = observer(function CredentialsView({
         title="Your credentials"
         hint={[
           'Yours, and the ones others shared with you. Each one you add starts private to you.',
-          rows.some((view) => view.nativeLogin?.useOnMyMachines !== undefined) ? USE_ON_MY_MACHINES_NOTE : '',
-        ].filter(Boolean).join(' ')}
+          rows.some((view) => view.nativeLogin?.useOnMyMachines !== undefined)
+            ? USE_ON_MY_MACHINES_NOTE
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         list
         action={
           <Button

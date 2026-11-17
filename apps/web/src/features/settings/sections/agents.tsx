@@ -46,10 +46,7 @@ interface AgentsProps {
 
 /** The one home for personal agent choices. Writes keep using SettingsView's
  * per-leaf synced-record writer and its permission/pending/refusal context. */
-export const AgentsSection = observer(function AgentsSection({
-  settings,
-  patch,
-}: AgentsProps) {
+export const AgentsSection = observer(function AgentsSection({ settings, patch }: AgentsProps) {
   const accounts = useCredentialViews()
   const coding = resolveRole(settings, 'coding')
   const { served } = useHarnessDescriptors(undefined)

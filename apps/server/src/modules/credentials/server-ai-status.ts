@@ -1,6 +1,10 @@
 import type { HarnessAgent, MachineId } from '@podium/model'
 import type { ResolvedRole } from '@podium/runtime'
-import { type CodexLoginMachineSource, codexLoginMachines, pickCodexMachine } from '../../codex-machine'
+import {
+  type CodexLoginMachineSource,
+  codexLoginMachines,
+  pickCodexMachine,
+} from '../../codex-machine'
 
 export interface CodexServerAiMarker {
   harness: HarnessAgent
@@ -47,4 +51,3 @@ export function assembleCodexServerAiMarker(opts: {
     return opts.lastError ? { harness, ...errorPart } : undefined
   }
 }
-

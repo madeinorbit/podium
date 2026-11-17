@@ -20,8 +20,8 @@ import {
   expectConstantStatements,
   type StatementPin,
 } from '../../test-support/statement-count'
-import { CREDENTIAL_QUERIES, listCredentials } from './queries'
 import type { CredentialsState } from './commands'
+import { CREDENTIAL_QUERIES, listCredentials } from './queries'
 
 interface Fixture {
   store: SessionStore
@@ -121,15 +121,29 @@ describe('credentials.list statement count', () => {
 const nativePin: StatementPin<Fixture> = {
   ...pin,
   name: 'credentials.list with machine login controls',
-  run: async (f) => withOperation(async () => CREDENTIAL_QUERIES.list.run({
-    store: f.store, callerUserId: f.viewer, health: undefined as never,
-    native: {
-      store: f.store,
-      machineService: { listMachines: async () => (await f.store.machines.listMachines()).map((machine) => ({ ...machine, online: true })) } as never,
-      machineStanding: async () => new Map([[MACHINE, 'custody']]),
-      nativeLogin: { attempt: () => undefined, isRequired: () => false } as never,
-    },
-  } satisfies CredentialsState, undefined)),
+  run: async (f) =>
+    withOperation(async () =>
+      CREDENTIAL_QUERIES.list.run(
+        {
+          store: f.store,
+          callerUserId: f.viewer,
+          health: undefined as never,
+          native: {
+            store: f.store,
+            machineService: {
+              listMachines: async () =>
+                (await f.store.machines.listMachines()).map((machine) => ({
+                  ...machine,
+                  online: true,
+                })),
+            } as never,
+            machineStanding: async () => new Map([[MACHINE, 'custody']]),
+            nativeLogin: { attempt: () => undefined, isRequired: () => false } as never,
+          },
+        } satisfies CredentialsState,
+        undefined,
+      ),
+    ),
 }
 
 it('the route adds three bounded reads for native login choices at 5 and 200 credentials', async () => {

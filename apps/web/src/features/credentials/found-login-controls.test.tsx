@@ -15,11 +15,18 @@ vi.mock('@/features/settings/readers', () => ({
 
 function setup(over: Partial<CredentialView> = {}) {
   const view = credentialView({
-    label: 'Found Codex', type: 'openai.chatgpt-login', access: 'owner',
+    label: 'Found Codex',
+    type: 'openai.chatgpt-login',
+    access: 'owner',
     identity: { email: 'person@example.test', fingerprint: 'fp-codex' },
     nativeLogin: {
-      harness: 'codex', required: true, useOnMyMachines: false,
-      machines: [{ id: 'desk', name: 'Desk', state: 'out' }, { id: 'laptop', name: 'Laptop', state: 'out' }],
+      harness: 'codex',
+      required: true,
+      useOnMyMachines: false,
+      machines: [
+        { id: 'desk', name: 'Desk', state: 'out' },
+        { id: 'laptop', name: 'Laptop', state: 'out' },
+      ],
       keptOn: [{ id: 'occupied', name: 'Occupied' }],
     } as CredentialView['nativeLogin'],
     ...over,
@@ -29,13 +36,20 @@ function setup(over: Partial<CredentialView> = {}) {
   const reload = vi.fn()
   const deps = {
     commands: { login: { mutate: login }, useOnMyMachines: { mutate: choose } },
-    reload, now: () => 0, nameOf: () => 'Owner', machineName: (id: string) => id,
+    reload,
+    now: () => 0,
+    nameOf: () => 'Owner',
+    machineName: (id: string) => id,
   } as unknown as CredentialDeps
   const onOpen = vi.fn()
   const row = (v = view) => <CredentialRow view={v} deps={deps} onOpen={onOpen} />
   return { view, login, choose, reload, onOpen, row }
 }
-afterEach(() => { cleanup(); vi.clearAllMocks(); fixture.present = true })
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+  fixture.present = true
+})
 
 describe('found-login row actions', () => {
   it('keeps identity and preserved-copy feedback beside the switch and persists its choice', async () => {
@@ -43,12 +57,22 @@ describe('found-login row actions', () => {
     const page = render(f.row())
     expect(screen.getByText('person@example.test')).toBeTruthy()
     expect(screen.getByText(/Not copied to Occupied/)).toBeTruthy()
-    const toggle = screen.getByRole('switch', { name: /Use on all my machines.*person@example.test/ })
+    const toggle = screen.getByRole('switch', {
+      name: /Use on all my machines.*person@example.test/,
+    })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(toggle)
-    await waitFor(() => expect(f.choose).toHaveBeenCalledWith({ harness: 'codex', fingerprint: 'fp-codex', enabled: true }))
+    await waitFor(() =>
+      expect(f.choose).toHaveBeenCalledWith({
+        harness: 'codex',
+        fingerprint: 'fp-codex',
+        enabled: true,
+      }),
+    )
     await waitFor(() => expect(f.reload).toHaveBeenCalled())
-    page.rerender(f.row({ ...f.view, nativeLogin: { ...f.view.nativeLogin!, useOnMyMachines: true } }))
+    page.rerender(
+      f.row({ ...f.view, nativeLogin: { ...f.view.nativeLogin!, useOnMyMachines: true } }),
+    )
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     expect(f.onOpen).not.toHaveBeenCalled()
     // A later authoritative update follows the same row rather than a sticky optimistic value.
@@ -59,9 +83,13 @@ describe('found-login row actions', () => {
     fixture.present = false
     const f = setup()
     const page = render(f.row())
-    fireEvent.change(screen.getByLabelText('Found Codex login machine'), { target: { value: 'laptop' } })
+    fireEvent.change(screen.getByLabelText('Found Codex login machine'), {
+      target: { value: 'laptop' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
-    await waitFor(() => expect(f.login).toHaveBeenCalledWith({ harness: 'codex', machineId: 'laptop' }))
+    await waitFor(() =>
+      expect(f.login).toHaveBeenCalledWith({ harness: 'codex', machineId: 'laptop' }),
+    )
     expect(fixture.navigate).not.toHaveBeenCalled()
     fixture.present = true
     page.rerender(f.row())
@@ -85,12 +113,27 @@ describe('found-login row actions', () => {
   })
   it('shows running and failed attempts on the row and reuses the open login', async () => {
     const f = setup()
-    const attempt = { sessionId: 'login-session', machineId: 'desk', machineName: 'Desk', status: 'running' } as const
-    const page = render(f.row({ ...f.view, nativeLogin: { ...f.view.nativeLogin!, attempt: attempt as never } }))
+    const attempt = {
+      sessionId: 'login-session',
+      machineId: 'desk',
+      machineName: 'Desk',
+      status: 'running',
+    } as const
+    const page = render(
+      f.row({ ...f.view, nativeLogin: { ...f.view.nativeLogin!, attempt: attempt as never } }),
+    )
     expect(screen.getByRole('status').textContent).toBe('Login open on Desk')
     fireEvent.click(screen.getByRole('button', { name: 'Open sign-in' }))
     await waitFor(() => expect(fixture.navigate).toHaveBeenCalledWith('login-session'))
-    page.rerender(f.row({ ...f.view, nativeLogin: { ...f.view.nativeLogin!, attempt: { ...attempt, status: 'failed', error: 'Login failed on Desk' } as never } }))
+    page.rerender(
+      f.row({
+        ...f.view,
+        nativeLogin: {
+          ...f.view.nativeLogin!,
+          attempt: { ...attempt, status: 'failed', error: 'Login failed on Desk' } as never,
+        },
+      }),
+    )
     expect(screen.getByRole('status').textContent).toBe('Login failed on Desk')
   })
 })

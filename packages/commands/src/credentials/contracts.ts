@@ -1,5 +1,14 @@
-import { credentialsLoginContract, credentialsUseOnMyMachinesContract } from './native-login-contracts'
-export { credentialsLoginContract, credentialsLoginInput, credentialsUseOnMyMachinesContract, credentialsUseOnMyMachinesInput } from './native-login-contracts'
+import {
+  credentialsLoginContract,
+  credentialsUseOnMyMachinesContract,
+} from './native-login-contracts'
+
+export {
+  credentialsLoginContract,
+  credentialsLoginInput,
+  credentialsUseOnMyMachinesContract,
+  credentialsUseOnMyMachinesInput,
+} from './native-login-contracts'
 
 /**
  * THE CREDENTIAL CONTRACTS (credential management design §6, §8, §12; epic Task 4).

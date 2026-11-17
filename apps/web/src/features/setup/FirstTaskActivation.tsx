@@ -21,7 +21,6 @@ import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
-import { useMyCodingHarness } from '@/lib/my-preferences'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
@@ -32,6 +31,7 @@ import {
   issueAgentLabel,
   issueDefaultAgentKind,
 } from '@/lib/issue-agents'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'

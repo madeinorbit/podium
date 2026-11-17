@@ -53,17 +53,21 @@ export const CredentialRow = observer(function CredentialRow({
       }
       subtitle={
         <div>
-        <span className="flex flex-wrap gap-x-2">
-          {lines.map((line) => (
-            <span key={line.text} className={TONE_CLASS[line.tone]}>
-              {line.text}
-            </span>
-          ))}
-        </span>
-        <FoundLoginStatus view={view} />
+          <span className="flex flex-wrap gap-x-2">
+            {lines.map((line) => (
+              <span key={line.text} className={TONE_CLASS[line.tone]}>
+                {line.text}
+              </span>
+            ))}
+          </span>
+          <FoundLoginStatus view={view} />
         </div>
       }
-      trailing={view.nativeLogin && view.access === 'owner' ? <FoundLoginActions view={view} deps={deps} /> : undefined}
+      trailing={
+        view.nativeLogin && view.access === 'owner' ? (
+          <FoundLoginActions view={view} deps={deps} />
+        ) : undefined
+      }
       onClick={view.access === 'use' ? undefined : () => onOpen(view)}
     />
   )

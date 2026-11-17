@@ -125,9 +125,7 @@ interface SectionContext {
 /** The page-to-section lookup. Controls edit their own settings leaves; the
  * address flow owns its explicit setup form. */
 const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
-  agents: ({ settings, patch }) => (
-    <AgentsSection settings={settings} patch={patch} />
-  ),
+  agents: ({ settings, patch }) => <AgentsSection settings={settings} patch={patch} />,
   appearance: ({ settings, patch }) => (
     <SettingsPageSection id="appearance">
       <AppearanceSection settings={settings} patch={patch} />

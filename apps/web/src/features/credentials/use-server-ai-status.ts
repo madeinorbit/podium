@@ -12,16 +12,22 @@ export function useServerAiStatus(enabled: boolean): ServerAiStatus {
   const request = useMemo(() => new RequestAnswer<ServerAiStatus>(), [])
   useEffect(() => {
     if (!enabled) return
-    const stop = followVisibleRequest(() => {
-      if (!request.loading) void request.load(() => trpc.credentials.serverAiStatus.query())
-    }, {
-      visible: () => document.visibilityState !== 'hidden',
-      subscribe: (changed) => {
-        document.addEventListener('visibilitychange', changed)
-        return () => document.removeEventListener('visibilitychange', changed)
+    const stop = followVisibleRequest(
+      () => {
+        if (!request.loading) void request.load(() => trpc.credentials.serverAiStatus.query())
       },
-    })
-    return () => { stop(); request.close() }
+      {
+        visible: () => document.visibilityState !== 'hidden',
+        subscribe: (changed) => {
+          document.addEventListener('visibilitychange', changed)
+          return () => document.removeEventListener('visibilitychange', changed)
+        },
+      },
+    )
+    return () => {
+      stop()
+      request.close()
+    }
   }, [enabled, request, trpc])
   return enabled ? request.answer : undefined
 }

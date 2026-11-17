@@ -3,9 +3,9 @@
 import { asUserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { codexAuthorizerFor } from '../../codex-machine'
-import { assembleCodexServerAiMarker, type CodexServerAiMarker } from './server-ai-status'
 import { definePlainFamily } from '../plain-command/declare'
 import { CREDENTIAL_COMMANDS_TRPC, type CredentialsState } from './commands'
+import { assembleCodexServerAiMarker, type CodexServerAiMarker } from './server-ai-status'
 
 export const CREDENTIALS_PLAIN_FAMILY = definePlainFamily({
   family: 'credentials',

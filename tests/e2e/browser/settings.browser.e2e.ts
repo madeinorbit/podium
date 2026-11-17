@@ -118,9 +118,7 @@ test('native account profile labels render when available', async ({ page }) => 
   // The harness always seeds the long-identity login (POD-4730) — match that
   // address itself, never host state. A missing seed is a harness failure, so
   // fail loudly instead of skipping.
-  const rows = accounts.filter(
-    (account) => account.identity.email === E2E_LONG_IDENTITY_EMAIL,
-  )
+  const rows = accounts.filter((account) => account.identity.email === E2E_LONG_IDENTITY_EMAIL)
   expect(rows.length).toBeGreaterThan(0)
 
   await page.setViewportSize({ width: 1280, height: 900 })

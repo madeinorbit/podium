@@ -184,8 +184,13 @@ describe('FirstTaskActivation', () => {
   it('shows an unticked "use on my machines" box for each detected account', async () => {
     accounts = [
       ...['codex', 'claude-code'].map((harness, index) => ({
-        id: `cred_found-${harness}`, label: harness, access: 'owner',
-        identity: { email: index ? 'alice@work.example' : 'alice@example.com', fingerprint: index ? 'fp-alice-work' : 'fp-alice' },
+        id: `cred_found-${harness}`,
+        label: harness,
+        access: 'owner',
+        identity: {
+          email: index ? 'alice@work.example' : 'alice@example.com',
+          fingerprint: index ? 'fp-alice-work' : 'fp-alice',
+        },
         nativeLogin: { harness, useOnMyMachines: false, keptOn: [] },
       })),
       { id: 'cred_key', label: 'API key', access: 'owner' },

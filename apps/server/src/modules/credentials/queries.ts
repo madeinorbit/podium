@@ -26,9 +26,9 @@ import type { CredentialRecord, PlacementKind } from '../../store/credentials'
 import type { GrantRow } from '../../store/grants'
 import type { MachineRecord } from '../../store/types'
 import type { CredentialsState, CredentialsStore } from './commands'
-import { withNativeLoginViews } from './native-login-views'
 import { homeHarnessFor } from './home-removers'
 import { accessFrom, CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel } from './may-use'
+import { withNativeLoginViews } from './native-login-views'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 

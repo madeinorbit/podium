@@ -57,7 +57,6 @@ import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
   [
-    
     ...Object.values(AUTH_COMMANDS_TRPC),
     ...Object.values(SETUP_COMMANDS_TRPC),
     ...Object.values(TELEMETRY_COMMANDS_TRPC),
@@ -72,14 +71,11 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
 
 /** The commands whose table entry declares a target check (`entry.ts`, step 4). */
 const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
-  [
-    
-    ...Object.values(VAULT_COMMANDS_TRPC),
-    ...Object.values(CREDENTIAL_COMMANDS_TRPC),
-  ].flatMap((c) =>
-    'targetPermitted' in c && c.targetPermitted
-      ? [[c.contract.name, c.targetPermitted] as const]
-      : [],
+  [...Object.values(VAULT_COMMANDS_TRPC), ...Object.values(CREDENTIAL_COMMANDS_TRPC)].flatMap(
+    (c) =>
+      'targetPermitted' in c && c.targetPermitted
+        ? [[c.contract.name, c.targetPermitted] as const]
+        : [],
   ),
 )
 

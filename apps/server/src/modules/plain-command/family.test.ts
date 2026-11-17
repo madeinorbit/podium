@@ -209,7 +209,9 @@ describe('role floors on the plain path', () => {
 describe('the plain path keeps its validation answer', () => {
   it('an admin with invalid input gets the validation error (useOnMyMachines)', async () => {
     const { caller } = await harness({ capability: OPERATOR })
-    const refusal = await refusalOf(caller.credentials.useOnMyMachines({ harness: 'codex' } as never))
+    const refusal = await refusalOf(
+      caller.credentials.useOnMyMachines({ harness: 'codex' } as never),
+    )
     expect(refusal.code).toBe('BAD_REQUEST')
   })
 })

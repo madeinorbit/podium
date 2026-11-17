@@ -60,36 +60,60 @@ export const FoundLoginSwitch = observer(function FoundLoginSwitch({
         />
         <span>{USE_ON_MY_MACHINES_LABEL}</span>
       </Label>
-      {error && <p role="alert" className="mt-1 settings-prose text-destructive">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-1 settings-prose text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   )
 })
 
-export const FoundLoginStatus = observer(function FoundLoginStatus({ view }: { view: CredentialView }) {
+export const FoundLoginStatus = observer(function FoundLoginStatus({
+  view,
+}: {
+  view: CredentialView
+}) {
   const native = view.nativeLogin
   if (view.access !== 'owner' || !native) return null
   const attempt = native.attempt
-  const status = attempt?.status === 'running'
-    ? `Login open on ${attempt.machineName}`
-    : attempt?.status === 'refreshing'
-      ? 'Checking refreshed account status…'
-      : attempt?.status === 'succeeded'
-        ? 'Login succeeded'
-        : attempt?.status === 'failed'
-          ? (attempt.error ?? 'Login failed')
-          : undefined
-  return <>
-    {native.required && <p>Machine login needed.</p>}
-    {native.keptOn.length > 0 && <p className="text-warning">
-      Not copied to {native.keptOn.map((machine) => machine.name).join(', ')}: a different login is signed in there, and Podium kept it.
-    </p>}
-    {status && <p role="status">{status}</p>}
-  </>
+  const status =
+    attempt?.status === 'running'
+      ? `Login open on ${attempt.machineName}`
+      : attempt?.status === 'refreshing'
+        ? 'Checking refreshed account status…'
+        : attempt?.status === 'succeeded'
+          ? 'Login succeeded'
+          : attempt?.status === 'failed'
+            ? (attempt.error ?? 'Login failed')
+            : undefined
+  return (
+    <>
+      {native.required && <p>Machine login needed.</p>}
+      {native.keptOn.length > 0 && (
+        <p className="text-warning">
+          Not copied to {native.keptOn.map((machine) => machine.name).join(', ')}: a different login
+          is signed in there, and Podium kept it.
+        </p>
+      )}
+      {status && <p role="status">{status}</p>}
+    </>
+  )
 })
 
-export const FoundLoginActions = observer(function FoundLoginActions({ view, deps }: { view: CredentialView; deps: CredentialDeps }) {
+export const FoundLoginActions = observer(function FoundLoginActions({
+  view,
+  deps,
+}: {
+  view: CredentialView
+  deps: CredentialDeps
+}) {
   const { navigateToSession } = useSettingsClient()
-  const [machineId, setMachineId] = useState(view.nativeLogin?.machines.find((machine) => machine.state === 'out')?.id ?? view.nativeLogin?.machines[0]?.id ?? '')
+  const [machineId, setMachineId] = useState(
+    view.nativeLogin?.machines.find((machine) => machine.state === 'out')?.id ??
+      view.nativeLogin?.machines[0]?.id ??
+      '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
@@ -99,23 +123,31 @@ export const FoundLoginActions = observer(function FoundLoginActions({ view, dep
   useEffect(() => {
     if (attemptStatus !== 'running' && attemptStatus !== 'refreshing') return
     let initial = true
-    return followVisibleRequest(() => {
-      if (initial) { initial = false; return }
-      deps.reload()
-    }, {
-      visible: () => document.visibilityState !== 'hidden',
-      subscribe: (changed) => {
-        document.addEventListener('visibilitychange', changed)
-        return () => document.removeEventListener('visibilitychange', changed)
+    return followVisibleRequest(
+      () => {
+        if (initial) {
+          initial = false
+          return
+        }
+        deps.reload()
       },
-    }, 1_000)
+      {
+        visible: () => document.visibilityState !== 'hidden',
+        subscribe: (changed) => {
+          document.addEventListener('visibilitychange', changed)
+          return () => document.removeEventListener('visibilitychange', changed)
+        },
+      },
+      1_000,
+    )
   }, [attemptStatus, deps.reload])
   useEffect(() => {
     if (pendingSessionId && sessionPresent) navigateToSession(pendingSessionId)
   }, [navigateToSession, pendingSessionId, sessionPresent])
   if (view.access !== 'owner' || !native) return null
   const selectedMachineId = native.machines.some((machine) => machine.id === machineId)
-    ? machineId : native.machines[0]?.id
+    ? machineId
+    : native.machines[0]?.id
   const active = attemptStatus === 'running' || attemptStatus === 'refreshing'
   const login = async () => {
     if (busy || (!selectedMachineId && !active)) return
@@ -134,22 +166,42 @@ export const FoundLoginActions = observer(function FoundLoginActions({ view, dep
       setBusy(false)
     }
   }
-  return <div className="flex max-w-full flex-wrap items-center gap-2">
-    <FoundLoginSwitch view={view} commands={deps.commands} reload={deps.reload} />
-    {(native.required || active) && <>
-      {native.machines.length > 1 && <select
-        aria-label={`${view.label} login machine`}
-        className="h-8 max-w-40 rounded-md border border-border bg-background px-2 settings-prose"
-        value={selectedMachineId ?? ''}
-        disabled={busy || active}
-        onChange={(event) => setMachineId(event.target.value)}
-      >
-        {native.machines.map((machine) => <option key={machine.id} value={machine.id}>{machine.name}</option>)}
-      </select>}
-      <Button type="button" size="sm" variant="outline" disabled={busy || (!selectedMachineId && !active)} onClick={() => void login()}>
-        {busy ? 'Starting…' : active ? 'Open sign-in' : 'Log in'}
-      </Button>
-    </>}
-    {error && <p role="alert" className="settings-prose text-destructive">{error}</p>}
-  </div>
+  return (
+    <div className="flex max-w-full flex-wrap items-center gap-2">
+      <FoundLoginSwitch view={view} commands={deps.commands} reload={deps.reload} />
+      {(native.required || active) && (
+        <>
+          {native.machines.length > 1 && (
+            <select
+              aria-label={`${view.label} login machine`}
+              className="h-8 max-w-40 rounded-md border border-border bg-background px-2 settings-prose"
+              value={selectedMachineId ?? ''}
+              disabled={busy || active}
+              onChange={(event) => setMachineId(event.target.value)}
+            >
+              {native.machines.map((machine) => (
+                <option key={machine.id} value={machine.id}>
+                  {machine.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy || (!selectedMachineId && !active)}
+            onClick={() => void login()}
+          >
+            {busy ? 'Starting…' : active ? 'Open sign-in' : 'Log in'}
+          </Button>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="settings-prose text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
 })

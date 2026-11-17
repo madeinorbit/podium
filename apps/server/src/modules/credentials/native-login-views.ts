@@ -11,8 +11,8 @@ export async function withNativeLoginViews(
 ): Promise<CredentialView[]> {
   const standing = await state.machineStanding()
   const custody = new Set([...standing].filter(([, s]) => s === 'custody').map(([id]) => id))
-  const machines = (await state.machineService.listMachines()).filter(
-    (machine) => custody.has(machine.id),
+  const machines = (await state.machineService.listMachines()).filter((machine) =>
+    custody.has(machine.id),
   )
   const keyOf = (harness: string, fingerprint: string) => `${harness}\u0000${fingerprint}`
   const ticked = new Set(

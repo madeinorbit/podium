@@ -2,9 +2,9 @@ import type { CredentialView } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback } from 'react'
-import { useSettingsRecords } from '@/features/settings/record-readers'
-import { FoundLoginSwitch } from '@/features/credentials/found-login-controls'
 import { identityText } from '@/features/credentials/credential-facts'
+import { FoundLoginSwitch } from '@/features/credentials/found-login-controls'
+import { useSettingsRecords } from '@/features/settings/record-readers'
 
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 
@@ -21,7 +21,9 @@ export const OnboardingAccountChoices = observer(
     const trpc = useSettingsTrpc()
     const readAccounts = useCallback(() => trpc.credentials.list.query(), [trpc])
     const { request, reload } = useSettingsRecords('credential', readAccounts, credentialKey)
-    const detected = ((request?.models ?? []) as unknown as CredentialView[]).filter((view) => view.access === 'owner' && view.nativeLogin?.useOnMyMachines !== undefined)
+    const detected = ((request?.models ?? []) as unknown as CredentialView[]).filter(
+      (view) => view.access === 'owner' && view.nativeLogin?.useOnMyMachines !== undefined,
+    )
     if (detected.length === 0) return null
     return (
       <section
@@ -44,7 +46,11 @@ export const OnboardingAccountChoices = observer(
                 <span className="ml-2 font-normal text-[#9ba1ab]">{identityText(account)}</span>
               ) : null}
             </p>
-            <FoundLoginSwitch view={account} commands={trpc.credentials} reload={() => void reload()} />
+            <FoundLoginSwitch
+              view={account}
+              commands={trpc.credentials}
+              reload={() => void reload()}
+            />
           </div>
         ))}
       </section>

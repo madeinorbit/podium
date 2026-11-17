@@ -22,7 +22,6 @@
  * import site was repointed instead.
  */
 
-export { credentialsLoginContract, credentialsLoginInput, credentialsUseOnMyMachinesContract, credentialsUseOnMyMachinesInput } from './credentials/native-login-contracts'
 export { AgentProfileRef } from './agent-profiles/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
@@ -128,6 +127,12 @@ export {
   credentialsSignInStartInput,
   credentialsUnshareInput,
 } from './credentials/contracts'
+export {
+  credentialsLoginContract,
+  credentialsLoginInput,
+  credentialsUseOnMyMachinesContract,
+  credentialsUseOnMyMachinesInput,
+} from './credentials/native-login-contracts'
 export {
   EFFECT_CONFLICT_RULE,
   EFFECT_CONTRACTS,
