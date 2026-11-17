@@ -44,6 +44,7 @@ import {
 } from '@podium/protocol'
 import {
   type ControlMessage,
+  daemonFrameCarriesSecret,
   encodeDaemonMessage,
   parseDaemonMessage,
 } from '@podium/protocol/daemon'
@@ -59,7 +60,13 @@ import {
   recordHelloBuild,
 } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { type GatewaySocket, safeSendEncoded, warnDroppedFrame } from './ws-send'
+import {
+  frameEnvelopeType,
+  type GatewaySocket,
+  safeSendEncoded,
+  warnDroppedFrame,
+  warnDroppedSecretFrame,
+} from './ws-send'
 
 const log = createLogger('server:gateway:daemon')
 
@@ -458,7 +465,11 @@ export function wireDaemonSocket(
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
-      warnDroppedFrame('daemon', err)
+      // A frame that can carry a login file is named by its type only (§8).
+      const type = frameEnvelopeType(raw)
+      if (type !== undefined && daemonFrameCarriesSecret(type))
+        warnDroppedSecretFrame('daemon', type)
+      else warnDroppedFrame('daemon', err)
     }
   }
   ws.on('message', (raw) => {

@@ -303,3 +303,19 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   CredentialRemoveResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
+
+/**
+ * THE DAEMON FRAMES THAT CAN CARRY A SECRET (credential management §8, "Never
+ * logged"): the login-file export, whose `bundles` hold a harness's login file.
+ * The twin of `SECRET_CARRYING_CONTROL_TYPES` for the other direction. Such a
+ * frame is named by its type only in a log or a dropped-frame warning. Pinned
+ * against the union's shapes by `session-access.test.ts`.
+ */
+export const SECRET_CARRYING_DAEMON_TYPES: ReadonlySet<DaemonMessage['type']> = new Set([
+  'credentialExportResult',
+] as const satisfies readonly DaemonMessage['type'][])
+
+/** Can a daemon frame of this type carry a secret? Log it by type only. */
+export function daemonFrameCarriesSecret(type: string): boolean {
+  return (SECRET_CARRYING_DAEMON_TYPES as ReadonlySet<string>).has(type)
+}

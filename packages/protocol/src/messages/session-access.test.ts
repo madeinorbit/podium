@@ -6,6 +6,7 @@ import {
   carriesSecret,
   SECRET_CARRYING_CONTROL_TYPES,
 } from './control.js'
+import { DaemonMessage, daemonFrameCarriesSecret, SECRET_CARRYING_DAEMON_TYPES } from './daemon.js'
 import { AccessField, CAP_SESSION_ACCESS, SessionAccessRefreshMessage } from './session-access.js'
 import { SpawnMessage } from './terminal.js'
 
@@ -18,11 +19,23 @@ const envAccess = {
 
 /** Every arm of the control union, with the keys of its object shape. */
 function controlArms(): { type: string; keys: string[] }[] {
-  return ControlMessage.options.map((option) => {
+  return armsOf(ControlMessage.options)
+}
+
+/** Every arm of the daemon-to-server union, with the keys of its object shape. */
+function daemonArms(): { type: string; keys: string[] }[] {
+  return armsOf(DaemonMessage.options)
+}
+
+function armsOf(options: readonly { shape: unknown }[]): { type: string; keys: string[] }[] {
+  return options.map((option) => {
     const shape = option.shape as Record<string, unknown> & { type: { value: string } }
     return { type: shape.type.value, keys: Object.keys(shape) }
   })
 }
+
+/** A key that holds a secret: an access, the vault's data key, or login-file bundles. */
+const SECRET_KEYS = ['access', 'vaultDataKey', 'bundles']
 
 describe('AccessField', () => {
   it('round-trips an env delivery and a home delivery', () => {
@@ -87,17 +100,31 @@ describe('messages that carry access', () => {
     expect(carriesAccess('not-a-type')).toBe(false)
   })
 
-  it('the never-logged list is exactly the control types whose shape has access or a vault key', () => {
+  it('the never-logged list is exactly the control types whose shape has access, a vault key or login bundles', () => {
     const withSecret = controlArms()
-      .filter((arm) => arm.keys.includes('access') || arm.keys.includes('vaultDataKey'))
+      .filter((arm) => arm.keys.some((key) => SECRET_KEYS.includes(key)))
       .map((arm) => arm.type)
       .sort()
-    // Canaries: the derivation finds both kinds of carrier.
+    // Canaries: the derivation finds every kind of carrier.
     expect(withSecret).toContain('spawn')
     expect(withSecret).toContain('serverTransferPromoteRequest')
+    expect(withSecret).toContain('credentialInstallRequest')
     expect([...SECRET_CARRYING_CONTROL_TYPES].sort()).toEqual(withSecret)
     for (const type of withSecret) expect(carriesSecret(type)).toBe(true)
     expect(carriesSecret('serverTransferAbortRequest')).toBe(false)
     expect(carriesSecret('not-a-type')).toBe(false)
+  })
+
+  it('the daemon frames never logged are exactly those whose shape has a secret key', () => {
+    const withSecret = daemonArms()
+      .filter((arm) => arm.keys.some((key) => SECRET_KEYS.includes(key)))
+      .map((arm) => arm.type)
+      .sort()
+    // Canary: the login-file export is found, so an empty list would mean something.
+    expect(withSecret).toContain('credentialExportResult')
+    expect([...SECRET_CARRYING_DAEMON_TYPES].sort()).toEqual(withSecret)
+    for (const type of withSecret) expect(daemonFrameCarriesSecret(type)).toBe(true)
+    expect(daemonFrameCarriesSecret('credentialInstallResult')).toBe(false)
+    expect(daemonFrameCarriesSecret('not-a-type')).toBe(false)
   })
 })

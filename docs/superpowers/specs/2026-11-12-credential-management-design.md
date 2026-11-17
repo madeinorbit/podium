@@ -387,6 +387,11 @@ secret.
   by a list of field names.
 - **Not for older daemons.** A daemon that does not announce support is refused. It is never
   started on the machine's own login instead.
+- **A copied login file follows the same rule.** Propagation is not a delivery, but the file it
+  copies is a whole sign-in. It is exported only from a daemon whose connection is encrypted or
+  stays on the computer, and installed only on such a daemon; a plain connection, or one the
+  server has not judged, copies nothing and the refusal is logged. Neither request is queued
+  for a machine that is offline, and both are named by type only in a log (POD-6906 S2).
 
 ### Which machines may receive a credential
 
@@ -945,7 +950,7 @@ Each of these has a place in the design and is left out on purpose.
 | The Codex-subscription detour for direct inference (POD-4750) | Stays for `openai.chatgpt-login`. A ChatGPT plan signed in to Podium calls OpenAI's public API from the server. |
 | Nothing for person-to-person messages | `notices`, the tray, and mentions on issue comments (section 13). |
 | Login catalog, keychain transfer | Unchanged. The catalog feeds the "found on a machine" rows. |
-| Propagation | Unchanged, and records what it copies in `credential_placements`. |
+| Propagation | Unchanged, except that a login file crosses only an encrypted or same-computer connection (section 8). Records what it copies in `credential_placements`. |
 | Server transfer copies the database | It also hands the vault's data key to the target in the promotion step, and refuses a target whose connection is not encrypted. |
 | A daemon may connect over plain `ws` to another computer | Refused credentials at once; the connection itself is refused after the removal date. |
 

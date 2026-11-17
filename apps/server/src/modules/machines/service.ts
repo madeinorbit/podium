@@ -1067,6 +1067,20 @@ export class MachinesService {
     return undefined
   }
 
+  /**
+   * Why a login file may not cross `machineId`'s live daemon link now, if it may
+   * not (credential management §8; POD-6906 S2). Stricter than the access rule:
+   * a link the server has not classified is refused too, because a login file
+   * is a harness's whole sign-in, not one session's access.
+   */
+  loginLinkUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
+    const kind = this.deps.daemonLinkKind?.(machineId)
+    if (kind === 'plain') return 'its connection is not encrypted'
+    if (kind === undefined) return 'the server cannot tell whether its connection is encrypted'
+    return undefined
+  }
+
   /** Wait briefly for the live daemon's first inventory, requesting it now. */
   async waitForInventory(machineId: MachineId, timeoutMs = 25_000): Promise<void> {
     if (!this.inventoryPending.has(machineId)) return
@@ -1098,6 +1112,18 @@ export class MachinesService {
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     if (this.revokedMachines.has(machineId)) return
+    // A LOGIN FILE CROSSES ONLY A SAFE LINK AND IS NEVER QUEUED (credential
+    // management §8; POD-6906 S2). The install carries the file; the export asks
+    // the daemon to send it back over the same link. Both are judged at the send,
+    // for propagation and for the legacy pairing copy alike.
+    if (msg.type === 'credentialExportRequest' || msg.type === 'credentialInstallRequest') {
+      const unsafe = this.loginLinkUnsafe(machineId)
+      if (unsafe) {
+        throw new RefusedSendError(
+          `refusing to ${msg.type === 'credentialExportRequest' ? 'ask for' : 'send'} a login file ${msg.type === 'credentialExportRequest' ? 'from' : 'to'} ${machineId}: ${unsafe}`,
+        )
+      }
+    }
     // The RPC broker may await before sending, and the live peer can change
     // after propagation's preflight. Check the peer we actually send to; never
     // queue credential bytes for an offline or downgraded replacement.
@@ -1202,7 +1228,10 @@ export class MachinesService {
     return await this.deps.store.users.authzGenerationOf(owner)
   }
 
-  async mintClientRegistrationCode(request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+  async mintClientRegistrationCode(
+    request: { machineId: MachineId; publicKey?: string },
+    actor: UserId,
+  ): Promise<string> {
     return credentials.mintClientRegistrationCode(this.enrollmentHost, request, actor)
   }
 
@@ -1983,7 +2012,8 @@ export class MachinesService {
   private notePresence(records: readonly MachineRecord[]): void {
     for (const m of records) {
       const before = this.presence.get(m.id)
-      if (before?.lastSeenAt === m.lastSeenAt && before.presenceSource === m.presenceSource) continue
+      if (before?.lastSeenAt === m.lastSeenAt && before.presenceSource === m.presenceSource)
+        continue
       this.presence.set(m.id, { lastSeenAt: m.lastSeenAt, presenceSource: m.presenceSource })
       if (before !== undefined) this.deps.conditionChanged?.(m.id)
     }

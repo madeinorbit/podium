@@ -248,14 +248,17 @@ export function carriesAccess(type: string): boolean {
 
 /**
  * EVERY FRAME THAT CAN CARRY A SECRET, `access` or not (credential management
- * §7 and §8): the access carriers, plus the server-transfer promote frame, whose
- * `vaultDataKey` is the vault's data key. Such a frame is named by its type
- * only in a log, a trace or a dropped-frame warning. Pinned against the union's
- * shapes by `session-access.test.ts`.
+ * §7 and §8): the access carriers, the server-transfer promote frame, whose
+ * `vaultDataKey` is the vault's data key, and the login-file install, whose
+ * `bundles` hold a harness's login file. Such a frame is named by its type only
+ * in a log, a trace or a dropped-frame warning. Pinned against the union's
+ * shapes by `session-access.test.ts`. The daemon's half is
+ * `SECRET_CARRYING_DAEMON_TYPES` in `./daemon`.
  */
 export const SECRET_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
   ...ACCESS_CARRYING_CONTROL_TYPES,
   'serverTransferPromoteRequest',
+  'credentialInstallRequest',
 ] as const satisfies readonly ControlMessage['type'][])
 
 /** Can a control frame of this type carry a secret? Log it by type only. */

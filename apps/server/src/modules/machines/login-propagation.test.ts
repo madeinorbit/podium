@@ -2,6 +2,7 @@ import { asMachineId, asUserId, type UserId } from '@podium/model'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
+import { captureLogs } from '../../test-support/capture-logs'
 import { openTestStore } from '../../test-support/open-test-store'
 import { LOGIN_TRANSFER_MAX_AGE_MS, LoginPropagationService } from './login-propagation'
 
@@ -84,6 +85,8 @@ describe('login propagation coordinator', () => {
       now?: () => number
       online?: string[]
       capable?: string[]
+      /** Machines the server judged connected over a plain link. */
+      plain?: string[]
     } = {},
   ) {
     const credentialExport = vi.fn<ExportFn>(
@@ -99,6 +102,13 @@ describe('login propagation coordinator', () => {
         hasDaemon: (machineId) => online.has(machineId),
         capabilityRejection: async () => undefined,
         daemonSupports: (machineId) => (opts.capable ?? [...online]).includes(machineId),
+        // As MachinesService.loginLinkUnsafe: offline, or a plain link, is unsafe.
+        loginLinkUnsafe: (machineId) =>
+          !online.has(machineId)
+            ? 'no daemon is connected'
+            : (opts.plain ?? []).includes(machineId)
+              ? 'its connection is not encrypted'
+              : undefined,
       },
       rpc: { credentialExport, credentialInstall },
       now: opts.now ?? (() => 1_000),
@@ -428,6 +438,96 @@ describe('login propagation coordinator', () => {
       reason: 'propagation attempt cap reached',
     })
     expect(credentialExport).toHaveBeenCalledTimes(3)
+  })
+
+  /**
+   * A LOGIN FILE CROSSES ONLY A SAFE LINK (credential management §8; POD-6906
+   * S2). POD-6906's repro, inverted: a capable donor or target the server judged
+   * plain was asked for, or sent, the login file.
+   */
+  describe('over a plain link', () => {
+    it('refuses a plain donor: a log line, no export, no install', async () => {
+      const s = await fleet()
+      await tick(s)
+      const { svc, credentialExport, credentialInstall } = service(s, { plain: ['donor'] })
+      const logs = captureLogs()
+      try {
+        await expect(svc.propagate(toTarget)).resolves.toEqual({
+          status: 'skipped',
+          reason: 'login not copied over the donor link (donor): its connection is not encrypted',
+        })
+        expect(logs.at('warn')).toContainEqual(
+          expect.objectContaining({
+            msg: expect.stringContaining('login propagation refused'),
+            role: 'donor',
+            machineId: 'donor',
+          }),
+        )
+        expect(logs.text()).not.toContain(bundle.contentBase64)
+      } finally {
+        logs.restore()
+      }
+      expect(credentialExport).not.toHaveBeenCalled()
+      expect(credentialInstall).not.toHaveBeenCalled()
+      expect(await s.accounts.transfersFor(owner)).toEqual([])
+    })
+
+    it('refuses a plain target before anything is exported', async () => {
+      const s = await fleet()
+      await tick(s)
+      const { svc, credentialExport, credentialInstall } = service(s, { plain: ['target'] })
+      const logs = captureLogs()
+      try {
+        await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+          status: 'skipped',
+          reason: expect.stringContaining('target link (target)'),
+        })
+        expect(logs.at('warn')).toContainEqual(
+          expect.objectContaining({ role: 'target', machineId: 'target' }),
+        )
+      } finally {
+        logs.restore()
+      }
+      expect(credentialExport).not.toHaveBeenCalled()
+      expect(credentialInstall).not.toHaveBeenCalled()
+    })
+
+    it('refuses a target that reconnects over a plain link while export is pending', async () => {
+      const s = await fleet()
+      await tick(s)
+      const plain: string[] = []
+      const { svc, credentialInstall } = service(s, {
+        plain,
+        export: async () => {
+          plain.push('target')
+          return { bundles: [bundle], unavailable: [] }
+        },
+      })
+      await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+        status: 'skipped',
+        reason: expect.stringContaining('not encrypted'),
+      })
+      expect(credentialInstall).not.toHaveBeenCalled()
+      // The exported bytes did not outlive the refusal on the server.
+      expect(
+        (await s.secrets.presence()).every((item) => !JSON.stringify(item).includes('secret-')),
+      ).toBe(true)
+    })
+
+    it('copies from a donor on a safe link when another holder of the login is plain', async () => {
+      const s = await fleet()
+      await machine('third', owner, 'in', 'same-account')
+      await tick(s)
+      for (const plain of [['donor'], ['third']]) {
+        const { svc, credentialExport } = service(s, { plain })
+        const safe = plain[0] === 'donor' ? 'third' : 'donor'
+        await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+          status: 'propagated',
+          donorMachineId: safe,
+        })
+        expect(credentialExport).toHaveBeenCalledWith(['codex'], safe, expect.anything())
+      }
+    })
   })
 
   it('finds no donor once the ticked account left every other machine', async () => {

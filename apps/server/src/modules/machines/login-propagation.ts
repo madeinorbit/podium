@@ -62,9 +62,35 @@ interface AttemptState {
 
 interface LoginPropagationDeps {
   store: SessionStore
-  machines: Pick<MachinesService, 'hasDaemon' | 'capabilityRejection' | 'daemonSupports'>
+  machines: Pick<
+    MachinesService,
+    'hasDaemon' | 'capabilityRejection' | 'daemonSupports' | 'loginLinkUnsafe'
+  >
   rpc: Pick<DaemonRpcService, 'credentialExport' | 'credentialInstall'>
   now?: () => number
+}
+
+/** Who a login file would cross a link from or to. */
+type LinkRole = 'donor' | 'target'
+
+/** The refusal for a login file that may not cross this link, logged once. */
+function refuseLink(
+  role: LinkRole,
+  machineId: MachineId,
+  unsafe: string,
+  input: LoginPropagationTrigger,
+): LoginPropagationResult {
+  log.warn('login propagation refused: the login file may not cross this link', {
+    role,
+    machineId,
+    reason: unsafe,
+    targetMachineId: input.targetMachineId,
+    agentKind: input.agentKind,
+  })
+  return {
+    status: 'skipped',
+    reason: `login not copied over the ${role} link (${machineId}): ${unsafe}`,
+  }
 }
 
 function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): string {
@@ -92,6 +118,10 @@ function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): st
  * - A transfer whose choice or target custody changed after export, or older
  *   than {@link LOGIN_TRANSFER_MAX_AGE_MS}, is stale and refused.
  * - Several ticked logins that fit one harness are not chosen between.
+ * - The login file crosses only a link the server judged safe (credential
+ *   management §8; POD-6906 S2): the donor's link before export, the target's
+ *   before export and again before install. A plain or unclassified link
+ *   copies nothing, and the refusal is logged.
  */
 export class LoginPropagationService {
   private readonly attempts = new Map<string, AttemptState>()
@@ -317,12 +347,20 @@ export class LoginPropagationService {
       ...(await this.deps.store.machines.getMachines([...donorIds])).values(),
     ])
     const entries = catalogEntriesForHarness(catalog, input.harness)
-    const donorFor = (fingerprint: string): MachineId | undefined =>
-      entries
-        .find((entry) => entry.fingerprint === fingerprint)
-        ?.machines.find(
-          (machine) => machine.harness === input.harness && donorIds.has(machine.machineId),
-        )?.machineId
+    // A donor whose link may carry the login file is preferred; one that may not
+    // is still chosen when it is the only one, so the refusal below is logged.
+    const donorFor = (fingerprint: string): MachineId | undefined => {
+      const holders =
+        entries
+          .find((entry) => entry.fingerprint === fingerprint)
+          ?.machines.filter(
+            (machine) => machine.harness === input.harness && donorIds.has(machine.machineId),
+          )
+          .map((machine) => machine.machineId) ?? []
+      return (
+        holders.find((id) => this.deps.machines.loginLinkUnsafe(id) === undefined) ?? holders[0]
+      )
+    }
     const fits = wanted.flatMap((choice) => {
       const donor = donorFor(choice.fingerprint)
       return donor ? [{ choice, donor }] : []
@@ -360,6 +398,12 @@ export class LoginPropagationService {
         upgradeRequired: true,
       }
     }
+    // THE LINKS: the file leaves the donor and reaches the target only over a
+    // link the server judged safe. Both are judged before anything is exported.
+    const donorUnsafe = this.deps.machines.loginLinkUnsafe(donor)
+    if (donorUnsafe) return refuseLink('donor', donor, donorUnsafe, input.input)
+    const targetUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    if (targetUnsafe) return refuseLink('target', targetId, targetUnsafe, input.input)
     // The transfer's age counts from the choice it was read under.
     const readAt = this.now()
     const exported = await this.deps.rpc.credentialExport([kind], donor, {
@@ -403,6 +447,9 @@ export class LoginPropagationService {
           upgradeRequired: true,
         }
       }
+      // The target may have reconnected over another link during the export.
+      const installUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+      if (installUnsafe) return refuseLink('target', targetId, installUnsafe, input.input)
       const installed = await this.deps.rpc.credentialInstall([serverBundle], targetId, {
         propagation: true,
         expectedFingerprint: choice.fingerprint,
