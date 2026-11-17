@@ -2,12 +2,44 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { Children, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const facts = vi.hoisted(() => ({ read: vi.fn() }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseConcerns: facts.read }))
 vi.mock('@expo/ui', () => ({ Host: ({ children }: { children: ReactNode }) => children }))
+// Keep Expo's Section -> Slot and Text -> native text prop conversion real.
+// Fabric cannot mount RawText directly under an Expo native view in Release.
+vi.mock('expo', () => ({
+  requireNativeView:
+    (_module: string, name: string) =>
+    ({
+      children,
+      text,
+      title,
+      name: slot,
+    }: {
+      children?: ReactNode
+      text?: string
+      title?: string
+      name?: string
+    }) => {
+      if (
+        Children.toArray(children).some(
+          (child) => typeof child === 'string' || typeof child === 'number',
+        )
+      ) {
+        throw new Error(`Unregistered RawText under ExpoUI.${name}`)
+      }
+      return (
+        <div data-native-view={name} data-slot={slot}>
+          {title ? <h2>{title}</h2> : null}
+          {text}
+          {children}
+        </div>
+      )
+    },
+}))
 vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ...Object.fromEntries(
     [
@@ -22,7 +54,18 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
     ].map((name) => [name, (value: unknown) => ({ name, value })]),
   ),
 }))
-vi.mock('@expo/ui/swift-ui', () => {
+vi.mock('@expo/ui/swift-ui', async () => {
+  const { createRequire } = await import('node:module')
+  const root = new URL(
+    '.',
+    `file://${createRequire(import.meta.url).resolve('@expo/ui/package.json')}`,
+  )
+  const { Section } = await vi.importActual<typeof import('@expo/ui/swift-ui')>(
+    new URL('src/swift-ui/Section/index.tsx', root).pathname,
+  )
+  const { Text } = await vi.importActual<typeof import('@expo/ui/swift-ui')>(
+    new URL('src/swift-ui/Text/index.tsx', root).pathname,
+  )
   const Box = ({ children }: { children?: ReactNode }) => <>{children}</>
   return {
     BottomSheet: ({
@@ -69,22 +112,8 @@ vi.mock('@expo/ui/swift-ui', () => {
     Form: Box,
     Group: Box,
     NavigationStack: Box,
-    Section: ({
-      title,
-      footer,
-      children,
-    }: {
-      title?: string
-      footer?: string
-      children: ReactNode
-    }) => (
-      <section>
-        <h2>{title}</h2>
-        {children}
-        <p>{footer}</p>
-      </section>
-    ),
-    Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+    Section,
+    Text,
     Toolbar: Object.assign(Box, { Content: Box }),
     ToolbarItem: Box,
     VStack: Box,
@@ -103,6 +132,15 @@ const concern = {
 
 beforeEach(() => facts.read.mockReset().mockReturnValue([concern]))
 afterEach(cleanup)
+
+it('mounts the concern footer through SwiftUI Text, without a raw text native child', () => {
+  render(<IssueCloseSheet issue={issue} reason="done" onClose={vi.fn()} onConfirm={vi.fn()} />)
+  const footer = screen.getByText(
+    'Closing is still available, but it should be an explicit decision.',
+  )
+  expect(footer.getAttribute('data-native-view')).toBe('TextView')
+  expect(footer.parentElement?.getAttribute('data-slot')).toBe('footer')
+})
 
 it('waits for live close facts, then keeps the native warning current', () => {
   const props = { issue, reason: 'done' as const, onClose: vi.fn(), onConfirm: vi.fn() }
@@ -125,23 +163,51 @@ it('waits for live close facts, then keeps the native warning current', () => {
   expect(screen.getByRole('button', { name: 'Close task' }).hasAttribute('disabled')).toBe(false)
 })
 
-it('confirms the selected ending once, after native dismissal', () => {
+it.each([
+  ['done', 'Close anyway'],
+  ['cancelled', 'Close as cancelled'],
+  ['duplicate', 'Close as duplicate'],
+] as const)('confirms %s once, after native dismissal', (reason, label) => {
   const onClose = vi.fn()
   const onConfirm = vi.fn()
-  render(
-    <IssueCloseSheet issue={issue} reason="cancelled" onClose={onClose} onConfirm={onConfirm} />,
-  )
-  fireEvent.click(screen.getByRole('button', { name: 'Close as cancelled' }))
+  render(<IssueCloseSheet issue={issue} reason={reason} onClose={onClose} onConfirm={onConfirm} />)
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  fireEvent.click(screen.getByRole('button', { name: label }))
   expect(screen.getByTestId('native-close').getAttribute('data-presented')).toBe('false')
   expect(onClose).not.toHaveBeenCalled()
   expect(onConfirm).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Finish dismissal' }))
   fireEvent.click(screen.getByRole('button', { name: 'Finish dismissal' }))
   expect(onClose).toHaveBeenCalledTimes(1)
-  expect(onConfirm).toHaveBeenCalledExactlyOnceWith('cancelled')
+  expect(onConfirm).toHaveBeenCalledExactlyOnceWith(reason)
   const [closedAt = 0] = onClose.mock.invocationCallOrder
   const [confirmedAt = 0] = onConfirm.mock.invocationCallOrder
   expect(closedAt).toBeLessThan(confirmedAt)
+})
+
+it.each(['pending', 'busy'] as const)('keeps Keep open enabled while %s', (state) => {
+  facts.read.mockReturnValue(state === 'pending' ? LOADING : [concern])
+  const onClose = vi.fn()
+  const onConfirm = vi.fn()
+  render(
+    <IssueCloseSheet
+      issue={issue}
+      reason="done"
+      busy={state === 'busy'}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />,
+  )
+  const confirm = screen.getByRole<HTMLButtonElement>('button', {
+    name: state === 'busy' ? 'Closing…' : 'Close task',
+  })
+  expect(confirm.disabled).toBe(true)
+  const keepOpen = screen.getByRole<HTMLButtonElement>('button', { name: 'Keep open' })
+  expect(keepOpen.disabled).toBe(false)
+  fireEvent.click(keepOpen)
+  fireEvent.click(screen.getByRole('button', { name: 'Finish dismissal' }))
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(onConfirm).not.toHaveBeenCalled()
 })
 
 it.each(['Keep open', 'Drag dismiss'])('%s dismisses without closing the task', (label) => {

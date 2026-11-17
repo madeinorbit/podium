@@ -86,7 +86,11 @@ function VisibleIssueCloseSheet({
               <Form>
                 <Section
                   title={closeTitle(reason, concerns.length, pending)}
-                  footer={concerns.length > 0 ? closeSubtitle(concerns.length, pending) : undefined}
+                  footer={
+                    concerns.length > 0 ? (
+                      <Text>{closeSubtitle(concerns.length, pending)}</Text>
+                    ) : undefined
+                  }
                 >
                   {concerns.length === 0 ? <Text>{closeSubtitle(0, pending)}</Text> : null}
                   {concerns.map((concern) => (
