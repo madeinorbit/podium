@@ -551,15 +551,14 @@ function findAnchorIndex(
 // read shape (anchor, direction, limit), so an unchanged source serves the prior
 // parse instead of re-reading.
 //
-// FRESHNESS is a per-hit `version()` of each chain source (one `fs.stat` for a
-// file, ~10µs, vs ~500ms to re-parse). An APPEND — the only mutation transcript files take by contract
-// (append-only; the live tailer only ever grows them) — changes size and mtime,
-// so the key changes and the read naturally misses and re-parses. This covers the
-// hot "newest window" case (`direction: 'before'`, no anchor = tail): a grown file
-// has a new size, so a tail read of it MUST miss. Truncation / whole-file rewrite
-// also changes size (or mtime) → miss. RESIDUAL RISK: a same-size, same-mtime-ms
-// rewrite (a rewrite within the filesystem's mtime granularity that preserves byte
-// length) would serve a stale slice — accepted, as it cannot arise from the
+// FRESHNESS is a per-hit `version()` of each chain source (one `fs.stat` for a file, ~10µs, vs
+// ~500ms to re-parse). An APPEND — the only mutation transcript files take by contract
+// (append-only; the live tailer only ever grows them) — changes size and mtime, so the key changes
+// and the read naturally misses and re-parses. This covers the hot "newest window" case
+// (`direction: 'before'`, no anchor = tail): a grown file has a new size, so a tail read of it MUST
+// miss. Truncation / whole-file rewrite also changes size (or mtime) → miss. RESIDUAL RISK: a
+// same-size, same-mtime-ms rewrite (a rewrite within the filesystem's mtime granularity that
+// preserves byte length) would serve a stale slice — accepted, as it cannot arise from the
 // append-only contract.
 //
 // IMMUTABILITY: a hit returns the SAME `SliceResult` object (and its `items`
@@ -715,12 +714,11 @@ export async function readTranscriptSliceCached(
 // ---------------------------------------------------------------------------
 // Append-incremental tail reads (POD-1623).
 //
-// The cache above is keyed on the source's version (size+mtime for a file), so an APPEND — the only mutation a
-// transcript takes under the append-only contract — always misses, and the miss
-// re-read and re-`JSON.parse`d the WHOLE file. Measured on the live lake, one
-// appended record on a 97.6MB transcript cost 837ms of straight-line CPU. That is
-// paid once per incoming message per open chat, on the server/daemon event loop,
-// so it froze every session rather than only the one being read.
+// The cache above is keyed on the source's version (size+mtime for a file), so an APPEND — the only
+// mutation a transcript takes under the append-only contract — always misses, and the miss re-read
+// and re-`JSON.parse`d the WHOLE file. Measured on the live lake, one appended record on a 97.6MB
+// transcript cost 837ms of straight-line CPU. That is paid once per incoming message per open chat,
+// on the server/daemon event loop, so it froze every session rather than only the one being read.
 //
 // A grown file's tail is the OLD tail plus the appended records, so the new answer
 // is computable from the appended bytes alone. This keeps, per (file, limit), the
