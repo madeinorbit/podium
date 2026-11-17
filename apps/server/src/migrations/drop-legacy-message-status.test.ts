@@ -22,6 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { createBunStoreExecutor } from '../store/executor'
 import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
+import { JanitorReadsRepository } from '../store/janitor-reads'
 import { MessagesRepository } from '../store/messages'
 import { runDrizzleMigrations } from '.'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -273,8 +274,14 @@ describe('the drop-legacy-message-status migration', () => {
     const db = legacyDatabase()
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     const prepare = vi.spyOn(db, 'prepare')
-    // The janitor reads one workspace's messages (POD-7020); every index leads with it (POD-7024).
-    const due = await new MessageExpiryReader(db, 'local').read({
+    // The janitor reads one workspace's messages (POD-7020); every index leads with it
+    // (POD-7024). Its reads are the store's definitions since POD-6993, built here over
+    // this database as the janitor's worker builds them over its read session.
+    const queries = createBunStoreExecutor({ database: db }).queries
+    const reads = new JanitorReadsRepository(
+      legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID),
+    )
+    const due = await new MessageExpiryReader({ scan: async (fn) => await fn(reads) }).read({
       now: '2026-07-21T00:00:00.000Z',
       waitImplicitCutoff: '2026-07-31T00:00:00.000Z',
       limit: 100,
@@ -282,7 +289,9 @@ describe('the drop-legacy-message-status migration', () => {
     // Only the row the server still holds is a candidate; the rest were handed
     // on or ended, so they cannot expire.
     expect(due.map((row) => row.messageId)).toEqual(['held'])
-    const scans = prepare.mock.calls.map(([sql]) => sql).filter((sql) => /FROM messages/.test(sql))
+    const scans = prepare.mock.calls
+      .map(([sql]) => sql)
+      .filter((sql) => /\bfrom "?messages"?\b/i.test(sql))
     expect(scans).toHaveLength(2)
     const plan = (sql: string) =>
       (
