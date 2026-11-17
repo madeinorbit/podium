@@ -302,30 +302,49 @@ describe('every status write goes through the guarded move (the grep proof)', ()
         return entry.name === 'node_modules' || entry.name === 'drizzle' ? [] : sources(path)
       }
       // The generated migration manifest carries the migrations' own SQL.
-      return entry.name.endsWith('.ts') &&
-        !entry.name.includes('.test.') &&
-        !entry.name.endsWith('.generated.ts')
-        ? [path]
-        : []
+      return entry.name.endsWith('.ts') && !entry.name.endsWith('.generated.ts') ? [path] : []
     })
-  const code = (path: string) =>
-    readFileSync(path, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
+  const strip = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const code = (path: string) => strip(readFileSync(path, 'utf8'))
+  /**
+   * The proof is about PRODUCTION files, so test files and test support are out by rule: a
+   * test may write any row it needs to set up a case (POD-7025's workspace seeds do).
+   */
+  const isProduction = (path: string) =>
+    !/\.test\./.test(path) && !/(^|\/)test-support\//.test(path)
+  /** The production files of `files` (repository paths) whose code updates `messages`. */
+  const messageWriters = (files: readonly { path: string; source: string }[]): string[] =>
+    files
+      .filter(({ path }) => isProduction(path))
+      .filter(({ source }) =>
+        /\.update\((?:messagesTable|messages|t\.messages)\)|UPDATE\s+`?messages`?\s+SET/i.test(
+          strip(source),
+        ),
+      )
+      .map(({ path }) => path)
 
   it('no production file but the repository updates the messages table', () => {
-    const writers = [
+    const files = [
       ...sources(SERVER_SRC),
       ...sources(join(REPO, 'packages/janitor/src')),
       ...sources(join(REPO, 'apps/daemon/src')),
-    ].filter((path) =>
-      /\.update\((?:messagesTable|messages|t\.messages)\)|UPDATE\s+`?messages`?\s+SET/i.test(
-        code(path),
-      ),
-    )
-    expect(writers.map((path) => relative(REPO, path))).toEqual([
-      'apps/server/src/store/messages.ts',
-    ])
+    ].map((path) => ({ path: relative(REPO, path), source: readFileSync(path, 'utf8') }))
+    expect(files.length).toBeGreaterThan(300)
+    expect(messageWriters(files)).toEqual(['apps/server/src/store/messages.ts'])
+  })
+
+  it('is armed: a planted production update fails it, the same update in a test or test support does not', () => {
+    const update = 'await db.update(t.messages).set({ deliveryStatus: "read" })\n'
+    const raw = 'db.prepare("UPDATE messages SET delivery_status = ?").run(s)\n'
+    expect(
+      messageWriters([
+        { path: 'apps/server/src/modules/planted/service.ts', source: update },
+        { path: 'packages/janitor/src/planted.ts', source: raw },
+        { path: 'apps/server/src/test-support/workspace-seeds/planted.ts', source: update },
+        { path: 'apps/server/src/modules/planted/service.test.ts', source: raw },
+        { path: 'apps/server/src/modules/planted/commented.ts', source: `// ${update}` },
+      ]),
+    ).toEqual(['apps/server/src/modules/planted/service.ts', 'packages/janitor/src/planted.ts'])
   })
 
   it('inside the repository, only the guarded move sets delivery_status', () => {
