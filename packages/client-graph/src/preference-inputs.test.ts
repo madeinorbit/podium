@@ -1,3 +1,9 @@
+import {
+  EMPTY_FIRST_TASK_DRAFT,
+  persistFirstTaskDraft,
+  readFirstTaskDraft,
+  updateFirstTaskDraftAttachments,
+} from '@podium/client-core/first-task-draft'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
 import {
   createRoutedUiState,
@@ -188,6 +194,44 @@ it('publishes an addressed local draft before input-end while keeping other pref
   } finally {
     stopDraft()
     stopOther()
+    f.pool.dispose()
+  }
+})
+
+it('restores held attachment chips through the same draft preference after its reader unmounts', async () => {
+  const f = fixture()
+  const key = FIRST_TASK_ACTIVATION_DRAFT_KEY
+  let raw: string | null = null
+  const observe = () =>
+    autorun(() => {
+      const row = omitGone(f.pool.row('preference', key))
+      raw = row && row !== LOADING ? row.value : null
+    })
+  let stop = observe()
+  try {
+    await flush()
+    persistFirstTaskDraft(f.ui, { ...EMPTY_FIRST_TASK_DRAFT, title: 'Review the image' })
+    updateFirstTaskDraftAttachments(f.ui, () => [
+      {
+        id: 'image-chip',
+        name: 'shot.png',
+        previewUri: 'data:image/png;base64,aGVsbG8=',
+        ref: { id: 'held-image', filename: 'shot.png', mediaType: 'image/png', kind: 'image' },
+        state: 'ready',
+      },
+    ])
+    await flush()
+    const before = readFirstTaskDraft(raw)
+    stop()
+    persistFirstTaskDraft(f.ui, { ...before, launchError: "Couldn't start the agent." })
+    stop = observe()
+    await flush()
+    expect(readFirstTaskDraft(raw)).toEqual({ ...before, launchError: "Couldn't start the agent." })
+    updateFirstTaskDraftAttachments(f.ui, () => [])
+    await flush()
+    expect(readFirstTaskDraft(raw)).toMatchObject({ title: before.title, attachments: [] })
+  } finally {
+    stop()
     f.pool.dispose()
   }
 })

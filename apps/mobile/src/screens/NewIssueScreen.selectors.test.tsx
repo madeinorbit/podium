@@ -172,6 +172,7 @@ await Promise.all([
 afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
+  seams.replace.mockReset()
   seams.params = {}
   seams.close = undefined
   seams.presented = true
@@ -679,6 +680,129 @@ describe('native New Task sheet logic', () => {
       initialPrompt: 'Fix the jump\n\nKeep context.',
     })
     expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({ pathname: '/session/[sessionId]' })
+  })
+
+  it.each([
+    'before',
+    'after',
+  ] as const)('restores the same image when New Task reopens %s a delayed launch failure and retries without uploading', async (reopen) => {
+    let rejectCreate!: (error: Error) => void
+    const delayed = new Promise<{ sessionId: string }>((_resolve, reject) => {
+      rejectCreate = reject
+    })
+    const create = vi
+      .fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+      .mockImplementationOnce(() => delayed)
+    const ref = {
+      id: 'held-retry',
+      filename: 'retry.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const upload = vi.fn(async () => ({ path: '', attachment: ref }))
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      seams.close = () => setOpen(false)
+      return open ? (
+        <NewIssueScreen />
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}>
+          New Task
+        </button>
+      )
+    }
+    const app = await mount(
+      { api: { sessions: { create: { mutate: create }, uploadImage: { mutate: upload } } } },
+      <Harness />,
+    )
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Review this screenshot' } })
+    const previewUri = 'data:image/png;base64,aGVsbG8='
+    act(() =>
+      seams.attachments?.accept([
+        { name: 'retry.png', mimeType: 'image/png', dataBase64: 'aGVsbG8=', previewUri },
+      ]),
+    )
+    await waitFor(() => expect(seams.attachments?.ready()).toHaveLength(1))
+    const chip = seams.attachments?.attachments[0]
+    seams.replace.mockImplementation(() => seams.close?.())
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('textbox', { name: 'Task prompt' })).toBeNull()
+    const first = create.mock.calls[0]?.[0]
+    expect(first).toMatchObject({ attachments: [ref], initialPrompt: 'Review this screenshot' })
+    if (reopen === 'before') fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
+    await act(async () => rejectCreate(new Error('Connection interrupted')))
+    if (reopen === 'after') fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
+    await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy(), {
+      timeout: 5000,
+    })
+    expect(prompt().value).toBe('Review this screenshot')
+    expect(screen.getByRole('button', { name: 'Remove retry.png' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'retry.png' }).getAttribute('src')).toBe(previewUri)
+    expect(seams.attachments?.attachments[0]).toEqual(chip)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(create.mock.calls[1]?.[0]).toEqual(first)
+    expect(upload).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).toBeNull(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
+    await ready()
+    expect(prompt().value).toBe('')
+    expect(screen.queryByRole('button', { name: 'Remove retry.png' })).toBeNull()
+  })
+
+  it('keeps a recovered image removed when the sheet is reopened', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      seams.close = () => setOpen(false)
+      return open ? (
+        <NewIssueScreen />
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}>
+          New Task
+        </button>
+      )
+    }
+    const app = await mount({}, <Harness />)
+    await ready()
+    act(() =>
+      app.runtime.access.uiState.set(
+        FIRST_TASK_ACTIVATION_DRAFT_KEY,
+        JSON.stringify({
+          ...EMPTY_FIRST_TASK_DRAFT,
+          repoPath: '/repo/podium',
+          title: 'Keep this prompt',
+          attachments: [
+            {
+              id: 'restored-chip',
+              name: 'remove.png',
+              previewUri: '',
+              state: 'ready',
+              ref: {
+                id: 'held-remove',
+                filename: 'remove.png',
+                mediaType: 'image/png',
+                kind: 'image',
+              },
+            },
+          ],
+        }),
+      ),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove remove.png' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
+    await ready()
+    expect(prompt().value).toBe('Keep this prompt')
+    expect(screen.queryByRole('button', { name: 'Remove remove.png' })).toBeNull()
+    expect(
+      readFirstTaskDraft(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+        .attachments,
+    ).toEqual([])
   })
 
   it('saves to Backlog with the shared first-line title and never starts a session', async () => {

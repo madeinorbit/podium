@@ -1,6 +1,11 @@
+import {
+  type ComposerAttachment,
+  updateFirstTaskDraftAttachments,
+} from '@podium/client-core/first-task-draft'
+import type { UiState } from '@podium/client-core/ui-state'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type SetStateAction, useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { hasFileItems } from './transfer-items'
 
@@ -33,17 +38,10 @@ import { hasFileItems } from './transfer-items'
  * contract for why a known session ignores it.
  */
 
-export interface Attachment {
-  id: string
-  name: string
-  size?: number
+export interface Attachment extends Omit<ComposerAttachment, 'previewUri'> {
   /** An object URL when the browser can render this file inline, otherwise ''
    *  — a document chip shows its name and nothing else. */
   previewUrl: string
-  path?: string
-  ref?: RuntimeAttachmentRef
-  error?: string
-  state: 'uploading' | 'ready' | 'failed'
   /** The picked bytes, kept so the upload can be REDONE against a different
    *  machine (POD-1203). The home composer's target is a dropdown the operator
    *  can still change after attaching, and an uploaded path is only valid on the
@@ -97,9 +95,41 @@ export function useAttachments(opts: {
   /** `issue`: the home composer's task, which does not exist yet. Its files
    *  are held on the server until `sessions.create` claims them. */
   destination?: 'session' | 'issue'
+  /** New Task owns these chips in its shared draft rather than this hook. */
+  draft?: { attachments: ComposerAttachment[]; uiState: Pick<UiState, 'get' | 'set'> }
 }): UseAttachmentsResult {
   const { sessionId, trpc, machineId, destination = 'session' } = opts
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [localAttachments, setLocalAttachments] = useState<Attachment[]>([])
+  const attachments = opts.draft
+    ? opts.draft.attachments.map(({ previewUri, ...attachment }) => ({
+        ...attachment,
+        previewUrl: previewUri,
+      }))
+    : localAttachments
+  const draftRef = useRef(opts.draft)
+  draftRef.current = opts.draft
+  const setAttachments = useCallback((change: SetStateAction<Attachment[]>) => {
+    const draft = draftRef.current
+    if (!draft) {
+      setLocalAttachments(change)
+      return
+    }
+    updateFirstTaskDraftAttachments(draft.uiState, (current) => {
+      const previous = current.map(({ previewUri, ...attachment }) => ({
+        ...attachment,
+        previewUrl: previewUri,
+      }))
+      const next = typeof change === 'function' ? change(previous) : change
+      // File bytes belong to the active upload. The draft retains its result
+      // and the existing preview URL, so reopening never uploads those bytes again.
+      return next.map((attachment, index) => {
+        const saved = current[index]
+        if (saved && attachment === previous[index]) return saved
+        const { previewUrl, file: _file, ...chip } = attachment
+        return { ...chip, previewUri: previewUrl }
+      })
+    })
+  }, [])
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -157,7 +187,7 @@ export function useAttachments(opts: {
         )
       }
     },
-    [destination, sessionId, trpc],
+    [destination, sessionId, trpc, setAttachments],
   )
 
   const processFiles = useCallback(
@@ -174,7 +204,7 @@ export function useAttachments(opts: {
       setAttachments((prev) => [...prev, ...newAttachments])
       await Promise.all(newAttachments.map((att) => upload(att.id, att.file as File, machineId)))
     },
-    [machineId, upload],
+    [machineId, upload, setAttachments],
   )
 
   /**
@@ -207,7 +237,7 @@ export function useAttachments(opts: {
       ),
     )
     for (const a of again) void upload(a.id, a.file as File, machineId)
-  }, [destination, machineId, upload])
+  }, [destination, machineId, upload, setAttachments])
 
   const ready = useCallback(() => {
     const readyOnes = attachments.filter((a) => a.state === 'ready' && (!!a.ref || !!a.path))
@@ -233,12 +263,12 @@ export function useAttachments(opts: {
     processFiles,
     remove: useCallback(
       (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
-      [],
+      [setAttachments],
     ),
-    clear: useCallback(() => setAttachments([]), []),
+    clear: useCallback(() => setAttachments([]), [setAttachments]),
     clearReady: useCallback(
       () => setAttachments((prev) => prev.filter((attachment) => attachment.state === 'failed')),
-      [],
+      [setAttachments],
     ),
     uploading: attachments.some((a) => a.state === 'uploading'),
     ready,

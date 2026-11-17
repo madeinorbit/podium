@@ -3,6 +3,7 @@ import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readFirstTaskDraft } from '@podium/client-core/first-task-draft'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   asIssueId,
@@ -936,6 +937,48 @@ describe('ColdStartComposer', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
       expect(spawnDraftAgent.mock.calls[1]?.[0]?.attachments).toEqual(firstAttachments)
       expect(spawnDraftAgent.mock.calls[1]?.[0]?.firstPrompt).toBe('Review the attachment')
+    })
+
+    it('restores the image chip after optimistic navigation unmounts a delayed failed launch', async () => {
+      let fail!: (accepted: boolean) => void
+      spawnDraftAgent.mockReturnValueOnce({
+        sessionId: asSessionId('attachment-session'),
+        issueId: asIssueId('attachment-issue'),
+        settled: new Promise<boolean>((resolve) => {
+          fail = resolve
+        }),
+      })
+      const mounted = render(<ColdStartComposer first />)
+      fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+        target: { value: 'Review the attachment' },
+      })
+      attach(new File(['bytes'], 'retry.png', { type: 'image/png' }))
+      await waitForAttachment('retry.png')
+      const preview = screen.getByRole('img', { name: 'retry.png' }).getAttribute('src')
+      expect(preview).toBeTruthy()
+      setView.mockImplementationOnce(() => mounted.unmount())
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(screen.queryByLabelText('What do you want to work on?')).toBeNull()
+      const first = spawnDraftAgent.mock.calls[0]?.[0]
+      await act(async () => fail(false))
+      render(<ColdStartComposer first />)
+      expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy()
+      expect(
+        (screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement).value,
+      ).toBe('Review the attachment')
+      expect(screen.getByRole('img', { name: 'retry.png' }).getAttribute('src')).toBe(preview)
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(spawnDraftAgent.mock.calls[1]?.[0]).toEqual(first)
+      expect(uploadImage).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(
+          readFirstTaskDraft(uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY) ?? null),
+        ).toMatchObject({
+          title: '',
+          attachments: [],
+          createMutationId: '',
+        }),
+      )
     })
 
     it('refuses to launch until the browser has read the attachment bytes', async () => {

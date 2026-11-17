@@ -161,7 +161,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const { served } = useHarnessDescriptors<MobileTrpc>(machine?.id)
   const reported = catalog[agent]
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
-  const attachments = useComposerAttachments(uploadScope, { destination: 'issue' })
+  const attachments = useComposerAttachments(uploadScope, {
+    destination: 'issue',
+    draft: { attachments: draft.attachments, uiState, pool },
+  })
   const insets = useSafeAreaInsets()
   const headerHeight = use(HeaderHeightContext) ?? 0
   const keyboardLift = useKeyboardLift()
@@ -272,7 +275,6 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const clearAccepted = (reserved: FirstTaskDraft) => {
     const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
     if (current.createMutationId === reserved.createMutationId) clearFirstTaskDraft(uiState)
-    attachments.clear()
   }
   const start = () => {
     // A second tap at the opening control's old position must not launch work

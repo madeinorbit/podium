@@ -6,10 +6,26 @@ import {
   type MutationId,
   type SessionId,
 } from '@podium/model'
+import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { IssueAgentKind } from './agent-models'
 import { issueAgentKind } from './agent-models'
 import type { UiState } from './ui-state'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
+
+/** The existing composer chip, shared so a draft owns it across screen lifetimes. */
+export interface ComposerAttachment {
+  id: string
+  name: string
+  size?: number
+  /** Local preview URI or object URL; empty for files without a preview. */
+  previewUri: string
+  /** Present only when the upload already reached the agent's machine. */
+  path?: string
+  /** A held upload is sent by ref, without uploading the file again. */
+  ref?: RuntimeAttachmentRef
+  state: 'uploading' | 'ready' | 'failed'
+  error?: string
+}
 
 export type FirstTaskDraft = {
   repoPath: string
@@ -34,6 +50,8 @@ export type FirstTaskDraft = {
   startMutationId: MutationId | ''
   /** Uploaded paths already captured into the in-flight task brief. */
   attachmentPaths: string[]
+  /** Held uploads and their chips survive optimistic navigation and launch failure. */
+  attachments: ComposerAttachment[]
   /** Survives the optimistic workspace being removed so the remounted composer
    * can explain why the saved request returned. */
   launchError: string
@@ -55,6 +73,7 @@ export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
   createMutationId: '',
   startMutationId: '',
   attachmentPaths: [],
+  attachments: [],
   launchError: '',
 }
 
@@ -99,11 +118,43 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
       attachmentPaths: Array.isArray(value.attachmentPaths)
         ? value.attachmentPaths.filter((path): path is string => typeof path === 'string')
         : [],
+      attachments: readAttachments(value.attachments),
       launchError: typeof value.launchError === 'string' ? value.launchError : '',
     }
   } catch {
     return EMPTY_FIRST_TASK_DRAFT
   }
+}
+
+function readAttachments(value: unknown): ComposerAttachment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((row): ComposerAttachment[] => {
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      typeof row.id !== 'string' ||
+      !row.id ||
+      typeof row.name !== 'string' ||
+      typeof row.previewUri !== 'string' ||
+      !['uploading', 'ready', 'failed'].includes(row.state)
+    )
+      return []
+    const ref = RuntimeAttachmentRef.safeParse(row.ref)
+    const path = typeof row.path === 'string' && row.path ? row.path : undefined
+    if (row.state === 'ready' && !path && !ref.success) return []
+    return [
+      {
+        id: row.id,
+        name: row.name,
+        previewUri: row.previewUri,
+        state: row.state,
+        ...(typeof row.size === 'number' ? { size: row.size } : {}),
+        ...(path ? { path } : {}),
+        ...(ref.success ? { ref: ref.data } : {}),
+        ...(typeof row.error === 'string' ? { error: row.error } : {}),
+      },
+    ]
+  })
 }
 
 /** Module-level so `usePersistedUiState` gets a stable `serialize` identity. */
@@ -117,6 +168,23 @@ export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: Firs
 
 export function clearFirstTaskDraft(uiState: Pick<UiState, 'set'>): void {
   uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, null)
+}
+
+/** Attachment edits use the current checkpoint, including after an async upload. */
+export function updateFirstTaskDraftAttachments(
+  uiState: Pick<UiState, 'get' | 'set'>,
+  change: (current: ComposerAttachment[]) => ComposerAttachment[],
+): ComposerAttachment[] {
+  const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+  const attachments = change(current.attachments)
+  // A removed chip's late upload must not invalidate a newer launch reservation.
+  if (
+    attachments.length === current.attachments.length &&
+    attachments.every((attachment, index) => attachment === current.attachments[index])
+  )
+    return current.attachments
+  persistFirstTaskDraft(uiState, { ...withoutCreateReservation(current), attachments })
+  return attachments
 }
 
 export function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {

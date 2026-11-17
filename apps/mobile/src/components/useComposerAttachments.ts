@@ -1,3 +1,11 @@
+import {
+  type ComposerAttachment,
+  updateFirstTaskDraftAttachments,
+} from '@podium/client-core/first-task-draft'
+import { randomUUID } from '@podium/client-core/id'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { SessionId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useRef, useState } from 'react'
@@ -35,23 +43,7 @@ import { pickedFileReady } from '../lib/composer-media-types'
  * (doc §3.1.2, inheritance on create).
  */
 
-export interface ComposerAttachment {
-  id: string
-  name: string
-  size?: number
-  /** A local data URI while the bytes are in hand, or '' for a file with no
-   *  preview — the chip then shows its name and a document glyph. */
-  previewUri: string
-  /** The absolute path on the session's machine, when the upload was put
-   *  there at once (a shell, or the superagent's headless session). */
-  path?: string
-  /** The upload as the server holds it (POD-2148): an agent session's file
-   *  waits on the server and reaches the agent's machine with the message. */
-  ref?: RuntimeAttachmentRef
-  state: 'uploading' | 'ready' | 'failed'
-  /** A useful per-file refusal, kept until the operator removes the chip. */
-  error?: string
-}
+export type { ComposerAttachment } from '@podium/client-core/first-task-draft'
 
 export interface ComposerAttachmentsApi {
   attachments: ComposerAttachment[]
@@ -93,8 +85,6 @@ export interface SentAttachment {
   name: string
 }
 
-let seq = 0
-
 export function useComposerAttachments(
   sessionId: SessionId | undefined,
   options: {
@@ -103,18 +93,32 @@ export function useComposerAttachments(
     pickMedia?: () => Promise<PickedFile[]>
     /** The New Task composer holds uploads until sessions.create claims them. */
     destination?: 'session' | 'issue'
+    /** New Task reads its chips from the shared draft, through the preference pool. */
+    draft?: {
+      attachments: ComposerAttachment[]
+      uiState: Pick<UiState, 'get' | 'set'>
+      pool: MobxPool | null
+    }
   } = {},
 ): ComposerAttachmentsApi {
   const trpc = useTrpc()
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const [localAttachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const attachments = options.draft?.attachments ?? localAttachments
+  const draftRef = useRef(options.draft)
+  draftRef.current = options.draft
   // The send reads paths at the instant of the press, and `ready()` must not be
   // a stale closure over the render that created the callback.
   const latest = useRef(attachments)
+  latest.current = attachments
   const changeAttachments = useCallback(
     (change: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
-      const next = change(latest.current)
+      const draft = draftRef.current
+      const next = draft
+        ? updateFirstTaskDraftAttachments(draft.uiState, change)
+        : change(latest.current)
       latest.current = next
-      setAttachments(next)
+      if (draft?.pool) preferenceSource(draft.pool)?.refreshKey(FIRST_TASK_ACTIVATION_DRAFT_KEY)
+      else if (!draft) setAttachments(next)
     },
     [],
   )
@@ -191,7 +195,7 @@ export function useComposerAttachments(
       if (files.length === 0 && !reservationId) return
       const added = files.map((file) => ({
         chip: {
-          id: `att-${++seq}`,
+          id: `att-${randomUUID()}`,
           name: file.name,
           previewUri: file.previewUri,
           ...(file.size === undefined ? {} : { size: file.size }),
@@ -234,7 +238,7 @@ export function useComposerAttachments(
 
   const fromSource = useCallback(
     (source: () => Promise<PickedFile[]>) => {
-      const reservationId = `att-${++seq}`
+      const reservationId = `att-${randomUUID()}`
       changeAttachments((prev) => [
         ...prev,
         {

@@ -423,6 +423,7 @@ export function ColdStartComposer({
     sessionId: uploadScope,
     trpc,
     destination: 'issue',
+    draft: { attachments: draft.attachments, uiState },
   })
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -795,7 +796,6 @@ export function ColdStartComposer({
       // make an ambiguous retry duplicate-safe.
       void started.settled.then((settled) => {
         if (settled) {
-          attachments.clear()
           clearFirstTaskDraft(uiState)
           return
         }
