@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { type ComponentProps, Profiler } from 'react'
+import { type ComponentProps, Profiler, StrictMode } from 'react'
 import type { LayoutChangeEvent, View } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ReducedMotionContext } from '../hooks/useReduceMotion'
@@ -238,4 +238,30 @@ it('creates no animated styles or shared loop on hidden pager pages or offscreen
   )
   expect(lifecycle.events.size).toBe(0)
   expect(screen.queryByTestId('working-word-glint')).toBeNull()
+})
+
+it('balances StrictMode replay and keyed row recycling without retaining a clock', () => {
+  const view = render(
+    <StrictMode>
+      <WorkingWord key="one" seed="one">
+        Working
+      </WorkingWord>
+    </StrictMode>,
+  )
+  expect(lifecycle.events.size).toBe(1)
+  view.rerender(
+    <StrictMode>
+      <WorkingWord key="two" seed="two">
+        Working
+      </WorkingWord>
+    </StrictMode>,
+  )
+  expect(lifecycle.events.size).toBe(1)
+  view.unmount()
+  expect(lifecycle.events.size).toBe(0)
+  const before = motion.repeat.mock.calls.length
+  const fresh = render(<WorkingWord seed="fresh">Working</WorkingWord>)
+  expect(motion.repeat).toHaveBeenCalledTimes(before + 1)
+  fresh.unmount()
+  expect(lifecycle.events.size).toBe(0)
 })

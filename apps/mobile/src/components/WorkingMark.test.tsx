@@ -1,5 +1,5 @@
 import { act, cleanup, render } from '@testing-library/react'
-import { type ComponentProps, Profiler } from 'react'
+import { type ComponentProps, Profiler, StrictMode } from 'react'
 import type { View as RNView } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReducedMotionContext } from '../hooks/useReduceMotion'
@@ -241,5 +241,27 @@ describe('UI-thread working mark', () => {
     expect(lifecycle.events.size).toBe(1)
     expect(motion.repeat).toHaveBeenCalledTimes(1)
     expect(motion.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('balances StrictMode replay and recycled identities, then restarts from zero subscribers', () => {
+    const view = render(
+      <StrictMode>
+        <WorkingMark key="first" />
+      </StrictMode>,
+    )
+    expect(lifecycle.events.size).toBe(1)
+    view.rerender(
+      <StrictMode>
+        <WorkingMark key="recycled" />
+      </StrictMode>,
+    )
+    expect(lifecycle.events.size).toBe(1)
+    view.unmount()
+    expect(lifecycle.events.size).toBe(0)
+    const before = motion.repeat.mock.calls.length
+    const fresh = render(<WorkingMark />)
+    expect(motion.repeat).toHaveBeenCalledTimes(before + 1)
+    fresh.unmount()
+    expect(lifecycle.events.size).toBe(0)
   })
 })
