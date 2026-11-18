@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
+  "reanimated": {
+    "staticFeatureFlags": {
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  },
   "main": "expo-router/entry",
   "dependencies": {
     "@podium/mobx-helpers": "workspace:*",
