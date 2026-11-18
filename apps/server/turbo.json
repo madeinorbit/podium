@@ -235,7 +235,6 @@
         "src/roles.ts",
         "src/root-allowlist.test.ts",
         "src/root-allowlist.ts",
-        "src/self-hosted-workspace.ts",
         "src/server-readiness.test.ts",
         "src/server-readiness.ts",
         "src/session-projection.audit.test.ts",
