@@ -12,8 +12,10 @@
  * view asks for; recent; the sidebar with what it comes with, and the
  * sidebar's lanes; the issue stubs last.
  *
- * Cache caps are placeholders until POD-7095 measures them; nothing on the
- * server reads them.
+ * Cache caps were selected from the retained-cache sweep in POD-7095 (see
+ * docs/measurements/POD-7095-cache-cap-and-phone-memory.md). They count full
+ * cache records, including bodies and companions; held views and policy rows
+ * remain outside the cap. The server publishes these policy numbers.
  */
 
 import { DESIGN_COLLECTIONS, RECORDS } from '@podium/model'
