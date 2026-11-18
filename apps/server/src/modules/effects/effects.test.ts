@@ -15,6 +15,7 @@ import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { EffectsModule } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
@@ -372,14 +373,14 @@ describe('the recovery sweep', () => {
     const runner = await manualRunner(h)
     const db = (h.o.store as unknown as { db: SqlDatabase }).db
     const insert = db.prepare(
-      `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+      `INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status,
          finished_at, created_at, updated_at, revision)
-       VALUES (?, 'machine.scan', 'machine', 'mch_one', '{}', '{}', 'succeeded', ?, ?, ?, 1)`,
+       VALUES (?, ?, 'machine.scan', 'machine', 'mch_one', '{}', '{}', 'succeeded', ?, ?, ?, 1)`,
     )
     const BACKLOG = 1_150
     for (let at = 0; at < BACKLOG; at++) {
       const t = h.clock - 2 * SYSTEM_EFFECT_RETENTION_MS + at
-      insert.run(`eff_backlog_${String(at).padStart(5, '0')}`, t, t, t)
+      insert.run(SELF_HOSTED_WORKSPACE_ID, `eff_backlog_${String(at).padStart(5, '0')}`, t, t, t)
     }
     const left = () =>
       (
@@ -655,16 +656,16 @@ describe('an effect write that changes nothing logs nothing (POD-6769)', () => {
     expect(await repo.setStage(scope, id, 'late', h.clock)).toBeUndefined()
     expect(await repo.requestCancel(scope, id, h.clock)).toBeUndefined()
     expect(await repo.expireDue(scope, h.clock, 100)).toEqual([])
-    expect(await repo.pruneFinished(scope, h.clock - EFFECT_RETENTION_MS, h.clock, 100)).toEqual(
-      [],
-    )
+    expect(await repo.pruneFinished(scope, h.clock - EFFECT_RETENTION_MS, h.clock, 100)).toEqual([])
     expect(await changeRows(h.o)).toEqual(before)
 
     // A write that does change the record logs it once: its tombstone is the
     // record's remove.
     expect(await repo.tombstone(scope, id, h.clock)).toBeDefined()
     const after = (await changeRows(h.o)).slice(before.length)
-    expect(after.map((row) => [row.entity, row.entityId, row.op])).toEqual([['effect', id, 'remove']])
+    expect(after.map((row) => [row.entity, row.entityId, row.op])).toEqual([
+      ['effect', id, 'remove'],
+    ])
     // And tombstoning it again changes nothing.
     expect(await repo.tombstone(scope, id, h.clock)).toBeUndefined()
     expect(await changeRows(h.o)).toHaveLength(before.length + 1)

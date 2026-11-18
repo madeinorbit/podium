@@ -1381,6 +1381,7 @@
         "src/test-support/change-log-hooks.ts",
         "src/test-support/client-principal.ts",
         "src/test-support/client-transport.ts",
+        "src/test-support/collection-statement.ts",
         "src/test-support/conversation-store-slice.ts",
         "src/test-support/customer-upgrade-database.ts",
         "src/test-support/drained-repository.ts",
