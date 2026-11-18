@@ -11,6 +11,13 @@ import { subscribeWorkingWord, workingWordProgress } from './working-word-motion
 
 const ease = Easing.bezierFn(0.42, 0, 0.58, 1)
 
+/** The window's offset at a clock position. The last third rests with the window
+ * outside the text, as on desktop. */
+function glintOffset(progress: number, phase: number, width: number): number {
+  'worklet'
+  return (-0.4 + 1.4 * ease(Math.min(1, ((progress + phase) % 1) / 0.66))) * width
+}
+
 /** Desktop's Working glint: a clipped bright copy, moved only by transforms.
  * The real text keeps its colour, wrapping and accessibility even with motion off. */
 export const WorkingWord = memo(function WorkingWord({
@@ -58,14 +65,14 @@ function Glint({
 }) {
   const ink = useLiveInk(color.text)
   const width = useSharedValue(0)
-  const offset = () => {
-    'worklet'
-    const progress = (workingWordProgress.get() + phase) % 1
-    // The last third rests with the window outside the text, as on desktop.
-    return (-0.4 + 1.4 * ease(Math.min(1, progress / 0.66))) * width.get()
-  }
-  const windowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset() }] }))
-  const copyStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -offset() }] }))
+  // Read both shared values inside each updater: Reanimated re-runs a style only
+  // for the shared values in its own closure, never ones inside a called worklet.
+  const windowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: glintOffset(workingWordProgress.get(), phase, width.get()) }],
+  }))
+  const copyStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -glintOffset(workingWordProgress.get(), phase, width.get()) }],
+  }))
   return (
     <View
       accessible={false}
