@@ -15,7 +15,7 @@ export function issueTargets(
   for (const id of pool.queries.repoIds(issue.repoPath)) {
     const repo = omitGone(pool.row('repo', id))
     if (repo === LOADING) return null
-    prefixes[id] = repo?.prefix
+    prefixes[id] = repo?.prefix ?? undefined
   }
   const device = pool.queries.ids({
     kind: 'mobileIssueTargets',

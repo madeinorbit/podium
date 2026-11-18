@@ -251,7 +251,7 @@ export function startupQuestions(
     })
     add('search', `web-targets:${needle}`, (pool) => {
       if (!issueSearch(pool).read(needle, []).complete) return LOADING
-      const pending = [...pool.queries.localTextIds(needle)].some((id) => pool.row('issue', id) === LOADING)
+      const pending = [...pool.queries.localTextIds(needle)].reduce((pending, id) => pool.row('issue', id) === LOADING || pending, false)
       if (pending) return LOADING
       const views = issuePages(pool)
       return readIssueSearchChoices(pool, views, needle).map((issue) => issue.id)
@@ -259,7 +259,7 @@ export function startupQuestions(
     add('search', `phone-work:${needle}`, (pool) => {
       const phone = new PhoneWorklist(worklistView(pool))
       phone.setQuery(needle)
-      const pending = phone.searchResults.ids.some((id) => worklistView(pool).knownRow(id)?.ready === LOADING)
+      const pending = phone.searchResults.ids.reduce((pending, id) => worklistView(pool).knownRow(id)?.ready === LOADING || pending, false)
       return phone.searchResults.complete && !pending
         ? phone.sections.flatMap((section) => section.ids)
         : LOADING

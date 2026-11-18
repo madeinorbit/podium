@@ -314,7 +314,7 @@ export class PoolCollections {
     const loader = this.loader()
     if (!loader || !this.stubsComplete) return LOADING
     this.stubs.reportObserved()
-    return loader.stubRows(ISSUE).some(({ stub }) => test(stub as IssueStub))
+    return loader.stubRows(ISSUE).some(({ stub }) => test(stub as unknown as IssueStub))
   }
 
   /** TRACKED: whether the device's stubs cover all history. */

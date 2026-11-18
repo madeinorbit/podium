@@ -101,11 +101,10 @@ seed 4443; equal / LOADING / wrong):
 
 | Candidate state | First screen | Counts | Search | Board archive | Closed children |
 | --- | --- | --- | --- | --- | --- |
-| Policy set with markers | 24 / 0 / 0 | 0 / 0 / **4** | 4 / 0 / **9** | 0 / 0 / **1** | 39 / 0 / **57** |
+| Policy set with markers | 24 / 0 / 0 | 0 / 0 / **4** | 0 / 25 / 0 | 0 / 0 / **1** | 39 / 0 / **57** |
 
 The wrong answers: all four counts (issues, sessions, undeleted issues,
-proposed); the command palette's issues and the local text index and board
-search for four needles; the archived issues; and the child counts, model
+proposed); the archived issues; and the child counts, model
 counts and mission progress of the parents whose closed children are not in
 the policy set (one board card's progress among them). The full list is in
 the test's result file, `startup-no-wrong-number-policy-set-h1a1`.
@@ -134,6 +133,25 @@ such a lookup asks the loader as a production pool does, instead of answering
 "gone". The lazy pool proof (`no-wrong-number.lazy.test.ts`) does not finish
 loading within its 16 rounds since the board column questions were added;
 that is open.
+
+
+### Device-first search (POD-7089)
+
+The search group now asks 25 questions: one typed command-palette search, and
+local text, mentions, board text, phone link targets, phone Work and shared web
+target choices for each of four needles. A device answer stays visible at once;
+the search answer declares itself incomplete until its server request succeeds.
+The check reads that completeness as `LOADING`, so an incomplete device result
+is never mistaken for the full-history answer. Server result IDs go through the
+collection loader as cached one-record instances; rows read the shared models.
+
+On the policy set and every first-download state, the search group is
+**0 equal / 25 LOADING / 0 wrong**. The focused search check also passes on
+`h1a1`, `h1a4`, `h10a1` and `h10a4` (seed 4443), for the first step and the
+policy set of each. Its control uses the old full-device local results; an
+intentionally corrupted search ID is rejected in every cell. Separate surface
+and real-loader tests cover the eventual server answer, offline behavior and
+superseded requests. These measurements ran on an agent VM on 2026-11-18.
 
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership

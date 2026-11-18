@@ -307,7 +307,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const serverIssueHits =
     search?.serverIds.flatMap((id) => {
       const issue = pool && here(pool.model('issue', id))
-      return issue ? [issue] : []
+      return issue ? [issue as unknown as PaletteIssue] : []
     }) ?? []
   const resting = isResting(query)
 

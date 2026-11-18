@@ -184,6 +184,8 @@ export class PhoneWorklist {
     ])
     for (const id of this.searchResults.ids) {
       if (present.has(id)) continue
+      const scope = this.worklist.pool.queries.issueScope(id)
+      if (!scope || scope.archived || scope.deleted || scope.draft) continue
       const row = this.worklist.knownRow(id)
       if (
         !row ||
