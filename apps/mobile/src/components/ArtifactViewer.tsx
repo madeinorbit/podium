@@ -47,6 +47,7 @@ import {
   issueArtifactLabel,
   issueArtifactPreview,
 } from '../lib/issue-artifacts'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, mono, sans, space, spring } from '../theme/theme'
 import { ArtifactVideo } from './ArtifactVideo'
 import { Glass } from './Glass'
@@ -199,6 +200,7 @@ export function ArtifactViewer({
       : artifact
         ? [{ key: `${artifact.path}@${artifact.addedAt}`, artifact, url: url ?? null }]
         : []
+  useDismissOnRootLeave(onClose, list.length > 0)
   if (list.length === 0) return null
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>

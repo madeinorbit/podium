@@ -1,6 +1,7 @@
 import { markdownPlainText } from '@podium/client-core/markdown-plain-text'
 import { useEffect, useMemo, useState } from 'react'
 import { Modal, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
 
@@ -24,6 +25,7 @@ export function SelectTextSheet({
   onQuote?: ((text: string) => void) | undefined
 }) {
   const [selection, setSelection] = useState({ start: 0, end: 0 })
+  useDismissOnRootLeave(onClose, text !== null)
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new message starts with nothing selected
   useEffect(() => {
     setSelection({ start: 0, end: 0 })

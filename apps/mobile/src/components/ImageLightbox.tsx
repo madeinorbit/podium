@@ -1,5 +1,6 @@
 import { type ImageSourcePropType, Modal, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { X } from './icons'
@@ -22,6 +23,7 @@ export function ImageLightbox({
   onClose(): void
   onError?: () => void
 }) {
+  useDismissOnRootLeave(onClose, visible)
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.lightbox}>

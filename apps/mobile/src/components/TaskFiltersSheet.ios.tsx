@@ -23,6 +23,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers'
 import { useState } from 'react'
 import { StyleSheet } from 'react-native'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color } from '../theme/theme'
 import {
   DISPLAY_FACETS,
@@ -49,6 +50,7 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
   // screen unmounts it after the dismissal animation (onDismiss), so the sheet
   // still slides away instead of vanishing.
   const [presented, setPresented] = useState(true)
+  useDismissOnRootLeave(() => setPresented(false), visible && presented)
   const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
   const picker = (facet: Facet) => {
     const config = configs[facet]

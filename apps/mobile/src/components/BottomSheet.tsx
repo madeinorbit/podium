@@ -14,6 +14,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { alpha } from '../theme/mix'
 import { color, elevation, radius, space, spring } from '../theme/theme'
 
@@ -148,6 +149,7 @@ export function BottomSheet({
     setMounted(false)
     onClose()
   }, [onClose])
+  useDismissOnRootLeave(finishClose, mounted)
 
   const settleOnUI = useCallback(
     (to: SheetDetent | 'closed', velocity = 0) => {

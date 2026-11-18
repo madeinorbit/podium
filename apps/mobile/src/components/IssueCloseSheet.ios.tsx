@@ -26,6 +26,7 @@ import type { IssueCloseReason } from '@podium/model'
 import { useRef, useState } from 'react'
 import { StyleSheet } from 'react-native'
 import { useIssueCloseConcerns } from '../client/use-issue-close'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color } from '../theme/theme'
 import {
   closeConfirmLabel,
@@ -59,6 +60,10 @@ function VisibleIssueCloseSheet({
   const [presented, setPresented] = useState(true)
   const confirmed = useRef(false)
   const dismissed = useRef(false)
+  useDismissOnRootLeave(() => {
+    confirmed.current = false
+    setPresented(false)
+  })
 
   return (
     <Host style={styles.host} seedColor={color.accentTint}>

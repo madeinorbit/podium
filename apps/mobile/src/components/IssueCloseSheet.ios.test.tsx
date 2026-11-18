@@ -1,8 +1,9 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { Children, type ReactNode } from 'react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
+import { Children, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const facts = vi.hoisted(() => ({ read: vi.fn() }))
@@ -148,6 +149,35 @@ const concern = {
 
 beforeEach(() => facts.read.mockReset().mockReturnValue([concern]))
 afterEach(cleanup)
+
+it('dismisses on navigation without confirming or stopping an agent', () => {
+  let state = { index: 0, routes: [{ key: 'issue', name: 'issue/[issueId]' }] }
+  let changed: (() => void) | undefined
+  const navigation = {
+    getRootState: () => state,
+    addListener: (_event: string, listener: () => void) => {
+      changed = listener
+      return () => {}
+    },
+  } as unknown as NonNullable<
+    ComponentProps<typeof NavigationContainerRefContext.Provider>['value']
+  >
+  const onClose = vi.fn()
+  const onConfirm = vi.fn()
+  render(
+    <NavigationContainerRefContext value={navigation}>
+      <IssueCloseSheet issue={issue} reason="done" onClose={onClose} onConfirm={onConfirm} />
+    </NavigationContainerRefContext>,
+  )
+  act(() => {
+    state = { index: 0, routes: [{ key: 'console', name: 'session/[sessionId]/terminal' }] }
+    changed?.()
+  })
+  expect(screen.getByTestId('native-close').getAttribute('data-presented')).toBe('false')
+  fireEvent.click(screen.getByRole('button', { name: 'Finish dismissal' }))
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(onConfirm).not.toHaveBeenCalled()
+})
 
 it('mounts the concern footer through SwiftUI Text, without a raw text native child', () => {
   expect(expoUI.config.apple.modules).toContain('ExpoUIModule')

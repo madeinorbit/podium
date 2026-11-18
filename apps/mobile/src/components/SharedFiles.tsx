@@ -11,6 +11,7 @@ import {
 import { useChatItemAttachments, useChatUploadUrl } from '../client/chat-uploads'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { ImageLightbox } from './ImageLightbox'
@@ -129,6 +130,7 @@ function SharedFileViewer({
 }) {
   const [body, setBody] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  useDismissOnRootLeave(onClose)
 
   useEffect(() => {
     let alive = true
