@@ -10,7 +10,8 @@ import { activityAtOf, ownPartOfRow, displayTitleOf, type Label, loadingPartOf, 
   type OwnPart, originIdPartOf, originTickPartOf, rankOfPart, sessionIdsPartOf } from '../views'
 import { type Placement, placementOfPart, withWaiting } from './groups'
 import { NO_SEATS, type SeatSummary } from './seat-verdicts'
-import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
+import { type Aggregate, ownAttentionFields, unitOwnFields, unitCountsBelow, unitCountsOf,
+  unitProgressBelow, unitProgressOf, unitStaffedBelow, unitStaffedOf, type UnitCounts, type UnitProgress,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
@@ -26,6 +27,11 @@ import { AttentionFields } from './attention'
 import { issueDisplayRef } from '@podium/protocol'
 import { rowVoice } from './voice'
 import { DEFER_NEXT_MESSAGE } from '@podium/model/browser'
+
+/** A formal child counts in its parent's closure when cold (its load is queued) or past `proposed`. */
+function formalMemberOf(row: ReturnType<ModelHost['rollupInputs']['loadedIssue']>): boolean {
+  return row === LOADING || (row !== undefined && row.stage !== 'proposed')
+}
 
 /** One worklist's rules for the shared issue; desktop and phone borrow this object. */
 export class WorklistIssue implements HeldIssue, RowView {
@@ -427,10 +433,6 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   private readUnitOwn(): UnitOwn {
     return unitOwnFields(this.host.rollupInputs, this.id, this)
-  }
-
-  private readUnitsBelow(): Units {
-    return unitsBelowFields(this.host.rollupInputs, this.id)
   }
 
   get label(): Label {
@@ -920,34 +922,80 @@ export class WorklistIssue implements HeldIssue, RowView {
     }
   }
 
+  /**
+   * The formal children the closure folds (`RollupInputs.formalChildren`: a
+   * cold child, or one past `proposed`), read once per burst, not once per
+   * field. Each held child answers for itself (`formalMember`), so a change
+   * to one child's row re-reads this list only when that answer moves.
+   */
+  @lazy({ equals: compareShallow }) private get formalChildIds(): readonly string[] {
+    const ids: string[] = []
+    for (const child of this.host.visibleInputs.formalChildren(this.id)) {
+      const held = this.worklist.knownRow(child)
+      if (held === undefined ? formalMemberOf(this.host.rollupInputs.loadedIssue(child)) : held.formalMember)
+        ids.push(child)
+    }
+    return ids
+  }
+
+  /** This issue counts in its formal parent's closure: its row is cold, or past `proposed`. */
+  @lazy get formalMember(): boolean {
+    return formalMemberOf(this.host.rollupInputs.loadedIssue(this.id))
+  }
+
+  // POD-7173: one pass over the children's records per burst; the narrow
+  // fields below read the fold, each telling its readers only when it moved.
+  @lazy({ equals: compareStructural })
+  private get unitsBelowCounts(): UnitCounts {
+    return unitCountsBelow(this.host.rollupInputs, this.id, this.formalChildIds)
+  }
+
   @lazy({ equals: compareStructural })
   private get unitsBelowProgress(): Units['progress'] {
-    return this.readUnitsBelow().progress
+    return unitProgressBelow(this.host.rollupInputs, this.id, this.formalChildIds)
   }
 
   @lazy
   private get unitsBelowStaffed(): Units['staffed'] {
-    return this.readUnitsBelow().staffed
+    return unitStaffedBelow(this.host.rollupInputs, this.id, this.formalChildIds)
   }
 
   @lazy
   private get unitsBelowMembers(): Units['members'] {
-    return this.readUnitsBelow().members
+    return this.unitsBelowCounts.members
   }
 
   @lazy
   private get unitsBelowUnits(): Units['units'] {
-    return this.readUnitsBelow().units
+    return this.unitsBelowCounts.units
   }
 
   @lazy
   private get unitsBelowDone(): Units['done'] {
-    return this.readUnitsBelow().done
+    return this.unitsBelowCounts.done
   }
 
   @lazy
   private get unitsBelowPending(): Units['pending'] {
-    return this.readUnitsBelow().pending
+    return this.unitsBelowCounts.pending
+  }
+
+  // POD-7173: this issue's part in its formal parent's closure, one record
+  // per group, re-run only when its own unit or its own closure moves.
+
+  @lazy({ equals: compareStructural })
+  get unitCounts(): UnitCounts {
+    return unitCountsOf(this.unitOwn, () => this.unitsBelow)
+  }
+
+  @lazy({ equals: compareStructural })
+  get unitProgress(): UnitProgress {
+    return unitProgressOf(this.unitOwn, () => this.unitsBelow)
+  }
+
+  @lazy
+  get unitStaffed(): boolean {
+    return unitStaffedOf(this.unitOwn, () => this.unitsBelow)
   }
 
   // Links: continuation and origins

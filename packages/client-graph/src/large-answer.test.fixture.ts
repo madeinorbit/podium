@@ -5,11 +5,14 @@
  * and time the work the opening does. The regression test bounds the counts;
  * `scripts/large-answer-profile.ts` prints them for a CPU profile.
  */
+
+import { readFile } from 'node:fs/promises'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import {
   CollectionServer,
   issue,
+  LONG_AGO,
   session,
   WORLD_NOW,
 } from '../../sync/src/conformance/collection-server'
@@ -19,10 +22,13 @@ import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/lo
 import { Replica } from '../../sync/src/replica/replica'
 import type { CachePolicy } from '../../sync/src/replica/types'
 import { createWorklistPool } from './create'
+import { LOADING } from './loading'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
+import type { MobxPool } from './pool'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
+import { worklistView } from './worklist/view-model'
 
 const ISSUE = 'issueProjection'
 const POLICY: CachePolicy = {
@@ -117,6 +123,19 @@ export async function openLargeDeck(
      * It is released once the deck has opened, or failed to.
      */
     readonly holdLoadCommit?: boolean
+    /**
+     * POD-7173: every member is a direct child of the root, one in twenty open,
+     * as the operator's 970-issue deck is (969 children of one root, 922 done).
+     */
+    readonly flat?: boolean
+    /**
+     * POD-7173: serve a measurement corpus (`.artifacts/old-vs-new/corpus-*.json`,
+     * apps/web/harness) instead of the synthetic tree, its clock moved to the
+     * server's, and open the deck of its measurement tree of `tree` issues.
+     */
+    readonly corpus?: { readonly file: string; readonly tree: number }
+    /** POD-7173: the desktop sidebar is drawn while the deck opens (its rows and their roll-ups). */
+    readonly sidebar?: boolean
     /** Compose the loader's burst (the app does); false reproduces the old wiring. */
     readonly loaderBatch?: boolean
     readonly log?: (line: string) => void
@@ -130,23 +149,58 @@ export async function openLargeDeck(
   server.policy = POLICY
   server.chunkRows = options.chunkRows ?? 500
   server.answerComesWith = options.serverComesWith ?? false
-  server.put(ISSUE, 'R', value('R', { stage: 'in_progress' }))
+  const corpus = options.corpus === undefined ? undefined : await loadCorpus(options.corpus)
+  if (corpus !== undefined) {
+    for (const row of corpus.issues) server.put(ISSUE, String(row['id']), row)
+    for (const row of corpus.sessions) server.put('session', String(row['sessionId']), row)
+    for (const row of corpus.deps) server.put('issueDep', String(row['id']), row)
+  }
+  const rootId = corpus?.root ?? 'R'
+  if (corpus === undefined)
+    server.put(
+      ISSUE,
+      'R',
+      value('R', {
+        stage: 'in_progress',
+        ...(options.flat
+          ? { audience: 'human', updatedAt: new Date(WORLD_NOW).toISOString() }
+          : {}),
+      }),
+    )
   let sessions = 0
   const ids: string[] = []
   const blockers = options.outsideBlockers ?? 0
   const every = blockers > 0 ? Math.max(3, Math.floor(memberCount / blockers / 3) * 3) : 0
-  // A tree three levels deep: 10 children of the root, 10 under each, the rest below.
-  for (let n = 0; n < memberCount; n += 1) {
+  // A tree three levels deep: 10 children of the root, 10 under each, the rest
+  // below; or, flat, every member a child of the root.
+  // Flat mirrors the operator corpus's 970-issue tree (`measurement-corpus.ts`):
+  // the root and its first 47 children open, the 922 others closed long ago.
+  const open = (n: number) => (options.flat ? n < 47 : n % 3 === 0)
+  for (let n = 0; corpus === undefined && n < memberCount; n += 1) {
     const id = `M${n + 1}`
-    const parentId = n < 10 ? 'R' : n < 110 ? ids[(n - 10) % 10]! : ids[10 + ((n - 110) % 100)]!
+    const parentId = options.flat
+      ? 'R'
+      : n < 10
+        ? 'R'
+        : n < 110
+          ? ids[(n - 10) % 10]!
+          : ids[10 + ((n - 110) % 100)]!
     ids.push(id)
     server.put(
       ISSUE,
       id,
       value(id, {
         parentId,
-        stage: n % 3 === 0 ? 'in_progress' : 'done',
-        closedReason: n % 3 === 0 ? null : 'completed',
+        stage: open(n) ? 'in_progress' : 'done',
+        closedReason: open(n) ? null : 'completed',
+        ...(options.flat
+          ? {
+              closedAt: open(n) ? null : LONG_AGO,
+              updatedAt: open(n) ? new Date(WORLD_NOW).toISOString() : LONG_AGO,
+              sortKey: String(n + 1).padStart(38, '0'),
+              audience: 'human',
+            }
+          : {}),
       }),
     )
     if (every > 0 && n % every === 0 && n / every < blockers) {
@@ -265,6 +319,8 @@ export async function openLargeDeck(
   })
   const locals = fixedLocals({ selectedIssueId: null, coarseNow: WORLD_NOW })
   const handle = createWorklistPool(rows.source, locals.source, { schedule: () => () => {} })
+  // The sidebar is drawn from the first paint, before any deck opens.
+  const sidebar = options.sidebar ? drawSidebar(handle.pool, rootId) : undefined
   // Each publication into the pool, and the reactions it runs, timed.
   const applyPool = handle.pool.apply.bind(handle.pool)
   const publications: number[] = []
@@ -312,7 +368,7 @@ export async function openLargeDeck(
   const notificationsBefore = loader!.stats.notifications
   const flushesBefore = rows.stats.flushes
   const trimsBefore = kernel.stats().trims
-  const screen = new MissionScreen(handle.pool, 'R', { sessionName: (s) => s.name ?? '' })
+  const screen = new MissionScreen(handle.pool, rootId, { sessionName: (s) => s.name ?? '' })
   let shown = 0
   // What the Full view draws once it has settled: its rows and their words.
   const ready = () => screen.ready && screen.full.ready
@@ -336,8 +392,9 @@ export async function openLargeDeck(
     return outside.length > 0 ? [[id, [...outside]]] : []
   })
   log(`open ${openMs.toFixed(0)} ms ready=${screen.ready} rows=${shown}`)
+  if (sidebar !== undefined) log(sidebar.drawn())
   return {
-    members: memberCount,
+    members: corpus?.members ?? memberCount,
     sessions,
     ready: ready(),
     rows: shown,
@@ -357,11 +414,137 @@ export async function openLargeDeck(
     burstMs,
     dispose: () => {
       stop()
+      sidebar?.stop()
       screen.close()
       replica?.disconnect()
       rows.dispose()
       locals.dispose()
       handle.dispose()
     },
+  }
+}
+
+/**
+ * POD-7173: what the desktop sidebar reads while it is drawn, one observer per
+ * row as the web rows are (`pool-sidebar.tsx`, `sidebarExitSnapshot`): the
+ * sections and each band's rows, and on each row its ready answer and the
+ * fields its paint reads, the roll-ups included.
+ */
+export function drawSidebar(
+  pool: MobxPool,
+  rootId: string,
+): { stop: () => void; drawn: () => string } {
+  const worklist = worklistView(pool)
+  const rows = new Map<string, () => void>()
+  const drawRow = (id: string) =>
+    autorun(() => {
+      const row = worklist.knownRow(id)
+      const ready = row?.ready
+      if (row === undefined || ready !== 'ready') return
+      const progress = row.progress
+      void [
+        progress === LOADING ? null : progress,
+        row.timing,
+        row.visibleWorking,
+        row.visibleAsking,
+        row.origin,
+        row.decision,
+        row.mergeCommits,
+        row.hasChildProgress,
+        row.showsChildProgress,
+        row.visibleUnread,
+        row.errorClass,
+        row.returnedFromDefer,
+        row.canTuck,
+        row.canBringBack,
+        row.sessionOnlyDraft,
+        row.firstSessionId,
+        row.continuation,
+        row.visibleFleet,
+        row.sessions.length,
+        row.visibleSessionIds.length,
+        row.awaitingFirstPrompt,
+        row.statusWord,
+        row.visibleChildIds.length,
+        row.selected,
+        row.ownerBadge,
+      ]
+    })
+  const sections = autorun(() => {
+    const seen = new Set<string>()
+    const state = worklist.layout
+    const listed = worklist.sections(state)
+    const visit = (ids: readonly string[]) => {
+      for (const id of ids) {
+        seen.add(id)
+        if (!rows.has(id)) rows.set(id, drawRow(id))
+        const row = worklist.knownRow(id)
+        if (row?.ready === 'ready') visit(row.visibleChildIds)
+      }
+    }
+    visit(listed.pinnedIds)
+    for (const band of listed.bands) {
+      visit(band.rowIds)
+      visit(band.snoozedIds)
+      visit(band.closedIds)
+    }
+    for (const [id, stop] of rows)
+      if (!seen.has(id)) {
+        stop()
+        rows.delete(id)
+      }
+  })
+  return {
+    stop: () => {
+      sections()
+      for (const stop of rows.values()) stop()
+      rows.clear()
+    },
+    drawn: () => {
+      const root = worklist.knownRow(rootId)
+      const progress = root?.ready === 'ready' ? root.progress : undefined
+      const total = typeof progress === 'object' ? progress.total : String(progress)
+      return `sidebar rows=${rows.size} root=${String(root?.ready)} present=${root?.present} below=${root?.visibleChildIds.length} nested=${root?.visibleDescendantIds.length} progress=${total}`
+    },
+  }
+}
+
+type CorpusRow = Record<string, unknown>
+
+/** A measurement corpus's rows with every timestamp moved by the gap from its clock to the server's. */
+export async function loadCorpus(spec: { readonly file: string; readonly tree: number }): Promise<{
+  issues: CorpusRow[]
+  sessions: CorpusRow[]
+  deps: CorpusRow[]
+  root: string
+  members: number
+  treeIds: readonly string[]
+}> {
+  const corpus = JSON.parse(await readFile(spec.file, 'utf8')) as {
+    issueProjections: CorpusRow[]
+    sessions: CorpusRow[]
+    issueDeps: CorpusRow[]
+    fixedNow: number
+    measurementTrees: { root: string; size: number; ids: string[] }[]
+  }
+  const shift = WORLD_NOW - corpus.fixedNow
+  const stamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/
+  const moved = (value: unknown): unknown => {
+    if (typeof value === 'string' && stamp.test(value))
+      return new Date(Date.parse(value) + shift).toISOString()
+    if (Array.isArray(value)) return value.map(moved)
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, moved(field)]))
+    return value
+  }
+  const tree = corpus.measurementTrees.find((candidate) => candidate.size === spec.tree)
+  if (tree === undefined) throw new Error(`no measurement tree of ${spec.tree} issues`)
+  return {
+    issues: corpus.issueProjections.map((row) => moved(row) as CorpusRow),
+    sessions: corpus.sessions.map((row) => moved(row) as CorpusRow),
+    deps: corpus.issueDeps,
+    root: tree.root,
+    members: tree.size,
+    treeIds: tree.ids,
   }
 }

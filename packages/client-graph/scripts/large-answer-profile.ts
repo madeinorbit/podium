@@ -1,7 +1,9 @@
 // POD-7165: open a large flight deck through the real Replica, facade, pool and
 // mission screen, and print what the opening did. For a CPU profile:
 //   bun --conditions=@podium/source --cpu-prof packages/client-graph/scripts/large-answer-profile.ts [members] [sessionsPerIssue]
-// OLD_WIRING=1 composes the Replica without the loader's burst.
+// OLD_WIRING=1 composes the Replica without the loader's burst. FLAT=1 files every
+// member under the root (the operator's deck); SIDEBAR=1 draws the sidebar (POD-7173);
+// CORPUS=<corpus-*.json> [TREE=970] serves a measurement corpus and opens its tree.
 import { openLargeDeck } from '../src/large-answer.test.fixture'
 
 const members = Number(process.argv[2] ?? 1000)
@@ -11,6 +13,11 @@ const run = await openLargeDeck({
   sessionsPerIssue: perIssue,
   loaderBatch: process.env.OLD_WIRING !== '1',
   outsideBlockers: Number(process.env.OUTSIDE_BLOCKERS ?? 0),
+  flat: process.env.FLAT === '1',
+  sidebar: process.env.SIDEBAR === '1',
+  corpus: process.env.CORPUS
+    ? { file: process.env.CORPUS, tree: Number(process.env.TREE ?? 970) }
+    : undefined,
   log: (line) => console.log(line),
 })
 console.log(
