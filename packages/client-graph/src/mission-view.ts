@@ -34,6 +34,7 @@ import {
   type asSessionId,
   DRAFT_ISSUE_TITLE,
   HANDOFF_HARNESS_KINDS,
+  isFinished,
   leafTasks,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -52,6 +53,13 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
   displayRefOf(issue.seq, issue.prefix)
+
+/** Another issue as a row names it: its reference and whether it is finished. */
+export interface IssueReference {
+  readonly id: string
+  readonly displayRef: string
+  readonly finished: boolean
+}
 
 const issueRefOverlay = createRowOverlay()
 const issueNavigationOverlay = createRowOverlay()
@@ -1121,6 +1129,9 @@ class MissionIssueReader {
   @lazy get catalog() {
     return this.view.readCatalogIssue(this.id)
   }
+  @lazy({ equals: compareStructural }) get reference() {
+    return this.view.readReference(this.id)
+  }
   @lazy get rules() {
     return this.view.readRulesIssue(this.id)
   }
@@ -1253,6 +1264,28 @@ export class MissionViewReader {
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
     return this.node(id).catalog
+  }
+  /**
+   * Another issue as a row names it (a dependency, a related issue, the task
+   * a proposal came from): its reference and whether it is finished. Stub
+   * fields only (POD-7168, design "Lookup"): the device holds every issue's
+   * stub, so a target outside the mission is never loaded whole for a
+   * reference. Before the stubs are on the device it loads like any lookup.
+   */
+  reference(id: string): Loaded<IssueReference> {
+    return this.node(id).reference
+  }
+  readReference(id: string): Loaded<IssueReference> {
+    const stub = omitGone(this.pool.stub(id))
+    if (!stub || stub === LOADING) return stub
+    const repo = stub.repoId
+      ? (omitGone(this.pool.row('repo', stub.repoId)) as { prefix?: string } | undefined)
+      : undefined
+    return {
+      id,
+      displayRef: joinedIssueRef({ seq: stub.seq ?? 0, prefix: repo?.prefix }),
+      finished: isFinished(stub),
+    }
   }
   readCatalogIssue(id: string): Loaded<IssueNavigationModel> {
     const raw = omitGone(this.pool.row('issue', id))
@@ -1816,12 +1849,10 @@ export class MissionViewReader {
     const targets = requireLoaded(
       settledAll(
         issue.deps.filter((dep) => dep.type === 'blocked-by'),
-        (dep) => this.catalogIssue(dep.id),
+        (dep) => this.reference(dep.id),
       ),
     )
-    return targets.flatMap((target) =>
-      target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : [],
-    )
+    return targets.flatMap((target) => (target && !target.finished ? [target.displayRef] : []))
   }
   blockLabel(issue: IssueNavigationModel) {
     const refs = this.waiting(issue)
@@ -1866,8 +1897,8 @@ export class MissionViewReader {
       const spin = originId(issue),
         sourceId = spin ?? issue.parentId
       if (sourceId) {
-        const source = requireLoaded(this.catalogIssue(sourceId)),
-          ref = source ? issueDisplayRef(source) : null
+        const source = requireLoaded(this.reference(sourceId)),
+          ref = source ? source.displayRef : null
         return spin
           ? {
               kind: 'shape-own',
@@ -1895,15 +1926,18 @@ export class MissionViewReader {
       'caused-by': 'Caused by',
       validates: 'Validates',
     }
-    for (const dep of issue.deps) {
-      if (dep.type === 'blocked-by' || dep.type === 'parent-child') continue
-      const target = requireLoaded(this.catalogIssue(dep.id))
-      if (!target) continue
-      const label = verbs[dep.type] ?? dep.type,
-        ref = issueDisplayRef(target)
-      return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
-    }
-    return null
+    // Every relation's target is read before answering, so a pending one
+    // never keeps the next out of the same load window.
+    const relations = issue.deps.filter(
+      (dep) => dep.type !== 'blocked-by' && dep.type !== 'parent-child',
+    )
+    const targets = requireLoaded(settledAll(relations, (dep) => this.reference(dep.id)))
+    const at = targets.findIndex((target) => target !== undefined)
+    if (at < 0) return null
+    const dep = relations[at]!,
+      label = verbs[dep.type] ?? dep.type,
+      ref = targets[at]!.displayRef
+    return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
   }
   /** `sessions` is a drawn roster; `roster` names the issue whose whole
    * roster (archived included) answers which session moved. */
