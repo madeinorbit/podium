@@ -37,6 +37,7 @@ import type {
 import { type ComponentProps, type ReactNode, useRef, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
+import { expoRootStateReader } from '../../test/expo-root-state'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -350,11 +351,14 @@ it('dismisses Inspect Task before its session row opens chat, then pushes Consol
       return initial
     })
     const live = useRef(current)
+    const [getRootState] = useState(() => expoRootStateReader(() => live.current))
     state.navigationState = current
     const route = current.routes[current.index]
     if (!route) throw new Error('Missing focused route')
     state.params = route.params as Record<string, string>
     const dispatch = (action: NavigationAction) => {
+      if (action.target && action.target !== live.current.key)
+        throw new Error('Wrong navigator target')
       const next = stack.getStateForAction(live.current, action as never, options)
       if (!next) throw new Error(`Unhandled ${action.type}`)
       live.current = stack.getRehydratedState(next, options)
@@ -367,7 +371,7 @@ it('dismisses Inspect Task before its session row opens chat, then pushes Consol
       dispatch({ type: 'PUSH', payload: { name: target.name, params: target.params } })
     })
     state.router.back.mockImplementation(() => dispatch({ type: 'GO_BACK' }))
-    const navigation = { getRootState: () => live.current, dispatch } as unknown as NonNullable<
+    const navigation = { getRootState, dispatch } as unknown as NonNullable<
       ComponentProps<typeof NavigationContainerRefContext.Provider>['value']
     >
     return (

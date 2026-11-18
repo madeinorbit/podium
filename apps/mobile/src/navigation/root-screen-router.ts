@@ -1,5 +1,11 @@
 import type { Href, ImperativeRouter } from 'expo-router'
-import type { NavigationContainerRef, ParamListBase } from 'expo-router/react-navigation'
+import { INTERNAL_SLOT_NAME } from 'expo-router/build/constants'
+import type {
+  NavigationContainerRef,
+  NavigationState,
+  ParamListBase,
+  PartialState,
+} from 'expo-router/react-navigation'
 
 /** These routes are presented by the native root layout, above its card stack. */
 export const ROOT_SHEET_ROUTES = ['new-issue', 'launch/[issueId]', 'inspect/[issueId]'] as const
@@ -9,6 +15,19 @@ export function isRootSheetRoute(name: string): boolean {
 }
 
 type RootNavigation = Pick<NavigationContainerRef<ParamListBase>, 'getRootState' | 'dispatch'>
+
+/** Expo's container mounts app/_layout inside its __root route, above the app Stack. */
+export function appStackState(
+  state: NavigationState | PartialState<NavigationState> | undefined,
+): NavigationState | PartialState<NavigationState> | undefined {
+  let current = state
+  while (current) {
+    const slot = current.routes.find((route) => route.name === INTERNAL_SLOT_NAME)
+    if (!slot) return current
+    current = slot.state
+  }
+  return undefined
+}
 
 function isRootScreen(href: Href): boolean {
   const path = typeof href === 'string' ? href : href.pathname
@@ -29,9 +48,9 @@ export function rootScreenRouter(
     href: Href,
     options?: Parameters<ImperativeRouter['push']>[1],
   ) => {
-    const state = isRootScreen(href) ? navigation?.getRootState() : undefined
+    const state = isRootScreen(href) ? appStackState(navigation?.getRootState()) : undefined
     const routes = state?.routes.filter((route) => !isRootSheetRoute(route.name))
-    if (state && routes?.length && routes.length !== state.routes.length) {
+    if (state?.key && routes?.length && routes.length !== state.routes.length) {
       // Retain card keys and nested tab state, including cards that an older
       // link already pushed above a sheet. A pop-to-tabs would erase history.
       navigation?.dispatch({

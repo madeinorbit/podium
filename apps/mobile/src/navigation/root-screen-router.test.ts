@@ -8,7 +8,8 @@ import type {
   StackNavigationState,
 } from 'expo-router/react-navigation'
 import { describe, expect, it, vi } from 'vitest'
-import { ROOT_SHEET_ROUTES, rootScreenRouter } from './root-screen-router'
+import { expoRootStateReader } from '../../test/expo-root-state'
+import { appStackState, ROOT_SHEET_ROUTES, rootScreenRouter } from './root-screen-router'
 
 const screens = {
   '(tabs)': '',
@@ -21,8 +22,30 @@ const screens = {
   'inspect/[issueId]': 'inspect/:issueId',
 }
 
+it('targets the app Stack while retaining the Expo container slot and its keys', () => {
+  const app = stack()
+  app.router.push('/inspect/task')
+  const before = app.navigation.getRootState()
+  expect(before.routes[0]?.name).toBe('__root')
+  expect(before.key).not.toBe(app.state.key)
+
+  rootScreenRouter(app.router, app.navigation).push('/session/lead')
+
+  expect(app.dispatch.mock.calls.find(([action]) => action.type === 'RESET')?.[0].target).toBe(
+    app.state.key,
+  )
+  const after = app.navigation.getRootState()
+  expect(after.key).toBe(before.key)
+  expect(after.routes[0]?.key).toBe(before.routes[0]?.key)
+  expect(after.routes[0]?.state).toBe(app.state)
+})
+
+it('waits for the Expo root slot to contain an app state before addressing a reset', () => {
+  expect(appStackState({ routes: [{ name: '__root' }] })).toBeUndefined()
+})
+
 /** Real Expo/React Navigation path parsing and stack actions, without UIKit. */
-function stack() {
+function stack(nested = true) {
   const config = { routeNames: Object.keys(screens), routeParamList: {}, routeGetIdList: {} }
   const reducer = StackRouter({ initialRouteName: '(tabs)' })
   let state: StackNavigationState<ParamListBase> = reducer.getInitialState(config)
@@ -53,7 +76,10 @@ function stack() {
     replace: vi.fn((href: Href) => open('REPLACE', href)),
     back: () => dispatch({ type: 'GO_BACK' }),
   } as unknown as ImperativeRouter
-  const navigation = { getRootState: () => state, dispatch }
+  const navigation = {
+    getRootState: nested ? expoRootStateReader(() => state) : () => state,
+    dispatch,
+  }
   return {
     get state() {
       return state
@@ -64,11 +90,15 @@ function stack() {
   }
 }
 
-describe('full-screen navigation from root sheets', () => {
+describe.each([
+  true,
+  false,
+])('full-screen navigation from root sheets, Expo wrapper=%s', (nested) => {
+  const stackForLayout = () => stack(nested)
   it.each(
     ROOT_SHEET_ROUTES,
   )('dismisses %s and keeps the warm issue/mission Back chain', (sheet) => {
-    const app = stack()
+    const app = stackForLayout()
     app.router.push('/mission/root?sessionId=lead')
     app.router.push('/issue/task')
     const history = [...app.state.routes]
@@ -95,7 +125,7 @@ describe('full-screen navigation from root sheets', () => {
   })
 
   it('removes stacked sheets while retaining a chat already opened above them', () => {
-    const app = stack()
+    const app = stackForLayout()
     app.router.push('/mission/root')
     app.router.push('/inspect/task')
     app.router.push('/launch/task')
@@ -115,7 +145,7 @@ describe('full-screen navigation from root sheets', () => {
   })
 
   it('replaces New Task with a shell console without replacing the underlying issue', () => {
-    const app = stack()
+    const app = stackForLayout()
     app.router.push('/issue/task')
     const issue = app.state.routes.at(-1)
     app.router.push('/new-issue')
@@ -136,7 +166,7 @@ describe('full-screen navigation from root sheets', () => {
   })
 
   it('reads the current stack when an earlier callback opens a full-screen destination', () => {
-    const app = stack()
+    const app = stackForLayout()
     const root = rootScreenRouter(app.router, app.navigation)
     app.router.push('/new-issue')
     root.push('/session/lead')
@@ -144,7 +174,7 @@ describe('full-screen navigation from root sheets', () => {
   })
 
   it('keeps cold console Back at the tab root and preserves Expo anchor options', () => {
-    const app = stack()
+    const app = stackForLayout()
     rootScreenRouter(app.router, app.navigation).push('/session/lead/terminal', {
       withAnchor: true,
     })
@@ -155,7 +185,7 @@ describe('full-screen navigation from root sheets', () => {
   })
 
   it('keeps ordinary replace and sheet-to-sheet navigation on Expo Router', () => {
-    const app = stack()
+    const app = stackForLayout()
     const root = rootScreenRouter(app.router, app.navigation)
     app.router.push('/session/old')
     root.replace('/session/resolved')

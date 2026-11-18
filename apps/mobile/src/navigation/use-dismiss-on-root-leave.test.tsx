@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
 import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { expoRootStateReader } from '../../test/expo-root-state'
 import { useDismissOnRootLeave } from './use-dismiss-on-root-leave'
 
 afterEach(cleanup)
@@ -15,7 +16,10 @@ function root() {
     listener = next
     return remove
   })
-  const navigation = { getRootState: () => state, addListener } as unknown as NonNullable<
+  const navigation = {
+    getRootState: expoRootStateReader(() => state),
+    addListener,
+  } as unknown as NonNullable<
     ComponentProps<typeof NavigationContainerRefContext.Provider>['value']
   >
   return {

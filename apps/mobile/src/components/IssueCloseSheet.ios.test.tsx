@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
 import { Children, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { expoRootStateReader } from '../../test/expo-root-state'
 
 const facts = vi.hoisted(() => ({ read: vi.fn() }))
 const expoUI = await vi.hoisted(async () => {
@@ -154,7 +155,7 @@ it('dismisses on navigation without confirming or stopping an agent', () => {
   let state = { index: 0, routes: [{ key: 'issue', name: 'issue/[issueId]' }] }
   let changed: (() => void) | undefined
   const navigation = {
-    getRootState: () => state,
+    getRootState: expoRootStateReader(() => state),
     addListener: (_event: string, listener: () => void) => {
       changed = listener
       return () => {}

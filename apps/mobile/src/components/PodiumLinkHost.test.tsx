@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
 import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { expoRootStateReader } from '../../test/expo-root-state'
 import { poolRouteFixture } from '../../test/pool-routes'
 import type { ServerProfileContextValue } from '../client/server-profile-context'
 import type { ServerProfile } from '../client/server-profiles'
@@ -156,7 +157,10 @@ describe('PodiumLinkHost mobile handoff integration', () => {
       routes: [tabs, mission, { key: 'sheet', name: 'launch/[issueId]' }],
     }
     const dispatch = vi.fn()
-    const navigation = { getRootState: () => state, dispatch } as unknown as NonNullable<
+    const navigation = {
+      getRootState: expoRootStateReader(() => state),
+      dispatch,
+    } as unknown as NonNullable<
       ComponentProps<typeof NavigationContainerRefContext.Provider>['value']
     >
     render(
