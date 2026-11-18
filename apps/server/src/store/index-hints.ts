@@ -7,7 +7,7 @@
  * repository imports a table object from the schema module (POD-6959).
  */
 
-import { getTableColumns, type SQL, sql, type Table } from 'drizzle-orm'
+import { getTableColumns, type InferSelectModel, type SQL, sql, type Table } from 'drizzle-orm'
 import { dialectOf } from './executor/dialect-prepared'
 import type { StoreDrizzle } from './executor/sync-drizzle'
 
@@ -22,7 +22,7 @@ export function throughIndex(db: StoreDrizzle, table: Table, index: string): SQL
  * column over a raw FROM.
  */
 export type BareColumns<T extends Table> = {
-  [K in keyof T['$inferSelect']]: SQL<T['$inferSelect'][K]>
+  [K in keyof InferSelectModel<T>]: SQL<InferSelectModel<T>[K]>
 }
 
 const built = new WeakMap<Table, unknown>()

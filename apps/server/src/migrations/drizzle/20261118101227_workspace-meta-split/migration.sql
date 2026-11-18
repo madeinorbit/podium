@@ -24,13 +24,15 @@ INSERT INTO `workspace_meta` (`workspace_id`, `key`, `value`)
 SELECT 'local', `key`, `value` FROM `meta`
 WHERE `key` IN ('settings', 'model_catalog', 'identity.appliedMembershipVersion',
     'signInCarryOver.endsAt', 'retired_solo_member_id', 'legacy_mutation_receipt_cutoff',
-    'upstream_sync_cursor', 'upstream_sessions', 'upstream_conversations', 'upstream_issues')
+    'upstream_sync_cursor', 'upstream_sessions', 'upstream_conversations', 'upstream_issues',
+    'setup_finished')
   OR `key` GLOB 'model_catalog:*' OR `key` GLOB 'setup_enrollment:*' OR `key` GLOB 'data_migration:*';
 --> statement-breakpoint
 DELETE FROM `meta`
 WHERE `key` IN ('settings', 'model_catalog', 'identity.appliedMembershipVersion',
     'signInCarryOver.endsAt', 'retired_solo_member_id', 'legacy_mutation_receipt_cutoff',
-    'upstream_sync_cursor', 'upstream_sessions', 'upstream_conversations', 'upstream_issues')
+    'upstream_sync_cursor', 'upstream_sessions', 'upstream_conversations', 'upstream_issues',
+    'setup_finished')
   OR `key` GLOB 'model_catalog:*' OR `key` GLOB 'setup_enrollment:*' OR `key` GLOB 'data_migration:*';
 --> statement-breakpoint
 INSERT INTO `workspace_secrets` (`workspace_id`, `key`, `value`, `updated_at`)

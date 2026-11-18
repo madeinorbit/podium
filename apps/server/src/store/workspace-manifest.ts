@@ -596,6 +596,8 @@ export const WORKSPACE_META_KEYS: readonly KeyPattern[] = [
   { key: 'legacy_mutation_receipt_cutoff' },
   // Setup enrollment receipts, committed with the workspace's machine row.
   { prefix: 'setup_enrollment:' },
+  // The setup completion receipt (POD-7118: dev/mw wrote it to meta first).
+  { key: 'setup_finished' },
   // Receipts of data migrations over the workspace's own rows.
   { prefix: 'data_migration:' },
   // The retired hub replica blobs (POD-309): inert, but the workspace's data.

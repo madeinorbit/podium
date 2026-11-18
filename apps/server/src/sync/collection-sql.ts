@@ -41,6 +41,16 @@
  *
  * The fetch runs these through `CollectionsRepository`
  * (`apps/server/src/store/collections.ts`), one prepared query per shape.
+ *
+ * ONE WORKSPACE, EITHER ENGINE (POD-7118). Every table a statement reads, in
+ * its FROM, its subqueries and the recursive walks, is held to the store's
+ * workspace: by `alias.workspace_id = ?` on {@link WORKSPACE_PARAM}, which the
+ * repository binds to the workspace handle's own (`workspaceId`), never to a
+ * value a request names; a correlated read joins on the row's workspace. The
+ * statement is built for the engine it runs on (`RuleSqlDialect`): the shape
+ * names the rule, not the engine, so one shape list serves both.
+ * `asks_user` is kept by SQLite triggers only, so on Postgres the "asking"
+ * clauses read the offer and the checkpoints themselves.
  */
 
 import {
@@ -55,16 +65,17 @@ import {
   type Where,
 } from '@podium/model'
 import {
+  type BoundParam,
   type FieldSql,
-  jsonObjectMemberSql,
-  jsonObjectSql,
-  jsonTextPath,
   type RuleSql,
+  type RuleSqlDialect,
   type RuleSqlTarget,
   ruleSql,
+  SQLITE_RULE_SQL,
   type SqlValue,
 } from '@podium/sync/collections'
 import { getTableName } from 'drizzle-orm'
+import { textColumnClass } from '../migrations/pg/schema-classes'
 import {
   automationRuns,
   conversations,
@@ -88,36 +99,64 @@ import {
 const ROW = 'r'
 const col = (column: { name: string }) => `${ROW}.${column.name}`
 
+/** The store's workspace, bound by the repository's workspace handle. */
+export const WORKSPACE_PARAM: BoundParam = Object.freeze({ bound: 'workspaceId' })
+
+/** `alias` held to the store's workspace. */
+export const workspaceScope = (alias: string): RuleSql => ({
+  sql: `${alias}.workspace_id = ?`,
+  params: [WORKSPACE_PARAM],
+})
+
+/** A correlated read of `alias` joined on the row's workspace. */
+const sameWorkspaceAs = (alias: string): string => `${alias}.workspace_id = ${ROW}.workspace_id`
+
 /** A session's agent state as its record carries it: JSON text, or NULL. */
-function sessionAgentState(): string {
-  const runtime = `(SELECT ${jsonObjectSql(`rt.${runtimeEventCheckpoints.turnStateJson.name}`)} FROM ${getTableName(runtimeEventCheckpoints)} AS rt WHERE rt.${runtimeEventCheckpoints.sessionId.name} = ${col(sessions.id)})`
-  const checkpoint = `(SELECT ${jsonObjectMemberSql(`oc.${sessionObservationCheckpoints.checkpointJson.name}`, 'turnState')} FROM ${getTableName(sessionObservationCheckpoints)} AS oc WHERE oc.${sessionObservationCheckpoints.sessionId.name} = ${col(sessions.id)})`
-  return `coalesce(${runtime}, ${checkpoint}, ${jsonObjectSql(col(sessions.agentStateJson))})`
+function sessionAgentState(d: RuleSqlDialect): string {
+  const runtime = `(SELECT ${d.jsonObject(`rt.${runtimeEventCheckpoints.turnStateJson.name}`)} FROM ${getTableName(runtimeEventCheckpoints)} AS rt WHERE ${sameWorkspaceAs('rt')} AND rt.${runtimeEventCheckpoints.sessionId.name} = ${col(sessions.id)})`
+  const checkpoint = `(SELECT ${d.jsonObjectMember(`oc.${sessionObservationCheckpoints.checkpointJson.name}`, 'turnState')} FROM ${getTableName(sessionObservationCheckpoints)} AS oc WHERE ${sameWorkspaceAs('oc')} AND oc.${sessionObservationCheckpoints.sessionId.name} = ${col(sessions.id)})`
+  return `coalesce(${runtime}, ${checkpoint}, ${d.jsonObject(col(sessions.agentStateJson))})`
 }
 
 /** A session's offer as its record carries it: the offer's time, or NULL. */
 const sessionOffer = (): string =>
-  `(SELECT o.${offers.createdAt.name} FROM ${getTableName(offers)} AS o WHERE o.${offers.sessionId.name} = ${col(sessions.id)} AND (${col(sessions.lastInputAt)} IS NULL OR NOT (${col(sessions.lastInputAt)} > o.${offers.createdAt.name})))`
+  `(SELECT o.${offers.createdAt.name} FROM ${getTableName(offers)} AS o WHERE ${sameWorkspaceAs('o')} AND o.${offers.sessionId.name} = ${col(sessions.id)} AND (${col(sessions.lastInputAt)} IS NULL OR NOT (${col(sessions.lastInputAt)} > o.${offers.createdAt.name})))`
 
 /** A field as a rule reads it; `notNull` when the column never holds NULL. */
 type ColumnSql = FieldSql & { readonly notNull?: boolean }
 
-type Fields = Readonly<Record<string, () => ColumnSql>>
+type Fields = Readonly<Record<string, (d: RuleSqlDialect) => ColumnSql>>
 
+/**
+ * A column as it is. A text column the Postgres twin stores as `timestamptz` is
+ * a `timestamp` field (`migrations/pg/schema-classes.ts`): its empty is the
+ * engine's "before every row", `''` or `-infinity`.
+ */
 const plain =
-  (column: { name: string; notNull?: boolean }, type: FieldSql['type'] = 'text') =>
-  (): ColumnSql => ({ sql: col(column), type, notNull: column.notNull === true })
+  (
+    of: Parameters<typeof getTableName>[0],
+    column: { name: string; notNull?: boolean },
+    type: FieldSql['type'] = 'text',
+  ) =>
+  (): ColumnSql => ({
+    sql: col(column),
+    type:
+      type === 'text' && textColumnClass(getTableName(of), column.name) === 'timestamp'
+        ? 'timestamp'
+        : type,
+    notNull: column.notNull === true,
+  })
 
 const SESSION_FIELDS: Fields = {
-  sessionId: plain(sessions.id),
-  status: plain(sessions.status),
-  archived: plain(sessions.archived, 'boolean'),
-  issueId: plain(sessions.issueId),
-  agentKind: plain(sessions.agentKind),
-  headless: plain(sessions.headless, 'boolean'),
-  lastActiveAt: plain(sessions.publishedLastActiveAt),
-  offer: () => ({ sql: sessionOffer(), type: 'text' }),
-  agentState: () => ({ sql: sessionAgentState(), type: 'json' }),
+  sessionId: plain(sessions, sessions.id),
+  status: plain(sessions, sessions.status),
+  archived: plain(sessions, sessions.archived, 'boolean'),
+  issueId: plain(sessions, sessions.issueId),
+  agentKind: plain(sessions, sessions.agentKind),
+  headless: plain(sessions, sessions.headless, 'boolean'),
+  lastActiveAt: plain(sessions, sessions.publishedLastActiveAt),
+  offer: () => ({ sql: sessionOffer(), type: 'timestamp' }),
+  agentState: (d) => ({ sql: sessionAgentState(d), type: 'json' }),
 }
 
 /**
@@ -150,18 +189,18 @@ export const ASKS_USER_CLAUSES: readonly Clause[] = [
 ]
 
 const ISSUE_FIELDS: Fields = {
-  id: plain(issues.id),
-  repoId: plain(issues.repoId),
-  seq: plain(issues.seq, 'number'),
-  parentId: plain(issues.parentId),
-  stage: plain(issues.stage),
-  priority: plain(issues.priority, 'number'),
-  closedReason: plain(issues.closedReason),
-  archived: plain(issues.archived, 'boolean'),
-  deletedAt: plain(issues.deletedAt),
-  isDraftVessel: plain(issues.draft, 'boolean'),
-  audience: plain(issues.audience),
-  updatedAt: plain(issues.updatedAt),
+  id: plain(issues, issues.id),
+  repoId: plain(issues, issues.repoId),
+  seq: plain(issues, issues.seq, 'number'),
+  parentId: plain(issues, issues.parentId),
+  stage: plain(issues, issues.stage),
+  priority: plain(issues, issues.priority, 'number'),
+  closedReason: plain(issues, issues.closedReason),
+  archived: plain(issues, issues.archived, 'boolean'),
+  deletedAt: plain(issues, issues.deletedAt),
+  isDraftVessel: plain(issues, issues.draft, 'boolean'),
+  audience: plain(issues, issues.audience),
+  updatedAt: plain(issues, issues.updatedAt),
 }
 
 /**
@@ -169,8 +208,14 @@ const ISSUE_FIELDS: Fields = {
  * the columns that name the record, and how they become its id.
  */
 interface CollectionTable {
-  /** The FROM expression, aliased {@link ROW}. */
-  readonly from: string
+  /** The FROM expression, aliased {@link ROW}, with its parameters. */
+  readonly from: (d: RuleSqlDialect) => RuleSql
+  /**
+   * Whether the row itself carries the workspace: true for a table, so every
+   * statement holds `r` to it; a FROM that is a derived table holds each of its
+   * own reads instead.
+   */
+  readonly rowScoped: boolean
   /** The table `descendantsOf` walks, for a type with a parent link. */
   readonly table: string
   readonly keys: readonly { name: string }[]
@@ -180,8 +225,8 @@ interface CollectionTable {
   readonly parent?: { name: string }
   /** What every record of the type satisfies, whatever the rule. */
   readonly base?: string
-  /** A saved column that answers a set of clauses. */
-  readonly derived?: DerivedColumn
+  /** A saved column that answers a set of clauses, on the engines that keep it. */
+  readonly derived?: DerivedColumn & { readonly engines: readonly RuleSqlDialect['name'][] }
 }
 
 const str = (value: unknown): string | null =>
@@ -195,7 +240,8 @@ const table = (
   fields: Fields,
   more: Partial<Pick<CollectionTable, 'idOf' | 'parent' | 'base' | 'derived'>> = {},
 ): CollectionTable => ({
-  from: `${getTableName(of)} AS ${ROW}`,
+  from: () => ({ sql: `${getTableName(of)} AS ${ROW}`, params: [] }),
+  rowScoped: true,
   table: getTableName(of),
   keys,
   idOf: ownId,
@@ -208,31 +254,39 @@ const panelTable = (
   of: typeof issuePanelTodos | typeof issuePanelArtifacts | typeof issuePanelDeferred,
 ) =>
   table(of, [of.id], {
-    id: plain(of.id),
-    issueId: plain(of.issueId),
+    id: plain(of, of.id),
+    issueId: plain(of, of.issueId),
   })
 
 /** An issue body record: the issue row, keyed by the issue's id. */
-const bodyTable = () => table(issues, [issues.id], { id: plain(issues.id) })
+const bodyTable = () => table(issues, [issues.id], { id: plain(issues, issues.id) })
 
 /**
  * A per-person session state exists for a read row or a snooze row. `UNION
  * ALL`, so each arm seeks its index and nothing is sorted; a pair on both
  * arms names one record, and the fetch keeps each id once.
  */
-const SESSION_USER_STATE_FROM = `(SELECT ${sessionUserState.userId.name} AS user_id, ${sessionUserState.sessionId.name} AS session_id FROM ${getTableName(sessionUserState)} UNION ALL SELECT ${snoozes.userId.name}, ${snoozes.sessionId.name} FROM ${getTableName(snoozes)}) AS ${ROW}`
+const SESSION_USER_STATE_FROM: RuleSql = {
+  sql: `(SELECT ${sessionUserState.userId.name} AS user_id, ${sessionUserState.sessionId.name} AS session_id FROM ${getTableName(sessionUserState)} WHERE ${sessionUserState.workspaceId.name} = ? UNION ALL SELECT ${snoozes.userId.name}, ${snoozes.sessionId.name} FROM ${getTableName(snoozes)} WHERE ${snoozes.workspaceId.name} = ?) AS ${ROW}`,
+  params: [WORKSPACE_PARAM, WORKSPACE_PARAM],
+}
 
 const TABLES = {
   session: table(sessions, [sessions.id], SESSION_FIELDS, {
     base: `${col(sessions.deletedAt)} IS NULL`,
-    // `idx_sessions_asking` is partial on `asks_user = 1`.
-    derived: { clauses: ASKS_USER_CLAUSES, sql: `${col(sessions.asksUser)} = 1` },
+    // `idx_sessions_asking` is partial on `asks_user = 1`. Only SQLite's
+    // triggers keep the column (migration 20261117220206_session-asks-user).
+    derived: {
+      clauses: ASKS_USER_CLAUSES,
+      sql: `${col(sessions.asksUser)} = 1`,
+      engines: ['sqlite'],
+    },
   }),
   issueProjection: table(issues, [issues.id], ISSUE_FIELDS, { parent: issues.parentId }),
   issueDep: table(
     issueDeps,
     [issueDeps.fromId, issueDeps.toId, issueDeps.type],
-    { fromId: plain(issueDeps.fromId), toId: plain(issueDeps.toId) },
+    { fromId: plain(issueDeps, issueDeps.fromId), toId: plain(issueDeps, issueDeps.toId) },
     {
       idOf: (keys) => {
         try {
@@ -246,11 +300,15 @@ const TABLES = {
   issueUserState: table(
     issueUserState,
     [issueUserState.userId, issueUserState.issueId],
-    { entityId: plain(issueUserState.issueId), userId: plain(issueUserState.userId) },
+    {
+      entityId: plain(issueUserState, issueUserState.issueId),
+      userId: plain(issueUserState, issueUserState.userId),
+    },
     { idOf: (keys) => issueUserStateRowId(String(keys[0]) as never, String(keys[1]) as never) },
   ),
   sessionUserState: {
-    from: SESSION_USER_STATE_FROM,
+    from: () => SESSION_USER_STATE_FROM,
+    rowScoped: false,
     table: getTableName(sessionUserState),
     keys: [{ name: 'user_id' }, { name: 'session_id' }],
     idOf: (keys) => sessionUserStateRowId(String(keys[0]) as never, String(keys[1]) as never),
@@ -260,27 +318,30 @@ const TABLES = {
     },
   },
   issueGitState: table(issueGitStates, [issueGitStates.issueId], {
-    id: plain(issueGitStates.issueId),
+    id: plain(issueGitStates, issueGitStates.issueId),
   }),
   conversation: table(conversations, [conversations.id], {
-    id: plain(conversations.id),
+    id: plain(conversations, conversations.id),
     // A missing time reads as the empty text, which no rule's time passes and
     // which sorts oldest; `idx_conversations_created_at` is on this expression.
-    createdAt: () => ({
-      sql: `coalesce(${col(conversations.createdAt)}, '')`,
-      type: 'text',
+    createdAt: (d) => ({
+      sql: `coalesce(${col(conversations.createdAt)}, ${d.timestampFloor})`,
+      type: 'timestamp',
       notNull: true,
     }),
   }),
   automationRun: table(
     automationRuns,
     [automationRuns.id],
-    { id: plain(automationRuns.id), firedAt: plain(automationRuns.firedAt) },
+    {
+      id: plain(automationRuns, automationRuns.id),
+      firedAt: plain(automationRuns, automationRuns.firedAt),
+    },
     { base: `${col(automationRuns.deletedAt)} IS NULL` },
   ),
   workflowRun: table(workflowRuns, [workflowRuns.id], {
-    id: plain(workflowRuns.id),
-    startedAt: plain(workflowRuns.startedAt),
+    id: plain(workflowRuns, workflowRuns.id),
+    startedAt: plain(workflowRuns, workflowRuns.startedAt),
   }),
   issueBrief: bodyTable(),
   issueDescription: bodyTable(),
@@ -288,7 +349,7 @@ const TABLES = {
   issuePanelArtifact: panelTable(issuePanelArtifacts),
   issuePanelDeferred: panelTable(issuePanelDeferred),
   issuePanelState: table(issuePanelStates, [issuePanelStates.id], {
-    id: plain(issuePanelStates.id),
+    id: plain(issuePanelStates, issuePanelStates.id),
   }),
 } as const satisfies Readonly<Record<string, CollectionTable>>
 
@@ -310,10 +371,15 @@ export const recordIdOf = (kind: CollectionKind, keys: readonly unknown[]): stri
 /** How many key columns a statement over `kind` selects. */
 export const keyCount = (kind: CollectionKind): number => TABLES[kind].keys.length
 
-/** How a rule over `kind` reads the server's tables. */
-export function collectionTarget(kind: CollectionKind): RuleSqlTarget {
+/** How a rule over `kind` reads the server's tables, on the engine of `d`. */
+export function collectionTarget(
+  kind: CollectionKind,
+  d: RuleSqlDialect = SQLITE_RULE_SQL,
+): RuleSqlTarget {
   const { table: name, keys, fields, parent } = TABLES[kind] as CollectionTable
   return {
+    dialect: d,
+    scope: workspaceScope,
     table: name,
     idColumn: keys[0]!.name,
     rowId: col(keys[0]!),
@@ -323,10 +389,10 @@ export function collectionTarget(kind: CollectionKind): RuleSqlTarget {
         (field) => path === field || path.startsWith(`${field}.`),
       )
       if (fieldName === undefined) return undefined
-      const field = fields[fieldName]!()
+      const field = fields[fieldName]!(d)
       if (fieldName === path) return field
       return {
-        sql: jsonTextPath(field.sql, path.slice(fieldName.length + 1).split('.')),
+        sql: d.jsonTextPath(field.sql, path.slice(fieldName.length + 1).split('.')),
         type: 'text',
       }
     },
@@ -392,9 +458,19 @@ function armsOf(clauses: readonly Clause[], derived: DerivedColumn | undefined):
 }
 
 /** A rule over `kind` as a WHERE fragment, reading a derived column wherever one answers. */
-function kindRuleSql(kind: CollectionKind, where: Where, args: RuleArgs, now: number): RuleSql {
-  const target = collectionTarget(kind)
-  const arms = armsOf(clausesOf(where), (TABLES[kind] as CollectionTable).derived)
+function kindRuleSql(
+  kind: CollectionKind,
+  where: Where,
+  args: RuleArgs,
+  now: number,
+  d: RuleSqlDialect,
+): RuleSql {
+  const target = collectionTarget(kind, d)
+  const derived = (TABLES[kind] as CollectionTable).derived
+  const arms = armsOf(
+    clausesOf(where),
+    derived?.engines.includes(d.name) === true ? derived : undefined,
+  )
   if (arms.every((arm) => 'clause' in arm)) return ruleSql(where, target, args, now)
   const params: SqlValue[] = []
   const parts = arms.map((arm) => {
@@ -417,13 +493,25 @@ export function collectionQuery(
   where: Where,
   args: RuleArgs,
   now: number,
+  d: RuleSqlDialect = SQLITE_RULE_SQL,
 ): RuleSql {
-  const { from, keys, base } = TABLES[kind] as CollectionTable
-  const rule = kindRuleSql(kind, where, args, now)
+  const { keys } = TABLES[kind] as CollectionTable
+  const from = (TABLES[kind] as CollectionTable).from(d)
+  const head = headConditions(kind)
+  const rule = kindRuleSql(kind, where, args, now, d)
   return {
-    sql: `SELECT ${col(keys[0]!)} AS id FROM ${from} WHERE ${base === undefined ? '' : `${base} AND `}${rule.sql}`,
-    params: rule.params,
+    sql: `SELECT ${col(keys[0]!)} AS id FROM ${from.sql} WHERE ${[...head.map((part) => part.sql), rule.sql].join(' AND ')}`,
+    params: [...from.params, ...head.flatMap((part) => part.params), ...rule.params],
   }
+}
+
+/** What every statement over `kind` holds before its rule: the workspace, then the base. */
+function headConditions(kind: CollectionKind): RuleSql[] {
+  const { rowScoped, base } = TABLES[kind] as CollectionTable
+  return [
+    ...(rowScoped ? [workspaceScope(ROW)] : []),
+    ...(base === undefined ? [] : [{ sql: base, params: [] }]),
+  ]
 }
 
 // ---------------------------------------------------------------------------
@@ -475,10 +563,13 @@ function assemble(parts: Omit<CollectionStatement, 'sql'>): CollectionStatement 
  * text, so the order and the position compare alike; a NOT NULL column is
  * read as it is, so an index on it serves the order.
  */
-function sortSql(kind: CollectionKind, field: string): string {
-  const sql = collectionTarget(kind).field(field) as ColumnSql | undefined
+function sortSql(kind: CollectionKind, field: string, d: RuleSqlDialect): string {
+  const sql = collectionTarget(kind, d).field(field) as ColumnSql | undefined
   if (sql === undefined) throw new Error(`no column for sort field ${field} of ${kind}`)
-  return sql.type === 'text' && sql.notNull !== true ? `coalesce(${sql.sql}, '')` : sql.sql
+  if (sql.notNull === true) return sql.sql
+  if (sql.type === 'text') return `coalesce(${sql.sql}, '')`
+  if (sql.type === 'timestamp') return `coalesce(${sql.sql}, ${d.timestampFloor})`
+  return sql.sql
 }
 
 /**
@@ -524,19 +615,26 @@ export function collectionStatement(
   mode: StatementMode,
   after: readonly Scalar[] = [],
   limit = 0,
+  d: RuleSqlDialect = SQLITE_RULE_SQL,
 ): CollectionStatement {
-  const { from, keys, base } = TABLES[kind] as CollectionTable
+  const { keys } = TABLES[kind] as CollectionTable
+  const from = (TABLES[kind] as CollectionTable).from(d)
+  const head = headConditions(kind)
   const rule =
     where === undefined
       ? { sql: '(1 = 1)', params: [] as readonly SqlValue[] }
-      : kindRuleSql(kind, where, args, now)
-  const params: SqlValue[] = [...rule.params]
+      : kindRuleSql(kind, where, args, now, d)
+  const params: SqlValue[] = [
+    ...from.params,
+    ...head.flatMap((part) => part.params),
+    ...rule.params,
+  ]
   const select = keys.map((key) => col(key))
-  const conditions = [...(base === undefined ? [] : [base]), rule.sql]
+  const conditions = [...head.map((part) => part.sql), rule.sql]
   let orderBy: string | undefined
   let limited = false
   if (mode.kind === 'page') {
-    const sorts = mode.sort.map((s) => sortSql(kind, s.field))
+    const sorts = mode.sort.map((s) => sortSql(kind, s.field, d))
     select.push(...sorts)
     if (mode.after) conditions.push(keysetSql(sorts, mode.sort, after, params))
     orderBy = sorts
@@ -549,7 +647,7 @@ export function collectionStatement(
   }
   return assemble({
     select,
-    from,
+    from: from.sql,
     where: conditions.join(' AND '),
     ...(orderBy === undefined ? {} : { orderBy }),
     limit: limited,
@@ -568,16 +666,20 @@ export function ancestorsStatement(ids: readonly string[]): CollectionStatement 
   const name = getTableName(issues)
   const id = issues.id.name
   const parent = issues.parentId.name
+  const start = workspaceScope('start')
+  const next = workspaceScope('next')
+  // Both steps of the walk are held to the workspace: an issue id names one
+  // issue per workspace, and a parent is always in its child's.
   return assemble({
     select: ['up.id'],
     from:
       `(WITH RECURSIVE walk(id) AS (` +
-      `SELECT start.${parent} FROM ${name} AS start WHERE start.${id} IN (${marks.join(', ')}) AND start.${parent} IS NOT NULL ` +
-      `UNION SELECT next.${parent} FROM ${name} AS next JOIN walk ON next.${id} = walk.id WHERE next.${parent} IS NOT NULL` +
+      `SELECT start.${parent} FROM ${name} AS start WHERE ${start.sql} AND start.${id} IN (${marks.join(', ')}) AND start.${parent} IS NOT NULL ` +
+      `UNION SELECT next.${parent} FROM ${name} AS next JOIN walk ON next.${id} = walk.id WHERE ${next.sql} AND next.${parent} IS NOT NULL` +
       `) SELECT id FROM walk) AS up`,
     where: '1 = 1',
     limit: false,
-    params: [...ids],
+    params: [...start.params, ...ids, ...next.params],
   })
 }
 

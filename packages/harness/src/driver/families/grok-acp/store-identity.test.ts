@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import type { SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { grokRecordToItems } from '../../../adapters/grok/transcript.js'
+import { fileByteSource } from '../../../store/byte-source.js'
 import { readFileItems } from '../../../store/slice.js'
 import { streamItemIdOf } from '../../../store/stream-identity.js'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
@@ -229,7 +230,11 @@ describe('a Grok item has one name, live and on disk (POD-7003)', () => {
 
       const file = join(dir, 'updates.jsonl')
       await writeFile(file, grokFile(w.sent(server.sessionId)))
-      const stored = await readFileItems(file, 'grok-store-identity', grokRecordToItems)
+      const stored = await readFileItems(
+        fileByteSource(file),
+        'grok-store-identity',
+        grokRecordToItems,
+      )
 
       // Both sides hold the same conversation under the same names, so the
       // overlay merge joins each pair. The driver emits the prompt's entry only

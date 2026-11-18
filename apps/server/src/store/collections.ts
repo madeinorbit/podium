@@ -11,9 +11,23 @@
  *
  * A statement selects the record's key columns, then a paged collection's
  * sort values; the caller maps keys to record ids.
+ *
+ * ONE WORKSPACE, EITHER ENGINE (POD-7118). The repository is built for one
+ * workspace: every table a statement reads is held to it by the bound
+ * `workspaceId` its handle fills (`WORKSPACE_PARAM` in `sync/collection-sql.ts`
+ * marks the places), and each shape is built in the SQL of the engine the
+ * store runs on.
  */
+// workspace-scoped (POD-6959)
 
 import { COLLECTIONS, paramsRead, RECORDS, type RuleArgs, type Scalar } from '@podium/model'
+import {
+  isBoundParam,
+  PG_RULE_SQL,
+  type RuleSqlDialect,
+  SQLITE_RULE_SQL,
+  type SqlValue,
+} from '@podium/sync/collections'
 import { type SQL, sql } from 'drizzle-orm'
 import {
   ancestorsKey,
@@ -25,53 +39,71 @@ import {
   shapeKey,
   statementOfKey,
 } from '../sync/collection-shapes'
-import type { CollectionStatement } from '../sync/collection-sql'
+import { ancestorsStatement, type CollectionStatement } from '../sync/collection-sql'
+import { dialectOf } from './executor/dialect-prepared'
 import {
   executeRaw,
   preparedFamily,
   type StoreDrizzle,
-  type StoreQueries,
+  WORKSPACE,
+  type WorkspaceDb,
+  type WorkspaceQueries,
 } from './executor/sync-drizzle'
 
 /** One selected row: its key columns, then its sort values. */
 export type CollectionRow = readonly unknown[]
 
-/** The statement's text with each `?` a named placeholder `p0`, `p1`, … in order. */
-function placeheld(text: string): SQL {
+/**
+ * The statement's text with each `?` a named placeholder `p0`, `p1`, … in
+ * order, and each place {@link WORKSPACE_PARAM} marks the workspace the handle
+ * binds.
+ */
+function placeheld(statement: CollectionStatement): SQL {
   const chunks: SQL[] = []
-  for (const [at, part] of text.split('?').entries()) {
-    if (at > 0) chunks.push(sql`${sql.placeholder(`p${at - 1}`)}`)
+  for (const [at, part] of statement.sql.split('?').entries()) {
+    if (at > 0) {
+      chunks.push(
+        isBoundParam(statement.params[at - 1])
+          ? sql`${WORKSPACE}`
+          : sql`${sql.placeholder(`p${at - 1}`)}`,
+      )
+    }
     // CONSTANT-IDENTIFIER STATEMENT POD-7085
     chunks.push(sql.raw(part))
   }
   return sql.join(chunks)
 }
 
-/** One prepared statement per shape key (`sync/collection-shapes.ts`). */
-const collectionRows = preparedFamily((db: StoreDrizzle, key: string) =>
-  db.all<Record<string, unknown>>(placeheld(statementOfKey(key).sql)),
+/** The rule compiler's spelling of the engine `db` is built on. */
+const ruleDialectOf = (db: StoreDrizzle): RuleSqlDialect =>
+  dialectOf(db) === 'pg' ? PG_RULE_SQL : SQLITE_RULE_SQL
+
+/** One prepared statement per shape key (`sync/collection-shapes.ts`), in its engine's SQL. */
+const collectionRows = preparedFamily((db, _t, key: string) =>
+  db.all<Record<string, unknown>>(placeheld(statementOfKey(key, ruleDialectOf(db)))),
 )
 
-const valuesOf = (params: readonly unknown[]): Record<string, unknown> =>
-  Object.fromEntries(params.map((value, at) => [`p${at}`, value]))
+/** The caller's values by placeholder; the workspace is the handle's to fill. */
+const valuesOf = (params: readonly SqlValue[]): Record<string, unknown> =>
+  Object.fromEntries(
+    params.flatMap((value, at) => (isBoundParam(value) ? [] : [[`p${at}`, value]])),
+  )
 
 export class CollectionsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly db: WorkspaceDb
+  private readonly dialect: RuleSqlDialect
   /** Each key's text, checked once against the statement it was asked for. */
   private readonly checked = new Map<string, string>()
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
-  }
-
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.db = queries.db
+    this.dialect = ruleDialectOf(queries.db.drizzle)
   }
 
   private async run(key: string, statement: CollectionStatement): Promise<CollectionRow[]> {
     let text = this.checked.get(key)
     if (text === undefined) {
-      text = statementOfKey(key).sql
+      text = statementOfKey(key, this.dialect).sql
       this.checked.set(key, text)
     }
     // The shape fixes the text: a statement asked for under a key whose text
@@ -85,12 +117,18 @@ export class CollectionsRepository {
 
   /** Every record the rule selects: key columns only. */
   async select(rule: ResolvedRule, args: RuleArgs, now: number): Promise<CollectionRow[]> {
-    return await this.run(shapeKey(rule, 'ids', args), ruleStatement(rule, 'ids', args, now))
+    return await this.run(
+      shapeKey(rule, 'ids', args),
+      ruleStatement(rule, 'ids', args, now, [], 0, this.dialect),
+    )
   }
 
   /** A paged rule whole, in its sort order: key columns, then sort values. */
   async sorted(rule: ResolvedRule, args: RuleArgs, now: number): Promise<CollectionRow[]> {
-    return await this.run(shapeKey(rule, 'sorted', args), ruleStatement(rule, 'sorted', args, now))
+    return await this.run(
+      shapeKey(rule, 'sorted', args),
+      ruleStatement(rule, 'sorted', args, now, [], 0, this.dialect),
+    )
   }
 
   /** At most `limit` records of a paged rule strictly below `after`, in its sort order. */
@@ -103,7 +141,7 @@ export class CollectionsRepository {
   ): Promise<CollectionRow[]> {
     return await this.run(
       shapeKey(rule, 'after', args),
-      ruleStatement(rule, 'after', args, now, after, limit),
+      ruleStatement(rule, 'after', args, now, after, limit, this.dialect),
     )
   }
 
@@ -112,7 +150,10 @@ export class CollectionsRepository {
    * carries the collection's one argument as a list, padded to its shape.
    */
   async keyed(rule: ResolvedRule, args: RuleArgs, now: number): Promise<CollectionRow[]> {
-    return await this.run(shapeKey(rule, 'keyed', args), ruleStatement(rule, 'keyed', args, now))
+    return await this.run(
+      shapeKey(rule, 'keyed', args),
+      ruleStatement(rule, 'keyed', args, now, [], 0, this.dialect),
+    )
   }
 
   /** Every ancestor of these issues, by one walk up the parent column. */
@@ -121,8 +162,7 @@ export class CollectionsRepository {
     const size = inListSize(ids.length)
     const padded = [...ids]
     while (padded.length < size) padded.push(ids[ids.length - 1]!)
-    const statement = statementOfKey(ancestorsKey(size))
-    const rows = await this.run(ancestorsKey(size), { ...statement, params: padded })
+    const rows = await this.run(ancestorsKey(size), ancestorsStatement(padded))
     return rows.map((row) => String(row[0]))
   }
 }

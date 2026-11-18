@@ -2,6 +2,7 @@
  * Run only on an agent VM: bun --conditions=@podium/source scripts/server-data-bench/issue-search.ts
  * Output is JSON; fixture preparation and warm-up are excluded from timings. */
 import { firstAdminMemberId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { IssueStore } from '../../apps/server/src/modules/issues/service/core'
 import {
   type IssueReader,
@@ -23,10 +24,9 @@ for (const cell of ['h1a1', 'h10a1']) {
   try {
     // The startup corpus has tiny descriptions and no exported briefs. Add a
     // fixed body size so scanning bodies is represented without private data.
-    rawSql(
+    await rawSql(
       store,
-      'UPDATE issues SET brief = ? || id',
-      'Synthetic search brief. '.repeat(90) + 'unique-brief-token:',
+      sql`UPDATE issues SET brief = ${'Synthetic search brief. '.repeat(90) + 'unique-brief-token:'} || id`,
     )
     const target = corpus.issues.find((issue) => !issue.deletedAt && !issue.archived)!
     const reports = new IssueReportsModule(

@@ -23,6 +23,7 @@ import {
   type Where,
 } from '@podium/model'
 import { inListSize } from '@podium/sync/adapters/sqlite/prepared'
+import { type RuleSqlDialect, SQLITE_RULE_SQL } from '@podium/sync/collections'
 import {
   ancestorsStatement,
   type CollectionKind,
@@ -161,6 +162,7 @@ export function ruleStatement(
   now: number,
   after: readonly Scalar[] = [],
   limit = 0,
+  dialect: RuleSqlDialect = SQLITE_RULE_SQL,
 ): CollectionStatement {
   if (!isCollectionKind(rule.kind))
     throw new CollectionRequestError(`${rule.kind} has no table a rule can read`)
@@ -177,11 +179,15 @@ export function ruleStatement(
       : { kind: 'page', sort: page!.sort, after: mode === 'after', limit: mode === 'after' },
     after,
     limit,
+    dialect,
   )
 }
 
-/** The statement a key names, built from the key alone. */
-export function statementOfKey(key: string): CollectionStatement {
+/** The statement a key names, built from the key alone, for one engine. */
+export function statementOfKey(
+  key: string,
+  dialect: RuleSqlDialect = SQLITE_RULE_SQL,
+): CollectionStatement {
   const [head, mode, shape = ''] = key.split('#') as [string, string, string?]
   if (head === 'ancestors')
     return ancestorsStatement(Array.from({ length: Number(mode) }, () => 'x'))
@@ -194,6 +200,7 @@ export function statementOfKey(key: string): CollectionStatement {
     0,
     sort.map(() => 'x'),
     1,
+    dialect,
   )
 }
 

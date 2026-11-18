@@ -55,6 +55,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sessions } from '../migrations/schema'
 import type { SessionStore } from '../store'
 import { auditedCollectionShapes } from '../store/collections'
+import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import type { SessionRow } from '../store/types'
 import { produceBootstrap } from '../sync-worker/producer'
 import type { SyncJob } from '../sync-worker/types'
@@ -391,7 +392,8 @@ const worlds = new Map<UserId, Map<string, Map<string, Record<string, unknown>>>
 async function worldOf(user: UserId) {
   const db = openDatabase(path, { readOnly: true })
   db.exec('PRAGMA query_only = ON; BEGIN')
-  const bundle = bootstrapVisibility(db, { now: () => NOW })
+  const executor = createBunStoreExecutor({ database: db })
+  const bundle = bootstrapVisibility(executor, { now: () => NOW })
   const out = new Map<string, Map<string, Record<string, unknown>>>()
   try {
     const { policy: rights, records } = await bundle.context
@@ -412,7 +414,7 @@ async function worldOf(user: UserId) {
       }
     }
   } finally {
-    await bundle.executor.close()
+    await executor.close()
   }
   return out
 }

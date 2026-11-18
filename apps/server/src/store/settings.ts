@@ -325,9 +325,12 @@ export class SettingsRepository {
     await this.writeMeta(`setup_enrollment:${key}`, receipt)
   }
 
-  /** Instance-wide completion receipt, read afresh by every server process. */
+  /**
+   * The workspace's setup completion receipt, read afresh by every server process.
+   * A workspace key (WORKSPACE_META_KEYS): its setup is the workspace's own.
+   */
   async setupFinished(): Promise<boolean> {
-    return (await metaValue(this.db).get({ key: 'setup_finished' })) !== undefined
+    return (await workspaceValue(this.db).get({ key: 'setup_finished' })) !== undefined
   }
 
   async finishSetup(): Promise<void> {

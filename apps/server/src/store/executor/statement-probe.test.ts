@@ -569,7 +569,7 @@ const noteById = prepared((db: StoreDrizzle) =>
     .where(eq(named.id, param(named.id, 'id')))
     .prepare(),
 )
-const notesByBody = preparedFamily((db: StoreDrizzle, shape: 'exact' | 'any') =>
+const notesByBody = preparedFamily((db: StoreDrizzle, _t, shape: 'exact' | 'any') =>
   shape === 'exact'
     ? db
         .select()

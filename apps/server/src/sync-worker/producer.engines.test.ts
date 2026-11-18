@@ -246,6 +246,15 @@ const job = (extra: Partial<SyncJob> = {}): SyncJob =>
     ...extra,
   }) as SyncJob
 
+/**
+ * The layout rows alone, as the collection fetch names them (POD-7085 retired the
+ * kind-named load): one collection, so the job reads one kind's rows.
+ */
+const LAYOUT_ONLY: Partial<SyncJob> = {
+  mode: 'collections',
+  instances: [{ collection: 'userLayout.all' }],
+}
+
 type Line = { type: string; seq?: number; changes?: { entityId: string; seq: number }[] }
 
 /**
@@ -289,7 +298,7 @@ describe(`the producer's read session [${ENGINE}]`, () => {
   it('streams a bootstrap from the snapshot its first read fixed', async () => {
     await seedLayout(w, ['a', 'b', 'c'])
     const head = await w.sync.maxChangeSeq()
-    const out = await drain(w, job({ kinds: ['userLayout'] }), async () => {
+    const out = await drain(w, job(LAYOUT_ONLY), async () => {
       // Written while the job streams: after its snapshot.
       await seedLayout(w, ['d'])
     })
@@ -302,7 +311,7 @@ describe(`the producer's read session [${ENGINE}]`, () => {
     expect(out.at(-1)?.seq).toBe(head)
     // The write committed: a new job sees it.
     expect(await w.sync.maxChangeSeq()).toBeGreaterThan(head)
-    const next = changesOf(await drain(w, job({ kinds: ['userLayout'] })), 'feedBootstrap')
+    const next = changesOf(await drain(w, job(LAYOUT_ONLY)), 'feedBootstrap')
     expect(next.map((row) => row.entityId).sort()).toEqual(layoutRows(['a', 'b', 'c', 'd']))
   })
 
@@ -357,15 +366,10 @@ describe(`the producer's read session [${ENGINE}]`, () => {
       w,
       Array.from({ length: 1_600 }, (_, i) => `k${i}`),
     )
-    await drain(w, job({ kinds: ['userLayout'] }))
+    await drain(w, job(LAYOUT_ONLY))
     expect(await w.openSnapshots()).toBe(0)
     const abort = new AbortController()
-    const producer = produceBootstrap(
-      w.location,
-      job({ kinds: ['userLayout'] }),
-      abort.signal,
-      () => {},
-    )
+    const producer = produceBootstrap(w.location, job(LAYOUT_ONLY), abort.signal, () => {})
     expect((await producer.next()).done).toBe(false)
     // A commit past the job's snapshot, which a SQLite checkpoint cannot pass.
     await seedLayout(w, ['c'])
@@ -430,7 +434,7 @@ describe(`the producer's statements [${ENGINE}]`, () => {
   // Postgres and is a handle command on SQLite, so neither is a statement of the job.
   it('a filtered bootstrap', async () => {
     await expectConstantStatements(
-      pin('worker layout bootstrap', 'snapshot', () => job({ kinds: ['userLayout'] })),
+      pin('worker layout bootstrap', 'snapshot', () => job(LAYOUT_ONLY)),
       LAYOUT_BOOTSTRAP_STATEMENTS,
     )
   })

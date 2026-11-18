@@ -10,6 +10,7 @@
  */
 
 import {
+  AppliedMutationsPrunePlanner,
   AutomationDueReader,
   ChangeLogPrunePlanner,
   ConnectScanReader,
@@ -18,6 +19,7 @@ import {
   type JanitorReadSource,
   MaintenanceCommandsPrunePlanner,
   MessageExpiryReader,
+  QueuedMessagesExpiryReader,
   SessionAutoArchiveReader,
   StewardPollReader,
   WorktreeGcReader,
@@ -148,6 +150,51 @@ describe('JanitorReadsRepository: retention heads', () => {
     const { seed, reads } = await open()
     await seed.feed({ headSeq: 4, floorSeq: 5 })
     expect(await reads.changeFeed(5_000)).toBeUndefined()
+  })
+
+  it('finds the event cap by a seek that stays exact across missing ids (POD-7035)', async () => {
+    const { seed, reads } = await open()
+    const ids: number[] = []
+    for (let i = 0; i < 40; i += 1) ids.push(await seed.event(iso(1)))
+    // Ids missing from the log: the guess `max(id) - maxRows` is too high by them.
+    const kept = ids.filter((_, at) => ![1, 15, 16, 30, 38].includes(at))
+    await seed.pruneEvents(ids.filter((id) => !kept.includes(id)))
+    for (const maxRows of [0, 1, 2, 5, 10, 20, 34, 35, 50]) {
+      // What `ORDER BY id DESC LIMIT 1 OFFSET maxRows` walked to.
+      const walked = [...kept].sort((a, b) => b - a)[maxRows]
+      expect(await reads.eventCapThroughId(maxRows), `maxRows ${maxRows}`).toBe(walked)
+    }
+  })
+
+  it('counts receipts past a cutoff and gives the oldest one, as epoch ms (POD-7035)', async () => {
+    const { seed, reads } = await open()
+    expect(await reads.receiptPruneHead(5_000)).toBeNull()
+    for (const [id, at] of [
+      ['m_c', 3_000],
+      ['m_a', 1_000],
+      ['m_young', 9_000],
+      ['m_b', 2_000],
+    ] as const)
+      await seed.receipt({ mutationId: id, appliedAt: at })
+    expect(await reads.receiptPruneHead(5_000)).toBe(1_000)
+    expect(await reads.receiptPruneCount(5_000)).toBe(3)
+    expect(await reads.receiptPruneCount(1_000)).toBe(0)
+  })
+
+  it('names each session holding input past the horizon once, by its newest such row (POD-7035)', async () => {
+    const { seed, reads } = await open()
+    const horizon = 100_000
+    await seed.queued({ id: 'a1', sessionId: 'ses_a', queuedAt: horizon - 5_000, queueOrder: 1 })
+    await seed.queued({ id: 'a2', sessionId: 'ses_a', queuedAt: horizon - 1_000, queueOrder: 2 })
+    await seed.queued({ id: 'a3', sessionId: 'ses_a', queuedAt: horizon + 1_000, queueOrder: 3 })
+    await seed.queued({ id: 'b1', sessionId: 'ses_b', queuedAt: horizon - 9_000 })
+    await seed.queued({ id: 'c1', sessionId: 'ses_c', queuedAt: horizon + 1 })
+    expect(await reads.queuedExpiryPage({ through: horizon, limit: 100 })).toEqual([
+      { sessionId: 'ses_b', through: horizon - 9_000, rows: 1 },
+      { sessionId: 'ses_a', through: horizon - 1_000, rows: 2 },
+    ])
+    expect(await reads.queuedExpiryPage({ through: horizon, limit: 1 })).toHaveLength(1)
+    expect(await reads.queuedExpiryCount(horizon)).toBe(3)
   })
 
   it('counts receipts applied before the cutoff and gives a plan position for them', async () => {
@@ -468,7 +515,9 @@ describe("the janitor's database on the store's engine", () => {
  * move, and Postgres runs the same statements.
  */
 describe('one full janitor scan', () => {
-  it('runs the same 16 statements on either engine', async () => {
+  // RE-PINNED 16 -> 19 FOR POD-7118: dev/mw's receipt prune reads its head and
+  // count, and its queue expiry its page (POD-7035).
+  it('runs the same 19 statements on either engine', async () => {
     const { seed, reads, slice } = await open()
     for (let i = 0; i < 30; i += 1) {
       await seed.message({
@@ -483,6 +532,8 @@ describe('one full janitor scan', () => {
     await seed.change({ seq: 1, eventTime: 1_000 })
     await seed.change({ seq: 2, eventTime: 1_000 })
     await seed.command({ runKey: 'r', appliedAt: iso(1) })
+    await seed.receipt({ mutationId: 'mut_old', appliedAt: Date.parse(iso(1)) })
+    await seed.queued({ id: 'q_old', sessionId: 'ses_parked', queuedAt: Date.parse(iso(1)) })
     await seed.session({ id: 'ses_done', ownerUserId: 'mem_owner', stoppedAt: iso(1) })
     await seed.sessionRead({ sessionId: 'ses_done', userId: 'mem_owner', readAt: iso(2) })
     await seed.issue({ id: 'iss_done', seq: 1, closedAt: iso(1), worktreePath: '/r/w/done' })
@@ -522,6 +573,20 @@ describe('one full janitor scan', () => {
           nowMs,
         })
       ).length,
+      receipts: (
+        await new AppliedMutationsPrunePlanner(source).plan({
+          maxAgeMs: 7 * 86_400_000,
+          batchSize: 1,
+          nowMs,
+        })
+      ).length,
+      queued: (
+        await new QueuedMessagesExpiryReader(source).read({
+          maxAgeMs: 7 * 86_400_000,
+          nowMs,
+          limit: 100,
+        })
+      ).length,
       sessions: (await new SessionAutoArchiveReader(source).read(archive)).length,
       issues: (await new IssueAutoArchiveReader(source).read(archive)).length,
       worktrees: (
@@ -541,6 +606,8 @@ describe('one full janitor scan', () => {
       events: 2,
       changes: 2,
       commands: 1,
+      receipts: 1,
+      queued: 1,
       sessions: 1,
       issues: 1,
       worktrees: 1,
@@ -548,6 +615,6 @@ describe('one full janitor scan', () => {
       steward: 1,
       machines: 1,
     })
-    expect({ statements, queries: byQuery.size }).toEqual({ statements: 16, queries: 16 })
+    expect({ statements, queries: byQuery.size }).toEqual({ statements: 19, queries: 19 })
   })
 })

@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asWorkspaceId, type WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { provisionWorkspaceFeed } from '../store/database'
 import type { QueryClient } from '../store/executor/driver'
 import { createStoreExecutor, type RootStoreExecutor } from '../store/executor/executor'
@@ -66,10 +66,21 @@ export interface JanitorSeeds {
   }): Promise<void>
   /** An event at `ts`; returns its id. */
   event(ts: string): Promise<number>
+  /** Deletes these events, leaving their ids missing from the log. */
+  pruneEvents(ids: readonly number[]): Promise<void>
   /** Sets the workspace feed's bounds. */
   feed(bounds: { headSeq: number; floorSeq: number }): Promise<void>
   change(row: { seq: number; eventTime: number }): Promise<void>
   command(row: { runKey: string; appliedAt: string }): Promise<void>
+  /** A mutation receipt applied at `appliedAt` (epoch ms). */
+  receipt(row: { mutationId: string; appliedAt: number }): Promise<void>
+  /** A session's queued input, queued at `queuedAt` (epoch ms). */
+  queued(row: {
+    id: string
+    sessionId: string
+    queuedAt: number
+    queueOrder?: number
+  }): Promise<void>
   user(row: {
     id: string
     role?: 'admin' | 'member'
@@ -145,6 +156,15 @@ function seedsOf(slice: SliceStore, workspaceId: WorkspaceId): JanitorSeeds {
       }))
       return id
     },
+    pruneEvents: (ids) =>
+      seed((db, t) =>
+        db
+          .delete(t.podiumEvents)
+          .where(
+            and(eq(t.podiumEvents.workspaceId, workspaceId), inArray(t.podiumEvents.id, [...ids])),
+          )
+          .prepare(),
+      ),
     feed: (bounds) =>
       seed((db, t) =>
         db.update(t.syncFeed).set(bounds).where(eq(t.syncFeed.workspaceId, workspaceId)).prepare(),
@@ -175,6 +195,33 @@ function seedsOf(slice: SliceStore, workspaceId: WorkspaceId): JanitorSeeds {
             resultJson: '{}',
             appliedAt: row.appliedAt,
           })
+          .prepare(),
+      ),
+    receipt: (row) =>
+      seed((db, t) =>
+        db
+          .insert(t.appliedMutations)
+          .values({
+            workspaceId,
+            mutationId: row.mutationId as never,
+            proc: 'p',
+            result: '"r"',
+            appliedAt: row.appliedAt,
+          })
+          .prepare(),
+      ),
+    queued: (row) =>
+      seed((db, t) =>
+        db
+          .insert(t.queuedMessages)
+          .values({
+            workspaceId,
+            id: row.id,
+            sessionId: row.sessionId as never,
+            text: row.id,
+            queuedAt: row.queuedAt,
+            queueOrder: row.queueOrder ?? 1,
+          } as never)
           .prepare(),
       ),
     user: (row) =>

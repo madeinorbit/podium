@@ -3,8 +3,10 @@
  *
  * A collection rule (`@podium/model`'s `records/rule.ts`) is data, so the
  * server answers it in SQL and the client in JavaScript (`matchesWhere`).
- * This compiles one rule into a WHERE fragment for the store's SQLite, with
- * positional parameters, over the columns a caller maps each field to. It
+ * This compiles one rule into a WHERE fragment, with positional parameters,
+ * over the columns a caller maps each field to, in the SQL of the store's
+ * engine: SQLite or Postgres ({@link RuleSqlDialect}; one rule, one shape, two
+ * spellings of its JSON reads, booleans and timestamp sentinel). It
  * answers exactly what `matchesWhere` answers: the shared corpus
  * (`RULE_CORPUS`) holds both to the same records (`rule-sql.test.ts`).
  *
@@ -39,8 +41,12 @@ import {
   type Where,
 } from '@podium/model'
 
-/** How a field's value is held: `text` decides what "is empty" means, `boolean` how a value binds. */
-export type SqlValueType = 'text' | 'number' | 'boolean' | 'json'
+/**
+ * How a field's value is held: `text` and `timestamp` decide what "is empty"
+ * means (a timestamp's empty is the engine's "before every row" sentinel),
+ * `boolean` how a value binds.
+ */
+export type SqlValueType = 'text' | 'timestamp' | 'number' | 'boolean' | 'json'
 
 /** One field as SQL reads it: an expression over the row alias, and its type. */
 export interface FieldSql {
@@ -48,8 +54,76 @@ export interface FieldSql {
   readonly type: SqlValueType
 }
 
+/**
+ * HOW THE ENGINE SPELLS WHAT A RULE NEEDS beyond plain SQL (POD-7118): JSON
+ * reads, a boolean's binding, a text seed and the timestamp sentinel. SQLite
+ * holds JSON as text and booleans as 0/1; Postgres holds `json`, `boolean` and
+ * `timestamptz`, whose "before every row" is `-infinity` where SQLite's is `''`.
+ */
+export interface RuleSqlDialect {
+  readonly name: 'sqlite' | 'pg'
+  /** A JSON path into a JSON expression, as text. */
+  jsonTextPath(expr: string, path: readonly string[]): string
+  /** The JSON expression when it holds an object, else NULL. */
+  jsonObject(expr: string): string
+  /** An object member of a JSON expression, or NULL when it is not one. */
+  jsonObjectMember(expr: string, key: string): string
+  /** A boolean as the engine binds it. */
+  bool(value: boolean): SqlValue
+  /** A positional parameter read as text, the seed of a walk over text ids. */
+  textParam(mark: string): string
+  /** The timestamp sentinel that sorts before every row, as SQL. */
+  readonly timestampFloor: string
+}
+
+const plainKey = (part: string): string => {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
+    throw new RuleSqlError(`not a plain JSON key: ${part}`)
+  return part
+}
+
+export const SQLITE_RULE_SQL: RuleSqlDialect = Object.freeze({
+  name: 'sqlite' as const,
+  jsonTextPath: (expr: string, path: readonly string[]) =>
+    `json_extract(${expr}, '$.${path.map(plainKey).join('.')}')`,
+  // Nested CASE: the validity is tested before the member is read.
+  jsonObject: (expr: string) =>
+    `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}) = 'object' THEN ${expr} END END`,
+  jsonObjectMember: (expr: string, key: string) =>
+    `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}, '$.${plainKey(key)}') = 'object' THEN json_extract(${expr}, '$.${key}') END END`,
+  // SQLite stores a boolean as 0 or 1.
+  bool: (value: boolean) => (value ? 1 : 0),
+  textParam: (mark: string) => `CAST(${mark} AS TEXT)`,
+  timestampFloor: "''",
+})
+
+/**
+ * Postgres: the JSON columns are `json`, always valid, so an object is one
+ * `json_typeof`; a path read is `#>>`, text in byte order (`COLLATE "C"`, as
+ * the store's text columns compare).
+ */
+export const PG_RULE_SQL: RuleSqlDialect = Object.freeze({
+  name: 'pg' as const,
+  jsonTextPath: (expr: string, path: readonly string[]) =>
+    `((${expr}) #>> '{${path.map(plainKey).join(',')}}') COLLATE "C"`,
+  jsonObject: (expr: string) => `CASE WHEN json_typeof(${expr}) = 'object' THEN ${expr} END`,
+  jsonObjectMember: (expr: string, key: string) =>
+    `CASE WHEN json_typeof((${expr}) -> '${plainKey(key)}') = 'object' THEN (${expr}) -> '${key}' END`,
+  bool: (value: boolean) => value,
+  textParam: (mark: string) => `CAST(${mark} AS TEXT) COLLATE "C"`,
+  timestampFloor: "'-infinity'::timestamptz",
+})
+
 /** The table a rule reads, and how each field read maps onto it. */
 export interface RuleSqlTarget {
+  /** The engine the SQL is for; SQLite when omitted. */
+  readonly dialect?: RuleSqlDialect
+  /**
+   * The term that holds a row of {@link table}, aliased `alias`, to the reader's
+   * scope (the store's workspace, POD-7118): every table the rule's SQL reads
+   * beyond the row, such as `descendantsOf`'s walk, carries it.
+   */
+  scope?(alias: string): RuleSql
   /** The table, for `descendantsOf`'s walk. */
   readonly table: string
   /** The table's id and parent columns, for `descendantsOf`'s walk. */
@@ -61,7 +135,19 @@ export interface RuleSqlTarget {
   field(path: string): FieldSql | undefined
 }
 
-export type SqlValue = string | number | boolean | null
+/**
+ * A parameter the executing handle fills, not the caller: `{ bound: 'workspaceId' }`
+ * is the store's workspace (POD-7118). A rule never makes one; a target's
+ * {@link RuleSqlTarget.scope} does.
+ */
+export interface BoundParam {
+  readonly bound: string
+}
+
+export type SqlValue = string | number | boolean | null | BoundParam
+
+export const isBoundParam = (value: unknown): value is BoundParam =>
+  value !== null && typeof value === 'object' && 'bound' in value
 
 export interface RuleSql {
   /** A WHERE fragment, parenthesised. */
@@ -71,13 +157,9 @@ export interface RuleSql {
 
 export class RuleSqlError extends Error {}
 
-/** A JSON path into a JSON text column, as text. */
+/** A JSON path into a JSON text column, as text (SQLite). */
 export function jsonTextPath(column: string, path: readonly string[]): string {
-  for (const part of path) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
-      throw new RuleSqlError(`not a plain JSON key: ${part}`)
-  }
-  return `json_extract(${column}, '$.${path.join('.')}')`
+  return SQLITE_RULE_SQL.jsonTextPath(column, path)
 }
 
 /** Whether a text expression holds valid JSON (NULL reads as not valid). */
@@ -91,26 +173,36 @@ export function jsonValidSql(expr: string): string {
  * that parses the text and takes `.key` sees.
  */
 export function jsonObjectMemberSql(expr: string, key: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new RuleSqlError(`not a plain JSON key: ${key}`)
-  // Nested CASE: the validity is tested before the member is read.
-  return `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}, '$.${key}') = 'object' THEN json_extract(${expr}, '$.${key}') END END`
+  return SQLITE_RULE_SQL.jsonObjectMember(expr, key)
 }
 
-/** A JSON text expression when it holds a JSON object, else NULL. */
+/** A JSON text expression when it holds a JSON object, else NULL (SQLite). */
 export function jsonObjectSql(expr: string): string {
-  return `CASE WHEN ${jsonValidSql(expr)} THEN CASE WHEN json_type(${expr}) = 'object' THEN ${expr} END END`
+  return SQLITE_RULE_SQL.jsonObject(expr)
 }
 
 class Params {
   readonly values: SqlValue[] = []
+  constructor(readonly dialect: RuleSqlDialect) {}
   add(value: SqlValue, type: SqlValueType): string {
     if (typeof value === 'boolean' && type !== 'boolean') {
       throw new RuleSqlError(`a boolean compared with a ${type} field`)
     }
-    // SQLite stores a boolean as 0 or 1.
-    this.values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)
+    this.values.push(typeof value === 'boolean' ? this.dialect.bool(value) : value)
     return '?'
   }
+  /** A fragment's own parameters, in its text's order. */
+  fragment(part: RuleSql): string {
+    this.values.push(...part.params)
+    return part.sql
+  }
+}
+
+/** What "is empty" tests, by the field's type. */
+function emptyValue(field: FieldSql, params: Params): string | undefined {
+  if (field.type === 'text') return "''"
+  if (field.type === 'timestamp') return params.dialect.timestampFloor
+  return undefined
 }
 
 function eqSql(field: FieldSql, value: Scalar, params: Params): string {
@@ -128,10 +220,11 @@ function inSql(field: FieldSql, list: readonly Scalar[], params: Params): string
   return parts.length === 0 ? '1 = 0' : `(${parts.join(' OR ')})`
 }
 
-function emptySql(field: FieldSql): string {
-  return field.type === 'text'
-    ? `(${field.sql} IS NULL OR ${field.sql} = '')`
-    : `${field.sql} IS NULL`
+function emptySql(field: FieldSql, params: Params): string {
+  const empty = emptyValue(field, params)
+  return empty === undefined
+    ? `${field.sql} IS NULL`
+    : `(${field.sql} IS NULL OR ${field.sql} = ${empty})`
 }
 
 function negatableSql(
@@ -143,15 +236,16 @@ function negatableSql(
   if (test === null || typeof test !== 'object') return eqSql(field, test, params)
   if ('eq' in test) return eqSql(field, resolveValue((test as EqTest).eq, args), params)
   if ('in' in test) return inSql(field, resolveList((test as InTest).in, args), params)
-  return emptySql(field)
+  return emptySql(field, params)
 }
 
 /** The negation, NULL-safe: it holds for NULL exactly when the test does not. */
 function notSql(test: NegatableTest, field: FieldSql, args: RuleArgs, params: Params): string {
   if (test !== null && typeof test === 'object' && 'empty' in test) {
-    return field.type === 'text'
-      ? `(${field.sql} IS NOT NULL AND ${field.sql} <> '')`
-      : `${field.sql} IS NOT NULL`
+    const empty = emptyValue(field, params)
+    return empty === undefined
+      ? `${field.sql} IS NOT NULL`
+      : `(${field.sql} IS NOT NULL AND ${field.sql} <> ${empty})`
   }
   const list =
     test === null || typeof test !== 'object'
@@ -179,13 +273,15 @@ function descendantsSql(root: Scalar, target: RuleSqlTarget, params: Params): st
     throw new RuleSqlError(`descendantsOf needs the id and parent columns of ${target.table}`)
   }
   // The root and every record under it, walked down the parent column; the
-  // record matches when it is in that set (the root itself included).
+  // record matches when it is in that set (the root itself included). Each
+  // step of the walk is held to the reader's scope.
   const rootParam = params.add(root, 'text')
-  const walk =
-    `WITH RECURSIVE under(id) AS (SELECT CAST(${rootParam} AS TEXT) ` +
+  const head =
+    `WITH RECURSIVE under(id) AS (SELECT ${params.dialect.textParam(rootParam)} ` +
     `UNION SELECT child.${target.idColumn} FROM ${target.table} AS child ` +
-    `JOIN under ON child.${target.parentColumn} = under.id) SELECT id FROM under`
-  return `${target.rowId} IN (${walk})`
+    `JOIN under ON child.${target.parentColumn} = under.id`
+  const scope = target.scope === undefined ? '' : ` WHERE ${params.fragment(target.scope('child'))}`
+  return `${target.rowId} IN (${head}${scope}) SELECT id FROM under)`
 }
 
 function testSql(
@@ -207,7 +303,7 @@ function testSql(
       return notSql((test as NotTest).not, field, args, params)
     case 'newerThan': {
       const days = resolveDays((test as NewerThanTest).newerThan.days, args)
-      return `${field.sql} > ${params.add(newerThanCutoff(now, days), 'text')}`
+      return `${field.sql} > ${params.add(newerThanCutoff(now, days), field.type === 'timestamp' ? 'timestamp' : 'text')}`
     }
     case 'descendantsOf':
       return descendantsSql(
@@ -241,7 +337,7 @@ export function ruleSql(
   args: RuleArgs = {},
   now = Date.now(),
 ): RuleSql {
-  const params = new Params()
+  const params = new Params(target.dialect ?? SQLITE_RULE_SQL)
   const clauses = clausesOf(where).map((clause) => clauseSql(clause, target, args, now, params))
   const sql =
     clauses.length === 1 ? `(${clauses[0]})` : `(${clauses.map((c) => `(${c})`).join(' OR ')})`

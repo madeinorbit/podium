@@ -470,33 +470,35 @@ const pendingForSessionProof = prepared((db, t) =>
  * the caller attributes and deduplicates by id anyway. The ids are the `ids`
  * list in both arms.
  */
-const pendingForSessionsProof = preparedFamily((db: StoreDrizzle, size: number) =>
+const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      and(
-        eq(messagesTable.toKind, 'session'),
-        inListOf(messagesTable.toId, size, 'ids'),
-        pending(),
+      inWorkspace(
+        t.messages,
+        eq(t.messages.toKind, 'session'),
+        inListOf(t.messages.toId, size, 'ids'),
+        pending(t),
       ),
     )
     .unionAll(
       db
         .select()
-        .from(messagesTable)
+        .from(t.messages)
         .where(
-          and(
-            inListOf(messagesTable.deliveredTo, size, 'ids'),
+          inWorkspace(
+            t.messages,
+            inListOf(t.messages.deliveredTo, size, 'ids'),
             or(
-              pending(),
+              pending(t),
               and(
-                sql`+${messagesTable.deliveryStatus} = ${'confirmed'}`,
-                isNull(messagesTable.ackedBy),
-                eq(messagesTable.expectsResponse, true),
+                sql`${statusOutOfIndexChoice(db, t)} = ${'confirmed'}`,
+                isNull(t.messages.ackedBy),
+                eq(t.messages.expectsResponse, true),
                 or(
-                  isNull(messagesTable.expiresAt),
-                  gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now')),
+                  isNull(t.messages.expiresAt),
+                  gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
                 ),
               ),
             ),

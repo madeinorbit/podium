@@ -524,108 +524,84 @@ describe('[POD-7035] retention jobs', () => {
   const DAY = 24 * HOUR
   const NOW = Date.parse('2026-07-18T00:30:00.000Z')
 
-  it('EventLogPrunePlanner finds the row cap by a seek that stays exact across missing ids', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE podium_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        repo_path TEXT,
-        payload TEXT
-      )`)
-      db.exec('CREATE INDEX idx_podium_events_kind ON podium_events (kind)')
-      const insert = db.prepare(
-        "INSERT INTO podium_events (ts, kind, subject, payload) VALUES ('2099-01-01T00:00:00.000Z', ?, 's', '{}')",
-      )
-      for (let i = 0; i < 120; i += 1) insert.run(i % 2 ? 'a' : 'b')
-      db.exec('DELETE FROM podium_events WHERE id IN (118, 110, 109, 100, 61, 60, 2)')
-      const planner = new EventLogPrunePlanner(db)
-      for (const maxRows of [0, 1, 5, 20, 50, 59, 60, 112, 113, 200]) {
-        const walked =
-          (
-            db
-              .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
-              .get(maxRows) as { id: number } | undefined
-          )?.id ?? 0
-        const batches = await planner.plan({ maxAgeDays: 14, maxRows, batchSize: 500, nowMs: NOW })
-        expect(batches[0]?.capThroughId ?? 0, `maxRows ${maxRows}`).toBe(walked)
-      }
-    } finally {
-      db.close()
-    }
+  // The row cap's seek across missing ids, and the grouping of queued rows by
+  // session, are the server's SQL: `apps/server/src/store/janitor-reads.test.ts`
+  // holds them on both engines. These are what the planners make of the rows.
+  it('EventLogPrunePlanner counts its backlog by the cap the reads give', async () => {
+    const asked: unknown[] = []
+    const port = portOf({
+      eventCapThroughId: async (maxRows) => (maxRows === 20 ? 7 : undefined),
+      eventPruneCount: async (input) => {
+        asked.push(input)
+        return 4
+      },
+    })
+    const planner = new EventLogPrunePlanner(port)
+    expect(await planner.backlog({ maxAgeDays: 14, maxRows: 20, nowMs: NOW })).toBe(4)
+    expect(asked).toEqual([{ cutoff: new Date(NOW - 14 * DAY).toISOString(), capThroughId: 7 }])
+    expect(port.scans).toBe(1)
   })
 
   it('AppliedMutationsPrunePlanner batches the receipts past an hour-rounded cutoff', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE applied_mutations (
-        mutation_id TEXT PRIMARY KEY, proc TEXT NOT NULL, result TEXT NOT NULL, applied_at INTEGER NOT NULL
-      )`)
-      db.exec('CREATE INDEX idx_applied_mutations_applied_at ON applied_mutations (applied_at)')
-      const maxAgeMs = 30 * DAY
-      const cutoff = Math.floor((NOW - maxAgeMs) / HOUR) * HOUR
-      const insert = db.prepare(
-        "INSERT INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, 'p', '\"r\"', ?)",
-      )
-      for (let i = 0; i < 5; i += 1) insert.run(`old-${i}`, cutoff - 1_000 - i)
-      // Past the true horizon but not the rounded cutoff: the next hour's batch.
-      insert.run('this-hour', cutoff + 1_000)
-      insert.run('young', NOW)
-      const planner = new AppliedMutationsPrunePlanner(db)
-      const batches = await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW })
-      expect(batches).toEqual(
-        [0, 1, 2].map((batch) => ({
-          maxAgeMs,
-          cutoffAppliedAt: cutoff,
-          batchSize: 2,
-          fromAppliedAt: cutoff - 1_004,
-          batch,
-        })),
-      )
-      // A tick later in the same hour plans the same occurrences.
-      expect(await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW + 60_000 })).toEqual(batches)
-      expect(planner.backlog({ maxAgeMs, nowMs: NOW })).toBe(5)
-      const plan = (
-        db
-          .prepare(
-            'EXPLAIN QUERY PLAN SELECT COUNT(*) AS n FROM applied_mutations WHERE applied_at < ?',
-          )
-          .all() as { detail: string }[]
-      ).map((row) => row.detail)
-      expect(plan.join(' | ')).toContain('idx_applied_mutations_applied_at')
-    } finally {
-      db.close()
-    }
+    const maxAgeMs = 30 * DAY
+    const cutoff = Math.floor((NOW - maxAgeMs) / HOUR) * HOUR
+    const cutoffs: number[] = []
+    const port = portOf({
+      receiptPruneHead: async (at) => {
+        cutoffs.push(at)
+        return cutoff - 1_004
+      },
+      receiptPruneCount: async (at) => {
+        cutoffs.push(at)
+        return 5
+      },
+    })
+    const planner = new AppliedMutationsPrunePlanner(port)
+    const batches = await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW })
+    expect(batches).toEqual(
+      [0, 1, 2].map((batch) => ({
+        maxAgeMs,
+        cutoffAppliedAt: cutoff,
+        batchSize: 2,
+        fromAppliedAt: cutoff - 1_004,
+        batch,
+      })),
+    )
+    // A tick later in the same hour plans the same occurrences.
+    expect(await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW + 60_000 })).toEqual(batches)
+    expect(await planner.backlog({ maxAgeMs, nowMs: NOW })).toBe(5)
+    expect(new Set(cutoffs)).toEqual(new Set([cutoff]))
+    // Nothing past the cutoff plans nothing, and counts nothing.
+    const empty = portOf({ receiptPruneHead: async () => null })
+    expect(
+      await new AppliedMutationsPrunePlanner(empty).plan({ maxAgeMs, batchSize: 2, nowMs: NOW }),
+    ).toEqual([])
   })
 
-  it('QueuedMessagesExpiryReader names each session once, by its newest row past the horizon', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE queued_messages (
-        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, text TEXT NOT NULL, queued_at INTEGER NOT NULL
-      )`)
-      db.exec('CREATE INDEX queued_messages_session ON queued_messages (session_id, queued_at)')
-      const maxAgeMs = 14 * DAY
-      const horizon = NOW - maxAgeMs
-      const insert = db.prepare(
-        'INSERT INTO queued_messages (id, session_id, text, queued_at) VALUES (?, ?, ?, ?)',
-      )
-      insert.run('a1', 'ses_a', 'x', horizon - 5_000)
-      insert.run('a2', 'ses_a', 'x', horizon - 1_000)
-      insert.run('a3', 'ses_a', 'x', horizon + 1_000)
-      insert.run('b1', 'ses_b', 'x', horizon - 9_000)
-      insert.run('c1', 'ses_c', 'x', horizon + 1)
-      const reader = new QueuedMessagesExpiryReader(db)
-      expect(await reader.read({ maxAgeMs, nowMs: NOW, limit: 100 })).toEqual([
-        { sessionId: asSessionId('ses_b'), maxAgeMs, throughQueuedAt: horizon - 9_000, rows: 1 },
-        { sessionId: asSessionId('ses_a'), maxAgeMs, throughQueuedAt: horizon - 1_000, rows: 2 },
-      ])
-      expect(reader.backlog({ maxAgeMs, nowMs: NOW })).toBe(3)
-    } finally {
-      db.close()
-    }
+  it('QueuedMessagesExpiryReader names each session the reads give, with the horizon', async () => {
+    const maxAgeMs = 14 * DAY
+    const horizon = NOW - maxAgeMs
+    const throughs: unknown[] = []
+    const port = portOf({
+      queuedExpiryPage: async (input) => {
+        throughs.push(input)
+        return [
+          { sessionId: 'ses_b', through: horizon - 9_000, rows: 1 },
+          { sessionId: 'ses_a', through: horizon - 1_000, rows: 2 },
+        ]
+      },
+      queuedExpiryCount: async (through) => {
+        throughs.push(through)
+        return 3
+      },
+    })
+    const reader = new QueuedMessagesExpiryReader(port)
+    expect(await reader.read({ maxAgeMs, nowMs: NOW, limit: 100 })).toEqual([
+      { sessionId: asSessionId('ses_b'), maxAgeMs, throughQueuedAt: horizon - 9_000, rows: 1 },
+      { sessionId: asSessionId('ses_a'), maxAgeMs, throughQueuedAt: horizon - 1_000, rows: 2 },
+    ])
+    expect(await reader.backlog({ maxAgeMs, nowMs: NOW })).toBe(3)
+    expect(throughs).toEqual([{ through: horizon, limit: 100 }, horizon])
   })
 
   it("applies the receipt prune and queue expiry, and reports each job's backlog after it runs", async () => {

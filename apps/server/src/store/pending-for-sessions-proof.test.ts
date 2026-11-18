@@ -15,8 +15,10 @@ import { asSessionId, asThreadId, MESSAGE_DELIVERY_STATUSES, type SessionId } fr
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
@@ -27,7 +29,7 @@ beforeEach(() => {
   db = openMigratedTestDatabase()
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the synchronous query capability is absent on this handle')
-  messages = new MessagesRepository(queries)
+  messages = new MessagesRepository(legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
 })
 
 const A = asSessionId('ses_a')
