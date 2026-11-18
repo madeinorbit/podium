@@ -222,9 +222,11 @@ export async function openLargeDeck(
       ? {}
       : {
           unitOfWork: {
-            transact: async (body) => {
+            transact: (body) => storage.unitOfWork.transact(body),
+            // The first download's chunks still being written (IndexedDB's lanes).
+            durable: async () => {
               await held
-              return await storage.unitOfWork.transact(body)
+              await storage.unitOfWork.durable?.()
             },
           },
         }),

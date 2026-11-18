@@ -506,6 +506,11 @@ export class IndexedDbSyncStore {
       await span.durable
       return result
     },
+    // The lane tails never reject: a failed commit reports through its own
+    // caller, never through this wait. Nothing is appended to a lane.
+    durable: async (): Promise<void> => {
+      await Promise.all(COMMIT_LANES.map((lane) => this.laneTails[lane]))
+    },
   }
 
   /**

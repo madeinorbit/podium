@@ -351,21 +351,20 @@ export class Replica implements DeviceCollectionReads {
    */
   private installTurn: Promise<void> | null = null
   /**
-   * POD-7168 — the durable tail of a load: from the moment the views open on
-   * it ("load-installed") until its last commit is adopted. On a large first
-   * download that commit waits for every chunk to reach IndexedDB (25 s on a
-   * busy host), and a fetch installed behind it (`serial`) waited all that
-   * time: the deck's tree, answered by the server in under a second, appeared
-   * after the whole first download was durable. In the tail a fetch installs
-   * at once. What it named stays out of the load's sweep, and what it brought
-   * is installed again once the load's commit is in, so a sweep or a frame the
-   * commit staged before the fetch arrived cannot take back a newer row.
+   * POD-7168 — the durable tail of a load: after the views open on it
+   * ("load-installed"), the load waits for its chunks to be durable before it
+   * stages its last commit (`SyncUnitOfWork.durable`). On a large first
+   * download that is every chunk reaching IndexedDB (25 s on a busy host), and
+   * a fetch installed behind the load (`serial`) waited all that time: the
+   * deck's tree, answered by the server in under a second, appeared after the
+   * whole first download was durable. While the load waits, nothing of its
+   * last commit is staged, and a fetch installs at once; what it named stays
+   * out of the load's sweep. The last commit is then read from the store as
+   * the fetches left it.
    */
-  private tail: {
-    readonly generation: number
-    readonly named: Set<string>
-    readonly installed: BootstrapChunk[]
-  } | null = null
+  private tail: { readonly generation: number; readonly named: Set<string> } | null = null
+  /** The fetch answering each instance now: a second asker waits for its answer (POD-7169). */
+  private readonly inFlightAnswers = new Map<string, Promise<unknown>>()
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
@@ -1566,13 +1565,23 @@ export class Replica implements DeviceCollectionReads {
       (this.store.readPolicy() === null || this.missingPolicyInstances().length === 0)
     ) {
       this.emit({ type: 'load-installed', cause, snapshotSeq })
-      this.tail = { generation, named: new Set(), installed: [] }
     }
-    try {
-      await this.commitLoad(cause, generation, full, entityCount, snapshotSeq)
-    } finally {
-      if (this.tail?.generation === generation) this.tail = null
+    // POD-7168: the chunks become durable first, with nothing of the last
+    // commit staged, and fetched answers install meanwhile. The last commit is
+    // read after them and waits only for itself. An adapter whose writes are
+    // durable when they return has no `durable`.
+    const named = new Set<string>()
+    const durable = this.unitOfWork?.durable
+    if (durable !== undefined) {
+      this.tail = { generation, named }
+      try {
+        await durable.call(this.unitOfWork)
+      } finally {
+        if (this.tail?.generation === generation) this.tail = null
+      }
+      if (generation !== this.walkGeneration) return
     }
+    await this.commitLoad(cause, generation, full, entityCount, snapshotSeq, named)
     if (this.state === 'live' && generation === this.walkGeneration) {
       await this.drainBuffer()
       if (this.state === 'live' && generation === this.walkGeneration) {
@@ -1589,6 +1598,7 @@ export class Replica implements DeviceCollectionReads {
     full: boolean,
     entityCount: number,
     snapshotSeq: number,
+    named: ReadonlySet<string>,
   ): Promise<void> {
     const base = this.cursorValue as Cursor
     // A COPY, and `this.buffer` is NOT cleared here (POD-1161): the consumed prefix
@@ -1624,9 +1634,8 @@ export class Replica implements DeviceCollectionReads {
     }
     const loadingSince = this.store.readLoadingSince()
     const complete = this.store.readPolicy() === null || this.missingPolicyInstances().length === 0
-    // POD-7168: a fetch may install while this commit waits (`tail`). The sweep
-    // is read when the commit is written, and never takes a row a fetch named.
-    const tail = this.tail?.generation === generation ? this.tail : null
+    // POD-7168: read when the commit is written, after the fetches the load's
+    // durable wait let in, and never a row one of them named.
     let swept: EntityRecord[] = []
     const decisions: FeedDecision[] = []
     // A load that replaced what the device held is a new truth, also when it
@@ -1648,8 +1657,7 @@ export class Replica implements DeviceCollectionReads {
           complete && loadingSince !== null
             ? [...this.store.readEntities(), ...this.store.readStubs()].filter(
                 (row) =>
-                  rowAsOf(row) < loadingSince &&
-                  !tail?.named.has(entityKey(row.entity, row.entityId)),
+                  rowAsOf(row) < loadingSince && !named.has(entityKey(row.entity, row.entityId)),
               )
             : []
         const staged = new Map<string, EntityRecord | null>()
@@ -1682,13 +1690,6 @@ export class Replica implements DeviceCollectionReads {
         this.note('D6-INSTALL')
         this.cursorValue = running
         if (full) this.exits.clear()
-        if (tail !== null && generation === this.walkGeneration) {
-          // What fetches installed while this commit waited, again: the commit
-          // was written before some of them arrived, and its sweep or frames
-          // must not take back a newer row. The newer one wins, as ever.
-          for (const chunk of tail.installed) this.installChunk(chunk, {})
-          swept = swept.filter((row) => !tail.named.has(entityKey(row.entity, row.entityId)))
-        }
         for (const row of swept)
           this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
         this.emit({
@@ -1894,7 +1895,18 @@ export class Replica implements DeviceCollectionReads {
    * record against the feed, and each instance's marker follows its records.
    */
   async load(requests: readonly InstanceRequest[]): Promise<void> {
+    const signal = this.fetchAbort.signal
+    // POD-7169: an instance another fetch is answering now resolves with that
+    // answer, not at once without one: the loader reads a load that resolved
+    // without a marker as the server refusing it, and the lookup as gone.
+    const answering = requests.flatMap((request) => {
+      const answer = this.inFlightAnswers.get(instanceKey(request))
+      return answer === undefined ? [] : [answer]
+    })
     await this.fetchInstances(requests)
+    await Promise.allSettled(answering)
+    // A fetch a reload cut off was answered by nobody: the loader asks again.
+    if (signal.aborted) throw new Error('the fetch was cut off by a reload')
   }
 
   private async fetchInstances(
@@ -1947,14 +1959,12 @@ export class Replica implements DeviceCollectionReads {
           }
           if (insideLoad) write()
           else if (reload === undefined && this.tail?.generation === this.walkGeneration) {
-            // The load's last commit is under way and installs nothing more
-            // itself: this answer need not wait for it to be durable (POD-7168).
-            const tail = this.tail
-            for (const change of chunk.changes)
-              tail.named.add(entityKey(change.entity, change.entityId))
+            // The load waits for its chunks to be durable, with nothing of its
+            // last commit staged: this answer need not wait too (POD-7168).
+            const { named } = this.tail
+            for (const change of chunk.changes) named.add(entityKey(change.entity, change.entityId))
             for (const change of chunk.stubs ?? [])
-              tail.named.add(entityKey(change.entity, change.entityId))
-            tail.installed.push(chunk)
+              named.add(entityKey(change.entity, change.entityId))
             write()
           } else await this.serial(write)
         }
@@ -2024,7 +2034,9 @@ export class Replica implements DeviceCollectionReads {
       // wrote: a record the device already held current (the sidebar's root of a
       // tree) has entered the fetched instance too, and comes with what that
       // instance declares (POD-7087).
-      if (this.state !== 'bootstrapping') {
+      // While a load waits for its chunks to be durable (POD-7168) the answer
+      // installed at once, so what it comes with is asked for at once too.
+      if (this.state !== 'bootstrapping' || this.tail?.generation === this.walkGeneration) {
         const entered: EntityRecord[] = []
         for (const { entity, entityId } of named.values()) {
           const row = this.store.readRow(entity, entityId)
@@ -2038,6 +2050,13 @@ export class Replica implements DeviceCollectionReads {
       if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
       else if (this.failure === undefined && !signal.aborted) this.failure = error
     })
+    for (const request of fresh) {
+      const key = instanceKey(request)
+      this.inFlightAnswers.set(key, tracked)
+      void tracked.then(() => {
+        if (this.inFlightAnswers.get(key) === tracked) this.inFlightAnswers.delete(key)
+      })
+    }
     this.fetching = Promise.all([this.fetching, tracked]).then(() => undefined)
     await task
     return written

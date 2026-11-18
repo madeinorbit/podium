@@ -118,9 +118,9 @@ function heldCommits(storage: ConformanceStorage, gate: Promise<void>): SyncUnit
 }
 
 /**
- * The storage's unit of work, each transaction held while a hold is armed: a
- * load's last commit waiting on a large first download's durable writes
- * (POD-7168). `hold` returns the release.
+ * The storage's unit of work whose durable wait is held while a hold is armed:
+ * a large first download's chunks still being written, as IndexedDB's lanes
+ * are on a busy device (POD-7168). `hold` returns the release.
  */
 function heldWhileArmed(storage: ConformanceStorage): {
   readonly unitOfWork: SyncUnitOfWork
@@ -129,9 +129,10 @@ function heldWhileArmed(storage: ConformanceStorage): {
   let gate: Promise<void> | undefined
   return {
     unitOfWork: {
-      transact: async (body) => {
+      transact: (body) => storage.unitOfWork.transact(body),
+      durable: async () => {
         if (gate !== undefined) await gate
-        return await storage.unitOfWork.transact(body)
+        await storage.unitOfWork.durable?.()
       },
     },
     hold() {
@@ -571,6 +572,43 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           }
           expectMarkersTrue(second.cache, server)
         })
+      })
+
+      it('a second fetch of an instance in flight resolves with that answer, not without one (POD-7169)', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        const { cache, replica } = await boot(instantiation, server)
+        const gate = barrier()
+        server.gate = gate.promise
+        const first = replica.load([tree('D2')])
+        let answered = false
+        const second = replica.load([tree('D2')]).then(() => {
+          answered = true
+        })
+        await ticks()
+        expect(answered).toBe(false)
+        gate.release()
+        await second
+        expect(marked(cache, tree('D2'))).toBe(true)
+        await first
+      })
+
+      it('a fetch a reload cuts off rejects, so the loader asks again (POD-7169)', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        const { replica } = await boot(instantiation, server)
+        const gate = barrier()
+        server.gate = gate.promise
+        const outcome = replica.load([tree('D2')]).then(
+          () => 'resolved',
+          () => 'rejected',
+        )
+        await replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        gate.release()
+        expect(await outcome).toBe('rejected')
+        await replica.settled()
+        await ticks()
+        await replica.settled()
       })
 
       it('a gap the feed cannot bridge drops the markers and reloads; the old rows stay readable meanwhile', async () => {
