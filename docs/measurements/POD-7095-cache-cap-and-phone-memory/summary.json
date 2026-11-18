@@ -63,7 +63,7 @@
       "usage": "all saved partial observations excluded from final deck table"
     }
   ],
-  "validationPlan": "Coordinator requested one lean gate only; no new focused or safety runs.",
+  "validationPlan": "One lean gate on VM C (vega3), after cancelling the unadmitted vega2 queue entry; no focused or safety reruns.",
   "startupCohorts": {
     "21": {
       "web/h1a1/before": {

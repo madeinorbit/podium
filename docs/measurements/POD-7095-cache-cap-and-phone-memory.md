@@ -296,4 +296,4 @@ remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-seri
 
 Before each call, read both issue and session inboxes and preserve the source, VM, corpus and saved schedule. Complete each command before launching the next. A new product, collector or cell list needs a fresh round. The fixed-feed replacement is POD-7119’s independent series; use its report’s commands and pins rather than attributing the original feed runner to that fix.
 
-The coordinator stopped measurement for POD-7157 and requested only one end validation: `bun run test` on the final tip through `remote-lane vega2`. That lean gate is pending; no pass is claimed yet. The previously planned focused/safety runs were not executed.
+The coordinator stopped measurement for POD-7157 and requested only one end validation: `bun run test` on the final tip. At 21:13 UTC it was moved to `remote-lane vega3` after the vega2 queue entry was cancelled before admission; no validation ran on vega2. The single lean gate is pending; no pass is claimed yet. The previously planned focused/safety runs were not executed.
