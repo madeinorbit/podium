@@ -23,23 +23,19 @@ import {
   type RuleArgs,
   type SessionId,
 } from '@podium/model'
-import { isBoundParam, type SqlValue } from '@podium/sync/collections'
 import { collectRecords } from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { getTableName } from 'drizzle-orm'
+import { getTableName, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sessions } from '../migrations/schema'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import type { SessionRow } from '../store/types'
+import { ruleDialectOfStore, runCollectionStatement } from '../test-support/collection-statement'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
+import { storeSql } from '../test-support/store-sql'
 import { type CollectionKind, collectionFields, collectionQuery } from './collection-sql'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
-
-/** The statement's parameters with the workspace marker bound to the store's one workspace. */
-const withWorkspace = (params: readonly SqlValue[]): unknown[] =>
-  params.map((value) => (isBoundParam(value) ? SELF_HOSTED_WORKSPACE_ID : value))
 
 const NOW = Date.parse('2026-11-17T12:00:00.000Z')
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
@@ -52,9 +48,6 @@ const state = (
   nativeSubagentCount: 0,
   ...(idle ? { idle: { kind: idle } } : {}),
 })
-
-type RawDb = { prepare(sql: string): { all(...params: unknown[]): unknown[] } }
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
 
 interface Planted {
   readonly id: string
@@ -293,19 +286,14 @@ describe('collection rules over the server tables', () => {
       .sort()
   }
 
-  function sqlAnswer(
+  // On the run's engine, in its dialect (POD-7118).
+  async function sqlAnswer(
     kind: CollectionKind,
     where: Parameters<typeof matchesWhere>[0],
     args: RuleArgs,
-  ): string[] {
-    const query = collectionQuery(kind, where, args, NOW)
-    return (
-      rawDb(store)
-        .prepare(query.sql)
-        .all(...withWorkspace(query.params)) as { id: string }[]
-    )
-      .map((r) => r.id)
-      .sort()
+  ): Promise<string[]> {
+    const query = collectionQuery(kind, where, args, NOW, ruleDialectOfStore(store))
+    return (await runCollectionStatement<{ id: string }>(store, query)).map((r) => r.id).sort()
   }
 
   it('builds the planted records, without the deleted session', () => {
@@ -335,27 +323,34 @@ describe('collection rules over the server tables', () => {
 
   for (const rule of declaredRules().filter((r) => (KINDS as readonly string[]).includes(r.of))) {
     for (const [at, args] of ARGS.entries()) {
-      it(`${rule.id} (arguments ${at + 1}) answers as its records do`, () => {
+      it(`${rule.id} (arguments ${at + 1}) answers as its records do`, async () => {
         const kind = rule.of as CollectionKind
-        expect(sqlAnswer(kind, rule.where, args)).toEqual(jsAnswer(kind, rule.where, args))
+        expect(await sqlAnswer(kind, rule.where, args)).toEqual(jsAnswer(kind, rule.where, args))
       })
     }
   }
 
-  it('reads asking from the checkpoint and the runtime state over the row, and drops a stale offer', () => {
+  it('reads asking from the checkpoint and the runtime state over the row, and drops a stale offer', async () => {
     const asking = declaredRules().find((rule) => rule.id === 'session.asking')!
     const want = ['s-checkpoint-asks', 's-idle-question', 's-offer', 's-row-asks']
     expect(jsAnswer('session', asking.where, {})).toEqual(want)
-    expect(sqlAnswer('session', asking.where, {})).toEqual(want)
+    expect(await sqlAnswer('session', asking.where, {})).toEqual(want)
   })
 
   it('would answer differently if it read the row alone', async () => {
     // The row's own agent state says the opposite for the three overridden sessions.
-    const rowOnly = rawDb(store)
-      .prepare(
-        `SELECT ${sessions.id.name} AS id FROM ${getTableName(sessions)} WHERE json_extract(${sessions.agentStateJson.name}, '$.phase') = 'needs_user' AND ${sessions.deletedAt.name} IS NULL AND ${sessions.archived.name} = 0`,
-      )
-      .all() as { id: SessionId }[]
+    const raw = storeSql(store)
+    const phase =
+      raw.engine === 'pg'
+        ? sql`(${sql.identifier(sessions.agentStateJson.name)} ->> 'phase')`
+        : sql`json_extract(${sql.identifier(sessions.agentStateJson.name)}, '$.phase')`
+    const notArchived =
+      raw.engine === 'pg'
+        ? sql`NOT ${sql.identifier(sessions.archived.name)}`
+        : sql`${sql.identifier(sessions.archived.name)} = 0`
+    const rowOnly = await raw.all<{ id: SessionId }>(
+      sql`SELECT ${sql.identifier(sessions.id.name)} AS id FROM ${sql.identifier(getTableName(sessions))} WHERE ${phase} = 'needs_user' AND ${sql.identifier(sessions.deletedAt.name)} IS NULL AND ${notArchived}`,
+    )
     expect(rowOnly.map((r) => r.id).sort()).toEqual([
       's-checkpoint-done',
       's-row-asks',

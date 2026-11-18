@@ -46,32 +46,27 @@ import {
   type UserId,
 } from '@podium/model'
 import { type CollectionInstance, ISSUE_STUB_FIELDS, type Principal } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { shapedValue } from '@podium/sync/bootstrap-worker'
-import { isBoundParam, type SqlValue } from '@podium/sync/collections'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { getTableName } from 'drizzle-orm'
+import { getTableName, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sessions } from '../migrations/schema'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { auditedCollectionShapes } from '../store/collections'
-import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import type { SessionRow } from '../store/types'
 import { produceBootstrap } from '../sync-worker/producer'
+import { openWorkerReadSession } from '../sync-worker/read-session'
 import type { SyncJob } from '../sync-worker/types'
 import { bootstrapVisibility } from '../sync-worker/visibility'
+import { ruleDialectOfStore, runCollectionStatement } from '../test-support/collection-statement'
 import { issueRowFixture } from '../test-support/issue-row'
-import { openTestStore } from '../test-support/open-test-store'
+import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
+import { storeSql } from '../test-support/store-sql'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { resolveRule, ruleStatement, statementOfKey } from './collection-shapes'
 import { collectionTarget, isCollectionKind } from './collection-sql'
 import { firstDownload, policyFor } from './policy'
-
-/** The statement's parameters with the workspace marker bound to the store's one workspace. */
-const withWorkspace = (params: readonly SqlValue[]): unknown[] =>
-  params.map((value) => (isBoundParam(value) ? SELF_HOSTED_WORKSPACE_ID : value))
 
 const NOW = Date.now()
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
@@ -232,11 +227,6 @@ function sessionRow(
   }
 }
 
-type RawDb = {
-  prepare(sql: string): { all(...params: unknown[]): unknown[]; run(...params: unknown[]): unknown }
-}
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
 async function plant(store: SessionStore): Promise<{ owner: UserId }> {
   const owner = await firstAdminMemberId(store)
   for (const issue of [...TREE, ...DONE]) {
@@ -325,11 +315,9 @@ async function plant(store: SessionStore): Promise<{ owner: UserId }> {
   // A saved agent state the record builder drops: it fails the schema.
   for (const planted of SESSIONS) {
     if (planted.rawAgentState === undefined) continue
-    rawDb(store)
-      .prepare(
-        `UPDATE ${getTableName(sessions)} SET ${sessions.agentStateJson.name} = ? WHERE ${sessions.id.name} = ?`,
-      )
-      .run(planted.rawAgentState, planted.id)
+    await storeSql(store).run(
+      sql`UPDATE ${sql.identifier(getTableName(sessions))} SET ${sql.identifier(sessions.agentStateJson.name)} = ${planted.rawAgentState} WHERE ${sql.identifier(sessions.id.name)} = ${planted.id}`,
+    )
   }
   return { owner }
 }
@@ -340,6 +328,8 @@ async function plant(store: SessionStore): Promise<{ owner: UserId }> {
 
 let dir: string
 let path: string
+/** The store's location on the run's engine: the file, or the Postgres URL. */
+let location: string
 let store: SessionStore
 let viewers: { name: string; user: UserId }[]
 
@@ -357,7 +347,7 @@ const base = (user: UserId) => ({
 async function linesOf(job: SyncJob): Promise<Line[]> {
   const chunks: Uint8Array[] = []
   for await (const bytes of produceBootstrap(
-    path,
+    location,
     job,
     new AbortController().signal,
     () => {},
@@ -396,10 +386,9 @@ const markersOf = (lines: readonly Line[]) =>
 const worlds = new Map<UserId, Map<string, Map<string, Record<string, unknown>>>>()
 
 async function worldOf(user: UserId) {
-  const db = openDatabase(path, { readOnly: true })
-  db.exec('PRAGMA query_only = ON; BEGIN')
-  const executor = createBunStoreExecutor({ database: db })
-  const bundle = bootstrapVisibility(executor, { now: () => NOW })
+  // The worker's own read session on the store's engine (POD-7118): one snapshot.
+  const session = await openWorkerReadSession(location)
+  const bundle = bootstrapVisibility(session.executor, { now: () => NOW })
   const out = new Map<string, Map<string, Record<string, unknown>>>()
   try {
     const { policy: rights, records } = await bundle.context
@@ -420,7 +409,7 @@ async function worldOf(user: UserId) {
       }
     }
   } finally {
-    await executor.close()
+    await session.close()
   }
   return out
 }
@@ -506,6 +495,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'pod-7085-fetch-'))
   path = join(dir, 'podium.db')
   store = await openTestStore(path)
+  location = await testStoreLocation(path)
   const { owner } = await plant(store)
   viewers = [
     { name: 'the owner', user: owner },
@@ -624,12 +614,10 @@ describe('every declared collection answers its rule (acceptance 1)', () => {
 
   it('leaves out a session whose saved agent state the builder drops, though the SQL selects it', async () => {
     const rule = resolveRule('session.asking')
-    const statement = ruleStatement(rule, 'ids', {}, NOW)
-    const selected = (
-      rawDb(store)
-        .prepare(statement.sql)
-        .all(...withWorkspace(statement.params)) as { c0: string }[]
-    ).map((row) => row.c0)
+    const statement = ruleStatement(rule, 'ids', {}, NOW, [], 0, ruleDialectOfStore(store))
+    const selected = (await runCollectionStatement<{ c0: string }>(store, statement)).map(
+      (row) => row.c0,
+    )
     expect(selected).toContain('s-broken')
     const lines = await fetchLines(viewers[0]!.user, [{ collection: 'session.asking' }])
     const asked = membersOf(lines, 'session.asking').map((c) => c.entityId)
