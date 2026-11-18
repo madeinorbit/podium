@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { type ComponentProps, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -111,12 +111,9 @@ function open(scale: number) {
     id: 'background-issue',
     memberSessionIds: sessions.slice(1).map((session) => session.sessionId),
   })
-  const input = new Map(sessions.map((session) => [session.sessionId as string, session]))
-  const load = vi.fn((entity: string, id: string) =>
-    entity === 'session' ? input.get(id) : undefined,
-  )
+  // Every row the device holds is in the pool (POD-7094): the members are in
+  // memory, and the click reads only the selected task's own member.
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load,
     schedule: () => () => {},
   })
   pools.push(pool)
@@ -149,7 +146,7 @@ function open(scale: number) {
       },
     },
   ])
-  return { pool, load }
+  return { pool }
 }
 
 function MenuClick() {
@@ -164,10 +161,10 @@ function MenuClick() {
   )
 }
 
-it('loads only the selected members in a batch and keeps task menu click work bounded at 1x and 4x', async () => {
+it('reads only the selected members and keeps task menu click work bounded at 1x and 4x', async () => {
   const work: Array<{ rows: number; derivations: number }> = []
   for (const scale of [1, 4]) {
-    const { pool, load } = open(scale)
+    const { pool } = open(scale)
     f.pool = pool
     f.derivations = 0
     const read = vi.spyOn(pool, 'row')
@@ -175,13 +172,7 @@ it('loads only the selected members in a batch and keeps task menu click work bo
     expect(read).not.toHaveBeenCalled()
     expect(f.derivations).toBe(0)
     fireEvent.click(screen.getByRole('button', { name: 'Task actions' }))
-    expect(screen.queryByTestId('pool-task-menu')).toBeNull()
-    expect(load).not.toHaveBeenCalled()
-    await act(async () => {
-      expect(pool.hydrate()).toBe(1)
-    })
     expect((await screen.findByTestId('pool-task-menu')).textContent).toBe('Pool task member')
-    expect(load.mock.calls).toEqual([['session', 'chosen-session']])
     expect(
       read.mock.calls
         .filter(([entity]) => entity === 'session')
@@ -208,10 +199,6 @@ it('withholds the task menu until pool attachment and drops its inputs on detach
   const { pool } = open(1)
   f.pool = pool
   view.rerender(<PoolIssueContextMenu {...props} />)
-  expect(screen.queryByTestId('pool-task-menu')).toBeNull()
-  await act(async () => {
-    pool.hydrate()
-  })
   expect((await screen.findByTestId('pool-task-menu')).textContent).toBe('Pool task member')
   f.pool = null
   view.rerender(<PoolIssueContextMenu {...props} />)

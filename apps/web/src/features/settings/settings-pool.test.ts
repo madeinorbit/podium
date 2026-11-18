@@ -220,7 +220,9 @@ describe('declared settings readers', () => {
     await Promise.resolve()
     const result = checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
-    expect(result.positions).toBeGreaterThan(3)
+    // The compared rows: the machine and the repository. Settings lists no
+    // sessions since POD-7088; the twins reach it only as the default agent.
+    expect(result.positions).toBeGreaterThanOrEqual(2)
     expect(f.load).not.toHaveBeenCalled()
     expect(settingsView(f.pool).sessionPresent('older')).toBe(false)
     expect(settingsView(f.pool).sessionPresent('newer')).toBe(true)

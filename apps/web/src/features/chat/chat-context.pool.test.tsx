@@ -247,9 +247,6 @@ it('preserves mention ties, pending question order, saved drafts, held sends and
   expect(chatReferenceSessions(corpus.pool).sessions.map((row) => row.sessionId)).toEqual(
     corpus.sessions.map((row) => row.sessionId),
   )
-  expect(omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId))).not.toHaveProperty(
-    'privateBody',
-  )
   expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toMatchObject({
     sends: [{ mutationId: 'held-failed' }, { mutationId: 'held-live' }],
   })

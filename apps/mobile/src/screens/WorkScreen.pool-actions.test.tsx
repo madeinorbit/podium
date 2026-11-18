@@ -759,26 +759,15 @@ describe('mobile pool work-list actions', () => {
         ).toEqual(before)
       })
 
-  it('loading and absent menu targets never open a menu or mutate, and loads batch', async () => {
-    let loads: ReturnType<typeof vi.spyOn>
-    await mount((f) => {
-      f.patchIssue('synthetic-5', { archived: true, stage: 'done', closedAt: iso(-172_800_000) })
-      f.patch('session', 'synthetic-session-5', { archived: true })
-      loads = vi.spyOn(f.replica, 'row')
-    }, 'synthetic-5')
-    loads!.mockClear()
+  it('a menu target the device does not hold never opens a menu or mutates', async () => {
+    // Every row the device holds is in the pool (POD-7094); an issue it does
+    // not hold, and that no loader can fetch here, settles as not visible.
+    await mount(undefined, 'synthetic-absent')
     fireEvent.click(screen.getByTestId('menu-probe'))
     fireEvent.click(screen.getByTestId('menu-probe'))
     expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()
     expect(requests).toEqual([])
-    await act(async () => {
-      pool().hydrate()
-    })
-    expect(
-      (loads!.mock.calls as Parameters<NonNullable<Fixture['replica']['row']>>[]).filter(
-        ([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5',
-      ),
-    ).toHaveLength(1)
+    expect(resolvePoolWorkMenu(pool(), 'synthetic-absent')).toBeNull()
     expect(resolvePoolWorkMenu(pool(), 'absent')).toBeNull()
     expect(requests).toEqual([])
     await settled()
