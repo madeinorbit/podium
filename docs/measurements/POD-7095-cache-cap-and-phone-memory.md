@@ -2,7 +2,7 @@
 
 **Measurement in progress; no update-safety conclusion yet.** The user-facing comparison must lead with cold and warm first paint for phone and web at today's history and ten-times history, followed by peak renderer memory. Those final interleaved captures are pending. Do not treat an incomplete series or a single sample as a release result.
 
-The scoped Podium relay stopped answering before the second corrected cache window on 2026-11-18. Inbox reads and the required measurement-host lock timed out; the next workload did not start. Completed SQLite and feed samples are retained below. Application startup, peak memory, first deck opening, operator search, the rest of the corrected cache sweep, and final validation remain open. This issue is not READY.
+The takeover recovered the stopped session’s stale host lease. The SQLite, feed and corrected cache series are complete and preserved. Application startup, peak memory, first deck opening, operator search and final validation remain open. This issue is not READY.
 
 ## Scope and provenance
 
@@ -75,26 +75,26 @@ The before fixture contains all wire rows; the after fixture is the static initi
 
 Round 21 has 18 samples. After source: `ae42bf74fa6c955a23956bae6abb75f2b96a7e1a`; before source: `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`. No native bridge or physical-device multiplier has been assumed. At x10 the measured synchronous block falls from 812.21 ms to 339.19 ms, still a visible app-thread stall if reproduced on-device.
 
-## Cache policy — corrected sweep incomplete
+## Cache policy
 
-Candidate starting caps remain phone **1,000**, browser **5,000**, desktop **10,000 full cached records**. Policy rows, compact issue stubs and open views are excluded; bodies and companions count, and eviction trims complete instances. Proposed incremental allowances for this fixture are 8 / 32 / 64 MiB. These are recommendations to evaluate, not agreed native-memory budgets or byte limits: arbitrarily large bodies can exceed them.
+Recommended starting caps are phone **1,000**, browser **5,000**, desktop **10,000 full cached records**, matching the server policy. Policy rows, compact issue stubs and open views are excluded; bodies and companions count, and eviction trims complete instances. Proposed incremental cache allowances are **8 / 32 / 64 MiB** for this fixture. These are recommendations, not agreed native-memory budgets or byte limits: arbitrarily large bodies can exceed them.
 
-The first 10 corrected cases below include the complete companion rows certified by every marker. They are **one sample per setting**, not accepted medians/spreads. The previous provisional three-sample sweep is superseded because it certified companion markers without all corresponding full rows. The remaining 20 scheduled cases are pending.
+The corrected sweep is complete: three interleaved samples per setting, all with the complete companion rows certified by every marker. The earlier provisional sweep is superseded because it certified markers without all corresponding full rows.
 
-| Client | Cache cap | Retained fixture heap MiB, one sample | Increment over zero cap | Trim ms |
+| Client | Cache cap | Retained fixture heap MiB | Increment over zero cap MiB | Trim ms |
 | --- | ---: | ---: | ---: | ---: |
-| phone | 0 | 42.50 | 0.00 | 155.80 |
-| phone | 500 | 43.95 | 1.45 | 160.10 |
-| phone | 1,000 | 45.32 | 2.83 | 178.90 |
-| phone | 2,000 | 48.13 | 5.63 | 208.10 |
-| browser | 0 | 60.48 | 0.00 | 227.80 |
-| browser | 2,500 | 69.29 | 8.81 | 271.00 |
-| browser | 5,000 | 76.16 | 15.68 | 341.10 |
-| desktop | 0 | 60.50 | 0.00 | 226.90 |
-| desktop | 5,000 | 76.16 | 15.65 | 313.00 |
-| desktop | 10,000 | 90.05 | 29.54 | 443.00 |
+| phone | 0 | 42.46 (42.43–42.50) | 0.00 (0.00–0.00) | 157.70 (155.80–174.90) |
+| phone | 500 | 43.95 (43.95–43.95) | 1.49 (1.45–1.52) | 160.10 (155.00–164.60) |
+| phone | 1,000 | 45.34 (45.32–45.34) | 2.88 (2.83–2.90) | 178.90 (168.70–184.90) |
+| phone | 2,000 | 48.08 (48.07–48.13) | 5.63 (5.62–5.64) | 208.10 (199.20–830.10) |
+| browser | 0 | 60.47 (60.46–60.48) | 0.00 (0.00–0.00) | 266.20 (227.80–271.90) |
+| browser | 2,500 | 69.30 (69.29–69.53) | 8.83 (8.81–9.07) | 271.00 (262.00–280.50) |
+| browser | 5,000 | 76.15 (76.15–76.16) | 15.68 (15.68–15.69) | 341.10 (306.90–341.60) |
+| desktop | 0 | 60.48 (60.48–60.50) | 0.00 (0.00–0.00) | 226.90 (213.90–237.90) |
+| desktop | 5,000 | 76.16 (76.16–76.16) | 15.67 (15.65–15.69) | 308.20 (292.30–313.00) |
+| desktop | 10,000 | 90.05 (90.03–90.16) | 29.55 (29.54–29.68) | 409.70 (375.50–443.00) |
 
-Round 28 source: `56ffd62844394cc2480d42292d1469db68a7656a`. The real memory store, trim, facade, row source and model pool remain reachable during two forced collections. The core includes ten-times-history stubs and policy rows; cache issues carry distinct 2 KiB briefs. These are data-layer retained V8 bytes, not whole-page, peak RSS or native totals. The final recommendations must use the completed spread and whole-page memory together.
+Round 28 measured sources: `53bed5e07bd1b67b148a0c80dbf8359e8ad9f21c`, `56ffd62844394cc2480d42292d1469db68a7656a`. The harness digest is identical in all 30 cases. The real memory store, trim, facade, row source and model pool remain reachable during two forced collections. The core includes ten-times-history stubs and policy rows; cache issues carry distinct 2 KiB briefs. These are data-layer retained V8 bytes, not whole-page, peak RSS or native totals. Incremental values subtract the zero-cap sample in the same sample round.
 
 ## First flight deck and search
 
