@@ -63,7 +63,7 @@
       "usage": "all saved partial observations excluded from final deck table"
     }
   ],
-  "validationPlan": "One lean gate on VM C (vega3), after cancelling the unadmitted vega2 queue entry; no focused or safety reruns.",
+  "validationPlan": "Completed once on VM C; the earlier vega2 queue entry was cancelled before admission. No focused or safety reruns.",
   "startupCohorts": {
     "21": {
       "web/h1a1/before": {
@@ -19635,5 +19635,17 @@
         }
       ]
     }
+  },
+  "validation": {
+    "check": "lean",
+    "sourceSha": "248cbc9cfe906107759a005185bd9909de0f5e1d",
+    "hostLabel": "VM C",
+    "exitCode": 0,
+    "status": "lean gate green",
+    "command": "remote-lane vega3 7095 run bun run test",
+    "hermeticFiles": 4,
+    "testsExecuted": 165,
+    "vega2Queue": "cancelled before admission; no validation executed",
+    "focusedOrSafetyRuns": false
   }
 }
