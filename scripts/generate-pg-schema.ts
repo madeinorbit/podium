@@ -285,9 +285,22 @@ function tableSource(
     const [table, index] = key.split('.') as [string, string]
     if (table !== name) continue
     uses.core.add('index')
-    uses.sql = true
+    let on: string
+    if ('columns' in only) {
+      // Plain columns, declared as columns: `.using(method, ...columns)`.
+      const refs = only.columns.map((sqlName) => {
+        const column = config.columns.find((candidate) => candidate.name === sqlName)
+        if (column === undefined) throw new Error(`${key}: no column ${sqlName} on ${table}`)
+        return columnRef(column)
+      })
+      on = refs.join(', ')
+    } else {
+      uses.sql = true
+      on = sqlTag(only.sql)
+    }
+    if (only.where !== undefined) uses.sql = true
     extras.push(
-      `index(${tsString(index)}).using('${only.using}', ${sqlTag(only.sql)})${only.where === undefined ? '' : `.where(${sqlTag(only.where)})`}`,
+      `index(${tsString(index)}).using('${only.using}', ${on})${only.where === undefined ? '' : `.where(${sqlTag(only.where)})`}`,
     )
   }
   for (const fk of config.foreignKeys) {

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bb594e80-01cd-4d74-8af7-5016ee7de553",
+  "id": "5a893e23-8875-438b-8ca3-8b769ec73b66",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -20206,8 +20206,29 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "\"workspace_id\", \"to_kind\", \"created_at\", \"id\"",
-          "isExpression": true,
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "to_kind",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
           "asc": true,
           "nullsFirst": false,
           "opclass": null

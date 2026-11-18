@@ -1948,7 +1948,7 @@ CREATE INDEX "idx_messages_recipient_delivery" ON "messages" ("workspace_id","to
 CREATE INDEX "idx_messages_delivery_order" ON "messages" ("workspace_id","delivery_status","created_at","id");--> statement-breakpoint
 CREATE INDEX "idx_messages_delivery_expiry_explicit" ON "messages" ("workspace_id","delivery_status","expires_at" NULLS FIRST,"id");--> statement-breakpoint
 CREATE INDEX "idx_messages_delivery_expiry_implicit" ON "messages" ("workspace_id","delivery_status","lifecycle","expires_at","created_at","id");--> statement-breakpoint
-CREATE INDEX "idx_messages_recipient_no_id" ON "messages" ("workspace_id", "to_kind", "created_at", "id") WHERE "to_id" IS NULL;--> statement-breakpoint
+CREATE INDEX "idx_messages_recipient_no_id" ON "messages" ("workspace_id","to_kind","created_at","id") WHERE "to_id" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_messaging_issue_topics_ref" ON "messaging_issue_topics" ("workspace_id","chat_id","thread_ref");--> statement-breakpoint
 CREATE INDEX "idx_messaging_session_attachments_session" ON "messaging_session_attachments" ("workspace_id","session_id");--> statement-breakpoint
 CREATE INDEX "idx_notification_facts_issue" ON "notification_facts" ("workspace_id","issue_id");--> statement-breakpoint

@@ -1598,7 +1598,7 @@ export const messages = pgTable(
       table.id,
     ),
     index('idx_messages_recipient_no_id')
-      .using('btree', sql`"workspace_id", "to_kind", "created_at", "id"`)
+      .using('btree', table.workspaceId, table.toKind, table.createdAt, table.id)
       .where(sql`"to_id" IS NULL`),
     check('messages_check_5', sql`from_kind IN ('operator','superagent','agent','system')`),
     check('messages_check_6', sql`to_kind IN ('issue','session','operator')`),

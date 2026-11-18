@@ -328,9 +328,10 @@ function compareTable(
     }
     parity.used.add(`pg-only index ${table}.${name}`)
     const columns = config.columns.map((column) => part(column, pgSql)).join(',')
-    if (config.method !== only.using || columns !== `(${fold(only.sql)})`)
+    const declared = 'columns' in only ? only.columns.join(',') : `(${fold(only.sql)})`
+    if (config.method !== only.using || columns !== declared)
       find(
-        `index ${name}: using ${config.method} on ${columns}, the override says ${only.using} on (${only.sql})`,
+        `index ${name}: using ${config.method} on ${columns}, the override says ${only.using} on ${declared}`,
       )
     const where = config.where === undefined ? undefined : pgSql(config.where)
     if (where !== (only.where === undefined ? undefined : fold(only.where)))

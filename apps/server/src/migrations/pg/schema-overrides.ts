@@ -262,15 +262,27 @@ export const conversationSearchVector = (column: (name: string) => string): stri
       .join(` || ' ' || `),
   )
 
-/** An index only the Postgres twin has: its method, the expression it is over, and why. */
-export interface PgOnlyIndex {
+/**
+ * An index only the Postgres twin has: its method, what it is over, and why. An index over
+ * plain columns names them in `columns`, so the twin declares them as columns and every
+ * rule that reads an index's columns (the workspace-key rule among them) reads this one as
+ * it reads any other; `sql` is for an index over an expression.
+ */
+export type PgOnlyIndex = {
   readonly using: 'gin' | 'btree'
-  /** The indexed expression or columns, written as Postgres reads them, names quoted. */
-  readonly sql: string
   /** A partial index's condition, written as Postgres reads it. */
   readonly where?: string
   readonly reason: string
-}
+} & (
+  | {
+      /** The indexed columns by SQL name, in key order. */
+      readonly columns: readonly string[]
+    }
+  | {
+      /** The indexed expression, written as Postgres reads it, names quoted. */
+      readonly sql: string
+    }
+)
 
 /** Indexes only the Postgres twin has, keyed `table.index_name`. */
 export const PG_ONLY_INDEXES: Readonly<Record<string, PgOnlyIndex>> = {
@@ -286,7 +298,7 @@ export const PG_ONLY_INDEXES: Readonly<Record<string, PgOnlyIndex>> = {
   },
   'messages.idx_messages_recipient_no_id': {
     using: 'btree',
-    sql: '"workspace_id", "to_kind", "created_at", "id"',
+    columns: ['workspace_id', 'to_kind', 'created_at', 'id'],
     where: '"to_id" IS NULL',
     reason:
       "The messages to a recipient with no id (the operator's), oldest first " +
