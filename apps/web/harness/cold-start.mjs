@@ -660,9 +660,29 @@ async function firstDeck(fixture, tree) {
     await page.locator(`aside [data-issue-row="${tree.root}"]`).first().click()
     await frames(page)
     const open = page.getByRole('button', { name: 'Open flight deck', exact: true })
+    // Selecting a root can mount its collapsed deck after the click's first
+    // frame. Wait for its control (or the already expanded target header)
+    // before deciding whether to expand it.
+    await page.waitForFunction(
+      (title) => {
+        const visible = (element) => {
+          if (!element || element.closest('[aria-hidden="true"]')) return false
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+        return (
+          [...document.querySelectorAll('button[aria-label="Open flight deck"]')].some(visible) ||
+          [...document.querySelectorAll('.deck-header')].some(
+            (header) => header.textContent?.includes(title) && visible(header),
+          )
+        )
+      },
+      tree.title,
+      { timeout: 60000 },
+    )
     if (await open.isVisible()) await open.click()
   }
-  await page.waitForFunction(() => window.__deckReady, undefined, { timeout: 120000 })
+  await page.waitForFunction(() => window.__deckReady, undefined, { timeout: 60000 })
   await frames(page)
   const events = await stop(),
     after = await metrics(cdp),
