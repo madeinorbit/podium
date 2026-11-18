@@ -1134,6 +1134,7 @@
         "src/store/checkouts.ts",
         "src/store/claude-sdk-state-publication.test.ts",
         "src/store/collections.ts",
+        "src/store/collections.workspace.test.ts",
         "src/store/commit-open.ts",
         "src/store/committed-rows.ts",
         "src/store/conversations-recent-page.test.ts",

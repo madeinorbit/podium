@@ -68,6 +68,7 @@ import {
   PG_ONLY_INDEXES,
   PG_ONLY_TABLES,
   PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
+  PG_UNMAINTAINED_COLUMNS,
   type PgOnlyIndex,
   type PgOverride,
 } from './schema-overrides'
@@ -513,6 +514,20 @@ describe('the class lists and the overrides', () => {
     const classified = classifiedTextColumns()
     expect([...textColumns].filter((column) => !classified.has(column)).sort()).toEqual([])
     expect([...classified.keys()].filter((column) => !textColumns.has(column)).sort()).toEqual([])
+  })
+
+  it('name an unmaintained column only where the twin has it, with the reason', () => {
+    const twin = new Map(
+      [...SERVER_PG.values()].map((table) => [getPgTableConfig(table).name, table] as const),
+    )
+    for (const [key, reason] of Object.entries(PG_UNMAINTAINED_COLUMNS)) {
+      const [table, column] = key.split('.') as [string, string]
+      const found = twin.get(table)
+      expect(found, key).toBeDefined()
+      const columns = Object.values(getTableColumns(found!)).map((each) => (each as Column).name)
+      expect(columns, key).toContain(column)
+      expect(reason.trim().length, key).toBeGreaterThan(40)
+    }
   })
 
   it('are each used, by a difference that is still there', () => {
