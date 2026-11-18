@@ -7,6 +7,7 @@ import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { chromium, devices } from '@playwright/test'
 import { paintOf } from './browser-paint.ts'
+import { startHeapTimeline, writeHeapTimeline } from './heap-timeline.mjs'
 // POD-7094: only a client that names its type is served by policy. The base
 // arm's model predates the collections, so the module loads only where it can.
 const policyRows = await import('./policy-rows.ts').then(m => m.policyRows, () => undefined)
@@ -120,7 +121,7 @@ for(const stream of [server.stdout,server.stderr])stream.on('data',data=>{
     appendFileSync(resolve(out,'server.log'),retained);serverLogBytes+=retained.length
   } catch(error) { evidenceWriteFailure=error }
 })
-let browser, fixture
+let browser, fixture, timeline
 const cpuTicks = () => readFileSync('/proc/stat','utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number)
 const pause = ms => new Promise(done => setTimeout(done, ms))
 const rpc = async (path, input) => {
@@ -406,10 +407,11 @@ function processMemory(pid) {
     return {pid,type,rssKiB:kib('VmRSS'),hwmKiB:kib('VmHWM'),pssKiB:Number(rollup.match(/^Pss:\s+(\d+) kB/m)?.[1]??0)}
   } catch { return null }
 }
-async function memoryAfterColdStart(fixture) {
+async function memoryAfterColdStart(fixture,timeline) {
   await pause(2000)
   const before=await metrics(fixture.cdp)
   const usageBefore=await fixture.cdp.send('Runtime.getHeapUsage')
+  await timeline?.mark('gc')
   await fixture.cdp.send('HeapProfiler.collectGarbage');await pause(150);await fixture.cdp.send('HeapProfiler.collectGarbage')
   const usageAfter=await fixture.cdp.send('Runtime.getHeapUsage'), after=await metrics(fixture.cdp)
   // Playwright starts Chromium as a child of this collector; the harness
@@ -557,10 +559,24 @@ try {
       if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))
     }
   }
-  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page,mode==='memory'?{firstRow:true}:{})}
+  else {
+    // POD-7115: a heap and RSS timeline with one allocation profile per phase.
+    if(mode==='memory' && process.argv.includes('--heap-timeline'))timeline=await startHeapTimeline({cdp:f.cdp,page:f.page,context:f.context,
+      rendererMemory:()=>processTree(process.pid).map(processMemory).filter(x=>x?.type==='renderer')})
+    await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page,mode==='memory'?{firstRow:true}:{})
+  }
   if(!startupOnly)await inspect(f.page,'startup')
+  await timeline?.mark('population')
   await population(f.page)
-  if(mode==='memory')result.memory=await memoryAfterColdStart(f)
+  await timeline?.mark('settle')
+  if(mode==='memory')result.memory=await memoryAfterColdStart(f,timeline)
+  if(timeline){
+    const data=await timeline.stop()
+    try{result.heapTimeline=writeHeapTimeline(out,data,surface==='phone'?['apps/mobile/dist','apps/web/dist']:['apps/web/dist'])}
+    catch(error){result.heapTimelineError=String(error?.stack??error);writeFileSync(resolve(out,'heap-timeline-raw.json'),JSON.stringify(data))}
+    save()
+    console.log('heap timeline: '+JSON.stringify(result.heapTimeline))
+  }
   result.status='complete'
 } catch(error) {
   result.status='failed';result.failure=String(error);console.error(error)

@@ -101,6 +101,15 @@ at a time (here 4 to 13 minutes) and released in between for other lanes:
   the reload, no unexpected browser errors, one cohort, host, lock, corpus, Chromium and
   collector. A rejected pair is listed with its reason and values.
 
+- `memory --heap-timeline` (POD-7115) also records, from navigation to the forced
+  collection, the page's V8 heap and every renderer's RSS every 250 ms, and a V8 sampling
+  heap profile per phase (start, IndexedDB count, settle, collection) that keeps objects
+  later collected, so garbage counts too. `heap-timeline.md` beside `run.json` gives the
+  peaks, the sync requests with their times, and the allocating code by frame, resolved
+  through the build's hidden source maps. `--cells` and `--surfaces` limit the step to
+  named cells and surfaces. The heap "before GC" in the table is one sample 2 s after the
+  corpus is durable, not a peak; the timeline's peak is.
+
 These memory figures are the production clients' whole page, not an isolated pool. The
 pool fixture of `pool-memory.ts` (POD-5133) compares a legacy arm that no longer exists.
 `PODIUM_STARTUP_MEMORY=1` reports the Bun process of the no-wrong-number test, not a

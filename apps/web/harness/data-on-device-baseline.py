@@ -138,8 +138,8 @@ def memory_round(args):
 
 def memory(args):
     host = measure_hosts.HOSTS[args.host]
-    for cell in CELLS:
-        for surface in SURFACES:
+    for cell in (args.cells.split(',') if args.cells else CELLS):
+        for surface in (args.surfaces.split(',') if args.surfaces else SURFACES):
             for path in checkouts(args):
                 relative = f'.artifacts/old-vs-new/memory-{cell}-{surface}-{cell}-r{memory_round(args)}'
                 if (path / relative / 'run.json').exists():
@@ -150,7 +150,7 @@ def memory(args):
                 argv = ['bun', '--conditions=@podium/source', 'apps/web/harness/cold-start.mjs', '--external-lease',
                         '--mode=memory', f'--arm={cell}', f'--surface={surface}', f'--cell={cell}',
                         f'--round={memory_round(args)}', '--samples=1', '--port=19671', f'--out={relative}',
-                        f'--host={host[0]}', f'--lease={host[1]}']
+                        f'--host={host[0]}', f'--lease={host[1]}', *(['--heap-timeline'] if args.heap_timeline else [])]
                 sh(shlex.join(['python3', 'apps/web/harness/flatblock-budget.py', '--census',
                                f'--min-available-gib={args.min_available_gib}',
                                f'--log={relative}/collector.log', '--', *argv]), path)
@@ -322,6 +322,10 @@ def main():
     parser.add_argument('--samples', type=int, default=3, help='cold/warm pairs per cell and surface')
     parser.add_argument('--surface', default='', choices=['', *SURFACES], help='timing: one surface only')
     parser.add_argument('--min-available-gib', type=float, default=5)
+    parser.add_argument('--cells', default='', help='memory: comma-separated cells (default: every cell)')
+    parser.add_argument('--surfaces', default='', help='memory: comma-separated surfaces (default: both)')
+    parser.add_argument('--heap-timeline', action='store_true',
+                        help='memory: heap and RSS timeline plus one allocation profile per phase (POD-7115)')
     args = parser.parse_args()
     steps = {'prepare': prepare, 'memory': memory, 'timing': timing, 'report': report, 'clean': clean}
     for step in (['prepare', 'memory', 'timing', 'report'] if args.step == 'all' else [args.step]):
