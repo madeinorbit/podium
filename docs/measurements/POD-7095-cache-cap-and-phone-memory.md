@@ -79,6 +79,8 @@ Rejected timing pairs stay in the evidence and out of the medians:
 
 ## Scope and provenance
 
+POD-7122 found a malformed synthetic-only collection envelope in the earlier startup fixture. Its phone x1 check found cold paint unchanged after repair (17.44 versus 17.48 s), but the old collection request counts and summed route times were inflated by retries and are not production evidence. Future web and replacement captures use the repaired envelope from `50f205b54f`; the original raw captures stay retained. The completed SQLite, feed and full-companion cache series do not use that response envelope and are unaffected.
+
 Phone captures use the original measurement VM (VM A). The web series is moving to a second authorized VM (VM B), with both fixed arms interleaved there. Its partial VM A cohort is retained but will not be pooled into VM B medians; the host move was directed for availability, not selected by latency. Operational SSH aliases and locks stay in private run configuration and artifacts.
 
 All builds and measurement workloads ran on an authorized, dedicated Linux agent VM under its shared host lock. None ran on the shared development host. Before is `17d01cd9c530eb22d902b352837cbfc9eb5a15a3` from `dev/mw`. After product is `726a06ad16f676c58fab051e477b0f1e18a92c7d`, the completed integration, now also landed on `dev/mw` by the operator. Later commits used by this issue change measurement harnesses and reports; the only server edit is a policy comment. No wire version or suggested optimization was changed.
