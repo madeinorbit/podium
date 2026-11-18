@@ -4,7 +4,7 @@ import type { ActiveWorktree } from '@podium/client-core/values'
 import type { RepoId } from '@podium/model/browser'
 import { asSessionId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { SESSION_PANE_NOW, sessionPaneFixture } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -12,6 +12,7 @@ import { headerEntities } from './header-entities'
 import type { HeaderRows } from './header-schema'
 import { omitGone, requireHere } from './lookup'
 import { MobxPool } from './pool'
+import { historyLoader } from '../../../tests/worklist/shared/src/history-loader'
 import { paneSession } from './session-pane'
 import { sessionPaneView } from './session-pane-view'
 import { ShellDockSession, shellViews } from './shell-views'
@@ -354,9 +355,11 @@ it('omits gone pane sessions and attachments while preserving a pending stamp an
     { ...base, sessionId: asSessionId('gone-attachment'), issueId: 'removed-issue', cwd: '/elsewhere' },
   ]
   const exits = new Set(['removed-session', 'removed-issue'])
-  const load = vi.fn((_entity: string, _id: string) => undefined)
+  // POD-7112: the private rows are history the device does not hold; they
+  // sit behind the one loader, which answers without them (not visible).
+  const loader = historyLoader([])
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
-    load, schedule: () => () => {}, exitKind: (_entity, id) => exits.has(id) ? 'removed' : undefined,
+    loader: () => loader.port, schedule: () => () => {}, exitKind: (_entity, id) => exits.has(id) ? 'removed' : undefined,
   })
   pool.apply({ type: 'replace', rows: sessions.map(value => ({ kind: 'session', id: value.sessionId, value })) as never })
   const panes = sessionPaneView(pool)
@@ -373,15 +376,13 @@ it('omits gone pane sessions and attachments while preserving a pending stamp an
     const dock = new ShellDockSession(pool.sessionObject('private-session'), pool)
     expect(dock.known).toBe(LOADING)
     expect(new ShellDockSession(removed.session, pool).known).toBeUndefined()
-    expect(load).not.toHaveBeenCalled()
-    // hydrate counts installed rows; both requested rows are inaccessible.
-    expect(pool.hydrate()).toBe(0)
+    // The server answers without either private row: both settle as gone.
+    expect(loader.answer(pool)).toBe(0)
     expect(pane.stampIssue).toBeUndefined()
     expect(panes.loaded('private-session')).toBeUndefined()
     expect(dock.known).toBeUndefined()
-    expect(pool.hydrate()).toBe(0)
-    expect(load).toHaveBeenCalledTimes(2)
-    expect(load.mock.calls.flat()).not.toContain('removed-session')
-    expect(load.mock.calls.flat()).not.toContain('removed-issue')
+    // One ask per private row; the removed rows are never asked for.
+    expect(new Set(loader.asked.map(([entity, id]) => `${entity}:${id}`)))
+      .toEqual(new Set(['issue:private-issue', 'session:private-session']))
   } finally { pool.dispose() }
 })
