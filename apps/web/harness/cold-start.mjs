@@ -7,6 +7,9 @@ import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { chromium, devices } from '@playwright/test'
 import { paintOf } from './browser-paint.ts'
+// POD-7094: only a client that names its type is served by policy. The base
+// arm's model predates the collections, so the module loads only where it can.
+const policyRows = await import('./policy-rows.ts').then(m => m.policyRows, () => undefined)
 import * as model from '@podium/model'
 import { FeedChange, ServerMessage } from '@podium/protocol'
 import { readSyncStream } from '@podium/client-core/sync-stream'
@@ -149,17 +152,40 @@ const outputEpochs = new Map()
 let outputSeq = 0
 const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
-let extraChanges, observedReplay
+let extraRows, observedReplay
+const extrasByPolicy=new Map()
+let wholeCache
+// Every corpus row whole, in chunks of 64 (the base client's bootstrap).
+function wholeChanges() {
+  if(!wholeCache){wholeCache=[];for(let offset=0;offset<extraRows.length;offset+=64)wholeCache.push(JSON.stringify(extraRows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert'}))))}
+  return wholeCache
+}
 function prepareExtras() {
-  const rows=synthetic.map(row=>{
+  extraRows=synthetic.map(row=>{
     const value={...row.value}
     if(['issueUserState','sessionUserState'].includes(row.entity))value.userId=memberId
     return {...row,value,entityId:row.entity==='issueUserState'?model.issueUserStateRowId(memberId,value.entityId):row.entity==='sessionUserState'?model.sessionUserStateRowId(memberId,value.sessionId):row.entityId}
   })
-  extraChanges=[]
-  for(let offset=0;offset<rows.length;offset+=64)extraChanges.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert'}))))
 }
-function bootstrapBody(records) {
+// POD-7094: the synthetic corpus as the server's first download serves it,
+// for the policy the canonical answer carries: the policy's collections and
+// what they come with whole, every other issue as a stub (`policy-rows.ts`).
+function extrasFor(policy) {
+  const key=JSON.stringify(policy)
+  let extras=extrasByPolicy.get(key)
+  if(!extras) {
+    if(!policyRows)throw Error('This checkout has no collection declarations, yet its client asked by policy')
+    const split=policyRows(extraRows,policy,corpus.fixedNow)
+    const chunk=(rows,stub)=>{const out=[];for(let offset=0;offset<rows.length;offset+=64)out.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert',...(stub?{part:'stub'}:{})}))));return out}
+    extras={whole:chunk(split.whole,false),stubs:chunk(split.stubs,true),count:split.whole.length+split.stubs.length,counts:split.counts}
+    extrasByPolicy.set(key,extras)
+    result.policyRows={clientType:policy.clientType,recentDays:policy.recentDays,...split.counts,whole:split.whole.length};save()
+  }
+  return extras
+}
+// `byPolicy`: the client named its type (`Podium-Client-Type`, POD-7085), so
+// its first download goes by the server's policy. The base client never sends it.
+function bootstrapBody(records, byPolicy) {
     const first=records[0], complete=records.at(-1)
     if(first.type!=='syncMeta' || first.mode!=='snapshot')return null
     const chunks=records.filter(x=>x.type==='feedBootstrap')
@@ -170,25 +196,55 @@ function bootstrapBody(records) {
     const comparisonSession=id=>controls?.some(control=>control.session.sessionId===id || control.secondSession?.sessionId===id)
     for(const change of changes) if(change.entity==='session' && comparisonSession(change.entityId)) change.value.transcriptAvailable=true
     if(first.seq<64 || !chunks.length)throw Error('Canonical bootstrap cannot admit prevalidated fixture chunks')
-    const count=changes.length+synthetic.length
-    const original=chunks.map(x=>{const chunk={...x,last:false,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)})
-    const extra=extraChanges.map((rows,index)=>{
-      const template={...chunks[0],last:index===extraChanges.length-1,totalRows:count,changes:null};delete template.countsByEntity
-      return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+    if(!byPolicy) {
+      // The client before POD-7085 (the base arm): every corpus row whole, as
+      // POD-7099 served it. Unchanged.
+      const count=changes.length+synthetic.length
+      const original=chunks.map(x=>{const chunk={...x,last:false,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)})
+      const whole=wholeChanges()
+      const extra=whole.map((rows,index)=>{
+        const template={...chunks[0],last:index===whole.length-1,totalRows:count,changes:null};delete template.countsByEntity
+        return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+      })
+      if(!extra.length)original[original.length-1]=JSON.stringify({...chunks.at(-1),last:true,totalRows:count})
+      const all=[...original,...extra]
+      const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
+      return {body,first,chunks,count,changes}
+    }
+    if(!first.policy)throw Error('A client that names its type got a bootstrap with no policy')
+    const extras=extrasFor(first.policy)
+    const count=changes.length+extras.count
+    // Every canonical line stays, in its order: whole records, stubs and the
+    // collections' markers. The corpus goes in before the first marker.
+    const original=records.slice(1,-1).map(x=>{
+      if(x.type!=='feedBootstrap')return JSON.stringify(x)
+      // Each canonical chunk keeps its own `last`: the snapshot ends on it.
+      const chunk={...x,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)
     })
-    if(!extra.length)original[original.length-1]=JSON.stringify({...chunks.at(-1),last:true,totalRows:count})
-    const all=[...original,...extra]
+    const range={feedId:chunks[0].feedId,epoch:chunks[0].epoch,fromSeq:chunks[0].fromSeq,seq:chunks[0].seq,minAvailableSeq:chunks[0].minAvailableSeq}
+    const extra=[
+      ...extras.whole.map(rows=>{
+        const template={...chunks[0],last:false,totalRows:count,changes:null};delete template.countsByEntity
+        return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+      }),
+      ...extras.stubs.map(rows=>JSON.stringify({type:'feedStubs',...range,changes:null}).replace('"changes":null','"changes":'+rows)),
+    ]
+    const marker=records.slice(1,-1).findIndex(x=>x.type==='collectionComplete')
+    const at=marker<0?original.length:marker
+    const all=[...original.slice(0,at),...extra,...original.slice(at)]
     const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
     return {body,first,chunks,count,changes}
 }
 async function bindContext(context) {
   await context.route('**/sync/bootstrap*',async route=>{
     const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
-    const prepared=bootstrapBody(records)
+    const byPolicy=Boolean((await route.request().allHeaders())['podium-client-type'])
+    const prepared=bootstrapBody(records,byPolicy)
     if(!prepared){await route.fulfill({response});return}
+    result.bootstrapRoutes=[...(result.bootstrapRoutes??[]),{byPolicy,at:new Date().toISOString()}]
     const {body,first,chunks,count,changes}=prepared
     meta={...chunks[0]}; seq=meta.seq
-    result.bootstraps.push({totalRows:count,rows:synthetic.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
+    result.bootstraps.push({totalRows:count,rows:synthetic.length,sentRows:count-changes.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
     seeded=true
     const headers={...response.headers(),'content-type':'application/x-ndjson'}
     for(const key of ['content-length','content-encoding','transfer-encoding']) delete headers[key]
@@ -320,7 +376,10 @@ async function population(page) {
     return counts
   })
   result.population=counts;save()
-  if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length))throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
+  // POD-7094: every issue is on the device (whole or as a stub); the sessions
+  // are those the policy holds.
+  const heldSessions=result.policyRows?.sessions??corpus.sessions.length
+  if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<heldSessions))throw Error('The corpus the policy holds did not reach durable client storage: '+JSON.stringify(counts))
 }
 // POD-7099: client memory after one cold start, once the complete corpus is in
 // durable storage. V8 heap of the page (before and after a forced GC) and the
@@ -437,7 +496,8 @@ try {
     if(attempt===119)throw Error('Comparison sessions did not become live in canonical sync')
     await pause(250)
   }
-  const preflight=bootstrapBody(canonical)
+  // Validation only: the stream shape the arm's own server answers with.
+  const preflight=bootstrapBody(canonical,canonical[0]?.policy!==undefined)
   if(!preflight)throw Error('No canonical preflight snapshot')
   result.preflightSessions=preflight.changes.filter(row=>row.entity==='session').map(row=>({entityId:row.entityId,sessionId:row.value.sessionId,title:row.value.title,name:row.value.name,transcriptAvailable:row.value.transcriptAvailable,driverFamily:row.value.driverFamily,status:row.value.status}))
   async function* preflightLines(){yield* preflight.body.trim().split('\n')}

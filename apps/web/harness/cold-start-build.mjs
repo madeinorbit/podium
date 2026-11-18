@@ -75,7 +75,7 @@ const plugin = {
     if (id.endsWith('/client-core/src/session-values.ts')) {
       code=helper+quickMemo+code.replace(/  let memo = views\n  for \(const key of (\[[\s\S]+?\])\) \{[\s\S]+?\n  \}\n  if \(memo.value/, '  const memo=coldStartJoinMemo(views,$1)\n  if (memo.value')
     }
-    if (id.endsWith('/client-graph/src/shared/cold-index.ts')) {
+    if (id.endsWith('/client-graph/src/shared/device-index.ts')) {
       code = helper+code.replace('    apply(event) {', `    apply(event) {
       const coldStartBegan = performance.now()`)
       code = code.replace('      readers.apply(event)', `      const coldStartReaderBegan = performance.now()
@@ -83,7 +83,7 @@ const plugin = {
         ? {...event, rows:event.rows.filter(row=>row.kind !== 'issue')} : event)
       coldStartMeasure('reader-index:'+event.type, coldStartReaderBegan, event.rows.length)`)
       code = code.replace("      for (const [entity, id] of delta.flips) if (entity === 'session') activity.visibilityChanged(id)", `      for (const [entity, id] of delta.flips) if (entity === 'session') activity.visibilityChanged(id)
-      coldStartMeasure('cold-index:'+event.type, coldStartBegan, event.rows.length)`)
+      coldStartMeasure('device-index:'+event.type, coldStartBegan, event.rows.length)`)
     }
     if (id.endsWith('/client-graph/src/host/screens.ts')) {
       code = helper+code.replace('    if (!screen.attach) continue', `    if (!screen.attach) continue
