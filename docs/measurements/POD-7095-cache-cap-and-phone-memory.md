@@ -208,16 +208,22 @@ Round 28 measured sources: `53bed5e07bd1b67b148a0c80dbf8359e8ad9f21c`, `56ffd628
 
 Both fixture trees start unopened. Search/sidebar preparation is outside input-to-Paint. The collector observes an unobscured child belonging to the target tree, rejects any pre-input tree request and requires a tree request in the policy arm; it saves request specifications, resources and a screenshot. Phone measures the Mission details deck; web/desktop measure the expanded flight deck. These are flat, session-free trees, 12/970 total with 9/922 long-closed members. The 12 tree runs first; the 970 tree is unopened but shared module code may already be warm.
 
+The corrected deck comparison uses product `f4691f9849c246d39dcbe4c1644b647ae29f658d` against `17d01cd9c5`, collector checkout `d5f29ded46908d44b8983db44d0467983c7ebd4b`, on the same VM as the final startup series. It includes POD-7155 and POD-7165, plus the intervening sidebar and server changes; it does not replace the fixed-tip startup/memory table. Phone has three admitted captures per arm; web has two per arm. The third web after capture was externally terminated (controller exit 143) during finalization and is excluded; the final control was never started. The four completed web captures are retained without repetition.
+
+At the coordinator’s 2026-11-18 21:02 UTC stop instruction, POD-7157 superseded the device store. The desktop deck cohort was stopped; its saved partial observations are retained outside the result table. Its unrun cells are marked below. No further series or replacement captures were taken. POD-7163 and POD-7164 reuse the retained harness.
+
+The main-thread column is a CDP TaskDuration measurement window spanning setup through the post-Paint frame/trace collection. It can extend beyond input-to-Paint, and can therefore exceed the Paint value. It is not the longest task and must not be added to Paint or fetch time. Startup fields in deck captures are staging diagnostics, not extra primary startup samples.
+
 | Surface | Tree size | First deck Paint ms, before → after | Main-thread window ms, before → after | Admitted captures, before / after |
 | --- | ---: | --- | --- | --- |
-| Phone web proxy | 12 | Pending | Pending | Pending |
-| Phone web proxy | 970 | Pending | Pending | Pending |
-| Web | 12 | Pending | Pending | Pending |
-| Web | 970 | Pending | Pending | Pending |
-| Desktop renderer proxy | 12 | Pending | Pending | Pending |
-| Desktop renderer proxy | 970 | Pending | Pending | Pending |
+| Phone web proxy | 12 | 774.28 (749.54–778.86) → 832.77 (826.89–890.84) | 619.37 (593.19–629.44) → 896.61 (838.89–954.27) | 3 / 3 |
+| Phone web proxy | 970 | 3366.66 (3267.24–3440.94) → 5311.06 (5265.55–5479.60) | 4576.65 (3859.97–4895.03) → 7630.82 (7390.17–9768.43) | 3 / 3 |
+| Web | 12 | 1276.15 (1235.52–1316.79) → 1352.94 (1346.51–1359.38) | 1050.75 (1000.29–1101.22) → 1240.19 (1176.84–1303.53) | 2 / 2 |
+| Web | 970 | 6011.08 (6005.90–6016.27) → 10278.47 (10206.10–10350.83) | 4874.79 (4871.25–4878.33) → 10092.00 (9910.37–10273.63) | 2 / 2 |
+| Desktop renderer proxy | 12 | not run: superseded by POD-7157 | not run: superseded by POD-7157 | — |
+| Desktop renderer proxy | 970 | not run: superseded by POD-7157 | not run: superseded by POD-7157 | — |
 
-The corrected-tip series is pending POD-7165 and the coordinator’s source pin. At the original startup tip `af8b3091e0`, phone 12 opened in 1,158 ms and the 970 tree never reached its visible target before the 60 s wait expired; it is censored at **more than 60 s**. Its 2,629-row tree reply took 246 ms, followed by repeated tree/record requests. POD-7155 owns the visible-holding/refetch fix. A separate web observation at the same original tip opened 12 in 1,832 ms and 970 in **92,068 ms**, with a 91,947 ms main-thread window; POD-7165 owns the remaining install/notify cost. These are single observations, not medians. The base phone observations were 927 / 3,982 ms for 12/970. The web r41 control missed a late-mounted expand control and is excluded as a collector failure; r44 was externally interrupted before deck Paint and supplies no product timing. Raw attempts and screenshots remain issue artifacts.
+At the original startup tip `af8b3091e0`, phone 12 opened in 1,158 ms and the 970 tree never reached its visible target before the 60 s wait expired; it is censored at **more than 60 s**. Its 2,629-row tree reply took 246 ms, followed by repeated tree/record requests. POD-7155 owns the visible-holding/refetch fix. A separate web observation at the same original tip opened 12 in 1,832 ms and 970 in **92,068 ms**, with a 91,947 ms main-thread window; POD-7165 owns the remaining install/notify cost. These are single observations, not medians. The base phone observations were 927 / 3,982 ms for 12/970. The web r41 control missed a late-mounted expand control and is excluded as a collector failure; r44 was externally interrupted before deck Paint and supplies no product timing. Raw attempts and screenshots remain issue artifacts.
 
 The two-axis server search service is byte-identical between the before and after products. The coordinator approved reuse of [POD-7089's search evidence](issue-search-7089.md), source `33f4ab4f16`, which contains 11 warm samples per query. This is shared unchanged-service evidence, not newly interleaved before/after application traffic. Its reported spread is p95 (largest of 11), as recorded in that report.
 
@@ -247,19 +253,19 @@ Source product is `17d01cd9c5` versus `af8b3091e0`; harness checkout matches the
 
 ## Decisions requested by the design
 
-No optimization in this table is built by this issue. There is no agreed native-phone total-memory budget. The recommended 8 MiB incremental phone-cache allowance is justified by the retained-cache sweep, not a claim about physical-device limits.
+No optimization in this table is built by this issue. These recommendations describe the measured store; POD-7157 now supersedes it, so retain them as baseline input to the replacement rather than new work on the old store. There is no agreed native-phone total-memory budget. The recommended 8 MiB incremental phone-cache allowance is justified by the retained-cache sweep, not a claim about physical-device limits.
 
 | Item | Answer | Measurement behind the recommendation |
 | --- | --- | --- |
 | Disk-only cache | No, retain the current design | Phone cap 1,000 adds 2.88 MiB (2.83–2.90) of retained fixture heap, below the proposed 8 MiB increment. Final phone heap at 1x→10x is 127.1 (127.1–127.2) → 133.3 (133.3–133.3) MiB (1.05x), rather than tracking full history. Revisit with an on-device budget or oversized bodies. |
 | Sync engine in a worker | Yes, investigate | Fixed phone apply remains 22.80 / 32.60 ms at 1x/10x; main-thread windows 31.21 / 42.89 ms. SQLite startup still blocks 113.57 / 339.19 ms. A worker will not move screen models or indexes and must be measured on-device. |
-| Preload trees | No | 8.40 (8.25–8.52) → 4.90 (4.83–5.16) s phone startup. The original large web deck spent 91,947 of 92,068 ms in the main-thread window after a small tree reply. Preloading would move that install work into startup; repair and measure install cost first (POD-7155 / POD-7165). The corrected deck table will qualify this conclusion; the fixtures are flat and session-free. |
+| Preload trees | No | Corrected 970-issue deck Paint is 3.37 (3.27–3.44) → 5.31 (5.27–5.48) s on phone and 6.01 (6.01–6.02) → 10.28 (10.21–10.35) s on web. Both remain slower than the full-load control, while the original af8b3091e0 web observation took 92.07 s. The corrected main-thread windows still show substantial client work; preloading would move that work and its rows into startup. Keep trees on request; POD-7168 measures its own further improvement. The fixture trees are flat and session-free. |
 | Remaining startup index work | Yes, profile the bounded startup work | Final 1x cold CPU is 5.53 (5.44–5.67) → 4.28 (4.15–4.90) s on phone and 5.68 (5.49–5.72) → 6.21 (5.92–6.37) s on web. The original all-history indexes are gone; these totals do not prove another index is the cause. |
 | Re-run per-record memory work (POD-5157 / POD-5539 / POD-5952) | Yes, re-measure the new bounded working set | Final phone heap is 542.2 (542.2–542.3) → 133.3 (133.3–133.3) MiB at 10x; the 1,000-record cache adds only 2.88 MiB in isolation. Re-profile remaining retained objects before choosing another ownership or representation change. |
 
 ## Rerun and validation
 
-Follow [startup-baseline.md](startup-baseline.md) for Paint and admission. Every build, measurement and validation goes through `remote-lane` on an authorized VM, from committed HEAD, one call at a time. Use a scratch worktree at collector `4fbaace526` to reproduce the fixed product; for a fresh candidate, record its product digest. Resolve private host aliases/lock mapping from the issue artifact; they are deliberately absent here.
+Follow [startup-baseline.md](startup-baseline.md) for Paint and admission. Every build, measurement and validation goes through `remote-lane` on an authorized VM, from committed HEAD, one call at a time. The fixed startup collectors are `4fbaace526` for phone/web and `c030eb8435` for desktop/search; the corrected deck collector is `d5f29ded46`. Use their recorded product pins and retain the harness; for a fresh candidate, record its product digest. Resolve private host aliases/lock mapping from the issue artifact; they are deliberately absent here.
 
 ```sh
 # Set an authorized measurement VM and a never-used round number.
@@ -290,4 +296,4 @@ remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-seri
 
 Before each call, read both issue and session inboxes and preserve the source, VM, corpus and saved schedule. Complete each command before launching the next. A new product, collector or cell list needs a fresh round. The fixed-feed replacement is POD-7119’s independent series; use its report’s commands and pins rather than attributing the original feed runner to that fix.
 
-The single end validation is pending the corrected deck series and final integration rebase. No READY or gate pass is claimed yet.
+The coordinator stopped measurement for POD-7157 and requested only one end validation: `bun run test` on the final tip through `remote-lane vega2`. That lean gate is pending; no pass is claimed yet. The previously planned focused/safety runs were not executed.

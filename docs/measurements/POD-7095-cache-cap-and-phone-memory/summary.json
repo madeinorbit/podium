@@ -4,7 +4,9 @@
   "primaryStartupExceptions": {},
   "startupAdmissionNote": "All round 40 cells are complete; desktop 10x before has two admitted controls and one unexplained HTTP 404 rejection.",
   "deckRound": 45,
-  "deckStatus": "pending corrected tip from coordinator after POD-7165",
+  "deckStatus": "phone complete at 3/3 per arm; web stopped at 2/2 valid captures after controller exit 143; desktop not run: superseded by POD-7157",
+  "correctedDeckProduct": "f4691f9849c246d39dcbe4c1644b647ae29f658d",
+  "correctedDeckCollector": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
   "originalFixedTipDeckObservations": {
     "product": "af8b3091e0",
     "phone": {
@@ -22,7 +24,7 @@
     },
     "limits": "Single observations; not pooled into the corrected deck cohort. Excluded collector and interrupted attempts are preserved in private issue artifacts."
   },
-  "costProductNotes": "SQLite r21, feed r26 and cache r28 measured the earlier policy product at 726a06ad16; final startup/search use af8b3091e0; corrected deck source is pending POD-7165. Fixed feed evidence is reused from POD-7119, documented in the report.",
+  "costProductNotes": "SQLite r21, feed r26 and cache r28 measured the earlier policy product at 726a06ad16; final startup/search use af8b3091e0; corrected deck product is f4691f9849; desktop deck is superseded by POD-7157. Fixed feed evidence is reused from POD-7119, documented in the report.",
   "beforeProduct": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
   "afterProduct": "af8b3091e06e254d25809b66da8507a7e11d5478",
   "units": {
@@ -38,6 +40,30 @@
     "Feed main-thread window includes final replica disconnect and store close.",
     "All workloads ran on authorized agent VMs, one at a time under a per-run host lock."
   ],
+  "measurementInterruptions": [
+    {
+      "round": 45,
+      "surface": "web",
+      "arm": "after",
+      "sample": 2,
+      "status": "failed finalization after local controller exit 143",
+      "usage": "excluded from medians; partial action and deck observations retained in raw issue artifacts"
+    },
+    {
+      "round": 45,
+      "surface": "web",
+      "arm": "before",
+      "sample": 2,
+      "status": "not attempted"
+    },
+    {
+      "round": 45,
+      "surface": "desktop",
+      "status": "stopped by coordinator at 2026-11-18T21:02:25Z; not run: superseded by POD-7157",
+      "usage": "all saved partial observations excluded from final deck table"
+    }
+  ],
+  "validationPlan": "Coordinator requested one lean gate only; no new focused or safety runs.",
   "startupCohorts": {
     "21": {
       "web/h1a1/before": {
@@ -14228,6 +14254,2384 @@
         },
         "provenance": [],
         "admitted": [],
+        "rejected": []
+      }
+    },
+    "45": {
+      "phone/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "phone",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              8261.83,
+              8021.436,
+              8096.425
+            ],
+            "median": 8096.425,
+            "min": 8021.436,
+            "max": 8261.83
+          },
+          "warmMs": {
+            "samples": [
+              6806.589,
+              6929.956,
+              6977.921
+            ],
+            "median": 6929.956,
+            "min": 6806.589,
+            "max": 6977.921
+          },
+          "coldCpuMs": {
+            "samples": [
+              7314.073,
+              7101.792,
+              7179.146
+            ],
+            "median": 7179.146,
+            "min": 7101.792,
+            "max": 7314.073
+          },
+          "warmCpuMs": {
+            "samples": [
+              6125.468,
+              6131.846,
+              6196.431
+            ],
+            "median": 6131.846,
+            "min": 6125.468,
+            "max": 6196.431
+          },
+          "coldLayoutMs": {
+            "samples": [
+              72.204,
+              67.963,
+              68.98
+            ],
+            "median": 68.98,
+            "min": 67.963,
+            "max": 72.204
+          },
+          "warmLayoutMs": {
+            "samples": [
+              92.041,
+              67.999,
+              70.203
+            ],
+            "median": 70.203,
+            "min": 67.999,
+            "max": 92.041
+          },
+          "coldTaskMs": {
+            "samples": [
+              9288.357000000002,
+              9271.448000000002,
+              9133.953
+            ],
+            "median": 9271.448000000002,
+            "min": 9133.953,
+            "max": 9288.357000000002
+          },
+          "warmTaskMs": {
+            "samples": [
+              6898.181999999999,
+              7379.749999999998,
+              7396.4710000000005
+            ],
+            "median": 7379.749999999998,
+            "min": 6898.181999999999,
+            "max": 7396.4710000000005
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              36.65088899999864,
+              33.927779999999984,
+              34.79109099999914
+            ],
+            "median": 34.79109099999914,
+            "min": 33.927779999999984,
+            "max": 36.65088899999864
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              42504.94000000134,
+              40667.5549999997,
+              44941.82999999821
+            ],
+            "median": 42504.94000000134,
+            "min": 40667.5549999997,
+            "max": 44941.82999999821
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              34243.11000000134,
+              32646.1189999997,
+              36845.40499999821
+            ],
+            "median": 34243.11000000134,
+            "min": 32646.1189999997,
+            "max": 36845.40499999821
+          },
+          "deck12Ms": {
+            "samples": [
+              778.864,
+              749.543,
+              774.277
+            ],
+            "median": 774.277,
+            "min": 749.543,
+            "max": 778.864
+          },
+          "deck12CpuMs": {
+            "samples": [
+              593.1880000000014,
+              629.4429999999984,
+              619.3729999999995
+            ],
+            "median": 619.3729999999995,
+            "min": 593.1880000000014,
+            "max": 629.4429999999984
+          },
+          "deck970Ms": {
+            "samples": [
+              3267.24,
+              3440.941,
+              3366.661
+            ],
+            "median": 3366.661,
+            "min": 3267.24,
+            "max": 3440.941
+          },
+          "deck970CpuMs": {
+            "samples": [
+              3859.9679999999985,
+              4895.030999999999,
+              4576.651000000002
+            ],
+            "median": 4576.651000000002,
+            "min": 3859.9679999999985,
+            "max": 4895.030999999999
+          }
+        },
+        "usage": "deck staging only; startup fields are not part of the primary AFTER series",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "6856eec5-a13a-4e5c-82e2-86e01f13c03b",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "phone",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T20:33:51.463Z",
+            "coldMs": 8261.83,
+            "warmMs": 6806.589,
+            "coldCpuMs": 7314.073,
+            "warmCpuMs": 6125.468,
+            "coldLayoutMs": 72.204,
+            "warmLayoutMs": 92.041,
+            "coldTaskMs": 9288.357000000002,
+            "warmTaskMs": 6898.181999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 36.65088899999864,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 42504.94000000134,
+            "coldDurableAfterPaintMs": 34243.11000000134,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i2",
+                "treeRequested": false,
+                "inputToPaintMs": 778.864,
+                "mainThreadMs": 593.1880000000014,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 3267.24,
+                "mainThreadMs": 3859.9679999999985,
+                "collectionResources": []
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T20:40:01.912Z",
+            "coldMs": 8021.436,
+            "warmMs": 6929.956,
+            "coldCpuMs": 7101.792,
+            "warmCpuMs": 6131.846,
+            "coldLayoutMs": 67.963,
+            "warmLayoutMs": 67.999,
+            "coldTaskMs": 9271.448000000002,
+            "warmTaskMs": 7379.749999999998,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 33.927779999999984,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 40667.5549999997,
+            "coldDurableAfterPaintMs": 32646.1189999997,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i2",
+                "treeRequested": false,
+                "inputToPaintMs": 749.543,
+                "mainThreadMs": 629.4429999999984,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 3440.941,
+                "mainThreadMs": 4895.030999999999,
+                "collectionResources": []
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T20:42:27.822Z",
+            "coldMs": 8096.425,
+            "warmMs": 6977.921,
+            "coldCpuMs": 7179.146,
+            "warmCpuMs": 6196.431,
+            "coldLayoutMs": 68.98,
+            "warmLayoutMs": 70.203,
+            "coldTaskMs": 9133.953,
+            "warmTaskMs": 7396.4710000000005,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 34.79109099999914,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 44941.82999999821,
+            "coldDurableAfterPaintMs": 36845.40499999821,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i2",
+                "treeRequested": false,
+                "inputToPaintMs": 774.277,
+                "mainThreadMs": 619.3729999999995,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 3366.661,
+                "mainThreadMs": 4576.651000000002,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "phone/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "phone",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              4798.511,
+              4801.493,
+              4853.742
+            ],
+            "median": 4801.493,
+            "min": 4798.511,
+            "max": 4853.742
+          },
+          "warmMs": {
+            "samples": [
+              3571.235,
+              3509.361,
+              3149.473
+            ],
+            "median": 3509.361,
+            "min": 3149.473,
+            "max": 3571.235
+          },
+          "coldCpuMs": {
+            "samples": [
+              3979.732,
+              3942.912,
+              4031.228
+            ],
+            "median": 3979.732,
+            "min": 3942.912,
+            "max": 4031.228
+          },
+          "warmCpuMs": {
+            "samples": [
+              2935.261,
+              2854.335,
+              2701.971
+            ],
+            "median": 2854.335,
+            "min": 2701.971,
+            "max": 2935.261
+          },
+          "coldLayoutMs": {
+            "samples": [
+              66.113,
+              63.347,
+              60.019
+            ],
+            "median": 63.347,
+            "min": 60.019,
+            "max": 66.113
+          },
+          "warmLayoutMs": {
+            "samples": [
+              70.186,
+              57.943,
+              51.918
+            ],
+            "median": 57.943,
+            "min": 51.918,
+            "max": 70.186
+          },
+          "coldTaskMs": {
+            "samples": [
+              5334.293,
+              5456.546,
+              5634.775000000001
+            ],
+            "median": 5456.546,
+            "min": 5334.293,
+            "max": 5634.775000000001
+          },
+          "warmTaskMs": {
+            "samples": [
+              3030.5079999999994,
+              3212.9119999999994,
+              3225.9429999999993
+            ],
+            "median": 3212.9119999999994,
+            "min": 3030.5079999999994,
+            "max": 3225.9429999999993
+          },
+          "coldCollectionCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              87.36000000312924,
+              63.814999997615814,
+              95.30000000074506
+            ],
+            "median": 87.36000000312924,
+            "min": 63.814999997615814,
+            "max": 95.30000000074506
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              152.20003899999938,
+              157.23257600000034,
+              136.93511399999988
+            ],
+            "median": 152.20003899999938,
+            "min": 136.93511399999988,
+            "max": 157.23257600000034
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              211.11425999999483,
+              210.78540300000532,
+              202.56229700000767
+            ],
+            "median": 210.78540300000532,
+            "min": 202.56229700000767,
+            "max": 211.11425999999483
+          },
+          "collectionRouteMs": {
+            "samples": [
+              1136.59753000001,
+              1100.2637839999989,
+              1064.0839009999981
+            ],
+            "median": 1100.2637839999989,
+            "min": 1064.0839009999981,
+            "max": 1136.59753000001
+          },
+          "collectionRouteCount": {
+            "samples": [
+              13,
+              13,
+              14
+            ],
+            "median": 13,
+            "min": 13,
+            "max": 14
+          },
+          "coldRouteCount": {
+            "samples": [
+              4,
+              4,
+              4
+            ],
+            "median": 4,
+            "min": 4,
+            "max": 4
+          },
+          "warmRouteCount": {
+            "samples": [
+              9,
+              9,
+              10
+            ],
+            "median": 9,
+            "min": 9,
+            "max": 10
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              246.62196699999913,
+              178.76609899999676,
+              229.39493500000026
+            ],
+            "median": 229.39493500000026,
+            "min": 178.76609899999676,
+            "max": 246.62196699999913
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              889.9755630000109,
+              921.4976850000021,
+              834.6889659999979
+            ],
+            "median": 889.9755630000109,
+            "min": 834.6889659999979,
+            "max": 921.4976850000021
+          },
+          "coldFixtureMs": {
+            "samples": [
+              4.839176000001316,
+              7.69798499999888,
+              7.666514000000461
+            ],
+            "median": 7.666514000000461,
+            "min": 4.839176000001316,
+            "max": 7.69798499999888
+          },
+          "warmFixtureMs": {
+            "samples": [
+              206.2750839999935,
+              203.08741800000644,
+              194.8957830000072
+            ],
+            "median": 203.08741800000644,
+            "min": 194.8957830000072,
+            "max": 206.2750839999935
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              15428.015000000596,
+              14433.180000003427,
+              14939.185000002384
+            ],
+            "median": 14939.185000002384,
+            "min": 14433.180000003427,
+            "max": 15428.015000000596
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              10629.504000000596,
+              9631.687000003427,
+              10085.443000002384
+            ],
+            "median": 10085.443000002384,
+            "min": 9631.687000003427,
+            "max": 10629.504000000596
+          },
+          "deck12Ms": {
+            "samples": [
+              890.843,
+              832.77,
+              826.886
+            ],
+            "median": 832.77,
+            "min": 826.886,
+            "max": 890.843
+          },
+          "deck12CpuMs": {
+            "samples": [
+              954.2669999999997,
+              838.8919999999995,
+              896.6130000000003
+            ],
+            "median": 896.6130000000003,
+            "min": 838.8919999999995,
+            "max": 954.2669999999997
+          },
+          "deck970Ms": {
+            "samples": [
+              5265.548,
+              5311.061,
+              5479.6
+            ],
+            "median": 5311.061,
+            "min": 5265.548,
+            "max": 5479.6
+          },
+          "deck970CpuMs": {
+            "samples": [
+              7390.167,
+              7630.815000000002,
+              9768.431999999999
+            ],
+            "median": 7630.815000000002,
+            "min": 7390.167,
+            "max": 9768.431999999999
+          }
+        },
+        "usage": "deck staging only; startup fields are not part of the primary AFTER series",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "6856eec5-a13a-4e5c-82e2-86e01f13c03b",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "phone",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T20:35:15.901Z",
+            "coldMs": 4798.511,
+            "warmMs": 3571.235,
+            "coldCpuMs": 3979.732,
+            "warmCpuMs": 2935.261,
+            "coldLayoutMs": 66.113,
+            "warmLayoutMs": 70.186,
+            "coldTaskMs": 5334.293,
+            "warmTaskMs": 3030.5079999999994,
+            "coldCollectionCount": 1,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 87.36000000312924,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 152.20003899999938,
+            "collectionFixtureMs": 211.11425999999483,
+            "collectionRouteMs": 1136.59753000001,
+            "collectionRouteCount": 13,
+            "coldRouteCount": 4,
+            "warmRouteCount": 9,
+            "coldRouteTotalMs": 246.62196699999913,
+            "warmRouteTotalMs": 889.9755630000109,
+            "coldFixtureMs": 4.839176000001316,
+            "warmFixtureMs": 206.2750839999935,
+            "coldDurableAtMs": 15428.015000000596,
+            "coldDurableAfterPaintMs": 10629.504000000596,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 890.843,
+                "mainThreadMs": 954.2669999999997,
+                "collectionResources": [
+                  {
+                    "startMs": 432.9399999976158,
+                    "durationMs": 96.2800000011921
+                  }
+                ]
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 5265.548,
+                "mainThreadMs": 7390.167,
+                "collectionResources": [
+                  {
+                    "startMs": 215.59999999776483,
+                    "durationMs": 255.035000000149
+                  },
+                  {
+                    "startMs": 2876.285000000149,
+                    "durationMs": 81.1849999986589
+                  },
+                  {
+                    "startMs": 3213.989999998361,
+                    "durationMs": 28.58000000193715
+                  },
+                  {
+                    "startMs": 3332.710000000894,
+                    "durationMs": 49.064999997615814
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T20:36:13.598Z",
+            "coldMs": 4801.493,
+            "warmMs": 3509.361,
+            "coldCpuMs": 3942.912,
+            "warmCpuMs": 2854.335,
+            "coldLayoutMs": 63.347,
+            "warmLayoutMs": 57.943,
+            "coldTaskMs": 5456.546,
+            "warmTaskMs": 3212.9119999999994,
+            "coldCollectionCount": 1,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 63.814999997615814,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 157.23257600000034,
+            "collectionFixtureMs": 210.78540300000532,
+            "collectionRouteMs": 1100.2637839999989,
+            "collectionRouteCount": 13,
+            "coldRouteCount": 4,
+            "warmRouteCount": 9,
+            "coldRouteTotalMs": 178.76609899999676,
+            "warmRouteTotalMs": 921.4976850000021,
+            "coldFixtureMs": 7.69798499999888,
+            "warmFixtureMs": 203.08741800000644,
+            "coldDurableAtMs": 14433.180000003427,
+            "coldDurableAfterPaintMs": 9631.687000003427,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 832.77,
+                "mainThreadMs": 838.8919999999995,
+                "collectionResources": [
+                  {
+                    "startMs": 336.7399999983609,
+                    "durationMs": 133.70500000193715
+                  }
+                ]
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 5311.061,
+                "mainThreadMs": 7630.815000000002,
+                "collectionResources": [
+                  {
+                    "startMs": 186.67499999701977,
+                    "durationMs": 251.68000000342727
+                  },
+                  {
+                    "startMs": 2685.454999998212,
+                    "durationMs": 76.85500000044703
+                  },
+                  {
+                    "startMs": 3008.1399999968708,
+                    "durationMs": 39.89000000059605
+                  },
+                  {
+                    "startMs": 3126.579999998212,
+                    "durationMs": 48.400000002235174
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T20:41:26.352Z",
+            "coldMs": 4853.742,
+            "warmMs": 3149.473,
+            "coldCpuMs": 4031.228,
+            "warmCpuMs": 2701.971,
+            "coldLayoutMs": 60.019,
+            "warmLayoutMs": 51.918,
+            "coldTaskMs": 5634.775000000001,
+            "warmTaskMs": 3225.9429999999993,
+            "coldCollectionCount": 1,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 95.30000000074506,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 136.93511399999988,
+            "collectionFixtureMs": 202.56229700000767,
+            "collectionRouteMs": 1064.0839009999981,
+            "collectionRouteCount": 14,
+            "coldRouteCount": 4,
+            "warmRouteCount": 10,
+            "coldRouteTotalMs": 229.39493500000026,
+            "warmRouteTotalMs": 834.6889659999979,
+            "coldFixtureMs": 7.666514000000461,
+            "warmFixtureMs": 194.8957830000072,
+            "coldDurableAtMs": 14939.185000002384,
+            "coldDurableAfterPaintMs": 10085.443000002384,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 826.886,
+                "mainThreadMs": 896.6130000000003,
+                "collectionResources": [
+                  {
+                    "startMs": 363.1199999973178,
+                    "durationMs": 86.58999999985099
+                  }
+                ]
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 5479.6,
+                "mainThreadMs": 9768.431999999999,
+                "collectionResources": [
+                  {
+                    "startMs": 158.82499999925494,
+                    "durationMs": 231.08000000193715
+                  },
+                  {
+                    "startMs": 2758.484999999404,
+                    "durationMs": 86.00500000268221
+                  },
+                  {
+                    "startMs": 3082.685000002384,
+                    "durationMs": 34.934999998658895
+                  },
+                  {
+                    "startMs": 3211.260000001639,
+                    "durationMs": 33.82999999821186
+                  },
+                  {
+                    "startMs": 3324.879999998957,
+                    "durationMs": 33.57500000298023
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              7558.593
+            ],
+            "median": 7558.593,
+            "min": 7558.593,
+            "max": 7558.593
+          },
+          "warmMs": {
+            "samples": [
+              5832.443
+            ],
+            "median": 5832.443,
+            "min": 5832.443,
+            "max": 5832.443
+          },
+          "coldCpuMs": {
+            "samples": [
+              6887.074
+            ],
+            "median": 6887.074,
+            "min": 6887.074,
+            "max": 6887.074
+          },
+          "warmCpuMs": {
+            "samples": [
+              5311.422
+            ],
+            "median": 5311.422,
+            "min": 5311.422,
+            "max": 5311.422
+          },
+          "coldLayoutMs": {
+            "samples": [
+              97.287
+            ],
+            "median": 97.287,
+            "min": 97.287,
+            "max": 97.287
+          },
+          "warmLayoutMs": {
+            "samples": [
+              70.942
+            ],
+            "median": 70.942,
+            "min": 70.942,
+            "max": 70.942
+          },
+          "coldTaskMs": {
+            "samples": [
+              10208.466
+            ],
+            "median": 10208.466,
+            "min": 10208.466,
+            "max": 10208.466
+          },
+          "warmTaskMs": {
+            "samples": [
+              7529.731999999999
+            ],
+            "median": 7529.731999999999,
+            "min": 7529.731999999999,
+            "max": 7529.731999999999
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              24.083193000000392
+            ],
+            "median": 24.083193000000392,
+            "min": 24.083193000000392,
+            "max": 24.083193000000392
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              43730.699999999255
+            ],
+            "median": 43730.699999999255,
+            "min": 43730.699999999255,
+            "max": 43730.699999999255
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              36172.106999999254
+            ],
+            "median": 36172.106999999254,
+            "min": 36172.106999999254,
+            "max": 36172.106999999254
+          },
+          "deck12Ms": {
+            "samples": [
+              1221.089
+            ],
+            "median": 1221.089,
+            "min": 1221.089,
+            "max": 1221.089
+          },
+          "deck12CpuMs": {
+            "samples": [
+              975.2289999999988
+            ],
+            "median": 975.2289999999988,
+            "min": 975.2289999999988,
+            "max": 975.2289999999988
+          },
+          "deck970Ms": {
+            "samples": [
+              6246.895
+            ],
+            "median": 6246.895,
+            "min": 6246.895,
+            "max": 6246.895
+          },
+          "deck970CpuMs": {
+            "samples": [
+              5014.613
+            ],
+            "median": 5014.613,
+            "min": 5014.613,
+            "max": 5014.613
+          }
+        },
+        "usage": "excluded from final deck table: not run, superseded by POD-7157; saved partial observations only",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "ff9dcc09-c16a-4719-b650-8e5910e0aee7",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T21:00:53.328Z",
+            "coldMs": 7558.593,
+            "warmMs": 5832.443,
+            "coldCpuMs": 6887.074,
+            "warmCpuMs": 5311.422,
+            "coldLayoutMs": 97.287,
+            "warmLayoutMs": 70.942,
+            "coldTaskMs": 10208.466,
+            "warmTaskMs": 7529.731999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 24.083193000000392,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 43730.699999999255,
+            "coldDurableAfterPaintMs": 36172.106999999254,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": false,
+                "inputToPaintMs": 1221.089,
+                "mainThreadMs": 975.2289999999988,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 6246.895,
+                "mainThreadMs": 5014.613,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              6052.734
+            ],
+            "median": 6052.734,
+            "min": 6052.734,
+            "max": 6052.734
+          },
+          "warmMs": {
+            "samples": [
+              4552.805
+            ],
+            "median": 4552.805,
+            "min": 4552.805,
+            "max": 4552.805
+          },
+          "coldCpuMs": {
+            "samples": [
+              5351.276
+            ],
+            "median": 5351.276,
+            "min": 5351.276,
+            "max": 5351.276
+          },
+          "warmCpuMs": {
+            "samples": [
+              3861.174
+            ],
+            "median": 3861.174,
+            "min": 3861.174,
+            "max": 3861.174
+          },
+          "coldLayoutMs": {
+            "samples": [
+              107.78
+            ],
+            "median": 107.78,
+            "min": 107.78,
+            "max": 107.78
+          },
+          "warmLayoutMs": {
+            "samples": [
+              77.065
+            ],
+            "median": 77.065,
+            "min": 77.065,
+            "max": 77.065
+          },
+          "coldTaskMs": {
+            "samples": [
+              7319.806
+            ],
+            "median": 7319.806,
+            "min": 7319.806,
+            "max": 7319.806
+          },
+          "warmTaskMs": {
+            "samples": [
+              4352.443000000001
+            ],
+            "median": 4352.443000000001,
+            "min": 4352.443000000001,
+            "max": 4352.443000000001
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              188.96940599999834
+            ],
+            "median": 188.96940599999834,
+            "min": 188.96940599999834,
+            "max": 188.96940599999834
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              181.26017899997714
+            ],
+            "median": 181.26017899997714,
+            "min": 181.26017899997714,
+            "max": 181.26017899997714
+          },
+          "collectionRouteMs": {
+            "samples": [
+              1228.3010640000011
+            ],
+            "median": 1228.3010640000011,
+            "min": 1228.3010640000011,
+            "max": 1228.3010640000011
+          },
+          "collectionRouteCount": {
+            "samples": [
+              22
+            ],
+            "median": 22,
+            "min": 22,
+            "max": 22
+          },
+          "coldRouteCount": {
+            "samples": [
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "warmRouteCount": {
+            "samples": [
+              21
+            ],
+            "median": 21,
+            "min": 21,
+            "max": 21
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              98.61337100000128
+            ],
+            "median": 98.61337100000128,
+            "min": 98.61337100000128,
+            "max": 98.61337100000128
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              1129.6876929999999
+            ],
+            "median": 1129.6876929999999,
+            "min": 1129.6876929999999,
+            "max": 1129.6876929999999
+          },
+          "coldFixtureMs": {
+            "samples": [
+              3.9624480000002222
+            ],
+            "median": 3.9624480000002222,
+            "min": 3.9624480000002222,
+            "max": 3.9624480000002222
+          },
+          "warmFixtureMs": {
+            "samples": [
+              177.29773099997692
+            ],
+            "median": 177.29773099997692,
+            "min": 177.29773099997692,
+            "max": 177.29773099997692
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              27804.300000000745
+            ],
+            "median": 27804.300000000745,
+            "min": 27804.300000000745,
+            "max": 27804.300000000745
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              21751.566000000745
+            ],
+            "median": 21751.566000000745,
+            "min": 21751.566000000745,
+            "max": 21751.566000000745
+          },
+          "deck12Ms": {
+            "samples": [
+              1305.384
+            ],
+            "median": 1305.384,
+            "min": 1305.384,
+            "max": 1305.384
+          },
+          "deck12CpuMs": {
+            "samples": [
+              1157.9780000000017
+            ],
+            "median": 1157.9780000000017,
+            "min": 1157.9780000000017,
+            "max": 1157.9780000000017
+          },
+          "deck970Ms": {
+            "samples": [
+              10212.154
+            ],
+            "median": 10212.154,
+            "min": 10212.154,
+            "max": 10212.154
+          },
+          "deck970CpuMs": {
+            "samples": [
+              9650.057
+            ],
+            "median": 9650.057,
+            "min": 9650.057,
+            "max": 9650.057
+          }
+        },
+        "usage": "excluded from final deck table: not run, superseded by POD-7157; saved partial observations only",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "ff9dcc09-c16a-4719-b650-8e5910e0aee7",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T21:02:23.035Z",
+            "coldMs": 6052.734,
+            "warmMs": 4552.805,
+            "coldCpuMs": 5351.276,
+            "warmCpuMs": 3861.174,
+            "coldLayoutMs": 107.78,
+            "warmLayoutMs": 77.065,
+            "coldTaskMs": 7319.806,
+            "warmTaskMs": 4352.443000000001,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 188.96940599999834,
+            "collectionFixtureMs": 181.26017899997714,
+            "collectionRouteMs": 1228.3010640000011,
+            "collectionRouteCount": 22,
+            "coldRouteCount": 1,
+            "warmRouteCount": 21,
+            "coldRouteTotalMs": 98.61337100000128,
+            "warmRouteTotalMs": 1129.6876929999999,
+            "coldFixtureMs": 3.9624480000002222,
+            "warmFixtureMs": 177.29773099997692,
+            "coldDurableAtMs": 27804.300000000745,
+            "coldDurableAfterPaintMs": 21751.566000000745,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 1305.384,
+                "mainThreadMs": 1157.9780000000017,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 10212.154,
+                "mainThreadMs": 9650.057,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "web/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "web",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              7273.055,
+              7503.332
+            ],
+            "median": 7388.1935,
+            "min": 7273.055,
+            "max": 7503.332
+          },
+          "warmMs": {
+            "samples": [
+              5433.849,
+              5772.577
+            ],
+            "median": 5603.213,
+            "min": 5433.849,
+            "max": 5772.577
+          },
+          "coldCpuMs": {
+            "samples": [
+              6626.813,
+              6788.42
+            ],
+            "median": 6707.6165,
+            "min": 6626.813,
+            "max": 6788.42
+          },
+          "warmCpuMs": {
+            "samples": [
+              4822.681,
+              5176.614
+            ],
+            "median": 4999.647499999999,
+            "min": 4822.681,
+            "max": 5176.614
+          },
+          "coldLayoutMs": {
+            "samples": [
+              104.262,
+              93.755
+            ],
+            "median": 99.0085,
+            "min": 93.755,
+            "max": 104.262
+          },
+          "warmLayoutMs": {
+            "samples": [
+              63.857,
+              72.979
+            ],
+            "median": 68.418,
+            "min": 63.857,
+            "max": 72.979
+          },
+          "coldTaskMs": {
+            "samples": [
+              10216.949999999999,
+              10262.365000000002
+            ],
+            "median": 10239.657500000001,
+            "min": 10216.949999999999,
+            "max": 10262.365000000002
+          },
+          "warmTaskMs": {
+            "samples": [
+              6926,
+              7460.455999999999
+            ],
+            "median": 7193.227999999999,
+            "min": 6926,
+            "max": 7460.455999999999
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              20.271608000000924,
+              27.96594499999992
+            ],
+            "median": 24.118776500000422,
+            "min": 20.271608000000924,
+            "max": 27.96594499999992
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              43907.5,
+              45150.5
+            ],
+            "median": 44529.0,
+            "min": 43907.5,
+            "max": 45150.5
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              36634.445,
+              37647.168
+            ],
+            "median": 37140.8065,
+            "min": 36634.445,
+            "max": 37647.168
+          },
+          "deck12Ms": {
+            "samples": [
+              1316.791,
+              1235.518
+            ],
+            "median": 1276.1545,
+            "min": 1235.518,
+            "max": 1316.791
+          },
+          "deck12CpuMs": {
+            "samples": [
+              1101.2159999999974,
+              1000.2850000000017
+            ],
+            "median": 1050.7504999999996,
+            "min": 1000.2850000000017,
+            "max": 1101.2159999999974
+          },
+          "deck970Ms": {
+            "samples": [
+              6016.272,
+              6005.895
+            ],
+            "median": 6011.083500000001,
+            "min": 6005.895,
+            "max": 6016.272
+          },
+          "deck970CpuMs": {
+            "samples": [
+              4871.248999999999,
+              4878.326000000001
+            ],
+            "median": 4874.7875,
+            "min": 4871.248999999999,
+            "max": 4878.326000000001
+          }
+        },
+        "usage": "deck staging only; startup fields are not part of the primary AFTER series",
+        "analysisStatus": "interrupted after two valid pairs; raw ledger remains running",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "4e472721-02a0-468b-8048-7d8a4de747a3",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "web",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T20:44:15.858Z",
+            "coldMs": 7273.055,
+            "warmMs": 5433.849,
+            "coldCpuMs": 6626.813,
+            "warmCpuMs": 4822.681,
+            "coldLayoutMs": 104.262,
+            "warmLayoutMs": 63.857,
+            "coldTaskMs": 10216.949999999999,
+            "warmTaskMs": 6926,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 20.271608000000924,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 43907.5,
+            "coldDurableAfterPaintMs": 36634.445,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": false,
+                "inputToPaintMs": 1316.791,
+                "mainThreadMs": 1101.2159999999974,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 6016.272,
+                "mainThreadMs": 4871.248999999999,
+                "collectionResources": []
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T20:51:44.955Z",
+            "coldMs": 7503.332,
+            "warmMs": 5772.577,
+            "coldCpuMs": 6788.42,
+            "warmCpuMs": 5176.614,
+            "coldLayoutMs": 93.755,
+            "warmLayoutMs": 72.979,
+            "coldTaskMs": 10262.365000000002,
+            "warmTaskMs": 7460.455999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 27.96594499999992,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 45150.5,
+            "coldDurableAfterPaintMs": 37647.168,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": false,
+                "inputToPaintMs": 1235.518,
+                "mainThreadMs": 1000.2850000000017,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 6005.895,
+                "mainThreadMs": 4878.326000000001,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "web/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "web",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              6215.265,
+              6208.529
+            ],
+            "median": 6211.897000000001,
+            "min": 6208.529,
+            "max": 6215.265
+          },
+          "warmMs": {
+            "samples": [
+              4363.414,
+              4605.302
+            ],
+            "median": 4484.358,
+            "min": 4363.414,
+            "max": 4605.302
+          },
+          "coldCpuMs": {
+            "samples": [
+              5508.074,
+              5463.002
+            ],
+            "median": 5485.5380000000005,
+            "min": 5463.002,
+            "max": 5508.074
+          },
+          "warmCpuMs": {
+            "samples": [
+              3834.768,
+              4037.715
+            ],
+            "median": 3936.2415,
+            "min": 3834.768,
+            "max": 4037.715
+          },
+          "coldLayoutMs": {
+            "samples": [
+              104.809,
+              108.655
+            ],
+            "median": 106.732,
+            "min": 104.809,
+            "max": 108.655
+          },
+          "warmLayoutMs": {
+            "samples": [
+              64.584,
+              67.317
+            ],
+            "median": 65.9505,
+            "min": 64.584,
+            "max": 67.317
+          },
+          "coldTaskMs": {
+            "samples": [
+              7490.75,
+              7682.784
+            ],
+            "median": 7586.767,
+            "min": 7490.75,
+            "max": 7682.784
+          },
+          "warmTaskMs": {
+            "samples": [
+              4378.209,
+              4536.706999999999
+            ],
+            "median": 4457.458,
+            "min": 4378.209,
+            "max": 4536.706999999999
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              215.1841459999996,
+              186.33074500000112
+            ],
+            "median": 200.75744550000036,
+            "min": 186.33074500000112,
+            "max": 215.1841459999996
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              193.99646800002847,
+              201.87335599999278
+            ],
+            "median": 197.93491200001063,
+            "min": 193.99646800002847,
+            "max": 201.87335599999278
+          },
+          "collectionRouteMs": {
+            "samples": [
+              1305.8460440000035,
+              1453.2134489999808
+            ],
+            "median": 1379.5297464999921,
+            "min": 1305.8460440000035,
+            "max": 1453.2134489999808
+          },
+          "collectionRouteCount": {
+            "samples": [
+              22,
+              22
+            ],
+            "median": 22.0,
+            "min": 22,
+            "max": 22
+          },
+          "coldRouteCount": {
+            "samples": [
+              1,
+              1
+            ],
+            "median": 1.0,
+            "min": 1,
+            "max": 1
+          },
+          "warmRouteCount": {
+            "samples": [
+              21,
+              21
+            ],
+            "median": 21.0,
+            "min": 21,
+            "max": 21
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              85.81476600000133,
+              210.92503600000055
+            ],
+            "median": 148.36990100000094,
+            "min": 85.81476600000133,
+            "max": 210.92503600000055
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              1220.0312780000022,
+              1242.2884129999802
+            ],
+            "median": 1231.1598454999912,
+            "min": 1220.0312780000022,
+            "max": 1242.2884129999802
+          },
+          "coldFixtureMs": {
+            "samples": [
+              5.020284000000174,
+              14.047397999998793
+            ],
+            "median": 9.533840999999484,
+            "min": 5.020284000000174,
+            "max": 14.047397999998793
+          },
+          "warmFixtureMs": {
+            "samples": [
+              188.9761840000283,
+              187.825957999994
+            ],
+            "median": 188.40107100001114,
+            "min": 187.825957999994,
+            "max": 188.9761840000283
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              26764,
+              27033.89999999851
+            ],
+            "median": 26898.949999999255,
+            "min": 26764,
+            "max": 27033.89999999851
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              20548.735,
+              20825.370999998508
+            ],
+            "median": 20687.052999999254,
+            "min": 20548.735,
+            "max": 20825.370999998508
+          },
+          "deck12Ms": {
+            "samples": [
+              1359.38,
+              1346.505
+            ],
+            "median": 1352.9425,
+            "min": 1346.505,
+            "max": 1359.38
+          },
+          "deck12CpuMs": {
+            "samples": [
+              1303.5320000000006,
+              1176.8389999999974
+            ],
+            "median": 1240.1854999999991,
+            "min": 1176.8389999999974,
+            "max": 1303.5320000000006
+          },
+          "deck970Ms": {
+            "samples": [
+              10350.835,
+              10206.105
+            ],
+            "median": 10278.47,
+            "min": 10206.105,
+            "max": 10350.835
+          },
+          "deck970CpuMs": {
+            "samples": [
+              9910.373,
+              10273.625000000002
+            ],
+            "median": 10091.999,
+            "min": 9910.373,
+            "max": 10273.625000000002
+          }
+        },
+        "usage": "deck staging only; startup fields are not part of the primary AFTER series",
+        "analysisStatus": "interrupted after two valid pairs; raw ledger remains running",
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "4e472721-02a0-468b-8048-7d8a4de747a3",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "web",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T20:45:45.589Z",
+            "coldMs": 6215.265,
+            "warmMs": 4363.414,
+            "coldCpuMs": 5508.074,
+            "warmCpuMs": 3834.768,
+            "coldLayoutMs": 104.809,
+            "warmLayoutMs": 64.584,
+            "coldTaskMs": 7490.75,
+            "warmTaskMs": 4378.209,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 215.1841459999996,
+            "collectionFixtureMs": 193.99646800002847,
+            "collectionRouteMs": 1305.8460440000035,
+            "collectionRouteCount": 22,
+            "coldRouteCount": 1,
+            "warmRouteCount": 21,
+            "coldRouteTotalMs": 85.81476600000133,
+            "warmRouteTotalMs": 1220.0312780000022,
+            "coldFixtureMs": 5.020284000000174,
+            "warmFixtureMs": 188.9761840000283,
+            "coldDurableAtMs": 26764,
+            "coldDurableAfterPaintMs": 20548.735,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 1359.38,
+                "mainThreadMs": 1303.5320000000006,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 10350.835,
+                "mainThreadMs": 9910.373,
+                "collectionResources": []
+              }
+            ]
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "d5f29ded46908d44b8983db44d0467983c7ebd4b",
+            "productTreeSha256": "ad2bb0e22b4da91e4ccc337490a38b5c66e5765bccfb742c7eed108e1d011766",
+            "startedAt": "2026-11-18T20:46:59.967Z",
+            "coldMs": 6208.529,
+            "warmMs": 4605.302,
+            "coldCpuMs": 5463.002,
+            "warmCpuMs": 4037.715,
+            "coldLayoutMs": 108.655,
+            "warmLayoutMs": 67.317,
+            "coldTaskMs": 7682.784,
+            "warmTaskMs": 4536.706999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 186.33074500000112,
+            "collectionFixtureMs": 201.87335599999278,
+            "collectionRouteMs": 1453.2134489999808,
+            "collectionRouteCount": 22,
+            "coldRouteCount": 1,
+            "warmRouteCount": 21,
+            "coldRouteTotalMs": 210.92503600000055,
+            "warmRouteTotalMs": 1242.2884129999802,
+            "coldFixtureMs": 14.047397999998793,
+            "warmFixtureMs": 187.825957999994,
+            "coldDurableAtMs": 27033.89999999851,
+            "coldDurableAfterPaintMs": 20825.370999998508,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": true,
+                "inputToPaintMs": 1346.505,
+                "mainThreadMs": 1176.8389999999974,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": true,
+                "inputToPaintMs": 10206.105,
+                "mainThreadMs": 10273.625000000002,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
         "rejected": []
       }
     }
