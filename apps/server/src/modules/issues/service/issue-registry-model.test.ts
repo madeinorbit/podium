@@ -30,6 +30,7 @@ import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../service'
 import { issueTestPlumbing } from './test-plumbing'
 import { sessionReadPorts } from '../../../test-support/session-facts'
+import { testStoreEngine } from '../../../test-support/pg-test-database'
 
 interface Harness {
   store: SessionStore
@@ -195,7 +196,7 @@ describe('draft-then-install: a rollback racing a successful update', () => {
 })
 
 describe('draft-then-install: a read while a write is open', () => {
-  it('an outside reader waits for the commit; the save itself reads its own write', async () => {
+  it('an outside reader never sees the draft; the save itself reads its own write', async () => {
     // Since POD-6158 issue reads come from the database. An outside reader asked
     // while the write is open waits for the commit and gets the committed row,
     // never a draft; inside the save the database already shows the save's own
@@ -224,8 +225,18 @@ describe('draft-then-install: a read while a write is open', () => {
     await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'in flight' })
 
     expect(inside, 'the save reads its own write').toEqual(['in flight'])
-    expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
-    expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
+    if (testStoreEngine() === 'pg') {
+      // Postgres reads beside an open write, at READ COMMITTED (POD-6958 design 2.4): an
+      // outside reader never waits, and never sees the save's draft. What it reads while
+      // the save is open is the row as last committed; a read after the commit, the new one.
+      const titles = await outside
+      if (answeredWhileOpen) expect(titles, 'reads while open see the committed row').toEqual(['committed', 'committed'])
+      else for (const title of titles ?? []) expect(['committed', 'in flight']).toContain(title)
+    } else {
+      // SQLite's one connection: the outside reader waits behind the open write.
+      expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
+      expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
+    }
     expect((await svc.reports.get(id))?.title).toBe('in flight')
   })
 })

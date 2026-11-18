@@ -117,7 +117,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const message = baseMessage({
       deliveredTo: asSessionId('sess_previous'),
       hop: 2,
-      clampedFrom: 'interrupt',
+      clampedFrom: '{"urgency":"interrupt"}',
     })
     await store.messages.addMessage(fixtureWriteScope(), message)
     const lease = await handshake('gen_a')
@@ -149,7 +149,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(events[0]?.payload).toMatchObject({
       deliveredTo: 'sess_previous',
       hop: 2,
-      clampedFrom: 'interrupt',
+      clampedFrom: '{"urgency":"interrupt"}',
     })
     expect(funnelWrites).toBe(3)
   })
@@ -605,7 +605,8 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     // Freeze "now" for upsert so lastSeenAt is controlled.
     const oldSeenMs = nowMs - 6 * 60_000
     const oldSeen = new Date(oldSeenMs).toISOString()
-    vi.useFakeTimers()
+    // Only the clock: the store's Postgres I/O waits on real timers (POD-6994).
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(oldSeenMs)
     try {
       await store.machines.upsertMachine({

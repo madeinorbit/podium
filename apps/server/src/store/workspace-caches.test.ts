@@ -58,6 +58,7 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { FeedIdentityRegistry } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { type SQL, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type MachineRowSource, ownershipFromMachinesPerPass } from '../machine-access'
 import { ModelCatalog } from '../model-catalog'
@@ -67,6 +68,7 @@ import { PerfRegistry } from '../modules/perf/registry'
 import { GreenPrefixCache, isolateShippingTrain } from '../modules/shipping/queue'
 import type { SessionStore } from '../store'
 import { kindGenerationBump } from '../sync/kind-tokens'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import * as issueSeed from '../test-support/workspace-seeds/issues'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import { withOperation } from './executor/operation-scope'
@@ -96,10 +98,12 @@ afterEach(async () => {
   await stores.a.close()
 })
 
+/** Raw statements on the store's own drizzle instance, on either engine (POD-6994). */
 interface RawDb {
-  prepare(sql: string): { all(...params: unknown[]): unknown[]; run(...params: unknown[]): unknown }
+  all<T = Record<string, unknown>>(statement: SQL): Promise<T[]>
+  run(statement: SQL): Promise<unknown>
 }
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
+const rawDb = (store: SessionStore): RawDb => store.database.queries.rootDb as unknown as RawDb
 
 function session(tag: Tag, patch: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -149,38 +153,43 @@ function session(tag: Tag, patch: Partial<SessionRow> = {}): SessionRow {
 const issue = (tag: Tag): IssueRow => issueSeed.issue(tag, 1)
 
 describe('the cache table of design 2.8, each row with the same key in both workspaces', () => {
-  it('WrittenColumns: the session hint is the repository’s, so each workspace remembers its own row', async () => {
-    type Hint = { get(id: string): unknown }
-    const hintOf = (store: SessionStore): Hint =>
-      (store.sessions as unknown as { writtenColumns: Hint }).writtenColumns
-    const inSpan = async <T>(store: SessionStore, fn: () => Promise<T>): Promise<T> =>
-      await (
-        store.sessions as unknown as {
-          createOrJoinTransaction: <R>(run: () => Promise<R>) => Promise<R>
-        }
-      ).createOrJoinTransaction(fn)
-    // The hint remembers the columns an upsert may skip (not the title): the cwd differs.
-    for (const tag of TAGS) {
-      await stores[tag].sessions.upsertSession(scope, session(tag, { cwd: `/repo-${tag}/w1` }))
-    }
-    // A read outside a span records what each workspace's row holds.
-    for (const tag of TAGS) await stores[tag].sessions.getSession(SID)
-    expect(hintOf(stores.a)).not.toBe(hintOf(stores.b))
-    for (const tag of TAGS) {
-      const remembered = JSON.stringify(
-        await inSpan(stores[tag], async () => hintOf(stores[tag]).get(SID)),
-      )
-      expect(remembered).toContain(`/repo-${tag}/w1`)
-      expect(remembered).not.toContain(`/repo-${tag === 'a' ? 'b' : 'a'}/w1`)
-    }
-    // A's next upsert skips by A's hint and changes A's row; B's row and hint are as they were.
-    await stores.a.sessions.upsertSession(scope, session('a', { cwd: '/repo-a/w2' }))
-    expect((await stores.a.sessions.getSession(SID))?.cwd).toBe('/repo-a/w2')
-    expect((await stores.b.sessions.getSession(SID))?.cwd).toBe('/repo-b/w1')
-    expect(JSON.stringify(await inSpan(stores.b, async () => hintOf(stores.b).get(SID)))).toContain(
-      '/repo-b/w1',
-    )
-  })
+  // The hint is SQLite's only: a Postgres store builds it off (`WrittenColumns.forDialect`),
+  // because several server processes may write one database (POD-6994).
+  it.runIf(testStoreEngine() !== 'pg')(
+    'WrittenColumns: the session hint is the repository’s, so each workspace remembers its own row',
+    async () => {
+      type Hint = { get(id: string): unknown }
+      const hintOf = (store: SessionStore): Hint =>
+        (store.sessions as unknown as { writtenColumns: Hint }).writtenColumns
+      const inSpan = async <T>(store: SessionStore, fn: () => Promise<T>): Promise<T> =>
+        await (
+          store.sessions as unknown as {
+            createOrJoinTransaction: <R>(run: () => Promise<R>) => Promise<R>
+          }
+        ).createOrJoinTransaction(fn)
+      // The hint remembers the columns an upsert may skip (not the title): the cwd differs.
+      for (const tag of TAGS) {
+        await stores[tag].sessions.upsertSession(scope, session(tag, { cwd: `/repo-${tag}/w1` }))
+      }
+      // A read outside a span records what each workspace's row holds.
+      for (const tag of TAGS) await stores[tag].sessions.getSession(SID)
+      expect(hintOf(stores.a)).not.toBe(hintOf(stores.b))
+      for (const tag of TAGS) {
+        const remembered = JSON.stringify(
+          await inSpan(stores[tag], async () => hintOf(stores[tag]).get(SID)),
+        )
+        expect(remembered).toContain(`/repo-${tag}/w1`)
+        expect(remembered).not.toContain(`/repo-${tag === 'a' ? 'b' : 'a'}/w1`)
+      }
+      // A's next upsert skips by A's hint and changes A's row; B's row and hint are as they were.
+      await stores.a.sessions.upsertSession(scope, session('a', { cwd: '/repo-a/w2' }))
+      expect((await stores.a.sessions.getSession(SID))?.cwd).toBe('/repo-a/w2')
+      expect((await stores.b.sessions.getSession(SID))?.cwd).toBe('/repo-b/w1')
+      expect(
+        JSON.stringify(await inSpan(stores.b, async () => hintOf(stores.b).get(SID))),
+      ).toContain('/repo-b/w1')
+    },
+  )
 
   it('the settings snapshot is the repository’s: each workspace serves its own blob', async () => {
     const blob = (mirror: boolean) => normalizeSettings({ transcripts: { mirror } })
@@ -507,23 +516,21 @@ describe('the cache table of design 2.8, each row with the same key in both work
   })
 
   it('kind schemas are code; the kind generations they pair with are each workspace’s own', async () => {
-    const generations = (tag: Tag) =>
-      rawDb(stores.a)
-        .prepare('SELECT kind, generation FROM sync_kind WHERE workspace_id = ? AND kind = ?')
-        .all(WS[tag], 'bench-kind') as { generation: number }[]
+    const generations = async (tag: Tag) =>
+      await rawDb(stores.a).all<{ generation: number }>(
+        sql`SELECT kind, generation FROM sync_kind WHERE workspace_id = ${WS[tag]} AND kind = 'bench-kind'`,
+      )
     // The bump the migrations use: one row per provisioned workspace.
-    rawDb(stores.a)
-      .prepare(kindGenerationBump(['bench-kind' as never]))
-      .run()
-    const first = TAGS.map((tag) => generations(tag).map((row) => Number(row.generation)))
+    await rawDb(stores.a).run(sql.raw(kindGenerationBump(['bench-kind' as never])))
+    const first: number[][] = []
+    for (const tag of TAGS)
+      first.push((await generations(tag)).map((row) => Number(row.generation)))
     expect(first.every((rows) => rows.length === 1)).toBe(true)
     // A workspace's own bump moves its row only.
-    rawDb(stores.a)
-      .prepare(
-        "UPDATE sync_kind SET generation = generation + 1 WHERE workspace_id = ? AND kind = 'bench-kind'",
-      )
-      .run(WS.a)
-    expect(Number(generations('a')[0]?.generation)).toBe(first[0]![0]! + 1)
-    expect(Number(generations('b')[0]?.generation)).toBe(first[1]![0]!)
+    await rawDb(stores.a).run(
+      sql`UPDATE sync_kind SET generation = generation + 1 WHERE workspace_id = ${WS.a} AND kind = 'bench-kind'`,
+    )
+    expect(Number((await generations('a'))[0]?.generation)).toBe(first[0]![0]! + 1)
+    expect(Number((await generations('b'))[0]?.generation)).toBe(first[1]![0]!)
   })
 })

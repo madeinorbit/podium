@@ -84,31 +84,15 @@
     "apps/server/src/store/planner-statistics.test.ts": "Tests the SQLite planner statistics refresh (ANALYZE, PRAGMA optimize); on Postgres autoanalyze owns this and the refresh is a no-op (design 2.8)."
   },
   "pending": [
-    "apps/server/src/admin-audit-filters.test.ts",
-    "apps/server/src/admin-routes.statement-count.test.ts",
-    "apps/server/src/enrollment-durability.test.ts",
     "apps/server/src/feed-visibility.statement-count.test.ts",
-    "apps/server/src/gateway/machine-keypair.test.ts",
-    "apps/server/src/machine-components.test.ts",
-    "apps/server/src/machine-supersession.test.ts",
-    "apps/server/src/member-routes.test.ts",
-    "apps/server/src/modules/interactions/service.test.ts",
-    "apps/server/src/modules/issues/service/issue-registry-model.test.ts",
-    "apps/server/src/modules/maintenance/service.test.ts",
-    "apps/server/src/modules/notify/per-member.test.ts",
-    "apps/server/src/modules/sessions/repository.volatile-slice.test.ts",
-    "apps/server/src/setup-enrollment.test.ts",
-    "apps/server/src/store-users-frame-cache.test.ts",
-    "apps/server/src/store/member-history.test.ts",
-    "apps/server/src/store/operation-loaders.test.ts",
-    "apps/server/src/store/statement-count.test.ts",
-    "apps/server/src/store/workspace-caches.test.ts",
     "apps/server/src/store/workspace-isolation.test.ts",
-    "apps/server/src/sync/capture-workspace.test.ts",
     "apps/server/src/sync/record-builders.statement-count.test.ts"
   ],
   "beyondStoreShard": {
     "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store.",
-    "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994)."
+    "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",
+    "apps/server/src/sync-feed.statement-count.test.ts": "The sync feed's statement pins (hello, bootstrap and delta, in process and on the sync worker), the same counts on both engines (POD-6989, POD-6991, POD-6994).",
+    "apps/server/src/session-create.statement-count.test.ts": "The session create statement pins (in process and tRPC sessions.create), the same counts on both engines (POD-6983, POD-6994).",
+    "apps/server/src/sync/record-builders.parity.test.ts": "Record builders against the change log they capture, with the capture oracle on: every commit's capture is held against what a row trigger saw (POD-6982, POD-6994)."
   }
 }

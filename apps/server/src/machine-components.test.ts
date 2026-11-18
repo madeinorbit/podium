@@ -8,6 +8,7 @@ import { MachinesService } from './modules/machines/service'
 import { openTestStore } from './test-support/open-test-store'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { memberFacts } from './store/fixtures/test-support'
+import { testStoreEngine } from './test-support/pg-test-database'
 
 const combinations: MachineServiceAssignment[] = [
   { server: false, agentExecution: false }, { server: true, agentExecution: false },
@@ -59,7 +60,7 @@ describe('desired assignment and observed availability', () => {
       const store = await openTestStore(':memory:')
       const ownerUserId = asUserId('component-owner')
       await memberFacts(store).create({ id: ownerUserId, displayName: 'Component owner', role: 'admin',
-        createdAt: '2026-01-01T00:00:00Z', disabledAt: null }, 'fixture-hash')
+        createdAt: '2026-01-01T00:00:00.000Z', disabledAt: null }, 'fixture-hash')
       const installationId = 'component-installation'
       const publicKey = publicKeyWire(mintSigningKeyPair())
       const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
@@ -140,7 +141,9 @@ describe('desired assignment and observed availability', () => {
     } finally { service.dispose(); await store.close() }
   })
 
-  it('malformed assignment and observation fail closed', async () => {
+  // A json column on Postgres refuses malformed text at the write, so a corrupt stored
+  // document is SQLite's case only (POD-6958 design 2.3, rule 8; POD-6994).
+  it.runIf(testStoreEngine() !== 'pg')('malformed assignment and observation fail closed', async () => {
     const { store, service } = await fixture(combinations[2]!)
     try {
       // @ts-expect-error private database: corrupt persisted input deliberately

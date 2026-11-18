@@ -13,14 +13,15 @@ import { asMachineId, layoutRowId, type UserId } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { CapturedRow } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { getTableName, sql } from 'drizzle-orm'
+import { eq, getTableName, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
-import type { StoreDrizzle } from '../store/executor/sync-drizzle'
+import { type StoreDrizzle, storeTables } from '../store/executor/sync-drizzle'
 import { classifyTable } from '../store/workspace-manifest'
 import { issueRowFixture } from '../test-support/issue-row'
 import { seedRows } from '../test-support/seed-rows'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
+import { captureWrite } from './capture-pg'
 import { captureTriggerStatements } from './capture-triggers'
 import { kindGenerationBump } from './kind-tokens'
 import type { RecordReads } from './record-builders'
@@ -35,9 +36,23 @@ let admin: UserId
 const readsOf = (store: SessionStore): RecordReads =>
   ({ store, effectExecutors: { get: () => undefined }, now: () => 0 }) as unknown as RecordReads
 
-/** A layout row in `workspace`, written below the repositories. */
-const layoutRow = (workspace: string, key: string) =>
-  sql`INSERT INTO user_layout (workspace_id, user_id, key, value, updated_at) VALUES (${workspace}, ${admin}, ${key}, '{}', '2026-11-17T00:00:00.000Z')`
+/**
+ * A layout row in `workspace`, written below the repositories but through the capture
+ * form every source-table write takes (`captureWrite`): on SQLite the triggers capture it,
+ * on Postgres the statement itself does (POD-6994).
+ */
+const writeLayoutRow = async (workspace: string, key: string) => {
+  const t = storeTables(raw)
+  await captureWrite(
+    raw.insert(t.userLayout).values({
+      workspaceId: workspace,
+      userId: admin,
+      key,
+      value: '{}',
+      updatedAt: '2026-11-17T00:00:00.000Z',
+    } as never),
+  )
+}
 
 beforeAll(async () => {
   ;[a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
@@ -92,7 +107,7 @@ describe('the drain (POD-6959 design 2.7)', () => {
   it("drains a row of its own workspace into that workspace's records", async () => {
     const records = databaseRecords(readsOf(a), ['userLayout'])
     const touched = await a.transact(async () => {
-      await raw.run(layoutRow('ws_a', 'own'))
+      await writeLayoutRow('ws_a', 'own')
       return await records.drainCapture(0)
     })
     expect(touched).toEqual(new Map([['userLayout', [layoutRowId(admin, 'own')]]]))
@@ -102,7 +117,7 @@ describe('the drain (POD-6959 design 2.7)', () => {
     const records = databaseRecords(readsOf(a), ['userLayout'])
     await expect(
       a.transact(async () => {
-        await raw.run(layoutRow('ws_b', 'foreign'))
+        await writeLayoutRow('ws_b', 'foreign')
         await records.drainCapture(0)
       }),
     ).rejects.toBeInstanceOf(ForeignCaptureError)
@@ -110,11 +125,17 @@ describe('the drain (POD-6959 design 2.7)', () => {
   })
 
   it('throws on a row moved out of the workspace by an update', async () => {
-    await seedRows(a, async () => await raw.run(layoutRow('ws_a', 'moving')))
+    await seedRows(a, async () => await writeLayoutRow('ws_a', 'moving'))
     const records = databaseRecords(readsOf(a), ['userLayout'])
     await expect(
       a.transact(async () => {
-        await raw.run(sql`UPDATE user_layout SET workspace_id = 'ws_b' WHERE key = 'moving'`)
+        const t = storeTables(raw)
+        await captureWrite(
+          raw
+            .update(t.userLayout)
+            .set({ workspaceId: 'ws_b' } as never)
+            .where(eq(t.userLayout.key, 'moving')),
+        )
         await records.drainCapture(0)
       }),
     ).rejects.toThrow(
@@ -163,10 +184,22 @@ describe('the workspace column stays off the records', () => {
   it('no record value of any kind carries workspace_id', async () => {
     const machineId = asMachineId(a.hostMachineId)
     await seedRows(a, async () => {
-      await raw.run(
-        sql`INSERT OR IGNORE INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at) VALUES ('ws_a', ${machineId}, 'm', 'm', 'hash', '2026-11-17T00:00:00.000Z', '2026-11-17T00:00:00.000Z')`,
+      const t = storeTables(raw)
+      await captureWrite(
+        raw
+          .insert(t.machines)
+          .values({
+            workspaceId: 'ws_a',
+            id: machineId,
+            name: 'm',
+            hostname: 'm',
+            tokenHash: 'hash',
+            createdAt: '2026-11-17T00:00:00.000Z',
+            lastSeenAt: '2026-11-17T00:00:00.000Z',
+          } as never)
+          .onConflictDoNothing(),
       )
-      await raw.run(layoutRow('ws_a', 'listed'))
+      await writeLayoutRow('ws_a', 'listed')
       await a.issues.upsertIssue(
         fixtureWriteScope(),
         issueRowFixture({

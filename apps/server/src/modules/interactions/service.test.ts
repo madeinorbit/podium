@@ -1583,9 +1583,9 @@ describe('InteractionService under the async store (POD-3806)', () => {
     const published: InteractionRow[] = []
     let clock = 0
     const svc = new InteractionService({
-      store: new InteractionsRepository(
-        legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
-      ),
+      // The store's own repository, so the ask's statements run in the span it opens on
+      // either engine (POD-6994).
+      store: store.interactions,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
       publish: async (row) => {
         published.push(row)

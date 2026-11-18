@@ -29,8 +29,7 @@
 
 import { asIssueId, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import type { SQL } from 'drizzle-orm'
-import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
+import { type SQL, sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { MODEL_CATALOG_VERSION } from '../model-catalog'
 import type { SessionStore } from '../store'
@@ -43,38 +42,34 @@ import * as remaining from '../test-support/workspace-seeds/remaining'
 import * as sessions from '../test-support/workspace-seeds/sessions'
 import * as shipping from '../test-support/workspace-seeds/shipping'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
+import { dialectOf } from './executor/dialect-prepared'
 import { TABLE_MANIFEST, type TableOrigin } from './workspace-manifest'
 
 type Tag = 'a' | 'b'
 const otherOf = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
 
+/**
+ * Raw statements on the store's own drizzle instance, on either engine (POD-6994): the
+ * store's connection routes them like any repository statement, and `engine` says which
+ * dialect the SQL text must be written for where the two differ.
+ */
 interface RawDb {
-  prepare(text: string): {
-    all(...params: unknown[]): unknown[]
-    run(...params: unknown[]): unknown
-  }
+  all<T = Record<string, unknown>>(statement: SQL): Promise<T[]>
+  run(statement: SQL): Promise<unknown>
 }
-const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
+const rawDb = (store: SessionStore): RawDb => store.database.queries.rootDb as unknown as RawDb
+const engineOf = (store: SessionStore) => dialectOf(store.database.queries.rootDb)
 
 /**
  * A whole store seen as a group's slice (`engine`, `all`, `run`): the slice seeds take that
  * shape, and a whole store holds every repository they write.
  */
-const dialect = new SQLiteDialect()
 function asSlice<T>(store: SessionStore): T {
   const view = Object.create(store) as Record<string, unknown>
-  const query = (statement: SQL) => {
-    const { sql: text, params } = dialect.sqlToQuery(statement)
-    return { prepared: rawDb(store).prepare(text), params }
-  }
-  view.engine = 'sqlite'
-  view.all = async (statement: SQL) => {
-    const { prepared, params } = query(statement)
-    return prepared.all(...params)
-  }
+  view.engine = engineOf(store)
+  view.all = async (statement: SQL) => await rawDb(store).all(statement)
   view.run = async (statement: SQL) => {
-    const { prepared, params } = query(statement)
-    prepared.run(...params)
+    await rawDb(store).run(statement)
   }
   return view as T
 }
@@ -881,14 +876,12 @@ const othersGroup: Group = {
     })
     // No repository writes these two: the kind generations are bumped by migrations, and the
     // upstream outbox is archived (read only). Raw rows of this workspace, for their reads.
-    rawDb(store)
-      .prepare('INSERT INTO sync_kind (workspace_id, kind, generation) VALUES (?, ?, ?)')
-      .run(sessions.WS[tag], 'isolation-kind', tag === 'a' ? 1 : 2)
-    rawDb(store)
-      .prepare(
-        'INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at, queue_order) VALUES (?, ?, ?, ?, ?, 1)',
-      )
-      .run(sessions.WS[tag], 'outbox-1', `${tag}.proc`, '{}', tag === 'a' ? 1 : 2)
+    await rawDb(store).run(
+      sql`INSERT INTO sync_kind (workspace_id, kind, generation) VALUES (${sessions.WS[tag]}, 'isolation-kind', ${tag === 'a' ? 1 : 2})`,
+    )
+    await rawDb(store).run(
+      sql`INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at, queue_order) VALUES (${sessions.WS[tag]}, 'outbox-1', ${`${tag}.proc`}, '{}', ${tag === 'a' ? 1 : 2}, 1)`,
+    )
     await store.pendingUploads.insert({
       id: 'pending-1',
       ownerUserId: ALICE,
@@ -1039,23 +1032,22 @@ const holdsSomething = (value: unknown): boolean =>
   )
 
 /** The workspace tables this database holds (search's key table exists only with search on). */
-function presentTables(store: SessionStore): string[] {
-  const names = new Set(
-    (
-      rawDb(store).prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
-        name: string
-      }[]
-    ).map((row) => row.name),
+async function presentTables(store: SessionStore): Promise<string[]> {
+  const rows = await rawDb(store).all<{ name: string }>(
+    engineOf(store) === 'pg'
+      ? sql`SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`
+      : sql`SELECT name FROM sqlite_master WHERE type = 'table'`,
   )
+  const names = new Set(rows.map((row) => row.name))
   return WORKSPACE_TABLES.filter((table) => names.has(table))
 }
 
 /** Every workspace table's rows of one workspace, each as a set (sorted by text). */
-function workspaceRows(store: SessionStore, ws: string): Record<string, string[]> {
+async function workspaceRows(store: SessionStore, ws: string): Promise<Record<string, string[]>> {
   const out: Record<string, string[]> = {}
-  for (const table of presentTables(store)) {
+  for (const table of await presentTables(store)) {
     out[table] = (
-      rawDb(store).prepare(`SELECT * FROM "${table}" WHERE workspace_id = ?`).all(ws) as unknown[]
+      await rawDb(store).all(sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${ws}`)
     )
       .map((row) => canonical(row))
       .sort()
@@ -1102,15 +1094,14 @@ async function checkGroup(group: Group, plant?: Plant): Promise<Outcome> {
         before.set(name, canonical(answer))
       }
       seeded[second] = await group.seed(stores[second], second)
-      for (const table of presentTables(stores.a)) {
-        const counts = (['a', 'b'] as const).map(
-          (tag) =>
-            (
-              rawDb(stores.a)
-                .prepare(`SELECT count(*) AS n FROM "${table}" WHERE workspace_id = ?`)
-                .all(group.ws[tag]) as { n: number }[]
-            )[0]!.n,
-        )
+      for (const table of await presentTables(stores.a)) {
+        const counts: number[] = []
+        for (const tag of ['a', 'b'] as const) {
+          const [row] = await rawDb(stores.a).all<{ n: number | string }>(
+            sql`SELECT count(*) AS n FROM ${sql.identifier(table)} WHERE workspace_id = ${group.ws[tag]}`,
+          )
+          counts.push(Number(row?.n ?? 0))
+        }
         if (counts.every((n) => n > 0)) filled.add(table)
       }
       for (const [name, exercise] of Object.entries(group.exercises)) {
@@ -1121,9 +1112,9 @@ async function checkGroup(group: Group, plant?: Plant): Promise<Outcome> {
       }
       for (const [name, exercise] of Object.entries(group.exercises)) {
         if (exercise.write === undefined) continue
-        const untouched = canonical(workspaceRows(stores.a, group.ws[second]))
+        const untouched = canonical(await workspaceRows(stores.a, group.ws[second]))
         await exercise.write(context(first))
-        if (canonical(workspaceRows(stores.a, group.ws[second])) !== untouched) {
+        if (canonical(await workspaceRows(stores.a, group.ws[second])) !== untouched) {
           findings.push(`${name}: a write in ${first} changed ${second}'s rows`)
         }
       }
@@ -1180,11 +1171,11 @@ describe('POD-7025 — no repository and no workspace table is left out', () => 
       install: (store) => {
         // The read's own statement, less `workspace_id = ?`: the newest row of the key wins.
         store.readWatermarks.getRecapWatermark = async (reader, sessionId) => {
-          const row = rawDb(store)
-            .prepare(
-              'SELECT watermark FROM recap_watermarks WHERE reader = ? AND session_id = ? ORDER BY rowid DESC LIMIT 1',
-            )
-            .all(reader, sessionId)[0] as { watermark: string } | undefined
+          // The second workspace's row first (ws_b sorts after ws_a): Postgres has no rowid to
+          // order the newest by, and both rows carry the same update time.
+          const [row] = await rawDb(store).all<{ watermark: string }>(
+            sql`SELECT watermark FROM recap_watermarks WHERE reader = ${reader} AND session_id = ${sessionId} ORDER BY workspace_id DESC LIMIT 1`,
+          )
           return row?.watermark ?? null
         }
       },

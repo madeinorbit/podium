@@ -111,7 +111,7 @@ describe('account scope read cache', () => {
           id: 'user-minted',
           displayName: 'Minted',
           role: 'member',
-          createdAt: 't0',
+          createdAt: '2026-01-01T00:00:00.000Z',
           disabledAt: null,
         },
         'hash',
