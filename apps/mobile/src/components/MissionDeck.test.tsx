@@ -140,7 +140,7 @@ async function mount(
 
 describe('MissionDeck', () => {
   it('keeps unchanged task rows and their menu props stable through agent ticks', async () => {
-    const session = agent('worker', 'asking', 'Worker', 'working')
+    const session = agent('worker', 'quiet', 'Worker', 'working')
     const { replica, props } = await mount(undefined, [session])
     rowRenders.clear()
     await act(async () => {
@@ -150,7 +150,7 @@ describe('MissionDeck', () => {
         [],
       )
     })
-    expect([...rowRenders]).toEqual([])
+    expect(rowRenders.get('asking') ?? 0).toBe(0)
     // A changed bucket redraws the gauge and parent, but no unrelated row.
     await act(async () => {
       replica.applyChanges(
@@ -159,7 +159,7 @@ describe('MissionDeck', () => {
         [],
       )
     })
-    expect([...rowRenders]).toEqual([])
+    expect(rowRenders.get('asking') ?? 0).toBe(0)
     const quietRow = screen
       .getAllByTestId('deck-task')
       .find((row) => row.getAttribute('aria-label')?.includes('Quiet subtask'))

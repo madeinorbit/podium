@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -32,6 +33,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
+  const rootId = root?.id
   useScreenReadFocus(root?.id)
   const router = useRouter()
   const seatMemory = useTaskSeatMemory()
@@ -47,6 +49,41 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
   useRevealSeat(screen, rawSession)
+  const openSession = useCallback(
+    (session: SessionView) => {
+      if (!rootId) return
+      const path =
+        `/mission/${encodeURIComponent(rootId)}?sessionId=${encodeURIComponent(session.sessionId)}` as const
+      if (Platform.OS === 'web') router.dismissTo(path)
+      else router.push(path)
+    },
+    [rootId, router],
+  )
+  const openTask = useCallback(
+    (issue: IssueNavigationModel) => {
+      if (!screen || !rootId) return
+      if (Platform.OS === 'web' || issue.stage === 'proposed') {
+        const path = `/inspect/${encodeURIComponent(issue.id)}` as const
+        if (Platform.OS === 'web') router.replace(path)
+        else router.push(path)
+        return
+      }
+      const open = deckTaskOpen(issue, screen, seatMemory.recall(rootId))
+      router.push(
+        open.kind === 'chat'
+          ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(open.sessionId)}`
+          : open.href,
+      )
+    },
+    [screen, seatMemory, rootId, router],
+  )
+  const openTaskMenu = useCallback((issue: IssueNavigationModel, sheet?: WorkMenuSheet) => {
+    setMenu({ issue, ...(sheet ? { sheet } : {}) })
+  }, [])
+  const screenProposals = useCallback(() => {
+    if (Platform.OS === 'web') router.replace('/screen-proposed')
+    else router.push('/screen-proposed')
+  }, [router])
 
   return (
     <Screen
@@ -66,37 +103,10 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
           currentSessionId={
             screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }
-          onOpenSession={(session) =>
-            Platform.OS === 'web'
-              ? router.dismissTo(
-                  `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
-                )
-              : router.push(
-                  `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
-                )
-          }
-          onOpenTask={(issue) => {
-            if (Platform.OS === 'web' || issue.stage === 'proposed') {
-              const path = `/inspect/${encodeURIComponent(issue.id)}` as const
-              if (Platform.OS === 'web') router.replace(path)
-              else router.push(path)
-              return
-            }
-            // A task tap chooses from that task's own open seats. Restoring the
-            // mission workspace without an explicit seat can reopen its parent.
-            const open = deckTaskOpen(issue, screen, seatMemory.recall(root.id))
-            router.push(
-              open.kind === 'chat'
-                ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(open.sessionId)}`
-                : open.href,
-            )
-          }}
-          onOpenTaskMenu={(issue, sheet) => setMenu({ issue, ...(sheet ? { sheet } : {}) })}
-          onScreenProposals={() =>
-            Platform.OS === 'web'
-              ? router.replace('/screen-proposed')
-              : router.push('/screen-proposed')
-          }
+          onOpenSession={openSession}
+          onOpenTask={openTask}
+          onOpenTaskMenu={openTaskMenu}
+          onScreenProposals={screenProposals}
         />
       ) : (
         <EmptyState fill title="Mission not found." />

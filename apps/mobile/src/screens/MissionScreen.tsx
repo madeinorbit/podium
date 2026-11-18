@@ -241,6 +241,9 @@ export const MissionScreen = observer(function MissionScreen() {
     issue: IssueNavigationModel
     sheet?: WorkMenuSheet
   } | null>(null)
+  const openTaskMenu = useCallback((issue: IssueNavigationModel, sheet?: WorkMenuSheet) => {
+    setMenu({ issue, ...(sheet ? { sheet } : {}) })
+  }, [])
   const menuIssue = menu?.issue ?? null
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
@@ -366,12 +369,12 @@ export const MissionScreen = observer(function MissionScreen() {
             currentSessionId={currentId}
             onOpenSession={openDeckSession}
             onOpenTask={openDeckTask}
-            onOpenTaskMenu={(issue, sheet) => setMenu({ issue, ...(sheet ? { sheet } : {}) })}
+            onOpenTaskMenu={openTaskMenu}
             onScreenProposals={screenProposals}
           />
         </DeckPage>
       ) : null,
-    [currentId, openDeckSession, openDeckTask, paged, root, screen, screenProposals],
+    [currentId, openDeckSession, openDeckTask, openTaskMenu, paged, root, screen, screenProposals],
   )
 
   return (
