@@ -358,7 +358,10 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
             .catch((error: unknown) => options.onDegraded?.(error))
         }
       },
-      batchEvents: (emitAll) => facade.batch(emitAll),
+      // One burst, one notification of each kind: the facade's rows, then the
+      // loader's markers and stubs, each once per burst (POD-7165).
+      batchEvents: (emitAll) =>
+        loader === undefined ? facade.batch(emitAll) : loader.batch(() => facade.batch(emitAll)),
       // The one loader (POD-7087): the visible view rides in the first
       // download, and what held records come with shares its window.
       view: () => loader?.takeView() ?? [],

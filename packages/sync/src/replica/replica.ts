@@ -168,6 +168,15 @@ const FETCH_MAX_INSTANCES = 200
  */
 const INSTALL_BATCH_ROWS = 4096
 
+/**
+ * POD-7165 — the automatic cache trim waits until no fetch has run for this
+ * long. A trim reads every row and instance on the device; a view that opens
+ * fetches in waves (a tree, what it comes with, a parent at a time), and a
+ * trim after each wave cost more than the wave. The cap is a target, not a
+ * wall: the cache may stand above it for the length of a burst of fetches.
+ */
+const TRIM_QUIET_MS = 1_000
+
 /** What `arrivedBy` answers for a step that has not arrived by the next task. */
 const NOT_YET: unique symbol = Symbol('not yet')
 
@@ -334,10 +343,20 @@ export class Replica implements DeviceCollectionReads {
   private fetchCount = 0
   private fetchAbort = new AbortController()
   private fetching: Promise<void> = Promise.resolve()
+  /**
+   * POD-7165: a fetched answer's install takes a task of its own. Pending while
+   * an install has run in the current task; the next waits for the next task,
+   * so the page draws and takes input between two installs instead of running
+   * every answer that has arrived, and every view's reaction to it, as one task.
+   */
+  private installTurn: Promise<void> | null = null
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
   private trimScheduled = false
+  /** A trim was asked for while a fetch was in flight: it runs once none is. */
+  private trimAfterFetches = false
+  private trimTimer: ReturnType<typeof setTimeout> | undefined
   private heldIndexCache:
     | {
         readonly instances: ReadonlyMap<string, InstanceRecord>
@@ -354,6 +373,7 @@ export class Replica implements DeviceCollectionReads {
     bootstraps: 0,
     framesApplied: 0,
     watermarksApplied: 0,
+    trims: 0,
     pendingGap: false,
   }
 
@@ -401,6 +421,7 @@ export class Replica implements DeviceCollectionReads {
       bootstraps: this.counters.bootstraps,
       framesApplied: this.counters.framesApplied,
       watermarksApplied: this.counters.watermarksApplied,
+      trims: this.counters.trims,
       entityCount: this.store.readEntities().length,
     }
   }
@@ -530,6 +551,11 @@ export class Replica implements DeviceCollectionReads {
 
   /** Go offline. The last-known slice stays VISIBLE, marked stale (D7). Never blank. */
   disconnect(): TransitionOutcome {
+    if (this.trimTimer !== undefined) {
+      clearTimeout(this.trimTimer)
+      this.trimTimer = undefined
+      this.trimScheduled = false
+    }
     // Abandon any walk in flight: its staging is discarded, never half-installed.
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
@@ -1848,30 +1874,74 @@ export class Replica implements DeviceCollectionReads {
         // The earliest answer of a reload: a row of its kinds current only as
         // of an earlier number was in none of its answers.
         let reloadedAt: BootstrapChunk | undefined
+        // POD-7165: the chunks of an answer that have ARRIVED install together,
+        // as one store write and one burst of events, up to INSTALL_BATCH_ROWS
+        // (the first download's walk does the same, POD-7122). One install per
+        // chunk made every view re-derive once per chunk: a deck's tree and the
+        // sessions of its 1,000 issues froze the page for minutes. The fetch
+        // never waits for more data to install what it has, so an answer that
+        // stalls or breaks off keeps every chunk it delivered.
+        const pending: BootstrapChunk[] = []
+        let pendingRows = 0
+        const install = async (): Promise<void> => {
+          if (pending.length === 0) return
+          await this.takeInstallTurn()
+          if (pending.length === 0) return
+          const chunk = mergeChunks(pending)
+          pending.length = 0
+          pendingRows = 0
+          const write = (): void => {
+            written.push(
+              ...this.installChunk(chunk, {
+                signal,
+                ...(reload === undefined ? {} : { reload }),
+              }),
+            )
+          }
+          if (insideLoad) write()
+          else await this.serial(write)
+        }
         for (let at = 0; at < fresh.length; at += FETCH_MAX_INSTANCES) {
           const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
-          for await (const chunk of collections(batch, signal)) {
-            if (signal.aborted) return
-            this.validateChunk(chunk)
-            const cursor = this.cursorValue
-            if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
-              throw new Error('a collection answer is for another feed')
-            if (reloadedAt === undefined || chunk.snapshotSeq < reloadedAt.snapshotSeq)
-              reloadedAt = chunk
-            if (!insideLoad)
-              for (const change of chunk.changes)
-                named.set(entityKey(change.entity, change.entityId), change)
-            const install = (): void => {
-              written.push(
-                ...this.installChunk(chunk, {
-                  signal,
-                  ...(reload === undefined ? {} : { reload }),
-                }),
-              )
+          const chunks = collections(batch, signal)[Symbol.asyncIterator]()
+          try {
+            for (;;) {
+              const next = chunks.next()
+              let step: IteratorResult<BootstrapChunk> | typeof NOT_YET =
+                pending.length === 0 ? await next : await arrivedBy(next)
+              if (step === NOT_YET) {
+                await install()
+                step = await next
+              }
+              if (step.done === true) break
+              const chunk = step.value
+              if (signal.aborted) return
+              this.validateChunk(chunk)
+              const cursor = this.cursorValue
+              if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
+                throw new Error('a collection answer is for another feed')
+              if (reloadedAt === undefined || chunk.snapshotSeq < reloadedAt.snapshotSeq)
+                reloadedAt = chunk
+              if (!insideLoad)
+                for (const change of chunk.changes)
+                  named.set(entityKey(change.entity, change.entityId), change)
+              // Chunks merge only as of one feed number: newest wins per record.
+              if (pending.length > 0 && pending[0]?.snapshotSeq !== chunk.snapshotSeq)
+                await install()
+              pending.push(chunk)
+              pendingRows += rowsOfChunk(chunk)
+              if (chunk.last) break
+              if (pendingRows >= INSTALL_BATCH_ROWS) await install()
             }
-            if (insideLoad) install()
-            else await this.serial(install)
-            if (chunk.last) break
+            await install()
+          } catch (error) {
+            // The answer broke off: the chunks that arrived whole stay (POD-7086).
+            if (!signal.aborted) await install()
+            throw error
+          } finally {
+            pending.length = 0
+            pendingRows = 0
+            void chunks.return?.()?.catch(() => undefined)
           }
         }
         // Swept once, after every batch: sweeping after the first would take
@@ -1882,7 +1952,13 @@ export class Replica implements DeviceCollectionReads {
         for (const request of fresh) this.inFlight.delete(instanceKey(request))
         this.inFlightVersion += 1
         this.fetchCount -= 1
-        if (this.fetchCount === 0) this.seen = null
+        if (this.fetchCount === 0) {
+          this.seen = null
+          if (this.trimAfterFetches) {
+            this.trimAfterFetches = false
+            this.scheduleTrim()
+          }
+        }
       }
       if (signal.aborted) return
       // What the records this answer brought come with (design "One loader"):
@@ -2059,16 +2135,35 @@ export class Replica implements DeviceCollectionReads {
 
   private scheduleTrim(): void {
     if (this.trimScheduled || this.store.readPolicy() === null) return
+    // POD-7165: one trim once the fetches are done and quiet (TRIM_QUIET_MS),
+    // not one after each of them. What a fetch in flight brings is kept
+    // anyway (POD-7155).
+    if (this.fetchCount > 0) {
+      this.trimAfterFetches = true
+      return
+    }
     this.trimScheduled = true
-    void this.serial(() => {
-      this.trimScheduled = false
-      this.trimNow()
-    }).catch(() => undefined)
+    const timer = setTimeout(() => {
+      this.trimTimer = undefined
+      // A fetch started meanwhile: the trim waits for it, and then for quiet again.
+      if (this.fetchCount > 0) {
+        this.trimScheduled = false
+        this.trimAfterFetches = true
+        return
+      }
+      void this.serial(() => {
+        this.trimScheduled = false
+        this.trimNow()
+      }).catch(() => undefined)
+    }, TRIM_QUIET_MS)
+    ;(timer as { unref?: () => void }).unref?.()
+    this.trimTimer = timer
   }
 
   private trimNow(): void {
     const policy = this.store.readPolicy()
     if (policy === null || this.state === 'bootstrapping') return
+    this.counters.trims += 1
     const held = new Set<string>([
       ...policyInstances(policy).map((spec) => instanceKey(spec)),
       ...this.holds.keys(),
@@ -2112,6 +2207,14 @@ export class Replica implements DeviceCollectionReads {
       for (const row of [...plan.toStub, ...plan.remove])
         this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
       if (plan.dropInstances.length > 0) this.emit({ type: 'markers' })
+    })
+  }
+
+  /** Wait for a task in which no fetched answer has installed yet, and take it. */
+  private async takeInstallTurn(): Promise<void> {
+    while (this.installTurn !== null) await this.installTurn
+    this.installTurn = nextTask().then(() => {
+      this.installTurn = null
     })
   }
 

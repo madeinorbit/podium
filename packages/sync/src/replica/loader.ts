@@ -85,6 +85,8 @@ export interface LoaderStats {
   instances: number
   /** Instances that rode in the first download's view step. */
   viewInstances: number
+  /** Changes told to the views: at most one of each kind per burst (POD-7165). */
+  notifications: number
 }
 
 const realSchedule: LoaderSchedule = (run, ms) => {
@@ -111,7 +113,7 @@ interface Queued {
 
 export class CollectionLoader {
   readonly windowMs: number
-  readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0 }
+  readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0, notifications: 0 }
   private readonly replica: LoaderReplica
   private readonly schedule: LoaderSchedule
   private readonly queue = new Map<string, Queued>()
@@ -121,6 +123,9 @@ export class CollectionLoader {
   private readonly riding = new Map<string, InstanceRequest>()
   private readonly listeners = new Set<(change: LoaderChange) => void>()
   private cancel: (() => void) | null = null
+  /** Inside a burst of the Replica's events: what moved, told once when it ends. */
+  private burst = 0
+  private readonly moved = new Set<LoaderChange>()
   private connected = false
   private disposed = false
   /** The device started empty and its first download has not finished. */
@@ -249,6 +254,26 @@ export class CollectionLoader {
     }
     this.stats.viewInstances += out.length
     return out
+  }
+
+  /**
+   * One burst of the Replica's events (the composition root's `batchEvents`):
+   * the views hear each kind of change once, when the burst ends, not once
+   * per record (POD-7165: an answer of 1,000 issues told every view of the
+   * stubs 1,000 times).
+   */
+  batch(emitAll: () => void): void {
+    this.burst += 1
+    try {
+      emitAll()
+    } finally {
+      this.burst -= 1
+      if (this.burst === 0 && this.moved.size > 0) {
+        const moved = [...this.moved]
+        this.moved.clear()
+        for (const change of moved) this.notify(change)
+      }
+    }
   }
 
   /** Pipe the Replica's events here (the composition root fans them out). */
@@ -387,6 +412,11 @@ export class CollectionLoader {
   }
 
   private notify(change: LoaderChange): void {
+    if (this.burst > 0) {
+      this.moved.add(change)
+      return
+    }
+    this.stats.notifications += 1
     for (const listener of [...this.listeners]) {
       try {
         listener(change)

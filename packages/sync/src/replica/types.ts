@@ -451,5 +451,7 @@ export interface ReplicaStats {
   readonly bootstraps: number
   readonly framesApplied: number
   readonly watermarksApplied: number
+  /** Cache trims run (POD-7165: one once the fetches in flight are done, not one per answer). */
+  readonly trims: number
   readonly entityCount: number
 }

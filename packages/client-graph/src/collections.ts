@@ -26,7 +26,7 @@
  */
 
 import { createDemandAtoms } from '@podium/mobx-helpers'
-import { createAtom, type IAtom } from 'mobx'
+import { createAtom, type IAtom, runInAction } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
 import type { CollectionLoaderPort, LoaderInstance } from './shared/source'
@@ -89,6 +89,86 @@ export interface StubTreeProgress {
 
 const ISSUE = LOADER_KIND.issue
 
+/** What a reader of an instance's marker reads: whether it is held, to where, of how many, refused. */
+interface MarkerSeen {
+  readonly held: boolean
+  readonly end: boolean | undefined
+  readonly through: string | undefined
+  readonly total: number | undefined
+  readonly refused: boolean
+}
+
+const sameMarker = (a: MarkerSeen, b: MarkerSeen): boolean =>
+  a.held === b.held &&
+  a.end === b.end &&
+  a.through === b.through &&
+  a.total === b.total &&
+  a.refused === b.refused
+
+const sameStub = (a: IssueStub | undefined, b: IssueStub | undefined): boolean => {
+  if (a === b) return true
+  if (a === undefined || b === undefined) return false
+  const keys = Object.keys(a) as (keyof IssueStub)[]
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
+}
+
+const sameChildCounts = (a: StubChildCounts, b: StubChildCounts): boolean =>
+  a.childCount === b.childCount && a.childDoneCount === b.childDoneCount
+
+/**
+ * POD-7165 — what views read at one key (an instance's marker, an issue's
+ * stub, a parent's child counts), each key with its own atom. When the device
+ * store says the markers or the stubs moved, each read key is read again and
+ * only the readers of a key whose value moved are told. One atom for every
+ * key told every reader after every install: opening a deck of 1,000 issues
+ * re-ran every row's reads once per answer, and once per parent in a chain.
+ */
+class KeyedReads<T> {
+  private readonly seen = new Map<string, T>()
+  private readonly demand: ReturnType<typeof createDemandAtoms<string>>
+
+  constructor(
+    name: string,
+    private readonly value: (key: string) => T,
+    private readonly same: (a: T, b: T) => boolean,
+    onUnobserved?: (key: string) => void,
+  ) {
+    this.demand = createDemandAtoms<string>((key) => `${name}:${key}`, {
+      onUnobserved: (key) => {
+        this.seen.delete(key)
+        onUnobserved?.(key)
+      },
+    })
+  }
+
+  /** TRACKED: the value at `key`. */
+  read(key: string): T {
+    const value = this.value(key)
+    if (this.demand.observe(key) && !this.seen.has(key)) this.seen.set(key, value)
+    return value
+  }
+
+  /** Whether a reader observes `key`. */
+  tracks(key: string): boolean {
+    return this.seen.has(key)
+  }
+
+  /** What the keys read from moved: tell the readers of each key whose value did. Call inside an action. */
+  moved(): void {
+    for (const [key, before] of this.seen) {
+      const now = this.value(key)
+      if (this.same(before, now)) continue
+      this.seen.set(key, now)
+      this.demand.get(key)?.reportChanged()
+    }
+  }
+
+  clear(): void {
+    this.seen.clear()
+    this.demand.clear()
+  }
+}
+
 /** One instance, as the reads map keys it (the kernel's instance key, minus a page's position). */
 const readKey = (spec: LoaderInstance): string =>
   JSON.stringify([
@@ -130,6 +210,33 @@ export class PoolCollections {
     onUnobserved: (key) => this.releaseRead(key),
   })
 
+  /** POD-7165: the instances whose markers views read, by key, each told only when it moved. */
+  private readonly markerSpecs = new Map<string, LoaderInstance>()
+  private readonly markerReads = new KeyedReads<MarkerSeen>(
+    'pool.collections.marker',
+    (key) => this.markerOf(this.markerSpecs.get(key)),
+    sameMarker,
+    (key) => this.markerSpecs.delete(key),
+  )
+  /** POD-7165: an issue's stub, by id, told only when it moved. */
+  private readonly stubReads = new KeyedReads<IssueStub | undefined>(
+    'pool.collections.stub',
+    (id) => this.loader()?.stubOf(ISSUE, id) as IssueStub | undefined,
+    sameStub,
+  )
+  /** POD-7165: a parent's child counts, by parent, told only when they moved. */
+  private readonly childCountReads = new KeyedReads<StubChildCounts>(
+    'pool.collections.children',
+    (parentId) => {
+      const loader = this.loader()
+      const children = loader?.stubsByParent(parentId) ?? []
+      let done = 0
+      for (const id of children) if (loader?.stubOf(ISSUE, id)?.['stage'] === 'done') done += 1
+      return { childCount: children.length, childDoneCount: done }
+    },
+    sameChildCounts,
+  )
+
   constructor(private source: () => CollectionLoaderPort | undefined) {
     this.markers = createAtom('pool.collections.markers')
     this.stubs = createAtom('pool.collections.stubs')
@@ -142,8 +249,8 @@ export class PoolCollections {
    */
   attach(source: () => CollectionLoaderPort | undefined): void {
     this.source = source
-    this.markers.reportChanged()
-    this.stubs.reportChanged()
+    this.markersMoved()
+    this.stubsMoved()
     this.connection.reportChanged()
   }
 
@@ -155,8 +262,7 @@ export class PoolCollections {
       this.off?.()
       this.bound = loader
       this.off = loader?.subscribe((change) => {
-        if (change === 'markers') this.markers.reportChanged()
-        else if (change === 'stubs') this.stubs.reportChanged()
+        if (change === 'markers' || change === 'stubs') this.moved(change)
         else this.connection.reportChanged()
       })
     }
@@ -172,13 +278,13 @@ export class PoolCollections {
 
   /** TRACKED: whether the device holds the instance complete. */
   complete(spec: LoaderInstance): boolean {
-    this.markers.reportObserved()
+    this.observeMarker(spec)
     return this.loader()?.isComplete(spec) !== undefined
   }
 
   /** TRACKED: here, on its way, or not loadable without a connection. */
   status(spec: LoaderInstance): Availability {
-    this.markers.reportObserved()
+    this.observeMarker(spec)
     this.connection.reportObserved()
     return this.loader()?.status(spec) ?? 'complete'
   }
@@ -213,7 +319,7 @@ export class PoolCollections {
 
   /** TRACKED: whether the device holds a paged instance to its end (or whole). */
   pageEnded(spec: LoaderInstance): boolean {
-    this.markers.reportObserved()
+    this.observeMarker(spec)
     this.holdWhileRead(spec)
     const marker = this.loader()?.isComplete(spec)
     return marker !== undefined && (marker.range === undefined || marker.range.end)
@@ -221,7 +327,7 @@ export class PoolCollections {
 
   /** TRACKED: a paged instance's whole size for this viewer, from its first page. */
   pageTotal(spec: LoaderInstance): number | typeof LOADING {
-    this.markers.reportObserved()
+    this.observeMarker(spec)
     this.holdWhileRead(spec)
     return this.loader()?.isComplete(spec)?.total ?? LOADING
   }
@@ -286,7 +392,7 @@ export class PoolCollections {
     const loader = this.loader()
     if (loader === undefined) return undefined
     const spec = oneRecordOf(entity, id)
-    this.markers.reportObserved()
+    this.observeMarker(spec)
     if (loader.isComplete(spec) !== undefined || loader.wasRefused(spec)) return NOT_VISIBLE
     loader.request([spec], 'visible')
     return LOADING
@@ -294,8 +400,7 @@ export class PoolCollections {
 
   /** TRACKED: the issue's stub as the device holds it (a stub, or picked from the whole record). */
   stubOf(id: string): IssueStub | undefined {
-    this.stubs.reportObserved()
-    return this.loader()?.stubOf(ISSUE, id) as IssueStub | undefined
+    return this.stubReads.read(id)
   }
 
   /** TRACKED: the issue with this repository and number, by the stubs the device holds. */
@@ -418,11 +523,7 @@ export class PoolCollections {
   childCounts(parentId: string): StubChildCounts | typeof LOADING {
     const loader = this.loader()
     if (loader === undefined || !this.coversTreeOf(parentId)) return LOADING
-    this.stubs.reportObserved()
-    const children = loader.stubsByParent(parentId)
-    let done = 0
-    for (const id of children) if (loader.stubOf(ISSUE, id)?.['stage'] === 'done') done += 1
-    return { childCount: children.length, childDoneCount: done }
+    return this.childCountReads.read(parentId)
   }
 
   /** TRACKED: every issue under `root` and how many are done, from the stubs. */
@@ -464,6 +565,72 @@ export class PoolCollections {
     if (own || this.complete(treeOf(root, 'main'))) return true
     loader.request([treeOf(root, 'main')], 'visible')
     return false
+  }
+
+  /** TRACKED: what a reader reads of `spec`'s marker. */
+  private observeMarker(spec: LoaderInstance): void {
+    const key = readKey(spec)
+    if (!this.markerSpecs.has(key)) {
+      const { after: _position, ...instance } = spec
+      this.markerSpecs.set(key, instance)
+    }
+    this.markerReads.read(key)
+    // Read outside a view: nothing to tell later.
+    if (!this.markerReads.tracks(key)) this.markerSpecs.delete(key)
+  }
+
+  private markerOf(spec: LoaderInstance | undefined): MarkerSeen {
+    const loader = this.loader()
+    const marker = spec === undefined ? undefined : loader?.isComplete(spec)
+    return {
+      held: marker !== undefined,
+      end: marker?.range?.end,
+      through:
+        marker?.range?.through === undefined ? undefined : JSON.stringify(marker.range.through),
+      total: marker?.total,
+      refused: spec !== undefined && (loader?.wasRefused(spec) ?? false),
+    }
+  }
+
+  /**
+   * The device store's markers or stubs moved. The views hear of it in the
+   * next microtask, in one action: after the row source's publication of the
+   * same burst, which it queued first. A view never reads a marker that
+   * vouches for a record the pool does not show yet, which reads as "gone".
+   */
+  private moved(change: 'markers' | 'stubs'): void {
+    if (this.pendingMoves === undefined) {
+      this.pendingMoves = new Set()
+      queueMicrotask(() => {
+        const moves = this.pendingMoves
+        this.pendingMoves = undefined
+        if (moves === undefined || this.disposed) return
+        runInAction(() => {
+          if (moves.has('markers')) this.markersMoved()
+          if (moves.has('stubs')) this.stubsMoved()
+        })
+      })
+    }
+    this.pendingMoves.add(change)
+  }
+
+  private pendingMoves: Set<'markers' | 'stubs'> | undefined
+
+  /** The markers moved: tell the readers of each instance whose marker did, in one action. */
+  private markersMoved(): void {
+    runInAction(() => {
+      this.markers.reportChanged()
+      this.markerReads.moved()
+    })
+  }
+
+  /** The stubs moved: tell the readers of a whole-history question, and of each stub and child count that did. */
+  private stubsMoved(): void {
+    runInAction(() => {
+      this.stubs.reportChanged()
+      this.stubReads.moved()
+      this.childCountReads.moved()
+    })
   }
 
   /** TRACKED: an open view reads `spec`; it is held while that view observes it. */
@@ -516,6 +683,10 @@ export class PoolCollections {
     this.disposed = true
     for (const key of [...this.reads.keys()]) this.releaseRead(key)
     this.readDemand.clear()
+    this.markerReads.clear()
+    this.markerSpecs.clear()
+    this.stubReads.clear()
+    this.childCountReads.clear()
     this.off?.()
     this.off = undefined
     this.bound = undefined

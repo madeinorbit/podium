@@ -108,7 +108,10 @@ async function boot(
       facade.onKernelEvent(event)
       loader?.onEvent(event)
     },
-    batchEvents: (emit) => facade.batch(emit),
+    // As the app composes it (assembly.ts): the facade's rows, then the
+    // loader's markers and stubs, each once per burst (POD-7165).
+    batchEvents: (emit) =>
+      loader === undefined ? facade.batch(emit) : loader.batch(() => facade.batch(emit)),
   })
   loader = new CollectionLoader({ replica, schedule: timer.schedule })
   const rows = createRowSource({ principal: { userId: 'u-ada' } }, facade, {
@@ -203,6 +206,41 @@ describe('a lookup through the one loader', () => {
       stop()
     }
   })
+})
+
+it('a marker landing tells only the readers of its instance (POD-7165)', async () => {
+  const { pool, loader, settle } = await boot((server) => {
+    server.put(ISSUE, 'A', value('A', { stage: 'done', closedReason: 'completed' }))
+    server.put(ISSUE, 'B', value('B', { stage: 'done', closedReason: 'completed' }))
+  })
+  const a = oneRecordOf('issue', 'A')
+  const b = oneRecordOf('issue', 'B')
+  const runs = { a: 0, b: 0 }
+  const stopA = autorun(() => {
+    pool.collections.complete(a)
+    runs.a += 1
+  })
+  const stopB = autorun(() => {
+    pool.collections.complete(b)
+    runs.b += 1
+  })
+  try {
+    expect(pool.collections.complete(a)).toBe(false)
+    loader.request([a as InstanceSpec], 'visible')
+    await settle()
+    expect(pool.collections.complete(a)).toBe(true)
+    expect(runs.a).toBe(2)
+    // B's marker did not move: its reader never re-ran, however many installs.
+    expect(runs.b).toBe(1)
+    expect(pool.collections.complete(b)).toBe(false)
+    loader.request([b as InstanceSpec], 'visible')
+    await settle()
+    expect(runs.b).toBe(2)
+    expect(runs.a).toBe(2)
+  } finally {
+    stopA()
+    stopB()
+  }
 })
 
 it('server search adopts hits as cached one-record instances through the real loader', async () => {

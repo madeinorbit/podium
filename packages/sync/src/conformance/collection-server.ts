@@ -13,7 +13,7 @@
  * chosen feed number, which is what the ordering and resume cases need.
  */
 
-import { COLLECTIONS, matchesWhere, recordOf } from '@podium/model'
+import { COLLECTIONS, matchesWhere, type RuleValue, recordOf, resolveValue } from '@podium/model'
 import { policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
@@ -118,12 +118,21 @@ export class CollectionServer implements AuthorityReadPort {
   dieAfterChunks: number | undefined
   private chunksServed = 0
   private readonly rows = new Map<string, WorldRow>()
+  /** The same rows by record type, then id: an answer reads one type. */
+  private readonly byEntity = new Map<string, Map<string, WorldRow>>()
   private readonly log: ChangeEnvelope[] = []
 
   /** Write a record; returns its feed change. */
   put(entity: string, id: string, value: Readonly<Record<string, unknown>>): ChangeEnvelope {
     this.head += 1
-    this.rows.set(rowKey(entity, id), { entity, id, value, seq: this.head })
+    const row: WorldRow = { entity, id, value, seq: this.head }
+    this.rows.set(rowKey(entity, id), row)
+    let ofEntity = this.byEntity.get(entity)
+    if (ofEntity === undefined) {
+      ofEntity = new Map()
+      this.byEntity.set(entity, ofEntity)
+    }
+    ofEntity.set(id, row)
     const change: ChangeEnvelope = {
       seq: this.head,
       entity,
@@ -139,6 +148,7 @@ export class CollectionServer implements AuthorityReadPort {
   drop(entity: string, id: string, op: 'remove' | 'evict' = 'remove'): ChangeEnvelope {
     this.head += 1
     this.rows.delete(rowKey(entity, id))
+    this.byEntity.get(entity)?.delete(id)
     const change: ChangeEnvelope = { seq: this.head, entity, entityId: id, op }
     this.log.push(change)
     return change
@@ -208,8 +218,22 @@ export class CollectionServer implements AuthorityReadPort {
     const parentLink = declaration?.parentLink
     const key = declaration?.key
     const of = resolved.of
-    return [...this.rows.values()]
-      .filter((row) => row.entity === of)
+    // A single clause testing a field for one value (`ofIssue`, `one`) reads
+    // only the rows with that value; the rule below still decides (POD-7165:
+    // a deck's thousands of instances each scanned every row).
+    const where = resolved.where
+    let candidates: Iterable<WorldRow> = this.byEntity.get(of)?.values() ?? []
+    if (where !== undefined && !Array.isArray(where)) {
+      for (const [field, test] of Object.entries(where as Readonly<Record<string, unknown>>)) {
+        if (field.includes('.') || test === null || typeof test !== 'object' || !('eq' in test))
+          continue
+        const wanted = resolveValue((test as { eq: RuleValue }).eq, resolved.args ?? {})
+        if (typeof wanted !== 'string') continue
+        candidates = [...candidates].filter((row) => row.value[field] === wanted)
+        break
+      }
+    }
+    return [...candidates]
       .filter(
         (row) =>
           resolved.where === undefined ||
