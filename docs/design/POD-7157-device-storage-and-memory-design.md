@@ -87,13 +87,26 @@ memory without reading the disk. IndexedDB reads are asynchronous, and a read be
 would be slow. So the device keeps a compact index of everything on disk, always in memory:
 
 - per record (`entity\0id`): its feed number (for "newest wins"), its level (stub, main, body),
-  its approximate size in bytes, and the instances that hold it;
-- per instance: its marker, its member keys, its last-read time, and whether it is in memory.
+  its approximate size in bytes, the instances that hold it, and one **comes-with complete** bit;
+- per instance that is NOT keyed by a record: its key, completeAt, last-read time, and whether it
+  is in memory, packed. The full marker (range, total) stays on disk, and is read with the
+  instance's rows when it is loaded into memory.
 
-It replaces today's in-memory holdings and `InstanceMap` as the source of truth for "what the
-device holds", and it lives beside the stub table. Estimate at the operator's size (about 30,000
-records and 2,000 instances): 3 to 5 MB. It is written to disk with every commit (the marker
-table already is), and read whole at start, with no rows.
+**What comes with a record is not a separate instance.** A keyed comes-with instance (via a
+record: `issueDep.ofIssue`, `issueGitState.ofIssue`, `session.ofIssue` and the like) is recorded
+as that record's comes-with complete bit, not as a marker of its own. Measured by POD-7159 at
+operator size, separate markers made instances outnumber records 2.4 to 4 times (38,000
+instances for 15,600 records), and grew the start heap with history. With the bit, the number of
+markers is bounded by views and policy collections, not by records.
+
+**The index on disk is bucketed.** It is stored as about 256 bucket rows (arrays), not one row per
+record and instance, so reading it at start is a few large reads. The instance state is folded
+into the marker rows that are already read.
+
+Budgets, checked by POD-7159 and again by POD-7164: index read under 150 ms at operator size on
+vega2 web, and the start heap does not grow with what is on disk. It replaces today's in-memory
+holdings and `InstanceMap` as the source of truth for "what the device holds", and it lives
+beside the stub table. Estimate at the operator's size (about 16,000 records): 2 to 4 MB.
 
 **Offline and gaps.** When the feed cannot bridge a gap (`resync-required`, a rescope or an
 epoch change):
