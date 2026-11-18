@@ -4,16 +4,18 @@
  * composition and pool in a separate process; they share ONE disposable Postgres
  * template clone. No live database URL is accepted. No agents or PTYs are launched.
  *
- * Run ONE configuration at a time on the agent VM, for example:
+ * Run on the agent VM, for example:
  *   bun --conditions=@podium/source scripts/measure-workspace-writes.ts \
  *     --writers 16 --workspaces 1 --processes 2 --latency-ms 2.6 --seconds 15
  *
  * Matrix: writers 1/4/16/64, workspaces 1/4, processes 1/2, latency 0/2.6.
+ * --matrix runs eight configurations for the selected latency/process count.
+ * --recorder-cost also times the local bookkeeping with no metric readers.
  * --out saves the full report. Stdout always contains WORKSPACE-LOCK-RESULT JSON.
  * Setup, warming and shutdown are excluded; admitted operations and their effects
  * drain before the measurement closes. Duration includes that drain.
  */
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,6 +33,7 @@ interface Config {
 interface WorkerReport {
   elapsedMs: number
   operations: Record<string, number>
+  sourceWrites: Record<string, number>
   samples: WorkspaceWriteObservation[]
   roundTrips: number
   injectedInsideHoldMs: number
@@ -43,6 +46,10 @@ const argument = (name: string): string | undefined => {
   const at = process.argv.indexOf(`--${name}`)
   return at === -1 ? undefined : process.argv[at + 1]
 }
+const exited = (child: ChildProcess): boolean =>
+  child.exitCode !== null || child.signalCode !== null
+const waitForExit = (child: ChildProcess): Promise<void> =>
+  exited(child) ? Promise.resolve() : new Promise((resolve) => child.once('exit', () => resolve()))
 const integer = (name: string, fallback: number): number => {
   const value = Number(argument(name) ?? fallback)
   if (!Number.isInteger(value) || value < 1) throw new Error(`--${name} must be a positive integer`)
@@ -143,6 +150,12 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
   let injectedInsideHoldMs = 0
   let captureDrainMs = 0
   let captureDrains = 0
+  const sourceWrites: Record<string, number> = {
+    runtime_events: 0,
+    messages: 0,
+    effects: 0,
+    sessions: 0,
+  }
   let base: Store | undefined
 
   const settle = async () => {
@@ -158,9 +171,8 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
     const mine = Array.from({ length: config.writers }, (_, i) => i).filter(
       (i) => Math.floor(i / config.workspaces) % config.processes === workerIndex,
     )
-    const workspaceIndices = [
-      ...new Set(mine.map((i) => i % config.workspaces)),
-    ]
+    const workspaceIndices = [...new Set(mine.map((i) => i % config.workspaces))]
+    const workspaceStores: { store: Store; workspaceIndex: number }[] = []
     for (const workspaceIndex of workspaceIndices) {
       const workspace = model.asWorkspaceId(`ws_load_${workspaceIndex}`)
       let store: Store
@@ -175,6 +187,20 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
         await base.database.provisionWorkspace(workspace)
         store = await base.database.workspace(workspace)
       }
+      // A new hosted workspace has no self-hosted template member. Provision its
+      // operator through the real membership row port before composing services.
+      await store.users.memberRows.write({
+        memberId: 'measurement-owner',
+        version: 1,
+        state: 'active',
+        role: 'admin',
+        accountId: 'measurement-account',
+        profile: { name: 'Measurement operator', image: null, email: 'load@example.test' },
+        actor: { system: 'setup' },
+      })
+      workspaceStores.push({ store, workspaceIndex })
+    }
+    for (const { store, workspaceIndex } of workspaceStores) {
       const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       await attachHostDaemon(registry)
       registry.shipping.dispose()
@@ -220,9 +246,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
           }
         }
       }
-      for (const index of mine.filter(
-        (i) => i % config.workspaces === workspaceIndex,
-      )) {
+      for (const index of mine.filter((i) => i % config.workspaces === workspaceIndex)) {
         const cwd = `/measurement/session-${index}`
         const { sessionId } = await registry.modules.sessions.createSession({
           agentKind: 'codex',
@@ -278,12 +302,13 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
       if (measuring) operations.runtimeEvent++
       await call.messages.send({ to: writer.sessionId, body: `message ${unique}` } as never)
       if (measuring) operations.messages++
+      const effectId = model.mintDeviceId('eff_')
       const reply = await call.sync.submit({
         mutationId: model.asMutationId(`load-${unique}`),
         command: 'effects.create',
         version: 1,
         input: {
-          id: `eff_load_${unique}`,
+          id: effectId,
           kind: 'measurement.write',
           target: { kind: 'session', id: writer.sessionId },
           input: { n },
@@ -306,9 +331,25 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
     // Warm the actual operation and all statement shapes, then settle setup.
     for (const writer of writers) await cycle(writer)
     await settle()
-    for (const { store } of contexts) {
+    if (base) {
+      const sourcePatterns = Object.keys(sourceWrites).map(
+        (table) =>
+          [
+            table,
+            new RegExp(`\\b(?:insert into|update|delete from) "?${table}"?\\b`, 'i'),
+          ] as const,
+      )
       stops.push(
-        probes.probeRoundTrips(store, (trip) => {
+        probes.probeStatements(base, (statement) => {
+          if (!measuring || statement.intent !== 'write') return
+          for (const [table, pattern] of sourcePatterns) {
+            if (pattern.test(statement.sql)) sourceWrites[table] = (sourceWrites[table] ?? 0) + 1
+          }
+        }),
+      )
+      stops.push(
+        // Workspace handles on this database share one probe hub.
+        probes.probeRoundTrips(base, (trip) => {
           if (measuring) roundTrips++
           if (config.latencyMs === 0) return
           const inHold = trip.lane === 'write' && !trip.root && trip.call !== 'begin'
@@ -348,6 +389,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
     const report: WorkerReport = {
       elapsedMs: performance.now() - began,
       operations,
+      sourceWrites,
       samples,
       roundTrips,
       injectedInsideHoldMs,
@@ -387,9 +429,13 @@ function summarize(reports: WorkerReport[], config: Config) {
     holdMs: quantiles(which.map((s) => s.holdMs)),
   })
   const operations: Record<string, number> = {}
+  const sourceWrites: Record<string, number> = {}
   for (const r of reports)
     for (const [key, n] of Object.entries(r.operations))
       operations[key] = (operations[key] ?? 0) + n
+  for (const r of reports)
+    for (const [key, n] of Object.entries(r.sourceWrites))
+      sourceWrites[key] = (sourceWrites[key] ?? 0) + n
   const byWorkspace = Object.fromEntries(
     [...new Set(committed.map((s) => s.workspaceId))].map((workspace) => {
       const writes = committed.filter((s) => s.workspaceId === workspace)
@@ -405,13 +451,17 @@ function summarize(reports: WorkerReport[], config: Config) {
   )
   if (committed.length === 0 || Object.values(operations).some((n) => n === 0))
     throw new Error('load did not exercise every operation')
+  if (Object.values(sourceWrites).some((n) => n === 0))
+    throw new Error(`load missed a source table: ${JSON.stringify(sourceWrites)}`)
   if (samples.some((s) => s.outcome !== 'committed'))
     throw new Error('load had an acquisition failure or a rollback')
   return {
+    revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     at: new Date().toISOString(),
     config,
     elapsedMs,
     operations,
+    sourceWrites,
     committed: committed.length,
     writesPerSecond: (committed.length * 1_000) / elapsedMs,
     ...waits(committed),
@@ -455,7 +505,16 @@ async function parent(config: Config) {
         [
           '--conditions=@podium/source',
           import.meta.path,
-          ...process.argv.slice(2),
+          '--writers',
+          String(config.writers),
+          '--workspaces',
+          String(config.workspaces),
+          '--processes',
+          String(config.processes),
+          '--latency-ms',
+          String(config.latencyMs),
+          '--seconds',
+          String(config.seconds),
           '--worker',
           String(index),
         ],
@@ -470,6 +529,8 @@ async function parent(config: Config) {
       let readyReject: (error: Error) => void = () => {}
       let resultResolve: (value: WorkerReport) => void = () => {}
       let resultReject: (error: Error) => void = () => {}
+      let gotReady = false
+      let gotResult = false
       const ready = new Promise<void>((resolve, reject) => {
         readyResolve = resolve
         readyReject = reject
@@ -482,15 +543,21 @@ async function parent(config: Config) {
       void result.catch(() => {})
       child.on('message', (message) => {
         const msg = message as { type: string; report: WorkerReport }
-        if (msg.type === 'ready') readyResolve()
-        if (msg.type === 'result') resultResolve(msg.report)
+        if (msg.type === 'ready') {
+          gotReady = true
+          readyResolve()
+        }
+        if (msg.type === 'result') {
+          gotResult = true
+          resultResolve(msg.report)
+        }
       })
       child.on('error', (error) => {
         readyReject(error)
         resultReject(error)
       })
       child.on('exit', (code) => {
-        if (code !== 0) {
+        if (code !== 0 || !gotReady || !gotResult) {
           const error = new Error(`worker ${index} exited ${code}: ${output}`)
           readyReject(error)
           resultReject(error)
@@ -502,26 +569,77 @@ async function parent(config: Config) {
     for (const { child } of active) child.send({ type: 'start' })
     const result = summarize(await Promise.all(active.map((a) => a.result)), config)
     // A worker's result precedes its cleanup; do not drop its database underneath it.
-    await Promise.all(
-      children.map((child) =>
-        child.exitCode !== null
-          ? Promise.resolve()
-          : new Promise<void>((resolve) => child.once('exit', () => resolve())),
-      ),
-    )
-    const out = argument('out')
-    if (out) writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`)
+    await Promise.all(children.map(waitForExit))
+    if (children.some((child) => child.exitCode !== 0)) throw new Error('worker cleanup failed')
     console.log(`WORKSPACE-LOCK-RESULT ${JSON.stringify(result)}`)
+    return result
   } finally {
-    for (const child of children) if (child.exitCode === null) child.kill('SIGTERM')
+    for (const child of children) if (!exited(child)) child.kill('SIGTERM')
+    await Promise.all(children.map(waitForExit))
     await database.drop()
     rmSync(scratch, { recursive: true, force: true })
   }
 }
 
+async function recorderCost(): Promise<void> {
+  const {
+    PlainRoundTripBaseline,
+    WorkspaceWriteTiming,
+    WorkspaceWriteMetrics,
+    withWorkspaceWriteAdmission,
+  } = await import('../apps/server/src/store/executor/workspace-write-metrics')
+  const iterations = 100_000
+  const rounds: number[] = []
+  for (let round = 0; round < 5; round++) {
+    const metrics = new WorkspaceWriteMetrics()
+    const baseline = new PlainRoundTripBaseline()
+    baseline.record(0.1)
+    const started = performance.now()
+    for (let i = 0; i < iterations; i++) {
+      metrics.recordQueue('ws_cost', 0)
+      withWorkspaceWriteAdmission(0, () => {
+        const timing = new WorkspaceWriteTiming(baseline, metrics)
+        timing.begin('ws_cost')
+        timing.acquired()
+        for (let trip = 0; trip < 4; trip++) {
+          const at = performance.now()
+          timing.pipeline(
+            performance.now() - at,
+            trip === 0 ? 3 : 1,
+            trip === 1 || trip === 2 ? 1 : 0,
+            true,
+            trip === 0,
+          )
+        }
+        timing.end('committed')
+      })
+    }
+    rounds.push(((performance.now() - started) * 1_000) / iterations)
+  }
+  console.log(
+    `WORKSPACE-RECORDER-COST ${JSON.stringify({ iterations, roundsUsPerWrite: rounds, medianUsPerWrite: quantiles(rounds).p50 })}`,
+  )
+}
+
 if (import.meta.main) {
   const config = configuration()
   const index = argument('worker')
-  if (index === undefined) await parent(config)
-  else await worker(config, Number(index))
+  if (index !== undefined) await worker(config, Number(index))
+  else {
+    if (process.argv.includes('--recorder-cost')) await recorderCost()
+    const results: Awaited<ReturnType<typeof parent>>[] = []
+    const configurations = process.argv.includes('--matrix')
+      ? [1, 4, 16, 64].flatMap((writers) =>
+          [1, 4].map((workspaces) => ({ ...config, writers, workspaces })),
+        )
+      : [config]
+    for (const next of configurations) {
+      console.error(
+        `workspace load: ${next.writers} writers, ${next.workspaces} workspaces, ${next.processes} processes, ${next.latencyMs} ms`,
+      )
+      results.push(await parent(next))
+      const out = argument('out')
+      if (out) writeFileSync(out, `${JSON.stringify(results, null, 2)}\n`)
+    }
+  }
 }

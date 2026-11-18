@@ -419,7 +419,12 @@ function createSession(
     }
     const failure = firstFailure(results)
     if (failure !== undefined) {
-      timing.end('rolled-back')
+      const ending = results.at(-1)
+      timing.end(
+        ending?.status === 'fulfilled' && ending.value.command === 'ROLLBACK'
+          ? 'rolled-back'
+          : 'failed',
+      )
       throw failure
     }
     const commit = settledRows(results.at(-1))
@@ -507,7 +512,7 @@ function createSession(
       state = NONE
       const [result] = await pipeline(connection, [{ sql: 'COMMIT' }])
       if (result?.status === 'rejected') {
-        timing.end('rolled-back')
+        timing.end('failed')
         throw result.reason
       }
       const aborted = settledRows(result).command === 'ROLLBACK'
@@ -523,7 +528,7 @@ function createSession(
       }
       state = NONE
       const [result] = await pipeline(connection, [{ sql: 'ROLLBACK' }])
-      timing.end('rolled-back')
+      timing.end(result?.status === 'fulfilled' ? 'rolled-back' : 'failed')
       if (result?.status === 'rejected') throw result.reason
     },
 

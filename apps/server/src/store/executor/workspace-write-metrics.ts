@@ -64,6 +64,7 @@ class WorkspaceStats {
   committed = 0
   rolledBack = 0
   acquisitionFailures = 0
+  failed = 0
   uncalibratedWaits = 0
 
   constructor(readonly sinceMs: number) {}
@@ -96,6 +97,7 @@ class WorkspaceStats {
       committed: this.committed,
       rolledBack: this.rolledBack,
       acquisitionFailures: this.acquisitionFailures,
+      failed: this.failed,
       uncalibratedWaits: this.uncalibratedWaits,
       observedMs,
       writesPerSecond: (this.committed * 1_000) / Math.max(1, observedMs),
@@ -110,7 +112,7 @@ class WorkspaceStats {
 
 export interface WorkspaceWriteObservation {
   readonly workspaceId: string
-  readonly outcome: 'committed' | 'rolled-back' | 'acquisition-failed'
+  readonly outcome: 'committed' | 'rolled-back' | 'acquisition-failed' | 'failed'
   /** BEGIN+lock reply minus the minimum recent plain pipeline round trip. */
   readonly waitMs: number | undefined
   readonly schedulerQueueMs: number
@@ -164,7 +166,8 @@ export class WorkspaceWriteMetrics {
       }
       stats.hold.record(sample.holdMs)
       if (sample.outcome === 'committed') stats.commit(now)
-      else stats.rolledBack++
+      else if (sample.outcome === 'rolled-back') stats.rolledBack++
+      else stats.failed++
     }
     for (const listener of this.listeners) {
       try {
@@ -280,7 +283,6 @@ export class WorkspaceWriteTiming {
 
   end(outcome: WorkspaceWriteObservation['outcome']): void {
     if (this.workspace === undefined) return
-    if (this.workspace === undefined) return
     const waitMs =
       this.acquiredAt === undefined || this.baselineMs === undefined
         ? undefined
@@ -296,7 +298,8 @@ export class WorkspaceWriteTiming {
       roundTrips: this.trips,
       statements: this.statements,
       driverMs: Math.max(0, this.pipelineMs - (waitMs ?? 0)),
-      statementMs: this.statementMs,
+      statementMs:
+        this.trips === 1 ? Math.max(0, this.statementMs - (waitMs ?? 0)) : this.statementMs,
     })
     this.workspace = undefined
   }

@@ -252,6 +252,7 @@ export interface WorkspaceWriteSummary {
   committed: number
   rolledBack: number
   acquisitionFailures: number
+  failed: number
   uncalibratedWaits: number
   observedMs: number
   writesPerSecond: number

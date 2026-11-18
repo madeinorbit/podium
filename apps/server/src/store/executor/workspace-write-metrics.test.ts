@@ -4,6 +4,7 @@ import {
   WorkspaceWriteMetrics,
   type WorkspaceWriteObservation,
   WorkspaceWriteTiming,
+  withWorkspaceWriteAdmission,
 } from './workspace-write-metrics'
 
 const sample = (workspaceId: string, holdMs = 5): WorkspaceWriteObservation => ({
@@ -113,9 +114,39 @@ describe('workspace write metrics', () => {
       holdMs: 30,
       roundTrips: 3,
       statements: 1,
-      driverMs: 9.600000000000001,
       statementMs: 4,
     })
+    expect(seen[0]?.driverMs).toBeCloseTo(9.6)
     expect(metrics.snapshot().byWorkspace.a?.committed).toBe(1)
+  })
+
+  it('charges a lease queue once, and uses the per-write sum rather than adding percentiles', () => {
+    let now = 0
+    const baseline = new PlainRoundTripBaseline()
+    baseline.record(1)
+    const metrics = new WorkspaceWriteMetrics(2, () => now)
+    const timing = new WorkspaceWriteTiming(baseline, metrics, () => now)
+    const seen: WorkspaceWriteObservation[] = []
+    metrics.probe((each) => {
+      seen.push(each)
+    })
+    withWorkspaceWriteAdmission(40, () => {
+      timing.begin('a')
+      now = 11
+      timing.acquired()
+      now = 20
+      timing.end('committed')
+      timing.begin('a')
+      now = 21
+      timing.acquired()
+      now = 25
+      timing.end('committed')
+    })
+    expect(seen.map((s) => s.schedulerQueueMs)).toEqual([40, 0])
+    expect(metrics.snapshot().byWorkspace.a?.writeWaitMs).toMatchObject({
+      count: 2,
+      total: 50,
+      p95: 50,
+    })
   })
 })
