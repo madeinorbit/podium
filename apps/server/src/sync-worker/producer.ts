@@ -323,6 +323,10 @@ async function* produceRecords(
           ? 'cancelled'
           : 'producer-failed'
     outcome = reason
+    // A failure the job does not name keeps its cause in the log: the client
+    // only learns `producer-failed`.
+    if (reason === 'producer-failed')
+      log.warn('sync job failed', { transferId: job.transferId, err: error })
     if (reason === 'row-too-large') {
       yield line({ type: 'syncError', transferId: job.transferId, reason })
       return // Let the content encoder finish its trailer before reporting the typed failure.

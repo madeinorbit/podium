@@ -701,10 +701,14 @@ const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
   [
     'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
     {
-      reshape: [`UPDATE effects SET status = 'succeeded' WHERE right(id, 2) <> '00'`],
+      // One machine's long history of finished scans, and a few active records.
+      reshape: [
+        `UPDATE effects SET kind = 'machine.scan', target_kind = 'machine', target_id = 'busy', status = 'succeeded', deleted_at = NULL WHERE right(id, 2) <> '00'`,
+      ],
       analyze: ['effects'],
+      values: [WS_LITERAL, `'machine.scan'`, `'machine'`, `'busy'`, `'pending'`, `'running'`, '1'],
       reason:
-        "A target's newest active effect (POD-7031). The active records are a few and a target's finished history is long; on that shape Postgres reads idx_effects_status_deadline, as SQLite is told to. On the seed every status is as common as the next, so the target's own records are the fewer.",
+        "A target's newest active effect (POD-7031). The active records are a few and a target's finished history is long (a machine keeps thousands of scans); on that shape Postgres reads idx_effects_status_deadline, as SQLite is told to. On the seed every target holds a record or two, so the target's own records are the fewer.",
     },
   ],
   [
@@ -1318,8 +1322,9 @@ function planFindings(plan: PlanNode, schema: Schema): PlanFinding[] {
       const named = constrainedColumns(condition, table, schema)
       const prefix: string[] = []
       for (const column of schema.indexColumns.get(index) ?? []) {
-        // An expression key: constrained when the condition calls a function.
-        if (column === null ? !/[a-z_]+\(/.test(condition) : !named.has(column)) break
+        // An expression key: constrained when the condition calls a function (Postgres
+        // prints some in capitals, `COALESCE(`).
+        if (column === null ? !/[a-z_]+\(/i.test(condition) : !named.has(column)) break
         prefix.push(column ?? '(expression)')
       }
       if (prefix.every((column) => column !== '(expression)' && isLowSelectivity(table, column))) {
