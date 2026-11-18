@@ -229,7 +229,12 @@ final class PodiumWorkingMarkView: CoreMotionView {
   override func layoutMotion() {
     guard let frames = WorkingMarkFrames.shared else { return }
     ensureDots(frames.rest.count)
-    let center = CGPoint(x: bounds.width / 2, y: bounds.height / 2)
+    // The RN dot View sits at left w/2 - 1, top h/2 - 1, which Yoga rounds to
+    // the pixel grid (half pixels up); an odd-width cell would otherwise draw
+    // half a pixel off the RN picture.
+    let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : UIScreen.main.scale
+    let snap = { (value: CGFloat) in (value * scale).rounded(.toNearestOrAwayFromZero) / scale }
+    let center = CGPoint(x: snap(bounds.width / 2 - 1) + 1, y: snap(bounds.height / 2 - 1) + 1)
     for dot in dots { dot.position = center }
     showRest(frames)
   }
@@ -280,7 +285,7 @@ final class PodiumWorkingGlintView: CoreMotionView {
   override class var clock: MotionClock { sharedClock }
   private static let period: CFTimeInterval = 2.2
 
-  private let window = CALayer()
+  private let glintWindow = CALayer()
 
   var phase: Double = 0 {
     didSet { if phase != oldValue { restartIfRunning() } }
@@ -288,16 +293,16 @@ final class PodiumWorkingGlintView: CoreMotionView {
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
-    window.backgroundColor = UIColor(white: 1, alpha: 0.75).cgColor
-    window.anchorPoint = .zero
-    content.layer.mask = window
+    glintWindow.backgroundColor = UIColor(white: 1, alpha: 0.75).cgColor
+    glintWindow.anchorPoint = .zero
+    content.layer.mask = glintWindow
   }
 
   override func layoutMotion() {
-    window.bounds = CGRect(x: 0, y: 0, width: bounds.width * 0.4, height: bounds.height)
-    window.position = .zero
+    glintWindow.bounds = CGRect(x: 0, y: 0, width: bounds.width * 0.4, height: bounds.height)
+    glintWindow.position = .zero
     // At rest the window sits past the end of the word: nothing shows.
-    window.transform = CATransform3DMakeTranslation(bounds.width, 0, 0)
+    glintWindow.transform = CATransform3DMakeTranslation(bounds.width, 0, 0)
   }
 
   override func startMotion(at anchor: CFTimeInterval) {
@@ -310,11 +315,11 @@ final class PodiumWorkingGlintView: CoreMotionView {
       CAMediaTimingFunction(name: .linear),
     ]
     travel.timeOffset = phase * Self.period
-    window.add(repeating(travel, duration: Self.period, anchor: anchor, on: window), forKey: "working")
+    glintWindow.add(repeating(travel, duration: Self.period, anchor: anchor, on: glintWindow), forKey: "working")
   }
 
   override func stopMotion() {
-    window.removeAnimation(forKey: "working")
+    glintWindow.removeAnimation(forKey: "working")
   }
 }
 
