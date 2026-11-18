@@ -119,13 +119,14 @@ archived and closed tabs' counts, and the board card's child counts. The
 device's own counts (`heldCount`) are not asked: they are no question of all
 history. `no-wrong-number.test.ts` now requires zero wrong answers outside
 search in the policy set and in every first-download state; the search
-surfaces are POD-7089's and may not get worse (vega, 2026-11-18, `h1a1`, seed
-4443; equal / LOADING / wrong):
+surfaces are POD-7089's. The search entries below were updated by POD-7089
+on the combined tree; every other entry is unchanged (agent VM, 2026-11-18,
+`h1a1`, seed 4443; equal / LOADING / wrong):
 
 | Candidate state | First screen | Counts | Search | Board archive | Closed children |
 | --- | --- | --- | --- | --- | --- |
-| Policy set with markers | 11 / 13 / 0 | 17 / 0 / 0 | 4 / 0 / **9** | 3 / 0 / 0 | 121 / 23 / 0 |
-| First download, always and live | 0 / 24 / 0 | 1 / 16 / 0 | 0 / 0 / **13** | 0 / 3 / 0 | 0 / 144 / 0 |
+| Policy set with markers | 11 / 13 / 0 | 17 / 0 / 0 | 0 / 25 / 0 | 3 / 0 / 0 | 121 / 23 / 0 |
+| First download, always and live | 0 / 24 / 0 | 1 / 16 / 0 | 0 / 25 / 0 | 0 / 3 / 0 | 0 / 144 / 0 |
 
 The 13 first-screen answers that are LOADING in the policy set read a record
 the device does not hold: these pools have no residency, and since POD-7088
@@ -133,7 +134,6 @@ such a lookup asks the loader as a production pool does, instead of answering
 "gone". The lazy pool proof (`no-wrong-number.lazy.test.ts`) does not finish
 loading within its 16 rounds since the board column questions were added;
 that is open.
-
 
 ### Device-first search (POD-7089)
 
@@ -145,20 +145,37 @@ The check reads that completeness as `LOADING`, so an incomplete device result
 is never mistaken for the full-history answer. Server result IDs go through the
 collection loader as cached one-record instances; rows read the shared models.
 
-On the policy set and every first-download state, the search group is
-**0 equal / 25 LOADING / 0 wrong**. The focused search check also passes on
-`h1a1`, `h1a4`, `h10a1` and `h10a4` (seed 4443), for the first step and the
-policy set of each. Its control uses the old full-device local results; an
-intentionally corrupted search ID is rejected in every cell. Separate surface
-and real-loader tests cover the eventual server answer, offline behavior and
-superseded requests. These measurements ran on an agent VM on 2026-11-18. The four-cell proof
-is from the initial candidate. The later legacy all-history lazy comparison
-still reaches its sixteen-round hydration limit (POD-7110), even after narrowing
-the added web/phone questions to IDs and completeness. This remains an open phase-owned validation
-failure; the phase coordinator took it after the sibling screen task reproduced
-it. The later search follow-up passes 17 palette/shared-picker tests and the
-lean gate (165 tests), including the typecheck-cache audit after moving the pure
-ID reader into client-graph. That follow-up does not rerun the legacy comparison.
+After rebasing onto POD-7088, the combined tree (`c5f3d34498`) passes all eight
+`no-wrong-number.test.ts` tests on `h1a1`, seed 4443. Every group has zero wrong
+answers in the policy set and in every first-download state. The search bounds
+are zero; POD-7088's cleared entries remain cleared. Search answers are:
+
+| Candidate state | Equal | LOADING | Wrong |
+| --- | ---: | ---: | ---: |
+| Policy set with markers | 0 | 25 | 0 |
+| Always and live | 0 | 25 | 0 |
+| Always, live and recent | 0 | 25 | 0 |
+| Always, live, recent and sidebar | 0 | 25 | 0 |
+| Always, live, recent, sidebar and stubs | 0 | 25 | 0 |
+
+The earlier focused search check also passed on `h1a1`, `h1a4`, `h10a1` and
+`h10a4` (seed 4443), for the first step and the policy set of each. Its control
+uses the old full-device local results; an intentionally corrupted search ID is
+rejected in every cell. Separate surface and real-loader tests cover the
+eventual server answer, offline behavior and superseded requests. The four-cell
+proof is from the initial candidate; the combined-tree proof above ran on an
+agent VM on 2026-11-18.
+
+The combined-tree follow-up also passes all 17 palette/shared-picker tests and
+the lean gate (165 tests), including the typecheck-cache audit after moving the
+pure ID reader into client-graph. The four added web pickers share the reader
+covered by `issue-menu-readers.test.ts`. The existing palette test now opens an
+archived server match absent from the device. **Lean gate green.**
+
+The legacy all-history lazy comparison still reaches its sixteen-round
+hydration limit (POD-7110). The phase coordinator owns that failure after the
+sibling screen task reproduced it. It was excluded from this combined-tree run
+as requested.
 
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership

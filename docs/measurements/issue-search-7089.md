@@ -69,15 +69,23 @@ instances and preserve shared model identity. See
 [startup-baseline.md](startup-baseline.md#device-first-search-pod-7089).
 
 
-The four-cell safety evidence above is from the initial candidate. The final
-follow-up on `0609c77104` passes all 17 palette/shared-picker tests, including
-opening an archived server hit. Moving the pure ID reader into client-graph
-restores cache-key coverage without adding an app file to the worklist key.
-The full typecheck, every static fence and all 165 lean-gate tests pass:
-**lean gate green**. POD-7109 and POD-7111 are resolved.
+The four-cell safety evidence above is from the initial candidate. After
+rebasing onto POD-7088, the combined tree (`c5f3d34498`) passes the 17
+palette/shared-picker tests and all eight `no-wrong-number.test.ts` tests.
+Every policy and first-download group has zero wrong answers, preserving
+POD-7088's cleared entries. The palette test opens an archived server hit;
+`issue-menu-readers.test.ts` covers the four added web choice lists through
+their shared reader.
+
+Moving the pure ID reader into client-graph restores cache-key coverage without
+adding an app file to the worklist key. The full typecheck, every static fence
+and all 165 lean-gate tests pass: **lean gate green**. POD-7109 and POD-7111
+are resolved. Only the moved search census entries were refreshed on top of
+POD-7088: 1,998 retained entries are byte-identical, inherited classifications
+are preserved, and seven new sites remain `REQUIRED REPAIR`.
 
 The legacy all-history lazy comparison still exhausts sixteen hydration rounds
 (POD-7110); the phase coordinator owns that failure, which also affects the
-sibling collection-screen work. It was deliberately excluded from the final
+sibling collection-screen work. It was deliberately excluded from the combined-tree
 follow-up. The unrelated machine picker fixture remains POD-7107. Broad search
 response bounds remain separate Proposed work in POD-7108.
