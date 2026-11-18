@@ -67,6 +67,50 @@ export const PG_TEST_PORT_ENV = 'PODIUM_TEST_PG_PORT'
  * refused rather than replaced, because replacing it would kill other lanes' runs.
  */
 const CONTAINER_GENERATION = '1'
+
+/**
+ * THE DATA DIRECTORY'S SIZE, AND HOW MANY WORKERS IT HOLDS [POD-6994].
+ *
+ * The container's data directory is a tmpfs of {@link PG_TEST_TMPFS_MIB}. Each worker
+ * holds the clones of the file it runs, about 13 MB each, until they are dropped (a test's
+ * own at its end when nothing still uses them, the rest at the file's end). A whole-leg run
+ * peaked at 1,246 MB at 4 workers (2026-11-18, agent VM, 293 files), about 300 MB per
+ * worker; {@link PG_TEST_TMPFS_MIB_PER_WORKER} leaves room above that. So a lane on an
+ * otherwise idle server runs at most 6 workers. The lane refuses to start, naming these
+ * numbers, when its workers need more than the tmpfs has free: running out mid-run fails
+ * tests with "No space left on device" instead. Every lane on the host shares the server,
+ * so the check reads the space actually free, not the size.
+ *
+ * The size is part of the container's settings generation: a larger one is a new
+ * {@link CONTAINER_GENERATION}. CI's service container has no tmpfs and no such limit.
+ */
+export const PG_TEST_TMPFS_MIB = 2048
+export const PG_TEST_TMPFS_MIB_PER_WORKER = 320
+const PG_TEST_DATA_DIR = '/var/lib/postgresql/data'
+
+/** Why `workers` do not fit in `freeMib` of the tmpfs, or undefined when they do. */
+export function tmpfsWorkerProblem(workers: number, freeMib: number): string | undefined {
+  const needed = workers * PG_TEST_TMPFS_MIB_PER_WORKER
+  if (needed <= freeMib) return undefined
+  const fit = Math.floor(freeMib / PG_TEST_TMPFS_MIB_PER_WORKER)
+  return (
+    `postgres test harness: ${workers} worker(s) need about ${needed} MiB of the test ` +
+    `server's ${PG_TEST_TMPFS_MIB} MiB tmpfs (${PG_TEST_TMPFS_MIB_PER_WORKER} MiB each), ` +
+    `and ${freeMib} MiB is free${fit > 0 ? `: run with PODIUM_TEST_WORKERS=${fit} or fewer` : ''}. ` +
+    'Other lanes on this host share the server; see docs/agents/testing.md, Postgres store lane.'
+  )
+}
+
+/** MiB free on the host container's data directory. */
+async function tmpfsFreeMib(): Promise<number> {
+  const out = await docker(['exec', PG_TEST_CONTAINER, 'df', '-Pk', PG_TEST_DATA_DIR])
+  const fields = out.trim().split('\n').at(-1)?.trim().split(/\s+/) ?? []
+  const availableKib = Number(fields[3])
+  if (!Number.isFinite(availableKib)) {
+    throw new Error(`postgres test harness: cannot read the free space of ${PG_TEST_DATA_DIR}`)
+  }
+  return Math.floor(availableKib / 1024)
+}
 const CONTAINER_LABEL = 'podium.test-pg.generation'
 /** Databases of runs older than this are a dead lane's, and are dropped. */
 export const STALE_RUN_MS = 12 * 60 * 60 * 1000
@@ -253,7 +297,7 @@ export function containerRunArgs(port: number): string[] {
     // The data directory lives in memory: nothing here outlives the container, and
     // every write skips the disk. The cap bounds what leaked clones can cost the host.
     '--tmpfs',
-    '/var/lib/postgresql/data:rw,size=2g',
+    `${PG_TEST_DATA_DIR}:rw,size=${PG_TEST_TMPFS_MIB}m`,
     // Docker's 64 MB default /dev/shm is too small for Postgres's parallel workers.
     '--shm-size',
     '256m',
@@ -512,8 +556,21 @@ export async function pgBunTestRun(): Promise<() => Promise<void>> {
   return await setup()
 }
 
-export default async function setup(): Promise<() => Promise<void>> {
+/**
+ * The lane's globalSetup. `project` is vitest's: its resolved worker cap is what the
+ * tmpfs check counts; a Bun suite (`pgBunTestRun`) is one process.
+ */
+export default async function setup(project?: {
+  readonly config?: { readonly maxWorkers?: number | string }
+}): Promise<() => Promise<void>> {
+  const onHostContainer = !process.env[PG_TEST_URL_ENV]
   const { adminUrl, template } = await preparePgTestServer()
+  if (onHostContainer) {
+    const maxWorkers = Number(project?.config?.maxWorkers ?? 1)
+    const workers = Number.isFinite(maxWorkers) && maxWorkers > 0 ? maxWorkers : 1
+    const problem = tmpfsWorkerProblem(workers, await tmpfsFreeMib())
+    if (problem !== undefined) throw new Error(problem)
+  }
   const runId = newRunId()
   // The template's rows are a fresh SQLite store's (`pg-template-seed.ts`), its first
   // admin included; the forks prime it before a test file is imported.

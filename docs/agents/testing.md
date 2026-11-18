@@ -222,10 +222,21 @@ under `beyondStoreShard` with the reason.
 a SQLite-only entry without a reason, a file in both lists, and a `beyondStoreShard` entry
 that is a store-shard file, is missing or has no reason. Every store-shard file is on the leg
 unless a list names it, so one that fails on Postgres fails the leg by name. To see which
-pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending` and at most four
-workers (`PODIUM_TEST_WORKERS=4`): a failing test often leaves its store open, and a database a
-store still uses is dropped only when its file ends, so many failing files at once can fill the
-test server's 2 GB tmpfs.
+pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
+
+**Workers and the tmpfs.** The local test server keeps its data on a 2,048 MiB tmpfs. Each
+worker holds the clones of its file, about 13 MB each, until they are dropped: a test's own
+at the test's end when nothing still uses them, the rest at the file's end. A whole-leg run
+peaked at 1,246 MB at four workers (about 300 MB a worker), so the harness budgets 320 MiB
+a worker, and a lane on an otherwise idle server runs at most **six workers**
+(`PODIUM_TEST_WORKERS=6`). At start the lane compares its workers' budget with the space
+actually free (other lanes on the host share the server) and refuses to run when it does
+not fit, naming the worker count that would. Running out mid-run instead fails tests with
+"No space left on device". The numbers live in `pg-test-host.ts`
+(`PG_TEST_TMPFS_MIB`, `PG_TEST_TMPFS_MIB_PER_WORKER`); a larger tmpfs is a new container
+settings generation. CI's service container has the same 2 GB tmpfs (`ci.yml`, job
+`store-pg`) and runs two workers, a 640 MiB budget, so it fits; the start check reads only
+the local container's disk, so it does not run there.
 
 **How it gets Postgres.** The config's globalSetup (`src/test-support/pg-test-host.ts`):
 

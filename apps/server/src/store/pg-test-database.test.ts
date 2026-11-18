@@ -16,6 +16,11 @@ import {
   pgWorkerDatabase,
   testStoreEngine,
 } from '../test-support/pg-test-database'
+import {
+  containerRunArgs,
+  PG_TEST_TMPFS_MIB,
+  tmpfsWorkerProblem,
+} from '../test-support/pg-test-host'
 
 async function query<Row>(database: PgTestDatabase, sql: string): Promise<Row[]> {
   const client = connectPgTest(database.url)
@@ -104,5 +109,22 @@ describe.skipIf(testStoreEngine() !== 'pg')('postgres test databases', () => {
     expect(made).toContain(fileScoped.name)
     await dropPgTestDatabases()
     expect(await existing(made)).toEqual([])
+  })
+})
+
+describe('the test server tmpfs and the lane workers (POD-6994)', () => {
+  it('admits the workers that fit and names the count that does when they do not', () => {
+    const fresh = PG_TEST_TMPFS_MIB - 60
+    expect(tmpfsWorkerProblem(6, fresh)).toBeUndefined()
+    expect(tmpfsWorkerProblem(10, fresh)).toMatch(
+      /10 worker\(s\) need about 3200 MiB .*run with PODIUM_TEST_WORKERS=6 or fewer/,
+    )
+    expect(tmpfsWorkerProblem(1, 100)).not.toMatch(/PODIUM_TEST_WORKERS=/)
+  })
+
+  it('sizes the container tmpfs from the stated size', () => {
+    expect(containerRunArgs(5432)).toContain(
+      `/var/lib/postgresql/data:rw,size=${PG_TEST_TMPFS_MIB}m`,
+    )
   })
 })
