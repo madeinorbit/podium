@@ -1,6 +1,7 @@
 import type { IssuePanelArtifact } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { ContentActivity, useContentVisible } from '../lib/visible-content'
 
 // The full-screen viewer (boards Artifact, ArtifactDrag): "2 of 3", one page
 // per artifact, an opaque ground, a close control.
@@ -75,6 +76,28 @@ const items = ['a.png', 'pricing.png', 'c.png'].map((path) => ({
   artifact: art(path),
   url: `https://podium.local/files/${path}`,
 }))
+
+it('covers underlying activity while the actual artifact modal is mounted and resumes on dismissal', () => {
+  function Behind() {
+    return <span data-testid="behind-artifact">{String(useContentVisible())}</span>
+  }
+  const scene = (open: boolean) => (
+    <ContentActivity>
+      <Behind />
+      <ArtifactViewer
+        artifact={open ? art('one.png') : null}
+        url={open ? 'https://podium.local/one.png' : null}
+        onClose={() => {}}
+      />
+    </ContentActivity>
+  )
+  const view = render(scene(false))
+  expect(screen.getByTestId('behind-artifact').textContent).toBe('true')
+  view.rerender(scene(true))
+  expect(screen.getByTestId('behind-artifact').textContent).toBe('false')
+  view.rerender(scene(false))
+  expect(screen.getByTestId('behind-artifact').textContent).toBe('true')
+})
 
 it('names the opened artifact and its place in the list', () => {
   render(<ArtifactViewer items={items} index={1} onClose={() => {}} />)

@@ -1,8 +1,9 @@
 import { markdownPlainText } from '@podium/client-core/markdown-plain-text'
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { ActivityModal as Modal } from './ActivityModal'
 import { PressableScale } from './PressableScale'
 
 /**

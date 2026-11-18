@@ -2,7 +2,7 @@ import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { useEffect, useState } from 'react'
-import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
@@ -13,6 +13,7 @@ import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { ActivityModal as Modal } from './ActivityModal'
 import { Icon } from './Icon'
 import { ImageLightbox } from './ImageLightbox'
 import { FileText, X } from './icons'
@@ -117,7 +118,7 @@ function SharedPath({
   )
 }
 
-function SharedFileViewer({
+export function SharedFileViewer({
   name,
   url,
   bearer,

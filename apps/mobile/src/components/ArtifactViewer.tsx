@@ -3,7 +3,6 @@ import type { IssuePanelArtifact } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { type ComponentType, createElement, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -49,6 +48,7 @@ import {
 } from '../lib/issue-artifacts'
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, mono, sans, space, spring } from '../theme/theme'
+import { ActivityModal as Modal } from './ActivityModal'
 import { ArtifactVideo } from './ArtifactVideo'
 import { Glass } from './Glass'
 import { Icon } from './Icon'
