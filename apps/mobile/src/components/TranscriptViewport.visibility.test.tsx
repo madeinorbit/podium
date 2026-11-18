@@ -103,3 +103,31 @@ it('gates the live footer by intersection instead of following intent or mounted
   act(() => native.props?.onScroll?.(scroll(100)))
   expect(screen.getByTestId('footer').textContent).toBe('false')
 })
+
+it('stops footer activity when the composer or keyboard covers it without a scroll event', () => {
+  const viewport = (bottom: number) => (
+    <TranscriptViewport
+      identity="chat"
+      data={['visible']}
+      positionOfKey={() => 0}
+      keyExtractor={(key) => key}
+      renderItem={() => null}
+      ListFooterComponent={<Probe id="footer" />}
+      visibleInsets={{ top: 0, bottom }}
+      contentContainerStyle={{ paddingBottom: 100 }}
+    />
+  )
+  const view = render(viewport(0))
+  const footer = native.props?.ListFooterComponent as {
+    props: { onLayout(event: LayoutChangeEvent): void }
+  }
+  act(() => {
+    footer.props.onLayout(layout(100))
+    native.props?.onScroll?.(scroll(450))
+  })
+  expect(screen.getByTestId('footer').textContent).toBe('true')
+  view.rerender(viewport(150))
+  expect(screen.getByTestId('footer').textContent).toBe('false')
+  view.rerender(viewport(0))
+  expect(screen.getByTestId('footer').textContent).toBe('true')
+})

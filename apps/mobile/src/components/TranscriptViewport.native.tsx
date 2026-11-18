@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -48,6 +49,7 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
     onLoadOlder,
     onFollowChange,
     ListFooterComponent,
+    visibleInsets,
     ...props
   }: TranscriptViewportProps<Item>,
   ref: ForwardedRef<TranscriptViewportHandle>,
@@ -68,15 +70,22 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
   const [footerVisible, setFooterVisible] = useState(false)
   const geometry = useRef({ height: 0, viewport: 0, offset: 0, footer: 0, visible: false })
   const bottomPadding = StyleSheet.flatten(props.contentContainerStyle)?.paddingBottom
+  const hiddenTop = visibleInsets?.top ?? 0
+  const hiddenBottom = visibleInsets?.bottom ?? 0
   const updateFooterVisibility = useCallback(() => {
     const { height, viewport, offset, footer } = geometry.current
     const top = height - footer - (typeof bottomPadding === 'number' ? bottomPadding : 0)
-    const visible = footer > 0 && viewport > 0 && top < offset + viewport && top + footer > offset
+    const visible =
+      footer > 0 &&
+      viewport > 0 &&
+      top < offset + viewport - hiddenBottom &&
+      top + footer > offset + hiddenTop
     if (visible !== geometry.current.visible) {
       geometry.current.visible = visible
       setFooterVisible(visible)
     }
-  }, [bottomPadding])
+  }, [bottomPadding, hiddenTop, hiddenBottom])
+  useLayoutEffect(updateFooterVisibility, [updateFooterVisibility])
   const scrollToOffset = useCallback((offset: number) => {
     listRef.current?.scrollToOffset({ offset, animated: false })
   }, [])

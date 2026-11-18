@@ -33,6 +33,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     renderItem,
     ListEmptyComponent,
     ListFooterComponent,
+    visibleInsets: _visibleInsets,
     moreAbove = false,
     loadingOlder = false,
     onLoadOlder = noOperation,
@@ -57,6 +58,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
       ? (positionOfKey(heldHead.current.key) ?? -1)
       : -1
   const renderStart = retainedStart >= 0 ? Math.min(tailStart, retainedStart) : tailStart
+  // biome-ignore lint/correctness/useExhaustiveDependencies: extraData is the membership version of the stable observable source array.
   const visibleRows = useMemo(() => data.slice(renderStart), [data, extraData, renderStart])
   useLayoutEffect(() => {
     windowIdentity.current = identity

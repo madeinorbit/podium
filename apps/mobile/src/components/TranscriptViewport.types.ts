@@ -18,6 +18,8 @@ export interface TranscriptViewportProps<Item> extends ScrollViewProps {
   renderItem: ListRenderItem<Item>
   ListEmptyComponent?: ReactElement
   ListFooterComponent?: ReactElement
+  /** Opaque chrome overlays the native scroll frame without resizing it. */
+  visibleInsets?: { top: number; bottom: number }
   moreAbove?: boolean
   loadingOlder?: boolean
   onLoadOlder?: () => void

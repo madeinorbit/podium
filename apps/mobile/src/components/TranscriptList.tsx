@@ -2014,6 +2014,7 @@ export const TranscriptList = observer(function TranscriptList({
       <TranscriptViewport
         ref={listRef}
         identity={transcriptId}
+        visibleInsets={{ top: topInset, bottom: bottomInset }}
         moreAbove={moreAbove}
         loadingOlder={loadingOlder}
         onLoadOlder={onLoadOlder}
