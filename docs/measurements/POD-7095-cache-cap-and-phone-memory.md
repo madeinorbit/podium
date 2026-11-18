@@ -192,34 +192,22 @@ No optimization in this table is implemented by this issue. A pending conclusion
 | Remaining startup index work | Pending | Need startup phase CPU/collection timing, rather than attributing elapsed time from feed data alone. |
 | Re-run per-record memory work (POD-5157 / POD-5539 / POD-5952) | Pending | The full-companion sweep is complete; final app-memory selection is still pending. |
 
-## Rerun and finish
+## Remaining runs and handoff
 
-Follow [startup-baseline.md](startup-baseline.md) for admission and Paint boundaries. Use the authorized VM alias and host choice provided privately by the coordinator; never run these workloads on the shared development host. Every command goes through `remote-lane`, from a committed issue HEAD. Read the issue inbox before each call; only one call may be queued/running. The baseline product remains `17d01cd9c5`; the after product remains `726a06ad16` plus recorded harness-only commits, even though the operator has moved local `dev/mw`.
+The coordinator paused this session to free a phase lane slot on 2026-11-18. No READY or final validation result is claimed. All measurement and harness work is committed. Completed SQLite r21 (18 cases), first-feed r26 (36 cases) and companion-complete cache r28 (30 cases) stand and must not be repeated. Phone r22 (18 attempted pairs) and corrected web r24 (12 attempted pairs, stopped by direction) are **interim evidence of product `726a06ad16`**. Earlier partial web cohorts remain separate in the artifacts.
 
-Set `measurement_vm` to the authorized VM choice. The completed corpora/builds already exist in the issue's isolated remote checkouts. Keep raw failed and partial rounds; use a fresh round for a changed hypothesis, or `--resume` only for the identical saved plan. Each window releases the VM lock when it exits.
+Still to run, on authorized agent VMs through `remote-lane`, one call queued/running at a time:
 
-```sh
-# Refresh harnesses and certify or rebuild the production clients.
-remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py build --host="$measurement_vm"
+1. First deck opening at 12 and 970 issues, on the synthetic operator population, phone/web/desktop: three interleaved pairs per arm/surface. The committed collector now opens the phone Mission details deck, witnesses an unobscured child belonging to the target tree, rejects a tree fetched before the input, records request specifications and saves a screenshot after timing. No deck capture has run yet.
+2. Operator-sized server search: three interleaved samples per arm. The existing unchanged-service two-axis search evidence above is reused. No new operator search capture has run yet.
+3. Empty-device desktop renderer startup and memory, x1/x10/operator. No desktop capture has run yet.
+4. **One final user-facing phone/web series on the fixed integration tip supplied by the coordinator after POD-7119 and POD-7122 land.** Measure cold/warm Paint, heap after GC and peak renderer RSS, x1/x10 and operator-sized if it fits, against `17d01cd9c5`, interleaved, one host per series, with the repaired fixture. This replaces the planned old-product phone x10 replacement. Preserve earlier phone memory only as limited observations; do not recapture it on the old product.
+5. Replace the interim leading tables here and in [the phase AFTER section](POD-7059-data-on-device-baseline.md#the-after-run) with that final cohort, retain the intermediate observations separately, finish the five design decisions with measured numbers, attach the finished reports/raw evidence, and run the single end validation.
 
-# Finish the unchanged corrected cap plan, 10 cases per short lock window.
-remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py cache --host="$measurement_vm" --round=28 --max-cases=10 --resume
-# Repeat once to reach 30/30 cases.
+Follow [startup-baseline.md](startup-baseline.md) for Paint and admission boundaries. Read **both** `podium issue mail inbox 7095 --json` and `podium mail inbox --json` before each remote call: coordinator thread replies can be session-addressed and absent from the issue-only inbox. Use the authorized VM choice and any additional host mapping provided privately; do not publish routing or machine inventories. Vega's host is shared with a separate full-test lane. The second VM is prioritized for POD-7119/POD-7122; use it only between their runs. Hold a short per-run lease and release it at each boundary.
 
-# Each surface uses 18 cold/warm pairs: three samples x three corpora x two arms.
-# Run surfaces sequentially: phone, web, desktop. Resume twice per surface.
-remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --round=22 --surface=phone --samples=3 --cells=h1a1,h10a1,operator --measure-memory --max-pairs=6
-# Same arguments with --resume, then the next surface without --resume.
+Start from a committed source and fresh round numbers. Run `data-on-device-baseline.py prepare --host="$measurement_vm" --base=17d01cd9c5 --cells=h1a1,h10a1,operator` after harness/source changes; this verifies the product tree before restamping unchanged bundles. Use `timing --surface=<surface> --samples=3 --cells=operator --decks --max-pairs=2` for short deck windows and `--resume` only for its unchanged saved schedule. The operator search entry is `device-cost-series.py search --host="$measurement_vm" --round=<fresh>`. Final startup uses `timing --surface=<surface> --samples=3 --cells=h1a1,h10a1,operator --measure-memory --max-pairs=6` on the new fixed tip. Do not resume the intentionally stopped old web cohort.
 
-# Separate first-deck series: operator population contains both target trees.
-remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --round=30 --surface=phone --samples=3 --cells=operator --decks --max-pairs=6
-# Repeat sequentially for web and desktop.
+After implementation is frozen and rebased onto the current `integrate/4286-data-on-device`, run the single authorized end validation through `remote-lane`, sequentially: `bun run test:file -- scripts/device-measurement.test.ts scripts/cold-start-guard.test.ts packages/sync/src/replica/holdings.test.ts tests/worklist/harness/src/startup/no-wrong-number.test.ts`; repeat that last file with `PODIUM_STARTUP_CELL` set to `h10a1`, `h1a4`, `h10a4`; then `bun run test`. One fix round and one focused rerun of exactly the failures are permitted. No end validation has run yet. The completed measurement series are not repeated for confidence.
 
-remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py search --host="$measurement_vm" --round=31
-```
-
-To reproduce completed adapter/feed evidence, use fresh round numbers with `device-cost-series.py sqlite` / `feed` (same cells, three samples, short `--max-cases` windows and `--resume`). Each ledger records the arm SHA, fixture digest, schedule, process and raw metrics. Feed checks use the same exact update-ID digest; the explicit empty async iterator avoids the separately filed bundling issue POD-7117.
-
-After all implementation is frozen, run the single authorized final validation window through `remote-lane`: focused files `scripts/device-measurement.test.ts`, `scripts/cold-start-guard.test.ts`, `packages/sync/src/replica/holdings.test.ts` and `tests/worklist/harness/src/startup/no-wrong-number.test.ts`; run that last safety file at the other three two-axis cells with `PODIUM_STARTUP_CELL` set to `h10a1`, `h1a4`, `h10a4`; then the lean gate `bun run test`, sequentially. Use `bun run test:file -- <paths>`. One fix round and one focused rerun of exactly the failures are permitted. No validation result is claimed yet.
-
-Raw SQLite round 21, feed round 26 and cache round 28 ledgers are retained in the private issue evidence workspace. The final report must replace the provisional artifacts, attach its completed evidence, update the AFTER section of [the phase baseline](POD-7059-data-on-device-baseline.md), rebase onto the integration tip, and send the coordinator one READY handoff. None of those completion steps is implied by this draft.
+Rebase/land only on the integration branch, never `dev/mw`. The delegate does not merge or close. Once the final report is complete, set this issue to review and send **one READY** to POD-5910 with startup and peak-memory numbers first, then tip SHA, changes, checks, results and remaining limits. VM cleanup happens after landing. The private resume artifact contains raw locations, the short lock-poll relay shim, exact host configuration and a prepared sequential validation script.
