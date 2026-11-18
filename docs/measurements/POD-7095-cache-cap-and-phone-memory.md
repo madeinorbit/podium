@@ -164,7 +164,7 @@ The real IndexedDB adapter and replica receive the **same 100 sidebar issue upda
 
 After source: `3afa48321d82c684c4682d7639d3825e2cd8e64c`; before source: `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`. Round 26 is complete: 36 cases, with unchanged fixture source throughout. The update-ID digest is `994d22e96ea881e153690014672ee5e4587b00553d382a25319eb447977c7c8a` for both two-axis cells and `a8b7df58faadb372515af9abdc64e56edbdc97fe1ced35b6a042a72e8a4be9b0` for the operator set.
 
-This is a regression in the measured feed window (which includes cleanup): for example phone x1 is 59.70 ms versus 16.34 ms, and phone x10 is 162.54 ms versus 22.39 ms. Receive wall time, measured before durability/checks/cleanup, independently regresses on phone from 8.80 / 12.60 ms to 52.30 / 73.20 ms at x1/x10. Smaller retained history has not made the first delta cheaper. POD-7119 owns the fix; this report records the measured values without adding an optimization.
+This is a regression in the measured feed window (which includes cleanup): for example phone x1 is 59.70 ms versus 16.34 ms, and phone x10 is 162.54 ms versus 22.39 ms. Receive wall time, measured before durability/checks/cleanup, independently regresses on phone from 8.80 / 12.60 ms to 52.30 / 73.20 ms at x1/x10. Smaller retained history has not made the first delta cheaper. This is the pre-fix regression; POD-7119’s corrected values are above. No new feed series was run here.
 
 ## Synchronous phone SQLite startup
 
