@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+
 import { readFileSync, writeFileSync } from 'node:fs'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -90,7 +92,8 @@ async function open(
       return () => listeners.delete(listener)
     },
   }
-  attachPreferenceSource(pool, uiState)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(uiState))
   pool.apply({
     type: 'replace',
     rows: [

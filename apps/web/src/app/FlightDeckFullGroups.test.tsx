@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+
 import { readFileSync, writeFileSync } from 'node:fs'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { coldMissionRowFixture } from '@podium/client-graph/mission-row-loading.test.fixture'
@@ -83,7 +85,8 @@ async function open(issues = mixed(), sessions: Row[] = []) {
       return () => listeners.delete(listener)
     },
   }
-  attachPreferenceSource(pool, uiState)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(uiState))
   pool.apply({
     type: 'replace',
     rows: [

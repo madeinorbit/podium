@@ -1,3 +1,4 @@
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -153,7 +154,8 @@ async function open(fixture = mission(), lazy?: PoolLazyOptions) {
     lazy,
   )
   pools.push(pool)
-  attachPreferenceSource(pool, ui)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(ui))
   pool.apply({
     type: 'replace',
     rows: [
