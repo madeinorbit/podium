@@ -27,8 +27,20 @@ export function registerReloadPreparation(callback: () => Promise<void>): () => 
   }
 }
 
+/**
+ * How long a started navigation holds the reload latch. A document still alive
+ * after this did not reload: the navigation was lost or is stuck (POD-7154).
+ */
+export const RELOAD_COMMIT_GRACE_MS = 10_000
+
 /** Coalesce the panel and Workbox's controllerchange navigation into one reload.
- * A failed local save ends visibly and permits a retry, keeping the document alive. */
+ * A failed local save ends visibly and permits a retry, keeping the document alive.
+ *
+ * A NAVIGATION THAT NEVER COMMITS RELEASES THE LATCH (POD-7154). Starting a
+ * navigation does not end the document; the browser can lose the request, and the
+ * page then stays as it was. The latch used to stay held for the life of the page,
+ * so every later Reload, and the panel's Reset, returned this settled promise and
+ * did nothing. It now coalesces only for {@link RELOAD_COMMIT_GRACE_MS}. */
 export function withReloadPreparation(navigate: () => void | Promise<void>): Promise<void> {
   if (pending) return pending
   const owner = prepare
@@ -42,6 +54,9 @@ export function withReloadPreparation(navigate: () => void | Promise<void>): Pro
       if (pending === work) pending = undefined
       throw error
     }
+    setTimeout(() => {
+      if (pending === work) pending = undefined
+    }, RELOAD_COMMIT_GRACE_MS)
   })
   pending = work
   return work

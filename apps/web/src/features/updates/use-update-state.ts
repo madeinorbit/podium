@@ -84,8 +84,21 @@ import {
 
 /** The render clock's precision, read only while something is actually running. */
 const CLOCK_MS = 1_000
-/** How long an action waits to see the operation it started. */
+/**
+ * How long an action waits to see the operation it started before the panel says
+ * the server has not answered. The wait itself does not end there (POD-7154).
+ */
 const OBSERVATION_WAIT_MS = 90_000
+
+/** What the panel says once {@link OBSERVATION_WAIT_MS} has passed without a reading. */
+export const UNCONFIRMED_UPDATE_NOTE =
+  'The server has not answered for over a minute. The update may already be running. ' +
+  'This panel shows it as soon as the server answers.'
+
+/** What the proposal card says when the approval's answer was lost (POD-7154). */
+export const APPROVAL_UNCONFIRMED_SENTENCE =
+  'The server did not confirm the approval. If the build started, this card shows it as ' +
+  'soon as the server answers.'
 
 export interface UpdateMachineState {
   id: string
@@ -466,15 +479,33 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
 
+  /**
+   * AN UNCONFIRMED START KEEPS LOOKING (POD-7154).
+   *
+   * `awaiting` ends the moment a reading answers authoritatively: the operation
+   * running, or no operation and the newest history row. So when this deadline
+   * passes, nothing has answered at all — the server cannot be reached from this
+   * tab. The request may well have created the operation (on 2026-11-18 it had,
+   * and the update finished while the panel waited). Ending the wait here used to
+   * paint "could not be confirmed" with a Try again that STARTED A SECOND UPDATE,
+   * which the server then refused because the first one had already finished.
+   * Now the panel says what it knows and goes on looking.
+   */
   const waiting = status.awaiting !== null
+  const [unconfirmed, setUnconfirmed] = useState(false)
   useEffect(() => {
-    if (!waiting) return
+    if (!waiting) {
+      setUnconfirmed(false)
+      return
+    }
     const timer = window.setTimeout(() => {
-      status.stopAwaiting()
-      setActionError({ message: 'The update could not be confirmed. Try again.' })
+      updatesLog.warn('the server has not confirmed the update yet; still looking', {
+        waitedMs: OBSERVATION_WAIT_MS,
+      })
+      setUnconfirmed(true)
     }, OBSERVATION_WAIT_MS)
     return () => window.clearTimeout(timer)
-  }, [status, waiting])
+  }, [waiting])
 
   const active = isOperationActive(live) || proposal?.state === 'building' || waiting
 
@@ -733,6 +764,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     [skew],
   )
 
+  const unconfirmedNote = waiting && unconfirmed ? UNCONFIRMED_UPDATE_NOTE : undefined
   const view = operationView({
     operation,
     offer,
@@ -747,7 +779,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     ...((bridgeIncompatibility ?? actionError)
       ? { actionError: bridgeIncompatibility ?? actionError }
       : {}),
-    ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
+    ...((note ?? unconfirmedNote ?? budgetNote)
+      ? { note: note ?? unconfirmedNote ?? budgetNote }
+      : {}),
   })
 
   /**
@@ -925,8 +959,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           // A request that got NO answer within its deadline (POD-6240) takes
           // the same path: the server may have created the operation before the
           // answer was lost, so the panel looks for it rather than replaying
-          // the write, and the observation wait below names the failure if
-          // nothing appears.
+          // the write, and the observation wait says so if the server stays
+          // silent.
           if (isUpdateRequestTimeout(error)) {
             updatesLog.warn('update action got no answer in time; looking for its operation', {
               action: kind,
@@ -1018,7 +1052,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       status.noteProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
       refresh()
     } catch (error) {
-      setProposalError(errorMessage(error) ?? 'The development release was not approved.')
+      // A lost answer is not a refusal (POD-7154): the build may have started.
+      // The proposal reading says whether it did; this sentence must not claim
+      // the server is down while the card is about to show it building.
+      setProposalError(
+        isServerUnavailable(error)
+          ? APPROVAL_UNCONFIRMED_SENTENCE
+          : (errorMessage(error) ?? 'The development release was not approved.'),
+      )
       refresh()
     } finally {
       setProposalPending(false)

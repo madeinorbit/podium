@@ -15,8 +15,10 @@ import { ServerUnavailableError } from '@/app/trpc'
 import { ACTIVE_POLL_MS, resetUpdateStatus, updateStatus } from '@/lib/update-status'
 import { UpdatePanel } from './UpdatePanel'
 import {
+  APPROVAL_UNCONFIRMED_SENTENCE,
   desktopChannelOf,
   surfaceFromDesktopBridge,
+  UNCONFIRMED_UPDATE_NOTE,
   type UpdateStateResult,
   useUpdateState,
 } from './use-update-state'
@@ -517,6 +519,28 @@ describe('useUpdateState — reading the operation', () => {
       headSha: proposal.headSha,
       version: proposal.version,
     })
+  })
+
+  it('does not call a lost approval answer a refusal or an unreachable server', async () => {
+    setupTransport({ appVersion: '0.4.1' })
+    const proposal = {
+      headSha: 'abcdef1',
+      version: '0.4.2-dev.7+abcdef1',
+      branch: 'main',
+      commits: [{ sha: 'abcdef1', summary: 'Displayed proposal' }],
+      addedMigrations: [],
+      state: 'pending',
+    }
+    mocks.proposal.mockResolvedValue(proposal)
+    mocks.approveProposal.mockRejectedValue(new ServerUnavailableError())
+    let current: UpdateStateResult | undefined
+    render(<Probe onResult={(result) => (current = result)} />)
+
+    await waitFor(() => expect(current?.proposal).toMatchObject(proposal))
+    await act(async () => current?.approveProposal())
+
+    expect(current?.proposalError).toBe(APPROVAL_UNCONFIRMED_SENTENCE)
+    expect(current?.proposalPending).toBe(false)
   })
 
   it('waits for a genuine no-operation answer before rendering the offer', async () => {
@@ -1168,7 +1192,13 @@ describe('update mutation observations', () => {
     expect(results.at(-1)?.operation?.id).toBe('op_retried')
   })
 
-  it('bounds uncertain recovery and offers a retryable error', async () => {
+  /**
+   * POD-7154: on 2026-11-18 the start reached the server and the update ran to
+   * the end, but no answer reached the tab for four minutes. After 90 s the panel
+   * used to say "could not be confirmed" and its Try again started a SECOND
+   * update, which the server refused because the first had finished.
+   */
+  it('keeps looking for an unconfirmed start and never offers a second one', async () => {
     setupTransport()
     mocks.active.mockResolvedValue(null)
     const results: UpdateStateResult[] = []
@@ -1183,9 +1213,23 @@ describe('update mutation observations', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(90_000)
     })
-    expect(button().disabled).toBe(false)
-    expect(results.at(-1)?.view.primary?.kind).toBe('retry')
-    expect(screen.getByTestId('view-state').textContent).toContain('could not be confirmed')
+    expect(results.at(-1)?.view.state).toBe('offer')
+    expect(results.at(-1)?.view.error).toBeUndefined()
+    expect(results.at(-1)?.view.note).toBe(UNCONFIRMED_UPDATE_NOTE)
+    expect(results.at(-1)?.pending).toBe('start')
+    expect(button().disabled).toBe(true)
+    expect(mocks.start).toHaveBeenCalledOnce()
+
+    // The server answers at last: the update it started shows its progress.
+    mocks.active.mockResolvedValue(running)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    await flush()
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+    expect(results.at(-1)?.view.note).toBeUndefined()
+    expect(results.at(-1)?.pending).toBeNull()
+    expect(mocks.start).toHaveBeenCalledOnce()
   })
 })
 

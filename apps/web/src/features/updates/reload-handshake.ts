@@ -45,6 +45,8 @@ export type ReloadHandshakePhase =
   | 'no-replacement'
   | 'failed'
   | 'resetting'
+  /** The navigation started, but this document is still here (POD-7154). */
+  | 'not-reloaded'
 
 export interface ServiceWorkerSnapshot {
   available: boolean
@@ -173,11 +175,34 @@ function statusMessage(phase: ReloadHandshakePhase): string {
       return 'The interface update could not take over.'
     case 'resetting':
       return 'Saving your changes and loading the current interface…'
+    case 'not-reloaded':
+      return 'The page has not reloaded. Press Reload again, or reload the page in your browser.'
   }
 }
 
 function resetAllowed(phase: ReloadHandshakePhase): boolean {
-  return phase === 'no-replacement' || phase === 'failed'
+  return phase === 'no-replacement' || phase === 'failed' || phase === 'not-reloaded'
+}
+
+/**
+ * THE RELOAD THAT DID NOT HAPPEN (POD-7154). A handshake that ends `reloading`
+ * has started a navigation, and the panel says "Reloading…". If the document is
+ * still here `waitedMs` later, the browser lost or stalled that navigation, and
+ * the panel must say so instead of "Reloading…" for good.
+ */
+export function notReloadedStatus(
+  previous: ReloadHandshakeStatus | null,
+  snapshot: ServiceWorkerSnapshot,
+  waitedMs: number,
+): ReloadHandshakeStatus {
+  return {
+    ...(previous ?? {}),
+    phase: 'not-reloaded',
+    message: statusMessage('not-reloaded'),
+    detail: `The browser started loading the new version ${Math.round(waitedMs / 1000)} s ago and has not finished.`,
+    canReset: true,
+    snapshot: previous?.snapshot ?? snapshot,
+  }
 }
 
 /** Revalidate and prefer the newest installing worker. Every browser wait is

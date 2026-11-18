@@ -20,9 +20,16 @@ const mocks = vi.hoisted(() => ({
   acknowledge: vi.fn(),
   approveProposal: vi.fn(async () => {}),
   checkSpace: vi.fn(async () => ({ machines: [] })),
+  navigateReload: vi.fn(),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
+// The navigation itself: jsdom cannot reload, and a lost navigation looks the
+// same from the page as one that was never made (POD-7154).
+vi.mock('@/lib/navigate', async (load) => ({
+  ...(await load<typeof import('@/lib/navigate')>()),
+  navigateReload: mocks.navigateReload,
+}))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
 // The panel's own reader is mocked with the hook; an open panel only watches it.
 vi.mock('@/lib/update-status', () => ({ updateStatus: () => ({ watch: () => () => {} }) }))
@@ -31,6 +38,7 @@ vi.mock('@/app/trpc', () => ({
   makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
 }))
 
+import { RELOAD_COMMIT_GRACE_MS } from '@/lib/reload-preparation'
 import { openUpdatePanel } from './open-panel'
 import { UpdatesEngine } from './UpdatesEngine'
 import { resetUpdates, useUpdates } from './updates-panel-context'
@@ -298,6 +306,50 @@ describe('UpdatesEngine', () => {
       </>,
     )
     expect(screen.getByTestId('update-panel')).toBeTruthy()
+  })
+
+  /**
+   * POD-7154: on 2026-11-18 Reload started a navigation that did not replace the
+   * page. The panel said "Reloading…" for good, and a second press did nothing.
+   */
+  it('says when a started reload has not replaced the page, and lets Reload act again', async () => {
+    vi.useFakeTimers()
+    try {
+      mount({
+        ...OFFER,
+        state: 'waiting-you',
+        title: 'Reload to finish',
+        primary: { kind: 'reload', label: 'Reload', pendingLabel: 'Reloading…' },
+      })
+      const options = mocks.useUpdateState.mock.calls.at(-1)?.[0] as {
+        reload: () => Promise<void>
+      }
+      await act(async () => {
+        await options.reload()
+      })
+      expect(mocks.navigateReload).toHaveBeenCalledOnce()
+      expect(screen.getByTestId('service-worker-status').textContent).toContain('Reloading')
+      expect(screen.queryByTestId('reset-cached-interface')).toBeNull()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+      })
+      expect(screen.getByTestId('service-worker-status').textContent).toContain(
+        'The page has not reloaded',
+      )
+      expect(screen.getByTestId('reset-cached-interface')).toBeTruthy()
+
+      await act(async () => {
+        await options.reload()
+      })
+      expect(mocks.navigateReload).toHaveBeenCalledTimes(2)
+      // Release the module-level latch so later tests start without it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('collapses a done panel on its own after a few seconds, and clears the indicator', () => {
