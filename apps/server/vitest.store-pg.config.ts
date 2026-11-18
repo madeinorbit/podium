@@ -29,6 +29,11 @@ export default defineConfig({
     include: postgresLegFiles(repositoryRoot),
     passWithNoTests: false,
     retry: 0,
+    // Every statement is a round trip to a server here, where SQLite's is a call into
+    // the process: a statement pin's 200-row world takes several times as long to build
+    // (POD-6994). The SQLite lanes keep the shared 20 s.
+    testTimeout: 90_000,
+    hookTimeout: 90_000,
     globalSetup: [
       ...sharedVitestConfig.test.globalSetup,
       fileURLToPath(new URL('./src/test-support/pg-test-host.ts', import.meta.url)),

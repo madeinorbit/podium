@@ -222,7 +222,10 @@ under `beyondStoreShard` with the reason.
 a SQLite-only entry without a reason, a file in both lists, and a `beyondStoreShard` entry
 that is a store-shard file, is missing or has no reason. Every store-shard file is on the leg
 unless a list names it, so one that fails on Postgres fails the leg by name. To see which
-pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
+pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending` and at most four
+workers (`PODIUM_TEST_WORKERS=4`): a failing test often leaves its store open, and a database a
+store still uses is dropped only when its file ends, so many failing files at once can fill the
+test server's 2 GB tmpfs.
 
 **How it gets Postgres.** The config's globalSetup (`src/test-support/pg-test-host.ts`):
 
@@ -277,6 +280,11 @@ different databases) needs two and skips with one:
 **CI.** Job `store-pg` in `.github/workflows/ci.yml` runs the whole leg against a
 `postgres:17-bookworm` service container, on pull requests that touch the store,
 migrations, sync, the harness or the lane files, and on every merge-group run.
+The same job then runs the Bun suites that need a store on Postgres:
+`server.postgres.bun.test.ts` (the server started on a Postgres URL), and the sync worker's
+`worker.bun.test.ts` and `bootstrap-worker.bun.test.ts` under `PODIUM_TEST_STORE_ENGINE=pg`.
+Run those locally the same way:
+`PODIUM_TEST_STORE_ENGINE=pg bun run test:file -- apps/server/src/sync-worker/worker.bun.test.ts`.
 
 **Measured cost** (2026-11-16, a shared 7 vCPU development host, load average 80 to 220 during the
 runs, harness commit after `bddcd1b1e0`; the leg held only the five harness files):

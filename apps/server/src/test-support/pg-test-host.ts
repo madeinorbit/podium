@@ -498,6 +498,20 @@ export async function bunPgTestDatabase(): Promise<{
   }
 }
 
+/**
+ * THE POSTGRES LEG FOR A `bun test` FILE [POD-6994]. With `PODIUM_TEST_STORE_ENGINE=pg`
+ * (and no lane's globalSetup before it), do what the vitest leg's globalSetup does: start
+ * the server, build the template and name both in the environment, so `openTestStore`
+ * opens its stores on clones. Returns the teardown (drop this run's databases), which the
+ * file runs in `afterAll`; on SQLite, and when a setup already ran, a no-op.
+ */
+export async function pgBunTestRun(): Promise<() => Promise<void>> {
+  if (process.env[TEST_STORE_ENGINE_ENV] !== 'pg' || process.env[PG_TEST_TEMPLATE_ENV]) {
+    return async () => {}
+  }
+  return await setup()
+}
+
 export default async function setup(): Promise<() => Promise<void>> {
   const { adminUrl, template } = await preparePgTestServer()
   const runId = newRunId()

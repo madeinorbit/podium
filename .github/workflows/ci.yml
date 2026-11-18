@@ -374,6 +374,11 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         name: server started on a Postgres URL (POD-6994)
         run: bun run test:file -- apps/server/src/server.postgres.bun.test.ts
+      - if: steps.scope.outputs.run == 'true'
+        name: sync worker suites on Postgres (POD-6994)
+        env:
+          PODIUM_TEST_STORE_ENGINE: pg
+        run: bun run test:file -- apps/server/src/sync-worker/worker.bun.test.ts apps/server/src/sync/bootstrap-worker.bun.test.ts
 
   # The desktop shell's RUST tests — the native NDJSON log sink, its rotation
   # bound, the panic hook's payloads and the pending-crash queue. Nothing ran
