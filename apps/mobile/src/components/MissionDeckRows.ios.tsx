@@ -539,7 +539,7 @@ function StateWord({
     <Text
       modifiers={[
         ...metaText(deckWordColor(word)),
-        ...(word === 'working' ? [workingWordGlint(seed, visible)] : []),
+        ...(word === 'working' ? [workingWordGlint(seed, visible, label)] : []),
         // Seat metadata gives the state its natural width; the model takes the rest.
         ...(preserve ? [fixedSize({ horizontal: true, vertical: false }), layoutPriority(1)] : []),
       ]}

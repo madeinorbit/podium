@@ -24,22 +24,40 @@ describe('native Working glint', () => {
     expect(code).not.toMatch(/scenePhase/)
   })
 
-  it('runs the shared system timeline only for visible, focused, foreground words', () => {
-    expect(code).toMatch(/TimelineView\(\.animation\(minimumInterval: 1\.0 \/ 30\)\)/)
-    expect(code).not.toMatch(/CADisplayLink|ObservableObject/)
+  it('hands the glint to Core Animation only for visible, focused, foreground words', () => {
+    expect(code).not.toMatch(/TimelineView|CADisplayLink|ObservableObject|Timer/)
     expect(code).toContain('if active && visible && foreground && !reduceMotion {')
     expect(code).toContain('.modifier(ContentVisibilityModifier { visible = $0 })')
     expect(code).toContain('UIApplication.willResignActiveNotification')
     expect(code).toContain('UIApplication.didBecomeActiveNotification')
-    // The glint offset is derived from the timeline's own date.
-    expect(code).toMatch(/glintOffset\(at: timeline\.date/)
+    expect(code).toContain('travel.repeatCount = .infinity')
+    expect(code).toContain('host.view.layer.mask = glintWindow')
   })
 
-  it('draws nothing and runs no timeline under Reduce Motion', () => {
+  it('keeps the desktop timing on the shared absolute clock with the seed phase', () => {
+    expect(code).toContain('period: CFTimeInterval = 2.2')
+    expect(code).toContain('travel.values = [-0.4 * width, width, width]')
+    expect(code).toContain('travel.keyTimes = [0, 0.66, 1]')
+    expect(code).toContain('CAMediaTimingFunction(controlPoints: 0.42, 0, 0.58, 1)')
+    expect(code).toContain(
+      'Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period)',
+    )
+    expect(code).toContain('travel.timeOffset = phase * Self.period')
+  })
+
+  it('draws nothing and runs no animation under Reduce Motion', () => {
     expect(code).toMatch(/@Environment\(\\\.accessibilityReduceMotion\)/)
     const gate = code.indexOf('if active && visible && foreground && !reduceMotion {')
     expect(gate).toBeGreaterThan(-1)
-    expect(code.indexOf('TimelineView(')).toBeGreaterThan(gate)
+    expect(code.indexOf('WorkingGlintOverlay(')).toBeGreaterThan(gate)
+  })
+
+  it('draws the copy in the row Text font and sends the row string', () => {
+    // @expo/ui font({ textStyle }) resolves to Font.system(style, design: .default).
+    expect(code).toContain('.font(.system(textStyle, design: .default))')
+    expect(code).toContain('.lineLimit(1)')
+    expect(bridge).toMatch(/createModifier\('podiumWorkingWordGlint', \{[^}]*\btext,\s*textStyle,?\s*\}/)
+    expect(registration).toContain('text: params["text"] as? String')
   })
 
   it('registers the modifier under the name the JS bridge sends', () => {
@@ -47,7 +65,7 @@ describe('native Working glint', () => {
     expect(name).toBe('podiumWorkingWordGlint')
     expect(registration).toContain(`private let workingWordModifier = "${name}"`)
     expect(registration).toMatch(
-      /ViewModifierRegistry\.register\(workingWordModifier\)[^}]*WorkingWordModifier\(phase:/,
+      /ViewModifierRegistry\.register\(workingWordModifier\)[^}]*WorkingWordModifier\(\s*phase:/,
     )
   })
 })

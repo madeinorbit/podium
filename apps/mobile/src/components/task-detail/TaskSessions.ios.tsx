@@ -113,7 +113,9 @@ const TaskSessionRow = observer(function TaskSessionRow({
           <Text
             modifiers={[
               ...meta(deckWordColor(word)),
-              ...(word === 'working' ? [workingWordGlint(sessionId, visible)] : []),
+              ...(word === 'working'
+                ? [workingWordGlint(sessionId, visible, SESSION_WORD_LABEL[word])]
+                : []),
               fixedSize({ horizontal: true, vertical: false }),
               layoutPriority(1),
             ]}

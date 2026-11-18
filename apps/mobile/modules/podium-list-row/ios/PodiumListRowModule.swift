@@ -41,7 +41,12 @@ public final class PodiumListRowModule: Module {
         )
       }
       ViewModifierRegistry.register(workingWordModifier) { params, _, _ in
-        WorkingWordModifier(phase: params["phase"] as? Double ?? 0, active: params["active"] as? Bool ?? true)
+        WorkingWordModifier(
+          phase: params["phase"] as? Double ?? 0,
+          active: params["active"] as? Bool ?? true,
+          text: params["text"] as? String ?? "",
+          textStyle: glintTextStyle(params["textStyle"] as? String)
+        )
       }
       ViewModifierRegistry.register(contentVisibilityModifier) { _, _, dispatcher in
         ContentVisibilityModifier { visible in
@@ -63,6 +68,23 @@ public final class PodiumListRowModule: Module {
       ViewModifierRegistry.unregister(rowPressModifier)
       ViewModifierRegistry.unregister(searchStartsHiddenModifier)
     }
+  }
+}
+
+/// The @expo/ui `font({ textStyle })` names the glint copy can draw in.
+private func glintTextStyle(_ name: String?) -> Font.TextStyle {
+  switch name {
+  case "largeTitle": return .largeTitle
+  case "title": return .title
+  case "title2": return .title2
+  case "title3": return .title3
+  case "headline": return .headline
+  case "subheadline": return .subheadline
+  case "body": return .body
+  case "callout": return .callout
+  case "caption": return .caption
+  case "caption2": return .caption2
+  default: return .footnote
   }
 }
 
