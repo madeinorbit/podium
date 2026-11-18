@@ -342,6 +342,19 @@ export class MissionScreen {
 
 }
 
+/**
+ * POD-7169 — whether a phone opening of a mission has its answer: the mission,
+ * or "not found". Not found is only ever the lookup's settled answer (the root
+ * is gone, or the pool is past its boot and the selection names nothing);
+ * while the mission or anything its screen draws is on its way, the opening
+ * is loading. An archived member can still own the current conversation, so
+ * its live crew is a shown field even once the deck's rows have settled.
+ */
+export function missionOpeningResolved(screen: MissionScreen | null, rootId: Loaded<string>, booting: boolean): boolean {
+  if (screen !== null) return screen.ready && settled(() => screen.crew) !== LOADING
+  return rootId !== LOADING && !booting
+}
+
 /** The mission root a selection opens, by id. The phone (`structural`) opens
  * archived roots and an addressed cold row explicitly; the desktop opens the
  * visible root only, and not an empty draft vessel. */

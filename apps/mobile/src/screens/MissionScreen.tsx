@@ -231,8 +231,14 @@ export const MissionScreen = observer(function MissionScreen() {
               )
             }
           />
-        ) : (
+        ) : resolved ? (
           <EmptyState title="Mission not found." />
+        ) : (
+          // POD-7169: on its way. The crossfade keeps its content mounted under
+          // the placeholder, and once settled it shows it without one, so this
+          // branch must never be the not-found answer: that is only ever the
+          // lookup's settled "gone".
+          <DetailSkeleton />
         )}
       </BootstrapCrossfade>
 
