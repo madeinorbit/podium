@@ -44,3 +44,16 @@ it('subscribes both glint styles to the shared clock and the measured width', ()
     expect(closure).toEqual(expect.arrayContaining(['workingWordProgress', 'width']))
   }
 })
+
+it('subscribes the View dot style directly to the shared mark clock', () => {
+  const file = resolve(process.cwd(), 'src/components/WorkingMark.native.tsx')
+  const code =
+    babel.transformSync(readFileSync(file, 'utf8'), {
+      filename: file,
+      babelrc: false,
+      configFile: false,
+      presets: [[typescript, { isTSX: true, allExtensions: true }]],
+      plugins: [plugin],
+    })?.code ?? ''
+  expect(animatedStyleClosures(code)).toEqual([expect.arrayContaining(['workingMarkProgress'])])
+})

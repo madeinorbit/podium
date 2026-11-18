@@ -1,16 +1,15 @@
 import { memo, useEffect } from 'react'
-import Animated, { useAnimatedProps } from 'react-native-reanimated'
-import Svg, { Ellipse } from 'react-native-svg'
+import { StyleSheet, View } from 'react-native'
+import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useContentVisible } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import type { WorkingMarkProps } from './WorkingMark.shared'
-import { workingMarkDot, workingMarkRest } from './working-mark-frames'
+import { workingMarkDot, workingMarkRest, workingMarkViewDot } from './working-mark-frames'
 import { subscribeWorkingMark, workingMarkProgress } from './working-mark-motion.native'
 
-const AnimatedEllipse = Animated.createAnimatedComponent(Ellipse)
-
-/** Four SVG dots driven by one UI-runtime clock, with no JS work per frame. */
+/** Four fixed-size Views share one clock. Transform/opacity updates use the
+ * synchronous iOS path instead of committing the screen's shadow tree. */
 export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
@@ -18,41 +17,51 @@ export const WorkingMark = memo(function WorkingMark({
   const reduceMotion = useReduceMotion()
   // Focus state also chooses static dots on covered screens, even if another screen keeps the clock alive.
   const focused = useContentVisible()
+  const width = Math.round(size * 0.66)
+  const dotStyle = [styles.dot, { left: width / 2 - 1, top: size / 2 - 1, backgroundColor: tint }]
   useEffect(
     () => (focused && !reduceMotion ? subscribeWorkingMark() : undefined),
     [focused, reduceMotion],
   )
 
   return (
-    <Svg
+    <View
       testID="working-mark"
       accessible={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      viewBox="-0.5 -0.5 1 1"
-      width={Math.round(size * 0.66)}
-      height={size}
+      pointerEvents="none"
+      style={{ width, height: size }}
     >
       {workingMarkRest.map(([cx, cy, rx, ry, opacity], index) =>
         focused && !reduceMotion ? (
-          <MovingDot key={`${cx}:${cy}`} index={index} tint={tint} />
+          <MovingDot key={`${cx}:${cy}`} index={index} width={width} style={dotStyle} />
         ) : (
-          <Ellipse
+          <View
             key={`${cx}:${cy}`}
-            cx={cx}
-            cy={cy}
-            rx={rx}
-            ry={ry}
-            opacity={opacity}
-            fill={tint}
+            style={[dotStyle, workingMarkViewDot({ cx, cy, rx, ry, opacity }, width)]}
           />
         ),
       )}
-    </Svg>
+    </View>
   )
 })
 
-function MovingDot({ index, tint }: { index: number; tint: string }) {
-  const animatedProps = useAnimatedProps(() => workingMarkDot(index, workingMarkProgress.get()))
-  return <AnimatedEllipse animatedProps={animatedProps} fill={tint} />
+function MovingDot({
+  index,
+  width,
+  style,
+}: {
+  index: number
+  width: number
+  style: React.ComponentProps<typeof View>['style']
+}) {
+  const animatedStyle = useAnimatedStyle(() =>
+    workingMarkViewDot(workingMarkDot(index, workingMarkProgress.get()), width),
+  )
+  return <Animated.View style={[style, animatedStyle]} />
 }
+
+const styles = StyleSheet.create({
+  dot: { position: 'absolute', width: 2, height: 2, borderRadius: 1 },
+})

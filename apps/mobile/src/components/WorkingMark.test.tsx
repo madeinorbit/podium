@@ -4,7 +4,7 @@ import type { View as RNView } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReducedMotionContext } from '../hooks/useReduceMotion'
 import { VisibleContent } from '../lib/visible-content'
-import { workingMarkRest } from './working-mark-frames'
+import { workingMarkRest, workingMarkViewDot } from './working-mark-frames'
 
 const lifecycle = vi.hoisted(() => ({
   events: new Set<() => void>(),
@@ -18,18 +18,29 @@ const motion = vi.hoisted(() => ({
   timing: vi.fn(),
   updaters: [] as (() => object)[],
 }))
-vi.mock('react-native', async () => ({
-  ...(await vi.importActual<typeof import('react-native')>('react-native')),
-  AppState: {
-    get currentState() {
-      return lifecycle.state
+const cells: Record<string, unknown>[] = []
+const dots: Record<string, unknown>[] = []
+vi.mock('react-native', async () => {
+  const actual = await vi.importActual<typeof import('react-native')>('react-native')
+  return {
+    ...actual,
+    View: ({ children, ...props }: ComponentProps<typeof RNView>) => {
+      const style = actual.StyleSheet.flatten(props.style)
+      if (props.testID === 'working-mark') cells.push({ ...props, ...style })
+      if (style?.width === 2 && style.height === 2) dots.push(style)
+      return <actual.View {...props}>{children}</actual.View>
     },
-    addEventListener: (_event: string, handler: () => void) => {
-      lifecycle.events.add(handler)
-      return { remove: () => lifecycle.events.delete(handler) }
+    AppState: {
+      get currentState() {
+        return lifecycle.state
+      },
+      addEventListener: (_event: string, handler: () => void) => {
+        lifecycle.events.add(handler)
+        return { remove: () => lifecycle.events.delete(handler) }
+      },
     },
-  },
-}))
+  }
+})
 vi.mock('../client/projection-focus', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
@@ -46,14 +57,9 @@ vi.mock('../client/projection-focus', async () => {
   }
 })
 vi.mock('react-native-reanimated', async () => {
-  const { createElement } = await import('react')
+  const { View } = await import('react-native')
   return {
-    default: {
-      createAnimatedComponent:
-        (Component: React.ComponentType<object>) =>
-        ({ animatedProps, ...props }: { animatedProps: object }) =>
-          createElement(Component, { ...props, ...animatedProps }),
-    },
+    default: { View },
     makeMutable: (initial: number) => {
       let value = initial
       return {
@@ -74,24 +80,9 @@ vi.mock('react-native-reanimated', async () => {
       motion.repeat(...args)
       return 0
     },
-    useAnimatedProps: (updater: () => object) => {
+    useAnimatedStyle: (updater: () => object) => {
       motion.updaters.push(updater)
       return updater()
-    },
-  }
-})
-const cells: Record<string, unknown>[] = []
-const dots: Record<string, unknown>[] = []
-vi.mock('react-native-svg', async () => {
-  const { View } = await import('react-native')
-  return {
-    default: ({ children, ...props }: ComponentProps<typeof RNView>) => {
-      cells.push(props)
-      return <View>{children}</View>
-    },
-    Ellipse: (props: Record<string, unknown>) => {
-      dots.push(props)
-      return null
     },
   }
 })
@@ -225,10 +216,12 @@ describe('UI-thread working mark', () => {
       </ReducedMotionContext.Provider>,
     )
     expect(lifecycle.events.size).toBe(0)
-    expect(dots.map(({ cx, cy, rx, ry, opacity }) => [cx, cy, rx, ry, opacity])).toEqual(
-      workingMarkRest,
+    expect(dots.map(({ transform, opacity }) => ({ transform, opacity }))).toEqual(
+      workingMarkRest.map(([cx, cy, rx, ry, opacity]) =>
+        workingMarkViewDot({ cx, cy, rx, ry, opacity }, 8),
+      ),
     )
-    expect(dots.map((dot) => dot.fill)).toEqual(Array(4).fill('#fff'))
+    expect(dots.map((dot) => dot.backgroundColor)).toEqual(Array(4).fill('#fff'))
     rerender(
       <ReducedMotionContext.Provider value={false}>
         <WorkingMark />

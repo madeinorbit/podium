@@ -26,3 +26,19 @@ export function workingMarkDot(index: number, progress: number) {
     opacity: a[4] + (b[4] - a[4]) * mix,
   }
 }
+
+/** Map the SVG's unit-square viewBox onto a fixed 2pt View. The original
+ * xMidYMid meet scales both axes by the cell width, then centres vertically.
+ * Only these non-layout props change on a frame. */
+export function workingMarkViewDot(dot: ReturnType<typeof workingMarkDot>, width: number) {
+  'worklet'
+  return {
+    opacity: dot.opacity,
+    transform: [
+      { translateX: dot.cx * width },
+      { translateY: dot.cy * width },
+      { scaleX: dot.rx * width },
+      { scaleY: dot.ry * width },
+    ],
+  }
+}
