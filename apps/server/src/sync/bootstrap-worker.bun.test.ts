@@ -646,6 +646,7 @@ describe('snapshot delta producer', () => {
               fromSeq: row.fromSeq,
               throughSeq: row.seq,
               changes: row.changes,
+              ...(row.access ? { access: row.access } : {}),
             })),
           ).toEqual(expected)
           expect(meta).toMatchObject({ mode: 'delta', fromSeq: from, seq: through })

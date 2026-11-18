@@ -207,6 +207,9 @@ async function* produceRecords(
             seq: delivery.throughSeq,
             minAvailableSeq,
             changes,
+            // The principal's access moved in this range (POD-6947): the same
+            // feed fact the main thread's frame carries.
+            ...(delivery.access ? { access: true } : {}),
           })
           await yieldLoop()
           check()
