@@ -44,6 +44,12 @@ it('waits for the Expo root slot to contain an app state before addressing a res
   expect(appStackState({ routes: [{ name: '__root' }] })).toBeUndefined()
 })
 
+it('stops at the app Stack while its active tabs route has a focused child navigator', () => {
+  const app = stack()
+  expect(app.state.routes[0]?.state?.index).toBe(1)
+  expect(appStackState(app.navigation.getRootState())).toBe(app.state)
+})
+
 /** Real Expo/React Navigation path parsing and stack actions, without UIKit. */
 function stack(nested = true) {
   const config = { routeNames: Object.keys(screens), routeParamList: {}, routeGetIdList: {} }

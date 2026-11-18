@@ -1,5 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
+import type { NavigationState } from 'expo-router/react-navigation'
 import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { expoRootStateReader } from '../../test/expo-root-state'
@@ -7,8 +8,8 @@ import { useDismissOnRootLeave } from './use-dismiss-on-root-leave'
 
 afterEach(cleanup)
 
-function root() {
-  let state = { index: 0, routes: [{ key: 'owner', name: '(tabs)' }] }
+function root(initial: NavigationState['routes'][number] = { key: 'owner', name: '(tabs)' }) {
+  let state = { index: 0, routes: [initial] }
   let listener = () => {}
   const remove = vi.fn()
   const addListener = vi.fn((event: string, next: () => void) => {
@@ -25,7 +26,7 @@ function root() {
   return {
     remove,
     addListener,
-    publish(focused: { key: string; name: string }) {
+    publish(focused: NavigationState['routes'][number]) {
       state = { index: 0, routes: [focused] }
       act(() => listener())
     },
@@ -64,6 +65,28 @@ describe('local modal dismissal on root navigation', () => {
     app.publish({ key: 'start', name: 'launch/[issueId]' })
     app.publish({ key: 'details', name: 'inspect/[issueId]' })
     app.publish({ key: 'owner', name: '(tabs)' })
+    expect(dismiss).not.toHaveBeenCalled()
+  })
+
+  it('retains the sheet when the focused nested tab changes below the same app route', () => {
+    const tabs: NavigationState = {
+      key: 'native-tabs',
+      type: 'tab',
+      stale: false,
+      index: 0,
+      routeNames: ['work', 'issues'],
+      routes: [
+        { key: 'work-tab', name: 'work' },
+        { key: 'tasks-tab', name: 'issues' },
+      ],
+    }
+    const owner = { key: 'owner', name: '(tabs)', state: tabs }
+    const app = root(owner)
+    const dismiss = vi.fn()
+    renderHook(() => useDismissOnRootLeave(dismiss), { wrapper: app.wrapper })
+
+    app.publish({ ...owner, state: { ...tabs, index: 1 } })
+
     expect(dismiss).not.toHaveBeenCalled()
   })
 
