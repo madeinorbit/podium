@@ -25,6 +25,7 @@ import { asSessionId } from '@podium/model'
 import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { storeSql } from '../test-support/store-sql'
 import {
   ALICE,
@@ -443,7 +444,9 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
   })
 })
 
-describe('the written-columns hint is per workspace', () => {
+// SQLite only: on Postgres the store builds the hint off (`WrittenColumns.forDialect`), so it
+// records nothing in either workspace and there is no per-workspace hint to keep apart.
+describe.skipIf(testStoreEngine() === 'pg')('the written-columns hint is per workspace', () => {
   type Hint = { get(id: string): unknown }
   const hintOf = (store: SessionStore): Hint =>
     (store.sessions as unknown as { writtenColumns: Hint }).writtenColumns

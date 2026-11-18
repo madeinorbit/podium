@@ -34,10 +34,12 @@ import type { SessionStore } from '../store'
 import { storeSql } from '../test-support/store-sql'
 import {
   account,
+  MARKED_AT,
   operation,
   opId,
   other,
   READER,
+  REMARKED_AT,
   RESETS,
   rowsOf,
   SAMPLING,
@@ -87,20 +89,20 @@ describe('recap watermarks (store/read-watermarks.ts)', () => {
     expect(await stores[tag].readWatermarks.getRecapWatermark(READER, TARGET)).toBe(`${tag}-mark-1`)
     // A key only the other workspace holds is not there.
     const onlyOther = asSessionId('sess-only-other')
-    await stores[other(tag)].readWatermarks.setRecapWatermark(READER, onlyOther, 'x', 'at-1')
+    await stores[other(tag)].readWatermarks.setRecapWatermark(READER, onlyOther, 'x', MARKED_AT)
     expect(await stores[tag].readWatermarks.getRecapWatermark(READER, onlyOther)).toBeNull()
   })
 
   it.each(TAGS)('setRecapWatermark in %s moves only its own cursor', async (tag) => {
     await leavesOtherUnchanged(tag, async (store) => {
       // The key both hold moves in this workspace only.
-      await store.readWatermarks.setRecapWatermark(READER, TARGET, `${tag}-mark-2`, 'at-2')
+      await store.readWatermarks.setRecapWatermark(READER, TARGET, `${tag}-mark-2`, REMARKED_AT)
       // A new key of its own: inserted in its workspace only.
       await store.readWatermarks.setRecapWatermark(
         READER,
         asSessionId('sess-new'),
         `${tag}-mark-new`,
-        'at-2',
+        REMARKED_AT,
       )
     })
     expect(await stores[tag].readWatermarks.getRecapWatermark(READER, TARGET)).toBe(`${tag}-mark-2`)

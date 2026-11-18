@@ -20,6 +20,9 @@ export const other = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
 export const SAMPLING = 15 * 60_000
 export const RESETS = Date.parse('2026-11-24T01:00:00.000Z')
 export const SEEN = Date.parse('2026-11-17T10:00:00.000Z')
+/** When a recap watermark was set and moved: `at` is timestamptz on Postgres. */
+export const MARKED_AT = '2026-11-17T09:00:00.000Z'
+export const REMARKED_AT = '2026-11-17T09:30:00.000Z'
 
 /** The workspace tables these repositories read and write. */
 export const TABLES = ['recap_watermarks', 'quota_windows', 'operations'] as const
@@ -95,7 +98,7 @@ export function approval(
 
 /** One workspace's rows, written through its own repositories. */
 export async function seed(store: SessionStore, tag: Tag): Promise<void> {
-  await store.readWatermarks.setRecapWatermark(READER, TARGET, `${tag}-mark-1`, 'at-1')
+  await store.readWatermarks.setRecapWatermark(READER, TARGET, `${tag}-mark-1`, MARKED_AT)
 
   // Two series: `main` with one window, `spare` with an older and a newer window.
   await store.quotaHistory.record(sample(tag), SAMPLING, null)
