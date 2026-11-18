@@ -62,7 +62,8 @@ const ALL_RECORDS = [
 /**
  * Production files that still ask an all-records kind, and the issue that
  * moves each. Search surfaces belong to POD-7089 (design "Search and
- * references"); the web issue pickers read `pageIssues` until it moves them.
+ * references"); since it, the pickers' device-first search reads `pageIssues`
+ * in `issue-search-choices.ts`.
  * A file leaves this table when its reader moves; nothing is added.
  */
 const ALLOWED: Readonly<Record<string, { kinds: readonly string[]; movedBy: string }>> = {
@@ -74,9 +75,15 @@ const ALLOWED: Readonly<Record<string, { kinds: readonly string[]; movedBy: stri
     kinds: ['mentionIssues', 'referenceSessions'],
     movedBy: 'POD-7089 (chat mentions)',
   },
+  // POD-7112: POD-7089 moved the pickers' device half here (4d515d5889); the
+  // issue page keeps its catalog for the web label submenu.
   'packages/client-graph/src/issue-page.ts': {
     kinds: ['pageIssues'],
-    movedBy: 'POD-7089 (issue pickers: device, then server search)',
+    movedBy: 'the label submenu catalog (issue-menu-readers.ts), still every device issue',
+  },
+  'packages/client-graph/src/issue-search-choices.ts': {
+    kinds: ['pageIssues'],
+    movedBy: 'none: the device half of device-first search (design "Search and references")',
   },
 }
 
