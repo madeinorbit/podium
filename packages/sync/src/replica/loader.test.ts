@@ -21,6 +21,7 @@ import {
 } from '../conformance/collection-server'
 import { inMemoryInstantiation } from '../conformance/in-memory'
 import type { ConformanceStorage } from '../conformance/instantiation'
+import { TEST_BUDGETS } from '../conformance/test-budgets'
 import { instanceKey } from './cache-state'
 import { CollectionLoader, type LoaderSchedule, oneRecord } from './loader'
 import { Replica } from './replica'
@@ -40,7 +41,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: 5_000,
+  cacheCap: TEST_BUDGETS.cacheCap,
 }
 
 const SIDEBAR: InstanceSpec = { collection: 'issueProjection.sidebar', part: 'main' }

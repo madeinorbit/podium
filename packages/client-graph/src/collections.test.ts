@@ -19,6 +19,7 @@ import {
   WORLD_NOW,
 } from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
+import { TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
 import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
 import { Replica } from '../../sync/src/replica/replica'
@@ -43,7 +44,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: 1_000,
+  cacheCap: TEST_BUDGETS.cacheCap,
 }
 
 const ticks = async (count = 8): Promise<void> => {

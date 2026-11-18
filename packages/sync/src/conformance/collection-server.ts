@@ -29,6 +29,7 @@ import type {
   InstanceScalar,
   InstanceSpec,
 } from '../replica/types'
+import { TEST_BUDGETS } from './test-budgets'
 
 /** 2026-11-18T12:00:00Z: every "recent" rule in the cases compares against it. */
 export const WORLD_NOW = Date.parse('2026-11-18T12:00:00.000Z')
@@ -46,7 +47,8 @@ export const WORLD_POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: 1_000,
+  // POD-7163: tiny by default, so the trim runs in every case.
+  cacheCap: TEST_BUDGETS.cacheCap,
 }
 
 interface WorldRow {
