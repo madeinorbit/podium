@@ -1,3 +1,4 @@
+import { issueSearch } from './issue-search'
 import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { BoardFilter, BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
@@ -62,7 +63,7 @@ export function createBoardLayout(pool: MobxPool) {
     const deferred = Number.isFinite(deadline) && !pool.clock.reached(deadline)
     return flag === 'deferred' ? deferred : !row.blocked && !deferred && !isFinished(row)
   })
-  const textIds = keyedComputed('IssueBoard.textIds', (needle: string) => pool.queries.localTextIds(needle))
+  const textIds = keyedComputed('IssueBoard.textIds', (needle: string) => new Set(issueSearch(pool).read(needle, pool.queries.localTextIds(needle)).ids))
   const matchesFacet = keyedComputed('IssueBoard.matchesFacet', (key: string): Loaded<boolean> => {
     const [id, queryKey] = JSON.parse(key) as [string, string]
     const query = JSON.parse(queryKey) as BoardQuery

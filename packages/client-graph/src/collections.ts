@@ -309,6 +309,14 @@ export class PoolCollections {
     return held === 'live' || (includeDeleted && held === 'deleted')
   }
 
+  /** An existence question over the fixed issue stub fields, for all history. */
+  someIssue(test: (stub: IssueStub) => boolean): boolean | typeof LOADING {
+    const loader = this.loader()
+    if (!loader || !this.stubsComplete) return LOADING
+    this.stubs.reportObserved()
+    return loader.stubRows(ISSUE).some(({ stub }) => test(stub as IssueStub))
+  }
+
   /** TRACKED: whether the device's stubs cover all history. */
   get stubsComplete(): boolean {
     return this.complete(ISSUE_STUBS)

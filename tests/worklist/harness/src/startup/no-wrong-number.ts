@@ -21,6 +21,12 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
+import { issueSearch } from '@podium/client-graph/issue-search'
+import { issueTargets } from '@podium/client-graph/issue-targets'
+import { issuePages } from '@podium/client-graph/issue-page'
+import { readIssueSearchChoices } from '../../../../../apps/web/src/features/issues/issue-search-choices'
+import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -44,12 +50,8 @@ import {
 /** Viewer request answer and device checkpoints, separate from the partial record pool. */
 export type StartupSetupFacts = Omit<Parameters<typeof isActivationEligible>[0], 'repoCount'>
 
-/**
- * The questions whose readers POD-7087 and POD-7088 moved onto collections,
- * markers and stubs: never wrong in any state. Only the search surfaces are
- * left, and POD-7089 moves those.
- */
-export const MOVED_READERS = /^(first-screen:|counts:|board-archive:|closed-children:)/
+/** Readers moved by POD-7087, POD-7088 and POD-7089: never wrong in any state. */
+export const MOVED_READERS = /^(first-screen:|counts:|board-archive:|closed-children:|search:)/
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
@@ -212,16 +214,55 @@ export function startupQuestions(
   add('counts', 'stub-by-stage', (pool) => pool.collections.countBy('stage'))
   add('counts', 'stub-by-repo', (pool) => pool.collections.countBy('repoId'))
 
-  add('search', 'command-issues', (pool) => pool.queries.ids({ kind: 'commandIssues' }))
+  const search = (pool: MobxPool, needle: string, deviceIds: Iterable<string>) => {
+    const found = issueSearch(pool).read(needle, deviceIds)
+    return found.complete ? found.ids : LOADING
+  }
+  const commandNeedle = targets.needles[0] ?? 'issue'
+  add('search', 'command-issues', (pool) =>
+    search(pool, commandNeedle, pool.queries.localTextIds(commandNeedle)),
+  )
   for (const needle of targets.needles) {
-    add('search', `local-text:${needle}`, (pool) => pool.queries.localTextIds(needle))
+    add('search', `local-text:${needle}`, (pool) => {
+      const ids = search(pool, needle, pool.queries.localTextIds(needle))
+      return ids === LOADING ? LOADING : new Set(ids)
+    })
     add('search', `mention:${needle}`, (pool) => {
       const found = chatMentionMatches(pool, needle, 8)
-      return pendingOr(found.pending, found.issues.map((issue) => issue.id))
+      const ids = search(
+        pool,
+        needle,
+        found.issues.map((issue) => issue.id),
+      )
+      return ids === LOADING ? LOADING : pendingOr(found.pending, ids.slice(0, 8))
     })
     add('search', `board:${needle}`, (pool) => {
+      if (!issueSearch(pool).read(needle, []).complete) return LOADING
       const found = board(pool).queryIds({ kind: 'board', filter: { text: needle } })
       return found === LOADING || found === undefined ? found : found.ids
+    })
+    add('search', `phone-targets:${needle}`, (pool) => {
+      const id = targets.roots[0]
+      if (!id) return []
+      const issue = omitGone(pool.model('issue', id))
+      if (!issue || issue === LOADING) return LOADING
+      const result = issueTargets(pool, issue, needle, 8)
+      return issueSearch(pool).read(needle, [], issue.repoPath).complete ? result : LOADING
+    })
+    add('search', `web-targets:${needle}`, (pool) => {
+      if (!issueSearch(pool).read(needle, []).complete) return LOADING
+      const pending = [...pool.queries.localTextIds(needle)].some((id) => pool.row('issue', id) === LOADING)
+      if (pending) return LOADING
+      const views = issuePages(pool)
+      return readIssueSearchChoices(pool, views, needle).map((issue) => issue.id)
+    })
+    add('search', `phone-work:${needle}`, (pool) => {
+      const phone = new PhoneWorklist(worklistView(pool))
+      phone.setQuery(needle)
+      const pending = phone.searchResults.ids.some((id) => worklistView(pool).knownRow(id)?.ready === LOADING)
+      return phone.searchResults.complete && !pending
+        ? phone.sections.flatMap((section) => section.ids)
+        : LOADING
     })
   }
 

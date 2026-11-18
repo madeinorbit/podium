@@ -42,18 +42,16 @@ import {
 } from './startup-states'
 
 /**
- * The search surfaces' wrong answers per state on h1a1 (seed 4443), as
- * POD-7086 and POD-7087 recorded them. They are POD-7089's to move (the
- * command palette, mentions, the local text index and the board's text
- * filter); a change that adds one fails. Every other group was moved by
- * POD-7088 and must have none (`MOVED_READERS`).
+ * Search surfaces now use device IDs plus the server answer (POD-7089).
+ * Every policy and first-download state must have zero wrong search answers.
+ * All other groups retain POD-7088's zero-wrong assertions (`MOVED_READERS`).
  */
 const SEARCH_WRONG_AT_MOST: Readonly<Record<string, number>> = {
-  'policy set': 9,
-  always: 13,
-  'always+recent': 9,
-  'always+recent+sidebar': 9,
-  'always+recent+sidebar+stubs': 9,
+  'policy set': 0,
+  always: 0,
+  'always+recent': 0,
+  'always+recent+sidebar': 0,
+  'always+recent+sidebar+stubs': 0,
 }
 
 /** The answers of one state, held to POD-7088's acceptance. */
@@ -224,7 +222,7 @@ describe('startup states against the full bootstrap (h1a1)', () => {
       expect(groups[group]?.wrong ?? 0, group).toBeGreaterThan(0)
   }, 600_000)
 
-  it('the policy set with markers gives no wrong number outside search (POD-7088)', () => {
+  it('the policy set with markers gives no wrong number (POD-7088, POD-7089)', () => {
     collectGarbage()
     const pool = policySetPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
@@ -246,10 +244,9 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     expectMoved('policy set', report)
   }, 600_000)
 
-  it('no intermediate state of a first download gives a wrong number outside search (POD-7087, POD-7088)', () => {
-    // The last state is the policy set. Only the search surfaces may still
-    // answer wrong (POD-7089), no worse than recorded per state; every
-    // reader POD-7087 and POD-7088 moved answers equal or LOADING.
+  it('no intermediate state of a first download gives a wrong number (POD-7087, POD-7088, POD-7089)', () => {
+    // The last state is the policy set. Every moved reader, including
+    // the search surfaces, answers equal or LOADING in every state.
     const states: Record<
       string,
       { groups: ReturnType<typeof summarize>; added: string[]; moved: string[] }

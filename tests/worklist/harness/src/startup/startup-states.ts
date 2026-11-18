@@ -94,9 +94,26 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
   return { source, rows, locals, cold }
 }
 
+/** The old full-device local search is the comparison oracle. */
+function fullSearchControl(pool: MobxPool): void {
+  // Full-load control: its old local readers already cover every row. The
+  // candidate uses the production search helper and reports incomplete until
+  // its asynchronous server answer arrives. No fabricated server rows.
+  pool.sources.view('issueSearch', () => ({
+    read: (_text: string, deviceIds: Iterable<string>) => ({
+      ids: [...deviceIds],
+      serverIds: [],
+      pending: false,
+      complete: true,
+    }),
+    dispose() {},
+  }))
+}
+
 /** The control: one full bootstrap, every row resident, every collection complete. */
 export function fullPool(feed: StartupFeed): MobxPool {
   const pool = new MobxPool(feed.locals)
+  fullSearchControl(pool)
   const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false })
   pool.collections.attach(() => port)
   runInAction(() => pool.apply({ type: 'replace', rows: [...feed.rows] }))
@@ -267,11 +284,13 @@ export function firstDownloadPool(feed: StartupFeed, steps: number, recentDays =
  */
 export function lazyPool(feed: StartupFeed): { pool: MobxPool; dispose(): void } {
   const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false })
-  return createWorklistPool({ ...feed.source, loader: () => port }, fixedLocals(feed.locals).source, {
+  const handle = createWorklistPool({ ...feed.source, loader: () => port }, fixedLocals(feed.locals).source, {
     summaries: mergePoolSummaries(ISSUE_BOARD_SUMMARIES, MISSION_VIEW_SUMMARIES),
     worklist: 'demand',
     schedule: () => () => {},
   })
+  fullSearchControl(handle.pool)
+  return handle
 }
 
 /** Ask, load what the questions demanded, and repeat until nothing is loading. */

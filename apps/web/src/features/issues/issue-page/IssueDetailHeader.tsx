@@ -1,7 +1,3 @@
-import { issueObserver as observer } from './issue-observer'
-import type { SessionModel } from '@podium/client-graph/models'
-import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
-import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The issue page's header: repo breadcrumb, the copyable display ref, prev/next
@@ -15,7 +11,9 @@ import type { SessionView } from '@podium/client-core/session-values'
  * predicate and its ownership note.
  */
 import { motionPhase } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { IssueId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX, useState } from 'react'
@@ -36,6 +34,8 @@ import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { repoMatesOf } from '../issue-page-model'
+import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
+import { issueObserver as observer } from './issue-observer'
 import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import {
   type IssuePageMenuAction,
@@ -205,9 +205,16 @@ export const IssueOverflowMenu = observer(function IssueOverflowMenu({
   onDeleted: () => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const catalog = useIssuePageCatalog(open && suppliedTargets === undefined)
+  const [targetQuery, setTargetQuery] = useState('')
+  const page = useIssuePageContext()
+  const catalog = useIssuePageCatalog(
+    open && suppliedTargets === undefined,
+    targetQuery,
+    issue.repoPath,
+  )
   const targets = suppliedTargets ?? repoMatesOf(catalog, issue)
-  const entries = issuePageMenuEntries({ issue, targetCount: targets.length })
+  const hasTargets = page?.views.row(issue.id).hasTargets ?? true
+  const entries = issuePageMenuEntries({ issue, targetCount: targets.length || Number(hasTargets) })
 
   const flagForHuman = (): void => {
     const q = window.prompt('Flag for human — question (optional):')
@@ -264,7 +271,13 @@ export const IssueOverflowMenu = observer(function IssueOverflowMenu({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setTargetQuery('')
+      }}
+    >
       <DropdownMenuTrigger
         render={
           <Button type="button" variant="ghost" size="icon-sm" title="More actions" disabled={busy}>
@@ -284,6 +297,18 @@ export const IssueOverflowMenu = observer(function IssueOverflowMenu({
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                      {suppliedTargets === undefined && (
+                        <input
+                          aria-label="Search task targets"
+                          placeholder="Search tasks…"
+                          value={targetQuery}
+                          className="mx-1 mb-1 h-7 rounded border border-border bg-background px-2 text-xs"
+                          onChange={(event) => setTargetQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Escape') event.stopPropagation()
+                          }}
+                        />
+                      )}
                       {targets.map((t) => (
                         <DropdownMenuItem key={t.id} onClick={() => pickTarget(entry, t.id)}>
                           {issueRefLong(t)}

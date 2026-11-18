@@ -246,6 +246,18 @@ export class IssuePageRow {
     return missionView(this.pool).continuation(this.issue, false)
   }
   @lazy get hasTargets(): boolean {
+    if (this.pool.collections.available) {
+      const found = this.pool.collections.someIssue(
+        (stub) =>
+          stub.id !== this.issue.id &&
+          stub.repoId === this.issue.repoId &&
+          !stub.archived &&
+          !stub.deletedAt &&
+          !stub.isDraftVessel,
+      )
+      // An incomplete stub download must keep the link action available.
+      return found === LOADING || found
+    }
     return (
       this.pool.queries.ids({
         kind: 'mobileIssueTargets',

@@ -7,6 +7,7 @@ import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { DeadlineClock } from './clock'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
+import { issueSearch } from './issue-search'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
@@ -224,7 +225,7 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 export type WorklistRuntime = RowSourceRuntime &
   Pick<
     import('@podium/client-core/runtime-root').ClientRuntime,
-    'ui' | 'services' | 'replica' | 'pool' | 'attachPool'
+    'ui' | 'services' | 'replica' | 'pool' | 'attachPool' | 'api'
   > & {
     readonly live?: import('@podium/client-core/live').LiveStore
     /** Historical corpus harness only; production supplies no manual clock. */
@@ -396,6 +397,7 @@ export function createRuntimeWorklistPool(
     )
     if (runtime.live) handle.pool.bindLive(runtime.live)
     const pool = handle.pool
+    issueSearch(pool).bind((input) => runtime.api.issues.searchNormalized.query(input))
     const principal = runtime.principal
     let stopLayout: () => void = () => {}
     if (runtime.layout && principal) {

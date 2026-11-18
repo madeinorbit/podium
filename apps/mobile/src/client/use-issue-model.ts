@@ -1,12 +1,10 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { resolveIssueEdge } from '@podium/client-core/values'
 import type { PageIssue } from '@podium/client-graph/issue-page'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
-import type { ReferentExit } from '@podium/client-core/values'
 import { readPageIssue } from '@podium/client-graph/issue-page'
+import { issueTargets } from '@podium/client-graph/issue-targets'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useCallback } from 'react'
 import { useIssueOpening } from './issue-opening'
 import { useMobilePoolProjection } from './mobile-pool'
@@ -23,7 +21,7 @@ export function useIssueModel(id: string | undefined) {
 export function useHasIssueMates(issue: IssueViewModel, enabled: boolean) {
   const views = useIssueOpening()
   const read = useCallback(
-    (pool: MobxPool) => enabled && (views?.row(issue.id).hasTargets ?? false),
+    () => enabled && (views?.row(issue.id).hasTargets ?? false),
     [issue, enabled, views],
   )
   return useMobilePoolProjection(read, false)
@@ -38,23 +36,7 @@ export function useIssueTargets(
   const read = useCallback(
     (pool: MobxPool): string[] | null => {
       if (!enabled) return NO_TARGETS
-      const prefixes: Record<string, string | undefined> = {}
-      for (const id of pool.queries.repoIds(issue.repoPath)) {
-        const repo = omitGone(pool.row('repo', id)) as
-          | { prefix?: string }
-          | typeof LOADING
-          | undefined
-        if (repo === LOADING) return null
-        prefixes[id] = repo?.prefix
-      }
-      return pool.queries.ids({
-        kind: 'mobileIssueTargets',
-        repoPath: issue.repoPath,
-        excludeId: issue.id,
-        query,
-        limit,
-        prefixes,
-      })
+      return issueTargets(pool, issue, query, limit)
     },
     [issue, enabled, query, limit],
   )

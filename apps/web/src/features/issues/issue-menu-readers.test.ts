@@ -40,3 +40,72 @@ it('requests no choice catalog for main, status or colour controls at 1x/4x hist
     }
   }
 })
+
+it('shares server matches across duplicate, parent/relation, header and compact choice lists', async () => {
+  const { autorun } = await import('mobx')
+  const { issueSearch } = await import('@podium/client-graph/issue-search')
+  const { issuePages } = await import('@podium/client-graph/issue-page')
+  const { readIssueSearchChoices } = await import('./issue-search-choices')
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+  const device = makeIssue({ id: 'device', title: 'Needle device', repoPath: '/repo' })
+  const remote = makeIssue({ id: 'remote', title: 'Historical body match', repoPath: '/repo' })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: device.id, value: device }] })
+  const query = vi.fn(async () => [{ id: remote.id }])
+  issueSearch(pool).bind(query)
+  const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
+    pool.apply({
+      type: 'update',
+      rows: ids.map((id) => ({ kind: 'issue' as const, id, value: remote })),
+    })
+  })
+  const views = issuePages(pool)
+  let duplicate: readonly string[] = [],
+    choices: readonly string[] = []
+  const stop = autorun(() => {
+    duplicate = (readIssueMenuChoices(pool, 'duplicate', views, 'needle', '/repo') ?? []).map(
+      (issue) => issue.id,
+    )
+    // Parent/relation and overflow use this reader through useIssuePageCatalog;
+    // compact controls mount the same duplicate submenu reader.
+    choices = readIssueSearchChoices(pool, views, 'needle', '/repo').map((issue) => issue.id)
+  })
+  try {
+    expect(choices).toEqual(['device'])
+    expect(() => expect(['deliberately-wrong']).toEqual(choices)).toThrow()
+    await vi.waitFor(() => expect(choices).toEqual(['device', 'remote']))
+    expect(duplicate).toEqual(choices)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(adopt).toHaveBeenCalledWith('issue', ['remote'])
+  } finally {
+    stop()
+    adopt.mockRestore()
+    views.dispose()
+    pool.dispose()
+  }
+})
+
+it('keeps the shared web choice lists usable when search fails offline', async () => {
+  const { autorun } = await import('mobx')
+  const { issueSearch } = await import('@podium/client-graph/issue-search')
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+  const device = makeIssue({ id: 'device', title: 'Needle device', repoPath: '/repo' })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: device.id, value: device }] })
+  const query = vi.fn(async () => {
+    throw new Error('offline')
+  })
+  issueSearch(pool).bind(query)
+  let choices: readonly string[] = []
+  const stop = autorun(() => {
+    choices = (readIssueMenuChoices(pool, 'duplicate', undefined, 'needle', '/repo') ?? []).map(
+      (issue) => issue.id,
+    )
+  })
+  try {
+    expect(choices).toEqual(['device'])
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1))
+    expect(choices).toEqual(['device'])
+  } finally {
+    stop()
+    pool.dispose()
+  }
+})

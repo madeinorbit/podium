@@ -235,6 +235,8 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** Search answers carry identities; the collection loader installs each record. */
+    searchNormalized: ApiQuery<{ text: string; repoPath?: string }, readonly { id: IssueId }[]>
     /** Identity only. The pool loads the row through its existing reader. */
     resolveRefs: ApiQuery<{ refs: string[] }, Array<{ ref: string; id: IssueId | null }>>
     /** Insert-shaped optimistic create: both ids are minted by the client and

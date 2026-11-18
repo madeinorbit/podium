@@ -190,3 +190,33 @@ describe('a lookup through the one loader', () => {
     }
   })
 })
+
+it('server search adopts hits as cached one-record instances through the real loader', async () => {
+  const { pool, replica, settle, naming } = await boot()
+  const { issueSearch } = await import('./issue-search')
+  const one = oneRecordOf('issue', 'OLD') as InstanceSpec
+  expect(replica.view(ISSUE, 'OLD')).toBeUndefined()
+  const { issuePages } = await import('./issue-page')
+  const page = issuePages(pool)
+  try { expect(page.row('OPEN').hasTargets).toBe(true) } finally { page.dispose() }
+  expect(naming(one)).toBe(0)
+  issueSearch(pool).bind(async () => [{ id: 'OLD' }])
+  let ids: readonly string[] = []
+  const stop = autorun(() => {
+    ids = issueSearch(pool).read('old', ['OPEN']).ids
+  })
+  try {
+    expect(ids).toEqual(['OPEN'])
+    await new Promise((resolve) => setTimeout(resolve, 175))
+    await settle()
+    expect(ids).toEqual(['OPEN', 'OLD'])
+    expect(pool.collections.complete(one)).toBe(true)
+    expect(naming(one)).toBe(1)
+    expect(replica.view(ISSUE, 'OLD')).toBeDefined()
+    const issue = pool.model('issue', 'OLD')
+    expect(issue).toBe(pool.model('issue', 'OLD'))
+    expect(pool.issueObject('OLD').title).toBe('Issue OLD')
+  } finally {
+    stop()
+  }
+})
