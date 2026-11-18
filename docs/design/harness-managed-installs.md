@@ -1,14 +1,15 @@
 # Managed installs: Podium installs a harness and keeps it current
 
 Design proposal for POD-6880, the design task of the Managed installs phase
-(POD-6865) of POD-6858. Revision 2, 2026-11-13. Not yet reviewed. Revision 2
-applies the operator's first answers (section 6) and fits the design to the
-credential design of POD-6857.
+(POD-6865) of POD-6858. Revision 3, 2026-11-18. Not yet reviewed. Revision 2
+applied the operator's first answers (section 6). Revision 3 fits the design to
+the two epics as they were built: session posture (POD-6858, landed on
+`dev/mw`) and credential management (POD-6857, finished, not yet landed).
 
 It builds on the harness access contract (`harness-access-contract.md`,
 section 6) and on session posture (`harness-session-posture.md`, section 9).
-Podium code is cited from `integrate/6858-harness-launch-configuration` at
-`f82a179e4c`.
+Podium code is cited from `dev/mw` at `06e3f38c7c`, and for credential
+management from `issue/6857-inference-credential-management` at `2aeb38768f`.
 
 Evidence tags in this document: **script** = read in the vendor's own installer,
 fetched 2026-11-13; **disk** = seen on this machine; **live** = run on this
@@ -91,6 +92,9 @@ every machine.
   (`harnessCommand(context, argv, terms)`), never from a name on the path.
 - "An update becomes 'publish a new installation generation; running sessions
   keep theirs'" (access contract, section 6).
+- Credential management adds a second, separate field to the same context:
+  `harnessHome`, the configuration folder a session runs in (3.10). The
+  installation is not changed by it.
 
 So a managed install only has to become one more place the inventory finds an
 executable. Nothing that starts a process has to change.
@@ -131,7 +135,7 @@ or `external`. Everything after that is the access contract, unchanged.
 | Deciding to install, pause, go back or remove | a person, in a client or the CLI | one request to the machine's daemon |
 | Asking the vendor for the newest release | daemon, on the harness's machine | one small request to the vendor |
 | Downloading, checking, publishing | daemon | the download from the vendor |
-| The record of what Podium owns | a file on that machine | never |
+| The record of what Podium owns | the release folders and a small database on that machine (3.11) | never |
 | Choosing the executable for a session | daemon (inventory) | never |
 | Reporting state | daemon to server to clients | inside the inventory report that already exists |
 
@@ -142,17 +146,23 @@ different releases for a few hours, as they can today.
 ### 3.3 Where the binaries live
 
 ```
-<Podium state folder>/harnesses/
-  ledger.db                what Podium owns on this machine (3.11)
-  claude-code/
-    7-2.1.311/             one release, complete; never changed after publishing
-      receipt.json         harness, version, source, checksum, when
-      …                    laid out as the adapter chose
-    8-2.1.318/
-    .staging-4f2a/         an install in progress; never selected
-  codex/
-    3-0.167.2/
+<Podium state folder>/
+  homes/                   credential management's homes, one per credential (3.10)
+  harnesses/
+    ledger.db              which release is current, and what else Podium owns (3.11)
+    claude-code/
+      7-2.1.311/           one release, complete; never changed after publishing
+        receipt.json       harness, version, executable, source, checksum, when
+        …                  laid out as the adapter chose
+      8-2.1.318/
+      .staging-4f2a/       an install in progress; never selected
+    codex/
+      3-0.167.2/
 ```
+
+The release folders are their own record, as credential management's homes are
+("the directory is the record", `homes/registry.ts`): a folder with a receipt is
+a release, and nothing else lists them.
 
 - **The state folder** is the instance's own (`stateDir()`: `~/.podium`, or the
   named instance's folder). A named or test instance therefore has its own
@@ -253,8 +263,8 @@ The mechanism is the same for every harness and names none
    - that version is at or above the harness's minimum
      (`gateHarnessVersion` is not `too-old`);
    - the adapter's identity probe accepts it, where one is declared.
-5. Write `receipt.json`, flush to disk, rename the staging folder to
-   `<number>-<version>/`.
+5. Write `receipt.json` (version, executable, integrity, time), flush to disk,
+   rename the staging folder to `<number>-<version>/`.
 6. Write the ledger: the new folder is `current`, the old current is
    `previous`.
 7. Release the lock and ask the inventory to look again (`reprobe()`), so new
@@ -313,6 +323,12 @@ What that means for a person:
 The installer's `--agents` option at machine setup installs into this layout
 instead of `~/.local/bin`.
 
+Everything that runs a harness for a home takes its executable from the same
+inventory snapshot: a session, the sign-in terminal, the per-home login, model
+and quota probes, the sign-out command, and the Codex daemon stop before a home
+is removed (`homes/probes.ts`, `homes/stop.ts`). So all of them run the managed
+release when there is one, with no change to that code.
+
 ### 3.7 When updates run
 
 A check is one call to the adapter's `latest()`. It runs:
@@ -363,26 +379,37 @@ from the inventory as it stands then.
   (`engineSessionHarnessContext`, POD-6546). With that rule a session parked for
   a month would pin a release for a month, and fifty parked sessions could pin
   fifty releases of 360 MB each. So: when the session's pinned installation is
-  managed and no longer the current one, a wake builds a new context.
+  managed and no longer the current one, a wake builds a new context. The
+  rebuild goes through `buildDriverHarnessContext(…, sessionId)`, so the session
+  stays in the home its credential names.
 - The guarantee POD-6533 was made for stays: within one launch, hook
   installation, posture and the process all read one context.
 
 **Knowing which releases are in use.** The daemon forgets its sessions'
 contexts when it restarts, while the harness processes live on in their hosts.
-So "in use" cannot be kept in daemon memory. The ledger keeps it, one row per
-process:
+So "in use" cannot be kept in daemon memory. It is kept the way posture and
+credential management keep their per-session facts: one small file per session
+under the state folder (`createEngineJournal`, as `session-posture` and
+`session-access` do), here in a `session-installation` namespace:
 
-- when a process starts on a managed release, the daemon records
-  `session → release`;
-- when that process ends, the entry goes;
-- at daemon start, entries for sessions that did not survive are dropped.
+- when a process starts, the daemon records the session's installation
+  (executable, version, provenance, and the release number when managed);
+- when the session ends, the file goes;
+- at daemon start, files for sessions that did not survive are dropped.
 
-Two things use that record. Housekeeping never deletes a release with an entry.
-And when the daemon re-attaches to a surviving session after a restart, it
-rebuilds that session's context from the recorded release instead of from
-whatever is current, so the context names the binary that is really running.
-Today a rebuilt context names the current install even when the process is
-older.
+Two things use that record. Housekeeping never deletes a release that a
+session's record names. And when the daemon re-attaches to a surviving session
+after a restart, it rebuilds that session's context from the recorded
+installation instead of from whatever is current, so the context names the
+binary that is really running. Today a rebuilt context names the current
+install even when the process is older.
+
+**Processes that belong to no session.** From 0.169, the first
+`codex app-server` in a Codex home copies Codex into that home
+(`<home>/packages/app-server-daemon/`, about 400 MB) and leaves a daemon running
+there (**live**, measured for credential management, POD-6893). That daemon
+runs from the copy in the home, not from Podium's release folder, so it holds
+no release in use. What it means for updates is in 3.9.
 
 ### 3.9 The vendor's own updater
 
@@ -394,7 +421,7 @@ the second meeting point named in posture section 9.
 | Harness | Switch | Evidence |
 |---|---|---|
 | Claude Code | `DISABLE_AUTOUPDATER=1` | **doc**; the name is in the installed binary (**disk**). Effect from a managed folder: **unmeasured**. |
-| Codex | `-c check_for_update_on_startup=false` | removes the notice and the menu (**live**, posture spike). Codex's standalone build also updates itself in the background (the `auto-update-version` file, **script**); whether that runs for a binary outside `$CODEX_HOME/packages/standalone`: **unmeasured**. |
+| Codex | `-c check_for_update_on_startup=false` | removes the notice and the menu (**live**; posture sets it today for terminal and client launches). Two background updaters remain. The standalone build updates itself (the `auto-update-version` file, **script**); whether that runs for a binary outside `$CODEX_HOME/packages/standalone`: **unmeasured**. And from 0.169 the app-server daemon keeps its own copy of Codex in the home, with its own update loop (**live**, POD-6893); a switch for it: **unmeasured**. |
 | Grok | `GROK_DISABLE_AUTOUPDATER`, or `auto_update = false` under `[cli]` | both in Grok's installed documentation (**disk**); effect **unmeasured**. |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | already used by Podium's OpenCode engine. |
 | Pi | none known to be needed: Pi shows a notice and updates on `pi update`. `PI_SKIP_VERSION_CHECK=1` hides the notice. | notice **live** (posture spike); that it never updates by itself: **unmeasured**. |
@@ -403,75 +430,97 @@ the second meeting point named in posture section 9.
 For an external install nothing changes: Podium does not decide its update
 policy and only stops update menus from blocking a session.
 
+**Codex's copy in the home.** This is the one case found so far where a vendor
+keeps a second binary that Podium did not install. It is written inside the
+Codex home, so for a session in a Podium home it stays inside Podium's state
+folder, and for a session in the person's default home it lands in `~/.codex`,
+where a vendor-made install would put it too. Which binary then serves the
+session, and whether the copy can be switched off, decides how much "managed"
+means for Codex. It is first on the spike list (section 7).
+
+**One cost per Codex update.** In a Podium home, Codex gets Podium's hooks as
+launch flags with a trust hash, read once per Codex version from a throwaway
+`codex app-server` and cached (`homes/codex-hook-trust.ts`). A managed update is
+a new version, so the first launch in a Podium home after each Codex update
+pays that read once. Nothing needs to change; with weekly stable releases it is
+one read a week per machine.
+
 If a harness's updater cannot be stopped and writes into the person's home,
 Podium can still install that harness; what is lost is M2 and M3 for it. That
 case is not decided here. It comes back to the operator as one measured fact
 per harness, after the spike (section 6).
 
-### 3.10 The harness home belongs to the login
+### 3.10 Install, home and credential are three separate things
 
 Open question from the brief: does a managed install also get a harness home
 that Podium owns?
 
-**Proposed: the install brings no home of its own. The home comes from the
-credential, as POD-6857 designs it.**
+**No. The install brings no home. Credential management already built
+Podium-owned homes, and they follow the credential, not the install.**
 
-The two do often go together. They are decided by different things:
+A session is put together from three choices that do not depend on each other:
 
-- **Which binary runs** is a fact about the machine: who installed it. That is
-  `HarnessInstallation`, and this design.
-- **Which home it runs in** is a fact about the login. The credential design
-  (POD-6857, section 10) makes a home "one per subscription login per machine,
-  under Podium's state directory", created when a person signs in through
-  Podium. A login the person made in the harness's default directory "is used
-  where it is". A session's home follows from the credential it runs on.
+| Choice | What it is | Decided by | Where it lives | In the session's context |
+|---|---|---|---|---|
+| **Install** | which binary runs | the machine: Podium's managed release, else the person's own | `<state>/harnesses/<harness>/<release>/` or the person's path | `installation` |
+| **Home** | which configuration folder the harness reads and writes: login, conversations, settings | the credential, see below | the harness's own folder (`~/.claude`, `~/.codex`), or `<state>/homes/<credential>/<harness>/` | `harnessHome`, absent for the harness's own folder |
+| **Credential** | what the session is allowed to spend | the person, per session | the server's vault; delivered at launch | the session's access record |
 
-So Podium-owned homes are already planned, keyed by login. On a fresh machine
-the two meet without being tied: Podium installs the harness, the person signs
-in through Podium, and that sign-in gets a Podium home. What this design does
-not do is create a second kind of Podium home keyed by install. Reasons:
+How the credential picks the home, as built (`control/access.ts`,
+`session-harness-context.ts`):
+
+- **An API key** is handed over as an environment variable. The session runs in
+  the harness's own folder.
+- **The login the person made themselves** in the harness's own folder is used
+  where it is. That folder is the home called `default`. Podium never creates
+  or removes it.
+- **A subscription login made through Podium** gets a Podium home, and a
+  session on it starts with the harness's folder variable (`CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME`) pointed there. Only Claude Code and Codex have such a variable,
+  so only they have Podium homes.
+
+The install takes no part in that. Any binary runs in any home: the context is
+built from the inventory's installation first, and then moved into the session's
+home (`inSessionHome`). Every combination is valid:
+
+| | Harness's own folder | Podium home |
+|---|---|---|
+| **Person's own install** | today's default | a second account on their own CLI |
+| **Managed install** | Podium's binary, the person's existing login and history | a fresh machine: Podium installed it and the person signed in through Podium |
+
+Why the install must not bring a home:
 
 - A machine has one managed binary per harness and may have several homes for
-  it, one per login. A home per install would not fit that.
+  it, one per credential.
 - A person whose own CLI is too old clicks "Install a current version". Their
-  login and their conversations are in the default home. If the new binary
-  came with a new home, they would be signed out with an empty history, for a
-  binary swap.
-- The access contract keeps the two apart for this reason: the installation is
-  the machine half of a session's context, the home the account half.
+  login and their conversations are in the harness's own folder. If the new
+  binary came with a new home, they would be signed out with an empty history,
+  for a binary swap.
 
-How the two designs fit:
+**Where the two do meet.** Five places, none of which ties them together:
 
-| Point | POD-6857 | This design |
-|---|---|---|
-| Homes per machine | a set, one per login | any release runs in any of them; nothing here is per home |
-| The sign-in terminal | runs in a chosen home | started from the pinned installation, managed or not |
-| Installers | n/a | never see a real home; they run in the contained home of 3.4 |
-| Podium's edits to a home (trust key, Codex rule) | hooks are installed per home at launch | recorded per home (3.11). For a home Podium created, the records go when the home is deleted. |
-| What Podium left on a machine | `credential_placements` rows on the server, removed with the credential or when the machine is unpaired | the ledger on the machine (3.11); managed installs are removed when the machine is unpaired too |
-| Inventory report | one login per home | provenance and managed state per harness |
-
-Two things to coordinate, because both designs change the same code:
-
-- Both extend the inventory build and the `AgentInventory` wire shape, one on
-  the login side and one on the executable side. POD-6857 lands on `dev/mw`,
-  this phase on `integrate/6858-harness-launch-configuration`. Whichever lands
-  second rebases over the other.
-- POD-6857 measures whether a Podium home shares the person's settings by
-  linking or by copying (its S2). If by linking, a home edit made in a Podium
-  home can land in the person's own file. The ledger records the real path it
-  wrote, so the record stays true either way.
-
-With POD-6857's homes, posture's third meeting point is met for sessions on a
-Podium home: the Codex rule and the Claude trust key stay out of the person's
-own use. Sessions on the default home still share those edits, as posture 4.7
-accepted.
+1. **Per-home commands run the session's binary.** The sign-in terminal, the
+   login check, the sign-out command and the Codex daemon stop all take the
+   executable from the inventory (3.6).
+2. **Codex hook trust is cached per Codex version** (3.9).
+3. **Codex copies itself into each home** from 0.169 (3.8, 3.9).
+4. **Podium's edits to a home.** In a Podium home they land in files that home
+   owns: Claude's `.claude.json` there is the home's own and already carries
+   the folder trust, and the Codex rule file is written inside the home. They
+   go when the home is deleted, so they need no record. In the harness's own
+   folder they land in the person's files; those are what 3.11 records.
+5. **Shared settings.** A Podium home links the person's settings,
+   instructions, skills and plugins from the harness's own folder
+   (`homes/share.ts`). Posture's edits do not touch those files today. A future
+   edit that did would write through the link into the person's file, and is
+   recorded as such because the record holds the real path.
 
 One measurement could matter here. Claude Code writes `installMethod` and
-`autoUpdates` into `~/.claude.json` when it exits (**live**, posture spike). If
-a managed binary running in the person's default home changes how their own
-install updates, a managed binary should not run in that home. It is on the
-spike list.
+`autoUpdates` into its `.claude.json` when it exits (**live**, posture spike). In
+a Podium home that file is the home's own. In the harness's own folder it is
+the person's, and if a managed binary running there changes how their own
+install updates, that has to be known before a managed Claude Code is used with
+the person's own login. It is on the spike list.
 
 ### 3.11 The ownership ledger
 
@@ -479,21 +528,29 @@ Posture deferred this: "the ownership record belongs to the managed-installs
 phase, where its second user appears." It answers one question: what on this
 machine exists because Podium put it there?
 
-**It is a small SQLite database on the machine**,
+As built, Podium's footprint on a machine has four parts, and three of them
+already record themselves:
+
+| What | Its record |
+|---|---|
+| Podium homes | the folders under `<state>/homes/` (credential management) |
+| Managed releases | the folders under `<state>/harnesses/`, each with a receipt (3.3) |
+| Which session runs on which install | one file per session (3.8) |
+| Which release is current, what was rejected, and Podium's edits to the person's own harness folder | **the ledger**, below |
+
+**The ledger is a small SQLite database on the machine**,
 `<state folder>/harnesses/ledger.db`, opened through `@podium/runtime/sqlite`.
 The daemon side already keeps one local database this way (`discovery.db`).
 
-- **Why a database and not a file.** Two programs write it: the daemon, and the
+- **Why a database for this part.** Two programs write it: the daemon, and the
   CLI at machine setup, which can run before a daemon exists. A database gives
   one-writer-at-a-time and all-or-nothing writes without a lock file that can
   be left behind by a crash. `installation-lease.ts` uses SQLite for the same
-  reason. Revision 1 proposed a JSON file with its own lock; this is simpler
-  and safer.
+  reason.
 - **Why on the machine and not in the server's database.** The daemon chooses
   the executable when a session starts, and it must be able to do that while
   the server is unreachable, and at machine setup before the machine is paired.
-  The server still gets the state: it arrives in the inventory report and is
-  stored with the machine, as inventory is today.
+  The server still gets the state in the inventory report.
 
 The rows, as types:
 
@@ -502,7 +559,7 @@ The rows, as types:
 interface ManagedInstall {
   kind: BuiltinHarnessKind
   nextNumber: number
-  current: number | null      // a ManagedRelease number
+  current: number | null      // a release folder's number
   previous: number | null
   /** A person paused updates. */
   paused: boolean
@@ -513,19 +570,6 @@ interface ManagedInstall {
   lastInstallError?: { at: string; version: string; error: string }
 }
 
-/** One row per release folder on disk. */
-interface ManagedRelease {
-  kind: BuiltinHarnessKind
-  number: number
-  version: string
-  /** Relative to the harness's folder. */
-  dir: string
-  /** Relative to `dir`. */
-  executable: string
-  integrity: InstalledRelease['integrity']
-  installedAt: string
-}
-
 /** Versions Podium will not install again, and why. */
 interface RejectedRelease {
   kind: BuiltinHarnessKind
@@ -534,23 +578,16 @@ interface RejectedRelease {
   at: string
 }
 
-/** One row per running process on a managed release. */
-interface ReleaseInUse {
-  sessionId: SessionId
-  kind: BuiltinHarnessKind
-  number: number
-}
-
-/** One row per edit Podium made in a harness home. */
+/** One row per edit Podium made in the harness's own folder (the `default` home). */
 interface HomeEditRecord {
   harness: BuiltinHarnessKind
-  home: string
   /** The real path written, after following links. */
   file: string
   edit:
     | { kind: 'json-key'; path: string[]; value: JsonValue }
+    | { kind: 'toml-array-entry'; path: string[]; value: string }
     | { kind: 'owned-file'; sha256: string }
-  /** What was there before Podium's first write: nothing, a key's value, or a file's text. */
+  /** What was there before Podium's first write. */
   prior: { absent: true } | { value: JsonValue } | { contents: string }
   serves: PostureRequirement
   appliedAt: string
@@ -559,29 +596,31 @@ interface HomeEditRecord {
 
 Rules:
 
-- **Every change is one transaction.** Publishing a release (3.5, step 6) adds
-  the release row and moves `current` and `previous` together.
+- **Publishing a release is one transaction** (3.5, step 6): `current` and
+  `previous` move together.
 - **The install lock** is a lock held in the same database for the length of
   one install, so the daemon and the CLI cannot install at once, and a crashed
   installer leaves no lock behind.
-- **The daemon reads it on every inventory wave.** That is how an install made
-  by the CLI becomes visible without a restart.
-- **Every folder under `harnesses/<kind>/`** has a release row or is deleted by
-  housekeeping.
-- **Home edits** are recorded when Podium's write changed the file (the
-  `applied` outcome of `applyHomeEdits`), with the value that was there before.
-  When the home already held the value and there is no record, the person put
-  it there, and it is not Podium's. In steady state nothing is written, as
-  today.
+- **The daemon reads it on every inventory wave**, then reads the current
+  folder's receipt for the executable. That is how an install made by the CLI
+  becomes visible without a restart.
+- **Every folder under `harnesses/<kind>/`** is `current`, `previous`, named by
+  a session's record, or deleted by housekeeping.
+- **Home edits** are recorded only for a session in the harness's own folder
+  (the context has no `harnessHome`), and only when Podium's write changed the
+  file (the `applied` outcome of `applyHomeEdits`), with the value that was
+  there before. Today that is three edits: Claude Code's folder-trust key, the
+  Codex rule file, and Grok's allow entry. When the folder already held the
+  value and there is no record, the person put it there, and it is not
+  Podium's. In steady state nothing is written, as today.
 - **Undoing a home edit** restores the prior value, and only while the file
   still holds the value Podium wrote. A value the person changed since is left.
+  For a `toml-array-entry` that means removing the one string.
 - **When undo runs.** On request ("Remove Podium's changes" for a harness), and
-  when the machine is unpaired or Podium is removed from it. Not when a
-  repository is removed from Podium: the person may rely on that trust in their
-  own sessions by then. Records for a home Podium created (POD-6857) are
-  dropped when that home is deleted; there is nothing to restore.
-- **A lost or damaged database** is set aside and rebuilt from the receipts in
-  the release folders: the highest number per harness becomes current.
+  when Podium is removed from the machine. Not when a repository is removed
+  from Podium: the person may rely on that trust in their own sessions by then.
+- **A lost or damaged database** is set aside and rebuilt from the release
+  folders: the highest-numbered folder with a receipt becomes current.
   Home-edit records are lost in that case; the edits themselves are re-derived
   at the next launch, and from then on count as not Podium's. The machine
   reports that the ledger was rebuilt.
@@ -612,7 +651,15 @@ newer than the rejected one is installed as usual.
 The inventory report gains, per harness: `provenance`, and for a managed
 install its version, previous version, the vendor's newest version as last
 seen, the time of the last check, whether updates are paused, and the last
-error. All optional on the wire, so an older server or daemon ignores them.
+error. They sit in one optional `install` object on `AgentInventory`, beside
+the optional `logins` list credential management added, so an older server or
+daemon ignores them.
+
+Requests to the daemon follow the pattern homes set (`messages/homes.ts`,
+`control/homes.ts`): a capability the daemon offers (`harness.installs.v1`), so
+an older daemon is not asked, and one request and result pair per action
+(install, check, go back, pause, remove). The daemon code sits in
+`apps/daemon/src/installs/`, beside `homes/`.
 
 On a machine's harness list:
 
@@ -633,7 +680,8 @@ pause, resume, remove, and "show what Podium changed here".
 
 **Remove** deletes the harness's releases once no process uses them, deletes
 its ledger rows, and offers to undo the home edits recorded for that harness.
-It does not touch the home's login or history.
+It does not touch any home: logins, histories and Podium homes stay, and are
+removed through credential management.
 
 ### 3.14 What each harness needs
 
@@ -653,7 +701,7 @@ work starts.
 
 - **Nothing shared is written during an update.** A release folder is written
   once, before anything reads it. The only thing that changes afterwards is one
-  small file, replaced by rename.
+  row in the ledger, in one transaction.
 - **Every step can stop.** Section 3.12 has an outcome for each failure, and in
   each the previous release is still there and still selected.
 - **The person's own install is a safety net.** If every managed release fails
@@ -683,13 +731,17 @@ work starts.
 | `HarnessInstallation` has no provenance | `provenance: 'managed' \| 'external'` |
 | Posture only quiets update menus | it also turns the vendor's updater off for a managed install (3.9) |
 | A waking engine reuses the first context while the daemon lives | it takes the current release when its own is managed and no longer current (3.8) |
-| A re-attached session's context names the current install | for a managed release it names the recorded one (3.8) |
-| `applyHomeEdits` keeps no record | `applied` outcomes are recorded with the prior value (3.11) |
+| A re-attached session's context names the current install | it names the install recorded for the session (3.8) |
+| Per-session records: `session-posture`, `session-access` | plus `session-installation` (3.8) |
+| `applyHomeEdits` keeps no record | `applied` outcomes in the harness's own folder are recorded with the prior value (3.11) |
+| Daemon requests for homes behind `harness.homes.v1` | the same pattern for installs behind `harness.installs.v1` (3.13) |
 | No record of what Podium put on a machine | `harnesses/ledger.db` (3.11) |
 | The inventory report has installed, version, path | plus provenance and the managed state (3.13) |
 
 Unchanged: `harnessCommand`, `harnessChildEnv`, the spawn sites, how an external
-install is found, the minimum-version policy, and posture for external installs.
+install is found, the minimum-version policy, posture for external installs,
+and all of credential management: homes, `harnessHome`, `inSessionHome`, the
+per-home probes and home removal.
 
 ## 6. Decisions
 
@@ -726,21 +778,30 @@ install is found, the minimum-version policy, and posture for external installs.
    one is found**, without waiting for idle (3.7).
 6. **A process keeps its release; a session's next process takes the current
    one.** This changes what a waking engine does (3.8).
-7. **The ledger records which sessions run on which release**, so housekeeping
-   and re-attach after a daemon restart are exact (3.8).
+7. **Each session's install is recorded in a per-session file**, as posture and
+   access are, so housekeeping and re-attach after a daemon restart are exact
+   (3.8).
 8. **Two releases stay on disk**: current and previous, plus any in use (3.7).
 9. **A person can go back one release**, by hand (3.12).
-10. **The install brings no home.** The home comes from the credential, as in
-    POD-6857 (3.10).
-11. **The ledger is a small SQLite database on the machine**, not a file and not
-    the server's database. Home edits are undone only on request or when
+10. **The install brings no home.** Install, home and credential stay three
+    separate choices; the home comes from the credential, as credential
+    management built it (3.10).
+11. **The ledger is a small SQLite database on the machine**, holding only what
+    has no record of its own: the current release, the rejected list, and
+    Podium's edits to the person's own harness folder. Release folders and
+    homes are their own record. Home edits are undone only on request or when
     Podium leaves the machine (3.11).
 12. **All six harnesses are targets.** Claude Code, Codex and Grok first, then
     OpenCode, Pi and Cursor (3.14).
 
 ### Open, waiting on a measurement
 
-1. **A harness whose own updater cannot be stopped.** Cursor is the likely
+1. **Codex's own copy in the home** (3.9). If Codex from 0.169 serves sessions
+   from the copy it keeps in the home and updates that copy itself, Podium's
+   managed Codex decides only which version starts, not which version runs.
+   The choice then: accept that for Codex and say so on the harness row, or
+   find the switch. Proposed: decide when the fact is in.
+2. **A harness whose own updater cannot be stopped.** Cursor is the likely
    case. Podium can install it either way. If the spike finds that its updater
    keeps writing new versions into the person's home, the choice is: manage it
    anyway and say so on the harness row, or install it once and leave updates
@@ -751,15 +812,19 @@ install is found, the minimum-version policy, and posture for external installs.
 To be split into tasks once the design is agreed. Proposed tasks, in order:
 
 1. **Spike: measure the open cells.** No product code. For each harness, in a
-   fresh folder and against a fresh home and against a home shared with a
-   vendor-made install: does the binary run from a Podium folder; does the
-   updater switch of 3.9 keep it from writing anywhere; what Codex's background
-   updater does for a binary outside its own package folder; whether a managed
+   fresh folder, against a Podium home and against the harness's own folder
+   shared with a vendor-made install: does the binary run from a Podium folder;
+   does the updater switch of 3.9 keep it from writing anywhere; for Codex from
+   0.169, which binary serves a session once the app-server daemon has copied
+   itself into the home, and whether that copy and its update loop can be
+   switched off; what Codex's standalone updater does for a binary outside its
+   own package folder; whether a managed
    Claude Code changes `installMethod` or `autoUpdates` for the person's own
    install; what Cursor's updater does and where it writes; the stable pointer
    and file layout for OpenCode, Pi, Cursor and Windows builds. Fills 3.9 and
    3.14.
-2. **Ledger.** The database, the install lock, rebuild from receipts.
+2. **Ledger.** The database, the install lock, rebuild from the release
+   folders.
 3. **Install contract and mechanism.** The new section shape, the steps of
    3.5, housekeeping, the conformance test with a fake vendor host.
 4. **Inventory and provenance.** The ledger as first candidate,
@@ -768,18 +833,22 @@ To be split into tasks once the design is agreed. Proposed tasks, in order:
    Cursor. Each is the install section plus the updater switch in its posture
    section.
 6. **Updater.** The schedule, the checks, pause, the rejected list.
-7. **Sessions.** In-use records, the engine-wake change, re-attach from the
-   record.
+7. **Sessions.** The per-session install record, the engine-wake change,
+   re-attach from the record.
 8. **Going back.** The manual action and the rejected list.
-9. **Home-edit records and undo.**
-10. **Requests and display.** The daemon requests, the harness list, the
-    notices, the CLI verbs, the installer's `--agents` option on the new
-    mechanism.
+9. **Home-edit records and undo**, for the harness's own folder.
+10. **Requests and display.** The capability and the daemon requests, the
+    harness list, the notices, the CLI verbs, the installer's `--agents` option
+    on the new mechanism.
 11. **Acceptance run** in the VPS lab (section 4).
 
 Tasks 2 to 4 have no visible effect and can land first. Task 1 gates task 5.
-Tasks 4 and 9 touch code that POD-6857's homes task (POD-6895) also changes;
-their order is agreed with that epic before either starts (3.10).
+
+**Base.** Posture is on `dev/mw` and credential management lands there next.
+This phase is built on `dev/mw` once credential management has landed, not on
+the old integration branch: tasks 4, 7, 9 and 10 change files credential
+management also changed (`session-harness-context.ts`, `control/inventory.ts`,
+the `AgentInventory` shape, `host-runtime.ts`).
 
 ## 8. Related
 
@@ -790,4 +859,7 @@ their order is agreed with that epic before either starts (3.10).
 - POD-6533, POD-6546: session-pinned contexts and the engine-wake rule that
   3.8 amends.
 - POD-6857, `docs/superpowers/specs/2026-11-12-credential-management-design.md`
-  (on its own branch), section 10: Podium-owned homes, one per login.
+  (on its own branch), section 10: Podium-owned homes, one per credential and
+  harness. Built in `apps/daemon/src/homes/`.
+- POD-6893: the measurements behind homes, including Codex's own copy in the
+  home.
