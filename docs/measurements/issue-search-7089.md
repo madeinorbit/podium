@@ -67,3 +67,13 @@ Surface tests cover missing-device body matches, offline results and stale
 responses; the collection test uses the real loader to install cached one-record
 instances and preserve shared model identity. See
 [startup-baseline.md](startup-baseline.md#device-first-search-pod-7089).
+
+
+The four-cell safety evidence above is from the initial candidate. Final
+validation remains open: the legacy all-history lazy comparison still exhausts
+sixteen hydration rounds (POD-7110), and the lean gate's cache-input audit finds
+the worklist typecheck key missing the web choice helper (POD-7109). The final
+full typecheck and every static fence pass, including the refreshed interaction
+census. The lean gate is **not green**. Archived palette server-hit eligibility
+also needs preservation (POD-7111); the unrelated machine picker fixture remains
+POD-7107. These are handed off explicitly under the coordinator's final-run limit.
