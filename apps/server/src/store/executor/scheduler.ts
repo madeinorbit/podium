@@ -47,6 +47,7 @@ import { rootStatementContext } from './context'
 import type { BusyRetryPolicy, DriverSession, Lane, StoreDriver } from './driver'
 import { SchedulerClosedError, StaleTransactionError } from './errors'
 import type { StoreContext } from './executor'
+import { withWorkspaceWriteAdmission, workspaceWriteMetrics } from './workspace-write-metrics'
 
 /** The one write slot of a driver without per-workspace writes. */
 const PROCESS_SLOT = 'process'
@@ -537,9 +538,18 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     // Capture the caller once per lease, before queueing, without paying for a
     // stack capture on every statement in the transaction.
     const stack = watchdog ? (new Error('Transaction lease requested').stack ?? '') : ''
-    const slot = slotFor(lane, context ?? rootStatementContext())
+    const admittedContext = context ?? rootStatementContext()
+    const measuredWorkspace =
+      perWorkspace && lane === 'write' && admittedContext?.kind === 'workspace'
+        ? admittedContext.workspaceId
+        : undefined
+    const queueStartedAt = measuredWorkspace === undefined ? 0 : now()
+    const slot = slotFor(lane, admittedContext)
     const queued = admit(lane, slot)
     if (queued) await queued
+    const queueMs = measuredWorkspace === undefined ? 0 : now() - queueStartedAt
+    if (measuredWorkspace !== undefined)
+      workspaceWriteMetrics.recordQueue(measuredWorkspace, queueMs)
     /**
      * THE SLOT IS HELD FROM HERE, so everything that can reject is inside the
      * release `finally` — acquiring the connection as much as the body and
@@ -622,7 +632,9 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
         return { ok: false, error }
       }
     }
-    let outcome = await acquireAndRun()
+    let outcome = await (measuredWorkspace === undefined
+      ? acquireAndRun()
+      : withWorkspaceWriteAdmission(queueMs, acquireAndRun))
     try {
       // Only a session that was actually acquired is closed.
       if (session) await session.close()

@@ -217,6 +217,8 @@ export interface PerfSnapshot {
    * valid, same-principal comparison comes from.
    */
   byPrincipal: Record<string, PerfPrincipalSlice>
+  /** Bounded, process-local Postgres workspace write histograms (admin diagnostics). */
+  workspaceWrites?: WorkspaceWriteMetricsSnapshot
   /**
    * WHAT THE EVENT LOOPS DID — this server's own rings, plus the latest minute
    * from every daemon that reported one (loop-profile-levels design §7.2).
@@ -233,6 +235,41 @@ export interface PerfSnapshot {
    * is the honest answer and a reader must treat it as "not measured".
    */
   loop?: PerfLoopSection
+}
+
+/** Buckets are disjoint, ending with the overflow bucket; quantiles use the last 512 samples. */
+export interface MetricHistogram {
+  count: number
+  total: number
+  max: number
+  p50: number
+  p95: number
+  p99: number
+  buckets: number[]
+}
+
+export interface WorkspaceWriteSummary {
+  committed: number
+  rolledBack: number
+  acquisitionFailures: number
+  uncalibratedWaits: number
+  observedMs: number
+  writesPerSecond: number
+  waitMs: MetricHistogram
+  /** Per-transaction sum of scheduler queue wait and estimated database lock wait. */
+  writeWaitMs: MetricHistogram
+  holdMs: MetricHistogram
+  schedulerQueueMs: MetricHistogram
+  /** Completed one-second intervals in the last minute, including idle seconds. */
+  writesPerSecondHistogram: MetricHistogram
+}
+
+export interface WorkspaceWriteMetricsSnapshot {
+  capacity: number
+  evictedWorkspaces: number
+  durationBoundsMs: number[]
+  rateBounds: number[]
+  byWorkspace: Record<string, WorkspaceWriteSummary>
 }
 
 /** The `loop` section of {@link PerfSnapshot}. */

@@ -8,6 +8,7 @@
 import type { TransportTag } from '@podium/commands'
 import type { PerfSnapshot } from '@podium/protocol'
 import { z } from 'zod'
+import { workspaceWriteMetrics } from '../../store/executor/workspace-write-metrics'
 import type { PerfState } from './commands'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
@@ -41,6 +42,7 @@ export const PERF_QUERIES = {
     const accounting = state.loopAccounting?.snapshot()
     return {
       ...state.perf.snapshot(),
+      workspaceWrites: workspaceWriteMetrics.snapshot(),
       // ABSENT, not empty, when nothing is accounting: at level `off` no timer
       // runs and no ring exists, so there is no measurement to report and a
       // zeroed section would claim an idle loop nobody looked at.
