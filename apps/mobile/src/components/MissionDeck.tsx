@@ -12,7 +12,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { useIssueRowActions } from '../lib/issue-row-actions'
@@ -120,20 +120,36 @@ export const MissionDeck = observer(function MissionDeck({
   const seatIds = full.ready ? settled(() => full.root.sessionIds) : []
   const rootSeats = seatIds === LOADING ? [] : seatIds
   const title = settled(() => screen.rootTitle)
-  const issueOf = (id: string): IssueNavigationModel | null => {
-    const value = screen.reader.issue(id)
-    return value && value !== LOADING ? value : null
-  }
-  const openSession = (id: string) =>
-    onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView)
+  const issueOf = useCallback(
+    (id: string): IssueNavigationModel | null => {
+      const value = screen.reader.issue(id)
+      return value && value !== LOADING ? value : null
+    },
+    [screen],
+  )
+  const openSession = useCallback(
+    (id: string) => onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView),
+    [screen, onOpenSession],
+  )
+  const openTask = useCallback(
+    (id: string) => {
+      const issue = issueOf(id)
+      if (issue) onOpenTask(issue)
+    },
+    [issueOf, onOpenTask],
+  )
+  const openTaskMenu = useCallback(
+    (id: string, sheet?: WorkMenuSheet) => {
+      const issue = issueOf(id)
+      if (issue) onOpenTaskMenu(issue, sheet)
+    },
+    [issueOf, onOpenTaskMenu],
+  )
   // iOS task rows carry Work's row acts as a native context menu: direct acts
   // write through the store, and rename, delete or a guarded close hand back
   // to the host's WorkIssueMenu with the sheet to open.
   const rowActions = useIssueRowActions({
-    openMenu: (id, sheet) => {
-      const issue = issueOf(id)
-      if (issue) onOpenTaskMenu(issue, sheet)
-    },
+    openMenu: openTaskMenu,
     onError: ignoreRowError,
   })
 
@@ -172,12 +188,12 @@ export const MissionDeck = observer(function MissionDeck({
         <DeckGroup testID="deck-crew" header={<View style={styles.headAbove}>{head}</View>}>
           {rootSeats.map((id, index) => (
             <DeckRow key={id}>
-              <DeckSeatRow
+              <SeatRow
                 task={full.root}
                 sessionId={id}
                 first={index === 0}
                 current={id === currentSessionId}
-                onPress={() => openSession(id)}
+                onOpenSession={openSession}
               />
             </DeckRow>
           ))}
@@ -200,24 +216,10 @@ export const MissionDeck = observer(function MissionDeck({
           rowIds={rowIds}
           currentSessionId={currentSessionId}
           onOpenSession={openSession}
-          onOpenTask={(id) => {
-            const issue = issueOf(id)
-            if (issue) onOpenTask(issue)
-          }}
-          onOpenTaskMenu={(id) => {
-            const issue = issueOf(id)
-            if (issue) onOpenTaskMenu(issue)
-          }}
-          taskMenu={(id) => {
-            const issue = issueOf(id)
-            return issue
-              ? {
-                  issue,
-                  onAction: (action) => rowActions.onAction(id, action),
-                  onStatus: (value) => rowActions.onStatus(id, value),
-                }
-              : undefined
-          }}
+          onOpenTask={openTask}
+          onOpenTaskMenu={openTaskMenu}
+          onAction={rowActions.onAction}
+          onStatus={rowActions.onStatus}
         />
         {acceptedTree?.filterable ? <DoneHidden full={full} /> : null}
       </DeckTasks>
@@ -422,7 +424,8 @@ const DeckRows = observer(function DeckRows({
   onOpenSession,
   onOpenTask,
   onOpenTaskMenu,
-  taskMenu,
+  onAction,
+  onStatus,
 }: {
   full: FullDeck
   rowIds: readonly string[]
@@ -430,7 +433,8 @@ const DeckRows = observer(function DeckRows({
   onOpenSession: (id: string) => void
   onOpenTask: (id: string) => void
   onOpenTaskMenu: (id: string) => void
-  taskMenu: (id: string) => DeckTaskRowProps['menu']
+  onAction: ReturnType<typeof useIssueRowActions>['onAction']
+  onStatus: ReturnType<typeof useIssueRowActions>['onStatus']
 }) {
   const blocks: { phase: FullDeckTask | null; tasks: FullDeckTask[]; phaseStart: boolean }[] = []
   for (const id of rowIds) {
@@ -467,55 +471,124 @@ const DeckRows = observer(function DeckRows({
               {phase &&
                 leadingSeats.map((id) => (
                   <DeckRow key={id}>
-                    <DeckAgentRow
+                    <AgentRow
                       task={phase}
                       sessionId={id}
                       indent={0}
                       current={id === currentSessionId}
-                      onPress={() => onOpenSession(id)}
+                      onOpenSession={onOpenSession}
                     />
                   </DeckRow>
                 ))}
-              {tasks.map((task, row) => {
-                const shape = settled(() => ({
-                  depth: task.depth,
-                  base: phase ? phase.depth + 1 : 0,
-                  seats: task.open ? task.sessionIds : [],
-                }))
-                const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
-                const seats = shape === LOADING ? [] : shape.seats
-                return (
-                  <Fragment key={task.id}>
-                    <DeckRow>
-                      <DeckTaskRow
-                        task={task}
-                        indent={indent}
-                        first={row === 0 && leadingSeats.length === 0}
-                        onPress={() => onOpenTask(task.id)}
-                        onLongPress={() => onOpenTaskMenu(task.id)}
-                        menu={taskMenu(task.id)}
-                      />
-                    </DeckRow>
-                    {seats.map((id) => (
-                      <DeckRow key={id}>
-                        <DeckAgentRow
-                          task={task}
-                          sessionId={id}
-                          indent={indent}
-                          current={id === currentSessionId}
-                          onPress={() => onOpenSession(id)}
-                        />
-                      </DeckRow>
-                    ))}
-                  </Fragment>
-                )
-              })}
+              {tasks.map((task, row) => (
+                <TaskRows
+                  key={task.id}
+                  task={task}
+                  phase={phase}
+                  first={row === 0 && leadingSeats.length === 0}
+                  currentSessionId={currentSessionId}
+                  onOpenTask={onOpenTask}
+                  onOpenTaskMenu={onOpenTaskMenu}
+                  onOpenSession={onOpenSession}
+                  onAction={onAction}
+                  onStatus={onStatus}
+                />
+              ))}
             </DeckGroup>
           </Fragment>
         )
       })}
     </>
   )
+})
+
+/** Each task owns its handlers and menu. Count/crew updates above it cannot
+ * replace every row's props and redraw all native context menus. */
+const TaskRows = observer(function TaskRows({
+  task,
+  phase,
+  first,
+  currentSessionId,
+  onOpenTask,
+  onOpenTaskMenu,
+  onOpenSession,
+  onAction,
+  onStatus,
+}: {
+  task: FullDeckTask
+  phase: FullDeckTask | null
+  first: boolean
+  currentSessionId: string | undefined
+  onOpenTask: (id: string) => void
+  onOpenTaskMenu: (id: string) => void
+  onOpenSession: (id: string) => void
+  onAction: ReturnType<typeof useIssueRowActions>['onAction']
+  onStatus: ReturnType<typeof useIssueRowActions>['onStatus']
+}) {
+  const shape = settled(() => ({
+    depth: task.depth,
+    base: phase ? phase.depth + 1 : 0,
+    seats: task.open ? task.sessionIds : [],
+  }))
+  const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
+  const seats = shape === LOADING ? [] : shape.seats
+  const onPress = useCallback(() => onOpenTask(task.id), [onOpenTask, task])
+  const onLongPress = useCallback(() => onOpenTaskMenu(task.id), [onOpenTaskMenu, task])
+  const issue = task.deck.screen.reader.issue(task.id)
+  const menu = useMemo<DeckTaskRowProps['menu']>(
+    () =>
+      issue && issue !== LOADING
+        ? {
+            issue,
+            onAction: (action) => onAction(task.id, action),
+            onStatus: (value) => onStatus(task.id, value),
+          }
+        : undefined,
+    [issue, task, onAction, onStatus],
+  )
+  return (
+    <>
+      <DeckRow>
+        <DeckTaskRow
+          task={task}
+          indent={indent}
+          first={first}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          menu={menu}
+        />
+      </DeckRow>
+      {seats.map((id) => (
+        <DeckRow key={id}>
+          <AgentRow
+            task={task}
+            sessionId={id}
+            indent={indent}
+            current={id === currentSessionId}
+            onOpenSession={onOpenSession}
+          />
+        </DeckRow>
+      ))}
+    </>
+  )
+})
+
+const AgentRow = observer(function AgentRow({
+  onOpenSession,
+  ...props
+}: Omit<Parameters<typeof DeckAgentRow>[0], 'onPress'> & { onOpenSession: (id: string) => void }) {
+  const { sessionId } = props
+  const onPress = useCallback(() => onOpenSession(sessionId), [onOpenSession, sessionId])
+  return <DeckAgentRow {...props} onPress={onPress} />
+})
+
+const SeatRow = observer(function SeatRow({
+  onOpenSession,
+  ...props
+}: Omit<Parameters<typeof DeckSeatRow>[0], 'onPress'> & { onOpenSession: (id: string) => void }) {
+  const { sessionId } = props
+  const onPress = useCallback(() => onOpenSession(sessionId), [onOpenSession, sessionId])
+  return <DeckSeatRow {...props} onPress={onPress} />
 })
 
 /** Every row's glyph column, then its text column, on the 4pt grid. */

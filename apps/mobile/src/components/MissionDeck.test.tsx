@@ -15,6 +15,18 @@ afterEach(cleanup)
 
 const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
 const nativeShrink = vi.hoisted(() => new Map<string, number | undefined>())
+const rowRenders = vi.hoisted(() => new Map<string, number>())
+vi.mock('./MissionDeckRows', async (original) => {
+  const actual = await original<typeof import('./MissionDeckRows')>()
+  const { observer } = await import('mobx-react-lite')
+  return {
+    ...actual,
+    DeckTaskRow: observer((props: ComponentProps<typeof actual.DeckTaskRow>) => {
+      rowRenders.set(props.task.id, (rowRenders.get(props.task.id) ?? 0) + 1)
+      return <actual.DeckTaskRow {...props} />
+    }),
+  }
+})
 vi.mock('react-native', async (original) => {
   const actual = await original<typeof import('react-native')>()
   return {
@@ -127,6 +139,35 @@ async function mount(
 }
 
 describe('MissionDeck', () => {
+  it('keeps unchanged task rows and their menu props stable through agent ticks', async () => {
+    const session = agent('worker', 'asking', 'Worker', 'working')
+    const { replica, props } = await mount(undefined, [session])
+    rowRenders.clear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [{ ...session, lastActiveAt: '2026-08-04T20:16:04.230Z' }],
+        [],
+      )
+    })
+    expect([...rowRenders]).toEqual([])
+    // A changed bucket redraws the gauge and parent, but no unrelated row.
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [{ ...session, agentState: { phase: 'idle', since: '2026-08-04T20:16:04.230Z' } }],
+        [],
+      )
+    })
+    expect([...rowRenders]).toEqual([])
+    const quietRow = screen
+      .getAllByTestId('deck-task')
+      .find((row) => row.getAttribute('aria-label')?.includes('Quiet subtask'))
+    if (!quietRow) throw new Error('Quiet task disappeared')
+    fireEvent.click(quietRow)
+    expect(props.onOpenTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'quiet' }))
+  })
+
   it('draws the mission title and every task with its state word', async () => {
     await mount()
     expect(screen.getByRole('heading').textContent).toBe('The mission')
