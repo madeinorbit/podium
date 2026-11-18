@@ -83,10 +83,7 @@
     "apps/server/src/store.search-index.test.ts": "Tests the SQLite FTS5 search index behind the search flag: its DDL, its triggers on conversations and their removal; Postgres search has its own form (store/conversations/search-contract.test.ts).",
     "apps/server/src/store/planner-statistics.test.ts": "Tests the SQLite planner statistics refresh (ANALYZE, PRAGMA optimize); on Postgres autoanalyze owns this and the refresh is a no-op (design 2.8)."
   },
-  "pending": [
-    "apps/server/src/feed-visibility.statement-count.test.ts",
-    "apps/server/src/sync/record-builders.statement-count.test.ts"
-  ],
+  "pending": [],
   "beyondStoreShard": {
     "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store.",
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",

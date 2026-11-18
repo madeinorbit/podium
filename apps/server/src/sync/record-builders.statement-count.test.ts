@@ -110,7 +110,7 @@ async function world(size: number): Promise<Fixture> {
     machineIds.push(id)
     accessIds.push(machineAccessRowId(owner, id))
     await store.issues.gitStates.set(fixtureWriteScope(), ids[i - 1]!, {
-      updatedAt: '2026-11-10T00:00:00Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
       branch: 'branch',
       shared: false,
       dirtyFiles: 1,

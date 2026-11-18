@@ -85,8 +85,8 @@ const issueRow = (id: string, seq: number) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-09-10T00:00:00.000Z',
+  updatedAt: '2026-09-10T00:00:00.000Z',
   archived: false,
 })
 
@@ -148,7 +148,7 @@ async function fixture(size: number): Promise<Fixture> {
     verb: 'read',
     owner,
     visibility: 'personal',
-    createdAt: '2026-09-11T00:00:00Z',
+    createdAt: '2026-09-11T00:00:00.000Z',
     actorKind: 'user',
     actorId: owner,
     onBehalfOf: owner,
@@ -280,7 +280,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             verb: 'read',
             owner,
             visibility: 'personal',
-            createdAt: '2026-09-11T00:00:00Z',
+            createdAt: '2026-09-11T00:00:00.000Z',
             actorKind: 'user',
             actorId: owner,
             onBehalfOf: owner,
