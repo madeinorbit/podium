@@ -151,7 +151,8 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
   let captureDrainMs = 0
   let captureDrains = 0
   const sourceWrites: Record<string, number> = {
-    runtime_events: 0,
+    podium_events: 0,
+    runtime_event_checkpoints: 0,
     messages: 0,
     effects: 0,
     sessions: 0,
