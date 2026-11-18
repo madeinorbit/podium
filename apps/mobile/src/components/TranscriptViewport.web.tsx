@@ -14,6 +14,11 @@ import {
 } from 'react'
 import { Keyboard, ScrollView } from 'react-native'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
+import {
+  type ActivityBounds,
+  ActivityViewportContext,
+  useActivityViewport,
+} from './transcript-activity'
 
 const noOperation = () => {}
 const separators = { highlight: noOperation, unhighlight: noOperation, updateProps: noOperation }
@@ -33,7 +38,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     renderItem,
     ListEmptyComponent,
     ListFooterComponent,
-    visibleInsets: _visibleInsets,
+    visibleInsets,
     moreAbove = false,
     loadingOlder = false,
     onLoadOlder = noOperation,
@@ -44,6 +49,14 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   ref: ForwardedRef<TranscriptViewportHandle>,
 ) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const nativeScroller = useRef<ScrollView | null>(null)
+  const content = useRef<HTMLDivElement | null>(null)
+  const readBounds = useCallback((receive: (bounds: ActivityBounds) => void) => {
+    nativeScroller.current?.measureInWindow((x, y, width, height) =>
+      receive({ x, y, width, height }),
+    )
+  }, [])
+  const viewport = useActivityViewport(readBounds, visibleInsets)
   const [following, setFollowing] = useState(true)
   const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
   const heldHead = useRef<{ identity: string; key: string } | null>(null)
@@ -119,14 +132,22 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   }, [positionOfKey, renderStart, scroll.scrollToBlock])
   const setScrollView = useCallback(
     (node: ScrollView | null) => {
+      nativeScroller.current = node
       const element = (node?.getNativeScrollRef() ?? null) as HTMLDivElement | null
       // RN Web installs its {x, y, animated} scrollTo on this DOM node. Our
       // shared browser scroll authority needs the native {top, behavior} API.
       if (element) element.scrollTo = HTMLElement.prototype.scrollTo.bind(element)
       scroll.setScrollerRef(element)
+      viewport.measure()
     },
-    [scroll.setScrollerRef],
+    [scroll.setScrollerRef, viewport],
   )
+  useEffect(() => {
+    if (!content.current || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => viewport.refresh())
+    observer.observe(content.current)
+    return () => observer.disconnect()
+  }, [viewport])
   useImperativeHandle(
     ref,
     () => ({
@@ -147,43 +168,55 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     [data, keyExtractor, renderStart, scroll.jumpToBottom, scroll.scrollToBlock],
   )
   return (
-    <ScrollView
-      {...props}
-      keyboardDismissMode="none"
-      testID="transcript-scroller"
-      ref={setScrollView}
-      onScroll={scroll.onScroll}
-      scrollEventThrottle={16}
-    >
-      <div
-        ref={scroll.setContentRef}
-        style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}
+    <ActivityViewportContext value={viewport}>
+      <ScrollView
+        {...props}
+        keyboardDismissMode="none"
+        testID="transcript-scroller"
+        ref={setScrollView}
+        onScroll={(event) => {
+          scroll.onScroll(event)
+          viewport.refresh()
+        }}
+        onLayout={(event) => {
+          props.onLayout?.(event)
+          viewport.measure()
+        }}
+        scrollEventThrottle={16}
       >
-        {data.length === 0 ? ListEmptyComponent : null}
-        {visibleRows.map((item, visibleIndex) => {
-          const index = renderStart + visibleIndex
-          const key = keyExtractor(item, index)
-          return (
-            <div
-              key={key}
-              data-block={index}
-              data-row-key={key}
-              data-row-aliases={anchorKeys ? JSON.stringify(anchorKeys(item)) : undefined}
-              style={{ display: 'flex', flexDirection: 'column' }}
-            >
-              {renderItem({ item, index, separators })}
-            </div>
-          )
-        })}
         <div
-          data-block={data.length}
-          data-row-key="transcript:footer"
-          style={{ display: 'flex', flexDirection: 'column' }}
+          ref={(node) => {
+            content.current = node
+            scroll.setContentRef(node)
+          }}
+          style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}
         >
-          {ListFooterComponent}
+          {data.length === 0 ? ListEmptyComponent : null}
+          {visibleRows.map((item, visibleIndex) => {
+            const index = renderStart + visibleIndex
+            const key = keyExtractor(item, index)
+            return (
+              <div
+                key={key}
+                data-block={index}
+                data-row-key={key}
+                data-row-aliases={anchorKeys ? JSON.stringify(anchorKeys(item)) : undefined}
+                style={{ display: 'flex', flexDirection: 'column' }}
+              >
+                {renderItem({ item, index, separators })}
+              </div>
+            )
+          })}
+          <div
+            data-block={data.length}
+            data-row-key="transcript:footer"
+            style={{ display: 'flex', flexDirection: 'column' }}
+          >
+            {ListFooterComponent}
+          </div>
         </div>
-      </div>
-    </ScrollView>
+      </ScrollView>
+    </ActivityViewportContext>
   )
 }) as <Item>(
   props: TranscriptViewportProps<Item> & RefAttributes<TranscriptViewportHandle>,

@@ -107,9 +107,11 @@ import { pendingFailure, pendingMetaLine } from './pending-delivery'
 import { RichMarkdown, RichMarkdownInline } from './RichMarkdown'
 import { SelectTextSheet } from './SelectTextSheet'
 import { SharedFiles } from './SharedFiles'
+import { StreamingCaret } from './StreamingCaret'
 import { ToolCallRow } from './ToolCallRow'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
+import { ActivityLine } from './transcript-activity'
 import { WorkingMark } from './WorkingMark'
 
 /**
@@ -283,7 +285,7 @@ function MurmurLine({
 }: {
   glyph: ReactNode
   label: ReactNode
-  clock?: string | undefined
+  clock?: ReactNode
   tone?: 'quiet' | 'live' | 'failed'
   expanded?: boolean
   accessibilityLabel: string
@@ -303,29 +305,36 @@ function MurmurLine({
       >
         {label}
       </Text>
-      {clock ? (
+      {typeof clock === 'string' ? (
         <Text style={[styles.murmurClock, tone === 'live' && styles.murmurLive]}>{clock}</Text>
-      ) : null}
+      ) : (
+        clock
+      )}
     </>
+  )
+  const header = onPress ? (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ expanded: expanded === true }}
+      aria-expanded={expanded === true}
+      onPress={onPress}
+      scaleTo={0.99}
+      style={({ pressed }) => [styles.murmurLine, pressed && styles.murmurPressed]}
+    >
+      {line}
+    </PressableScale>
+  ) : (
+    <View style={styles.murmurLine} accessible accessibilityLabel={accessibilityLabel}>
+      {line}
+    </View>
   )
   return (
     <View style={styles.murmur}>
-      {onPress ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={accessibilityLabel}
-          accessibilityState={{ expanded: expanded === true }}
-          aria-expanded={expanded === true}
-          onPress={onPress}
-          scaleTo={0.99}
-          style={({ pressed }) => [styles.murmurLine, pressed && styles.murmurPressed]}
-        >
-          {line}
-        </PressableScale>
+      {tone === 'live' ? (
+        <ActivityLine testID="transcript-live-line">{header}</ActivityLine>
       ) : (
-        <View style={styles.murmurLine} accessible accessibilityLabel={accessibilityLabel}>
-          {line}
-        </View>
+        header
       )}
       {children ? <View style={styles.well}>{children}</View> : null}
     </View>
@@ -780,7 +789,7 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
  * moving mark, the call in flight ("Reading transcript-graph.ts") and its
  * running clock, in the moving colour. It settles in place into the fold.
  */
-const ToolsRun = observer(function ToolsRun({
+export const ToolsRun = observer(function ToolsRun({
   blocks = [],
   run,
   forceOpen = false,
@@ -803,14 +812,6 @@ const ToolsRun = observer(function ToolsRun({
   const { open: expanded, toggle } = useActivityDisclosure({ forceOpen })
   const failures = run?.failures ?? toolRunFailures(blocks)
   const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
-  const first = run?.firstBlock ?? blocks[0]
-  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined, 3_600_000)
-  const durationMs = live
-    ? (run?.elapsed(now) ??
-      (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
-    : run?.durationMs ||
-      blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0) ||
-      run?.elapsed()
   const inFlight =
     live && lastTool && lastTool.result === undefined && lastTool.item.toolResult === undefined
   const title = inFlight
@@ -818,14 +819,13 @@ const ToolsRun = observer(function ToolsRun({
     : live
       ? 'Working'
       : (run?.title ?? toolBatchTitles(blocks).title)
-  const clock = murmurClock(durationMs || undefined)
   const label = failures > 0 && !live ? `${title} · ${failures} failed` : title
 
   return (
     <MurmurLine
       glyph={live ? <WorkingMark size={14} label={null} /> : disclosureGlyph(expanded)}
       label={label}
-      clock={clock}
+      clock={<ToolsRunClock run={run} blocks={blocks} live={live} />}
       tone={live ? 'live' : failures > 0 ? 'failed' : 'quiet'}
       expanded={expanded}
       accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${label}`}
@@ -853,6 +853,28 @@ const ToolsRun = observer(function ToolsRun({
         : null}
     </MurmurLine>
   )
+})
+
+const ToolsRunClock = observer(function ToolsRunClock({
+  run,
+  blocks,
+  live,
+}: {
+  run?: TranscriptActivityRun
+  blocks: ChatBlock[]
+  live: boolean
+}) {
+  const first = run?.firstBlock ?? blocks[0]
+  const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
+  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined, 3_600_000)
+  const duration = live
+    ? (run?.elapsed(now) ??
+      (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
+    : run?.durationMs ||
+      blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0) ||
+      run?.elapsed()
+  const clock = murmurClock(duration || undefined)
+  return clock ? <Text style={[styles.murmurClock, live && styles.murmurLive]}>{clock}</Text> : null
 })
 
 /** An answered AskUserQuestion, collapsed to "? question — picked" so past
@@ -896,23 +918,20 @@ function elapsedSince(since: string | undefined, now: number): string | null {
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function TranscriptTail({ state }: { state?: TranscriptTailState }) {
+export function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   const since =
     state?.label === 'interrupted' || state?.label === 'Sending' ? undefined : state?.since
-  const now = useAgeNow(since ?? '', 0, !!since, state?.tone === 'working' ? 3_600_000 : 60_000)
 
   if (!state) return null
-  const elapsed = elapsedSince(since, now)
   // Working with no tool run in flight (thinking, writing): the same one live
   // line a running fold draws, with the turn's own clock.
   if (state.tone === 'working') {
-    const start = since ? Date.parse(since) : Number.NaN
     return (
       <View style={styles.tailWrap}>
         <MurmurLine
           glyph={<WorkingMark size={14} label={null} />}
           label={state.label}
-          clock={Number.isNaN(start) ? undefined : murmurClock(Math.max(0, now - start))}
+          clock={<TailClock since={since} working />}
           tone="live"
           accessibilityLabel={state.label}
         />
@@ -921,22 +940,39 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   }
   return (
     <View style={styles.tailWrap}>
-      <View style={styles.tail} accessibilityRole="text">
-        <Text
-          style={[
-            styles.tailMark,
-            state.tone === 'attention' && styles.tailAttention,
-            state.tone === 'error' && styles.murmurFailed,
-          ]}
-        >
-          ●
-        </Text>
-        <Text style={styles.tailLabel}>{state.label}</Text>
-        {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
-        <View style={styles.tailRule} />
-      </View>
+      <ActivityLine>
+        <View style={styles.tail} accessibilityRole="text">
+          <Text
+            style={[
+              styles.tailMark,
+              state.tone === 'attention' && styles.tailAttention,
+              state.tone === 'error' && styles.murmurFailed,
+            ]}
+          >
+            ●
+          </Text>
+          <Text style={styles.tailLabel}>{state.label}</Text>
+          <TailClock since={since} />
+          <View style={styles.tailRule} />
+        </View>
+      </ActivityLine>
     </View>
   )
+}
+
+function TailClock({ since, working = false }: { since?: string; working?: boolean }) {
+  const now = useAgeNow(since ?? '', 0, !!since, working ? 3_600_000 : 60_000)
+  const start = since ? Date.parse(since) : Number.NaN
+  const clock = working
+    ? Number.isNaN(start)
+      ? undefined
+      : murmurClock(Math.max(0, now - start))
+    : elapsedSince(since, now)
+  return clock ? (
+    <Text style={working ? [styles.murmurClock, styles.murmurLive] : styles.tailElapsed}>
+      {clock}
+    </Text>
+  ) : null
 }
 
 const DAY_MARK_LOOKBACK = 80
@@ -984,6 +1020,14 @@ const TranscriptDayMark = observer(function TranscriptDayMark({
 
 /** Only boundary labels observe the clock; ordinary transcript rows do not. */
 function DayMarkLabel({ dates }: { dates: Date[] }) {
+  return (
+    <ActivityLine>
+      <DayMarkText dates={dates} />
+    </ActivityLine>
+  )
+}
+
+function DayMarkText({ dates }: { dates: Date[] }) {
   const now = useClock(60_000)
   const label = dayMarksByPosition(dates, new Date(now), (date) => date).get(dates.length - 1)
   return label ? <Text style={styles.dayMark}>{label}</Text> : null
@@ -1035,22 +1079,6 @@ function FeedRowFrame({
       {children}
     </Animated.View>
   )
-}
-
-function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
-  const opacity = useRef(new Animated.Value(1)).current
-  useEffect(() => {
-    if (reduceMotion) return
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.25, duration: 520, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 520, useNativeDriver: true }),
-      ]),
-    )
-    loop.start()
-    return () => loop.stop()
-  }, [opacity, reduceMotion])
-  return <Animated.Text style={[styles.streamingCaret, { opacity }]}>▋</Animated.Text>
 }
 
 interface TranscriptFeedRowProps {
@@ -2398,12 +2426,6 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     overflow: 'hidden',
     maxWidth: '40%',
-  },
-  streamingCaret: {
-    ...mono(700),
-    color: color.accentTint,
-    fontSize: font.small,
-    marginTop: 2,
   },
   tailWrap: {
     gap: space.md,

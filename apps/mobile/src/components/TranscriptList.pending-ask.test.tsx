@@ -214,7 +214,9 @@ describe('TranscriptList pendingAsk', () => {
           onAnswer={onAnswer}
         />,
       )
-      expect(screen.getByText('▋').parentElement?.textContent).toContain('Latest answer')
+      expect(screen.getByText('▋').closest('[data-row-key]')?.textContent).toContain(
+        'Latest answer',
+      )
       expect(tailWork.rowIterations).toBe(0)
       rerender(
         <TranscriptList

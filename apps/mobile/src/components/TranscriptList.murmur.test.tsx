@@ -602,6 +602,17 @@ it('keeps undated and invalid rows transparent between nearby day boundaries', (
 
 it('updates a day label at midnight without rendering message prose again', () => {
   vi.useFakeTimers()
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 300,
+    bottom: 400,
+    width: 300,
+    height: 400,
+    toJSON() {},
+  } as DOMRect)
   vi.setSystemTime(new Date(2026, 10, 13, 23, 59, 30))
   const ts = new Date().toISOString()
   render(
@@ -617,6 +628,7 @@ it('updates a day label at midnight without rendering message prose again', () =
   })
   expect(screen.getByText('Yesterday')).toBeTruthy()
   expect(markdownRenders).toHaveBeenCalledTimes(renders)
+  geometry.mockRestore()
 })
 
 it('keeps a failed edit visible while its recorded diff is expanded', () => {
