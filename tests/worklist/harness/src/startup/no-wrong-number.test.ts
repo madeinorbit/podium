@@ -8,6 +8,11 @@
  * - a partial store without markers (active rows only): wrong numbers in
  *   counts, search, the board's closed tabs and closed-children progress.
  *   That is the failure POD-5595's markers must turn into LOADING;
+ * - the policy set with markers (POD-7086): what the device holds since the
+ *   first download is the policy's collections. Today's readers still read the
+ *   pool and answer smaller numbers, not LOADING; the answers are recorded
+ *   below so a change that makes them worse fails, and POD-7088 brings the
+ *   wrong ones to zero by moving the readers onto collections and stubs.
  * The lazy pool (before and after its cold rows load) is in
  * `no-wrong-number.lazy.test.ts`: its own worker, for memory.
  */
@@ -21,9 +26,29 @@ import {
   startupTargets,
   summarize,
 } from './no-wrong-number'
-import { collectGarbage, fullPool, openStartupFeed, partialPool, type StartupFeed } from './startup-states'
+import {
+  collectGarbage,
+  fullPool,
+  openStartupFeed,
+  partialPool,
+  policySetPool,
+  type StartupFeed,
+} from './startup-states'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MobxPool } from '@podium/client-graph/pool'
+
+/**
+ * The policy set's answers on h1a1 (seed 4443), per group: equal / LOADING /
+ * wrong. Recorded by POD-7086; POD-7088 must bring every `wrong` to zero, and
+ * this test then asserts that. A change here is a change of what users see.
+ */
+const POLICY_SET_BASELINE = {
+  'first-screen': { equal: 24, loading: 0, wrong: 0 },
+  counts: { equal: 0, loading: 0, wrong: 4 },
+  search: { equal: 4, loading: 0, wrong: 9 },
+  'board-archive': { equal: 0, loading: 0, wrong: 1 },
+  'closed-children': { equal: 39, loading: 0, wrong: 57 },
+}
 
 let feed: StartupFeed
 let questions: ReturnType<typeof startupQuestions>
@@ -125,5 +150,21 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     expect(() => assertNoWrongNumber(report, 'partial store')).toThrow(/wrong numbers/)
     for (const group of ['counts', 'search', 'board-archive', 'closed-children'] as const)
       expect(groups[group]?.wrong ?? 0, group).toBeGreaterThan(0)
+  }, 600_000)
+
+  it('the policy set with markers answers as recorded (POD-7086); POD-7088 brings the wrong ones to zero', () => {
+    collectGarbage()
+    const pool = policySetPool(feed)
+    const report = checkNoWrongNumber(control, ask(pool, questions))
+    pool.dispose()
+    const groups = summarize(report)
+    console.info(`[no-wrong-number] policy set: ${JSON.stringify(groups)}`)
+    console.info(`[no-wrong-number] policy set wrong: ${JSON.stringify(report.wrong.map((w) => w.name))}`)
+    writeResult('startup-no-wrong-number-policy-set-h1a1', {
+      groups,
+      wrong: report.wrong.map((w) => ({ name: w.name, control: w.control, candidate: w.candidate })),
+    })
+    expect(report.asked).toBe(questions.length)
+    expect(groups).toEqual(POLICY_SET_BASELINE)
   }, 600_000)
 })

@@ -11,9 +11,13 @@
  *   partial store without markers;
  * - `lazyPool`: the production lazy pool on the whole feed before any cold
  *   row is loaded (`hydrateAll` then loads them as the app does).
- * Later issues add their own states (markers, active-first stream) and feed
- * them to the same check.
+ * - `policySetPool` (POD-7086): what a device holds under the server's policy
+ *   once its first download finished, every collection with its marker. The
+ *   pool's readers read whole records only, so the stubs are not in it.
+ * Later issues add their own states (active-first stream) and feed them to
+ * the same check.
  */
+import { COLLECTIONS, matchesWhere, type Where } from '@podium/model'
 import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
@@ -94,6 +98,70 @@ export function fullPool(feed: StartupFeed): MobxPool {
 export function partialPool(feed: StartupFeed): MobxPool {
   const pool = new MobxPool(feed.locals)
   runInAction(() => pool.apply({ type: 'replace', rows: feed.rows.filter((row) => !feed.cold(row.kind, row.id)) }))
+  return pool
+}
+
+/**
+ * The policy set (POD-7086, design POD-7059 "Collections"): the browser's
+ * policy (30 recent days) over the feed's rows, with what each held record
+ * comes with. Issues: the sidebar and the recent ones, their parent chains,
+ * and the issue of every held session. Sessions: live, asking and recent ones,
+ * and the sessions of a sidebar issue that are not archived. Every other kind
+ * is kept whole (the "always" group and the issue companions). Markers say
+ * these collections are complete; today's readers do not read them.
+ */
+export function policySetPool(feed: StartupFeed, recentDays = 30): MobxPool {
+  const now = feed.locals.coarseNow ?? Date.now()
+  const where = (collection: string): Where => {
+    const rule = COLLECTIONS.get(collection)?.where
+    if (rule === undefined) throw new Error(`[startup-states] ${collection} has no rule`)
+    return rule
+  }
+  const holds = (collection: string, value: unknown): boolean =>
+    matchesWhere(where(collection), (value ?? {}) as Record<string, unknown>, { now, args: { recentDays } })
+  const issues = new Map<string, Record<string, unknown>>()
+  const sessions = new Map<string, Record<string, unknown>>()
+  for (const row of feed.rows) {
+    if (row.kind === 'issue') issues.set(row.id, row.value as unknown as Record<string, unknown>)
+    if (row.kind === 'session') sessions.set(row.id, row.value as unknown as Record<string, unknown>)
+  }
+  const heldIssues = new Set<string>()
+  const sidebar = new Set<string>()
+  for (const [id, value] of issues) {
+    if (holds('issueProjection.sidebar', value)) sidebar.add(id)
+    if (sidebar.has(id) || holds('issueProjection.recent', value)) heldIssues.add(id)
+  }
+  const heldSessions = new Set<string>()
+  for (const [id, value] of sessions) {
+    if (['session.live', 'session.asking', 'session.recent'].some((c) => holds(c, value)))
+      heldSessions.add(id)
+    // A sidebar issue comes with its sessions that are not archived.
+    const issueId = value['issueId']
+    if (typeof issueId === 'string' && sidebar.has(issueId) && value['archived'] !== true)
+      heldSessions.add(id)
+  }
+  // A session comes with its issue.
+  for (const id of heldSessions) {
+    const issueId = sessions.get(id)?.['issueId']
+    if (typeof issueId === 'string' && issues.has(issueId)) heldIssues.add(issueId)
+  }
+  // An issue comes with its parent, and so every ancestor.
+  for (const id of [...heldIssues]) {
+    let parent = issues.get(id)?.['parentId']
+    while (typeof parent === 'string' && issues.has(parent) && !heldIssues.has(parent)) {
+      heldIssues.add(parent)
+      parent = issues.get(parent)?.['parentId']
+    }
+  }
+  const pool = new MobxPool(feed.locals)
+  runInAction(() =>
+    pool.apply({
+      type: 'replace',
+      rows: feed.rows.filter((row) =>
+        row.kind === 'issue' ? heldIssues.has(row.id) : row.kind === 'session' ? heldSessions.has(row.id) : true,
+      ),
+    }),
+  )
   return pool
 }
 

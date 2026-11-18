@@ -85,6 +85,31 @@ their declared summaries (counts, search, closed tabs), and after loading
 (1,544 rows) every answer equals the control. The second full bootstrap shows
 the check is not noisy.
 
+### The policy set with markers (POD-7086)
+
+Since POD-7085 the first download is the policy's collections, so the device
+holds the policy set: live, asking and recent sessions, the sidebar and recent
+issues, what they come with (parents, a session's issue, a sidebar issue's
+sessions that are not archived), every other kind whole, and every issue as a
+stub, each collection with its marker. Today's readers read whole records from
+the pool (stubs are kept out of it) and do not read markers, so they answer
+smaller numbers instead of LOADING. `policySetPool` in `startup-states.ts`
+builds this state; `no-wrong-number.test.ts` asserts these answers exactly, so
+a change that makes them worse fails. POD-7088 moves the readers onto markers
+and stubs and must bring every wrong answer to zero (vega, 2026-11-18, `h1a1`,
+seed 4443; equal / LOADING / wrong):
+
+| Candidate state | First screen | Counts | Search | Board archive | Closed children |
+| --- | --- | --- | --- | --- | --- |
+| Policy set with markers | 24 / 0 / 0 | 0 / 0 / **4** | 4 / 0 / **9** | 0 / 0 / **1** | 39 / 0 / **57** |
+
+The wrong answers: all four counts (issues, sessions, undeleted issues,
+proposed); the command palette's issues and the local text index and board
+search for four needles; the archived issues; and the child counts, model
+counts and mission progress of the parents whose closed children are not in
+the policy set (one board card's progress among them). The full list is in
+the test's result file, `startup-no-wrong-number-policy-set-h1a1`.
+
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership
 would encounter a cycle. A regression test requires failed reads, cyclic
