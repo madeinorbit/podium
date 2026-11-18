@@ -32,7 +32,7 @@ const fixture = vi.hoisted(() => ({
   store: {
     trpc: {
       settings: { get: { query: vi.fn(async () => ({})) } },
-      issues: { searchNormalized: { query: vi.fn(async () => []) } },
+      issues: { searchNormalized: { query: vi.fn(async () => ({ hits: [], next: null })) } },
       sessions: { handoff: { mutate: vi.fn() } },
     },
     repos: [],
@@ -345,7 +345,7 @@ describe('palette device/server issue identities', () => {
       stage: 'done',
       closedReason: 'done',
     })
-    const query = vi.fn(async () => [{ id: remote.id }])
+    const query = vi.fn(async () => ({ hits: [{ id: remote.id }], next: null }))
     issueSearch(pool).bind(query)
     const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
       pool.apply({

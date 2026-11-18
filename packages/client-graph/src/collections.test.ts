@@ -256,7 +256,7 @@ it('server search adopts hits as cached one-record instances through the real lo
     page.dispose()
   }
   expect(naming(one)).toBe(0)
-  issueSearch(pool).bind(async () => [{ id: 'OLD' }])
+  issueSearch(pool).bind(async () => ({ hits: [{ id: 'OLD' }], next: null }))
   let ids: readonly string[] = []
   const stop = autorun(() => {
     ids = issueSearch(pool).read('old', ['OPEN']).ids

@@ -2,7 +2,13 @@ import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createReferencePicker } from './chat-context'
 import { createIssueBoardSource } from './issue-board-source'
-import { type IssueSearchResult, issueSearch } from './issue-search'
+import {
+  ISSUE_SEARCH_PAGE,
+  type IssueSearchInput,
+  type IssueSearchPage,
+  type IssueSearchResult,
+  issueSearch,
+} from './issue-search'
 import { issueTargets } from './issue-targets'
 import { LOADING } from './loading'
 import { MobxPool } from './pool'
@@ -71,7 +77,10 @@ function fixture(online = true) {
       })),
   }
   pool.collections.attach(() => port)
-  const query = vi.fn(async () => [{ id: 'remote' }, { id: 'device' }, { id: 'remote' }])
+  const query = vi.fn(async () => ({
+    hits: [{ id: 'remote' }, { id: 'device' }, { id: 'remote' }],
+    next: null,
+  }))
   issueSearch(pool).bind(query)
   return { pool, query, adopt }
 }
@@ -154,10 +163,9 @@ for (const [name, open] of Object.entries(surfaces))
 
 it('merges device IDs first, deduplicates and ignores a superseded in-flight reply', async () => {
   const { pool, adopt } = fixture()
-  const resolve = new Map<string, (rows: { id: string }[]) => void>()
+  const resolve = new Map<string, (page: IssueSearchPage) => void>()
   const query = vi.fn(
-    ({ text }: { text: string }) =>
-      new Promise<{ id: string }[]>((done) => resolve.set(text, done)),
+    ({ text }: { text: string }) => new Promise<IssueSearchPage>((done) => resolve.set(text, done)),
   )
   issueSearch(pool).bind(query)
   const text = observable({ query: 'first' })
@@ -172,11 +180,11 @@ it('merges device IDs first, deduplicates and ignores a superseded in-flight rep
   })
   expect(result?.ids).toEqual(['device'])
   await vi.advanceTimersByTimeAsync(150)
-  resolve.get('second')!([{ id: 'new' }, { id: 'device' }, { id: 'new' }])
+  resolve.get('second')!({ hits: [{ id: 'new' }, { id: 'device' }, { id: 'new' }], next: null })
   await vi.advanceTimersByTimeAsync(0)
   expect(result?.ids).toEqual(['device', 'new'])
   expect(result?.complete).toBe(true)
-  resolve.get('first')!([{ id: 'stale' }])
+  resolve.get('first')!({ hits: [{ id: 'stale' }], next: null })
   await vi.advanceTimersByTimeAsync(0)
   expect(result?.ids).toEqual(['device', 'new'])
   expect(adopt).not.toHaveBeenCalledWith('issueProjection', ['stale'])
@@ -203,4 +211,77 @@ it('fails silently to device matches and cancels a closed search before its debo
   abandoned()
   await vi.advanceTimersByTimeAsync(150)
   expect(query).toHaveBeenCalledTimes(1)
+})
+
+describe('paged server answers (POD-7108)', () => {
+  const ids = (from: number, n: number) => Array.from({ length: n }, (_, i) => `hit-${from + i}`)
+  function paged() {
+    const { pool, adopt } = fixture()
+    const pages: Record<string, IssueSearchPage> = {
+      first: { hits: ids(0, ISSUE_SEARCH_PAGE).map((id) => ({ id })), next: 'after-first' },
+      'after-first': { hits: ids(ISSUE_SEARCH_PAGE, 7).map((id) => ({ id })), next: null },
+    }
+    const query = vi.fn(async (input: IssueSearchInput) => pages[input.cursor ?? 'first']!)
+    issueSearch(pool).bind(query)
+    const want = observable.box(ISSUE_SEARCH_PAGE)
+    let result: IssueSearchResult | undefined
+    stops.push(
+      autorun(() => {
+        result = issueSearch(pool).read('re', [], undefined, want.get())
+      }),
+    )
+    return { adopt, query, want, read: () => result }
+  }
+
+  it('installs only the first page until the view wants more', async () => {
+    const { adopt, query, read } = paged()
+    await vi.advanceTimersByTimeAsync(150)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(query).toHaveBeenCalledWith({ text: 're' })
+    expect(adopt).toHaveBeenCalledTimes(1)
+    expect(adopt).toHaveBeenCalledWith('issueProjection', ids(0, ISSUE_SEARCH_PAGE))
+    expect(read()).toMatchObject({ more: true, pending: false })
+    expect(read()?.serverIds).toEqual(ids(0, ISSUE_SEARCH_PAGE))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(query).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for the next page when the view scrolls past the first, installing only that page', async () => {
+    const { adopt, query, want, read } = paged()
+    await vi.advanceTimersByTimeAsync(150)
+    runInAction(() => want.set(ISSUE_SEARCH_PAGE + 14))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(query).toHaveBeenCalledTimes(2)
+    expect(query).toHaveBeenLastCalledWith({ text: 're', cursor: 'after-first' })
+    expect(adopt).toHaveBeenCalledTimes(2)
+    expect(adopt).toHaveBeenLastCalledWith('issueProjection', ids(ISSUE_SEARCH_PAGE, 7))
+    expect(read()?.serverIds).toEqual(ids(0, ISSUE_SEARCH_PAGE + 7))
+    expect(read()?.more).toBe(false)
+    // The answer is complete: wanting more asks nothing.
+    runInAction(() => want.set(ISSUE_SEARCH_PAGE * 3))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(query).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops paging after a failed page instead of retrying on every read', async () => {
+    const { pool, adopt } = fixture()
+    const query = vi.fn(async (input: IssueSearchInput) => {
+      if (input.cursor) throw new Error('offline')
+      return { hits: [{ id: 'remote' }], next: 'after-first' }
+    })
+    issueSearch(pool).bind(query)
+    const want = observable.box(1)
+    stops.push(
+      autorun(() => {
+        issueSearch(pool).read('re', [], undefined, want.get())
+      }),
+    )
+    await vi.advanceTimersByTimeAsync(150)
+    runInAction(() => want.set(2))
+    await vi.advanceTimersByTimeAsync(0)
+    runInAction(() => want.set(3))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(query).toHaveBeenCalledTimes(2)
+    expect(adopt).toHaveBeenCalledTimes(1)
+  })
 })

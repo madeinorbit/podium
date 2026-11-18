@@ -34,14 +34,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import {
-  issueComments,
-  issueDeps,
-  issueLabels,
-  issues,
-  labels,
-  pins,
-} from '../migrations/schema'
+import { issueComments, issueDeps, issueLabels, issues, labels, pins } from '../migrations/schema'
 import {
   inListOf,
   inListSize,
@@ -119,6 +112,11 @@ export interface IssueListingShape {
   label?: boolean
   /** Lowercased ASCII text inside `title description brief`. */
   text?: boolean
+  /** Keyset page (POD-7108): only rows after `:afterPriority, :afterSeq,
+   *  :afterPath, :afterId` in `priority-seq` order. */
+  after?: boolean
+  /** At most `:limit` rows. */
+  limit?: boolean
   /** `path-seq`: the boot map's order (repository path, sequence);
    *  `updated`: oldest update first. */
   order: 'repo-seq' | 'path-seq' | 'priority-seq' | 'seq' | 'updated'
@@ -138,6 +136,8 @@ const FLAGS = [
   'parent',
   'label',
   'text',
+  'after',
+  'limit',
 ] as const
 
 export function listingKey(shape: IssueListingShape): string {
@@ -211,6 +211,13 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
       sql`instr(lower(${issues.title} || ' ' || ${issues.description} || ' ' || coalesce(${issues.brief}, '')), ${sql.placeholder('text')}) > 0`,
     )
   }
+  if (shape.after) {
+    if (shape.order !== 'priority-seq') throw new Error('A keyset page is in priority-seq order')
+    // The row value compares in the listing's own order, every key ascending.
+    where.push(
+      sql`(${issues.priority}, ${issues.seq}, ${issues.repoPath}, ${issues.id}) > (${sql.placeholder('afterPriority')}, ${sql.placeholder('afterSeq')}, ${sql.placeholder('afterPath')}, ${sql.placeholder('afterId')})`,
+    )
+  }
   return and(...where)
 }
 
@@ -235,13 +242,23 @@ function listingOrder(shape: IssueListingShape) {
 /** Full issue rows for one listing shape. */
 export const issueListing = preparedFamily((db: StoreDrizzle, key: string) => {
   const shape = parseListingKey(key)
-  return db
+  const listing = db
     .select()
     .from(issues)
     .where(listingWhere(shape))
     .orderBy(...listingOrder(shape))
-    .prepare()
+    .$dynamic()
+  if (shape.limit) listing.limit(sql.placeholder('limit'))
+  return listing.prepare()
 })
+
+/** Where a `priority-seq` page ends: the last row's ordering keys. */
+export interface IssueListingKeyset {
+  priority: number
+  seq: number
+  repoPath: string
+  id: string
+}
 
 /** The values a listing of this shape binds. */
 export interface IssueListingInput {
@@ -258,6 +275,10 @@ export interface IssueListingInput {
   label?: string
   /** Already lowercased ASCII. */
   text?: string
+  /** For `after`: the previous page's last row. */
+  after?: IssueListingKeyset
+  /** For `limit`. */
+  limit?: number
 }
 
 export function listingValues(
@@ -273,6 +294,13 @@ export function listingValues(
   for (const key of ['stage', 'priority', 'type', 'assignee', 'parent', 'label', 'text'] as const) {
     if (shape[key]) values[key] = input[key]
   }
+  if (shape.after) {
+    values.afterPriority = input.after?.priority
+    values.afterSeq = input.after?.seq
+    values.afterPath = input.after?.repoPath
+    values.afterId = input.after?.id
+  }
+  if (shape.limit) values.limit = input.limit
   return values
 }
 

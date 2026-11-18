@@ -5,8 +5,8 @@ import {
   type EpicStatus,
   type IssueComment,
   type IssueCount,
-  type IssueGraph,
   type IssueGitState,
+  type IssueGraph,
   type IssueId,
   type IssueLabelWire,
   IssueProjection,
@@ -41,7 +41,11 @@ import {
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore, StoredIssueUserState } from '../../../store'
-import type { IssueListingInput, IssueListingShape } from '../../../store/issue-listings'
+import type {
+  IssueListingInput,
+  IssueListingKeyset,
+  IssueListingShape,
+} from '../../../store/issue-listings'
 import type { SessionFacts } from '../../sessions/facts'
 import { deepestOwner, soleOwner } from '../folder-owner'
 import { issueRowToProjection } from '../projection'
@@ -55,6 +59,7 @@ import type { IssueStore } from './core'
 import { readDeck } from './deck'
 import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
+import { IssueRefusal } from './refusal'
 import { resolveSeat, type SessionSeat, seatText } from './seat'
 
 export type IssueCommandResult<T> = T extends
@@ -192,6 +197,46 @@ export const DEFAULT_ISSUE_REPORT_VISIBILITY: Readonly<IssueReportVisibilityPoli
 function issueTitleNeedsRetitle(title: string): boolean {
   const wordCount = title.trim().split(/\s+/).filter(Boolean).length
   return wordCount < 3 || wordCount > 5
+}
+
+/** One page of `issues.searchNormalized` (POD-7108). */
+export interface IssueSearchPage {
+  hits: (IssueProjection & { displayRef: string })[]
+  /** Continues the answer after the last hit; `null` when it is complete. */
+  next: string | null
+}
+
+interface SearchPlan {
+  shape: Omit<IssueListingShape, 'repo' | 'readable'>
+  input: IssueListingInput
+  /** Deferral (Date.parse) and non-ASCII text, decided after SQL. */
+  keep?: (row: IssueRow) => boolean
+}
+
+/** The cursor is the last hit's ordering keys; clients treat it as opaque. */
+function encodeSearchCursor(row: IssueRow): string {
+  return Buffer.from(JSON.stringify([row.priority, row.seq, row.repoPath, row.id])).toString(
+    'base64url',
+  )
+}
+
+function decodeSearchCursor(cursor: string): IssueListingKeyset {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (Array.isArray(value) && value.length === 4) {
+      const [priority, seq, repoPath, id] = value as unknown[]
+      if (
+        Number.isSafeInteger(priority) &&
+        Number.isSafeInteger(seq) &&
+        typeof repoPath === 'string' &&
+        typeof id === 'string'
+      )
+        return { priority: priority as number, seq: seq as number, repoPath, id }
+    }
+  } catch {
+    // The same refusal as a well-formed cursor of the wrong shape.
+  }
+  throw new IssueRefusal('unreadable search cursor')
 }
 
 /**
@@ -374,7 +419,8 @@ export class IssueReportsModule {
   ): Promise<IssueReport> {
     const labels = batch.labelsByIssue.get(row.id) ?? []
     const detail = batch.panels.get(row.id)
-    const projection = { ...(own ?? issueRowToProjection(row, labels)),
+    const projection = {
+      ...(own ?? issueRowToProjection(row, labels)),
       panel: detail?.panel,
       activityNotes: detail?.state?.text,
       notesUpdatedAt: detail?.state?.updatedAt,
@@ -470,7 +516,10 @@ export class IssueReportsModule {
     const closure = blockers.length > 0 ? await issues.closureOf(blockers) : new Map()
     return {
       gitStates: new Map(
-        [...(await issues.gitStates.getMany(ids))].map(([id, { id: _id, ...state }]) => [id, state]),
+        [...(await issues.gitStates.getMany(ids))].map(([id, { id: _id, ...state }]) => [
+          id,
+          state,
+        ]),
       ),
       panels: includePanels ? await issues.panel.readMany(ids) : new Map(),
       labelsByIssue,
@@ -1150,35 +1199,64 @@ export class IssueReportsModule {
     return out
   }
 
-  /** Normalized durable search hits plus the reference label. This additive
-   * endpoint preserves the existing filtering, ordering and authorization. */
-  async searchNormalized(filter: IssueSearchFilter, reader: IssueReader = UNRESTRICTED_READER) {
-    const hits = await this.search(filter, reader)
-    const rows = await this.store.rowsByIds(hits.map((hit) => hit.id))
-    return await Promise.all(
-      hits.map(async (hit) => {
-        const row = rows.get(hit.id)
-        if (!row) throw new IssueNotFound(hit.id)
-        const projection = await this.store.projection(row)
-        return { ...projection, displayRef: hit.displayRef ?? `#${hit.seq}` }
-      }),
+  /**
+   * One page of normalized durable search hits plus the reference label
+   * (POD-7108): at most `limit` hits after `cursor`, with the unbounded
+   * search's filtering, order and authorization. `next` continues the answer;
+   * `null` means it is complete. Only the page's rows are normalized, with
+   * their labels read once for the page.
+   */
+  async searchNormalized(
+    filter: IssueSearchFilter & { limit: number; cursor?: string | undefined },
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<IssueSearchPage> {
+    const { limit, cursor, ...rest } = filter
+    const after = cursor === undefined ? undefined : decodeSearchCursor(cursor)
+    const plan = this.searchPlan(rest)
+    // A JavaScript filter decides after SQL, so SQL cannot count its page:
+    // those (rare) searches read every row after the cursor and cut here.
+    const bounded = plan.keep === undefined
+    const rows = await this.listed(
+      rest.repoPath,
+      reader,
+      { ...plan.shape, ...(after ? { after: true } : {}), ...(bounded ? { limit: true } : {}) },
+      { ...plan.input, ...(after ? { after } : {}), ...(bounded ? { limit: limit + 1 } : {}) },
     )
+    const matched = plan.keep ? rows.filter(plan.keep) : rows
+    const page = matched.slice(0, limit)
+    const last = page.at(-1)
+    const next = matched.length > limit && last ? encodeSearchCursor(last) : null
+    if (page.length === 0) return { hits: [], next }
+    const labels = await this.store.deps.store.issues.labelsOfIssues(page.map((row) => row.id))
+    const prefixOf = await this.store.deps.store.repos.prefixResolver()
+    return {
+      hits: page.map((row) => {
+        const prefix = prefixOf(row.repoPath)
+        return {
+          ...issueRowToProjection(row, labels.get(row.id) ?? []),
+          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
+        }
+      }),
+      next,
+    }
   }
 
   async search(
     filter: IssueSearchFilter,
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    return await this.named(await this.searchFromDb(filter, reader))
+    const plan = this.searchPlan(filter)
+    const rows = await this.listed(filter.repoPath, reader, plan.shape, plan.input)
+    return await this.named(
+      await this.reportsFor(plan.keep ? rows.filter(plan.keep) : rows, undefined, reader),
+    )
   }
 
-  private async searchFromDb(
-    filter: IssueSearchFilter,
-    reader: IssueReader,
-  ): Promise<IssueReport[]> {
+  /** A search filter as one SQL listing, plus what SQL cannot decide. */
+  private searchPlan(filter: IssueSearchFilter): SearchPlan {
     const text = filter.text?.toLowerCase()
     // SQLite folds ASCII case only: other text is matched here, exactly.
-    const asciiText = text !== undefined && /^[\x00-\x7f]*$/.test(text)
+    const asciiText = text !== undefined && /^\p{ASCII}*$/u.test(text)
     const state =
       filter.status === 'open'
         ? 'open'
@@ -1189,10 +1267,11 @@ export class IssueReportsModule {
             : filter.status === 'blocked'
               ? 'blocked'
               : undefined
-    const rows = await this.listed(
-      filter.repoPath,
-      reader,
-      {
+    const nonAsciiText = text && !asciiText ? text : undefined
+    const decided =
+      filter.status !== 'ready' && filter.status !== 'deferred' && nonAsciiText === undefined
+    return {
+      shape: {
         live: true,
         ...(state ? { state } : {}),
         ...(filter.status === 'deferred' ? { deferred: true } : {}),
@@ -1203,9 +1282,10 @@ export class IssueReportsModule {
         ...(filter.parentId ? { parent: true } : {}),
         ...(filter.label ? { label: true } : {}),
         ...(text && asciiText ? { text: true } : {}),
+        // Ends with the id, so the order is total and a keyset page is stable.
         order: 'priority-seq',
       },
-      {
+      input: {
         ...(filter.stage ? { stage: filter.stage } : {}),
         ...(filter.priority != null ? { priority: filter.priority } : {}),
         ...(filter.type ? { type: filter.type } : {}),
@@ -1214,20 +1294,20 @@ export class IssueReportsModule {
         ...(filter.label ? { label: filter.label } : {}),
         ...(text && asciiText ? { text } : {}),
       },
-    )
-    return await this.reportsFor(
-      rows.filter((row) => {
-        if (filter.status === 'ready' && this.store.isDeferred(row)) return false
-        if (filter.status === 'deferred' && !this.store.isDeferred(row)) return false
-        if (text && !asciiText) {
-          const hay = `${row.title} ${row.description} ${row.brief ?? ''}`.toLowerCase()
-          if (!hay.includes(text)) return false
-        }
-        return true
-      }),
-      undefined,
-      reader,
-    )
+      ...(decided
+        ? {}
+        : {
+            keep: (row: IssueRow) => {
+              if (filter.status === 'ready' && this.store.isDeferred(row)) return false
+              if (filter.status === 'deferred' && !this.store.isDeferred(row)) return false
+              if (nonAsciiText !== undefined) {
+                const hay = `${row.title} ${row.description} ${row.brief ?? ''}`.toLowerCase()
+                if (!hay.includes(nonAsciiText)) return false
+              }
+              return true
+            },
+          }),
+    }
   }
 
   async count(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueCount> {

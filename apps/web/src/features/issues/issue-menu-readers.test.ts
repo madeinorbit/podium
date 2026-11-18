@@ -50,7 +50,7 @@ it('shares server matches across duplicate, parent/relation, header and compact 
   const device = makeIssue({ id: 'device', title: 'Needle device', repoPath: '/repo' })
   const remote = makeIssue({ id: 'remote', title: 'Historical body match', repoPath: '/repo' })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: device.id, value: device }] })
-  const query = vi.fn(async () => [{ id: remote.id }])
+  const query = vi.fn(async () => ({ hits: [{ id: remote.id }], next: null }))
   issueSearch(pool).bind(query)
   const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
     pool.apply({

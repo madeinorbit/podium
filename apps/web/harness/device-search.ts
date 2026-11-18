@@ -47,12 +47,14 @@ try {
   ]
   const results = []
   for (const query of cases) {
-    const expected = await reports.searchNormalized({ text: query.text }, reader)
+    // One page, as the clients ask for it (POD-7108); `more` says another follows.
+    const input = { text: query.text, limit: 50 }
+    const expected = await reports.searchNormalized(input, reader)
     const start = performance.now()
-    const hits = await reports.searchNormalized({ text: query.text }, reader)
+    const page = await reports.searchNormalized(input, reader)
     const elapsedMs = performance.now() - start
-    if (hits.length !== expected.length) throw new Error('Search population changed')
-    results.push({ ...query, hits: hits.length, elapsedMs })
+    if (page.hits.length !== expected.hits.length) throw new Error('Search population changed')
+    results.push({ ...query, hits: page.hits.length, more: page.next !== null, elapsedMs })
   }
   mkdirSync(out.slice(0, out.lastIndexOf('/')), { recursive: true })
   const result = {

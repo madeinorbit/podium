@@ -1934,6 +1934,8 @@ export class IssuesRepository {
     const key =
       shape.parents !== undefined ? 'parents' : shape.ids !== undefined ? 'ids' : undefined
     const chunks = key && list ? chunked([...new Set(list)], 500) : [undefined]
+    // A limit bounds one statement; merged chunks would each take their own.
+    if (shape.limit && chunks.length > 1) throw new Error('A limited listing reads one statement')
     const raw: (typeof issues.$inferSelect)[] = []
     for (const chunk of chunks) {
       if (chunk !== undefined && chunk.length === 0) continue

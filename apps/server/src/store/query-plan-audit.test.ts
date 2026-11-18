@@ -113,6 +113,9 @@ const LISTING_BASES: readonly Omit<IssueListingShape, 'repo'>[] = [
     order: 'priority-seq',
   },
   { live: true, deferred: true, order: 'priority-seq' },
+  // A search page (POD-7108): the first, and one after a cursor.
+  { live: true, text: true, limit: true, order: 'priority-seq' },
+  { live: true, text: true, after: true, limit: true, order: 'priority-seq' },
   { live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
   { live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq' },
   { live: false, hasWorktree: true, order: 'path-seq' },

@@ -1,4 +1,4 @@
-import { issueSearch } from './issue-search'
+import { ISSUE_SEARCH_PAGE, issueSearch } from './issue-search'
 import { LOADING } from './loading'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
@@ -26,7 +26,13 @@ export function issueTargets(
     prefixes,
   })
   const result: string[] = []
-  for (const id of issueSearch(pool).read(query, device, issue.repoPath).ids) {
+  // The window grows as the sheet scrolls; the search pages with it (POD-7108).
+  for (const id of issueSearch(pool).read(
+    query,
+    device,
+    issue.repoPath,
+    Math.max(limit, ISSUE_SEARCH_PAGE),
+  ).ids) {
     if (result.length >= limit) break
     if (id === issue.id) continue
     const target = omitGone(pool.row('issue', id))
