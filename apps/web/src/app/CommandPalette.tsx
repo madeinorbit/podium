@@ -440,6 +440,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         serverIds.has(issue.id)
           ? {
               ...candidate,
+              // Server search reaches archived tasks outside the local catalog.
+              eligible: () => !issue.deletedAt && !issue.isDraftVessel,
               search: () => ({
                 ...candidate.search(),
                 keywords: [...(candidate.search().keywords ?? []), query],

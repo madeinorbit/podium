@@ -329,7 +329,7 @@ describe('settings page commands', () => {
 })
 
 describe('palette device/server issue identities', () => {
-  it('finds an absent issue by its server body match and keeps the shared model', async () => {
+  it('finds an absent archived issue by its server body match and keeps the shared model', async () => {
     fixture.issues = [makeIssue({ id: 'local-search', title: 'Needle local' })]
     render(<CommandPalette />)
     const pool = syncPoolFixture({
@@ -338,7 +338,13 @@ describe('palette device/server issue identities', () => {
       sessions: [],
       paneA: null,
     } as never)
-    const remote = makeIssue({ id: 'remote-search', title: 'Historical task' })
+    const remote = makeIssue({
+      id: 'remote-search',
+      title: 'Historical task',
+      archived: true,
+      stage: 'done',
+      closedReason: 'done',
+    })
     const query = vi.fn(async () => [{ id: remote.id }])
     issueSearch(pool).bind(query)
     const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
@@ -354,6 +360,8 @@ describe('palette device/server issue identities', () => {
     expect(query).toHaveBeenCalledWith({ text: 'needle' })
     expect(adopt).toHaveBeenCalledWith('issue', [remote.id])
     expect(pool.issueObject(remote.id).title).toBe('Historical task')
+    fireEvent.click(screen.getByRole('option', { name: /Historical task/ }))
+    expect(fixture.store.setOpenIssueId).toHaveBeenCalledWith(remote.id)
     adopt.mockRestore()
   })
 

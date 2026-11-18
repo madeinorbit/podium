@@ -23,7 +23,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { issueSearch } from '@podium/client-graph/issue-search'
 import { issueTargets } from '@podium/client-graph/issue-targets'
-import { readIssueSearchChoiceIds } from '../../../../../apps/web/src/features/issues/issue-search-choices'
+import { readIssueSearchChoiceIds } from '@podium/client-graph/issue-search-choices'
 import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
