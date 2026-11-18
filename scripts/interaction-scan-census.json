@@ -644,7 +644,7 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/PulseScreen/feed",
       "rule": "reader-summary",
-      "tokens": "bde61b5240b605034719fde12a3980a17a1ad5320c772e289cbbc2a9954e3c32",
+      "tokens": "fc4ae48c0805894dbeb8621e8f1306754ef9b681be10416f142ab2ec05924cb4",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -653,14 +653,14 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "e10376998936b85cc0fa9e1eb95c9cee348f2548f4a32330d8a0a4ecae2ff037",
+      "fingerprint": "c2b843e7b8cdc4e8743a7ff30adf965320f33df8e4ac4bd6f84f33a876f1ab62",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "guard": "scripts/check-interaction-scans.ts",
       "trigger": "Pulse reading in PulseScreen/PulseScreen/feed.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad. POD-2401 routes retries to independent quota or sequenced usage/cost requests; existing machine collection scope is unchanged. Predecessor: 72cbc8ddda387eab78442d91bace3b65e0149b168b964449796f2fe0eb34c549."
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad. POD-2401 routes retries to independent quota or sequenced usage/cost requests; existing machine collection scope is unchanged. Predecessor: 72cbc8ddda387eab78442d91bace3b65e0149b168b964449796f2fe0eb34c549. POD-2638 pauses polling while content is hidden or the app is inactive; only the helper body changed, with the same five collection origins and occurrence count. Collection cardinality debt is unchanged. Predecessor: e10376998936b85cc0fa9e1eb95c9cee348f2548f4a32330d8a0a4ecae2ff037."
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
