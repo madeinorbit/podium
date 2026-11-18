@@ -200,7 +200,6 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       expect(store.entitiesOf(DRAFT_PRINCIPAL)).toBe(rows)
       expect(cache.readEntities()).toEqual([row('a'), row('b')])
       expect(cache.readCursor()).toEqual(PRE)
-      expect(cache.readPersonalRowsCompleteAt()).toEqual(PRE)
       store.close()
       const recovered = await reopen()
       try {
@@ -209,7 +208,6 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
           row('b'),
         ])
         expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readCursor()).toEqual(PRE)
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(PRE)
       } finally {
         recovered.close()
       }

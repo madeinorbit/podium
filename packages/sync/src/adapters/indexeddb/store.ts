@@ -68,16 +68,20 @@ import type {
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
 import {
-  certifyPersonalRowsCompleteAt,
+  type CacheMeta,
+  CURSOR_META_KEY,
   cursorTriple,
-  decodePersonalRowsCompleteAt,
-  nextCacheCompleteness,
-  nextPersonalRowsCompleteAt,
-  type PersonalRowsCompleteness,
+  decodeCacheMeta,
+  EMPTY_CACHE_META,
+  INSTANCE_META_END,
+  INSTANCE_META_PREFIX,
+  instanceMetaKey,
+  isMainRow,
+  type MetaWrite,
+  nextCacheMeta,
+  rowAfter,
   type ScopedCacheCursor,
-  snapshotCacheCursor,
-  trustedPersonalRowsCompleteAt,
-} from '../../replica/cache-completeness'
+} from '../../replica/cache-state'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -88,7 +92,13 @@ import type {
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
+import type {
+  CachePolicy,
+  Cursor,
+  EntityRecord,
+  InstanceRecord,
+  KindTokens,
+} from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { ChangedKeyDraft } from '../changed-key-draft'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
@@ -102,11 +112,9 @@ import {
 } from './idb'
 import {
   ALL_STORES,
-  CURSOR_KEY,
   ENTITY_STORE,
   META_STORE,
   OUTBOX_STORE,
-  PERSONAL_ROWS_COMPLETE_AT_KEY,
   REPLICA_DB_NAME,
   REPLICA_SCHEMA_VERSION,
   type StoredEntity,
@@ -192,8 +200,8 @@ type IdbOp =
 interface SpanDraft {
   /** Principal → changed keys or snapshot replacement. Absent means untouched. */
   readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
-  readonly cursors: Map<string, ScopedCacheCursor | null>
-  readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
+  /** Principal → the cursor, markers, policy and load state this draft leaves. */
+  readonly metas: Map<string, CacheMeta>
   readonly outbox: Map<string, StoredOutboxRecord[]>
   readonly ops: IdbOp[]
   /** Re-checked inside the native transaction against durable rows (D4.6). */
@@ -231,8 +239,7 @@ function lanesOf(draft: SpanDraft): readonly CommitLane[] {
 
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
-  cursors: new Map(),
-  personalRowsCompleteAt: new Map(),
+  metas: new Map(),
   outbox: new Map(),
   ops: [],
   expectations: [],
@@ -318,8 +325,7 @@ export class IndexedDbSyncStore {
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
   private readonly entities = new Map<string, Map<string, EntityRecord>>()
-  private readonly cursors = new Map<string, ScopedCacheCursor | null>()
-  private readonly personalRowsCompleteAt = new Map<string, PersonalRowsCompleteness | null>()
+  private readonly metas = new Map<string, CacheMeta>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, IndexedDbStoreView>()
   private nextOrdinal = 0
@@ -452,14 +458,7 @@ export class IndexedDbSyncStore {
         })
       }
       draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(principal, null)
-      draft.personalRowsCompleteAt.set(principal, null)
-      draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, CURSOR_KEY] })
-      draft.ops.push({
-        kind: 'delete',
-        store: META_STORE,
-        key: [principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
-      })
+      this.stageMetaReset(draft, principal)
       draft.touchedCache = true
 
       for (const row of this.outboxOf(principal)) {
@@ -899,9 +898,7 @@ export class IndexedDbSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities)
       this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
-    for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
-    for (const [principal, marker] of draft.personalRowsCompleteAt)
-      this.personalRowsCompleteAt.set(principal, marker)
+    for (const [principal, meta] of draft.metas) this.metas.set(principal, meta)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
   }
 
@@ -936,8 +933,7 @@ export class IndexedDbSyncStore {
       await completion
     }
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
     for (const row of entities) {
@@ -949,16 +945,18 @@ export class IndexedDbSyncStore {
         value: row.value,
         revision: row.revision,
         provenance: row.provenance as EntityRecord['provenance'],
+        ...(row.part === 'stub' ? { part: 'stub' as const } : {}),
+        ...(typeof row.asOf === 'number' ? { asOf: row.asOf } : {}),
       })
       this.entities.set(row.principal, slice)
     }
+    const metaRows = new Map<string, StoredMeta[]>()
     for (const row of meta) {
-      if (row.key === CURSOR_KEY)
-        this.cursors.set(row.principal, row.value as ScopedCacheCursor | null)
-      if (row.key === PERSONAL_ROWS_COMPLETE_AT_KEY) {
-        this.personalRowsCompleteAt.set(row.principal, decodePersonalRowsCompleteAt(row.value))
-      }
+      const rows = metaRows.get(row.principal) ?? []
+      rows.push(row)
+      metaRows.set(row.principal, rows)
     }
+    for (const [principal, rows] of metaRows) this.metas.set(principal, decodeCacheMeta(rows))
     this.adoptOutboxRows(outbox)
   }
 
@@ -1008,10 +1006,13 @@ export class IndexedDbSyncStore {
       })),
     )
 
-    const cursorRows = [...this.cursors].map(([principal, value]) => ({ principal, value }))
+    const cursorRows = [...this.metas].map(([principal, meta]) => ({
+      principal,
+      value: meta.cursor,
+    }))
     const cursors = planSecretScrub(
       cursorRows.map((row) => ({
-        address: `meta[${row.principal}/${CURSOR_KEY}]`,
+        address: `meta[${row.principal}/${CURSOR_META_KEY}]`,
         row,
         value: row.value,
       })),
@@ -1050,12 +1051,14 @@ export class IndexedDbSyncStore {
         value: rewrite.value,
         ...(record.revision === undefined ? {} : { revision: record.revision }),
         ...(record.provenance === undefined ? {} : { provenance: record.provenance }),
+        ...(record.part === undefined ? {} : { part: record.part }),
+        ...(record.asOf === undefined ? {} : { asOf: record.asOf }),
       } satisfies StoredEntity)
     }
     for (const rewrite of cursors.rewrites) {
       tx.objectStore(META_STORE).put({
         principal: rewrite.row.principal,
-        key: CURSOR_KEY,
+        key: CURSOR_META_KEY,
         value: rewrite.value,
       } satisfies StoredMeta)
     }
@@ -1076,7 +1079,10 @@ export class IndexedDbSyncStore {
       this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
     }
     for (const rewrite of cursors.rewrites)
-      this.cursors.set(rewrite.row.principal, rewrite.value as ScopedCacheCursor | null)
+      this.metas.set(rewrite.row.principal, {
+        ...this.metaOf(rewrite.row.principal),
+        cursor: rewrite.value as ScopedCacheCursor | null,
+      })
     for (const rewrite of outbox.rewrites) {
       const { principal, index, stored } = rewrite.row
       const slice = this.outboxRows.get(principal)
@@ -1091,8 +1097,7 @@ export class IndexedDbSyncStore {
     for (const name of ALL_STORES) tx.objectStore(name).clear()
     await completion
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
     this.outboxRows.clear()
   }
 
@@ -1106,24 +1111,58 @@ export class IndexedDbSyncStore {
     return this.options.retainEntity?.(entity) ?? true
   }
 
-  entityKindRange(principal: string, entity: string): unknown {
-    // In compound-key order, every string id sorts before the array sentinel.
-    return this.options.keyRange?.bound([principal, entity], [principal, entity, []])
-  }
-
   entitiesOf(principal: string): Map<string, EntityRecord> {
     return this.entities.get(principal) ?? new Map()
   }
 
-  cursorOf(principal: string): ScopedCacheCursor | null {
-    return this.cursors.get(principal) ?? null
+  metaOf(principal: string): CacheMeta {
+    return this.metas.get(principal) ?? EMPTY_CACHE_META
   }
 
-  personalRowsCompleteAtOf(principal: string): PersonalRowsCompleteness | null {
-    return trustedPersonalRowsCompleteAt(
-      this.cursorOf(principal),
-      this.personalRowsCompleteAt.get(principal) ?? null,
-    )
+  /** The durable operations of metadata writes, in order. */
+  stageMetaWrites(draft: SpanDraft, principal: string, writes: readonly MetaWrite[]): void {
+    for (const write of writes) {
+      if (write.kind === 'put') {
+        draft.ops.push({
+          kind: 'put',
+          store: META_STORE,
+          value: { principal, key: write.key, value: write.value } satisfies StoredMeta,
+        })
+      } else if (write.kind === 'delete') {
+        draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, write.key] })
+      } else {
+        const range = this.options.keyRange?.bound(
+          [principal, INSTANCE_META_PREFIX],
+          [principal, INSTANCE_META_END],
+        )
+        if (range !== undefined) draft.ops.push({ kind: 'delete', store: META_STORE, key: range })
+        else
+          for (const key of (draft.metas.get(principal) ?? this.metaOf(principal)).instances.keys())
+            draft.ops.push({
+              kind: 'delete',
+              store: META_STORE,
+              key: [principal, instanceMetaKey(key)],
+            })
+      }
+    }
+  }
+
+  /** Forget a principal's cursor, markers, policy and load state in this draft. */
+  stageMetaReset(draft: SpanDraft, principal: string): void {
+    const before = draft.metas.get(principal) ?? this.metaOf(principal)
+    const writes: MetaWrite[] = [
+      { kind: 'delete', key: CURSOR_META_KEY },
+      { kind: 'deleteInstances' },
+    ]
+    const reset = nextCacheMeta(before, {
+      operations: [],
+      instances: [{ kind: 'dropAll' }],
+      policy: null,
+      loadingSince: null,
+    })
+    for (const write of reset.writes) if (write.kind === 'delete') writes.push(write)
+    this.stageMetaWrites(draft, principal, writes)
+    draft.metas.set(principal, EMPTY_CACHE_META)
   }
 
   outboxOf(principal: string): readonly StoredOutboxRecord[] {
@@ -1171,27 +1210,47 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.store.guardReadable()
-    return cursorTriple(this.store.cursorOf(this.principal))
+    return cursorTriple(this.store.metaOf(this.principal).cursor)
   }
 
   readKindTokens(): KindTokens | undefined {
     this.store.guardReadable()
-    return this.store.cursorOf(this.principal)?.kindTokens
+    return this.store.metaOf(this.principal).cursor?.kindTokens
   }
 
-  readPersonalRowsCompleteAt(): Cursor | null {
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.store.guardReadable()
-    return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
+    return this.store.metaOf(this.principal).instances
+  }
+
+  readPolicy(): CachePolicy | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).policy
+  }
+
+  readLoadingSince(): number | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).loadingSince
   }
 
   readEntities(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()]
+    return [...this.store.entitiesOf(this.principal).values()].filter(isMainRow)
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
+    const row = this.readRow(entity, entityId)
+    return row === undefined || !isMainRow(row) ? undefined : row
+  }
+
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
     this.store.guardReadable()
     return this.store.entitiesOf(this.principal).get(rowKey(entity, entityId))
+  }
+
+  readStubs(): readonly EntityRecord[] {
+    this.store.guardReadable()
+    return [...this.store.entitiesOf(this.principal).values()].filter((row) => !isMainRow(row))
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -1222,33 +1281,18 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     versions: SnapshotVersions = {},
   ): void {
     this.store.guardReadable()
-    // Reject invalid buffered certification before staging any snapshot writes.
-    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     const install = (draft: SpanDraft): void => {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
       const current = this.slice(draft)
-      const next = versions.kinds ? current : new ChangedKeyDraft(new Map<string, EntityRecord>())
-      const ranges = new Set<string>()
-      for (const entity of versions.kinds ?? []) {
-        const key = this.store.entityKindRange(this.principal, entity)
-        if (key === undefined) continue
-        // The durable range also removes rows a second tab added after this
-        // tab hydrated its mirror.
-        ranges.add(entity)
-        draft.ops.push({ kind: 'delete', store: ENTITY_STORE, key })
-      }
+      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
       for (const existing of current.values(this.store.entitiesOf(this.principal))) {
-        if (versions.kinds && !versions.kinds.has(existing.entity)) continue
-        if (!ranges.has(existing.entity)) {
-          draft.ops.push({
-            kind: 'delete',
-            store: ENTITY_STORE,
-            key: [this.principal, existing.entity, existing.entityId],
-          })
-        }
-        if (versions.kinds) next.delete(rowKey(existing.entity, existing.entityId))
+        draft.ops.push({
+          kind: 'delete',
+          store: ENTITY_STORE,
+          key: [this.principal, existing.entity, existing.entityId],
+        })
       }
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
@@ -1257,14 +1301,17 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
         next.set(rowKey(row.entity, row.entityId), row)
         draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
       }
-      let head = cursor
+      // The markers and policy described the rows this replaces.
+      this.store.stageMetaReset(draft, this.principal)
+      this.stageMeta(draft, {
+        operations: [],
+        cursor,
+        ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+      })
       for (const mutation of buffered) {
         this.applyOperations(draft, next, mutation)
-        if (mutation.cursor !== undefined) head = mutation.cursor
+        this.stageMeta(draft, mutation)
       }
-      const completeAt = certifyPersonalRowsCompleteAt(head)
-      this.setCursor(draft, snapshotCacheCursor(completeAt, versions.kindTokens))
-      this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {
       install(this.store.draftFor(span))
@@ -1287,9 +1334,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
         })
       }
       draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(this.principal, null)
-      draft.ops.push({ kind: 'delete', store: META_STORE, key: [this.principal, CURSOR_KEY] })
-      this.setPersonalRowsCompleteAt(draft, null)
+      this.store.stageMetaReset(draft, this.principal)
       draft.touchedCache = true
     })
   }
@@ -1299,17 +1344,18 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   }
 
   private stage(draft: SpanDraft, mutation: CacheMutation): void {
-    const cursor = draft.cursors.has(this.principal)
-      ? (draft.cursors.get(this.principal) ?? null)
-      : this.store.cursorOf(this.principal)
-    const previous = draft.personalRowsCompleteAt.has(this.principal)
-      ? (draft.personalRowsCompleteAt.get(this.principal) ?? null)
-      : this.store.personalRowsCompleteAtOf(this.principal)
-    const completeness = nextCacheCompleteness(cursor, previous, mutation)
     if (mutation.operations.length > 0) this.applyOperations(draft, this.slice(draft), mutation)
-    if (mutation.cursor !== undefined && completeness.cursor !== null)
-      this.setCursor(draft, completeness.cursor)
-    this.setPersonalRowsCompleteAt(draft, completeness.marker)
+    this.stageMeta(draft, mutation)
+  }
+
+  /** The cursor, markers, policy and load state a mutation leaves, staged with their writes. */
+  private stageMeta(draft: SpanDraft, mutation: CacheMutation): void {
+    const before = draft.metas.get(this.principal) ?? this.store.metaOf(this.principal)
+    const next = nextCacheMeta(before, mutation)
+    if (next.writes.length === 0) return
+    this.store.stageMetaWrites(draft, this.principal, next.writes)
+    draft.metas.set(this.principal, next.meta)
+    draft.touchedCache = true
   }
 
   /**
@@ -1324,17 +1370,14 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
+    const published = this.store.entitiesOf(this.principal)
     for (const op of mutation.operations) {
       if (!this.store.retainsEntity(op.entity)) continue
-      if (op.kind === 'upsert') {
-        const row: EntityRecord = {
-          entity: op.entity,
-          entityId: op.entityId,
-          value: op.value,
-          revision: op.revision,
-          provenance: op.provenance,
-        }
-        slice.set(rowKey(op.entity, op.entityId), row)
+      const key = rowKey(op.entity, op.entityId)
+      const row = rowAfter(op.asOf === undefined ? undefined : slice.get(key, published), op)
+      if (row === undefined) continue
+      if (row !== null) {
+        slice.set(key, row)
         draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
         continue
       }
@@ -1343,48 +1386,13 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       // keyspace that is the whole difference, because an evict must not touch
       // anybody else's copy. Amendment 1 D14.5's distinction is preserved upstream
       // in the envelope's op and, for the port, by `cacheOperations()`.
-      slice.delete(rowKey(op.entity, op.entityId))
+      slice.delete(key)
       draft.ops.push({
         kind: 'delete',
         store: ENTITY_STORE,
         key: [this.principal, op.entity, op.entityId],
       })
     }
-  }
-
-  private setCursor(draft: SpanDraft, cursor: ScopedCacheCursor): void {
-    draft.cursors.set(this.principal, cursor)
-    draft.touchedCache = true
-    draft.ops.push({
-      kind: 'put',
-      store: META_STORE,
-      value: { principal: this.principal, key: CURSOR_KEY, value: cursor } satisfies StoredMeta,
-    })
-  }
-
-  private setPersonalRowsCompleteAt(
-    draft: SpanDraft,
-    marker: PersonalRowsCompleteness | null,
-  ): void {
-    draft.personalRowsCompleteAt.set(this.principal, marker)
-    draft.touchedCache = true
-    draft.ops.push(
-      marker === null
-        ? {
-            kind: 'delete',
-            store: META_STORE,
-            key: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
-          }
-        : {
-            kind: 'put',
-            store: META_STORE,
-            value: {
-              principal: this.principal,
-              key: PERSONAL_ROWS_COMPLETE_AT_KEY,
-              value: marker,
-            } satisfies StoredMeta,
-          },
-    )
   }
 
   /** Stage only changed keys; published rows stay untouched until publish. */
@@ -1511,6 +1519,8 @@ const entityRow = (principal: string, row: EntityRecord): StoredEntity => ({
   value: row.value,
   revision: row.revision,
   provenance: row.provenance,
+  ...(row.part === undefined ? {} : { part: row.part }),
+  ...(row.asOf === undefined ? {} : { asOf: row.asOf }),
 })
 
 /**

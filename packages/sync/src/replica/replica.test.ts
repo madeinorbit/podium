@@ -776,7 +776,7 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     expect(h.replica.view('session', 'also-covered')).toBeUndefined()
   })
 
-  it('install is ONE transaction covering snapshot, buffered deltas and cursor', async () => {
+  it('the end of a load is ONE transaction covering the sweep, buffered deltas and cursor', async () => {
     const h = harness()
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
@@ -938,31 +938,44 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     expect(h.replica.cursor?.seq).toBe(13)
   })
 
-  it('RECONNECT MID-APPLY: disconnecting between two chunks leaves no half-installed slice', async () => {
+  it('RECONNECT MID-APPLY: what arrived stays, the old rows stay readable, and reconnect finishes the load', async () => {
     const h = harness()
     await bootstrapped(h, 5, [session(1, 'original', 'O')])
     const channel = h.authority.driveManually()
 
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [session(10, 'partial', 'P')], false))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     h.replica.disconnect()
     channel.push(bootstrapChunk(30, [session(11, 'more', 'M')], true))
     await h.replica.settled()
 
-    // The abandoned walk installed NOTHING, and the old slice is still there.
+    // Each chunk commits as it arrives (POD-7086): the abandoned walk kept its first
+    // chunk, the rows it had not confirmed yet are still there, and the load is
+    // noted as under way at its snapshot. Nothing after the disconnect landed.
     expect(h.replica.posture).toBe('stale')
-    expect(h.replica.view('session', 'partial')).toBeUndefined()
+    expect(h.replica.view('session', 'partial')).toEqual({ name: 'P' })
+    expect(h.replica.view('session', 'more')).toBeUndefined()
     expect(h.replica.view('session', 'original')).toEqual({ name: 'O' })
-    expect(h.replica.cursor?.seq).toBe(5)
+    expect(h.replica.cursor?.seq).toBe(30)
+    expect(h.store.cache.readLoadingSince()).toBe(30)
 
-    // Reconnecting resumes cleanly.
+    // Reconnecting resumes the feed at the load's snapshot and finishes the load.
     h.authority.manual = null
-    h.authority.changesRangeQueue = [deltaFrame(5, 6, [session(6, 'after', 'A')])]
+    h.authority.changesRangeQueue = [deltaFrame(30, 31, [session(31, 'after', 'A')])]
+    h.authority.slice = {
+      snapshotSeq: 31,
+      rows: [session(10, 'partial', 'P'), session(11, 'more', 'M'), session(31, 'after', 'A')],
+    }
     h.replica.connect()
     await h.replica.settled()
+    expect(h.authority.changesRangeCalls.at(-1)).toEqual(cursorAt(30))
     expect(h.replica.posture).toBe('live')
     expect(h.replica.view('session', 'after')).toEqual({ name: 'A' })
+    expect(h.replica.view('session', 'more')).toEqual({ name: 'M' })
+    // Not in the finished load: gone, or no longer visible.
+    expect(h.replica.view('session', 'original')).toBeUndefined()
+    expect(h.store.cache.readLoadingSince()).toBeNull()
   })
 
   it('a transport failure during a heal parks stale instead of losing the slice', async () => {
@@ -1457,9 +1470,9 @@ describe('the optimistic-overlay reducer seam', () => {
     channel.push(bootstrapChunk(10, [session(2, 'kept', 'still mine')], false))
     await Promise.resolve()
     // Provenance here is load-bearing for THIS test: a retirement is what opens a
-    // span at all, and the span branch of installSnapshot is a different code path
-    // from the autocommit one. Without a queued command the install autocommits and
-    // the replacement is never exercised inside a span.
+    // span at all, and the end of a load inside a span is a different code path
+    // from the autocommit one. Without a queued command the sweep is never
+    // exercised inside a span.
     await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-1') }),
@@ -1468,9 +1481,9 @@ describe('the optimistic-overlay reducer seam', () => {
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
 
-    // D6.4's atomic swap REPLACES the cache; it does not merge into it. A span draft
-    // starts as a copy of the live rows, so an install that extended instead of
-    // replacing would leave 'revoked' visible after a rights change — under
+    // The end of a load sweeps what it did not confirm; it does not merge into the
+    // old rows. A span draft starts as a copy of the live rows, so a load that
+    // only added would leave 'revoked' visible after a rights change — under
     // private-by-default that is a visibility leak, not a cosmetic staleness bug.
     expect(
       h.replica
@@ -1506,9 +1519,9 @@ describe('the optimistic-overlay reducer seam', () => {
         session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
       ]),
     )
-    // Recovery invalidates completeness once, before the walk installs anything.
-    // That independent cache-only commit cannot count as part of the atomic install.
-    expect(h.store.cache.readPersonalRowsCompleteAt()).toBeNull()
+    // The load's first chunk commits on its own (POD-7086); it cannot count as
+    // part of the end of the load, which carries the frames and retirements.
+    expect(h.store.cache.readLoadingSince()).toBe(10)
     expect(h.store.transactions - beforeRecovery).toBe(1)
     const beforeInstall = h.store.transactions
     channel.push(bootstrapChunk(10, [], true))
@@ -1611,12 +1624,15 @@ describe('the optimistic-overlay reducer seam', () => {
     await h.replica.settled()
     expect(h.replica.trace).toContain('D6-RESTART')
 
-    // The walk restarts (D6-RESTART) rather than half-installing, and NOTHING was
-    // retired: a command confirmed by a frame whose install never committed is
-    // still unsent work.
+    // The walk restarts (D6-RESTART), and NOTHING was retired: a command confirmed
+    // by a frame whose commit never happened is still unsent work. The chunk that
+    // arrived before stays, and the load is still under way, so the buffered
+    // frames were not applied.
     expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-one', 'm-two'])
-    expect(h.replica.entities()).toHaveLength(0)
-    expect(h.replica.cursor?.seq).toBe(5)
+    expect(h.replica.entities().map((row) => row.entityId)).toEqual(['fresh'])
+    expect(h.store.cache.read('session', 's1')).toBeUndefined()
+    expect(h.replica.cursor?.seq).toBe(10)
+    expect(h.store.cache.readLoadingSince()).toBe(10)
     // Handed over exactly once, by the install that then aborted — so this asserts
     // the batch took NO effect, not that it was never built.
     expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-one', 'm-two'])
@@ -2005,16 +2021,13 @@ describe('batched emissions — one commit is ONE burst through batchEvents', ()
     return { h, bursts }
   }
 
-  it('an install is one burst: every row, the install marker and the posture move', async () => {
+  it('a load is one burst per chunk, and its end one more: the install marker and the posture move', async () => {
     const { h, bursts } = bursting()
     await bootstrapped(h, 10, [session(4, 's1', 'one'), session(7, 's2', 'two')])
 
-    expect(bursts).toHaveLength(1)
-    expect(bursts[0]?.map((event) => event.type)).toEqual([
-      'upserted',
-      'upserted',
-      'bootstrap-installed',
-      'posture',
+    expect(bursts.map((burst) => burst.map((event) => event.type))).toEqual([
+      ['upserted', 'upserted'],
+      ['bootstrap-installed', 'posture'],
     ])
   })
 
@@ -2643,7 +2656,7 @@ describe('incremental range healing', () => {
     expect(h.replica.posture).toBe('stale')
   })
 
-  it('discards staging when a chunk source yields then throws, counting each failed attempt', async () => {
+  it('a chunk source that yields then throws keeps what it installed and counts each failed attempt', async () => {
     const h = harness({ maxBootstrapAttempts: 2 })
     await bootstrapped(h, 10, [session(10, 'old', 'old')])
     const source = vi.spyOn(h.authority, 'bootstrap').mockImplementation(() =>
@@ -2656,9 +2669,12 @@ describe('incremental range healing', () => {
     await h.replica.settled()
     expect(source).toHaveBeenCalledTimes(2)
     expect(h.replica.trace.filter((row) => row === 'D6-RESTART')).toHaveLength(2)
-    expect(h.replica.cursor).toEqual(cursorAt(10))
-    expect(h.replica.view('session', 'partial')).toBeUndefined()
+    // The installed chunk stays (POD-7086), the old rows stay readable until a
+    // load finishes, and the load is still under way at its snapshot.
+    expect(h.replica.cursor).toEqual(cursorAt(20))
+    expect(h.replica.view('session', 'partial')).toEqual({ name: 'partial' })
     expect(h.replica.view('session', 'old')).toEqual({ name: 'old' })
+    expect(h.store.cache.readLoadingSince()).toBe(20)
     expect(h.events.filter((e) => e.type === 'bootstrap-installed')).toHaveLength(1)
     expect(h.events).toContainEqual({
       type: 'bootstrap-failed',
@@ -2776,5 +2792,6 @@ const CAUSES: Record<RebootstrapCause, true> = {
   'schema-version': true,
   'kind-shape': true,
   'cold-start': true,
+  resume: true,
 }
 void CAUSES

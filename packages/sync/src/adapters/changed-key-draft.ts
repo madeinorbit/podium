@@ -20,6 +20,14 @@ export class ChangedKeyDraft<T> {
     }
   }
 
+  /** The value this draft leaves for `key` over `base`. */
+  get(key: string, base: ReadonlyMap<string, T>): T | undefined {
+    if (this.replacement !== undefined) return this.replacement.get(key)
+    if (this.changes.has(key)) return this.changes.get(key)
+    if (this.removed.has(key)) return undefined
+    return base.get(key)
+  }
+
   delete(key: string): void {
     if (this.replacement !== undefined) {
       this.replacement.delete(key)

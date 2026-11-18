@@ -7,18 +7,18 @@
 
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
+import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
+import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
 import type { Cursor } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { indexedDbInstantiation } from './conformance'
 import { type IdbFactoryLike, type IdbOpenRequestLike, requestAsPromise } from './idb'
 import {
-  CURSOR_KEY,
   ENTITY_STORE,
   META_STORE,
   OUTBOX_STORE,
-  PERSONAL_ROWS_COMPLETE_AT_KEY,
   REPLICA_DB_NAME,
   REPLICA_SCHEMA_VERSION,
 } from './schema'
@@ -65,12 +65,19 @@ describe('IndexedDbSyncStore', () => {
     expect(result).toEqual({ ok: true })
   }
 
+  const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' as const }
+  const SIDEBAR_KEY = instanceKey(SIDEBAR)
+  const mark = (key: string, collection = SIDEBAR.collection) => ({
+    kind: 'mark' as const,
+    instance: { collection, part: 'main' as const, key, completeAt: CURSOR },
+  })
+
   it.each([
     42,
     { seq: 1 },
-    { feedId: 'feed', epoch: 'e1', seq: '1' },
+    { key: 'k', collection: 'issueProjection.sidebar', part: 'main' },
     CURSOR,
-  ])('invalid optional certification does not poison existing rows (%j)', async (marker) => {
+  ])('an unreadable marker row is no marker and does not poison the rows (%j)', async (marker) => {
     const store = await open()
     await store.unitOfWork.transact(async (span) =>
       store.viewFor(PRINCIPAL).cache.applyAtomic(
@@ -99,131 +106,100 @@ describe('IndexedDbSyncStore', () => {
       })
       tx.objectStore(META_STORE).put({
         principal: PRINCIPAL,
-        key: PERSONAL_ROWS_COMPLETE_AT_KEY,
+        key: `${INSTANCE_META_PREFIX}broken`,
         value: marker,
       })
       await complete
     } finally {
       db.close()
     }
-    const legacy = await open()
-    expect(legacy.viewFor(PRINCIPAL).cache.readCursor()).toEqual(CURSOR)
-    expect(legacy.viewFor(PRINCIPAL).cache.read('sessionUserState', 'personal')?.value).toEqual({
+    const reopened = await open()
+    expect(reopened.viewFor(PRINCIPAL).cache.readCursor()).toEqual(CURSOR)
+    expect(reopened.viewFor(PRINCIPAL).cache.read('sessionUserState', 'personal')?.value).toEqual({
       readAt: 'read',
     })
-    expect(legacy.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toBeNull()
+    expect(reopened.viewFor(PRINCIPAL).cache.readInstances().size).toBe(0)
     expect(degradations).toEqual([])
-    legacy.close()
+    reopened.close()
   })
 
-  it('opens a version-1 dev/mw cache without a marker or migration, then persists certification', async () => {
-    expect(REPLICA_SCHEMA_VERSION).toBe(1)
+  it('stores markers, the policy, the load state and stub rows durably; erasing drops them', async () => {
     const store = await open()
-    await store.unitOfWork.transact(async (span) => {
+    const policy = { clientType: 'browser', steps: [], recentDays: 30, cacheCap: 10 }
+    await store.unitOfWork.transact(async (span) =>
       store.viewFor(PRINCIPAL).cache.applyAtomic(
         {
           operations: [
             {
               kind: 'upsert',
-              entity: 'sessionUserState',
-              entityId: 'personal',
-              value: { readAt: 'read' },
+              entity: 'issueProjection',
+              entityId: 'ADA-1',
+              value: { id: 'ADA-1', stage: 'done' },
               provenance: { seq: 1 },
+              part: 'stub',
+              asOf: 1,
             },
           ],
           cursor: CURSOR,
+          instances: [mark(SIDEBAR_KEY)],
+          policy,
+          loadingSince: 1,
         },
-        span,
-      )
-    })
-    store.close()
-    const legacy = await open()
-    const cache = legacy.viewFor(PRINCIPAL).cache
-    expect(cache.readCursor()).toEqual(CURSOR)
-    expect(cache.read('sessionUserState', 'personal')?.value).toEqual({ readAt: 'read' })
-    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
-    expect(degradations).toEqual([])
-    await legacy.unitOfWork.transact(async (span) =>
-      cache.applyAtomic({ operations: [], cursor: CURSOR, personalRowsCompleteAt: CURSOR }, span),
-    )
-    legacy.close()
-    const warm = await open()
-    expect(warm.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR)
-    await warm.erasePrincipal(PRINCIPAL)
-    warm.close()
-    const erased = await open()
-    expect(erased.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toBeNull()
-    expect(erased.viewFor(PRINCIPAL).cache.readCursor()).toBeNull()
-    erased.close()
-  })
-
-  it('rejects a downgrade’s surviving marker after a same-cursor snapshot replacement', async () => {
-    const store = await open()
-    await store.unitOfWork.transact(async (span) =>
-      store.viewFor(PRINCIPAL).cache.installSnapshot(
-        [
-          {
-            entity: 'sessionUserState',
-            entityId: 'personal',
-            value: { readAt: 'read' },
-            provenance: { seq: 1 },
-          },
-        ],
-        CURSOR,
-        [],
         span,
       ),
     )
     store.close()
-    const metaBefore = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
-    const survivingMarker = metaBefore.find(
-      (row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY,
-    )?.value
-    expect(survivingMarker).toMatchObject({
-      ...CURSOR,
-      scopeFingerprint: expect.stringMatching(/.+/),
-    })
-
-    // Old installSnapshot replaces the cursor metadata VALUE and rows, but knows
-    // nothing about the additional key. Do the physical writes, not new port calls.
-    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
-    try {
-      const tx = db.transaction([ENTITY_STORE, META_STORE], 'readwrite')
-      const complete = new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve()
-        tx.onabort = () => reject(tx.error)
-      })
-      tx.objectStore(ENTITY_STORE).delete([PRINCIPAL, 'sessionUserState', 'personal'])
-      tx.objectStore(META_STORE).put({
-        principal: PRINCIPAL,
-        key: CURSOR_KEY,
-        value: { ...CURSOR },
-      })
-      await complete
-    } finally {
-      db.close()
-    }
-    const metaAfter = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
-    expect(metaAfter.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value).toEqual(
-      survivingMarker,
-    )
-    expect(metaAfter.find((row) => row.key === CURSOR_KEY)?.value).toEqual(CURSOR)
-
-    const upgraded = await open()
-    const cache = upgraded.viewFor(PRINCIPAL).cache
-    expect(cache.readCursor()).toEqual(CURSOR)
-    expect(cache.readEntities()).toEqual([])
-    expect(cache.readPersonalRowsCompleteAt()).toBeNull()
-    expect(degradations).toEqual([])
-    await upgraded.unitOfWork.transact(async (span) => cache.installSnapshot([], CURSOR, [], span))
-    upgraded.close()
     const warm = await open()
-    expect(warm.viewFor(PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(CURSOR)
+    const cache = warm.viewFor(PRINCIPAL).cache
+    expect(cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR)
+    expect(cache.readPolicy()).toEqual(policy)
+    expect(cache.readLoadingSince()).toBe(1)
+    expect(cache.readRow('issueProjection', 'ADA-1')).toMatchObject({ part: 'stub', asOf: 1 })
+    expect(cache.read('issueProjection', 'ADA-1')).toBeUndefined()
+    expect(cache.readEntities()).toEqual([])
+    expect(cache.readStubs().map((row) => row.entityId)).toEqual(['ADA-1'])
+    await warm.erasePrincipal(PRINCIPAL)
     warm.close()
-    const metaFresh = (await readDurable(factory))[META_STORE] as { key: string; value: unknown }[]
-    expect(metaFresh.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value).not.toEqual(
-      survivingMarker,
-    )
+    const erased = await open()
+    expect(erased.viewFor(PRINCIPAL).cache.readInstances().size).toBe(0)
+    expect(erased.viewFor(PRINCIPAL).cache.readPolicy()).toBeNull()
+    expect(erased.viewFor(PRINCIPAL).cache.readLoadingSince()).toBeNull()
+    expect(erased.viewFor(PRINCIPAL).cache.readCursor()).toBeNull()
+    erased.close()
+  })
+
+  it('dropping every marker also drops the markers another tab wrote', async () => {
+    const openRanged = async () =>
+      await IndexedDbSyncStore.open({
+        factory,
+        keyRange: IDBKeyRange,
+        databaseName: REPLICA_DB_NAME,
+        onDegraded: (degradation) => {
+          degradations.push(degradation)
+        },
+      })
+    const first = await openRanged()
+    first
+      .viewFor(PRINCIPAL)
+      .cache.applyAtomic({ operations: [], cursor: CURSOR, instances: [mark(SIDEBAR_KEY)] })
+    await first.settled()
+    // A second tab, hydrated after the first marker, adds one the first tab never saw.
+    const second = await openRanged()
+    second.viewFor(PRINCIPAL).cache.applyAtomic({
+      operations: [],
+      instances: [mark('other-tab', 'issueProjection.recent')],
+    })
+    await second.settled()
+    second.close()
+    first.viewFor(PRINCIPAL).cache.applyAtomic({ operations: [], instances: [{ kind: 'dropAll' }] })
+    await first.settled()
+    first.close()
+    const meta = (await readDurable(factory))[META_STORE] as { key: string }[]
+    expect(meta.filter((row) => row.key.startsWith(INSTANCE_META_PREFIX))).toEqual([])
+    const reopened = await openRanged()
+    expect(reopened.viewFor(PRINCIPAL).cache.readInstances().size).toBe(0)
+    expect(reopened.viewFor(PRINCIPAL).cache.readCursor()).toEqual(CURSOR)
+    reopened.close()
   })
 
   describe('ADR 3 D12 — insertion order survives a reload', () => {

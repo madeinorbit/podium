@@ -23,15 +23,13 @@
 
 import type { MutationId } from '@podium/model'
 import {
-  certifyPersonalRowsCompleteAt,
+  type CacheMeta,
   cursorTriple,
-  nextCacheCompleteness,
-  nextPersonalRowsCompleteAt,
-  type PersonalRowsCompleteness,
-  type ScopedCacheCursor,
-  snapshotCacheCursor,
-  trustedPersonalRowsCompleteAt,
-} from './cache-completeness'
+  EMPTY_CACHE_META,
+  isMainRow,
+  nextCacheMeta,
+  rowAfter,
+} from './cache-state'
 import type { RetirementIntent } from './overlay'
 import type {
   CacheMutation,
@@ -43,7 +41,7 @@ import type {
   SyncUnitOfWork,
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
-import type { Cursor, EntityRecord, KindTokens } from './types'
+import type { CachePolicy, Cursor, EntityRecord, InstanceRecord, KindTokens } from './types'
 
 const key = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
@@ -122,18 +120,14 @@ export class InMemoryOutbox {
 /** The staged post-state of the cache region inside one span. */
 interface CacheDraft {
   rows: Map<string, EntityRecord>
-  cursor: ScopedCacheCursor | null
-  personalRowsCompleteAt: PersonalRowsCompleteness | null
+  meta: CacheMeta
 }
 
 class InMemoryCache implements ReplicaCacheStore {
   private rows = new Map<string, EntityRecord>()
-  private cursorValue: ScopedCacheCursor | null = null
-  private personalRowsCompleteAt: PersonalRowsCompleteness | null = null
+  private meta: CacheMeta = EMPTY_CACHE_META
   private readonly drafts = new Map<SyncSpan, CacheDraft>()
-  /** Flipped by tests to exercise D7 rung 5 / ADR 6 D4.5. */
   corrupt = false
-  /** Vetoes the NEXT span commit this region takes part in, at the serialized point. */
   failNextPrepare: string | null = null
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'degraded-memory'
 
@@ -141,29 +135,47 @@ class InMemoryCache implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.guard()
-    return cursorTriple(this.cursorValue)
+    return cursorTriple(this.meta.cursor)
   }
 
   readKindTokens(): KindTokens | undefined {
     this.guard()
-    return this.cursorValue?.kindTokens
+    return this.meta.cursor?.kindTokens
   }
 
-  readPersonalRowsCompleteAt(): Cursor | null {
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.guard()
-    return cursorTriple(
-      trustedPersonalRowsCompleteAt(this.cursorValue, this.personalRowsCompleteAt),
-    )
+    return this.meta.instances
+  }
+
+  readPolicy(): CachePolicy | null {
+    this.guard()
+    return this.meta.policy
+  }
+
+  readLoadingSince(): number | null {
+    this.guard()
+    return this.meta.loadingSince
   }
 
   readEntities(): readonly EntityRecord[] {
     this.guard()
-    return [...this.rows.values()]
+    return [...this.rows.values()].filter(isMainRow)
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
+    const row = this.readRow(entity, entityId)
+    return row === undefined || !isMainRow(row) ? undefined : row
+  }
+
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
     this.guard()
     return this.rows.get(key(entity, entityId))
+  }
+
+  readStubs(): readonly EntityRecord[] {
+    this.guard()
+    return [...this.rows.values()].filter((row) => !isMainRow(row))
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -178,26 +190,18 @@ class InMemoryCache implements ReplicaCacheStore {
     if (span === undefined) {
       // Build the post-state first and swap once: a throw part-way through leaves
       // the pre-operation snapshot, never a torn mix (ADR 6 D4.1).
-      const completeness = nextCacheCompleteness(
-        this.cursorValue,
-        this.personalRowsCompleteAt,
-        mutation,
-      )
       const next = new Map(this.rows)
       applyInto(next, mutation)
+      this.meta = nextCacheMeta(this.meta, mutation).meta
       this.rows = next
-      this.cursorValue = completeness.cursor
-      this.personalRowsCompleteAt = completeness.marker
       this.physical.countTransaction()
       return
     }
     const draft = this.draftFor(span)
-    const completeness = nextCacheCompleteness(draft.cursor, draft.personalRowsCompleteAt, mutation)
     // EXTENDS the one draft. A second call must not restage from the live map, or
     // the first call's operations would be silently dropped at publish.
     applyInto(draft.rows, mutation)
-    draft.cursor = completeness.cursor
-    draft.personalRowsCompleteAt = completeness.marker
+    draft.meta = nextCacheMeta(draft.meta, mutation).meta
   }
 
   installSnapshot(
@@ -208,39 +212,32 @@ class InMemoryCache implements ReplicaCacheStore {
     versions: SnapshotVersions = {},
   ): void {
     this.guard()
-    // Reject invalid buffered certification before staging any snapshot writes.
-    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     // The atomic swap of ADR 2 D6.4: the staged slice REPLACES the cache (this is
     // the D7 "discard the cache"), the buffered deltas apply on top, and the
     // cursor commits — one transaction, no half-installed replica, and no window
     // in which the replica holds a mixture of two principals' slices.
     const draft = span === undefined ? undefined : this.draftFor(span)
     const next = new Map<string, EntityRecord>()
-    if (versions.kinds) {
-      for (const [key, row] of draft?.rows ?? this.rows) {
-        if (!versions.kinds.has(row.entity)) next.set(key, row)
-      }
-    }
     for (const row of rows) next.set(key(row.entity, row.entityId), row)
-    let head = cursor
+    let meta = nextCacheMeta(EMPTY_CACHE_META, {
+      operations: [],
+      cursor,
+      ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+    }).meta
     for (const mutation of buffered) {
       applyInto(next, mutation)
-      if (mutation.cursor !== undefined) head = mutation.cursor
+      meta = nextCacheMeta(meta, mutation).meta
     }
-    const completeAt = certifyPersonalRowsCompleteAt(head)
-    const installed = snapshotCacheCursor(completeAt, versions.kindTokens)
     if (draft === undefined) {
       this.rows = next
-      this.cursorValue = installed
-      this.personalRowsCompleteAt = completeAt
+      this.meta = meta
       this.physical.countTransaction()
       return
     }
     // An install REPLACES rather than extends, so it overwrites the draft's rows
     // outright — the replacement IS the semantics, unlike applyAtomic's extension.
     draft.rows = next
-    draft.cursor = installed
-    draft.personalRowsCompleteAt = completeAt
+    draft.meta = meta
   }
 
   discardCache(): void {
@@ -249,8 +246,7 @@ class InMemoryCache implements ReplicaCacheStore {
     // span either: a discard is a lone single-region operation (D10 clause 2), so
     // it cannot be composed into a transaction that also touches the outbox.
     this.rows = new Map()
-    this.cursorValue = null
-    this.personalRowsCompleteAt = null
+    this.meta = EMPTY_CACHE_META
     this.physical.countTransaction()
   }
 
@@ -261,11 +257,7 @@ class InMemoryCache implements ReplicaCacheStore {
   private draftFor(span: SyncSpan): CacheDraft {
     const existing = this.drafts.get(span)
     if (existing !== undefined) return existing
-    const draft: CacheDraft = {
-      rows: new Map(this.rows),
-      cursor: this.cursorValue,
-      personalRowsCompleteAt: this.personalRowsCompleteAt,
-    }
+    const draft: CacheDraft = { rows: new Map(this.rows), meta: this.meta }
     this.drafts.set(span, draft)
     span.join({
       prepare: () => {
@@ -278,8 +270,7 @@ class InMemoryCache implements ReplicaCacheStore {
       },
       publish: () => {
         this.rows = draft.rows
-        this.cursorValue = draft.cursor
-        this.personalRowsCompleteAt = draft.personalRowsCompleteAt
+        this.meta = draft.meta
         this.drafts.delete(span)
       },
       discard: () => {
@@ -300,25 +291,18 @@ function applyInto(rows: Map<string, EntityRecord>, mutation: CacheMutation): vo
   // that batches by type gets that backwards (ADR 2 D9/D13 — order is the
   // correctness property). POD-374/POD-375 inherit this obligation.
   for (const op of mutation.operations) {
-    if (op.kind === 'upsert') {
-      rows.set(key(op.entity, op.entityId), {
-        entity: op.entity,
-        entityId: op.entityId,
-        value: op.value,
-        revision: op.revision,
-        provenance: op.provenance,
-      })
-      continue
-    }
+    const at = key(op.entity, op.entityId)
+    const next = rowAfter(rows.get(at), op)
+    if (next === undefined) continue
     // A tombstone and an eviction both drop the row from the CACHE. They stay
     // separate op kinds so the layer above can still tell them apart
     // (Amendment 1 D14.5) — merging them here would make the distinction
     // unrecoverable exactly where it matters.
-    rows.delete(key(op.entity, op.entityId))
+    if (next === null) rows.delete(at)
+    else rows.set(at, next)
   }
 }
 
-/** One principal's pair of ports over the shared physical store. */
 export interface StoreView {
   readonly cache: ReplicaCacheStore & {
     corrupt: boolean
