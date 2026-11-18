@@ -13,6 +13,7 @@ import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { OPERATOR_PLANNER_STATISTICS } from './test-support/operator-planner-statistics'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -43,6 +44,26 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
     now: () => '2026-07-02T00:00:00.000Z',
   }
   return { store, deps, svc: await IssueService.create({ ...deps, ...extra }) }
+}
+
+/**
+ * The operator's planner statistics for the event log (captured before the workspace
+ * key), each index led by its one workspace, and the (workspace_id, id) key one row
+ * per id: what the plan audit models a large log as.
+ */
+function withOperatorEventStatistics(db: ReturnType<typeof openDatabase>): void {
+  db.exec('ANALYZE')
+  db.exec('DELETE FROM sqlite_stat1')
+  const insert = db.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
+  let rows = '1'
+  for (const [table, index, stat] of OPERATOR_PLANNER_STATISTICS) {
+    if (table !== 'podium_events' || index === null) continue
+    const [total = '1', ...perPrefix] = stat.split(' ')
+    rows = total
+    insert.run(table, index, [total, total, ...perPrefix].join(' '))
+  }
+  insert.run('podium_events', 'sqlite_autoindex_podium_events_1', `${rows} ${rows} 1`)
+  db.exec('ANALYZE sqlite_schema')
 }
 
 describe('SessionStore event log', () => {
@@ -241,6 +262,10 @@ describe('SessionStore event log', () => {
 
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    // With no statistics SQLite prefers the (workspace_id, id) key's range, which on a
+    // real log is the whole workspace below the cursor; on the operator's it reads
+    // the subject's index, as the store's own read does (POD-7118).
+    withOperatorEventStatistics(db)
     const plan = (
       db
         .prepare(

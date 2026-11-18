@@ -41,7 +41,7 @@ import {
   WorkspaceFeedRowMissingError,
 } from './pg-driver'
 import { buildPgStoreDrizzle, type StorePgPreparedQuery } from './pg-drizzle'
-import { prepared, preparedGlobal, workspaceQueries } from './sync-drizzle'
+import { executeRaw, prepared, preparedGlobal, workspaceQueries } from './sync-drizzle'
 import { type WorkspaceWriteObservation, workspaceWriteMetrics } from './workspace-write-metrics'
 
 const liteNotes = sqliteTable('notes', { id: text('id').primaryKey(), body: text('body') })
@@ -55,6 +55,8 @@ const insertWorkspaceNote = prepared((db, t) =>
     .values({ id: sql.placeholder('id'), body: sql.placeholder('body') })
     .prepare(),
 )
+/** A raw SELECT through a workspace handle, as the collection fetch runs its rules (POD-7118). */
+const rawNoteIds = prepared((db) => db.all<{ id: string }>(sql`SELECT id FROM notes ORDER BY id`))
 const insertGlobalNote = preparedGlobal((db, t) =>
   db
     .insert((t as unknown as NoteTables).notes)
@@ -430,6 +432,34 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
       held.release()
       await Promise.all([holding, waiting])
       expect(await bodies()).toEqual(['global', 'ws_a', 'ws_b'])
+    })
+
+    it('reads a raw SELECT through a workspace handle: it waits for no workspace lock and records no workspace write', async () => {
+      const { queries } = openQueries()
+      await insertGlobalNote(queries.db).run({ id: 'seen', body: 's' })
+      const holder = openStore()
+      const held = barrier()
+      const entered = barrier()
+      const holding = holder.transact(async () => {
+        entered.release()
+        await held.wait()
+      }, WS_A)
+      await entered.wait()
+      const samples: WorkspaceWriteObservation[] = []
+      const stop = workspaceWriteMetrics.probe((sample) => {
+        samples.push(sample)
+      })
+      try {
+        // ws_a's lock is held, so a raw SELECT that took the write path would wait here.
+        const db = workspaceQueries(queries, asWorkspaceId('ws_a')).db
+        const rows = await executeRaw(rawNoteIds(db), {})
+        expect(rows.map((row) => row.id)).toEqual(['seen'])
+        expect(samples).toEqual([])
+      } finally {
+        stop()
+        held.release()
+        await holding
+      }
     })
 
     it('refuses a root write through a workspace handle that has no feed row', async () => {
