@@ -124,10 +124,10 @@ bun --conditions=@podium/source scripts/measure-workspace-writes.ts --matrix --p
 
 ## Results
 
-**16 of 32 configurations complete.** The one-process runs below passed all
-source-table controls and reported no acquisition failures or rollbacks. The
-two-process runs and final focused validation remain pending; this is not the
-final handoff.
+**All 32 configurations passed.** Every configuration passed its source-table
+controls and reported no acquisition failures or rollbacks. These are single
+runs per configuration, without confidence intervals; they establish capacity
+and contention for this deliberately busy workload, not a production traffic forecast.
 
 Measured runtime and load sources: `6a43434583`, unchanged through
 `d1978ce6f4` (the later commit refreshes generated test metadata). All timings
@@ -135,7 +135,7 @@ come from the same agent VM, on the Postgres 17 test container. Duration triples
 are p50 / p95 / p99 in milliseconds. Throughput is committed write transactions
 per second. With one writer, only one of four configured workspaces is active.
 
-### 1 process(es), 0 ms injected latency
+### 1 process, 0 ms injected latency
 
 | Writers | Workspaces | Total tx/s | Mean tx/s per active workspace | DB wait p50 / p95 / p99 | Queue p50 / p95 / p99 | Total wait p50 / p95 / p99 | Hold p50 / p95 / p99 | RT/tx |
 | ---: | ---: | ---: | ---: | --- | --- | --- | --- | ---: |
@@ -161,7 +161,7 @@ Mean aggregate call timings in ms/transaction. These are not an exclusive wall-t
 | 64 | 1 | 8.42 | 7.61 | 5.60 | 0.00 | 0.56 | 0.81 |
 | 64 | 4 | 15.57 | 15.68 | 11.28 | 0.00 | 1.19 | -0.11 |
 
-### 1 process(es), 2.6 ms injected latency
+### 1 process, 2.6 ms injected latency
 
 | Writers | Workspaces | Total tx/s | Mean tx/s per active workspace | DB wait p50 / p95 / p99 | Queue p50 / p95 / p99 | Total wait p50 / p95 / p99 | Hold p50 / p95 / p99 | RT/tx |
 | ---: | ---: | ---: | ---: | --- | --- | --- | --- | ---: |
@@ -187,7 +187,7 @@ Mean aggregate call timings in ms/transaction. These are not an exclusive wall-t
 | 64 | 1 | 31.51 | 9.10 | 6.34 | 23.09 | 2.43 | -0.69 |
 | 64 | 4 | 33.74 | 9.81 | 7.06 | 25.10 | 2.70 | -1.18 |
 
-### 2 process(es), 0 ms injected latency
+### 2 processes, 0 ms injected latency
 
 | Writers | Workspaces | Total tx/s | Mean tx/s per active workspace | DB wait p50 / p95 / p99 | Queue p50 / p95 / p99 | Total wait p50 / p95 / p99 | Hold p50 / p95 / p99 | RT/tx |
 | ---: | ---: | ---: | ---: | --- | --- | --- | --- | ---: |
@@ -213,12 +213,18 @@ Mean aggregate call timings in ms/transaction. These are not an exclusive wall-t
 | 64 | 1 | 10.47 | 8.99 | 6.56 | 0.00 | 0.69 | 1.48 |
 | 64 | 4 | 12.98 | 12.46 | 8.97 | 0.00 | 0.97 | 0.52 |
 
-### 2 process(es), 2.6 ms injected latency
+### 2 processes, 2.6 ms injected latency
 
 | Writers | Workspaces | Total tx/s | Mean tx/s per active workspace | DB wait p50 / p95 / p99 | Queue p50 / p95 / p99 | Total wait p50 / p95 / p99 | Hold p50 / p95 / p99 | RT/tx |
 | ---: | ---: | ---: | ---: | --- | --- | --- | --- | ---: |
 | 1 | 1 | 23.78 | 23.78 | 0.71 / 1.54 / 4.27 | 0.00 / 41.00 / 76.00 | 1.06 / 41.83 / 78.35 | 30.38 / 105.63 / 117.31 | 9.97 |
 | 1 | 4 | 23.37 | 23.37 | 0.74 / 2.04 / 5.78 | 0.00 / 37.00 / 62.00 | 1.28 / 38.03 / 63.14 | 30.02 / 104.29 / 123.22 | 9.97 |
+| 4 | 1 | 24.71 | 24.71 | 30.18 / 116.61 / 130.18 | 114.00 / 330.00 / 427.00 | 147.91 / 409.16 / 492.27 | 33.92 / 119.91 / 130.11 | 10.09 |
+| 4 | 4 | 98.41 | 24.60 | 0.63 / 1.92 / 8.85 | 0.00 / 35.00 / 58.00 | 1.09 / 36.80 / 58.82 | 29.28 / 102.34 / 115.63 | 9.97 |
+| 16 | 1 | 26.59 | 26.59 | 30.34 / 110.02 / 119.00 | 565.00 / 2215.00 / 2587.00 | 593.45 / 2234.18 / 2612.17 | 34.01 / 113.90 / 122.69 | 10.02 |
+| 16 | 4 | 115.48 | 28.87 | 26.66 / 100.51 / 116.22 | 98.00 / 270.00 / 359.00 | 124.52 / 324.13 / 417.82 | 29.99 / 104.00 / 119.95 | 10.06 |
+| 64 | 1 | 28.72 | 28.72 | 19.76 / 106.37 / 119.59 | 2097.00 / 5843.00 / 6805.00 | 2126.80 / 5883.24 / 6903.49 | 29.79 / 109.96 / 119.65 | 9.98 |
+| 64 | 4 | 113.23 | 28.31 | 25.89 / 100.19 / 113.98 | 518.00 / 1544.00 / 1965.00 | 548.67 / 1604.65 / 2044.84 | 29.61 / 103.42 / 116.61 | 10.23 |
 
 Mean aggregate call timings in ms/transaction. These are not an exclusive wall-time partition: calls/delays may overlap, and statement/capture columns are subsets. Residual may be negative.
 
@@ -226,28 +232,71 @@ Mean aggregate call timings in ms/transaction. These are not an exclusive wall-t
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 1 | 35.02 | 11.93 | 9.35 | 23.84 | 2.72 | -0.75 |
 | 1 | 4 | 35.48 | 12.09 | 9.35 | 24.04 | 2.77 | -0.65 |
+| 4 | 1 | 40.37 | 15.98 | 12.73 | 24.30 | 2.90 | 0.09 |
+| 4 | 4 | 33.69 | 10.22 | 7.47 | 24.74 | 2.84 | -1.27 |
+| 16 | 1 | 37.52 | 13.16 | 9.97 | 23.91 | 2.75 | 0.44 |
+| 16 | 4 | 34.17 | 10.15 | 7.56 | 24.93 | 2.78 | -0.91 |
+| 64 | 1 | 34.36 | 10.56 | 7.46 | 23.91 | 2.66 | -0.11 |
+| 64 | 4 | 34.18 | 9.76 | 7.17 | 25.39 | 2.72 | -0.96 |
 
-## Provisional interpretation
 
-The one-process hosted result meets the predeclared criterion: at 16 writers,
-p95 total workspace write wait is **1,709.44 ms**, above both 50 ms and the
-uncontended median hold of 30.44 ms. The four-workspace control raises throughput
-from **26.45 to 102.39 transactions/s (3.87×)**. Most of this one-process wait is
-in the scheduler; the two-process runs are still needed to quantify contention
-at the database lock itself.
+## Verdict and round-trip comparison
 
-For the same 16-writer workload, removing the added 2.6 ms latency raises the
-one-workspace rate from 26.45 to **90.23 transactions/s (3.41×)**. The measured
-four-workspace control therefore provides more throughput than this
-latency-removal proxy. The result does not demonstrate that POD-7030 would move
-capacity more than lifting the one-writer policy. Batching also changes native
-work and potentially transactions per application operation, so the proxy is
-not an implementation or a hard ceiling for POD-7030. Its proposed 25-round-trip
-budget (versus the existing 134-trip message pin) has not been implemented or
-measured here.
+**The threshold is met in both process configurations. Stage 2 merits a design
+review; no stage 2 design or implementation is included.** At 16 writers and
+2.6 ms added latency:
 
-Even with no added latency, the one-workspace rate saturates near 90–99
-transactions/s, and the four-workspace control is 2.48× faster at 16 writers.
-Round-trip reduction is valuable, but this experiment gives no basis for treating
-the remaining workspace limit as already solved by it. A final verdict awaits
-the two-process comparison and validation. No stage 2 design is included.
+| Processes | One workspace tx/s | Four workspaces tx/s | Four-workspace factor | Total wait p95 (ms) | DB lock wait p95 (ms) | Uncontended hold p50 (ms) | Threshold |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 26.45 | 102.39 | 3.87× | 1,709.44 | 2.61 | 30.44 | Met |
+| 2 | 26.59 | 115.48 | 4.34× | 2,234.18 | 110.02 | 30.38 | Met |
+
+Both paired total waits exceed 50 ms and the uncontended median hold, and both
+four-workspace controls exceed 1.5× throughput. One-process contention waits
+in the scheduler. Across two processes, p95 database lock wait rises to 110.02 ms,
+compared with 1.54 ms uncontended, while one-workspace throughput remains about
+26 transactions/s. Another process does not lift the workspace limit.
+At 64 writers the hosted one-workspace rate is still only 27.89–28.72 transactions/s;
+p95 total wait reaches 5.88–6.18 seconds. This is queue growth, not useful scaling.
+
+Removing the added round-trip latency helps substantially, but this experiment
+**does not show that POD-7030 would move capacity more than lifting the one-writer
+policy**. At 16 writers the measured comparisons are:
+
+| Processes | Hosted one-workspace tx/s | No added latency, one workspace tx/s | Latency-removal factor | Hosted four-workspace factor |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 26.45 | 90.23 | 3.41× | 3.87× |
+| 2 | 26.59 | 85.68 | 3.22× | 4.34× |
+
+The latency-removal proxy improves less than the four-workspace control in both
+cases. The current mixed workload averages about ten round trips per write
+transaction. At the hosted 16-writer, one-workspace point, mean hold is 33.56 ms
+in one process and 37.52 ms in two; the aggregate injected-delay budgets are
+24.33 ms and 23.91 ms respectively. Those budgets are about 72% and 64% of hold,
+subject to the overlap caveat above. Native statement budgets are 7.15 ms and
+9.97 ms; capture-drain budgets are 2.58 ms and 2.75 ms. Reducing round trips should
+shorten holds and improve latency even when nobody contends.
+
+POD-7030's proposed 25-round-trip budget (versus the existing 134-trip message
+pin) has not been implemented or measured here. Batching can also change native
+work and transaction count per application operation, so zero added latency is
+neither an implementation nor a hard ceiling for that change. Likewise,
+four-workspace throughput is headroom in today's combined scheduler/database
+policy, not a measured concurrent-write implementation. At native latency the
+one-workspace rate still saturates near 86–99 transactions/s; the four-workspace
+control is 2.48× faster with one process and 3.51× with two at 16 writers. The
+remaining workspace limit therefore warrants separate design consideration even
+if round-trip reduction lands first. The evidence favors doing the round-trip
+work for shorter holds while retaining the stage 2 design decision for approval.
+
+## Recorder cost and validation
+
+With no metrics reader or subscriber, five 100,000-iteration, four-pipeline
+bookkeeping microbenchmarks on the same agent VM measured a median **1.343 μs per
+write** (range 1.324–1.519 μs), including the queue and bounded histogram updates.
+This synthetic overhead check is separate from the real-path load results. At
+26 writes/s it represents about 0.0035% of one CPU core. Existing SQL and
+round-trip counts remain the stronger invariant: the recorder adds neither.
+Percentile sorting and rate-history assembly happen only on snapshot reads.
+
+Final focused checks, typecheck and the lean gate are pending.
