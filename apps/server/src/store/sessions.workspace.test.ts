@@ -22,8 +22,10 @@
  */
 
 import { asSessionId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import { storeSql } from '../test-support/store-sql'
 import {
   ALICE,
   AT,
@@ -39,7 +41,6 @@ import {
   other,
   owner,
   ROOT,
-  rawDb,
   rowsOf,
   scope,
   seed,
@@ -92,7 +93,7 @@ describe('the sessions repository reads only its own workspace', () => {
   it('writes every row under its own workspace', async () => {
     const [a] = await twoSeeded()
     for (const tag of TAGS) {
-      const rows = rowsOf(a, tag)
+      const rows = await rowsOf(a, tag)
       for (const table of TABLES) {
         expect({ table, rows: rows[table]!.length > 0 }).toEqual({ table, rows: true })
         onlyOwn(rows[table], tag)
@@ -252,11 +253,9 @@ describe('the sessions repository reads only its own workspace', () => {
       expect(await s.draftDocOf(only(o))).toBeUndefined()
 
       // Activity publications: make every row pending in both workspaces, raw.
-      rawDb(store)
-        .prepare(
-          "UPDATE sessions SET published_last_active_at = '2000-01-01T00:00:00.000Z', last_active_publish_after = 0 WHERE deleted_at IS NULL",
-        )
-        .run()
+      await storeSql(store).run(
+        sql`UPDATE sessions SET published_last_active_at = '2000-01-01T00:00:00.000Z', last_active_publish_after = 0 WHERE deleted_at IS NULL`,
+      )
       expect((await s.activityPublicationsDue(Date.now())).sort()).toEqual(
         [sid(1), sid(2), sid(3), sid(5), only(tag)].sort(),
       )
@@ -323,7 +322,7 @@ describe('the user state repositories read only their own workspace', () => {
 describe("a write in one workspace leaves the other's rows unchanged", () => {
   it('session writes, of the ids both hold and of the ids only the other holds', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     const s = a.sessions
     const ONLY_B = only('b')
 
@@ -371,7 +370,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     })
     await s.listSnoozes(ALICE, Date.parse(LATER) + 1) // lapses A's timed snoozes
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     // And A's own writes landed.
     expect((await s.getSession(sid(1)))?.title).toBe('a renamed')
     expect((await s.getSession(sid(6)))?.id).toBe(sid(6))
@@ -387,7 +386,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
   it('A’s deletes of the ids both hold take A’s rows and no others', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     const s = a.sessions
     await s.softDeleteSessions(scope, [sid(1)], AT, 'standalone')
     await s.restoreDeletedForIssue(scope, iss(2))
@@ -399,7 +398,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     await s.clearOffer(scope, sid(1))
     await s.setTabOrder(ALICE, ROOT, [])
     await s.setDraft(sid(2), '')
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await s.getSession(sid(1))).toBeUndefined()
     expect((await s.getSession(sid(4)))?.deletedAt).toBeNull()
     // B's rows of the same ids are there.
@@ -411,7 +410,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
 
   it('user state writes, of the keys both hold and of the keys only the other holds', async () => {
     const [a, b] = await twoSeeded()
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     // At the keys both hold: A's rows only.
     await a.layout.clear(scope, ALICE, 'dockTab')
@@ -431,7 +430,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     await a.settings.userPreferences.clear(BOB, 'notifications.ntfyTopic')
     await a.readPositions.advance(scope, ALICE, 'issueEvents', { lastEventId: 99, seenAt: AT }, AT)
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(await a.layout.get(ALICE, 'dockTab')).toBe('shell')
     expect((await a.readPositions.get(ALICE, 'issueEvents'))?.lastEventId).toBe(99)
     expect(await a.dockShells.get(BOB, `${ROOT}/w2`)).toBe(sid(3))
@@ -481,21 +480,21 @@ describe('the written-columns hint is per workspace', () => {
  */
 describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
   it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
-    const rowsIn = (store: SessionStore, ws: string) =>
-      rawDb(store)
-        .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND id = ? ORDER BY rowid')
-        .all(ws, SAME)
+    const rowsIn = async (store: SessionStore, ws: string) =>
+      await storeSql(store).all(
+        sql`SELECT * FROM sessions WHERE workspace_id = ${ws} AND id = ${SAME}`,
+      )
     const SAME = asSessionId('same-session')
     const [a, b] = await twoSeeded()
     opened = a
     await b.sessions.upsertSession(scope, session('b', 6, { id: SAME }))
-    const before = rowsIn(b, WS.b)
+    const before = await rowsIn(b, WS.b)
     await a.sessions.upsertSession(scope, session('a', 6, { id: SAME }))
-    expect(rowsIn(a, WS.a)).toHaveLength(1)
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toHaveLength(1)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
     await a.sessions.upsertSession(scope, session('a', 6, { id: SAME, title: 'a retitled' }))
     expect((await a.sessions.getSession(SAME))?.title).toBe('a retitled')
     expect((await b.sessions.getSession(SAME))?.title).toBe('b session 6')
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
   })
 })

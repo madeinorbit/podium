@@ -38,6 +38,14 @@ import { logStoreRecords } from '../../test-support/record-writer'
 import { expectConstantStatements } from '../../test-support/statement-count'
 import { isLiveConversation, MessageFeedPublisher } from './feed'
 
+/** Canonical instants for the fixtures: a timestamp column refuses anything else on Postgres. */
+const T = '2026-06-30T00:00:00.000Z'
+const T0 = '2026-07-01T00:00:00.000Z'
+const T1 = '2026-07-01T00:00:01.000Z'
+const T2 = '2026-07-01T00:00:02.000Z'
+const T3 = '2026-07-01T00:00:03.000Z'
+const T4 = '2026-07-01T00:00:04.000Z'
+
 const S1 = asSessionId('ses_one')
 const S2 = asSessionId('ses_two')
 const ALICE = asUserId('usr_alice')
@@ -110,7 +118,7 @@ async function harness(
       write: async () => {
         if (patch === 'purge') await store.sessions.purgeSession(fixtureWriteScope(), sessionId)
         else if (patch === null)
-          await store.sessions.softDeleteSessions(fixtureWriteScope(), [id], 't', 'standalone')
+          await store.sessions.softDeleteSessions(fixtureWriteScope(), [id], T, 'standalone')
         else
           await store.sessions.upsertSession(fixtureWriteScope(), {
             ...(await rowOf(store, sessionId)),
@@ -154,8 +162,8 @@ function session(id: string, over: Partial<SessionRow> = {}): SessionRow {
     exitCode: null,
     spawnFailure: null,
     durableLabel: id,
-    createdAt: 't0',
-    lastActiveAt: 't0',
+    createdAt: T0,
+    lastActiveAt: T0,
     geometry: { cols: 80, rows: 24 },
     archived: false,
     workState: null,
@@ -170,7 +178,7 @@ function session(id: string, over: Partial<SessionRow> = {}): SessionRow {
 /** Store a message and confirm it. */
 async function confirm(store: SessionStore, id: string, sessionId = S1): Promise<void> {
   await store.messages.addMessage(fixtureWriteScope(), chat(id, { toId: sessionId }))
-  await store.messages.markDelivered(fixtureWriteScope(), id, sessionId, 't')
+  await store.messages.markDelivered(fixtureWriteScope(), id, sessionId, T)
 }
 
 let clock = 0
@@ -191,7 +199,7 @@ function chat(id: string, over: Partial<MessageRow> = {}): MessageRow {
     lifecycle: 'wait',
     body: `text of ${id}`,
     expiresAt: null,
-    createdAt: `2026-09-29T00:00:${String(clock).padStart(2, '0')}.000Z`,
+    createdAt: new Date(Date.UTC(2026, 8, 29) + clock * 1000).toISOString(),
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -216,9 +224,9 @@ describe('the chat message feed', () => {
       createdAt: expect.any(String),
       status: 'stored',
     } satisfies MessageRecordWire)
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_a', S1, 't1')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_a', S1, T1)
     expect((await carried()).get('msg_a')?.status).toBe('dispatched')
-    await store.messages.markTyped(fixtureWriteScope(), 'msg_a', S1, 't2')
+    await store.messages.markTyped(fixtureWriteScope(), 'msg_a', S1, T2)
     expect((await carried()).get('msg_a')?.status).toBe('typed')
   })
 
@@ -235,9 +243,9 @@ describe('the chat message feed', () => {
     const { store, carried } = await harness({ window: 2 })
     for (const id of ['msg_1', 'msg_2', 'msg_3']) {
       await store.messages.addMessage(fixtureWriteScope(), chat(id))
-      await store.messages.markDispatched(fixtureWriteScope(), id, S1, 't1')
+      await store.messages.markDispatched(fixtureWriteScope(), id, S1, T1)
     }
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_1', S1, 't2')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_1', S1, T2)
     await store.messages.nameTranscriptItem(fixtureWriteScope(), 'msg_1', S1, {
       id: 'entry-1',
       cursor: 'c1',
@@ -246,11 +254,11 @@ describe('the chat message feed', () => {
       status: 'confirmed',
       transcriptItem: { id: 'entry-1', cursor: 'c1' },
     })
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_2', S1, 't3')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_2', S1, T3)
     expect([...(await carried()).keys()].sort()).toEqual(['msg_1', 'msg_2', 'msg_3'])
     // The third confirmation pushes the oldest out: the table keeps it, the
     // transcript shows it, the feed lets it go.
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_3', S1, 't4')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_3', S1, T4)
     expect([...(await carried()).keys()].sort()).toEqual(['msg_2', 'msg_3'])
     expect((await store.messages.getMessage('msg_1'))?.deliveryStatus).toBe('confirmed')
   })
@@ -288,7 +296,7 @@ describe('the chat message feed', () => {
     const { store, carried } = await harness({ window: 1 })
     for (const id of ['msg_old', 'msg_new']) {
       await store.messages.addMessage(fixtureWriteScope(), chat(id))
-      await store.messages.markDelivered(fixtureWriteScope(), id, S1, 't1')
+      await store.messages.markDelivered(fixtureWriteScope(), id, S1, T1)
     }
     expect([...(await carried()).keys()]).toEqual(['msg_new'])
     await store.messages.markAcked(fixtureWriteScope(), 'msg_old', 'msg_ack')
@@ -298,13 +306,13 @@ describe('the chat message feed', () => {
   it('keeps a failed message until its sender dismisses it', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_f'))
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_f', S1, 't1')
-    await store.messages.markDeliveryAbandoned(fixtureWriteScope(), 'msg_f', S1, 't2', 'never-live')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_f', S1, T1)
+    await store.messages.markDeliveryAbandoned(fixtureWriteScope(), 'msg_f', S1, T2, 'never-live')
     expect((await carried()).get('msg_f')).toMatchObject({ status: 'failed', reason: 'never-live' })
-    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_f', 't3')).toBe(true)
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_f', T3)).toBe(true)
     expect((await carried()).has('msg_f')).toBe(false)
     // A repeat changes nothing; the status still says what happened.
-    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_f', 't4')).toBe(false)
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_f', T4)).toBe(false)
     expect((await store.messages.getMessage('msg_f'))?.deliveryStatus).toBe('failed')
   })
 
@@ -316,7 +324,7 @@ describe('the chat message feed', () => {
     expect(await store.messages.addMessage(fixtureWriteScope(), chat('msg_n'))).toBe(false)
     // No notice to dismiss: the statement returns no row, so the funnel names
     // no record and the log does not move.
-    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_n', 't1')).toBe(false)
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_n', T1)).toBe(false)
     expect(await ledger.cursor()).toBe(cursor)
     expect((await carried()).get('msg_n')?.status).toBe('stored')
   })
@@ -324,10 +332,10 @@ describe('the chat message feed', () => {
   it('a repeated status write logs nothing while the message remains on the feed', async () => {
     const { store, ledger, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_repeat'))
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, 't1')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, T1)
     const cursor = await ledger.cursor()
     expect(
-      await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, 't1'),
+      await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, T1),
     ).toMatchObject({ kind: 'already-there' })
     expect(await ledger.cursor()).toBe(cursor)
     expect((await carried()).get('msg_repeat')?.status).toBe('dispatched')
@@ -365,14 +373,14 @@ describe('the chat message feed', () => {
   it('refuses to dismiss a message that has no notice', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_p'))
-    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_p', 't1')).toBe(false)
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_p', T1)).toBe(false)
     expect((await carried()).get('msg_p')?.status).toBe('stored')
   })
 
   it('keeps a message nobody can vouch for, and lets a cancelled one go', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_u'))
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_u', S1, 't1')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_u', S1, T1)
     await store.messages.markUnknown(fixtureWriteScope(), 'msg_u', S1)
     expect((await carried()).get('msg_u')?.status).toBe('unknown')
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_c'))
@@ -383,8 +391,8 @@ describe('the chat message feed', () => {
   it('carries a message the agent program accepted, on its way until its history has it (POD-4885)', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_a'))
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_a', S1, 't1')
-    await store.messages.markAccepted(fixtureWriteScope(), 'msg_a', S1, 'memory', 't2')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_a', S1, T1)
+    await store.messages.markAccepted(fixtureWriteScope(), 'msg_a', S1, 'memory', T2)
     expect((await carried()).get('msg_a')?.status).toBe('accepted')
   })
 
@@ -393,7 +401,7 @@ describe('the chat message feed', () => {
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_r'))
     await expect(
       store.transact(async () => {
-        await store.messages.markDispatched(fixtureWriteScope(), 'msg_r', S1, 't1')
+        await store.messages.markDispatched(fixtureWriteScope(), 'msg_r', S1, T1)
         throw new Error('the enclosing work failed')
       }),
     ).rejects.toThrow('the enclosing work failed')
@@ -424,7 +432,7 @@ describe('the chat message feed', () => {
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_gone'))
     await store.messages.markCancelled(fixtureWriteScope(), 'msg_gone')
     expect([...(await carried()).keys()]).toEqual(['msg_before'])
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_before', S1, 't1')
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_before', S1, T1)
     expect((await carried()).get('msg_before')?.status).toBe('dispatched')
     await expectRecordLogParity(store, ledger, 'message')
   })
@@ -486,7 +494,7 @@ describe('the chat message feed', () => {
     }
     expect(isLiveConversation({ ...live, status: 'exited' })).toBe(false)
     expect(isLiveConversation({ ...live, archived: true })).toBe(false)
-    expect(isLiveConversation({ ...live, deletedAt: 't' })).toBe(false)
+    expect(isLiveConversation({ ...live, deletedAt: T })).toBe(false)
     expect(isLiveConversation(undefined)).toBe(false)
   })
 
@@ -501,7 +509,7 @@ describe('the chat message feed', () => {
       fixtureWriteScope(),
       'msg_failed',
       S1,
-      't',
+      T,
       'never-live',
     )
     const cursor = await ledger.cursor()
@@ -524,7 +532,7 @@ describe('the chat message feed', () => {
     )
     expect((await store.messages.getMessage('msg_s1a'))?.deliveryStatus).toBe('confirmed')
     // The failure notice is still the sender's to dismiss.
-    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_failed', 't')).toBe(true)
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_failed', T)).toBe(true)
     expect(await ids()).toEqual(['msg_s2a', 'msg_waiting'])
   })
 
@@ -563,7 +571,7 @@ describe('the chat message feed', () => {
     const { store, move, ids } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_late'))
     await move(S1, { status: 'exited' })
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_late', S1, 't')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_late', S1, T)
     expect(await ids()).toEqual([])
     // The window is the session's newest confirmed while it is live, so a
     // session that comes back carries its window again.
@@ -610,7 +618,7 @@ describe('the chat message feed', () => {
     await reboot()
     expect(await ids()).toEqual(['msg_live', 'msg_open'])
     // And the rebooted feed opens no window for it either.
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_open', S2, 't')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_open', S2, T)
     expect(await ids()).toEqual(['msg_live'])
   })
 })

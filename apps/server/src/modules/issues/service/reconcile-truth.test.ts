@@ -13,6 +13,7 @@
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, type IssueGitState } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
@@ -71,10 +72,10 @@ describe('full-truth reconcile over the database', () => {
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['one', 'two'])
     await store.issues.setIssueLabels(asIssueId('iss_b2'), ['gone'])
     // An empty id is a string: the boot load keeps it, and so does the walk.
-    rawSql(store, "UPDATE issues SET id = '' WHERE id = 'iss_empty'")
+    await rawSql(store, sql`UPDATE issues SET id = '' WHERE id = 'iss_empty'`)
     // A row neither reads: a NULL id once stood here, which the key refuses since the keys
     // migration (POD-7024), so the row is gone instead.
-    rawSql(store, 'DELETE FROM issues WHERE id = ?', 'iss_corrupt')
+    await rawSql(store, sql`DELETE FROM issues WHERE id = ${'iss_corrupt'}`)
     const svc = await serviceOver(store)
     const issues = svc.reports.store
     for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) await issues.setGitState(id, observed(id.length))

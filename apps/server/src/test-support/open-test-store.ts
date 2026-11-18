@@ -124,3 +124,15 @@ async function postgresDatabase(path: string | undefined): Promise<PgTestDatabas
   databasesByPath.set(key, made)
   return await made
 }
+
+/**
+ * Where a store a test opened at `path` lives, for a reader that opens the database by its
+ * location rather than through the store (the sync worker's producer): on Postgres the URL of
+ * the database standing for the path (POD-7103), on SQLite the path itself.
+ */
+export async function testStoreLocation(path: string): Promise<string> {
+  if (testStoreEngine() !== 'pg') return path
+  const known = databasesByPath.get(resolve(path))
+  if (known === undefined) throw new Error(`testStoreLocation: no test store was opened at ${path}`)
+  return (await known).url
+}

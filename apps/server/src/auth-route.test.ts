@@ -26,6 +26,7 @@ import { createPortableSnapshot } from './modules/server-transfer/snapshot'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
 import {
   memberResolution,
   openTestIdentity,
@@ -591,7 +592,9 @@ describe('POST /auth/logout', () => {
   })
 })
 
-describe('the server-transfer claim', () => {
+// A server transfer ships the SQLite database file; hosted Postgres has no transfer (POD-6958
+// design 2.9), so this case runs on SQLite only.
+describe.skipIf(testStoreEngine() === 'pg')('the server-transfer claim', () => {
   test('exchanges a shared move code once for a desktop sign-in at the new origin', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'podium-move-sign-in-'))
     const source = await openTestStore(join(directory, 'podium.db'))

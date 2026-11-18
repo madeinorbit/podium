@@ -128,7 +128,7 @@ async function fixture() {
       verb,
       owner,
       visibility: 'personal',
-      createdAt: '2026-09-11T00:00:00Z',
+      createdAt: '2026-09-11T00:00:00.000Z',
       actorKind: 'user',
       actorId: owner,
       onBehalfOf: owner,
@@ -196,7 +196,7 @@ describe('feed visibility grant semantics', () => {
         value: {
           userId,
           entityId: id,
-          readAt: userId === owner ? 'owner-read' : null,
+          readAt: userId === owner ? '2026-09-11T00:00:00.000Z' : null,
           tuckedAt: null,
           pinned: userId === owner,
         },
@@ -631,7 +631,7 @@ describe('machine access and checkout rows', () => {
       verb,
       owner,
       visibility: 'owned-compute',
-      createdAt: '2026-11-09T00:00:00Z',
+      createdAt: '2026-11-09T00:00:00.000Z',
       actorKind: 'user',
       actorId: owner,
       onBehalfOf: owner,
@@ -691,7 +691,7 @@ describe('machine access and checkout rows', () => {
         row('/home/u/.worktrees/feature', '/home/u/podium'),
       ],
       [],
-      '2026-11-09T00:00:00Z',
+      '2026-11-09T00:00:00.000Z',
     )
     const root = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/podium') }
     const worktree = {
@@ -746,7 +746,7 @@ describe('machine access and checkout rows', () => {
         },
       ],
       [],
-      '2026-11-09T00:00:00Z',
+      '2026-11-09T00:00:00.000Z',
     )
     // No recorded reach (SEE only, or never written): no checkout id goes out.
     // The moved row still names its member: their access moved (POD-6947).
@@ -757,7 +757,7 @@ describe('machine access and checkout rows', () => {
     expect(seeOnly).toEqual({ audience: [reader], subjects: [] })
     await store.checkouts.applyReach(
       { reach: [{ userId: reader, machineId: asMachineId('m1'), reach: 'all' }] },
-      '2026-11-09T00:00:00Z',
+      '2026-11-09T00:00:00.000Z',
     )
     const edge = await edgeOf(policy.anchors, {
       entity: 'machineAccess',
@@ -790,11 +790,11 @@ describe('machine access and checkout rows', () => {
         },
       ],
       [],
-      '2026-11-09T00:00:00Z',
+      '2026-11-09T00:00:00.000Z',
     )
     await store.checkouts.applyReach(
       { reach: [{ userId: reader, machineId: m1, reach: 'all' }] },
-      '2026-11-09T00:00:00Z',
+      '2026-11-09T00:00:00.000Z',
     )
     const accessId = machineAccessRowId(reader, m1)
     const log = async (entity: 'machine' | 'machineAccess', entityId: string, value: object) =>
@@ -842,7 +842,7 @@ it('shapes each artifact record for its reader and keeps its stable identity', a
     issueId: issue.id,
     position: 0,
     path: '/repo/task/result.html',
-    addedAt: 't',
+    addedAt: '2026-09-11T00:00:00.000Z',
     sourcePaths: ['/repo/task/source.png'],
     untrackedPaths: ['/private/other.png'],
     files: [{ path: 'result.html', size: 5 }],

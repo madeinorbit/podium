@@ -27,8 +27,10 @@ import {
   asRepoId,
   type IssuePanelTodoWire,
 } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import { storeSql } from '../test-support/store-sql'
 import {
   ALICE,
   AT_OF,
@@ -50,7 +52,6 @@ import {
   position,
   REPO,
   ROOT,
-  rawDb,
   rowsOf,
   scope,
   seed,
@@ -115,7 +116,7 @@ describe('the issues repository reads only its own workspace', () => {
   it('writes every row under its own workspace', async () => {
     const [a] = await twoSeeded()
     for (const tag of TAGS) {
-      const rows = rowsOf(a, tag)
+      const rows = await rowsOf(a, tag)
       for (const table of TABLES) {
         expect({ table, rows: rows[table]!.length > 0 }).toEqual({ table, rows: true })
         onlyOwn(rows[table], tag)
@@ -393,16 +394,16 @@ describe('issue numbers count per workspace and repository', () => {
     expect(await a.issues.renumberCollidingIssueSeqs()).toBe(0)
     // A path only B holds issues under: A holds nothing there.
     await b.issues.upsertIssue(scope, issue('b', 6, { id: only('b'), repoPath: '/only-b' }))
-    const withOnly = rowsOf(a, 'b')
+    const withOnly = await rowsOf(a, 'b')
     await a.issues.assignRepoIdToIssuesUnder(asRepoId('merged'), '/only-b')
-    expect(rowsOf(a, 'b')).toEqual(withOnly)
+    expect(await rowsOf(a, 'b')).toEqual(withOnly)
     // The root both hold: A's rows take the repository, B's keep theirs.
     await a.issues.assignRepoIdToIssuesUnder(asRepoId('merged'), ROOT)
     expect((await a.issues.getIssue(iss(1)))?.repoId).toBe('merged')
     expect((await b.issues.getIssue(iss(1)))?.repoId).toBe(REPO)
     expect(await a.issues.nextIssueSeq(asRepoId('merged'))).toBe(6)
     expect(await b.issues.nextIssueSeq(asRepoId('merged'))).toBe(1)
-    expect(rowsOf(a, 'b')).toEqual(withOnly)
+    expect(await rowsOf(a, 'b')).toEqual(withOnly)
   })
 })
 
@@ -461,7 +462,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
       text: 'b only deferred',
       addedAt: AT_OF.b,
     })
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     await expect(s.transitionShippingStage(iss(2), 'review', 'shipping', LATER)).rejects.toThrow(
       /fence failed/,
@@ -488,7 +489,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     expect(await s.panel.clearTodos(scope, ONLY)).toEqual([])
     expect(await s.panel.toggle(scope, ONLY, onlyItem('todo'), true)).toBeUndefined()
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect((await a.issues.getIssue(iss(2)))?.stage).toBe('in_progress')
   })
 
@@ -524,7 +525,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
         }
       )
     }
-    const before = rowsOf(b, 'b')
+    const before = await rowsOf(b, 'b')
 
     await a.issues.deleteIssue(same(6))
 
@@ -542,13 +543,13 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
       supersededBy: same(6),
       duplicateOf: same(6),
     })
-    expect(rowsOf(b, 'b')).toEqual(before)
+    expect(await rowsOf(b, 'b')).toEqual(before)
   })
 
   it('changes only its own rows when writing the ids both hold', async () => {
     const [a, b] = await twoSeeded()
     const s = a.issues
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
 
     await s.upsertIssue(scope, issue('a', 1, { title: 'a renamed', revision: 2 }))
     await s.upsertIssue(scope, issue('a', 2, { stage: 'review', revision: 2 }))
@@ -601,7 +602,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     await s.deleteIssue(iss(3))
     expect(await s.hasIssue(iss(3))).toBe(false)
 
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     // B still reads everything it wrote, at the same ids.
     expect(await b.issues.getIssueLabels(iss(1))).toEqual(labelsOf('b'))
     expect((await b.issues.getIssue(iss(1)))?.title).toBe('b issue 1')
@@ -618,27 +619,27 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
     const [a] = await twoSeeded()
     // An orphan of the same id in each workspace: a counter whose issue is gone.
     for (const tag of TAGS) {
-      rawDb(a)
-        .prepare(
-          'INSERT INTO issue_ref_letters (workspace_id, issue_id, next_index) VALUES (?, ?, 3)',
-        )
-        .run(WS[tag], 'iss-gone')
+      await storeSql(a).run(
+        sql`INSERT INTO issue_ref_letters (workspace_id, issue_id, next_index) VALUES (${WS[tag]}, 'iss-gone', 3)`,
+      )
     }
-    const before = rowsOf(a, 'b')
+    const before = await rowsOf(a, 'b')
     // A's own counter survives: its issue is A's. B's counters, the orphan included, are B's.
     expect(await a.issues.pruneOrphanRefLetters()).toBe(1)
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect(
-      rawDb(a).prepare("SELECT issue_id FROM issue_ref_letters WHERE workspace_id = 'ws_a'").all(),
+      await storeSql(a).all(
+        sql`SELECT issue_id FROM issue_ref_letters WHERE workspace_id = 'ws_a'`,
+      ),
     ).toEqual([{ issue_id: iss(1) }])
   })
 
   it('backfills the legacy worktrees of its own workspace, on its own host', async () => {
     const [a, b] = await twoSeeded()
-    rawDb(a).prepare("DELETE FROM meta WHERE key = 'legacy_worktree_machine_ids_v1'").run()
+    await storeSql(a).run(sql`DELETE FROM meta WHERE key = 'legacy_worktree_machine_ids_v1'`)
     // A machine only B holds is no host of A's.
-    insertMachine(b, 'b', 'only-b-machine')
-    const before = rowsOf(a, 'b')
+    await insertMachine(b, 'b', 'only-b-machine')
+    const before = await rowsOf(a, 'b')
     expect(
       await a.issues.backfillLegacyWorktreeMachineIds(asMachineId('only-b-machine')),
     ).toBeUndefined()
@@ -649,7 +650,7 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
       skipped: 0,
     })
     expect((await a.issues.getIssue(iss(5)))?.machineId).toBe(MACHINE)
-    expect(rowsOf(a, 'b')).toEqual(before)
+    expect(await rowsOf(a, 'b')).toEqual(before)
     expect((await b.issues.getIssue(iss(5)))?.machineId).toBeNull()
   })
 })
@@ -661,20 +662,20 @@ describe("a write in one workspace leaves the other's rows unchanged", () => {
  */
 describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
   it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
-    const rowsIn = (store: SessionStore, ws: string) =>
-      rawDb(store)
-        .prepare('SELECT * FROM issues WHERE workspace_id = ? AND id = ? ORDER BY rowid')
-        .all(ws, SAME)
+    const rowsIn = async (store: SessionStore, ws: string) =>
+      await storeSql(store).all(
+        sql`SELECT * FROM issues WHERE workspace_id = ${ws} AND id = ${SAME}`,
+      )
     const SAME = asIssueId('same-issue')
     const [a, b] = await twoSeeded()
     await b.issues.upsertIssue(scope, issue('b', 6, { id: SAME }))
-    const before = rowsIn(b, WS.b)
+    const before = await rowsIn(b, WS.b)
     await a.issues.upsertIssue(scope, issue('a', 6, { id: SAME }))
-    expect(rowsIn(a, WS.a)).toHaveLength(1)
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toHaveLength(1)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
     await a.issues.upsertIssue(scope, issue('a', 6, { id: SAME, title: 'a retitled', revision: 2 }))
     expect((await a.issues.getIssue(SAME))?.title).toBe('a retitled')
     expect((await b.issues.getIssue(SAME))?.title).toBe('b issue 6')
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
   })
 })

@@ -246,7 +246,7 @@ describe('TranscriptIndexer', () => {
       'nofts',
       0,
       100,
-      '2026-07-01T10:00:00Z',
+      '2026-07-01T10:00:00.000Z',
     )
 
     expect(() => indexer.onBytes(asMachineId('m1'), 'nofts')).not.toThrow()
@@ -282,7 +282,7 @@ describe('TranscriptIndexer', () => {
         s.nativeId,
         0,
         Buffer.byteLength(s.content),
-        '2026-07-01T10:00:00Z',
+        '2026-07-01T10:00:00.000Z',
       )
     }
     const indexer = new TranscriptIndexer(
@@ -512,7 +512,7 @@ describe('TranscriptIndexer', () => {
       'tail',
       Buffer.byteLength(complete + partial),
       Buffer.byteLength(completed),
-      '2026-07-01T11:00:00Z',
+      '2026-07-01T11:00:00.000Z',
     )
     await indexer.backfillMachine(asMachineId('m1'))
     await indexer.settled()
@@ -536,7 +536,7 @@ describe('TranscriptIndexer', () => {
         'gone',
         0,
         50,
-        '2026-07-01T10:00:00Z',
+        '2026-07-01T10:00:00.000Z',
       )
       await indexer.onBytes(asMachineId('m1'), 'gone')
       await indexer.settled()

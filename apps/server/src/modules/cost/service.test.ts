@@ -180,7 +180,7 @@ it('does not attribute another machine’s same native id, or ambiguous cross-hu
     resumeValue: nativeId,
     ownerUserId: bob,
     machineId: asMachineId('other-machine'),
-    createdAt: '2099-01-01T00:00:00Z',
+    createdAt: '2099-01-01T00:00:00.000Z',
   })
   await session({ resumeValue: 'alice-parent', ownerUserId: alice })
   await transcript('alice-parent')
@@ -191,7 +191,7 @@ it('does not attribute another machine’s same native id, or ambiguous cross-hu
   const resolved = await service.prepareHarvest(machineId, [usage])
   expect(resolved.bucketsForOwner(alice)).toEqual([bucket])
   expect(resolved.bucketsForOwner(bob)).toEqual([])
-  await session({ resumeValue: nativeId, ownerUserId: bob, createdAt: '2099-01-01T00:00:00Z' })
+  await session({ resumeValue: nativeId, ownerUserId: bob, createdAt: '2099-01-01T00:00:00.000Z' })
   const ambiguous = await service.prepareHarvest(machineId, [usage])
   expect(ambiguous.bucketsForOwner(alice)).toEqual([])
   expect(ambiguous.bucketsForOwner(bob)).toEqual([])
@@ -687,7 +687,7 @@ describe('addressed task comparison', () => {
   it('matches the old task and corpus answers without reading full corpus rows', async () => {
     const root = await issue()
     const child = await issue({ parentId: root.id, stage: 'done', archived: true })
-    const deleted = await issue({ deletedAt: '2026-08-23T00:00:00Z' })
+    const deleted = await issue({ deletedAt: '2026-08-23T00:00:00.000Z' })
     const small = await issue()
     for (const [task, messages] of [
       [child, 25],

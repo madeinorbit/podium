@@ -19,6 +19,7 @@ import {
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
@@ -26,6 +27,22 @@ import { shipOrderProjectionRows } from './modules/shipping/projection'
 import type { SessionStore } from './store'
 import type { RootIntegrationReceiptStore } from './store/shipping'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { storeSql } from './test-support/store-sql'
+
+const T0 = '2026-08-12T09:00:00.000Z'
+const T1 = '2026-08-12T09:01:00.000Z'
+const T2 = '2026-08-12T09:02:00.000Z'
+const T3 = '2026-08-12T09:03:00.000Z'
+
+/**
+ * SQLite's shipping triggers, probed with raw statements: `probe` runs on SQLite only.
+ * Postgres has no triggers; its guarded writes carry the rules (`store/shipping-guards.test.ts`)
+ * and `store/immutability-census.test.ts` proves no definition can break them (POD-6986).
+ */
+function onSqliteTriggers(probe: () => void): void {
+  if (testStoreEngine() === 'sqlite') probe()
+}
 
 const base = () => ({
   id: asIssueId('iss_1'),
@@ -70,8 +87,8 @@ const base = () => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: T0,
+  updatedAt: T0,
   archived: false,
 })
 
@@ -206,25 +223,29 @@ describe('store issues', () => {
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
-  it('tolerates a corrupt blocked_by column instead of crashing the whole load', async () => {
-    // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
-    // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
-    // IssueService's constructor at boot, crash-looping the server. Quarantine the
-    // bad field (blockedBy -> []) and keep the row.
-    const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(fixtureWriteScope(), base())
-    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
+  // A json column on Postgres refuses non-JSON text, so this corruption exists only on SQLite.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'tolerates a corrupt blocked_by column instead of crashing the whole load',
+    async () => {
+      // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
+      // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
+      // IssueService's constructor at boot, crash-looping the server. Quarantine the
+      // bad field (blockedBy -> []) and keep the row.
+      const s = await openTestStore(':memory:')
+      await s.issues.upsertIssue(fixtureWriteScope(), base())
+      rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
-    await s.issues.listIssueRows()
-    expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
-    expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
-  })
+      await s.issues.listIssueRows()
+      expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
+      expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
+    },
+  )
 
   it('quarantines a non-array blocked_by JSON value', async () => {
     const s = await openTestStore(':memory:')
     await s.issues.upsertIssue(fixtureWriteScope(), base())
     // Valid JSON, wrong shape (an object, not a string[]).
-    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
+    await storeSql(s).run(sql`UPDATE issues SET blocked_by = ${'{"a":1}'} WHERE id = ${'iss_1'}`)
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
@@ -263,7 +284,7 @@ describe('store issues', () => {
       seq: 5,
       stage: 'planning',
     })
-    rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
+    await storeSql(s).run(sql`UPDATE issues SET deleted_at = ${T1} WHERE id = ${'gone'}`)
 
     expect(
       [
@@ -382,10 +403,11 @@ describe('shipping durable store', () => {
     await expect(
       s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: asShipOrderId('order-other') })),
     ).rejects.toThrow(/already has active ship order/)
-    expect(() =>
-      rawDb(s)
-        .prepare(
-          `INSERT INTO ship_orders
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare(
+            `INSERT INTO ship_orders
             (id, issue_id, repo_id, repo_path, machine_id, target_branch, destination, approved_base_sha,
              approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
@@ -395,14 +417,17 @@ describe('shipping durable store', () => {
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
              requested_at, policy_id, close_mode, state, state_changed_at, hold_code
            FROM ship_orders WHERE id = ?`,
-        )
-        .run('order-raw-active', order.id),
-    ).toThrow()
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET target_branch = ? WHERE id = ?')
-        .run('dev', order.id),
-    ).toThrow(/approval is immutable/)
+          )
+          .run('order-raw-active', order.id),
+      ).toThrow(),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET target_branch = ? WHERE id = ?')
+          .run('dev', order.id),
+      ).toThrow(/approval is immutable/),
+    )
 
     const attempt = {
       id: asShipAttemptId('attempt-1'),
@@ -501,26 +526,28 @@ describe('shipping durable store', () => {
       actions: ['retry'],
       raisedAt: '2026-08-12T10:04:00.000Z',
     })
-    expect(() =>
-      rawDb(s)
-        .prepare(
-          `INSERT INTO ship_holds
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare(
+            `INSERT INTO ship_holds
             (workspace_id, id, order_id, generation, reason_code, headline, detail, evidence_refs,
              actions, raised_at)
            VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          'hold-raw-open',
-          order.id,
-          2,
-          'dependency-blocked',
-          'Still held',
-          '',
-          '[]',
-          '["retry"]',
-          '2026-08-12T10:04:30.000Z',
-        ),
-    ).toThrow()
+          )
+          .run(
+            'hold-raw-open',
+            order.id,
+            2,
+            'dependency-blocked',
+            'Still held',
+            '',
+            '[]',
+            '["retry"]',
+            '2026-08-12T10:04:30.000Z',
+          ),
+      ).toThrow(),
+    )
     await expect(
       s.shipping.raiseHold(fixtureWriteScope(), {
         id: asShipHoldId('hold-second-open'),
@@ -670,29 +697,45 @@ describe('shipping durable store', () => {
     await expect(
       s.shipping.transitionOrder(fixtureWriteScope(), order.id, 'shipped', 'queued', 'later'),
     ).rejects.toThrow(/terminal ship order.*immutable/)
-    expect(() =>
-      rawDb(s).prepare('UPDATE ship_steps SET summary = ? WHERE id = ?').run('x', finishedStep.id),
-    ).toThrow(/append-only/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_steps WHERE id = ?').run(finishedStep.id),
-    ).toThrow(/append-only/)
-    expect(() => rawDb(s).prepare('DELETE FROM ship_orders WHERE id = ?').run(order.id)).toThrow(
-      /ship order .*immutable/,
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_steps SET summary = ? WHERE id = ?')
+          .run('x', finishedStep.id),
+      ).toThrow(/append-only/),
     )
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_attempts WHERE id = ?').run(attempt.id),
-    ).toThrow(/ship attempt .*immutable/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_holds WHERE id = ?').run(asShipHoldId('hold-1')),
-    ).toThrow(/ship hold .*immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE delivery_receipts SET destination_sha = ? WHERE id = ?')
-        .run('other', receipt.id),
-    ).toThrow(/delivery receipt is immutable/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
-    ).toThrow(/delivery receipt is immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_steps WHERE id = ?').run(finishedStep.id),
+      ).toThrow(/append-only/),
+    )
+    onSqliteTriggers(() =>
+      expect(() => rawDb(s).prepare('DELETE FROM ship_orders WHERE id = ?').run(order.id)).toThrow(
+        /ship order .*immutable/,
+      ),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_attempts WHERE id = ?').run(attempt.id),
+      ).toThrow(/ship attempt .*immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_holds WHERE id = ?').run(asShipHoldId('hold-1')),
+      ).toThrow(/ship hold .*immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE delivery_receipts SET destination_sha = ? WHERE id = ?')
+          .run('other', receipt.id),
+      ).toThrow(/delivery receipt is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
+      ).toThrow(/delivery receipt is immutable/),
+    )
 
     await s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: asShipOrderId('order-2') }))
     await s.close()
@@ -785,18 +828,18 @@ describe('shipping durable store', () => {
     for (const member of train.manifest.members) {
       expect(await s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
-    rawDb(s)
-      .prepare('UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ?')
-      .run(train.manifest.lane.laneKey)
+    await storeSql(s).run(
+      sql`UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ${train.manifest.lane.laneKey}`,
+    )
     expect(await s.shipping.activeTrainForOrder(lower.id)).toBeNull()
     expect(
-      rawDb(s)
-        .prepare('SELECT released_at AS releasedAt FROM ship_train_manifests WHERE id = ?')
-        .get(train.manifest.id),
+      await storeSql(s).get(
+        sql`SELECT released_at AS "releasedAt" FROM ship_train_manifests WHERE id = ${train.manifest.id}`,
+      ),
     ).toEqual({ releasedAt: null })
-    rawDb(s)
-      .prepare('UPDATE ship_lane_revisions SET revision = ? WHERE lane_key = ?')
-      .run(train.manifest.lane.laneRevision, train.manifest.lane.laneKey)
+    await storeSql(s).run(
+      sql`UPDATE ship_lane_revisions SET revision = ${train.manifest.lane.laneRevision} WHERE lane_key = ${train.manifest.lane.laneKey}`,
+    )
     const rawMemberInsert = (ordinal: number) =>
       rawDb(s)
         .prepare(
@@ -818,13 +861,17 @@ describe('shipping durable store', () => {
           lower.approvedHeadSha,
           '[]',
         )
-    expect(() => rawMemberInsert(train.manifest.memberCount)).toThrow(/ordinal exceeds/)
-    expect(() => rawMemberInsert(0)).toThrow(/sealed after active claim/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')
-        .run('{}', train.manifest.id),
-    ).toThrow(/immutable/)
+    onSqliteTriggers(() =>
+      expect(() => rawMemberInsert(train.manifest.memberCount)).toThrow(/ordinal exceeds/),
+    )
+    onSqliteTriggers(() => expect(() => rawMemberInsert(0)).toThrow(/sealed after active claim/))
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')
+          .run('{}', train.manifest.id),
+      ).toThrow(/immutable/),
+    )
     const claimed = train.claimed.find((item) => item.order.id === covering.id)!
     for (const [from, to] of [
       ['preflight', 'composing'],
@@ -966,14 +1013,14 @@ describe('shipping durable store', () => {
     const issue = { ...base(), stage: 'review' as const }
     await s.issues.upsertIssue(fixtureWriteScope(), issue)
     await s.transact(async () => {
-      await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
+      await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', T1)
       await s.shipping.createOrder(fixtureWriteScope(), shipOrder())
     })
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('shipping')
     await expect(
-      s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2'),
+      s.issues.transitionShippingStage(issue.id, 'review', 'shipping', T2),
     ).rejects.toThrow(/stage fence/)
-    await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
+    await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', T3)
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('review')
   })
 
@@ -1008,16 +1055,20 @@ describe('shipping durable store', () => {
         descendants: [childA],
       }),
     ).rejects.toThrow(/different descendants/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
-        .run('[]', receipt.rootIssueId),
-    ).toThrow(/root integration receipt is immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('DELETE FROM root_integration_receipts WHERE root_issue_id = ?')
-        .run(receipt.rootIssueId),
-    ).toThrow(/root integration receipt is immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
+          .run('[]', receipt.rootIssueId),
+      ).toThrow(/root integration receipt is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('DELETE FROM root_integration_receipts WHERE root_issue_id = ?')
+          .run(receipt.rootIssueId),
+      ).toThrow(/root integration receipt is immutable/),
+    )
 
     await s.close()
     const restarted = await openTestStore(file)
@@ -1202,16 +1253,20 @@ describe('shipping durable store', () => {
         }),
       ),
     ).rejects.toThrow()
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')
-        .run('evidence://other', evidenced.id),
-    ).toThrow(/approval is immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
-        .run('{}', evidenced.id),
-    ).toThrow(/approval is immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')
+          .run('evidence://other', evidenced.id),
+      ).toThrow(/approval is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
+          .run('{}', evidenced.id),
+      ).toThrow(/approval is immutable/),
+    )
     await s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
@@ -1219,7 +1274,7 @@ describe('shipping durable store', () => {
   })
 })
 
-/** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
+/** White-box seam: the store's own SQLite connection, for the trigger probes and the corrupt row. */
 function rawDb(s: SessionStore): SqlDatabase {
   return (s as unknown as { db: SqlDatabase }).db
 }

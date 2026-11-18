@@ -27,6 +27,7 @@ import {
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { importFingerprintKey, FINGERPRINT_KEY_FILE, FINGERPRINT_SECRET_KEY, FINGERPRINT_IMPORT_MARKER } from '../../fingerprint-key-import'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import { openTestStore } from '../../test-support/open-test-store'
 
 const SERVER_KEY = Buffer.from('a'.repeat(64), 'hex')
@@ -188,7 +189,9 @@ describe('database fingerprint key migration', () => {
     expect(existsSync(a.path)).toBe(false)
   })
 
-  it('imports through store migration and reads the same key after reopening', async () => {
+  // The boot imports a legacy key file beside a self-hosted install's database; a Postgres
+  // install has no legacy files (POD-6958 design 2.9), so this case runs on SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')('imports through store migration and reads the same key after reopening', async () => {
     const { root, path } = fixture()
     writeFileSync(path, SERVER_KEY.toString('hex'))
     const dbPath = join(root, 'podium.db')

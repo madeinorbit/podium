@@ -117,7 +117,7 @@ describe('folder owner: the indexed query answers like the old algorithm', () =>
       issue('/r/.worktrees/a'),
       issue('/r/.worktrees/a/nested'), // nested worktree
       issue('/r'), // a repo root as a worktree
-      issue('/r/.worktrees/deleted', { deletedAt: '2026-10-01T00:00:00Z' }),
+      issue('/r/.worktrees/deleted', { deletedAt: '2026-10-01T00:00:00.000Z' }),
       issue('/r/.worktrees/archived', { archived: true }),
       issue('/r/.worktrees/tie'), // two live issues at one worktree: repository order decides
       issue('/r/.worktrees/tie', { repoPath: '/a' }),

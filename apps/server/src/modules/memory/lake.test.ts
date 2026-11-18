@@ -309,7 +309,7 @@ describe.each(LAKE_BACKENDS)('lake namespaces on the $name lake', (backendKind) 
           machineId,
           nativeId,
           { device: '1', inode: '1' },
-          '2026-09-16T00:00:00Z',
+          '2026-09-16T00:00:00.000Z',
         )
       }
       // A segment with no incarnation row, and the first row, both keep their
@@ -323,7 +323,7 @@ describe.each(LAKE_BACKENDS)('lake namespaces on the $name lake', (backendKind) 
             { sequence: 1, device: '1', inode: '1' },
             { device: '1', inode: '2' },
             Buffer.byteLength(bytes),
-            '2026-09-16T00:01:00Z',
+            '2026-09-16T00:01:00.000Z',
           ),
         ).toBe(true)
         await backend.write(machineId, nativeId, bytes, 2)
@@ -333,7 +333,7 @@ describe.each(LAKE_BACKENDS)('lake namespaces on the $name lake', (backendKind) 
         nativeId,
         0,
         Buffer.byteLength(bytes),
-        '2026-09-16T00:02:00Z',
+        '2026-09-16T00:02:00.000Z',
       )
       const session = {
         machineId,
@@ -403,7 +403,7 @@ it('two workspaces with equal machine and native ids share no cache entry', asyn
         nativeId,
         0,
         Buffer.byteLength(bytes),
-        '2026-11-17T10:00:00Z',
+        '2026-11-17T10:00:00.000Z',
       )
       const source = backend.lake.source({ machineId, nativeId, incarnation: 1 }, () =>
         Buffer.byteLength(bytes),

@@ -146,12 +146,12 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const other = asUserId('user:other')
       await seedRows(store, () =>
         store.issues.setIssueUserState(fixtureWriteScope(), other, issue.id, {
-          readAt: '2026-07-02',
-          tuckedAt: '2026-07-02',
+          readAt: '2026-07-02T00:00:00.000Z',
+          tuckedAt: '2026-07-02T00:00:00.000Z',
         }),
       )
       await svc.reports.store.setGitState(issue.id, {
-        updatedAt: '2026-07-02',
+        updatedAt: '2026-07-02T00:00:00.000Z',
         branch: 'feature',
         shared: false,
         ahead: 2,
@@ -168,7 +168,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         expect.objectContaining({
           userId: other,
           entityId: issue.id,
-          tuckedAt: '2026-07-02',
+          tuckedAt: '2026-07-02T00:00:00.000Z',
         }),
       )
     } finally {
@@ -192,7 +192,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const cursor = await ledger.cursor()
       appended.length = 0
       await svc.reports.store.setGitState(issue.id, {
-        updatedAt: '2026-07-02',
+        updatedAt: '2026-07-02T00:00:00.000Z',
         branch: 'feature',
         shared: false,
         ahead: 2,
@@ -211,7 +211,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const unchanged = await ledger.cursor()
       // The same observation again writes nothing and appends nothing.
       await svc.reports.store.setGitState(issue.id, {
-        updatedAt: '2026-07-03',
+        updatedAt: '2026-07-03T00:00:00.000Z',
         branch: 'feature',
         shared: false,
         ahead: 2,
@@ -234,7 +234,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       const user = await firstAdminMemberId(store)
       await svc.reports.store.setGitState(issue.id, {
-        updatedAt: '2026-07-02',
+        updatedAt: '2026-07-02T00:00:00.000Z',
         branch: 'feature',
         shared: false,
         ahead: 1,
@@ -243,7 +243,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       await seedRows(store, () =>
         store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
-          readAt: '2026-07-02',
+          readAt: '2026-07-02T00:00:00.000Z',
         }),
       )
       const deleting = await svc.crud.prepareSoftDelete(issue.id)
@@ -265,7 +265,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
       await seedRows(store, () =>
         store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
-          tuckedAt: '2026-07-03',
+          tuckedAt: '2026-07-03T00:00:00.000Z',
         }),
       )
       const restoring = await svc.crud.prepareRestore(issue.id)
@@ -313,7 +313,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         svc.reports.store.writeIssueUserState(
           svc.reports.store.serverWriter,
           issue.id,
-          { tuckedAt: '2026-07-02' },
+          { tuckedAt: '2026-07-02T00:00:00.000Z' },
           await firstAdminMemberId(store),
         ),
       ).rejects.toThrow('marker append failed')
@@ -343,12 +343,14 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
           await svc.reports.store.writeIssueUserState(
             svc.reports.store.serverWriter,
             issue.id,
-            { tuckedAt: '2026-07-02' },
+            { tuckedAt: '2026-07-02T00:00:00.000Z' },
             await firstAdminMemberId(store),
           )
-          expect((await svc.reports.store.issueOverlay(issue.id)).tuckedAt).toBe('2026-07-02')
+          expect((await svc.reports.store.issueOverlay(issue.id)).tuckedAt).toBe(
+            '2026-07-02T00:00:00.000Z',
+          )
           expect((await svc.reports.list()).find((row) => row.id === issue.id)?.tuckedAt).toBe(
-            '2026-07-02',
+            '2026-07-02T00:00:00.000Z',
           )
           throw new Error('enclosing span failed')
         }),
@@ -362,16 +364,16 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await svc.reports.store.writeIssueUserState(
         svc.reports.store.serverWriter,
         issue.id,
-        { tuckedAt: '2026-07-03' },
+        { tuckedAt: '2026-07-03T00:00:00.000Z' },
         await firstAdminMemberId(store),
       )
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.tuckedAt).toBe(
-        '2026-07-03',
+        '2026-07-03T00:00:00.000Z',
       )
       expect(
         ((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState'),
       ).toMatchObject({
-        value: { tuckedAt: '2026-07-03' },
+        value: { tuckedAt: '2026-07-03T00:00:00.000Z' },
       })
     } finally {
       await store.close()

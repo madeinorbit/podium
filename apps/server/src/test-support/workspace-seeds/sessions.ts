@@ -16,8 +16,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import type { SessionStore } from '../../store'
 import type { SessionRow } from '../../store/types'
+import { storeSql, workspaceRows } from '../store-sql'
 
 export type Tag = 'a' | 'b'
 export const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
@@ -59,14 +61,6 @@ export const only = (tag: Tag): SessionId => asSessionId(`only-${tag}`)
 /** An issue only `tag`'s workspace holds, which the OTHER workspace's s5 names. */
 export const heldBy = (tag: Tag): IssueId => asIssueId(`held-by-${tag}`)
 
-export interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    run(...params: unknown[]): unknown
-  }
-}
-export const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
 /** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
 export const TABLES = [
   'sessions',
@@ -84,14 +78,11 @@ export const TABLES = [
   'issues',
 ] as const
 
-export function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/** One workspace's rows of every table, each in primary-key order, on either engine. */
+export async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) out[table] = await workspaceRows(store, table, WS[tag])
+  return out
 }
 
 export function session(tag: Tag, n: number, patch: Partial<SessionRow> = {}): SessionRow {
@@ -139,25 +130,18 @@ export function session(tag: Tag, n: number, patch: Partial<SessionRow> = {}): S
 }
 
 /** An issue row, raw: the issues repository is another task's (B2). */
-export function insertIssue(store: SessionStore, tag: Tag, id: IssueId, seq: number): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq, title,
-         stage, default_agent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'codex', ?, ?)`,
-    )
-    .run(
-      WS[tag],
-      id,
-      owner(tag),
-      owner(tag),
-      ROOT,
-      'repo-1',
-      seq,
-      `${tag} issue ${seq}`,
-      AT_OF[tag],
-      AT_OF[tag],
-    )
+export async function insertIssue(
+  store: SessionStore,
+  tag: Tag,
+  id: IssueId,
+  seq: number,
+): Promise<void> {
+  await storeSql(store).run(
+    sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id, seq, title,
+          stage, default_agent, created_at, updated_at)
+        VALUES (${WS[tag]}, ${id}, ${owner(tag)}, ${owner(tag)}, ${ROOT}, 'repo-1', ${seq},
+                ${`${tag} issue ${seq}`}, 'backlog', 'codex', ${AT_OF[tag]}, ${AT_OF[tag]})`,
+  )
 }
 
 /**
@@ -170,9 +154,9 @@ export function insertIssue(store: SessionStore, tag: Tag, id: IssueId, seq: num
  */
 export async function seed(store: SessionStore, tag: Tag): Promise<void> {
   const at = AT_OF[tag]
-  insertIssue(store, tag, iss(1), 1)
-  insertIssue(store, tag, iss(2), 2)
-  insertIssue(store, tag, heldBy(tag), 9)
+  await insertIssue(store, tag, iss(1), 1)
+  await insertIssue(store, tag, iss(2), 2)
+  await insertIssue(store, tag, heldBy(tag), 9)
   await store.sessions.upsertSessions(scope, [
     session(tag, 1),
     session(tag, 2, { refIssueId: iss(1), refLetter: 'A', issueId: iss(1) }),
@@ -221,12 +205,10 @@ export async function seed(store: SessionStore, tag: Tag): Promise<void> {
     origin: `${tag}-device`,
     history: [`${tag}-h1`],
   })
-  rawDb(store)
-    .prepare(
-      `INSERT INTO runtime_event_checkpoints (workspace_id, session_id, observer_generation,
-         cursor_json, turn_epoch, updated_at) VALUES (?, ?, 1, '{}', 1, ?)`,
-    )
-    .run(WS[tag], sid(1), at)
+  await storeSql(store).run(
+    sql`INSERT INTO runtime_event_checkpoints (workspace_id, session_id, observer_generation,
+          cursor_json, turn_epoch, updated_at) VALUES (${WS[tag]}, ${sid(1)}, 1, '{}', 1, ${at})`,
+  )
 
   await store.layout.set(scope, ALICE, 'dockTab', `${tag}-files`, at)
   await store.layout.set(scope, BOB, 'superOpen', tag === 'a', at)

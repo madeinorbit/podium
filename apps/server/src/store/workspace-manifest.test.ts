@@ -4,7 +4,7 @@ import {
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
 } from '@podium/runtime/installation-identity'
-import { is } from 'drizzle-orm'
+import { is, sql } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as syncSchema from '../../../../packages/sync/src/adapters/sqlite/schema'
@@ -17,6 +17,8 @@ import { SETTINGS_CONFIG_IMPORT } from '../settings-config-import'
 import type { SessionStore } from '../store'
 import { forceFeature } from '../test-support/features'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
+import { type StoreSql, storeSql } from '../test-support/store-sql'
 import { LEGACY_WORKTREE_MIGRATION } from './issues'
 import { IDENTITY_SIGNING_SECRET_KEY } from './server-secrets'
 import { CARRY_OVER_ENDS_AT_KEY } from './sign-in-carry-over'
@@ -153,9 +155,18 @@ const liveTables = (db: RawDb): Set<string> =>
 
 const manifest = TABLE_MANIFEST as Readonly<Record<string, ManifestEntry>>
 
+/**
+ * A case that reads SQLite's own catalogue: `sqlite_master` with its FTS5 shadow tables, and
+ * the pragma table and index lists. It runs on SQLite only. Postgres's tables, columns and
+ * keys are held to SQLite's table for table by `migrations/pg/schema-parity.test.ts`.
+ */
+const sqliteCatalogue = it.skipIf(testStoreEngine() === 'pg')
+
 describe('workspace table manifest', () => {
   let store: SessionStore
+  /** SQLite's connection, for the catalogue cases only. */
   let db: RawDb
+  let raw: StoreSql
   const declared = declaredTables()
   const declaredSources = new Map([...declared].map(([name, table]) => [name, table.schema]))
   const plus = (name: string, source: SchemaSource) => new Map([...declaredSources, [name, source]])
@@ -165,6 +176,7 @@ describe('workspace table manifest', () => {
     forceFeature('command-palette', true)
     store = await openTestStore()
     db = rawDb(store)
+    raw = storeSql(store)
   })
   afterAll(async () => {
     await store.close()
@@ -181,13 +193,16 @@ describe('workspace table manifest', () => {
     expect(declared.get('user_credentials')?.schema).toBe('legacy')
   })
 
-  it('classifies every declared table and every table of a migrated database, and lists none that is gone', () => {
-    const live = liveTables(db)
-    expect(live.has('conversations_fts')).toBe(true)
-    expect(findGaps(manifest, classifyTable, declaredSources, live)).toEqual(NO_GAPS)
-  })
+  sqliteCatalogue(
+    'classifies every declared table and every table of a migrated database, and lists none that is gone',
+    () => {
+      const live = liveTables(db)
+      expect(live.has('conversations_fts')).toBe(true)
+      expect(findGaps(manifest, classifyTable, declaredSources, live)).toEqual(NO_GAPS)
+    },
+  )
 
-  it('fails on a planted unclassified table, declared or live', () => {
+  sqliteCatalogue('fails on a planted unclassified table, declared or live', () => {
     db.prepare('CREATE TABLE planted_unclassified (id TEXT PRIMARY KEY)').run()
     try {
       const live = liveTables(db)
@@ -205,7 +220,7 @@ describe('workspace table manifest', () => {
     expect(classifyTable('conversations_data')).toBeUndefined()
   })
 
-  it('fails on a planted classified table that no longer exists', () => {
+  sqliteCatalogue('fails on a planted classified table that no longer exists', () => {
     const planted: Record<string, ManifestEntry> = {
       ...manifest,
       planted_gone_schema: {
@@ -299,7 +314,7 @@ describe('workspace table manifest', () => {
   })
 
   // The column migration (POD-7012) added it to every declared workspace table.
-  it('gives every workspace table a non-null workspace_id column', () => {
+  sqliteCatalogue('gives every workspace table a non-null workspace_id column', () => {
     const missing: string[] = []
     for (const name of WORKSPACE_TABLES) {
       const entry: ManifestEntry = manifest[name] as ManifestEntry
@@ -318,40 +333,44 @@ describe('workspace table manifest', () => {
 
   // ---- the install halves of meta and server_secrets (POD-7013) ----
 
-  const keysIn = (table: 'meta' | 'server_secrets'): string[] =>
-    (db.prepare(`SELECT key FROM ${table} ORDER BY key`).all() as { key: string }[]).map(
-      (row) => row.key,
-    )
+  const keysIn = async (table: 'meta' | 'server_secrets'): Promise<string[]> =>
+    (
+      await raw.all<{ key: string }>(sql`SELECT key FROM ${sql.identifier(table)} ORDER BY key`)
+    ).map((row) => row.key)
 
   /** The keys of `table` that its install list does not name. */
-  const strayKeys = (table: 'meta' | 'server_secrets', install: readonly KeyPattern[]) =>
-    keysIn(table).filter((key) => !keyIn(install, key))
+  const strayKeys = async (table: 'meta' | 'server_secrets', install: readonly KeyPattern[]) =>
+    (await keysIn(table)).filter((key) => !keyIn(install, key))
 
-  it('holds only install keys in meta and server_secrets of a migrated, booted database', () => {
+  it('holds only install keys in meta and server_secrets of a migrated, booted database', async () => {
     // Non-vacuous: the boot wrote install keys, and the workspace's went to the new tables.
-    expect(keysIn('meta')).toContain(INSTALLATION_META_KEY)
-    expect(keysIn('server_secrets')).toContain(INSTALLATION_PRIVATE_KEY)
-    const workspaceKeys = (
-      db.prepare('SELECT key FROM workspace_meta').all() as { key: string }[]
-    ).map((row) => row.key)
-    expect(workspaceKeys).toContain('settings')
-    expect(strayKeys('meta', INSTALL_META_KEYS)).toEqual([])
-    expect(strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([])
+    expect(await keysIn('meta')).toContain(INSTALLATION_META_KEY)
+    expect(await keysIn('server_secrets')).toContain(INSTALLATION_PRIVATE_KEY)
+    const workspaceKeys = (await raw.all<{ key: string }>(sql`SELECT key FROM workspace_meta`)).map(
+      (row) => row.key,
+    )
+    // On SQLite the boot's one-time settings import writes the workspace's settings row; a
+    // Postgres install has no legacy settings to import (POD-6958 design 2.9), so there the
+    // workspace half is the retired-member mapping every boot writes.
+    expect(workspaceKeys).toContain(raw.engine === 'pg' ? RETIRED_MEMBER_MAPPING : 'settings')
+    expect(await strayKeys('meta', INSTALL_META_KEYS)).toEqual([])
+    expect(await strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([])
   })
 
-  it('fails on a planted workspace key in meta or server_secrets', () => {
-    db.prepare("INSERT INTO meta (key, value) VALUES ('model_catalog:planted', '{}')").run()
-    db.prepare(
-      "INSERT INTO server_secrets (key, value, updated_at) VALUES ('notifications.telegramBotToken', 'planted', 'now')",
-    ).run()
+  it('fails on a planted workspace key in meta or server_secrets', async () => {
+    await raw.run(sql`INSERT INTO meta (key, value) VALUES ('model_catalog:planted', '{}')`)
+    await raw.run(
+      sql`INSERT INTO server_secrets (key, value, updated_at)
+          VALUES ('notifications.telegramBotToken', 'planted', ${'2026-07-01T00:00:00.000Z'})`,
+    )
     try {
-      expect(strayKeys('meta', INSTALL_META_KEYS)).toEqual(['model_catalog:planted'])
-      expect(strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([
+      expect(await strayKeys('meta', INSTALL_META_KEYS)).toEqual(['model_catalog:planted'])
+      expect(await strayKeys('server_secrets', INSTALL_SECRET_KEYS)).toEqual([
         'notifications.telegramBotToken',
       ])
     } finally {
-      db.prepare("DELETE FROM meta WHERE key = 'model_catalog:planted'").run()
-      db.prepare("DELETE FROM server_secrets WHERE key = 'notifications.telegramBotToken'").run()
+      await raw.run(sql`DELETE FROM meta WHERE key = 'model_catalog:planted'`)
+      await raw.run(sql`DELETE FROM server_secrets WHERE key = 'notifications.telegramBotToken'`)
     }
   })
 
@@ -390,21 +409,24 @@ describe('workspace table manifest', () => {
    */
   const BORN_WORKSPACE_KEYED = ['artifact_uploads', 'pending_uploads'] as const
 
-  it('leads every key of a table created after the column migration with workspace_id', () => {
-    const offending: string[] = []
-    for (const name of BORN_WORKSPACE_KEYED) {
-      expect(manifest[name]?.class).toBe('workspace')
-      const indexes = db.prepare('SELECT name FROM pragma_index_list(?)').all(name) as {
-        name: string
-      }[]
-      expect(indexes.length).toBeGreaterThan(1)
-      for (const { name: index } of indexes) {
-        const [first] = db
-          .prepare('SELECT name FROM pragma_index_info(?) WHERE seqno = 0')
-          .all(index) as { name: string }[]
-        if (first?.name !== 'workspace_id') offending.push(`${name}.${index}`)
+  sqliteCatalogue(
+    'leads every key of a table created after the column migration with workspace_id',
+    () => {
+      const offending: string[] = []
+      for (const name of BORN_WORKSPACE_KEYED) {
+        expect(manifest[name]?.class).toBe('workspace')
+        const indexes = db.prepare('SELECT name FROM pragma_index_list(?)').all(name) as {
+          name: string
+        }[]
+        expect(indexes.length).toBeGreaterThan(1)
+        for (const { name: index } of indexes) {
+          const [first] = db
+            .prepare('SELECT name FROM pragma_index_info(?) WHERE seqno = 0')
+            .all(index) as { name: string }[]
+          if (first?.name !== 'workspace_id') offending.push(`${name}.${index}`)
+        }
       }
-    }
-    expect(offending).toEqual([])
-  })
+      expect(offending).toEqual([])
+    },
+  )
 })

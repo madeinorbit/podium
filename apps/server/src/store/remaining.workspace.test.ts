@@ -26,10 +26,12 @@
  */
 
 import { asSessionId, asUserId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { PersistedOperation } from '../modules/operations/store'
 import type { UpdateRecoverySnapshot } from '../modules/updates/recovery-store'
 import type { SessionStore } from '../store'
+import { storeSql } from '../test-support/store-sql'
 import {
   account,
   operation,
@@ -37,7 +39,6 @@ import {
   other,
   READER,
   RESETS,
-  rawDb,
   rowsOf,
   SAMPLING,
   SEEN,
@@ -64,15 +65,15 @@ afterEach(async () => {
 
 /** Runs `write` in `tag`'s workspace and holds the other's rows to what they were before. */
 async function leavesOtherUnchanged(tag: Tag, write: (store: SessionStore) => Promise<unknown>) {
-  const before = rowsOf(stores[other(tag)], other(tag))
+  const before = await rowsOf(stores[other(tag)], other(tag))
   await write(stores[tag])
-  expect(rowsOf(stores[other(tag)], other(tag))).toEqual(before)
+  expect(await rowsOf(stores[other(tag)], other(tag))).toEqual(before)
 }
 
 describe('each workspace holds its own rows', () => {
-  it('the seed wrote each workspace its own rows and no more', () => {
+  it('the seed wrote each workspace its own rows and no more', async () => {
     for (const tag of TAGS) {
-      const rows = rowsOf(stores[tag], tag)
+      const rows = await rowsOf(stores[tag], tag)
       expect(rows.recap_watermarks).toHaveLength(1)
       expect(rows.quota_windows).toHaveLength(3)
       expect(rows.operations).toHaveLength(5)
@@ -103,7 +104,7 @@ describe('recap watermarks (store/read-watermarks.ts)', () => {
       )
     })
     expect(await stores[tag].readWatermarks.getRecapWatermark(READER, TARGET)).toBe(`${tag}-mark-2`)
-    expect(rowsOf(stores[tag], tag).recap_watermarks).toHaveLength(2)
+    expect((await rowsOf(stores[tag], tag)).recap_watermarks).toHaveLength(2)
     expect(await stores[other(tag)].readWatermarks.getRecapWatermark(READER, TARGET)).toBe(
       `${other(tag)}-mark-1`,
     )
@@ -266,9 +267,9 @@ describe('update recovery (modules/updates/recovery-store.ts) is the install’s
     expect(await stores.b.updateRecovery.read()).toEqual(snapshot(1))
     await stores.b.updateRecovery.write(() => snapshot(2))
     expect(await stores.a.updateRecovery.read()).toEqual(snapshot(2))
-    const rows = rawDb(stores.a)
-      .prepare("SELECT key FROM meta WHERE key = 'updates.execution.v1'")
-      .all()
+    const rows = await storeSql(stores.a).all(
+      sql`SELECT key FROM meta WHERE key = 'updates.execution.v1'`,
+    )
     expect(rows).toHaveLength(1)
   })
 })
@@ -280,24 +281,22 @@ describe('update recovery (modules/updates/recovery-store.ts) is the install’s
  */
 describe('the same id in both workspaces, upserted through the repository (POD-7024)', () => {
   it("makes a second row, leaves the other workspace's as it was, and updates only its own", async () => {
-    const rowsIn = (store: SessionStore, ws: string) =>
-      rawDb(store)
-        .prepare(
-          'SELECT * FROM quota_windows WHERE workspace_id = ? AND account_key = ? ORDER BY rowid',
-        )
-        .all(ws, SAME)
+    const rowsIn = async (store: SessionStore, ws: string) =>
+      await storeSql(store).all(
+        sql`SELECT * FROM quota_windows WHERE workspace_id = ${ws} AND account_key = ${SAME}`,
+      )
     const SAME = 'claude-code::same@example.com'
     const { a, b } = stores
     await b.quotaHistory.record(sample('b', { accountKey: SAME }), SAMPLING)
-    const before = rowsIn(b, WS.b)
+    const before = await rowsIn(b, WS.b)
     await a.quotaHistory.record(sample('a', { accountKey: SAME }), SAMPLING)
-    expect(rowsIn(a, WS.a)).toHaveLength(1)
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toHaveLength(1)
+    expect(await rowsIn(b, WS.b)).toEqual(before)
     await a.quotaHistory.record(
       sample('a', { accountKey: SAME, usedPercent: 40, atMs: SEEN + SAMPLING }),
       SAMPLING,
     )
-    expect(rowsIn(a, WS.a)).toEqual([expect.objectContaining({ peak_percent: 40 })])
-    expect(rowsIn(b, WS.b)).toEqual(before)
+    expect(await rowsIn(a, WS.a)).toEqual([expect.objectContaining({ peak_percent: 40 })])
+    expect(await rowsIn(b, WS.b)).toEqual(before)
   })
 })

@@ -52,7 +52,7 @@ import { auditWorkspaceFiles, type OrphanAuditRecords } from './orphan-audit'
 const DAY = PENDING_UPLOAD_MAX_AGE_MS
 const HOUR = 60 * 60 * 1000
 const P = 8
-const AT = '2026-11-17T00:00:00Z'
+const AT = '2026-11-17T00:00:00.000Z'
 const ISSUE = asIssueId('iss_1')
 const ARTIFACT = asArtifactId('art1')
 const MACHINE = asMachineId('m1')

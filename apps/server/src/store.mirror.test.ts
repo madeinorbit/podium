@@ -2,9 +2,11 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { storeSql } from './test-support/store-sql'
 
 // Transcript-mirror store state (docs/spec/transcript-mirror.md §2.2): additive
 // `mirrored_bytes`/`mirrored_at` columns on conversation_segments — the pull
@@ -16,16 +18,15 @@ async function tmpDbPath(): Promise<string> {
 }
 
 /** Raw column peek — mirrored_at has no public getter (telemetry-only today). */
-function rawMirrorRow(
+async function rawMirrorRow(
   store: SessionStore,
   machineId: string,
   nativeId: string,
-): { mirrored_bytes: number; mirrored_at: string | null } | undefined {
-  return (store as unknown as { db: { prepare(q: string): { get(...a: unknown[]): unknown } } }).db
-    .prepare(
-      'SELECT mirrored_bytes, mirrored_at FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-    )
-    .get(machineId, nativeId) as { mirrored_bytes: number; mirrored_at: string | null } | undefined
+): Promise<{ mirrored_bytes: number; mirrored_at: string | null } | undefined> {
+  return await storeSql(store).get(
+    sql`SELECT mirrored_bytes, mirrored_at FROM conversation_segments
+        WHERE machine_id = ${machineId} AND native_id = ${nativeId}`,
+  )
 }
 
 describe('SessionStore transcript mirror state', () => {
@@ -38,7 +39,7 @@ describe('SessionStore transcript mirror state', () => {
       path: '/home/u/.claude/projects/-proj/n1.jsonl',
     })
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'n1')).toBe(0)
-    expect(rawMirrorRow(store, 'm1', 'n1')).toEqual({ mirrored_bytes: 0, mirrored_at: null })
+    expect(await rawMirrorRow(store, 'm1', 'n1')).toEqual({ mirrored_bytes: 0, mirrored_at: null })
     // A segment we never registered reads as cursor 0 too (nothing mirrored).
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'never-seen')).toBe(0)
     await store.close()
@@ -54,16 +55,22 @@ describe('SessionStore transcript mirror state', () => {
       path: '/home/u/.claude/projects/-proj/n1.jsonl',
     })
     expect(
-      await store.conversations.mirror.setMirrorCursor(m1, 'n1', 0, 100, '2026-07-02T10:00:00Z'),
+      await store.conversations.mirror.setMirrorCursor(
+        m1,
+        'n1',
+        0,
+        100,
+        '2026-07-02T10:00:00.000Z',
+      ),
     ).toBe(true)
     // A second writer that still believes the cursor is 0 loses (POD-6963 design 2.3).
     expect(
-      await store.conversations.mirror.setMirrorCursor(m1, 'n1', 0, 50, '2026-07-02T10:00:01Z'),
+      await store.conversations.mirror.setMirrorCursor(m1, 'n1', 0, 50, '2026-07-02T10:00:01.000Z'),
     ).toBe(false)
     expect(await store.conversations.mirror.mirrorCursor(m1, 'n1')).toBe(100)
-    expect(rawMirrorRow(store, 'm1', 'n1')).toEqual({
+    expect(await rawMirrorRow(store, 'm1', 'n1')).toEqual({
       mirrored_bytes: 100,
-      mirrored_at: '2026-07-02T10:00:00Z',
+      mirrored_at: '2026-07-02T10:00:00.000Z',
     })
     // A segment that does not exist moves nothing either.
     expect(
@@ -72,7 +79,7 @@ describe('SessionStore transcript mirror state', () => {
         'never-seen',
         0,
         1,
-        '2026-07-02T10:00:02Z',
+        '2026-07-02T10:00:02.000Z',
       ),
     ).toBe(false)
     await store.close()
@@ -94,7 +101,7 @@ describe('SessionStore transcript mirror state', () => {
       '2026-07-02T10:00:00.000Z',
     )
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'n1')).toBe(4096)
-    expect(rawMirrorRow(store, 'm1', 'n1')).toEqual({
+    expect(await rawMirrorRow(store, 'm1', 'n1')).toEqual({
       mirrored_bytes: 4096,
       mirrored_at: '2026-07-02T10:00:00.000Z',
     })
@@ -107,7 +114,7 @@ describe('SessionStore transcript mirror state', () => {
       '2026-07-02T11:00:00.000Z',
     )
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'n1')).toBe(0)
-    expect(rawMirrorRow(store, 'm1', 'n1')?.mirrored_at).toBe('2026-07-02T11:00:00.000Z')
+    expect((await rawMirrorRow(store, 'm1', 'n1'))?.mirrored_at).toBe('2026-07-02T11:00:00.000Z')
     await store.close()
   })
 
@@ -123,14 +130,14 @@ describe('SessionStore transcript mirror state', () => {
       asMachineId('m1'),
       'reused',
       { device: '7', inode: '8961297' },
-      '2026-08-08T21:06:39Z',
+      '2026-08-08T21:06:39.000Z',
     )
     await store.conversations.mirror.setMirrorCursor(
       asMachineId('m1'),
       'reused',
       0,
       1_229_180,
-      '2026-08-08T21:06:39Z',
+      '2026-08-08T21:06:39.000Z',
     )
     const observed = await store.conversations.mirror.activeIncarnation(asMachineId('m1'), 'reused')
     expect(observed).toEqual({ sequence: 1, device: '7', inode: '8961297' })
@@ -141,7 +148,7 @@ describe('SessionStore transcript mirror state', () => {
         observed as { sequence: number; device: string; inode: string },
         { device: '7', inode: '7115245' },
         1_229_180,
-        '2026-08-08T21:57:00Z',
+        '2026-08-08T21:57:00.000Z',
       )
     // Two writers that observed the same new identity: one rotates, the other
     // finds its observed incarnation retired and rotates nothing (POD-6963 2.3).
@@ -151,7 +158,7 @@ describe('SessionStore transcript mirror state', () => {
       'reused',
       0,
       10,
-      '2026-08-08T21:58:00Z',
+      '2026-08-08T21:58:00.000Z',
     )
     expect(await rotate()).toBe(false)
 
@@ -336,7 +343,7 @@ describe('SessionStore transcript mirror state', () => {
     // reported_bytes survives too — attach-time dirty reconcile reads it before
     // the first scan of the new server life.
     expect(await second.conversations.mirror.reportedBytes(asMachineId('m1'), 'n1')).toBe(900)
-    expect(rawMirrorRow(second, 'm1', 'n1')).toEqual({
+    expect(await rawMirrorRow(second, 'm1', 'n1')).toEqual({
       mirrored_bytes: 777,
       mirrored_at: '2026-07-02T10:00:00.000Z',
     })

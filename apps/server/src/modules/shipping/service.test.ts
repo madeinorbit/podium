@@ -12,9 +12,9 @@ import {
 } from '@podium/model'
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -27,6 +27,7 @@ import {
   expectConstantStatements,
   type StatementPin,
 } from '../../test-support/statement-count'
+import { storeSql } from '../../test-support/store-sql'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
@@ -286,27 +287,41 @@ const provedShippingJob = async (
 
 /** The service's own lane writer: these tests drive the ship commands outside a
  *  sync command, so they write as the lanes do (ADR 12 D9). */
+/**
+ * Fake timers for a test whose store has connected: postgres.js connects through
+ * `setTimeout(connect, 0)` and flushes its writes on `setImmediate`, so the store opens
+ * under real timers and `setImmediate` stays real (docs/agents/testing.md, Postgres lane).
+ */
+function useFakeTimersAfterConnect(): void {
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  })
+}
+
 const laneWriter = (service: ShippingService): ShippingWriter =>
   (service as unknown as { deps: { ledger: ShippingWriter } }).deps.ledger
 
 // Real terminal history, without replaying hundreds of external effects in
 // setup. The cloned immutable rows intentionally carry no outstanding debt.
-function cloneShippingHistory(
+async function cloneShippingHistory(
   store: SessionStore,
   orderId: string,
   copies: number,
   overrides: (table: string, copy: number) => Record<string, string> = () => ({}),
-): void {
-  const db = (store as unknown as { db: SqlDatabase }).db
+): Promise<void> {
+  const raw = storeSql(store)
   const tables = ['ship_orders', 'ship_attempts', 'ship_steps', 'delivery_receipts'] as const
-  const sources = tables.map((table) => ({
-    table,
-    rows: db
-      .prepare(`SELECT * FROM ${table} WHERE ${table === 'ship_orders' ? 'id' : 'order_id'} = ?`)
-      .all(orderId) as Record<string, string | number | null>[],
-  }))
-  db.exec('BEGIN')
-  try {
+  const sources: { table: (typeof tables)[number]; rows: Record<string, unknown>[] }[] = []
+  for (const table of tables) {
+    const key = sql.identifier(table === 'ship_orders' ? 'id' : 'order_id')
+    sources.push({
+      table,
+      rows: await raw.all<Record<string, unknown>>(
+        sql`SELECT * FROM ${sql.identifier(table)} WHERE ${key} = ${orderId}`,
+      ),
+    })
+  }
+  await raw.transaction(async () => {
     for (let i = 0; i < copies; i++) {
       const suffix = `:history:${i}`
       for (const { table, rows } of sources) {
@@ -320,19 +335,35 @@ function cloneShippingHistory(
                 ? `${row[column]}${suffix}`
                 : (row[column] ?? null)),
           )
-          db.prepare(
-            `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
-          ).run(...values)
+          await raw.run(
+            sql`INSERT INTO ${sql.identifier(table)} (${sql.join(
+              columns.map((column) => sql.identifier(column)),
+              sql`, `,
+            )}) VALUES (${sql.join(
+              values.map((value) => sql`${value}`),
+              sql`, `,
+            )})`,
+          )
         }
       }
     }
     // A raw fixture seed reaches the tables, not the log (POD-6920).
-    db.exec('DELETE FROM sync_capture')
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
+    await raw.run(sql`DELETE FROM sync_capture`)
+  })
+}
+
+/** A trigger that refuses every `podium_events` insert with 'event refused', on either engine. */
+async function refuseEventInserts(store: SessionStore): Promise<void> {
+  const raw = storeSql(store)
+  if (raw.engine === 'sqlite') {
+    await raw.run(sql`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
+      BEGIN SELECT RAISE(ABORT, 'event refused'); END`)
+    return
   }
+  await raw.run(sql`CREATE FUNCTION refuse_shipping_event() RETURNS trigger LANGUAGE plpgsql
+    AS $$ BEGIN RAISE EXCEPTION 'event refused'; END $$`)
+  await raw.run(sql`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
+    FOR EACH ROW EXECUTE FUNCTION refuse_shipping_event()`)
 }
 
 async function recoveryFixture(shippingJob: ShippingJob = provedShippingJob) {
@@ -563,7 +594,7 @@ describe('ShippingService durable recovery debt', () => {
     setup: async (size) => {
       const fixture = await recoveryFixture()
       await fixture.service.runOrder(fixture.order.id)
-      cloneShippingHistory(fixture.store, fixture.order.id, size - 1)
+      await cloneShippingHistory(fixture.store, fixture.order.id, size - 1)
       return fixture
     },
     target: ({ store }) => store,
@@ -604,11 +635,10 @@ describe('ShippingService durable recovery debt', () => {
       return await provedShippingJob(input, machineId)
     })
     await service.runOrder(order.id)
-    const db = (store as unknown as { db: SqlDatabase }).db
     for (let i = 0; i < 205; i++) {
-      db.prepare(
-        `INSERT INTO ship_recovery_work (key, kind, order_id, payload, workspace_id) SELECT ?, kind, order_id, payload, workspace_id FROM ship_recovery_work WHERE kind = 'daemon-ack' LIMIT 1`,
-      ).run(`page-test:${String(i).padStart(3, '0')}`)
+      await storeSql(store).run(
+        sql`INSERT INTO ship_recovery_work (key, kind, order_id, payload, workspace_id) SELECT ${`page-test:${String(i).padStart(3, '0')}`}, kind, order_id, payload, workspace_id FROM ship_recovery_work WHERE kind = 'daemon-ack' LIMIT 1`,
+      )
     }
     service.dispose()
     const restarted = new ShippingService(deps)
@@ -711,23 +741,28 @@ describe('ShippingService durable recovery debt', () => {
         at: '05',
       },
     ]
-    cloneShippingHistory(store, order.id, rows.length, (table, index): Record<string, string> => {
-      const row = rows[index]!
-      const at = `2026-08-13T10:00:${row.at}.000Z`
-      return table === 'ship_orders'
-        ? {
-            destination: row.destination,
-            approved_head_sha: row.head,
-            state_changed_at: at,
-            current_integration_receipt: JSON.stringify({
-              ...order.currentIntegrationReceipt,
-              approvedHeadSha: row.head,
-            }),
-          }
-        : table === 'delivery_receipts'
-          ? { destination: row.destination, destination_sha: row.sha, completed_at: at }
-          : {}
-    })
+    await cloneShippingHistory(
+      store,
+      order.id,
+      rows.length,
+      (table, index): Record<string, string> => {
+        const row = rows[index]!
+        const at = `2026-08-13T10:00:${row.at}.000Z`
+        return table === 'ship_orders'
+          ? {
+              destination: row.destination,
+              approved_head_sha: row.head,
+              state_changed_at: at,
+              current_integration_receipt: JSON.stringify({
+                ...order.currentIntegrationReceipt,
+                approvedHeadSha: row.head,
+              }),
+            }
+          : table === 'delivery_receipts'
+            ? { destination: row.destination, destination_sha: row.sha, completed_at: at }
+            : {}
+      },
+    )
     const isAncestor = vi.fn<typeof deps.isAncestor>(
       async (_issue, ancestor, descendant) =>
         (ancestor === 'contained' && descendant === 'approved-base') ||
@@ -778,7 +813,7 @@ describe('ShippingService durable recovery debt', () => {
 
   it('pages newest receipts until containment and skips the older destination history', async () => {
     const { store, service, deps, order } = await historyPin.setup(1)
-    cloneShippingHistory(store, order.id, 201, (table, index): Record<string, string> => {
+    await cloneShippingHistory(store, order.id, 201, (table, index): Record<string, string> => {
       const at = new Date(Date.parse(order.stateChangedAt) + (index + 1) * 1_000).toISOString()
       return table === 'ship_orders'
         ? {
@@ -1793,7 +1828,6 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('renews an active merge lease while its daemon effect is still running', async () => {
-    vi.useFakeTimers()
     let markCommitStarted!: () => void
     const commitStarted = new Promise<void>((resolve) => {
       markCommitStarted = resolve
@@ -1816,6 +1850,7 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = await harness(daemon, { resourceAdmission })
+    useFakeTimersAfterConnect()
     const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'renew lease',
@@ -1838,7 +1873,6 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('stops durable progress and refuses release after renewal loses the lease', async () => {
-    vi.useFakeTimers()
     const dispatched: string[] = []
     let mergeRenewals = 0
     let markCommitStarted!: () => void
@@ -1872,6 +1906,7 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = await harness(daemon, { resourceAdmission })
+    useFakeTimersAfterConnect()
     const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'lost lease',
@@ -1960,7 +1995,6 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('stops renewing active resource leases when disposed during a hung effect', async () => {
-    vi.useFakeTimers()
     let markCommitStarted!: () => void
     const commitStarted = new Promise<void>((resolve) => {
       markCommitStarted = resolve
@@ -1984,6 +2018,7 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(daemon, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
+    useFakeTimersAfterConnect()
     const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'dispose lease',
@@ -2342,9 +2377,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
-    const db = (store as unknown as { db: { exec(sql: string): void } }).db
-    db.exec(`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
-      BEGIN SELECT RAISE(ABORT, 'event refused'); END`)
+    await refuseEventInserts(store)
 
     await expect(
       service.cancel(laneWriter(service), {

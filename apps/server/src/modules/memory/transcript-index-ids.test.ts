@@ -23,7 +23,7 @@ forceFeature('command-palette', true)
  * stamped cursor id the lake returns — this test is red on that tree.
  */
 
-const TS = '2026-09-21T12:00:00.000Z'
+const TS = '2026-09-21T12:00:00Z'
 
 interface GrammarCase {
   name: string
@@ -173,7 +173,7 @@ describe('transcript index-vs-lake identity (this issue)', () => {
       nativeId,
       0,
       Buffer.byteLength(content),
-      '2026-09-21T12:00:00Z',
+      '2026-09-21T12:00:00.000Z',
     )
 
     const indexer = new TranscriptIndexer({

@@ -10,6 +10,7 @@ import { asSessionId, type QuotaSample, type SessionId } from '@podium/model'
 import type { PersistedOperation } from '../../modules/operations/store'
 import type { ReaderRef } from '../../modules/sessions/read-toolkit'
 import type { SessionStore } from '../../store'
+import { workspaceRows } from '../store-sql'
 
 export type Tag = 'a' | 'b'
 export const WS: Record<Tag, string> = { a: 'ws_a', b: 'ws_b' }
@@ -20,23 +21,14 @@ export const SAMPLING = 15 * 60_000
 export const RESETS = Date.parse('2026-11-24T01:00:00.000Z')
 export const SEEN = Date.parse('2026-11-17T10:00:00.000Z')
 
-export interface RawDb {
-  prepare(sql: string): { all(...params: unknown[]): unknown[] }
-}
-export const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
 /** The workspace tables these repositories read and write. */
 export const TABLES = ['recap_watermarks', 'quota_windows', 'operations'] as const
 
-export function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      rawDb(store)
-        .prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`)
-        .all(WS[tag]),
-    ]),
-  )
+/** One workspace's rows of every table, each in primary-key order, on either engine. */
+export async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) out[table] = await workspaceRows(store, table, WS[tag])
+  return out
 }
 
 /** The same ids in both workspaces. */

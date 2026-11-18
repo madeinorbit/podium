@@ -48,7 +48,7 @@ const DAY = ORPHAN_MIN_AGE_MS
 const HOUR = 60 * 60 * 1000
 /** A small part size, so a few bytes span several parts. */
 const P = 10
-const AT = '2026-11-17T00:00:00Z'
+const AT = '2026-11-17T00:00:00.000Z'
 const M1 = asMachineId('m1')
 const ALICE = asUserId('user:alice')
 const scope = fixtureWriteScope()

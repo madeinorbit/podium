@@ -98,8 +98,8 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
     estimateMin: null,
     needsHuman: false,
     humanQuestion: null,
-    createdAt: 't0',
-    updatedAt: 't0',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
     ...over,
   }) as IssueRow

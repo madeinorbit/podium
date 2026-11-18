@@ -12,11 +12,14 @@ import {
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { storeSql } from './test-support/store-sql'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
@@ -64,17 +67,22 @@ async function tmpDbPath(): Promise<string> {
 }
 
 describe('SessionStore repos', () => {
-  it('reports the newest migration recorded by a real migrated store', async () => {
-    const store = await openTestStore(':memory:')
-    const expected = DRIZZLE_MIGRATIONS.filter(
-      (m) => !m.sql.startsWith('-- after-local-identity-import'),
-    )
-      .map(({ name }) => name)
-      .sort()
-      .at(-1)
-    expect(await store.schemaVersionForTransfer()).toBe(expected)
-    await store.close()
-  })
+  // The transfer's schema stamp and fence are a SQLite file's: hosted Postgres has no transfer
+  // (POD-6958 design 2.9).
+  it.skipIf(testStoreEngine() === 'pg')(
+    'reports the newest migration recorded by a real migrated store',
+    async () => {
+      const store = await openTestStore(':memory:')
+      const expected = DRIZZLE_MIGRATIONS.filter(
+        (m) => !m.sql.startsWith('-- after-local-identity-import'),
+      )
+        .map(({ name }) => name)
+        .sort()
+        .at(-1)
+      expect(await store.schemaVersionForTransfer()).toBe(expected)
+      await store.close()
+    },
+  )
 
   it('starts empty, adds, dedupes, lists in insertion order, removes', async () => {
     const store = await openTestStore(':memory:')
@@ -88,14 +96,17 @@ describe('SessionStore repos', () => {
     await store.close()
   })
 
-  it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
-    const store = await openTestStore(':memory:')
-    await store.beginTransferFence()
-    await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
-    await store.endTransferFence()
-    await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
-    await store.close()
-  })
+  it.skipIf(testStoreEngine() === 'pg')(
+    'rejects SQLite writes while a transfer fence is held, then reopens them',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.beginTransferFence()
+      await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
+      await store.endTransferFence()
+      await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
+      await store.close()
+    },
+  )
 
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
@@ -743,7 +754,12 @@ describe('SessionStore sessions', () => {
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
     await expect(
-      store.sessions.markSessionRead(fixtureWriteScope(), asUserId(''), asSessionId('s_read'), 't'),
+      store.sessions.markSessionRead(
+        fixtureWriteScope(),
+        asUserId(''),
+        asSessionId('s_read'),
+        '2026-07-01T00:00:00.000Z',
+      ),
     ).rejects.toThrow(/no user id/)
     await store.close()
   })
@@ -950,7 +966,7 @@ describe('SessionStore offers', () => {
     expect(await store.sessions.listOffers()).toEqual({ s1: OFFER })
 
     // A subsequent offer replaces the previous one.
-    const next = { message: 'Ready to land', actions: [], createdAt: 't2' }
+    const next = { message: 'Ready to land', actions: [], createdAt: '2026-07-01T00:00:02.000Z' }
     await store.sessions.setOffer(fixtureWriteScope(), asSessionId('s1'), next)
     expect(await store.sessions.listOffers()).toEqual({ s1: next })
 
@@ -959,16 +975,20 @@ describe('SessionStore offers', () => {
     await store.close()
   })
 
-  it('drops a row with corrupt JSON actions instead of throwing', async () => {
-    const store = await openTestStore(':memory:')
-    await store.sessions.setOffer(fixtureWriteScope(), asSessionId('good'), OFFER)
-    // Simulate a corrupt persisted row.
-    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
-      .run('{not json', 'good')
-    expect(await store.sessions.listOffers()).toEqual({})
-    await store.close()
-  })
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'drops a row with corrupt JSON actions instead of throwing',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.sessions.setOffer(fixtureWriteScope(), asSessionId('good'), OFFER)
+      // Simulate a corrupt persisted row.
+      await storeSql(store).run(
+        sql`UPDATE offers SET actions = ${'{not json'} WHERE session_id = ${'good'}`,
+      )
+      expect(await store.sessions.listOffers()).toEqual({})
+      await store.close()
+    },
+  )
 
   it('removes an offer when the session is purged', async () => {
     const store = await openTestStore(':memory:')
@@ -1328,27 +1348,31 @@ describe('SessionStore superagent threads', () => {
     await s.close()
   })
 
-  it('tolerates a corrupt tool_calls column instead of dropping the whole thread', async () => {
-    // One message with unparseable tool_calls must NOT throw out of the row map and
-    // blank the entire thread's history — quarantine that field to undefined, keep
-    // the message and the rest of the thread.
-    const s = await openTestStore(':memory:')
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'a',
-    })
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'b',
-    })
-    ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
-      .run()
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'tolerates a corrupt tool_calls column instead of dropping the whole thread',
+    async () => {
+      // One message with unparseable tool_calls must NOT throw out of the row map and
+      // blank the entire thread's history — quarantine that field to undefined, keep
+      // the message and the rest of the thread.
+      const s = await openTestStore(':memory:')
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'a',
+      })
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'b',
+      })
+      await storeSql(s).run(
+        sql`UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'`,
+      )
 
-    await s.superagent.loadSuperagentMessages('global')
-    const msgs = await s.superagent.loadSuperagentMessages('global')
-    expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
-    expect(msgs[0]?.toolCalls).toBeUndefined()
-    await s.close()
-  })
+      await s.superagent.loadSuperagentMessages('global')
+      const msgs = await s.superagent.loadSuperagentMessages('global')
+      expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
+      expect(msgs[0]?.toolCalls).toBeUndefined()
+      await s.close()
+    },
+  )
 })

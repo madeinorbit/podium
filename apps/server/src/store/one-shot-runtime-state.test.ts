@@ -26,6 +26,7 @@ import type { HeadlessTurnOutcome } from '../../../../packages/harness/src/drive
 import { SessionRegistry } from '../relay'
 import { attachTestClient } from '../test-support/client-transport'
 import { attachHostDaemon } from '../test-support/host-daemon'
+import { openTestStore } from '../test-support/open-test-store'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -41,7 +42,9 @@ interface ControlledTurn {
 }
 
 async function fixture() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  // The run's engine's store; a registry handed a store leaves closing it to its caller.
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const controls: ControlMessage[] = []
   await attachHostDaemon(registry, (frame) => { controls.push(frame) })
   const clients: ServerMessage[] = []
@@ -103,7 +106,7 @@ async function fixture() {
     readFileBytes: async () => new Uint8Array(), now: () => now,
   }
   const runtime = createHeadlessRuntime(host, createMemoryDriverSlots(), runners)
-  cleanups.push(async () => { runtime.dispose(); await registry.dispose() })
+  cleanups.push(async () => { runtime.dispose(); await registry.dispose(); await store.close() })
   const spec: SessionSpec = {
     harness: 'claude-code', workdir: '/fixture', model: {},
     harnessContext: testHarnessContext({ kind: 'claude-code' }),

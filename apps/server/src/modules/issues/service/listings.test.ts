@@ -12,15 +12,42 @@
 
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../../store'
-import { BOB, CAROL, type CorpusIssue, grantIssue, rawSql, seededStore } from '../../../test-support/issue-corpus'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
+import { BOB, CAROL, type CorpusIssue, grantIssue, seededStore } from '../../../test-support/issue-corpus'
 import { sessionReadPorts } from '../../../test-support/session-facts'
+import { storeSql } from '../../../test-support/store-sql'
 import { IssueStore } from './core'
 import { type IssueReader, IssueReportsModule } from './reads'
 import type { IssueDeps } from './types'
 
 const stores: SessionStore[] = []
+
+/**
+ * An edge to a blocker whose row is gone. Hard delete cascades its edges, so the edge is
+ * planted past the foreign key: SQLite turns its checks off for the insert, on the connection
+ * itself (the pragma does nothing inside a transaction); Postgres drops the key and adds it
+ * back NOT VALID, which checks every later write but not this row.
+ */
+async function plantDanglingEdge(store: SessionStore): Promise<void> {
+  const raw = storeSql(store)
+  if (raw.engine === 'sqlite') {
+    const db = (store as unknown as { db: SqlDatabase }).db
+    db.exec('PRAGMA foreign_keys = OFF')
+    db.prepare("INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES (?, 'iss_9', 'iss_gone_blocker', 'blocked-by')").run(SELF_HOSTED_WORKSPACE_ID)
+    db.exec('PRAGMA foreign_keys = ON')
+    return
+  }
+  await raw.run(sql`ALTER TABLE issue_deps DROP CONSTRAINT fk_issue_deps_to_id_issues_id_fk`)
+  await raw.run(sql`INSERT INTO issue_deps (workspace_id, from_id, to_id, type)
+    VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'iss_9', 'iss_gone_blocker', 'blocked-by')`)
+  await raw.run(sql`ALTER TABLE issue_deps ADD CONSTRAINT fk_issue_deps_to_id_issues_id_fk
+    FOREIGN KEY (workspace_id, to_id) REFERENCES issues (workspace_id, id) ON DELETE CASCADE
+    NOT VALID`)
+}
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close()
 })
@@ -86,12 +113,9 @@ describe('issue listings over the database', () => {
       { fromId: 'iss_14', toId: 'iss_16', type: 'duplicates' },
     ])
     stores.push(store)
-    // A blocker whose row is gone (hard delete cascades its edges, so the edge
-    // is planted after with the foreign keys off).
+    // A blocker whose row is gone.
     await store.issues.deleteIssue('iss_gone_blocker')
-    rawSql(store, 'PRAGMA foreign_keys = OFF')
-    rawSql(store, "INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('local', 'iss_9', 'iss_gone_blocker', 'blocked-by')")
-    rawSql(store, 'PRAGMA foreign_keys = ON')
+    await plantDanglingEdge(store)
     await store.issues.setIssueLabels(asIssueId('iss_2'), ['ui', 'auth'])
     await store.issues.setIssueLabels(asIssueId('iss_b1'), ['auth'])
     await grantIssue(store, 'iss_2', BOB, 'read')

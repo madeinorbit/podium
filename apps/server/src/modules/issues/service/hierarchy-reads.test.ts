@@ -13,6 +13,7 @@
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, type RepoId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, seededStore } from '../../../test-support/issue-corpus'
@@ -74,7 +75,7 @@ describe('issue hierarchy reads over the database', () => {
     const store = await seededStore(rows, ['/a', '/b'])
     stores.push(store)
     // A parent cycle: no write path makes one, so it is planted.
-    rawSql(store, "UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'")
+    await rawSql(store, sql`UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'`)
     const viewer = await firstAdminMemberId(store)
     // The viewer's pin is a `pins` row of kind 'issue' (POD-6692).
     await store.sessions.addPin(viewer, 'issue', 'iss_8', '2026-10-01T00:00:00.000Z')

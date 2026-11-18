@@ -15,10 +15,12 @@ import {
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { expect } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
 import { issueRowFixture } from '../issue-row'
+import { storeSql, workspaceRows } from '../store-sql'
 
 export type Tag = 'a' | 'b'
 export const TAGS = ['a', 'b'] as const
@@ -54,15 +56,6 @@ export const position = (tag: Tag): number => (tag === 'a' ? 0 : 1)
 // An id only `tag`'s workspace holds.
 export const only = (tag: Tag): IssueId => asIssueId(`only-${tag}`)
 
-export interface RawDb {
-  prepare(sql: string): {
-    all(...params: unknown[]): unknown[]
-    get(...params: unknown[]): unknown
-    run(...params: unknown[]): unknown
-  }
-}
-export const rawDb = (store: SessionStore): RawDb => (store as unknown as { db: RawDb }).db
-
 /** The tables this group owns, read raw per workspace, for "unchanged" comparisons. */
 export const TABLES = [
   'issues',
@@ -82,14 +75,11 @@ export const TABLES = [
   'issue_git_states',
 ] as const
 
-export function rowsOf(store: SessionStore, tag: Tag): Record<string, unknown[]> {
-  const db = rawDb(store)
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare(`SELECT * FROM ${table} WHERE workspace_id = ? ORDER BY rowid`).all(WS[tag]),
-    ]),
-  )
+/** One workspace's rows of every table, each in primary-key order, on either engine. */
+export async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
+  const out: Record<string, unknown[]> = {}
+  for (const table of TABLES) out[table] = await workspaceRows(store, table, WS[tag])
+  return out
 }
 
 /**
@@ -129,19 +119,19 @@ export function issue(tag: Tag, n: number, patch: Partial<IssueRow> = {}): Issue
   } as Partial<IssueRow> as never)
 }
 
-export function insertMachine(store: SessionStore, tag: Tag, id: string): void {
-  rawDb(store)
-    .prepare(
-      `INSERT INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(WS[tag], id, `${tag} machine`, `${tag}-host`, `${tag}-token-${id}`, AT_OF[tag], AT_OF[tag])
+/** A machine row, raw: the machines repository is another task's. */
+export async function insertMachine(store: SessionStore, tag: Tag, id: string): Promise<void> {
+  await storeSql(store).run(
+    sql`INSERT INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
+        VALUES (${WS[tag]}, ${id}, ${`${tag} machine`}, ${`${tag}-host`}, ${`${tag}-token-${id}`},
+                ${AT_OF[tag]}, ${AT_OF[tag]})`,
+  )
 }
 
 export async function seed(store: SessionStore, tag: Tag): Promise<void> {
   const s = store.issues
   const at = AT_OF[tag]
-  insertMachine(store, tag, MACHINE)
+  await insertMachine(store, tag, MACHINE)
   await s.upsertIssue(scope, issue(tag, 1, { deferUntil: LATER, sortKey: 'm' }))
   await s.upsertIssue(
     scope,
