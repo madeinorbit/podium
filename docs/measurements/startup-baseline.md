@@ -154,8 +154,11 @@ and real-loader tests cover the eventual server answer, offline behavior and
 superseded requests. These measurements ran on an agent VM on 2026-11-18. The four-cell proof
 is from the initial candidate. The later legacy all-history lazy comparison
 still reaches its sixteen-round hydration limit (POD-7110), even after narrowing
-the added web/phone questions to IDs and completeness. This is an open validation
-failure, not a passing legacy comparison.
+the added web/phone questions to IDs and completeness. This remains an open phase-owned validation
+failure; the phase coordinator took it after the sibling screen task reproduced
+it. The later search follow-up passes 17 palette/shared-picker tests and the
+lean gate (165 tests), including the typecheck-cache audit after moving the pure
+ID reader into client-graph. That follow-up does not rerun the legacy comparison.
 
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership
