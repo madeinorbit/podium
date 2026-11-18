@@ -400,21 +400,22 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // because the unanswered scan wrote that row 10 s later; the row's sharing reads
   // (admin users, checkout paths, grants) are the three, once per page.
   // POD-7104 answers the asking sessions from an index on a derived column, so
-  // the first download no longer reads offers and checkpoints for it: 80 on dev/mw,
-  // and with POD-7061's three, 83 (merged in POD-7118).
+  // the first download no longer reads offers and checkpoints for it: 80. The first
+  // download (POD-7085) reads by collection, not kind by kind, so POD-7061's three
+  // checkout reads are inside those 80 (measured at the merge, POD-7118).
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 83)
+    await expectConstantStatements(bootstrap, 80)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 83, plantPerSessionRead)
+    await expectArmed(bootstrap, 80, plantPerSessionRead)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
   // session's driver calls that wait for the server, by the Postgres driver's pipelining.
   // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('a bootstrap for the owner: round trips', async () => {
-    await expectConstantRoundTrips(bootstrap, 68, (_w, go) => countWorkerTrips(go))
+    await expectConstantRoundTrips(bootstrap, 81, (_w, go) => countWorkerTrips(go))
   }, 60_000)
 
   const delta = pin(
