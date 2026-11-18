@@ -350,6 +350,22 @@ export class Replica implements DeviceCollectionReads {
    * every answer that has arrived, and every view's reaction to it, as one task.
    */
   private installTurn: Promise<void> | null = null
+  /**
+   * POD-7168 — the durable tail of a load: from the moment the views open on
+   * it ("load-installed") until its last commit is adopted. On a large first
+   * download that commit waits for every chunk to reach IndexedDB (25 s on a
+   * busy host), and a fetch installed behind it (`serial`) waited all that
+   * time: the deck's tree, answered by the server in under a second, appeared
+   * after the whole first download was durable. In the tail a fetch installs
+   * at once. What it named stays out of the load's sweep, and what it brought
+   * is installed again once the load's commit is in, so a sweep or a frame the
+   * commit staged before the fetch arrived cannot take back a newer row.
+   */
+  private tail: {
+    readonly generation: number
+    readonly named: Set<string>
+    readonly installed: BootstrapChunk[]
+  } | null = null
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
@@ -1548,8 +1564,33 @@ export class Replica implements DeviceCollectionReads {
     if (
       this.store.readLoadingSince() !== null &&
       (this.store.readPolicy() === null || this.missingPolicyInstances().length === 0)
-    )
+    ) {
       this.emit({ type: 'load-installed', cause, snapshotSeq })
+      this.tail = { generation, named: new Set(), installed: [] }
+    }
+    try {
+      await this.commitLoad(cause, generation, full, entityCount, snapshotSeq)
+    } finally {
+      if (this.tail?.generation === generation) this.tail = null
+    }
+    if (this.state === 'live' && generation === this.walkGeneration) {
+      await this.drainBuffer()
+      if (this.state === 'live' && generation === this.walkGeneration) {
+        this.requestMissingComesWith()
+        this.scheduleTrim()
+      }
+    }
+  }
+
+  /** The load's last commit: its sweep, the frames that arrived meanwhile, and going live. */
+  private async commitLoad(
+    cause: RebootstrapCause,
+    generation: number,
+    full: boolean,
+    entityCount: number,
+    snapshotSeq: number,
+  ): Promise<void> {
+    const base = this.cursorValue as Cursor
     // A COPY, and `this.buffer` is NOT cleared here (POD-1161): the consumed prefix
     // is removed inside the `adopt` closure below, in `span.onCommit`, so an aborted
     // commit leaves the frames for the restart.
@@ -1583,12 +1624,10 @@ export class Replica implements DeviceCollectionReads {
     }
     const loadingSince = this.store.readLoadingSince()
     const complete = this.store.readPolicy() === null || this.missingPolicyInstances().length === 0
-    const swept: EntityRecord[] =
-      complete && loadingSince !== null
-        ? [...this.store.readEntities(), ...this.store.readStubs()].filter(
-            (row) => rowAsOf(row) < loadingSince,
-          )
-        : []
+    // POD-7168: a fetch may install while this commit waits (`tail`). The sweep
+    // is read when the commit is written, and never takes a row a fetch named.
+    const tail = this.tail?.generation === generation ? this.tail : null
+    let swept: EntityRecord[] = []
     const decisions: FeedDecision[] = []
     // A load that replaced what the device held is a new truth, also when it
     // was resumed after an early close: it covers receipts the old rows owed.
@@ -1605,6 +1644,14 @@ export class Replica implements DeviceCollectionReads {
         }
         prepare()
         span?.join({ prepare, publish() {} })
+        swept =
+          complete && loadingSince !== null
+            ? [...this.store.readEntities(), ...this.store.readStubs()].filter(
+                (row) =>
+                  rowAsOf(row) < loadingSince &&
+                  !tail?.named.has(entityKey(row.entity, row.entityId)),
+              )
+            : []
         const staged = new Map<string, EntityRecord | null>()
         for (const row of swept) staged.set(entityKey(row.entity, row.entityId), null)
         this.store.applyAtomic(
@@ -1635,6 +1682,13 @@ export class Replica implements DeviceCollectionReads {
         this.note('D6-INSTALL')
         this.cursorValue = running
         if (full) this.exits.clear()
+        if (tail !== null && generation === this.walkGeneration) {
+          // What fetches installed while this commit waited, again: the commit
+          // was written before some of them arrived, and its sweep or frames
+          // must not take back a newer row. The newer one wins, as ever.
+          for (const chunk of tail.installed) this.installChunk(chunk, {})
+          swept = swept.filter((row) => !tail.named.has(entityKey(row.entity, row.entityId)))
+        }
         for (const row of swept)
           this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
         this.emit({
@@ -1668,13 +1722,6 @@ export class Replica implements DeviceCollectionReads {
       },
       replaces,
     )
-    if (this.state === 'live' && generation === this.walkGeneration) {
-      await this.drainBuffer()
-      if (this.state === 'live' && generation === this.walkGeneration) {
-        this.requestMissingComesWith()
-        this.scheduleTrim()
-      }
-    }
   }
 
   // ─── Collections the device holds (POD-7086) ──────────────────────────────
@@ -1899,7 +1946,17 @@ export class Replica implements DeviceCollectionReads {
             )
           }
           if (insideLoad) write()
-          else await this.serial(write)
+          else if (reload === undefined && this.tail?.generation === this.walkGeneration) {
+            // The load's last commit is under way and installs nothing more
+            // itself: this answer need not wait for it to be durable (POD-7168).
+            const tail = this.tail
+            for (const change of chunk.changes)
+              tail.named.add(entityKey(change.entity, change.entityId))
+            for (const change of chunk.stubs ?? [])
+              tail.named.add(entityKey(change.entity, change.entityId))
+            tail.installed.push(chunk)
+            write()
+          } else await this.serial(write)
         }
         for (let at = 0; at < fresh.length; at += FETCH_MAX_INSTANCES) {
           const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)

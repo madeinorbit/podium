@@ -493,6 +493,9 @@ export class FullDeck {
         if (shown === LOADING) pending = true
         if (shown !== true) continue
         out.push(child)
+        // Only a row with sub-issues has rows under it: a leaf's fold (which
+        // reads its word) never changes this list.
+        if (task.childIds.length === 0) continue
         const open = settled(() => task.open)
         if (open === LOADING) pending = true
         if (open === true) walk(child)

@@ -78,6 +78,8 @@ export interface LargeDeckRun {
   readonly unmetOutside: readonly (readonly [string, readonly string[]])[]
   /** Every fetch while the deck opened: its hop and the collections it named. */
   readonly fetches: readonly { readonly hop: number; readonly collections: readonly string[] }[]
+  /** With `holdLoadCommit`: the deck was ready while the first download's commit was still held. */
+  readonly readyWhileCommitHeld: boolean
   /** Event bursts the Replica emitted while the deck opened: one per install. */
   readonly bursts: number
   /** Changes the loader told the views while the deck opened. */
@@ -108,6 +110,12 @@ export async function openLargeDeck(
     readonly outsideBlockers?: number
     /** The server answers what records come with in the same answer, as the real route does. */
     readonly serverComesWith?: boolean
+    /**
+     * Hold the first download's last (durable) commit while the deck opens, as
+     * a large first download still being written to IndexedDB does (POD-7168).
+     * It is released once the deck has opened, or failed to.
+     */
+    readonly holdLoadCommit?: boolean
     /** Compose the loader's burst (the app does); false reproduces the old wiring. */
     readonly loaderBatch?: boolean
     readonly log?: (line: string) => void
@@ -200,13 +208,33 @@ export async function openLargeDeck(
   let opening = false
   const burstMs: number[] = []
   let longestMs = 0
+  // The first download's last commit, held until the deck has opened.
+  let releaseCommit = () => {}
+  const held = options.holdLoadCommit
+    ? new Promise<void>((resolve) => {
+        releaseCommit = resolve
+      })
+    : undefined
+  let holding = held !== undefined
+  let loadInstalled = false
   replica = new Replica({
+    ...(held === undefined
+      ? {}
+      : {
+          unitOfWork: {
+            transact: async (body) => {
+              await held
+              return await storage.unitOfWork.transact(body)
+            },
+          },
+        }),
     store: cache,
     authority: server,
     now: () => WORLD_NOW,
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
+      if (event.type === 'load-installed') loadInstalled = true
       facade.onKernelEvent(event)
       loader?.onEvent(event)
     },
@@ -253,20 +281,24 @@ export async function openLargeDeck(
       log(`${stage} ${ms.toFixed(0)} ms`)
     }
   }
+  // While the commit is held the kernel never settles: wait for tasks instead.
+  const quiet = async () => {
+    if (!holding) await kernel.settled()
+    await ticks()
+  }
   const settle = async () => {
     for (let round = 0; round < 10; round += 1) {
-      await kernel.settled()
-      await ticks()
+      await quiet()
       timed('loader.due', () => timer.due())
       await loader!.flush()
-      await kernel.settled()
-      await ticks()
+      await quiet()
       timed('rows.flush', () => rows.flush())
       timed('pool.hydrate', () => handle.pool.hydrate())
     }
   }
   kernel.connect()
   await settle()
+  if (holding && !loadInstalled) throw new Error('the first download never opened the views')
   const bootMs = performance.now() - t0
   log(`boot ${bootMs.toFixed(0)} ms`)
   attachMissionTestPreferences(handle.pool)
@@ -287,10 +319,16 @@ export async function openLargeDeck(
     for (const id of screen.full.rowIds) void screen.full.task(id).word
   })
   for (let round = 0; round < 6 && !ready(); round += 1) await settle()
+  const readyWhileCommitHeld = holding && ready() && kernel.posture === 'bootstrapping'
+  if (holding) {
+    holding = false
+    releaseCommit()
+    await settle()
+  }
   const openMs = performance.now() - t1
   opening = false
   const flushes = rows.stats.flushes - flushesBefore
-  const unmetOutside = screen.full.rowIds.flatMap((id): [string, string[]][] => {
+  const unmetOutside = (ready() ? screen.full.rowIds : []).flatMap((id): [string, string[]][] => {
     const outside = screen.full.task(id).externalUnmetIds
     return outside.length > 0 ? [[id, [...outside]]] : []
   })
@@ -301,6 +339,7 @@ export async function openLargeDeck(
     ready: ready(),
     rows: shown,
     hops: Math.max(0, ...fetches.map((fetch) => fetch.hop)),
+    readyWhileCommitHeld,
     unmetOutside,
     fetches,
     bootMs,

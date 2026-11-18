@@ -117,6 +117,34 @@ function heldCommits(storage: ConformanceStorage, gate: Promise<void>): SyncUnit
   }
 }
 
+/**
+ * The storage's unit of work, each transaction held while a hold is armed: a
+ * load's last commit waiting on a large first download's durable writes
+ * (POD-7168). `hold` returns the release.
+ */
+function heldWhileArmed(storage: ConformanceStorage): {
+  readonly unitOfWork: SyncUnitOfWork
+  hold(): () => void
+} {
+  let gate: Promise<void> | undefined
+  return {
+    unitOfWork: {
+      transact: async (body) => {
+        if (gate !== undefined) await gate
+        return await storage.unitOfWork.transact(body)
+      },
+    },
+    hold() {
+      const held = barrier()
+      gate = held.promise
+      return () => {
+        gate = undefined
+        held.release()
+      }
+    },
+  }
+}
+
 /** Let the walk run until `done` says so (bounded). */
 async function until(done: () => boolean): Promise<void> {
   for (let i = 0; i < 400 && !done(); i += 1) await ticks(1)
@@ -413,6 +441,136 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(contents(second.cache)).toEqual(expected)
         expect(restarted.bootstraps, 'no second first download').toBe(0)
         expect(restarted.fetches.flat(), 'nothing it already held is fetched again').toEqual([])
+      })
+
+      // POD-7168: the deck's tree waited for a large first download to be
+      // durable. A fetch made while the load's last commit waits installs at
+      // once; what it named stays out of the load's sweep.
+      describe('a fetch while the load commits (POD-7168)', () => {
+        const ONE_S2: InstanceSpec = { collection: 'session.one', args: { id: 'S2' }, part: 'main' }
+        /** seedWorld, plus a session only the tree brings (it comes with D1). */
+        const world = (): CollectionServer => {
+          const server = new CollectionServer()
+          seedWorld(server)
+          server.put(SESSION, 'S9', session('S9', { issueId: 'D1', status: 'ended' }))
+          // The server answers what records come with in the same answer, as its route does.
+          server.answerComesWith = true
+          return server
+        }
+        const loadsInstalled = (events: readonly ReplicaEvent[]): number =>
+          events.filter((event) => event.type === 'load-installed').length
+
+        /** A device that held the tree of A1 and the session S2, reloading after a gap the feed cannot bridge, its last commit held. */
+        async function reloading(storage: ConformanceStorage, server: CollectionServer) {
+          const commits = heldWhileArmed(storage)
+          const booted = kernelOver(storage, server, undefined, { unitOfWork: commits.unitOfWork })
+          const { cache, replica, events } = booted
+          replica.connect()
+          await replica.settled()
+          await ticks()
+          await replica.settled()
+          await replica.load([tree('A1'), ONE_S2])
+          await replica.settled()
+          expect(cache.read(SESSION, 'S9')).toBeDefined()
+          expect(cache.read(SESSION, 'S2')).toBeDefined()
+          replica.disconnect()
+          server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+          server.minAvailableSeq = server.head
+          const before = loadsInstalled(events)
+          const release = commits.hold()
+          replica.connect()
+          await until(() => loadsInstalled(events) > before)
+          expect(loadsInstalled(events)).toBeGreaterThan(before)
+          expect(replica.posture).toBe('bootstrapping')
+          // The reload withdrew the tree's marker; its rows stay readable.
+          expect(marked(cache, tree('A1'))).toBe(false)
+          return { ...booted, release }
+        }
+
+        it('installs a tree while a first download commits: the deck is complete before the commit lands', async () => {
+          const server = world()
+          const storage = await instantiation.open()
+          const commits = heldWhileArmed(storage)
+          const release = commits.hold()
+          const { cache, replica, events } = kernelOver(storage, server, undefined, {
+            unitOfWork: commits.unitOfWork,
+          })
+          try {
+            replica.connect()
+            await until(() => loadsInstalled(events) > 0)
+            expect(replica.posture).toBe('bootstrapping')
+            const fetching = replica.load([tree('A1')])
+            await until(() => marked(cache, tree('A1')))
+            // Before the gate: the tree, and what it comes with, are on the device.
+            expect(marked(cache, tree('A1'))).toBe(true)
+            expect(cache.read(ISSUE, 'D1')).toBeDefined()
+            expect(cache.read(SESSION, 'S9')).toBeDefined()
+            expect(replica.posture).toBe('bootstrapping')
+            expect(cache.readLoadingSince()).not.toBeNull()
+            release()
+            await fetching
+            await until(() => replica.posture === 'live')
+            await replica.settled()
+            expect(replica.posture).toBe('live')
+            expect(cache.readLoadingSince()).toBeNull()
+            expect(marked(cache, tree('A1'))).toBe(true)
+            expect(cache.read(ISSUE, 'D1')).toBeDefined()
+            expect(cache.read(SESSION, 'S9')).toBeDefined()
+            expectMarkersTrue(cache, server)
+          } finally {
+            release()
+          }
+        })
+
+        it('keeps what the tree re-confirmed, unchanged, and still sweeps what nothing named', async () => {
+          const server = world()
+          const { cache, replica, release } = await reloading(await instantiation.open(), server)
+          try {
+            const fetching = replica.load([tree('A1')])
+            await until(() => marked(cache, tree('A1')))
+            expect(marked(cache, tree('A1'))).toBe(true)
+            expect(cache.read(SESSION, 'S9')).toBeDefined()
+            release()
+            await fetching
+            await until(() => replica.posture === 'live')
+            await replica.settled()
+            await ticks()
+            await replica.settled()
+            expect(replica.posture).toBe('live')
+            // Re-confirmed by the tree, unchanged: it survives the load's sweep.
+            expect(cache.read(SESSION, 'S9')).toBeDefined()
+            expect(cache.read(ISSUE, 'D1')).toBeDefined()
+            expect(marked(cache, tree('A1'))).toBe(true)
+            // The reload no longer holds S2 and no fetch named it: swept.
+            expect(cache.readRow(SESSION, 'S2')).toBeUndefined()
+            expect(cache.read(ISSUE, 'A3')).toBeDefined()
+            expectMarkersTrue(cache, server)
+          } finally {
+            release()
+          }
+        })
+
+        it('a crash before the commit lands resumes the load: the tree stays whole, the rest is swept', async () => {
+          const server = world()
+          const storage = await instantiation.open()
+          const dying = await reloading(storage, server)
+          // Its commit is never released: the kernel dies with it pending.
+          void dying.replica.load([tree('A1')]).catch(() => undefined)
+          await until(() => marked(dying.cache, tree('A1')))
+          expect(marked(dying.cache, tree('A1'))).toBe(true)
+          await ticks()
+          // THE KILL: the kernel is gone before its commit; the store stays.
+          const second = await boot(instantiation, server, storage)
+          expect(second.replica.posture).toBe('live')
+          expect(second.cache.readLoadingSince()).toBeNull()
+          expect(second.cache.readRow(SESSION, 'S2')).toBeUndefined()
+          expect(second.cache.read(ISSUE, 'A3')).toBeDefined()
+          if (marked(second.cache, tree('A1'))) {
+            expect(second.cache.read(ISSUE, 'D1')).toBeDefined()
+            expect(second.cache.read(SESSION, 'S9')).toBeDefined()
+          }
+          expectMarkersTrue(second.cache, server)
+        })
       })
 
       it('a gap the feed cannot bridge drops the markers and reloads; the old rows stay readable meanwhile', async () => {

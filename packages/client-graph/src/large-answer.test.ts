@@ -75,4 +75,29 @@ describe('a large tree and its sessions install in bounded work (POD-7165)', () 
       run?.dispose()
     }
   }, 120_000)
+
+  /**
+   * POD-7168: on a cold device the deck's tree was answered in under a second
+   * and installed only once the whole first download was durable (25 s of
+   * IndexedDB writes on the operator's host): every fetch installed behind the
+   * load's last commit. A fetch made while that commit waits installs at once.
+   */
+  it('opens while the first download is still being written', async () => {
+    let run: LargeDeckRun | undefined
+    try {
+      run = await openLargeDeck({
+        members: MEMBERS,
+        sessionsPerIssue: 2,
+        outsideBlockers: 20,
+        serverComesWith: true,
+        holdLoadCommit: true,
+      })
+      expect(run.readyWhileCommitHeld).toBe(true)
+      expect(run.ready).toBe(true)
+      expect(run.rows).toBe(MEMBERS + 1)
+      expect(run.hops).toBeLessThanOrEqual(2)
+    } finally {
+      run?.dispose()
+    }
+  }, 120_000)
 })
