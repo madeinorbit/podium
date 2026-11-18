@@ -1,8 +1,8 @@
+import { applyMembership } from '@podium/identity'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { memberFacts } from '../../store/fixtures/test-support'
 
 // Resolve profiling before importing the store/driver instrumentation.
 const previousProfile = vi.hoisted(() => {
@@ -255,25 +255,25 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      await memberFacts(f.store).create(
-        {
-          id: reader,
-          displayName: 'Reader',
+      // The reader's member row, through the one member writer: active, later disabled.
+      const membership = async (version: number, status: 'active' | 'disabled') =>
+        await applyMembership(f.store.users.memberRows, {
+          memberId: reader,
+          version,
+          authorizationVersion: 0,
+          status,
           role: 'member',
-          createdAt: '2026-09-10T00:00:00.000Z',
-          disabledAt: null,
-        },
-        'test-only',
-      )
+          accountId: null,
+          profile: { name: 'Reader', email: null, image: null },
+          actor: { system: 'upgrade' },
+        })
+      await membership(1, 'active')
       expect(await f.store.users.get(reader)).toBeDefined()
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
       ).toEqual([true, true, true, true, false])
-      // Test-only revocation: no user lifecycle write API exists yet.
-      // @ts-expect-error test-only access to the private database connection
-      await f.store.db
-        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
-        .run('2026-09-11T00:00:00.000Z', reader)
+      await membership(2, 'disabled')
+      expect(await f.store.users.get(reader)).toBeUndefined()
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
       expect(

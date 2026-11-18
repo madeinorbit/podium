@@ -11,13 +11,18 @@ import {
   NoDelegationsGranted,
 } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
-import { openTestStore } from '../test-support/open-test-store'
+import type { SessionStore } from '../store'
+import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { testStoreRecords } from '../test-support/record-writer'
+import { storeSql } from '../test-support/store-sql'
 import { produceBootstrap } from './producer'
 import { type BootstrapJob, SyncWorkerError } from './types'
 
+const T0 = '2026-09-01T00:00:00.000Z'
 const principal = (user: string) => ({ ...DEVICE_GRADE_PRINCIPAL, user: asUserId(user) })
 const job = (user: string): BootstrapJob => ({
   transferId: user,
@@ -70,8 +75,8 @@ const issue = (id: string) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: T0,
+  updatedAt: T0,
   archived: false,
 })
 async function records(source: AsyncIterable<Uint8Array>) {
@@ -82,11 +87,41 @@ async function records(source: AsyncIterable<Uint8Array>) {
     .split('\n')
     .map((line) => JSON.parse(line))
 }
+
+/**
+ * Read sessions holding a snapshot of the store at `path` open now, the store's own
+ * connections aside: on SQLite a reader keeps a full checkpoint from finishing; on
+ * Postgres it is a session of the database in a transaction.
+ */
+function snapshotProbe(store: SessionStore, path: string) {
+  if (testStoreEngine() === 'pg') {
+    return {
+      open: async () =>
+        (
+          await storeSql(store).get<{ open: number }>(
+            sql.raw(
+              'SELECT count(*)::int AS open FROM pg_stat_activity ' +
+                'WHERE datname = current_database() AND pid <> pg_backend_pid() ' +
+                'AND xact_start IS NOT NULL',
+            ),
+          )
+        )?.open,
+      close: () => {},
+    }
+  }
+  const writer = openDatabase(path)
+  return {
+    open: async () =>
+      (writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }).busy,
+    close: () => writer.close(),
+  }
+}
 describe('snapshot bootstrap producer', () => {
   it('matches Authority for owner, granted user and stranger without any anchor inputs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sync-visibility-'))
     const path = join(dir, 'test.db')
     const store = await openTestStore(path)
+    const location = await testStoreLocation(path)
     try {
       await store.issues.upsertIssue(fixtureWriteScope(), issue('shared'))
       await store.issues.upsertIssue(fixtureWriteScope(), {
@@ -102,7 +137,7 @@ describe('snapshot bootstrap producer', () => {
         verb: 'read',
         owner: 'owner',
         visibility: 'personal',
-        createdAt: 't0',
+        createdAt: T0,
         actorKind: 'user',
         actorId: 'owner',
         onBehalfOf: 'owner',
@@ -137,7 +172,7 @@ describe('snapshot bootstrap producer', () => {
         const expected = await authority.bootstrap(principal(user))
         let meta: unknown
         const output = await records(
-          produceBootstrap(path, job(user), new AbortController().signal, (value) => {
+          produceBootstrap(location, job(user), new AbortController().signal, (value) => {
             meta = value
           }),
         )
@@ -177,28 +212,32 @@ describe('snapshot bootstrap producer', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sync-abort-'))
     const path = join(dir, 'test.db')
     const store = await openTestStore(path)
-    const writer = openDatabase(path)
+    const location = await testStoreLocation(path)
+    const snapshots = snapshotProbe(store, path)
     try {
       // A real record too large for one line: an issue's state paragraph.
       await store.issues.upsertIssue(fixtureWriteScope(), issue('huge'))
       await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
         id: asIssueId('huge'),
         text: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1),
-        updatedAt: 't0',
+        updatedAt: T0,
       })
       await store.sync.appendChanges(
         [{ entity: 'issueProjection', entityId: 'huge', op: 'upsert', payload: '{}' }],
         1,
       )
       const abort = new AbortController()
-      const producer = produceBootstrap(path, job('owner'), abort.signal, () => {})
+      const producer = produceBootstrap(location, job('owner'), abort.signal, () => {})
       expect((await producer.next()).done).toBe(false)
       abort.abort(new SyncWorkerError('cancelled'))
       await expect(producer.next()).rejects.toMatchObject({ reason: 'cancelled' })
-      expect(
-        (writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }).busy,
-      ).toBe(0)
-      const oversized = produceBootstrap(path, job('owner'), new AbortController().signal, () => {})
+      expect(await snapshots.open()).toBe(0)
+      const oversized = produceBootstrap(
+        location,
+        job('owner'),
+        new AbortController().signal,
+        () => {},
+      )
       await oversized.next()
       const error = await oversized.next()
       expect(JSON.parse(new TextDecoder().decode(error.value!))).toMatchObject({
@@ -206,11 +245,9 @@ describe('snapshot bootstrap producer', () => {
         reason: 'row-too-large',
       })
       await expect(oversized.next()).rejects.toMatchObject({ reason: 'row-too-large' })
-      expect(
-        (writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }).busy,
-      ).toBe(0)
+      expect(await snapshots.open()).toBe(0)
     } finally {
-      writer.close()
+      snapshots.close()
       await store.close()
       rmSync(dir, { recursive: true, force: true })
     }

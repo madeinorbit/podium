@@ -97,7 +97,6 @@
     "apps/server/src/modules/maintenance/service.test.ts",
     "apps/server/src/modules/notify/per-member.test.ts",
     "apps/server/src/modules/sessions/repository.volatile-slice.test.ts",
-    "apps/server/src/modules/sessions/view.projection-pass.test.ts",
     "apps/server/src/setup-enrollment.test.ts",
     "apps/server/src/store-users-frame-cache.test.ts",
     "apps/server/src/store/member-history.test.ts",
@@ -105,7 +104,6 @@
     "apps/server/src/store/statement-count.test.ts",
     "apps/server/src/store/workspace-caches.test.ts",
     "apps/server/src/store/workspace-isolation.test.ts",
-    "apps/server/src/sync-worker/producer.test.ts",
     "apps/server/src/sync/capture-workspace.test.ts",
     "apps/server/src/sync/record-builders.statement-count.test.ts"
   ],
