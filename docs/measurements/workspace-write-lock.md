@@ -125,8 +125,9 @@ bun --conditions=@podium/source scripts/measure-workspace-writes.ts --matrix --p
 ## Results
 
 **All 32 configurations passed.** Every configuration passed its source-table
-controls and reported no acquisition failures or rollbacks. These are single
-runs per configuration, without confidence intervals; they establish capacity
+controls and reported no acquisition failures or rollbacks. The measurement
+windows contain 53,834 committed transactions, with a calibrated lock-wait sample
+for every one. These are single runs per configuration, without confidence intervals; they establish capacity
 and contention for this deliberately busy workload, not a production traffic forecast.
 
 Measured runtime and load sources: `6a43434583`, unchanged through
@@ -299,4 +300,31 @@ This synthetic overhead check is separate from the real-path load results. At
 round-trip counts remain the stronger invariant: the recorder adds neither.
 Percentile sorting and rate-history assembly happen only on snapshot reads.
 
-Final focused checks, typecheck and the lean gate are pending.
+Validation ran on the agent VM. The focused end run passed all eight Postgres
+files (89 tests, 16 backend-specific skips), all six SQLite/server pin and guard
+files (50 tests), and the generated test-metadata file (14 tests). The skips are
+the SQLite-only cases in `round-trip-probe.pg.test.ts` and
+`session-create.statement-count.test.ts`; the latter ran on SQLite in the next
+command. All four statement-count files and their round-trip pins, the driver
+wire pin, scheduler workspace checks, prepared guard and workspace scope guard
+remain unchanged and green.
+
+The initial typecheck found eight annotation errors in the measurement script.
+One type-only fix corrected its dynamic schema-library import, private-constructor
+service type, exact counter keys and diagnostic probe-holder casts. The executed
+workload, metrics code and measurements were unchanged. The focused checks were
+not repeated; the affected typecheck was rerun, followed by the lean gate.
+
+| Check | Result |
+| --- | --- |
+| Focused Postgres, 8 files | 89 passed, 16 backend-specific skips |
+| Focused SQLite/server, 6 files | 50 passed |
+| Generated test metadata, 1 file | 14 passed |
+| `bun run typecheck` | 32 successful tasks, 26 cached |
+| `bun run test` | **Lean gate green**: 7 of 2,239 files, 207 tests |
+
+The initial focused candidate was `99b22b7479`; typecheck and the lean gate
+completed on `cd13a3eb1c`, whose only code delta is that type-only script fix.
+The final documentation update needs no runtime rerun. No full suite was run.
+The remote measurement/validation checkouts were cleaned up, and this session
+holds no test-lane lease or queue entry.
