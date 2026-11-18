@@ -128,6 +128,13 @@ export function useShellLinks() {
           const issue = views?.linkedIssue(identifier)
           return issue && issue !== LOADING ? issue : undefined
         }),
+      /**
+       * The issue a reference names, also when the device holds it only as a
+       * stub (design POD-7059 "Search and references"): the stub knows the
+       * reference at once; its row may still be on its way.
+       */
+      issueId: (identifier: string) =>
+        allowImperativeRead(() => (views ? pool?.queries.linkedIssueId(identifier) : undefined)),
       artifactIssue: (id: string) =>
         allowImperativeRead(() => {
           const row = views?.issue(id, true)

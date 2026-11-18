@@ -1,11 +1,12 @@
 import { MobxPool } from '@podium/client-graph'
 import { shellViews } from '@podium/client-graph/shell-views'
-import type { RowRecord, RowSourceEvent } from '@podium/client-graph/shared/source'
+import type { CollectionLoaderPort, RowRecord, RowSourceEvent } from '@podium/client-graph/shared/source'
 import { podiumTargetPath } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
+import { historyLoader } from '../../../../tests/worklist/shared/src/history-loader'
 
 const owner = vi.hoisted(() => ({
   pool: null as MobxPool | null,
@@ -34,18 +35,25 @@ const session = (id: string, seq: number): RowRecord => ({ kind: 'session', id, 
   sessionId: id, displayRef: `POD-${seq}-A`, title: id, cwd: '/fixture', agentKind: 'codex',
   status: 'exited', archived: true, createdAt: old, lastActiveAt: old,
 } } as RowRecord)
-function fixture(scale: 1 | 4, target = true) {
+// The target's artifact is a record of its own (POD-6764): the link opens it.
+const proof = { kind: 'issuePanelArtifact', id: 'target-artifact-0', value: {
+  id: 'target-artifact-0', issueId: 'target', position: 0, artifactId: 'proof',
+  path: 'proof.html', addedAt: old,
+} } as unknown as RowRecord
+function fixture(scale: 1 | 4, target = true, loader?: CollectionLoaderPort) {
   const rows: RowRecord[] = [
     { kind: 'worktree', id: 'repo', value: { prefix: 'POD' } } as unknown as RowRecord,
-    ...(target ? [issue('target', 1), session('target-seat', 1)] : []),
+    ...(target ? [issue('target', 1), session('target-seat', 1), proof] : []),
     ...Array.from({ length: scale * 128 }, (_, n) => issue(`foreign-${n}`, n + 2)),
     ...Array.from({ length: scale * 128 }, (_, n) => session(`history-${n}`, n + 2)),
   ]
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
-    load: () => undefined, 
+    load: () => undefined, ...(loader ? { loader: () => loader } : {}),
     worklist: 'demand', schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
+  // The lazy runtime installs the shell's pool screen before it exposes the pool.
+  shellViews(pool)
   return { pool, publish(event: RowSourceEvent) { pool.apply(event) } }
 }
 
@@ -82,6 +90,7 @@ it('keeps idle demand zero and first issue/session/artifact activation flat at 1
     }), { pool: f.pool })
     expect(owner.setOpenIssueId).toHaveBeenCalledWith('target')
     expect(owner.navigateToSession).toHaveBeenCalledWith('target-seat')
+    expect(owner.openArtifact).toHaveBeenCalledWith(expect.objectContaining({ issueId: 'target', artifactId: 'proof' }))
     expect(refs.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0)
     await act(async () => { root.render(null) })
     return { idle: idle.work, click: click.work }
@@ -108,11 +117,17 @@ it('observes only a cold queue head, ignores unrelated updates and releases comp
 })
 
 it('releases an expired browser artifact even after its manifest demand has been removed', async () => {
-  const f = fixture(4); pools.push(f.pool); owner.pool = f.pool
+  // The artifact's issue is old work: on the device only as its stub, its row
+  // behind the loader, which never answers here.
+  const target = issue('target', 1)
+  const history = historyLoader([target], [target.value as Record<string, unknown>])
+  const f = fixture(4, false, history.port); pools.push(f.pool); owner.pool = f.pool
   const fallback = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
   const reads = vi.spyOn(shellViews(f.pool), 'linkedIssue')
   await act(async () => { root.render(<PodiumLinkHost />) })
   await act(async () => { expect(activatePodiumHref(podiumTargetPath({ kind: 'artifact', issue: 'POD-1', artifactId: 'proof', entry: null }))).toBe(true) })
+  expect(history.asked).toEqual([['issue', 'target']])
+  expect(fallback).not.toHaveBeenCalled()
   await act(async () => { vi.advanceTimersByTime(5_001) })
   expect(fallback).toHaveBeenCalledOnce()
   reads.mockClear()
