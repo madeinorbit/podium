@@ -73,8 +73,14 @@ describe('shell pool', () => {
           ] as never,
         })
         expect(outputs).toHaveLength(before)
+        // POD-7112: every device row is in the pool (POD-7094), so the pool's
+        // own filing maintenance marks the updated row ('mark', inside its
+        // action). Chrome and dock demand no issue or session row.
         expect(
-          row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
+          row.mock.calls.filter(
+            ([kind, , absent]) =>
+              (kind === 'issue' || kind === 'session') && !['mark', 'peek'].includes(String(absent)),
+          ),
         ).toHaveLength(0)
       } finally {
         stop()

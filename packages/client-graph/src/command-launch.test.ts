@@ -285,7 +285,8 @@ describe('declared command and launch targets', () => {
     ]
     try {
       f.settled()
-      expect(views.counts.coldSessionVisits).toBeGreaterThan(0)
+      // POD-7112: every device session is in the pool (POD-7094); there are
+      // no cold session visits to establish before the clicks.
       const globals = () => {
         const { addressedSessionReads: _addressed, ...counts } = views.counts
         return counts

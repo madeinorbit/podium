@@ -640,9 +640,6 @@ describe('dependencies', () => {
   })
 })
 
-describe('loading', () => {
-})
-
 describe('legacy modes', () => {
   /** What Waterfall, Timeline and the phone read from the same opening. */
   const legacy = (screen: MissionScreen) =>

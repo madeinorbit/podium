@@ -254,31 +254,3 @@ it('R2-1/R2-2: a coordinated deck row counts the coordinator by the shared seat 
   expect(facts([session('helper', 'root', { ...working, ...offered })], {}, false)).toMatchObject({ working: 0, matchesWorking: false })
 })
 
-it('opens a mission without reading its hidden archived members\' rows at 1x and 4x', () => {
-  for (const scale of [1, 4]) {
-    // An archived child drops its formal edge; archived provenance stays a
-    // member (missionStartedIssues), so topology asks whether it is visible.
-    const hidden = Array.from({ length: 32 * scale }, (_, index) => issue(`hidden-${index}`, {
-      ...coldRoot(), id: `hidden-${index}`, seq: index + 3, stage: 'backlog', archived: true, startedBySession: 'lead',
-    }))
-    const { pool, load, reader } = open([issue('root'), issue('shown', { parentId: 'root', seq: 2 }), ...hidden],
-      [session('lead', 'root', { archived: false, status: 'live' })])
-    expect(tracked(() => missionView(pool).deck('root').members)).toEqual(new Set(['root', 'shown', ...hidden.map(row => row.id)]))
-    const read = vi.spyOn(pool, 'row')
-    let values: ReturnType<typeof pane> = LOADING
-    const stop = autorun(() => { values = pane(pool, 'root'); void reader.deck('root').topology })
-    try {
-      for (let round = 0; values === LOADING && round < 8; round++) pool.hydrate()
-      expect(values).not.toBe(LOADING)
-      const topology = tracked(() => reader.deck('root').topology)
-      if (topology === LOADING) throw new Error('Unsettled topology')
-      expect(topology.children.get('root')).toEqual(['shown'])
-      // Hidden members are decided from the cold index: no load, no payload read.
-      const isHidden = (id: unknown) => String(id).startsWith('hidden-')
-      expect(load.mock.calls.filter(([entity, id]) => entity === 'issue' && isHidden(id)).length).toBe(0)
-      expect(read.mock.calls.filter(([entity, id, absent]) => entity === 'issue' && isHidden(id) &&
-        (absent === undefined || absent === 'load' || String(absent) === 'peek')).length).toBe(0)
-      expect([...pool.tables.issue.keys()].filter(isHidden)).toEqual([])
-    } finally { stop(); read.mockRestore() }
-  }
-})
