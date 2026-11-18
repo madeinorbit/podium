@@ -42,7 +42,7 @@ export const PERF_QUERIES = {
     const accounting = state.loopAccounting?.snapshot()
     return {
       ...state.perf.snapshot(),
-      workspaceWrites: workspaceWriteMetrics.snapshot(),
+      workspaceWrites: workspaceWriteMetrics.snapshot(state.workspaceId),
       // ABSENT, not empty, when nothing is accounting: at level `off` no timer
       // runs and no ring exists, so there is no measurement to report and a
       // zeroed section would claim an idle loop nobody looked at.

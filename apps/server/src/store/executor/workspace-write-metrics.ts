@@ -190,15 +190,21 @@ export class WorkspaceWriteMetrics {
     }
   }
 
-  snapshot(): WorkspaceWriteMetricsSnapshot {
+  snapshot(workspace?: string): WorkspaceWriteMetricsSnapshot {
     const now = this.now()
+    const selected =
+      workspace === undefined
+        ? this.workspaces
+        : this.workspaces.has(workspace)
+          ? [[workspace, this.workspaces.get(workspace)!] as const]
+          : []
     return {
       capacity: this.capacity,
       evictedWorkspaces: this.evicted,
       durationBoundsMs: [...DURATION_BOUNDS],
       rateBounds: [...RATE_BOUNDS],
       byWorkspace: Object.fromEntries(
-        [...this.workspaces].map(([id, stats]) => [id, stats.snapshot(now)]),
+        [...selected].map(([id, stats]) => [id, stats.snapshot(now)]),
       ),
     }
   }
