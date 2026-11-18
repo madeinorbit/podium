@@ -5,6 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // web test module graph so the case measures only the offline admission chain.
 vi.mock('../screens/LoginScreen', () => ({ LoginScreen: () => null }))
 
+import {
+  preparePrincipalNamespace,
+  REPLICA_KEY_PREFIX,
+  replicaNamespaceKey,
+} from '@podium/client-core/replica'
 import { AuthGate } from './AuthGate'
 import { ReadinessGate } from './ReadinessGate'
 import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
@@ -12,6 +17,7 @@ import { ServerProfileContext, type ServerProfileContextValue } from './server-p
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  window.localStorage.clear()
 })
 
 function offlineProfile(): ServerProfileContextValue {
@@ -71,5 +77,69 @@ describe('profile-bound offline gate chain', () => {
 
     expect(await screen.findByText('SAVED WORKSPACE')).toBeTruthy()
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  // POD-7176: the phone web, started online (a verified profile), mounted again
+  // with no network. It holds the replica a verified connection opened, so
+  // neither gate stops it; the replica boot names the same member offline.
+  it('phone web: a remount with no network opens the replica this browser holds', async () => {
+    preparePrincipalNamespace({
+      storage: window.localStorage,
+      enumerateKeys: () => Object.keys(window.localStorage),
+      basePrefix: REPLICA_KEY_PREFIX,
+      principal: replicaNamespaceKey({ syncBoundaryId: 'installation-a', memberId: 'mem_alice' }),
+    })
+    const fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    vi.stubGlobal('fetch', fetch)
+    const profile = offlineProfile()
+    profile.activation = 'verified'
+    profile.profile = {
+      id: 'single-server',
+      name: 'podium.example',
+      httpOrigin: 'https://podium.example',
+      mode: 'protected',
+      transport: 'trusted-https',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    }
+
+    render(
+      <ServerProfileContext.Provider value={profile}>
+        <ReadinessGate>
+          <AuthGate>
+            <div>SAVED WORKSPACE</div>
+          </AuthGate>
+        </ReadinessGate>
+      </ServerProfileContext.Provider>,
+    )
+
+    expect(await screen.findByText('SAVED WORKSPACE')).toBeTruthy()
+    expect(screen.queryByText('Cannot reach this Podium server')).toBeNull()
+  })
+
+  it('phone web: with nothing held, no network is still "Cannot reach this Podium server"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    const profile = offlineProfile()
+    profile.activation = 'verified'
+
+    render(
+      <ServerProfileContext.Provider value={profile}>
+        <ReadinessGate>
+          <AuthGate>
+            <div>SAVED WORKSPACE</div>
+          </AuthGate>
+        </ReadinessGate>
+      </ServerProfileContext.Provider>,
+    )
+
+    expect(await screen.findByText('Cannot reach this Podium server')).toBeTruthy()
+    expect(screen.queryByText('SAVED WORKSPACE')).toBeNull()
   })
 })

@@ -12,8 +12,8 @@ import type { MobileTrpc } from '../client/trpc'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
+import { MissionNotFound } from '../components/MissionNotFound'
 import { Screen } from '../components/Screen'
-import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 
 const ignoreContentHeight = (_height: number): void => undefined
@@ -74,7 +74,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
           onContentHeight={ignoreContentHeight}
         />
       ) : (
-        <EmptyState fill title="Mission not found." />
+        <MissionNotFound fill />
       )}
       {menuIssue ? (
         <WorkIssueMenu

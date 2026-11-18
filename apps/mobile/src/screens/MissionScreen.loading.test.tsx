@@ -11,6 +11,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 const opening = vi.hoisted(() => ({
   value: { screen: null as unknown, resolved: false },
+  connected: true,
 }))
 
 vi.mock('expo-haptics', () => ({ selectionAsync: async () => {} }))
@@ -22,7 +23,10 @@ vi.mock('@podium/client-core/react', () => ({
   useCommands: () => ({}),
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
-vi.mock('../client/hooks', () => ({ useMissionOpening: () => opening.value }))
+vi.mock('../client/hooks', () => ({
+  useMissionOpening: () => opening.value,
+  useConnected: () => opening.connected,
+}))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => null }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('../components/Screen', () => ({
@@ -44,6 +48,7 @@ const { MissionScreen } = await import('./MissionScreen')
 afterEach(() => {
   cleanup()
   opening.value = { screen: null, resolved: false }
+  opening.connected = true
 })
 
 it('never says "not found" while the mission is on its way; says it once the opening settles without one', () => {
@@ -59,4 +64,12 @@ it('never says "not found" while the mission is on its way; says it once the ope
   opening.value = { screen: null, resolved: true }
   const settled = render(<MissionScreen />)
   expect(settled.container.textContent).toContain('Mission not found')
+})
+
+it('offline, a mission this phone does not hold is "not available offline", never "not found" (POD-7176)', () => {
+  opening.value = { screen: null, resolved: true }
+  opening.connected = false
+  const view = render(<MissionScreen />)
+  expect(view.container.textContent).toContain('Not available offline')
+  expect(view.container.textContent).not.toContain('Mission not found')
 })

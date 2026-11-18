@@ -1,3 +1,8 @@
+import {
+  preparePrincipalNamespace,
+  REPLICA_KEY_PREFIX,
+  replicaNamespaceKey,
+} from '@podium/client-core/replica'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReadinessGate } from './ReadinessGate'
@@ -6,7 +11,18 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   window.history.replaceState({}, '', '/')
+  window.localStorage.clear()
 })
+
+/** What a replica opening writes once the server named its member. */
+function holdReplica(): void {
+  preparePrincipalNamespace({
+    storage: window.localStorage,
+    enumerateKeys: () => Object.keys(window.localStorage),
+    basePrefix: REPLICA_KEY_PREFIX,
+    principal: replicaNamespaceKey({ syncBoundaryId: 'installation-a', memberId: 'mem_alice' }),
+  })
+}
 
 function response(body: unknown) {
   vi.stubGlobal(
@@ -98,6 +114,39 @@ describe('mobile server readiness gate', () => {
 
   it('fails closed on a contradictory readiness response', async () => {
     response({ state: 'ready', reason: null, dataPlane: 'blocked' })
+    render(
+      <ReadinessGate>
+        <div>OPERATOR PRODUCT</div>
+      </ReadinessGate>,
+    )
+    expect(await screen.findByText('Cannot reach this Podium server')).toBeTruthy()
+    expect(screen.queryByText('OPERATOR PRODUCT')).toBeNull()
+  })
+
+  // POD-7176: offline, the phone opens what it holds, as the desktop shell does.
+  it('opens the data this device holds when the server cannot be asked at all', async () => {
+    holdReplica()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    render(
+      <ReadinessGate>
+        <div>OPERATOR PRODUCT</div>
+      </ReadinessGate>,
+    )
+    expect(await screen.findByText('OPERATOR PRODUCT')).toBeTruthy()
+    expect(screen.queryByText('Cannot reach this Podium server')).toBeNull()
+  })
+
+  it('still fails closed on an answer that is not a readiness fact, data held or not', async () => {
+    holdReplica()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('bad gateway', { status: 502 })),
+    )
     render(
       <ReadinessGate>
         <div>OPERATOR PRODUCT</div>

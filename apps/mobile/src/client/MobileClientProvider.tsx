@@ -154,6 +154,7 @@ export { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
+import { heldOfflineStatus } from './held-offline'
 import { discardRefusedMember, refusedPrincipal } from './refused-member'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
 import { noteSignedOut } from './signed-out-notice'
@@ -800,7 +801,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
           createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX]),
-          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
+          inheritedAuthStatus ??
+            fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId).catch(
+              async (cause: unknown) => {
+                // The recovery probe got NO answer (no network): open the
+                // member this device already holds, if it holds exactly one
+                // (POD-7176; the desktop's `resolveAccountPrincipal` rule). An
+                // answer, even a refusal, is never replaced by local identity.
+                if (cause instanceof ReplicaGateError) throw cause
+                const held = await heldOfflineStatus(serverProfileRef.current?.profile)
+                if (!held) throw cause
+                return held
+              },
+            ),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
         const identity = classifyAuthStatus(status)

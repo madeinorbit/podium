@@ -25,6 +25,7 @@ import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionBar } from '../components/MissionBar'
+import { MissionNotFound } from '../components/MissionNotFound'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -232,7 +233,7 @@ export const MissionScreen = observer(function MissionScreen() {
             }
           />
         ) : resolved ? (
-          <EmptyState title="Mission not found." />
+          <MissionNotFound />
         ) : (
           // POD-7169: on its way. The crossfade keeps its content mounted under
           // the placeholder, and once settled it shows it without one, so this
