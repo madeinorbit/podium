@@ -650,6 +650,24 @@ const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
 }: {
   device: MobileClientSession
 }) {
+  return (
+    <View style={styles.tallRow}>
+      <View style={styles.serverDetails}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {device.deviceName}
+        </Text>
+        <ConnectedDeviceActivity device={device} />
+      </View>
+      {device.current ? <Text style={styles.rowValueQuiet}>This phone</Text> : null}
+    </View>
+  )
+})
+
+const ConnectedDeviceActivity = observer(function ConnectedDeviceActivity({
+  device,
+}: {
+  device: MobileClientSession
+}) {
   const now = useAgeNow(
     device.lastSeenAt ?? device.createdAt,
     0,
@@ -661,17 +679,9 @@ const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
       ? `Active ${relativeTime(device.lastSeenAt, now)}`
       : 'No activity reported'
   return (
-    <View style={styles.tallRow}>
-      <View style={styles.serverDetails}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
-          {device.deviceName}
-        </Text>
-        <Text style={styles.rowDetail} numberOfLines={1}>
-          {devicePlatformLabel(device.platform)} · {activity}
-        </Text>
-      </View>
-      {device.current ? <Text style={styles.rowValueQuiet}>This phone</Text> : null}
-    </View>
+    <Text style={styles.rowDetail} numberOfLines={1}>
+      {devicePlatformLabel(device.platform)} · {activity}
+    </Text>
   )
 })
 

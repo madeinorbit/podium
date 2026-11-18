@@ -1,4 +1,4 @@
-import { autorun, createAtom, type IAtom, reaction, runInAction } from 'mobx'
+import { autorun, createAtom, type IAtom, reaction, runInAction, untracked } from 'mobx'
 
 const MAX_DELAY = 2_147_483_647
 const HOUR = 3_600_000
@@ -120,7 +120,9 @@ export function nowForAge(since: number | string, baseMs = 0, secondsUntil = HOU
 
 /** A cached scalar external store for React; only subscription observes time. */
 export function clockStore(read: () => number, enabled = true) {
-  let value = read()
+  // Store creation can run inside an observer render. Only subscribe() may
+  // own clock demand, including when that render creates a disabled store.
+  let value = untracked(read)
   return {
     getSnapshot: () => value,
     subscribe(changed: () => void): () => void {

@@ -80,6 +80,14 @@ afterEach(() => {
 })
 
 describe('on-demand clock', () => {
+  it('never gives an enclosing MobX observer clock demand when creating a disabled React store', () => {
+    vi.useFakeTimers()
+    const stop = autorun(() => {
+      clockStore(() => now(1000), false)
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    stop()
+  })
   it('shares one minute tick for relative text, with no seconds clock or work after unmount', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
@@ -113,11 +121,16 @@ describe('on-demand clock', () => {
   })
 
   it('keeps relative labels on minutes even when a server timestamp is ahead of this device', () => {
-    vi.useFakeTimers(); vi.setSystemTime(1_000)
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
     const timeout = vi.spyOn(globalThis, 'setTimeout')
     const stop = autorun(() => nowForAge(10_000, 0, 0))
-    try { expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000) }
-    finally { stop(); timeout.mockRestore() }
+    try {
+      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000)
+    } finally {
+      stop()
+      timeout.mockRestore()
+    }
   })
 
   it('does zero clock work over an idle minute and shares one timer per observed precision', () => {

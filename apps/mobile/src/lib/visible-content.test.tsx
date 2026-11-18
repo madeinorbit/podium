@@ -1,7 +1,8 @@
 import { setClockWakeSource } from '@podium/mobx-helpers'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { IsFocusedContext } from 'expo-router/build/react-navigation/core/useIsFocused'
-import { Profiler } from 'react'
+import { observer } from 'mobx-react-lite'
+import { Profiler, StrictMode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { platformClockWakeSource } from '../client/clock-wake-source.native'
 import { useAgeNow, useClock } from './clock-hooks'
@@ -179,4 +180,28 @@ it('keeps explicitly enabled precision clocks separate from coarse age labels', 
     </>,
   )
   expect(vi.getTimerCount()).toBe(2)
+})
+
+it('drops observer label demand and wake listeners after repeated open, blur and pop cycles', () => {
+  const ObservedClock = observer(Clock)
+  for (let opening = 0; opening < 3; opening++) {
+    const scene = (focused: boolean) => (
+      <StrictMode>
+        <IsFocusedContext value={focused}>
+          <ContentActivity>
+            <ObservedClock seconds />
+          </ContentActivity>
+        </IsFocusedContext>
+      </StrictMode>
+    )
+    const view = render(scene(true))
+    expect(vi.getTimerCount()).toBe(1)
+    view.rerender(scene(false))
+    expect(vi.getTimerCount()).toBe(0)
+    view.rerender(scene(true))
+    expect(vi.getTimerCount()).toBe(1)
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(app.listeners.size).toBe(0)
+  }
 })
