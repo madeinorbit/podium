@@ -1,7 +1,6 @@
 import { autorun, createAtom, type IAtom, reaction, runInAction, untracked } from 'mobx'
 
 const MAX_DELAY = 2_147_483_647
-const HOUR = 3_600_000
 /** The app supplies its browser visibility or native AppState boundary. */
 export interface ClockWakeSource {
   isActive(): boolean
@@ -110,12 +109,23 @@ export function now(precision = 60_000): number {
   return value
 }
 
-/** Share one clock at the precision the text displays. Relative labels set
- * secondsUntil to zero; elapsed clocks can retain their seconds column. */
-export function nowForAge(since: number | string, baseMs = 0, secondsUntil = HOUR): number {
+/** The formatter supplies its next text boundary, without a clock dependency. */
+export type AgeNextChange = (since: number, now: number) => number
+
+/** Relative labels observe exact text deadlines. Elapsed clocks retain their
+ * seconds/minutes precision when secondsUntil is positive. */
+export function nowForAge(
+  since: number | string,
+  nextChangeAt: AgeNextChange,
+  baseMs = 0,
+  secondsUntil = 0,
+): number {
   const start = typeof since === 'string' ? Date.parse(since) : since
   if (!Number.isFinite(start)) return Date.now()
-  return now(secondsUntil > 0 && Date.now() - start + baseMs < secondsUntil ? 1_000 : 60_000)
+  if (secondsUntil > 0) return now(Date.now() - start + baseMs < secondsUntil ? 1_000 : 60_000)
+  const current = deadlineClock.peekNow()
+  deadlineClock.reached(nextChangeAt(start - baseMs, current))
+  return current
 }
 
 /** A cached scalar external store for React; only subscription observes time. */

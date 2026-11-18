@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { shipLaneId } from '@podium/model'
 import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { shipLaneId } from '@podium/model'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { ArrayShippingPanel as ShippingPanel } from '../../../test/shipping-source'
@@ -37,9 +37,45 @@ const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelComma
   ...over,
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 describe('ShippingPanel', () => {
+  it('updates live waiting text on its own minute boundaries, including after an hour', () => {
+    vi.useFakeTimers()
+    const since = 12_345
+    vi.setSystemTime(since + 59_000)
+    const view = render(
+      <ShippingPanel
+        orders={[
+          order({
+            state: 'queued',
+            humanState: 'waiting',
+            activity: 'waiting',
+            queuedAt: new Date(since).toISOString(),
+          }),
+        ]}
+        issues={[issue]}
+        repoId="repo-a"
+        now={0}
+        commands={commands()}
+      />,
+    )
+    expect(view.container.textContent).toContain('waiting <1 min')
+    act(() => vi.advanceTimersByTime(999))
+    expect(view.container.textContent).toContain('waiting <1 min')
+    act(() => vi.advanceTimersByTime(1))
+    expect(view.container.textContent).toContain('waiting 1 min')
+    act(() => vi.advanceTimersByTime(59 * 60_000))
+    expect(view.container.textContent).toContain('waiting 1 hr')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(view.container.textContent).toContain('waiting 1 hr 1 min')
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('O4 renders lane ranks without order ranks and never revives cached ranks after lane eviction', () => {
     const orders = [
       order({

@@ -1,6 +1,6 @@
+import { isClosed } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
 import { useIssuePageContext } from './issue-page-data'
-import { isClosed } from '@podium/model/browser'
 /**
  * The issue's own text: inline-editable title, the at-a-glance status strip, the
  * description, the agent brief, and the long-form spec fields. Split out of
@@ -8,13 +8,13 @@ import { isClosed } from '@podium/model/browser'
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '@/lib/clock-hooks'
 import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
@@ -174,9 +174,10 @@ export const StatusStrip = observer(function StatusStrip({
 }: {
   issue: IssueViewModel
 }): JSX.Element {
-  const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
-  const created = relativeTime(issue.createdAt, now)
-  const updated = relativeTime(issue.updatedAt, now)
+  const createdNow = useAgeNow(issue.createdAt)
+  const updatedNow = useAgeNow(issue.updatedAt)
+  const created = relativeTime(issue.createdAt, createdNow)
+  const updated = relativeTime(issue.updatedAt, updatedNow)
   const facts: { key: string; text: string; title?: string }[] = [
     ...(isClosed(issue) ? [{ key: 'closed', text: `Closed · ${issue.closedReason}` }] : []),
     ...(created ? [{ key: 'created', text: `created ${created}`, title: issue.createdAt }] : []),

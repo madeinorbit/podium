@@ -401,6 +401,44 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/mobile/src/components/task-detail/IssueAge.tsx",
+      "holder": "IssueDayLabel",
+      "rule": "helper-consumer",
+      "tokens": "fecc38d0944cf08ed975058d5c0a3f5804c8ea0672d2de30aca5c4e595bdbea1",
+      "gate": [],
+      "origin": [
+        "10ada1305da8381ded9119929b592e9af410ac5a203c277286a932ce20cd464f",
+        "6c71f86782e85054d535cc602286f81d90cdc042ad3f64020bf00be4d8fc7490"
+      ],
+      "fingerprint": "4473df0a1036acfe80626c0b9410d17768552671f424cd3660b1544f8e027213",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2647",
+      "trigger": "A visible issue activity day divider observes its next text deadline.",
+      "bound": "One mounted label, one day key and timestamp, and six scalar calendar boundary candidates; the shared scheduler holds only observed deadlines.",
+      "reason": "The propagated store taint is the clockStore numeric snapshot. This path formats one date and registers its next text deadline; it never acquires or enumerates issue/session records.",
+      "guard": "client-core age.test.ts and issue-activity-grouping.test.ts cover exact boundaries and calendar/DST parity; mobile visible-content.test.tsx and web clock-labels.test.tsx prove no intermediate commits, one shared timer and hide/unmount cleanup."
+    },
+    {
+      "file": "apps/mobile/src/components/task-detail/IssueAge.tsx",
+      "holder": "IssueDayLabel/now",
+      "rule": "reader-summary",
+      "tokens": "29d102173d34d626bc33519844ba3320ab1aacc3b96a6806f69257f529498c75",
+      "gate": [],
+      "origin": [
+        "10ada1305da8381ded9119929b592e9af410ac5a203c277286a932ce20cd464f",
+        "6c71f86782e85054d535cc602286f81d90cdc042ad3f64020bf00be4d8fc7490"
+      ],
+      "fingerprint": "2bb9bb56319bdfcc7fae246a52e04d74d9dccdbd43a1ae889dde9736e521fb2b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2647",
+      "trigger": "A visible issue activity day divider observes its next text deadline.",
+      "bound": "One mounted label, one day key and timestamp, and six scalar calendar boundary candidates; the shared scheduler holds only observed deadlines.",
+      "reason": "The propagated store taint is the clockStore numeric snapshot. This path formats one date and registers its next text deadline; it never acquires or enumerates issue/session records.",
+      "guard": "client-core age.test.ts and issue-activity-grouping.test.ts cover exact boundaries and calendar/DST parity; mobile visible-content.test.tsx and web clock-labels.test.tsx prove no intermediate commits, one shared timer and hide/unmount cleanup."
+    },
+    {
       "file": "apps/mobile/src/hooks/usePendingQuestion.ts",
       "holder": "usePendingQuestion/useEffect:callback",
       "rule": "reader-summary",

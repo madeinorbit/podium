@@ -59,13 +59,10 @@ export const StatusStrip = observer(function StatusStrip({
   /** Drop the created/updated recency when the header pills already say it. */
   exceptionsOnly?: boolean
 }) {
-  const now = useAgeNow(
-    exceptionsOnly ? 0 : Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)),
-    0,
-    !exceptionsOnly,
-  )
-  const created = relativeTime(issue.createdAt, now)
-  const updated = relativeTime(issue.updatedAt, now)
+  const createdNow = useAgeNow(issue.createdAt, 0, !exceptionsOnly)
+  const updatedNow = useAgeNow(issue.updatedAt, 0, !exceptionsOnly)
+  const created = relativeTime(issue.createdAt, createdNow)
+  const updated = relativeTime(issue.updatedAt, updatedNow)
   const facts = [
     // The header's stage pill already says Closed when the strip rides under it.
     ...(isClosed(issue) && !exceptionsOnly ? [`Closed · ${issue.closedReason}`] : []),

@@ -1,3 +1,4 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { setClockWakeSource } from '@podium/mobx-helpers'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { IsFocusedContext } from 'expo-router/build/react-navigation/core/useIsFocused'
@@ -5,6 +6,7 @@ import { observer } from 'mobx-react-lite'
 import { Profiler, StrictMode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { platformClockWakeSource } from '../client/clock-wake-source.native'
+import { IssueDayLabel } from '../components/task-detail/IssueAge'
 import { useAgeNow, useClock } from './clock-hooks'
 import {
   ContentActivity,
@@ -57,7 +59,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-it('shares a minute timer between mounted labels and never commits their unchanged parent row', () => {
+it('shares the next text deadline between mounted labels without commits between boundaries', () => {
   const timeout = vi.spyOn(globalThis, 'setTimeout')
   const commits = vi.fn()
   render(
@@ -67,12 +69,12 @@ it('shares a minute timer between mounted labels and never commits their unchang
     </Profiler>,
   )
   expect(vi.getTimerCount()).toBe(1)
-  expect(timeout).toHaveBeenCalledWith(expect.any(Function), 60_000)
+  expect(timeout).toHaveBeenCalledWith(expect.any(Function), 29_500)
   commits.mockClear()
-  act(() => vi.advanceTimersByTime(59_999))
+  act(() => vi.advanceTimersByTime(29_499))
   expect(commits).not.toHaveBeenCalled()
   act(() => vi.advanceTimersByTime(1))
-  expect(screen.getByTestId('clock').textContent).toBe(String(start + 60_000))
+  expect(screen.getByTestId('clock').textContent).toBe(String(start + 29_500))
 })
 
 it('unsubscribes mounted hidden content, blurred tabs and covered stack screens, and resamples on return', () => {
@@ -204,4 +206,63 @@ it('drops observer label demand and wake listeners after repeated open, blur and
     expect(vi.getTimerCount()).toBe(0)
     expect(app.listeners.size).toBe(0)
   }
+})
+
+it('redraws independently phased relative labels only when their text changes', () => {
+  const first = vi.fn(),
+    second = vi.fn()
+  function Age({ since }: { since: number }) {
+    return relativeTime(new Date(since).toISOString(), useAgeNow(since))
+  }
+  const view = render(
+    <>
+      <Profiler id="first" onRender={first}>
+        <Age since={start - 50_000} />
+      </Profiler>
+      <Profiler id="second" onRender={second}>
+        <Age since={start - 10_000} />
+      </Profiler>
+    </>,
+  )
+  first.mockClear()
+  second.mockClear()
+  act(() => vi.advanceTimersByTime(9499))
+  expect(first).not.toHaveBeenCalled()
+  expect(second).not.toHaveBeenCalled()
+  act(() => vi.advanceTimersByTime(1))
+  expect(view.container.textContent).toBe('1m agojust now')
+  expect(first).toHaveBeenCalledTimes(1)
+  expect(second).not.toHaveBeenCalled()
+  act(() => vi.advanceTimersByTime(30_000))
+  expect(view.container.textContent).toBe('2m agojust now')
+  expect(first).toHaveBeenCalledTimes(2)
+  expect(second).not.toHaveBeenCalled()
+  act(() => vi.advanceTimersByTime(10_000))
+  expect(view.container.textContent).toBe('2m ago1m ago')
+  expect(first).toHaveBeenCalledTimes(2)
+  expect(second).toHaveBeenCalledTimes(1)
+  view.unmount()
+})
+
+it('changes activity day labels at midnight and releases their deadline while hidden', () => {
+  const midnight = new Date(2026, 10, 20).getTime()
+  vi.setSystemTime(midnight - 12_345)
+  const scene = (visible: boolean) => (
+    <VisibleContent visible={visible}>
+      <IssueDayLabel day="2026-11-19" stamp={new Date(2026, 10, 19, 8).toISOString()} />
+    </VisibleContent>
+  )
+  const view = render(scene(true))
+  expect(view.container.textContent).toBe('Today')
+  expect(vi.getTimerCount()).toBe(1)
+  act(() => vi.advanceTimersByTime(12_344))
+  expect(view.container.textContent).toBe('Today')
+  act(() => vi.advanceTimersByTime(1))
+  expect(view.container.textContent).toBe('Yesterday')
+  view.rerender(scene(false))
+  expect(vi.getTimerCount()).toBe(0)
+  act(() => vi.advanceTimersByTime(86_400_000))
+  view.rerender(scene(true))
+  expect(view.container.textContent).not.toBe('Yesterday')
+  view.unmount()
 })

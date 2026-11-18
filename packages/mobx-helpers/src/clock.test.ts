@@ -79,6 +79,11 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+// A supplied whole-minute formatter boundary; the real formatters are covered
+// in client-core's age tests without making this package depend on client-core.
+const nextMinute = (since: number, at: number) =>
+  since + (Math.max(0, Math.floor((at - since) / 60_000)) + 1) * 60_000
+
 describe('on-demand clock', () => {
   it('never gives an enclosing MobX observer clock demand when creating a disabled React store', () => {
     vi.useFakeTimers()
@@ -88,22 +93,22 @@ describe('on-demand clock', () => {
     expect(vi.getTimerCount()).toBe(0)
     stop()
   })
-  it('shares one minute tick for relative text, with no seconds clock or work after unmount', () => {
+  it('shares an exact formatter deadline, with no seconds clock or work after unmount', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
     const timeout = vi.spyOn(globalThis, 'setTimeout')
     const values: number[][] = [[], []]
-    const a = autorun(() => values[0]!.push(nowForAge(0, 0, 0)))
-    const b = autorun(() => values[1]!.push(nowForAge(0, 0, 0)))
+    const a = autorun(() => values[0]!.push(nowForAge(0, nextMinute)))
+    const b = autorun(() => values[1]!.push(nowForAge(0, nextMinute)))
     try {
       expect(timeout).toHaveBeenCalledTimes(1)
-      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000)
-      vi.advanceTimersByTime(59_999)
+      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 50_000)
+      vi.advanceTimersByTime(49_999)
       expect(values).toEqual([[10_000], [10_000]])
       vi.advanceTimersByTime(1)
       expect(values).toEqual([
-        [10_000, 70_000],
-        [10_000, 70_000],
+        [10_000, 60_000],
+        [10_000, 60_000],
       ])
     } finally {
       a()
@@ -115,18 +120,18 @@ describe('on-demand clock', () => {
 
   it('does not subscribe to time for an invalid timestamp', () => {
     vi.useFakeTimers()
-    const stop = autorun(() => nowForAge(''))
+    const stop = autorun(() => nowForAge('', nextMinute))
     expect(vi.getTimerCount()).toBe(0)
     stop()
   })
 
-  it('keeps relative labels on minutes even when a server timestamp is ahead of this device', () => {
+  it('waits for the formatter boundary even when a server timestamp is ahead of this device', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const timeout = vi.spyOn(globalThis, 'setTimeout')
-    const stop = autorun(() => nowForAge(10_000, 0, 0))
+    const stop = autorun(() => nowForAge(10_000, nextMinute))
     try {
-      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000)
+      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 69_000)
     } finally {
       stop()
       timeout.mockRestore()
@@ -139,6 +144,7 @@ describe('on-demand clock', () => {
     for (let i = 0; i < 100; i++) {
       now(1000)
       new DeadlineClock().reached(200_000)
+      nowForAge(i, nextMinute)
     }
     expect(vi.getTimerCount()).toBe(0)
     vi.advanceTimersByTime(60_000)
@@ -171,7 +177,7 @@ describe('on-demand clock', () => {
     vi.useFakeTimers()
     vi.setSystemTime(3_598_000)
     const values: number[] = []
-    const stop = autorun(() => values.push(nowForAge(0)))
+    const stop = autorun(() => values.push(nowForAge(0, nextMinute, 0, 3_600_000)))
     try {
       vi.advanceTimersByTime(2000)
       expect(values.at(-1)).toBe(3_600_000)
