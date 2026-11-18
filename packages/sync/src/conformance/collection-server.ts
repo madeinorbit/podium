@@ -14,7 +14,8 @@
  */
 
 import { COLLECTIONS, matchesWhere, type RuleValue, recordOf, resolveValue } from '@podium/model'
-import { policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
+import { instanceKey } from '../replica/cache-state'
+import { comesWithOf, policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
   BootstrapChunk,
@@ -114,6 +115,13 @@ export class CollectionServer implements AuthorityReadPort {
   answerSeq: number | undefined
   /** Hold every answer before its first chunk until this resolves. */
   gate: Promise<void> | undefined
+  /**
+   * Answer what each instance's records come with in the same answer, with a
+   * marker per instance, until nothing new arrives: the server's collection
+   * route does (`collection-fetch.ts`, step 4). Off, the client asks for it
+   * in its next request, which the older cases expect.
+   */
+  answerComesWith = false
   /** Stop every answer after this many chunks, as a process that died does: it never resumes. */
   dieAfterChunks: number | undefined
   private chunksServed = 0
@@ -269,10 +277,38 @@ export class CollectionServer implements AuthorityReadPort {
       last: false,
       kindTokens: { ...this.kindTokens },
     }
-    for (const spec of instances) {
+    const queue = [...instances]
+    const asked = new Set(queue.map((spec) => instanceKey(spec)))
+    // A record goes out once per answer; a later instance names it in its marker.
+    const sent = new Set<string>()
+    for (let next = 0; next < queue.length; next += 1) {
+      const spec = queue[next]!
       const stub = spec.part === 'stub'
       const rows = this.members(spec).filter((row) => row.seq <= at)
-      const envelopes = rows.map(
+      if (this.answerComesWith && !stub) {
+        const resolved = resolveInstance(spec, policyArgs(this.policy))
+        for (const row of rows)
+          for (const along of comesWithOf(
+            row.entity,
+            row.value,
+            resolved ? [resolved] : [],
+            WORLD_NOW,
+          )) {
+            const key = instanceKey(along)
+            if (asked.has(key)) continue
+            asked.add(key)
+            queue.push(along)
+          }
+      }
+      const fresh = stub
+        ? rows
+        : rows.filter((row) => {
+            const key = rowKey(row.entity, row.id)
+            if (this.answerComesWith && sent.has(key)) return false
+            sent.add(key)
+            return true
+          })
+      const envelopes = fresh.map(
         (row): ChangeEnvelope => ({
           seq: row.seq,
           entity: row.entity,

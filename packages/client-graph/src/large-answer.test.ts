@@ -39,4 +39,40 @@ describe('a large tree and its sessions install in bounded work (POD-7165)', () 
       run?.dispose()
     }
   }, 120_000)
+
+  /**
+   * POD-7168: the deck's rows waited on one lookup after another. The Full
+   * view's row walk stopped at its first row still loading, and a row's word
+   * read each blocked-by target outside the tree as a whole record: one
+   * record per round trip, and the operator's deck waited on about 18 in a
+   * row. A dependency's reference and state are stub fields, and the walk
+   * reads every row before it answers.
+   */
+  it('opens in two load hops when tree issues are blocked by issues outside it', async () => {
+    let run: LargeDeckRun | undefined
+    try {
+      run = await openLargeDeck({
+        members: MEMBERS,
+        sessionsPerIssue: 2,
+        outsideBlockers: 20,
+        serverComesWith: true,
+      })
+      expect(run.ready).toBe(true)
+      // The tree, then what its records come with (the server answers that
+      // with the tree, as its route does): nothing waits on a third.
+      expect(run.hops).toBeLessThanOrEqual(2)
+      // No blocker outside the tree is loaded whole: the stubs answer for it.
+      const lookups = run.fetches.filter((fetch) =>
+        fetch.collections.includes('issueProjection.one'),
+      )
+      expect(lookups).toEqual([])
+      expect(run.bursts).toBeLessThanOrEqual(Math.ceil(MEMBERS / 15))
+      // The same answers: the proposed blockers are unmet, the done ones met.
+      expect(new Map(run.unmetOutside)).toEqual(
+        new Map(Array.from({ length: 10 }, (_, k) => [`M${60 * k + 1}`, [`X${2 * k + 1}`]])),
+      )
+    } finally {
+      run?.dispose()
+    }
+  }, 120_000)
 })

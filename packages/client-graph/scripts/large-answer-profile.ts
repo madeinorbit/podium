@@ -10,6 +10,7 @@ const run = await openLargeDeck({
   members,
   sessionsPerIssue: perIssue,
   loaderBatch: process.env.OLD_WIRING !== '1',
+  outsideBlockers: Number(process.env.OUTSIDE_BLOCKERS ?? 0),
   log: (line) => console.log(line),
 })
 console.log(
@@ -24,6 +25,10 @@ console.log(
     notifications: run.notifications,
     flushes: run.flushes,
     trims: run.trims,
+    hops: run.hops,
+    lookups: run.fetches.filter((fetch) => fetch.collections.includes('issueProjection.one'))
+      .length,
+    unmetOutside: run.unmetOutside.length,
     longestMs: Math.round(run.longestMs),
   }),
 )

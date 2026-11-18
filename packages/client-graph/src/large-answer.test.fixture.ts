@@ -68,6 +68,16 @@ export interface LargeDeckRun {
   readonly bootMs: number
   readonly openMs: number
   readonly stages: readonly { readonly stage: string; readonly ms: number }[]
+  /**
+   * Load hops while the deck opened: the longest chain of fetches each asked
+   * for only after an earlier one's answer arrived (POD-7168). The tree is
+   * one, what its records come with is the second.
+   */
+  readonly hops: number
+  /** Tree issues with an unmet blocker outside the tree, and those blockers. */
+  readonly unmetOutside: readonly (readonly [string, readonly string[]])[]
+  /** Every fetch while the deck opened: its hop and the collections it named. */
+  readonly fetches: readonly { readonly hop: number; readonly collections: readonly string[] }[]
   /** Event bursts the Replica emitted while the deck opened: one per install. */
   readonly bursts: number
   /** Changes the loader told the views while the deck opened. */
@@ -90,6 +100,14 @@ export async function openLargeDeck(
     readonly members?: number
     readonly sessionsPerIssue?: number
     readonly chunkRows?: number
+    /**
+     * Tree issues blocked by an issue outside the tree, one each: half of
+     * the blockers are proposed (unmet), half done (met). Neither is in the
+     * sidebar, so the device holds them as stubs only (POD-7168).
+     */
+    readonly outsideBlockers?: number
+    /** The server answers what records come with in the same answer, as the real route does. */
+    readonly serverComesWith?: boolean
     /** Compose the loader's burst (the app does); false reproduces the old wiring. */
     readonly loaderBatch?: boolean
     readonly log?: (line: string) => void
@@ -102,9 +120,12 @@ export async function openLargeDeck(
   const server = new CollectionServer()
   server.policy = POLICY
   server.chunkRows = options.chunkRows ?? 500
+  server.answerComesWith = options.serverComesWith ?? false
   server.put(ISSUE, 'R', value('R', { stage: 'in_progress' }))
   let sessions = 0
   const ids: string[] = []
+  const blockers = options.outsideBlockers ?? 0
+  const every = blockers > 0 ? Math.max(3, Math.floor(memberCount / blockers / 3) * 3) : 0
   // A tree three levels deep: 10 children of the root, 10 under each, the rest below.
   for (let n = 0; n < memberCount; n += 1) {
     const id = `M${n + 1}`
@@ -119,6 +140,22 @@ export async function openLargeDeck(
         closedReason: n % 3 === 0 ? null : 'completed',
       }),
     )
+    if (every > 0 && n % every === 0 && n / every < blockers) {
+      // An open member (n % 3 === 0) blocked by an issue outside the tree.
+      const outside = `X${n / every + 1}`
+      const met = (n / every) % 2 === 1
+      server.put(
+        ISSUE,
+        outside,
+        value(outside, met ? { stage: 'done', closedReason: 'completed' } : { stage: 'proposed' }),
+      )
+      server.put('issueDep', `D-${id}`, {
+        id: `D-${id}`,
+        fromId: id,
+        toId: outside,
+        type: 'blocked-by',
+      })
+    }
     for (let s = 0; s < perIssue; s += 1) {
       server.put(
         'session',
@@ -127,6 +164,24 @@ export async function openLargeDeck(
       )
       sessions += 1
     }
+  }
+  // Each fetch's hop: one more than the deepest fetch whose answer had
+  // arrived when it was asked for. Parallel fetches share a hop.
+  let answeredHop = 0
+  const fetches: { hop: number; collections: string[] }[] = []
+  const answer = server.collections.bind(server)
+  server.collections = (instances) => {
+    const hop = answeredHop + 1
+    if (opening)
+      fetches.push({ hop, collections: [...new Set(instances.map((i) => i.collection))] })
+    const chunks = answer(instances)
+    return (async function* () {
+      try {
+        yield* chunks
+      } finally {
+        answeredHop = Math.max(answeredHop, hop)
+      }
+    })()
   }
   const storage = await inMemoryInstantiation.open()
   const { cache } = storage.viewFor('u-ada')
@@ -217,26 +272,37 @@ export async function openLargeDeck(
   attachMissionTestPreferences(handle.pool)
   const t1 = performance.now()
   opening = true
+  answeredHop = 0
   const burstsBefore = bursts
   const notificationsBefore = loader!.stats.notifications
   const flushesBefore = rows.stats.flushes
   const trimsBefore = kernel.stats().trims
   const screen = new MissionScreen(handle.pool, 'R', { sessionName: (s) => s.name ?? '' })
   let shown = 0
+  // What the Full view draws once it has settled: its rows and their words.
+  const ready = () => screen.ready && screen.full.ready
   const stop = autorun(() => {
-    if (!screen.ready) return
+    if (!ready()) return
     shown = screen.rows.length
+    for (const id of screen.full.rowIds) void screen.full.task(id).word
   })
-  for (let round = 0; round < 6 && !screen.ready; round += 1) await settle()
+  for (let round = 0; round < 6 && !ready(); round += 1) await settle()
   const openMs = performance.now() - t1
   opening = false
   const flushes = rows.stats.flushes - flushesBefore
+  const unmetOutside = screen.full.rowIds.flatMap((id): [string, string[]][] => {
+    const outside = screen.full.task(id).externalUnmetIds
+    return outside.length > 0 ? [[id, [...outside]]] : []
+  })
   log(`open ${openMs.toFixed(0)} ms ready=${screen.ready} rows=${shown}`)
   return {
     members: memberCount,
     sessions,
-    ready: screen.ready,
+    ready: ready(),
     rows: shown,
+    hops: Math.max(0, ...fetches.map((fetch) => fetch.hop)),
+    unmetOutside,
+    fetches,
     bootMs,
     openMs,
     stages,
