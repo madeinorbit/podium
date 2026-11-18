@@ -6,7 +6,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
+import { useLocalSearchParams, useNavigation } from 'expo-router'
 import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
 import { usePreventRemove } from 'expo-router/react-navigation'
 import { observer } from 'mobx-react-lite'
@@ -45,6 +45,7 @@ import { launchAgentHref } from '../lib/session-route'
 import { deckBackReturnsToChat } from '../navigation/back-targets'
 import { useHeaderInset } from '../navigation/header-inset'
 import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { color } from '../theme/theme'
 
 /**
@@ -73,7 +74,7 @@ export const MissionScreen = observer(function MissionScreen() {
   }>()
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const store = useStoreActions()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land

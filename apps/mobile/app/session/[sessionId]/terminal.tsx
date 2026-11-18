@@ -1,7 +1,7 @@
 import { panelLabel, sessionTitle } from '@podium/client-core/values'
 import { asSessionId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -13,6 +13,7 @@ import {
 import { Icon } from '../../../src/components/Icon'
 import { ExternalLink, MoreVertical } from '../../../src/components/icons'
 import { HeaderButton, Screen, type ScreenMenuItem } from '../../../src/components/Screen'
+import { useRootScreenRouter } from '../../../src/navigation/use-root-screen-router'
 import {
   TerminalControlAction,
   terminalControlMenuItem,
@@ -26,7 +27,7 @@ import { appearancePalette, color } from '../../../src/theme/theme'
 
 /** Native CLI for the same session and task shown by the chat view. */
 export default function TerminalRoute() {
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const insets = useSafeAreaInsets()
   // Route params are RAW URL values, so the brand is applied once here — the
   // DECODE EDGE for this screen, mirroring SessionScreen (POD-362).

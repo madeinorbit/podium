@@ -1,4 +1,5 @@
 import { canonicalPodiumOrigin, type PodiumTarget, parsePodiumLink } from '@podium/protocol'
+import { consoleSessionTarget } from '../navigation/console-route'
 import type { ServerProfile } from './server-profiles'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
@@ -15,7 +16,7 @@ export type MobileHandoffRequest =
   | { kind: 'destination'; destination: MobileHandoffDestination }
   | {
       kind: 'navigation'
-      target: Extract<PodiumTarget, { kind: 'issue' | 'session' }>
+      target: Extract<PodiumTarget, { kind: 'issue' | 'session' | 'view' }>
     }
   | { kind: 'unscoped' }
 
@@ -71,6 +72,9 @@ export function parseMobileHandoffUrl(raw: string): MobileHandoffRequest | null 
   if (!/^podium:/i.test(raw.trim())) return null
   const link = parsePodiumLink(raw)
   if (link?.kind !== 'internal' || link.origin !== null) return null
+  if (link.target.kind === 'view' && consoleSessionTarget(link.target)) {
+    return { kind: 'navigation', target: link.target }
+  }
   if (link.target.kind === 'issue') {
     return link.target.search || link.target.hash
       ? { kind: 'unscoped' }
@@ -125,7 +129,7 @@ export type MobileHandoffDecision =
   | { kind: 'switch-profile'; profileId: string }
   | { kind: 'authenticate'; profileId: string }
   | { kind: 'wait-replica' }
-  | { kind: 'open'; target: Extract<PodiumTarget, { kind: 'issue' | 'session' }> }
+  | { kind: 'open'; target: Extract<PodiumTarget, { kind: 'issue' | 'session' | 'view' }> }
   | { kind: 'fallback'; reason: MobileHandoffFallbackReason }
 
 export interface MobileHandoffContext {

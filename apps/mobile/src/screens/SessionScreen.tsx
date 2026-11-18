@@ -7,7 +7,7 @@ import { isDraftAgentVessel, readoutModel, sessionTitle } from '@podium/client-c
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
 import { compareStructural, computed } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import {
@@ -58,6 +58,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { useHeaderInset } from '../navigation/header-inset'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { sessionAbsence, sessionAbsenceShowsLoader, sessionLinkAbsence } from './session-absence'
 import { useSessionLink } from './session-link'
 
@@ -91,7 +92,7 @@ export function SessionScreen() {
   const sessionId = rawSessionId ? asSessionId(rawSessionId) : undefined
   const backTarget = sessionBackTarget(params.backTo)
   const hasBackTarget = hasSessionBackTarget(params.backTo)
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const exitKind = useSessionContextExit(sessionId)
   const readNextSession = useSessionContextNextSession()
   const session = useSession(sessionId)

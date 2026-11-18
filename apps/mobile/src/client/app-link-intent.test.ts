@@ -25,6 +25,8 @@ describe('gate-owned app links', () => {
       'podium://issues/POD-1',
       'podium://session/abc',
       'podium://sessions/abc',
+      'podium://session/abc/terminal',
+      'podium:///session/abc/terminal',
       formatPodiumLink(PODIUM_SCHEME, {
         kind: 'session',
         session: 'notification-session',

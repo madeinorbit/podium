@@ -44,6 +44,8 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
       screenLayout={noticeScreenLayout}
       screenOptions={{
         ...systemHeaderOptions,
+        // An unspecified presentation inherits modal behavior after a sheet.
+        presentation: 'card',
         headerShown: true,
         headerBackButtonDisplayMode: 'minimal',
         headerShadowVisible: false,

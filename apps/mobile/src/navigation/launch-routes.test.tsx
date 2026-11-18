@@ -4,6 +4,7 @@ import { getRoutes } from 'expo-router/build/getRoutesCore'
 import type { RequireContext } from 'expo-router/build/types'
 import { Children, isValidElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ROOT_SHEET_ROUTES } from './root-screen-router'
 
 const native = vi.hoisted(() => ({
   reduceMotion: false,
@@ -90,6 +91,7 @@ describe('native launch routes', () => {
       './issue/[issueId].tsx': { default: () => null },
       './mission/[missionId].tsx': { default: () => null },
       './mission/[missionId]/details.tsx': { default: () => null },
+      './session/[sessionId]/terminal.tsx': { default: () => null },
     }
     const context = Object.assign((key: string) => routes[key as keyof typeof routes], {
       keys: () => Object.keys(routes),
@@ -104,6 +106,20 @@ describe('native launch routes', () => {
     const config = getReactNavigationConfig(tree, true)
     expect(config.initialRouteName).toBe('(tabs)')
     expect(config.screens['(tabs)']).toMatchObject({ initialRouteName: 'work' })
+    expect(config.screens).toHaveProperty('session/[sessionId]/terminal')
+  })
+
+  it('keeps full-screen destinations out of modal inheritance and tracks every root sheet', () => {
+    render(<RootLayout />)
+    expect(native.options.presentation).toBe('card')
+    expect(
+      Object.entries(native.screens)
+        .filter(
+          ([, options]) => options.presentation === 'formSheet' || options.presentation === 'modal',
+        )
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual([...ROOT_SHEET_ROUTES].sort())
   })
 
   it('fits Start Agent to its content while keeping its transparent native bar', () => {

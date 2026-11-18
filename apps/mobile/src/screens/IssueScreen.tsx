@@ -13,7 +13,7 @@ import {
 } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
@@ -81,6 +81,7 @@ import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { launchAgentHref, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { color, space } from '../theme/theme'
 
 /** Native task detail composition. Data and commands come from the shared page view.
@@ -103,7 +104,7 @@ const IssueScreenBody = observer(function IssueScreenBody({
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const issue = useIssueModel(issueId)
   useScreenReadFocus(issue?.id)
   const booting = useBooting()
@@ -189,7 +190,7 @@ const IssueContent = observer(function IssueContent({
   onBack: () => void
   dismiss: boolean
 }) {
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const trpc = useTrpc()
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.

@@ -59,7 +59,7 @@ import {
   type MachineWire,
   machinePathBasename,
 } from '@podium/model'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
 import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { observer } from 'mobx-react-lite'
 import { use, useCallback, useEffect, useRef, useState } from 'react'
@@ -80,6 +80,7 @@ import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { onMediaPaste, pickDocuments, pickPhotos, takePhoto } from '../lib/composer-media'
 import { newTaskInput, newTaskSubmitState } from '../lib/new-task'
 import { sessionBackTarget, sessionHref } from '../lib/session-route'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { color } from '../theme/theme'
 
 const EMPTY_CATALOG = { repos: [] as GitRepositoryWire[], machines: [] as MachineWire[] }
@@ -94,7 +95,7 @@ const readCatalogLoading = (pool: MobxPool) => pool.row('settingsCatalog', 'cata
 
 /** One compose flow for filing a task, starting an agent, or opening a shell. */
 export const NewIssueScreen = observer(function NewIssueScreen() {
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const params = useLocalSearchParams<{ repoPath?: string; backTo?: string }>()
   const trpc = useTrpc()
   const uiState = useUiState()
