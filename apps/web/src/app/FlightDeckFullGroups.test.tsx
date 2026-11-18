@@ -636,7 +636,7 @@ it('uses the existing loading placeholder until the coordinator roster settles',
     expect(ui.getByRole('status', { name: 'Loading coordinator' })).toBeDefined()
     expect(ui.container.querySelector('[data-flight-session]')).toBeNull()
     await act(async () => {
-      f.pool.hydrate()
+      f.arrive()
     })
     await waitFor(() => expect(ui.queryByRole('status')).toBeNull())
     // Stopped sessions retain their shared Done word and conversation access.
