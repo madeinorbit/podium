@@ -61,6 +61,16 @@ export function treeOf(root: string, part: 'stub' | 'main' = 'main'): LoaderInst
   return { collection: 'issueProjection.tree', args: { root }, part }
 }
 
+/** One page of a stage, sorted: a board column, the proposal deck. */
+export function stagePage(stage: string): LoaderInstance {
+  return { collection: 'issueProjection.byStage', args: { stage }, part: 'main' }
+}
+
+/** One page of a stage under a priority filter: its total comes with the page. */
+export function stagePriorityPage(stage: string, priority: number): LoaderInstance {
+  return { collection: 'issueProjection.byStagePriority', args: { stage, priority }, part: 'main' }
+}
+
 /** How a view reads an instance or a lookup: here, on its way, or not loadable offline. */
 export type Availability = 'complete' | 'loading' | 'offline'
 
@@ -87,6 +97,10 @@ export class PoolCollections {
   private disposed = false
   /** Per stub array the kernel hands out (its own memo): tallies already counted. */
   private readonly tallies = new WeakMap<object, Map<string, ReadonlyMap<unknown, number>>>()
+  /** Per stub array: the issue of each repository and number. */
+  private readonly refIndexes = new WeakMap<object, Map<string, string>>()
+  /** Per stub array: whether each repository has a live issue, or only deleted ones. */
+  private readonly repoPresence = new WeakMap<object, Map<string, 'live' | 'deleted'>>()
 
   constructor(private source: () => CollectionLoaderPort | undefined) {
     this.markers = createAtom('pool.collections.markers')
@@ -169,10 +183,43 @@ export class PoolCollections {
     return 'here'
   }
 
+  /** TRACKED: whether the device holds a paged instance to its end (or whole). */
+  pageEnded(spec: LoaderInstance): boolean {
+    this.markers.reportObserved()
+    const marker = this.loader()?.isComplete(spec)
+    return marker !== undefined && (marker.range === undefined || marker.range.end)
+  }
+
   /** TRACKED: a paged instance's whole size for this viewer, from its first page. */
   pageTotal(spec: LoaderInstance): number | typeof LOADING {
     this.markers.reportObserved()
     return this.loader()?.isComplete(spec)?.total ?? LOADING
+  }
+
+  /**
+   * A paged instance the device holds part of: ask for the page after the
+   * last one it holds, unless that was the end. A view calls it when its
+   * reader nears the end of what is held ("the next cards").
+   */
+  nextPage(spec: LoaderInstance): void {
+    const loader = this.loader()
+    const range = loader?.isComplete(spec)?.range
+    if (loader === undefined || range === undefined || range.end || range.through === undefined)
+      return
+    loader.request([{ ...spec, after: range.through as LoaderInstance['after'] }], 'visible')
+  }
+
+  /**
+   * TRACKED: whether the device holds the instance complete; if not, ask
+   * for it at the front of the queue. Without a loader the pool holds what
+   * it was given: true.
+   */
+  held(spec: LoaderInstance): boolean {
+    const loader = this.loader()
+    if (loader === undefined) return true
+    if (this.complete(spec)) return true
+    loader.request([spec], 'visible')
+    return false
   }
 
   /** An open view holds an instance; it loads first. Returns the release (the instance becomes cache). */
@@ -220,6 +267,48 @@ export class PoolCollections {
     return this.loader()?.stubOf(ISSUE, id) as IssueStub | undefined
   }
 
+  /** TRACKED: the issue with this repository and number, by the stubs the device holds. */
+  stubIdAt(repoId: string, seq: number): string | undefined {
+    const loader = this.loader()
+    if (loader === undefined) return undefined
+    this.stubs.reportObserved()
+    const rows = loader.stubRows(ISSUE)
+    let index = this.refIndexes.get(rows)
+    if (index === undefined) {
+      index = new Map()
+      for (const row of rows) {
+        const { repoId: repo, seq: number } = row.stub
+        if (typeof repo !== 'string' || typeof number !== 'number') continue
+        const key = `${repo}:${number}`
+        const held = index.get(key)
+        if (held === undefined || row.id < held) index.set(key, row.id)
+      }
+      this.refIndexes.set(rows, index)
+    }
+    return index.get(`${repoId}:${seq}`)
+  }
+
+  /** TRACKED: whether the device holds a stub in the repository (undeleted unless asked). */
+  hasStubIn(repoId: string, includeDeleted = false): boolean {
+    const loader = this.loader()
+    if (loader === undefined) return false
+    this.stubs.reportObserved()
+    const rows = loader.stubRows(ISSUE)
+    let presence = this.repoPresence.get(rows)
+    if (presence === undefined) {
+      presence = new Map()
+      for (const row of rows) {
+        const repo = row.stub['repoId']
+        if (typeof repo !== 'string') continue
+        const live = !row.stub['deletedAt']
+        presence.set(repo, presence.get(repo) === 'live' || live ? 'live' : 'deleted')
+      }
+      this.repoPresence.set(rows, presence)
+    }
+    const held = presence.get(repoId)
+    return held === 'live' || (includeDeleted && held === 'deleted')
+  }
+
   /** TRACKED: whether the device's stubs cover all history. */
   get stubsComplete(): boolean {
     return this.complete(ISSUE_STUBS)
@@ -254,6 +343,37 @@ export class PoolCollections {
     return tally
   }
 
+  /**
+   * TRACKED: how many issues over all history pass `test`, which reads only
+   * stub fields (the issue's and, through `stubOf`, its ancestors'). LOADING
+   * until the stubs are complete. `key` names the test for the tally memo:
+   * one tally per stub table and key.
+   */
+  countStubs(
+    key: string,
+    test: (stub: IssueStub, stubOf: (id: string) => IssueStub | undefined) => boolean,
+  ): number | typeof LOADING {
+    const loader = this.loader()
+    if (loader === undefined || !this.stubsComplete) return LOADING
+    this.stubs.reportObserved()
+    const rows = loader.stubRows(ISSUE)
+    let byKey = this.tallies.get(rows)
+    if (byKey === undefined) {
+      byKey = new Map()
+      this.tallies.set(rows, byKey)
+    }
+    const memo = `test:${key}`
+    let tally = byKey.get(memo)
+    if (tally === undefined) {
+      const stubOf = (id: string) => loader.stubOf(ISSUE, id) as IssueStub | undefined
+      let count = 0
+      for (const row of rows) if (test({ id: row.id, ...row.stub } as IssueStub, stubOf)) count += 1
+      tally = new Map([[true, count]])
+      byKey.set(memo, tally)
+    }
+    return tally.get(true) ?? 0
+  }
+
   /** TRACKED: a parent's children and how many are done, from the stubs, for all history. */
   childCounts(parentId: string): StubChildCounts | typeof LOADING {
     const loader = this.loader()
@@ -286,6 +406,41 @@ export class PoolCollections {
   }
 
   /**
+   * TRACKED: whether the device holds every member under `id` WHOLE (main
+   * part): the tree of its top-level ancestor, or of `id` itself, is
+   * complete. Otherwise it asks for the top-level tree, at the front of the
+   * queue, and answers false: a view that shows a tree (a flight deck) reads
+   * its members as LOADING until then. No tree is preloaded; one that was
+   * opened stays (design "No tree preloading"). Without a loader the pool
+   * holds what it was given, so it answers true.
+   */
+  treeHeld(id: string): boolean {
+    const loader = this.loader()
+    if (loader === undefined) return true
+    const top = this.topOf(id)
+    if (this.complete(treeOf(id, 'main')) || (top !== undefined && this.complete(treeOf(top, 'main'))))
+      return true
+    loader.request([treeOf(top ?? id, 'main')], 'visible')
+    return false
+  }
+
+  /** TRACKED: the top-level ancestor of `id` by the stubs, or undefined when the chain leaves them. */
+  private topOf(id: string): string | undefined {
+    const loader = this.loader()
+    if (loader === undefined) return undefined
+    this.stubs.reportObserved()
+    let at = id
+    for (let guard = 0; guard < 10_000; guard += 1) {
+      const stub = loader.stubOf(ISSUE, at)
+      if (stub === undefined) return undefined
+      const parent = stub['parentId']
+      if (typeof parent !== 'string' || parent === '') return at
+      at = parent
+    }
+    return undefined
+  }
+
+  /**
    * TRACKED: whether the device holds every member under `id`: all stubs, or
    * the tree of its top-level ancestor at stub level or whole. A chain that
    * reaches an issue the device does not hold cannot say.
@@ -294,15 +449,8 @@ export class PoolCollections {
     if (this.stubsComplete) return true
     const loader = this.loader()
     if (loader === undefined) return false
-    this.stubs.reportObserved()
-    let at = id
-    for (let guard = 0; guard < 10_000; guard += 1) {
-      const stub = loader.stubOf(ISSUE, at)
-      if (stub === undefined) return false
-      const parent = stub['parentId']
-      if (typeof parent !== 'string' || parent === '') break
-      at = parent
-    }
+    const at = this.topOf(id)
+    if (at === undefined) return false
     return this.complete(treeOf(at, 'stub')) || this.complete(treeOf(at, 'main'))
   }
 

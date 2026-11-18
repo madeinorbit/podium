@@ -117,8 +117,8 @@ const ISSUES = [
 
 /** Arguments every declared rule over these types can be answered with. */
 const ARGS: readonly RuleArgs[] = [
-  { recentDays: 7, issueId: 'iss_a', id: 's-offer', root: 'iss_a', stage: 'in_progress' },
-  { recentDays: 30, issueId: 'iss_b', id: 'iss_c', root: 'iss_b', stage: 'proposed' },
+  { recentDays: 7, issueId: 'iss_a', id: 's-offer', root: 'iss_a', stage: 'in_progress', priority: 2 },
+  { recentDays: 30, issueId: 'iss_b', id: 'iss_c', root: 'iss_b', stage: 'proposed', priority: 1 },
 ]
 
 function sessionRow(

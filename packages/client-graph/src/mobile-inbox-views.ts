@@ -6,7 +6,7 @@ import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { MobileInbox, screeningQueue } from './mobile-triage'
+import { screeningQueue } from './mobile-triage'
 import { readPageIssue } from './issue-page'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -20,10 +20,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && pool.queries.count('session') === 0 && pool.queries.count('issue') === 0)
+      (!state.hasCursor && pool.queries.heldCount('session') === 0 && pool.queries.heldCount('issue') === 0)
     )
   }
-  const inbox = new MobileInbox(pool)
   class ScreeningQueue {
     @lazy get queue() {
       const ids = screeningQueue(pool)
@@ -122,13 +121,12 @@ export function createMobileInboxViews(pool: MobxPool) {
     })
   }
   return {
-    inbox: () => inbox,
-    screening: () => screening,
     issue,
     chip,
     route,
     resolveRoute,
     booting,
+    screening: () => screening,
     session,
     dispose() {
       for (const cancel of [...waits]) cancel()

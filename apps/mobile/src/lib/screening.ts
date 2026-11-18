@@ -3,7 +3,7 @@ import type { IssueCloseReason } from '@podium/model'
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"
  * card flow: the existing ordered issue mutations and closing tally. The
- * screening queue and reconciliation read the pool through use-inbox-data.
+ * screening queue and reconciliation read the pool through use-pool-links.
  *
  * Screening is deliberately a snapshot: the deck order is fixed when the flow
  * opens so a broadcast never reshuffles the card being decided. Reconciliation

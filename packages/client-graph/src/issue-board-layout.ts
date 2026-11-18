@@ -1,8 +1,10 @@
 import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
+import type { BoardFilter, BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
 import { filterBoardIssues, filterChips, issueRowsByStage } from '@podium/client-core/values'
-import { asIssueId, ISSUE_BOARD_STAGES, isFinished, type IssueStage } from '@podium/model/browser'
+import { asIssueId, ISSUE_BOARD_STAGES, isFinished, issueStatusOf, type IssueStage, machinePathKey } from '@podium/model/browser'
+import { SIDEBAR_STAGES } from '@podium/model'
+import { type IssueStub, stagePage, stagePriorityPage } from './collections'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural, observe, untracked } from 'mobx'
 import type { BoardColumnOptions, BoardOptions, BoardQuery, PoolBoardData } from './issue-board-schema'
@@ -284,6 +286,101 @@ export function createBoardLayout(pool: MobxPool) {
       nav, presentIds: nav.kind === 'rows' ? new Set(nav.ids) : present,
     } }
   })
+  // -------------------------------------------------------- held and counted
+  // A column shows what the device holds at once (POD-7088, design "Where
+  // each question gets its answer": board columns). Its count is exact
+  // locally only when the device holds the whole column: the sidebar
+  // collection holds every open stage that is not proposed, a stage page
+  // read to its end holds the rest. Otherwise the column asks for its page,
+  // and its count comes from the stubs when the filter reads only stub
+  // fields, with the page when it filters by priority, else LOADING.
+  const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' } as const
+  const pageOf = (options: BoardColumnOptions) =>
+    options.filter.priority != null
+      ? stagePriorityPage(options.stage, options.filter.priority)
+      : stagePage(options.stage)
+  const columnHeld = keyedComputed('IssueBoard.columnHeld', (key: string): boolean => {
+    const options: BoardColumnOptions = JSON.parse(key)
+    if (!pool.collections.available) return true
+    // No collection holds archived or deleted issues by stage.
+    if (options.filter.archived || options.filter.deleted) return false
+    if ((SIDEBAR_STAGES as readonly string[]).includes(options.stage) && pool.collections.complete(SIDEBAR))
+      return true
+    if (pool.collections.pageEnded(pageOf(options))) return true
+    pool.collections.request([pageOf(options)], 'visible')
+    return false
+  })
+  /** The repositories at each filtered project path, by their own records. */
+  const reposAt = (paths: readonly string[]): Set<string> => {
+    const keys = new Set(paths.map(machinePathKey)), ids = new Set<string>()
+    for (const [id, row] of pool.tables.repo) {
+      const path = (row as { repoPath?: unknown }).repoPath
+      if (typeof path === 'string' && keys.has(machinePathKey(path))) ids.add(id)
+    }
+    return ids
+  }
+  /** The board filter as a test over stubs, when it reads only stub fields. */
+  function stubFilter(filter: BoardFilter, agents: boolean) {
+    if (filter.text?.trim() || filter.priority != null || filter.assignee) return undefined
+    if (filter.status === 'ready' || filter.status === 'blocked' || filter.status === 'deferred') return undefined
+    const repos = filter.projectPaths?.length ? reposAt(filter.projectPaths) : undefined
+    return (stub: IssueStub, stubOf: (id: string) => IssueStub | undefined): boolean => {
+      if (!(filter.archived || !stub.archived || stub.deletedAt)) return false
+      if (!(filter.deleted || !stub.deletedAt)) return false
+      const status = issueStatusOf({ stage: stub.stage, closedReason: stub.closedReason } as Parameters<typeof issueStatusOf>[0])
+      if (filter.stage && status !== filter.stage) return false
+      if (filter.status === 'open' && isFinished(stub as never)) return false
+      if (filter.status === 'closed' && !isFinished(stub as never)) return false
+      if (repos && !(stub.repoId && repos.has(stub.repoId))) return false
+      return stubInScope(stub, stubOf, agents)
+    }
+  }
+  /** The board's audience and draft scope (`scope` above), over stubs. */
+  function stubInScope(stub: IssueStub, stubOf: (id: string) => IssueStub | undefined, agents: boolean): boolean {
+    if (stub.isDraftVessel && !stub.deletedAt) return false
+    if (agents || stub.deletedAt || stub.audience !== 'agent') return true
+    const seen = new Set([stub.id])
+    let parent = stub.parentId
+    while (parent && !seen.has(parent)) {
+      seen.add(parent)
+      const ancestor = stubOf(parent)
+      if (!ancestor || (ancestor.isDraftVessel && !ancestor.deletedAt)) return false
+      if (ancestor.deletedAt || ancestor.audience !== 'agent') return true
+      parent = ancestor.parentId
+    }
+    return false
+  }
+  const columnCount = keyedComputed('IssueBoard.columnCount', (key: string): Loaded<number> => {
+    const options: BoardColumnOptions = JSON.parse(key)
+    // A filter the stubs can answer is counted from them once they are
+    // complete, held column or not: a count never opens the column's rows.
+    const member = pool.collections.available
+      ? stubFilter(options.filter, options.showAgentTasks)
+      : undefined
+    const statuses: readonly string[] = options.filter.stage ? [options.filter.stage]
+      : isFinished(options) ? ['done', 'cancelled', 'duplicate', 'superseded'] : [options.stage]
+    // A card is a column root: its parent is not on the board.
+    const fromStubs = (test: NonNullable<typeof member>) =>
+      pool.collections.countStubs(`board:${key}`, (stub, stubOf) => {
+        if (stub.stage !== options.stage || !test(stub, stubOf)) return false
+        const status = issueStatusOf({ stage: stub.stage, closedReason: stub.closedReason } as Parameters<typeof issueStatusOf>[0])
+        if (!statuses.includes(status)) return false
+        const parent = stub.parentId ? stubOf(stub.parentId) : undefined
+        return !parent || parent.id === stub.id || !test(parent, stubOf)
+      })
+    if (member !== undefined && pool.collections.stubsComplete) return fromStubs(member)
+    if (columnHeld(key)) {
+      const ids = columnIds(key)
+      return ids === LOADING ? LOADING : (ids?.length ?? 0)
+    }
+    if (member !== undefined) return fromStubs(member)
+    // A priority filter's total comes with its page, counted for this viewer.
+    const onlyPriority = options.filter.priority != null &&
+      stubFilter({ ...options.filter, priority: undefined }, options.showAgentTasks) !== undefined
+    return onlyPriority ? pool.collections.pageTotal(pageOf(options)) : LOADING
+  })
+
+
   function boardKey(options: BoardOptions): string {
     return JSON.stringify({ display: { layout: options.display.layout, ordering: options.display.ordering,
       showAgentTasks: options.display.showAgentTasks }, filter: options.filter,
@@ -297,6 +394,10 @@ export function createBoardLayout(pool: MobxPool) {
     position: (id: string, ordering: IssuesOrdering) => position(JSON.stringify([id, ordering])),
     board: (options: BoardOptions) => board(boardKey(options)),
     columnIds: (options: BoardColumnOptions) => columnIds(columnKey(options)),
+    /** A column's count: exact locally when held whole, else stubs or its page (POD-7088). */
+    columnCount: (options: BoardColumnOptions) => columnCount(columnKey(options)),
+    /** Whether the device holds the whole column; otherwise its page is on its way. */
+    columnHeld: (options: BoardColumnOptions) => columnHeld(columnKey(options)),
     dropIndex(options: BoardColumnOptions & { id: string }) {
       const { id, ...columnOptions } = options
       const ids = columnIds(columnKey(columnOptions))
@@ -314,12 +415,12 @@ export function createBoardLayout(pool: MobxPool) {
       return flat === LOADING ? LOADING : flat?.flatMap(group => group.rows.map(row => row.id)) ?? []
     },
     stats: () => ({ demandKeys: matching.size,
-      cached: [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]
+      cached: [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]
         .reduce((total, cache) => total + cache.size, columnResults.size) }),
     dispose() {
       for (const result of [...columnResults.values()]) result.dispose()
       columnResults.clear()
-      for (const cache of [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
+      for (const cache of [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
     },
   }
 }

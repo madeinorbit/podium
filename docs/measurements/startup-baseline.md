@@ -110,6 +110,31 @@ counts and mission progress of the parents whose closed children are not in
 the policy set (one board card's progress among them). The full list is in
 the test's result file, `startup-no-wrong-number-policy-set-h1a1`.
 
+### The moved readers (POD-7088)
+
+POD-7088 moved the counts, the board's columns and closed tabs, and the
+closed-children readers onto collections, markers and stubs, and extended the
+question list with them: the undeleted count, "first task", the proposal
+deck's total, every board column's count (with and without agent tasks), the
+archived and closed tabs' counts, and the board card's child counts. The
+device's own counts (`heldCount`) are not asked: they are no question of all
+history. `no-wrong-number.test.ts` now requires zero wrong answers outside
+search in the policy set and in every first-download state; the search
+surfaces are POD-7089's and may not get worse (vega, 2026-11-18, `h1a1`, seed
+4443; equal / LOADING / wrong):
+
+| Candidate state | First screen | Counts | Search | Board archive | Closed children |
+| --- | --- | --- | --- | --- | --- |
+| Policy set with markers | 11 / 13 / 0 | 17 / 0 / 0 | 4 / 0 / **9** | 3 / 0 / 0 | 121 / 23 / 0 |
+| First download, always and live | 0 / 24 / 0 | 1 / 16 / 0 | 0 / 0 / **13** | 0 / 3 / 0 | 0 / 144 / 0 |
+
+The 13 first-screen answers that are LOADING in the policy set read a record
+the device does not hold: these pools have no residency, and since POD-7088
+such a lookup asks the loader as a production pool does, instead of answering
+"gone". The lazy pool proof (`no-wrong-number.lazy.test.ts`) does not finish
+loading within its 16 rounds since the board column questions were added;
+that is open.
+
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership
 would encounter a cycle. A regression test requires failed reads, cyclic

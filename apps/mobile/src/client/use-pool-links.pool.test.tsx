@@ -124,18 +124,17 @@ vi.mock('../components/ScreeningCard', () => ({
   }) => (
     <article data-testid="screening-card">
       {issue.title} · {issue.description} · {issue.brief} · {issue.blockedByNotes.length} blocked ·{' '}
-      {issue.childCount} children · {parent?.title}
+      {parent?.title}
     </article>
   ),
 }))
 
-const { InboxScreen } = await import('../screens/InboxScreen')
 const { ProposalScreeningScreen } = await import('../screens/ProposalScreeningScreen')
 const { RefChip } = await import('../components/RefChip')
 const { PodiumLinkHost } = await import('../components/PodiumLinkHost')
 const { usePulseFeed, resetPulseCache } = await import('../screens/usePulseFeed')
 const { createMobilePool, useMobilePool } = await import('./mobile-pool')
-const { reconcileScreeningIds } = await import('./use-inbox-data')
+const { reconcileScreeningIds } = await import('./use-pool-links')
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 const targets: PodiumTarget[] = [
@@ -169,7 +168,6 @@ function PulseProbe() {
 function Screens() {
   return (
     <>
-      <InboxScreen />
       <ProposalScreeningScreen />
       {tokens.map((token) => (
         <RefChip key={token.token} token={token.token} prefix={token.prefix} refKind={token.kind} />
@@ -256,18 +254,16 @@ async function mount(
 async function painted(app: Awaited<ReturnType<typeof mount>>) {
   await waitFor(() => {
     expect(app.view.getByTestId('screening-card').textContent).toContain('Summary 2')
-    expect(app.view.container.textContent).toContain('Synthetic agent 0')
   })
   await waitFor(() => expect(app.view.getByTestId('pulse').textContent).toContain('Host 1'))
   await waitFor(() =>
     expect(app.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy(),
   )
 }
-it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
+it('preserves rendered proposal, pulse and reference values through real pool attachment', async () => {
   const on = await mount()
   await painted(on)
   expect(on.view.getByTestId('screening-card').textContent).toContain('Summary 2')
-  expect(on.view.container.textContent).toContain('Synthetic agent 0')
   expect(on.view.getByTestId('pulse').textContent).toContain('Host 1')
   expect(on.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy()
   expect(on.seen[0]).toBeNull()
@@ -288,7 +284,6 @@ it('has zero legacy selectors and issue derivations at mount and on relevant upd
     on.data.publishMetrics(1)
     on.data.patch('issueProjection', 'synthetic-0', { title: 'Updated inbox task' })
   })
-  await waitFor(() => expect(on.view.container.textContent).toContain('Updated inbox task'))
   expect(readRuntimeStoreStats(on.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(readRuntimeStoreStats(on.runtime)?.rowBuilds ?? 0).toBe(0)
 })
@@ -320,7 +315,6 @@ it('resolves screening cards and addressed routes and reacts to a changed card',
   expect(targets.map((target) => views.route(target))).not.toContain(LOADING)
   const before = mobileInboxSnapshot(app.pool, input)
   expect(before).toMatchObject({
-    window: { booting: false, outboxSize: 0 },
     cards: input.screeningIds.map((id, index) => ({
       id,
       card: {
@@ -482,7 +476,7 @@ it('coalesces readiness loads and releases the existing cursor subscription on d
   expect(source.read('mobileInboxState', 'state')).toBe(LOADING)
 })
 
-it('shows the original outbox pending count and optimistically renamed card', async () => {
+it('shows the optimistically renamed card', async () => {
   const app = await mount()
   await painted(app)
   let finish = () => {}
@@ -499,9 +493,9 @@ it('shows the original outbox pending count and optimistically renamed card', as
   await act(async () => {
     void referenceState(app.runtime).updateIssue('synthetic-2', { title: 'Pending inbox rename' })
   })
-  await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
-  expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.live.outbox.pending)
+  await waitFor(() =>
+    expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename'),
+  )
   await act(async () => {
     finish()
   })

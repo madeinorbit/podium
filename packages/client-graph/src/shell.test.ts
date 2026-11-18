@@ -56,10 +56,6 @@ describe('shell pool', () => {
         demand.push(
           row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session').length,
         )
-        expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(
-          false,
-        )
-        expect(views.chrome()).toHaveProperty('sessionCount', count)
         const context = dockSnapshot(views)
         expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
           f.sessions[0]!.sessionId,
@@ -113,7 +109,9 @@ describe('shell pool', () => {
     const f = shellFixture()
     try {
       expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
-      expect(settled(f).positions).toBeGreaterThan(90)
+      // The shell lists no sessions or issues any more (POD-7088): the
+      // window, files, chrome, dock, shipping, orders, lanes and machines.
+      expect(settled(f).positions).toBeGreaterThan(10)
     } finally {
       f.pool.dispose()
     }

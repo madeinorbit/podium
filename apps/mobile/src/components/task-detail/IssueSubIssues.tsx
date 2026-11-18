@@ -1,3 +1,4 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { useIssueOpening } from '../../client/issue-opening'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { type PageIssue } from '@podium/client-graph/issue-page'
@@ -78,7 +79,12 @@ export const IssueSubIssues = observer(function IssueSubIssues({
     <View style={styles.section} testID="sub-issues">
       <SectionHeading
         label="Sub-tasks"
-        count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
+        count={(() => {
+          const progress = childProgressOf(issue)
+          return progress && progress.childCount > 0
+            ? `${progress.childDoneCount}/${progress.childCount}`
+            : undefined
+        })()}
       />
       {subIssues.map((child) => (
         <SubTaskRow

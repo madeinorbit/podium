@@ -144,7 +144,7 @@ vi.mock('../components/TaskSheet', () => ({
   },
 }))
 // SessionActionCard reaches OfferArtifactStrip -> ArtifactViewer -> the native
-// expo graph (linear-gradient/video) outside the six phone readers under test.
+// expo graph (linear-gradient/video) outside the phone readers under test.
 // The sibling machine-offline suite stubs the same boundary; keep it stubbed
 // here so this file collects without loading native-only modules.
 vi.mock('../components/ArtifactViewer', () => ({ ArtifactViewer: () => null }))
@@ -212,7 +212,6 @@ const { createMobilePool, useMobilePool } = await import('./mobile-pool')
 const hooks = await import('./use-session-context')
 const { SessionScreen } = await import('../screens/SessionScreen')
 const { SessionConversation } = await import('../components/SessionConversation')
-const { SessionsScreen } = await import('../screens/SessionsScreen')
 const { TerminalPane: WebPane } = await import('../terminal/TerminalPane.web')
 const { TerminalPane: NativePane } = await import('../terminal/TerminalPane.native')
 const { default: TerminalRoute } = await import('../../app/session/[sessionId]/terminal')
@@ -363,7 +362,6 @@ async function mount(
     ) : (
       <>
         <SessionScreen />
-        <SessionsScreen />
         <TerminalRoute />
         <WebPane sessionId={SID} active />
         <NativePane sessionId={SID} active />
@@ -474,16 +472,9 @@ it('resolves a cold terminal reference without building either conversation cata
   references.mockRestore()
 }, 30_000)
 
-it('renders the same six phone readers through real late attachment with no React errors', async () => {
+it('renders the phone readers through real late attachment with no React errors', async () => {
   const enabled = await mount()
-  const roster = () => {
-    const screen = enabled.view.getByRole('heading', { name: 'Agents' }).closest('section')!
-    return [...screen.querySelectorAll('[data-session]')].map((row) =>
-      row.getAttribute('data-session'),
-    )
-  }
-  expect(roster()[0]).toBe('synthetic-session-1')
-  expect(roster()).toContain('synthetic-session-2')
+  // The sessions screen and its all-sessions roster are gone (POD-7088).
   expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe(
     'Saved synthetic draft',
   )
@@ -507,18 +498,6 @@ it('renders the same six phone readers through real late attachment with no Reac
     expect(seams.terminalInputs.at(-1)).toMatchObject({ initialGeometry: { cols: 132, rows: 37 } })
     expect(seams.nativeInputs.at(-1)).toMatchObject({ cols: 132, rows: 37 })
   })
-  await act(async () =>
-    enabled.data.patch('session', 'synthetic-session-2', {
-      draftUpdatedAt: '2026-10-03T00:02:00Z',
-    }),
-  )
-  await waitFor(() =>
-    expect(roster().slice(0, 2)).toEqual(['synthetic-session-2', 'synthetic-session-1']),
-  )
-  await act(async () =>
-    enabled.data.patch('session', 'synthetic-session-2', { draftUpdatedAt: undefined }),
-  )
-  await waitFor(() => expect(roster()[0]).toBe('synthetic-session-1'))
 })
 
 it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
@@ -557,14 +536,12 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
   const complete = mobileSessionSnapshot(enabled.pool(), ids, state.coarseNow)
   expect(complete).toMatchObject({
     booting: false,
-    pending: 0,
     contexts: [
       { id: SID, session: { sessionId: SID }, ready: true },
       { id: 'synthetic-session-11', session: { sessionId: 'synthetic-session-11' } },
       { id: 'missing-session', session: undefined, issue: undefined },
     ],
   })
-  expect(complete.sessionOrder).toContain(SID)
   expect(complete.machines).toHaveLength(3)
   const before = mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)
   await act(async () =>

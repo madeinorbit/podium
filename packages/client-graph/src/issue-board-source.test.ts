@@ -110,7 +110,9 @@ it('releases board query demand without a resident reverse index', () => {
   }
 })
 
-it('retains catalogue metadata across stage, heartbeat and title changes without a resident index', () => {
+it('reads the filter menu projects from repository records, never from the issues (POD-7088)', () => {
+  // The fixture holds issues and no repository record: no walk over the
+  // issues may invent a project, and issue edits never rebuild the menu.
   const f = setup([row('one', { assignee: 'owner', labels: ['bug'] })])
   let value: ReturnType<typeof f.source.catalog>
   const stop = autorun(() => {
@@ -118,22 +120,11 @@ it('retains catalogue metadata across stage, heartbeat and title changes without
   })
   try {
     const before = value!
-    expect(before).toEqual({
-      scope: ['one'],
-      projectPaths: ['/fixture'],
-      assignees: ['owner'],
-      labels: ['bug'],
-    })
+    expect(before).toEqual({ projectPaths: [] })
     f.paint('one', { stage: 'planning', updatedAt: new Date(now).toISOString(), title: 'Renamed' })
+    f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
     expect(value!).toBe(before)
     expect(f.source.stats().residentRows).toBe(0)
-    f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
-    expect(value!).toEqual({
-      scope: ['one'],
-      projectPaths: ['/fixture'],
-      assignees: ['reviewer'],
-      labels: ['feature'],
-    })
     stop()
     expect(f.source.stats().cached).toBe(0)
   } finally {

@@ -33,7 +33,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
     const issue = {
       ...row,
       description: typeof description === 'string' ? description : (description?.value ?? ''),
-      ...pool.queries.issueChildCounts(next),
+      ...(childCountsOf(pool.queries.issueChildCounts(next))),
       ...readAddressedIssueRef(
         pool,
         next,
@@ -60,4 +60,9 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
     next = pool.relations.one('issue', next, 'treeParent') ?? undefined
   }
   return { issues, sessions, loading }
+}
+
+/** The child counts the old reader spread; nothing while they are on their way. */
+function childCountsOf<T extends object>(value: T | symbol): Partial<T> {
+  return typeof value === 'symbol' ? {} : value
 }

@@ -33,7 +33,6 @@ import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared
 import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 import { SHELL_SUMMARIES } from './shell-schema'
-import { shellViews } from './shell-views'
 import { mergePoolSummaries } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
@@ -431,7 +430,6 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
       const view = createMobileInboxViews(pool)
       try {
         return {
-          inbox: view.inbox(),
           screening: view.screening(),
           session: view.session('QUERY-1-A'),
         }
@@ -471,16 +469,11 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
     name: 'issue page',
     read: (pool) => ({
       issues: issuePages(pool).issues(),
-      explorer: issuePages(pool).explorer(),
       panel: (() => {
         const issue = issuePages(pool).panelIssue({ cwd: '/query/cold/file' })
         return issue && issue !== LOADING ? issue.id : issue
       })(),
     }),
-  },
-  {
-    name: 'shell',
-    read: (pool) => ({ issues: shellViews(pool).issues(), sessions: shellViews(pool).sessions() }),
   },
   {
     name: 'board',
@@ -646,7 +639,7 @@ describe('readers behind declared cold questions', () => {
           .spyOn(pool.queries, 'ids')
           .mockImplementation((question) => knownIds(pool, questionEntity(question)))
         const legacyCount = vi
-          .spyOn(pool.queries, 'count')
+          .spyOn(pool.queries, 'heldCount')
           .mockImplementation((entity) => knownIds(pool, entity).length)
         const expected = snapshot(
           reader.name,
@@ -660,7 +653,7 @@ describe('readers behind declared cold questions', () => {
         })
         const membership = vi.spyOn(pool.queries, 'ids').mockReturnValue([])
         const repos = vi.spyOn(pool.queries, 'repoIds').mockReturnValue([])
-        const count = vi.spyOn(pool.queries, 'count').mockReturnValue(0)
+        const count = vi.spyOn(pool.queries, 'heldCount').mockReturnValue(0)
         const addressed =
           reader.name === 'phone prefix'
             ? vi.spyOn(pool.queries, 'hasIssuePrefix').mockReturnValue(false)
@@ -689,8 +682,8 @@ describe('readers behind declared cold questions', () => {
           pool.residency!.ids(questionEntity(question))
           return original(question)
         })
-        const originalCount = pool.queries.count.bind(pool.queries)
-        vi.spyOn(pool.queries, 'count').mockImplementation((entity) => {
+        const originalCount = pool.queries.heldCount.bind(pool.queries)
+        vi.spyOn(pool.queries, 'heldCount').mockImplementation((entity) => {
           pool.residency!.ids(entity)
           return originalCount(entity)
         })
@@ -771,7 +764,6 @@ describe('readers behind declared cold questions', () => {
       f.pool.apply({ type: 'replace', rows: [] })
       expect(paneHasSessions(f.pool)).toBe(false)
       expect(f.index.issueRepoIds()).toEqual([])
-      expect(f.index.readerIds({ kind: 'boardCatalog' })).toEqual([])
     } finally {
       f.pool.dispose()
     }
@@ -852,10 +844,10 @@ describe('readers behind declared cold questions', () => {
     const census = vi.spyOn(pool.residency!, 'ids')
     let observedCount = 0
     const stop = autorun(() => {
-      observedCount = pool.queries.count('session')
+      observedCount = pool.queries.heldCount('session')
     })
     try {
-      expect(pool.queries.count('session')).toBe(2)
+      expect(pool.queries.heldCount('session')).toBe(2)
       expect(census).not.toHaveBeenCalled()
       const adopted = {
         kind: 'session',
@@ -891,7 +883,7 @@ describe('readers behind declared cold questions', () => {
     const known = vi.spyOn(f.index, 'known')
     try {
       for (let click = 0; click < 8; click++)
-        expect(f.pool.queries.count('session')).toBe(
+        expect(f.pool.queries.heldCount('session')).toBe(
           f.rows.filter((row) => row.kind === 'session').length,
         )
       expect(keys).not.toHaveBeenCalled()
@@ -942,7 +934,7 @@ describe('readers behind declared cold questions', () => {
       { kind: 'commandIssues' },
       { kind: 'commandSessions' },
       { kind: 'proposedIssues' },
-      { kind: 'inboxSessions' },
+      { kind: 'pausedSessions' },
       { kind: 'headerSessions' },
       { kind: 'headerOccupancy' },
       { kind: 'sessionReference', ref: 'QUERY-1-A' },

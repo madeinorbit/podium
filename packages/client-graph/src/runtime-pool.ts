@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { asUserId, layoutRowId } from '@podium/model'
+import { asUserId, layoutRowId, matchesWhere, SIDEBAR_WHERE } from '@podium/model'
 import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { DeadlineClock } from './clock'
@@ -313,7 +313,20 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
             })
             // untracked-read: spawn-sort-peek
             .map((id) => omitGone(pool.row('issue', id, 'peek')))
-            .filter((row) => row && typeof row !== 'symbol')
+            // The top of the list a new task joins is the sidebar's: open
+            // issues that are not proposed, which the device holds whole
+            // (POD-7088, design "Position of a new task"). Closed history,
+            // which the device does not hold, never takes part.
+            .filter(
+              (row) =>
+                row &&
+                typeof row !== 'symbol' &&
+                // The sidebar rule tests no time, so no clock is read.
+                matchesWhere(SIDEBAR_WHERE, row as unknown as Record<string, unknown>, {
+                  now: 0,
+                  args: {},
+                }),
+            )
           return draftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
         }),
     },

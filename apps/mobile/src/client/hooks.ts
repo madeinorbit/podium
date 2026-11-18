@@ -26,9 +26,7 @@ import type { MobileTrpc, TranscriptPage } from './trpc'
 export {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
-  useSessionContextIssues as useIssues,
   useSessionContextSession as useSession,
-  useSessionContextSessions as useSessions,
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from './use-session-context'

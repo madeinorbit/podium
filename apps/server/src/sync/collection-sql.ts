@@ -155,6 +155,7 @@ const ISSUE_FIELDS: Fields = {
   seq: plain(issues.seq, 'number'),
   parentId: plain(issues.parentId),
   stage: plain(issues.stage),
+  priority: plain(issues.priority, 'number'),
   closedReason: plain(issues.closedReason),
   archived: plain(issues.archived, 'boolean'),
   deletedAt: plain(issues.deletedAt),

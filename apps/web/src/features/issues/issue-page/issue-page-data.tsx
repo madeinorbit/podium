@@ -33,19 +33,12 @@ export function useIssuePageCatalog(open: boolean): IssueViewModel[] {
   const value = useWorklistPoolProjection(read, EMPTY_ISSUES)
   return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
 }
-function usePoolSessions(): SessionView[] {
-  const views = useIssueViews()
-  const readSessions = useCallback((_pool: MobxPool) => views?.explorer(), [views])
-  const value = useWorklistPoolProjection(readSessions, undefined)
-  return value && typeof value !== 'symbol' ? value.sessions : EMPTY_SESSIONS
-}
 export function useIssuePageSessions(): SessionView[] {
   const page = useIssuePageContext()
   const world = useContext(IssuePageWorldContext)
-  // biome-ignore lint/correctness/useHookAtTopLevel: Pool page/world bodies unmount before their provider disappears.
-  const sessions = page
-    ? page.views.row(page.issue.id).activeSessions
-    : (world?.sessions ?? usePoolSessions())
+  // Outside an issue page there is no issue whose sessions to read; a test
+  // world supplies its own. No reader walks every session (POD-7088).
+  const sessions = page ? page.views.row(page.issue.id).activeSessions : world?.sessions
   if (sessions === LOADING) throw LOADING
   return sessions ?? EMPTY_SESSIONS
 }

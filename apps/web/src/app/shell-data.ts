@@ -113,7 +113,6 @@ export function useShellApprovals(): readonly EffectModel[] {
 }
 const EMPTY_APPROVALS: readonly EffectModel[] = []
 
-const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellView(pool) : null
@@ -150,13 +149,6 @@ export function useShellSessionResolver() {
     [pool],
   )
 }
-export function useShellSessions() {
-  if (import.meta.env.DEV) assertReactiveRead('useShellSessions')
-  const pool = useWorklistPool(),
-    value = pool ? shellView(pool).sessions() : LOADING
-  return value && value !== LOADING ? value : EMPTY_SESSIONS
-}
-
 export function useShellClose() {
   if (import.meta.env.DEV) assertReactiveRead('useShellClose')
   const pool = useWorklistPool(),
@@ -177,7 +169,6 @@ const EMPTY_CHROME = {
   paletteOpen: false,
   repoCount: 0,
   worktreeCount: 0,
-  sessionCount: 0,
   selectedIssueId: null as ScreenState['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
   /** False while the snapshot loads: every field above is then a placeholder,

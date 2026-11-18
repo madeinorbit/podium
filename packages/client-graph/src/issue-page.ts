@@ -10,14 +10,13 @@ import {
   isEmptyDraftVessel,
   issueDisplayTitle,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId } from '@podium/model/browser'
-import { compareStructural, observe } from 'mobx'
+import { asIssueId } from '@podium/model/browser'
+import { compareStructural } from 'mobx'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import { missionView } from './mission-view'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
-import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** The same pooled issue object, with the page schema's stored-field types.
@@ -314,29 +313,6 @@ export function createIssuePageViews(pool: MobxPool) {
     (_key: string, read: () => unknown) => read(),
   )
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
-  const explorerQuestion = { kind: 'explorerSessions' } as const
-  const explorerSeats = createQueryResult<SessionView>({
-    name: 'IssuePage@explorerSessions',
-    ids: () => pool.queries.ids(explorerQuestion),
-    has: (id) => pool.queries.has(explorerQuestion, id),
-    order: (id) => pool.queries.orderKey(id),
-    read: (id) => {
-      if (pool.queries.collapsed(id)) return undefined
-      const seat = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
-      return seat && seat !== LOADING ? { ...seat } : seat
-    },
-    subscribe: (changed) => {
-      const stopTable = observe(pool.tables.session, (change) => changed(change.name))
-      const stopFeed = pool.queries.onChange((event) => {
-        if (event.type === 'replace') changed(undefined)
-        else for (const row of event.rows) if (row.kind === 'session') changed(row.id)
-      })
-      return () => {
-        stopTable()
-        stopFeed()
-      }
-    },
-  })
   let disposed = false
   function memo<T>(key: string, read: () => T, identity = false): T {
     if (disposed) return LOADING as T
@@ -409,9 +385,6 @@ export function createIssuePageViews(pool: MobxPool) {
     }
     return pending ? LOADING : result
   }
-  function dependents(id: string): Loaded<IssueViewModel['dependents']> {
-    return memo(`dependents:${id}`, () => readDependents(id))
-  }
   function readSummary(
     id: string,
     prefixes?: Map<string, string | undefined>,
@@ -448,6 +421,9 @@ export function createIssuePageViews(pool: MobxPool) {
   function summary(id: string): Loaded<IssueViewModel> {
     return memo(`summary:${id}`, () => readSummary(id))
   }
+  // The web issue pickers' catalog (duplicate, relation and parent targets):
+  // the issues the device holds. POD-7089 moves the pickers to device first,
+  // then server search (POD-7088, design "Search and references").
   const summaryIssues = createQueryResult<IssueViewModel>({
     name: 'IssuePage@summaries',
     ids: () => pool.queries.ids({ kind: 'pageIssues' }),
@@ -519,56 +495,6 @@ export function createIssuePageViews(pool: MobxPool) {
         ? undefined
         : root
   }
-  const explorerIssues = createQueryResult<IssueViewModel>({
-    name: 'IssuePage@explorerIssues',
-    ids: () => pool.queries.ids({ kind: 'pageIssues' }),
-    has: (id) => pool.queries.has({ kind: 'pageIssues' }, id),
-    read: (id) => {
-      const value = summary(id)
-      if (!value || value === LOADING) return value
-      const children = memo(
-        `explorerChildren:${id}`,
-        () => {
-          const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
-          let childDoneCount = 0
-          for (const childId of childIds) {
-            const child = omitGone(pool.row('issue', childId, 'summary')) as Loaded<{
-              stage?: string
-              closedReason?: string | null
-            }>
-            if (child && child !== LOADING && isFinished(child)) childDoneCount++
-          }
-          return {
-            childIds: childIds.map(asIssueId),
-            childCount: childIds.length,
-            childDoneCount,
-          }
-        },
-        true,
-      )
-      const memberSessionIds = memo(
-        `explorerMembers:${id}`,
-        () => [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId),
-        true,
-      )
-      return { ...value, ...children, memberSessionIds }
-    },
-    subscribe: (changed) => pool.queries.onQuestionMembers({ kind: 'pageIssues' }, changed),
-  })
-  function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
-    return memo(
-      'explorer',
-      () => {
-        // This retained catalog is explicit full-list demand. Maintain each
-        // answer by address; updates never reconstruct or compare its world.
-        const world = explorerIssues.get()
-        if (!world || world === LOADING) return world
-        const seats = explorerSeats.get()
-        return seats === LOADING ? LOADING : { issues: world, sessions: seats ?? [] }
-      },
-      true,
-    )
-  }
   return {
     issue,
     summary,
@@ -577,7 +503,6 @@ export function createIssuePageViews(pool: MobxPool) {
     pool,
     panelIssue,
     destination,
-    explorer,
     memberSessions,
     attachedSessions,
     closeFacts: (id: string) => readIssueCloseFacts(pool, id),
@@ -586,9 +511,7 @@ export function createIssuePageViews(pool: MobxPool) {
       cache.clear()
       identities.clear()
       clearCompanions(companions)
-      explorerSeats.dispose()
       summaryIssues.dispose()
-      explorerIssues.dispose()
       for (const lists of detailLists) lists.dispose()
       detailLists.clear()
       for (const roster of rosters.values()) roster.dispose()

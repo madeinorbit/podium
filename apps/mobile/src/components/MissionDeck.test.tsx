@@ -4,7 +4,8 @@ import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useMissionOpening, useSessions } from '../client/hooks'
+import { useMissionOpening } from '../client/hooks'
+import { useSessions } from '../../test/roster-hooks'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)

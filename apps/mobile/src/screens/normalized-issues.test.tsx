@@ -15,7 +15,8 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import { useBooting, useIssue, useIssues } from '../client/hooks'
+import { useBooting, useIssue } from '../client/hooks'
+import { useIssues } from '../../test/roster-hooks'
 
 afterEach(cleanup)
 

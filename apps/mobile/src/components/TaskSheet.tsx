@@ -1,3 +1,4 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { relativeTime } from '@podium/client-core/focus'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
@@ -388,7 +389,7 @@ const SheetBody = observer(function SheetBody({
         </Part>
       ) : null}
       {children.length > 0 ? (
-        <Part title="Subtasks" meta={`${issue.childDoneCount} / ${issue.childCount}`}>
+        <Part title="Subtasks" meta={subtaskMeta(issue)}>
           {children.map((child) => (
             <SheetChildRow key={child.id} child={child} onOpenIssue={onOpenIssue} />
           ))}
@@ -638,3 +639,9 @@ const styles = StyleSheet.create({
   branch: { ...mono(400), fontSize: font.micro, color: color.accentTint },
   gitLine: { ...mono(400), fontSize: font.micro, color: color.textFaint, marginTop: 4 },
 })
+
+/** "done / total" over all history; empty while the stubs are on their way (POD-7088). */
+function subtaskMeta(issue: { childCount: number; childDoneCount: number }): string {
+  const progress = childProgressOf(issue)
+  return progress ? `${progress.childDoneCount} / ${progress.childCount}` : ''
+}

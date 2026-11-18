@@ -64,7 +64,8 @@ describe('declared pool first-task value', () => {
     ['archived', { archived: true }, true],
     ['draft', { isDraftVessel: true }, true],
     ['deleted', { deletedAt: new Date(NOW).toISOString() }, false],
-    ['empty deletion stamp', { deletedAt: '' }, true],
+    // A deletion stamp counts as deleted, as in every count (`deletedAt == null` is live).
+    ['empty deletion stamp', { deletedAt: '' }, false],
   ] as const)('preserves the predicate for %s-only data without loading cold rows', (_name, patch, expected) => {
     const { pool, load } = makePool([issue(patch)])
     const model = vi.spyOn(pool, 'issueObject')
@@ -85,21 +86,6 @@ describe('declared pool first-task value', () => {
     expect(settingsHasFirstTask(pool)).toBe(true)
     expect(read).not.toHaveBeenCalled()
     expect(coldIds).not.toHaveBeenCalled()
-  })
-
-  it('keeps a missing cold summary LOADING and batches the row load', () => {
-    const archived = issue({ archived: true })
-    const { pool, source, load, schedule } = makePool([])
-    vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-    source.set(archived.id, archived)
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: archived }] })
-    expect(settingsHasFirstTask(pool)).toBe(LOADING)
-    expect(settingsHasFirstTask(pool)).toBe(LOADING)
-    expect(load).not.toHaveBeenCalled()
-    expect(schedule).toHaveBeenCalledOnce()
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledOnce()
-    expect(settingsHasFirstTask(pool)).toBe(true)
   })
 
   it('tracks cold summary changes, eviction, and replacement without retaining a task', () => {

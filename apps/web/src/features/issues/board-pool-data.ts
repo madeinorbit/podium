@@ -22,7 +22,7 @@ export const EMPTY_BOARD: PoolBoardData = {
   },
 }
 const EMPTY_IDS: IssueId[] = []
-const EMPTY_CATALOG: BoardCatalog = { scope: [], projectPaths: [], assignees: [], labels: [] }
+const EMPTY_CATALOG: BoardCatalog = { projectPaths: [] }
 const readWindow = (pool: MobxPool) => omitGone(pool.row('issueBoardWindow', 'current'))
 export function useBoardBase() {
   const window = useWorklistPoolProjection(readWindow, undefined)
@@ -44,6 +44,17 @@ export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[])
   const read = useCallback((pool: MobxPool) => omitGone(pool.row('issueBoardColumn', key)), [key])
   const ids = useWorklistPoolProjection(read, undefined)
   return ids && typeof ids !== 'symbol' ? ids : fallback
+}
+/** A column's count; `loading` while it is on its way (POD-7088); undefined without a pool. */
+export function useBoardColumnCount(options: BoardColumnOptions): number | 'loading' | undefined {
+  const key = JSON.stringify(options)
+  const read = useCallback(
+    (pool: MobxPool) => omitGone(pool.row('issueBoardColumnCount', key)),
+    [key],
+  )
+  const value = useWorklistPoolProjection(read, undefined)
+  if (typeof value === 'symbol') return 'loading'
+  return value ? value.count : undefined
 }
 export function useBoardCatalog(open: boolean, agents: boolean) {
   const read = useCallback((pool: MobxPool) => readBoardCatalog(pool, open, agents), [open, agents])

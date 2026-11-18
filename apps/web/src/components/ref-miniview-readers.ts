@@ -34,10 +34,13 @@ export function readRefTarget(
   if (typeof row === 'symbol') return { target: null, loading: true }
   if (!id || !row || !parsed) return { target: null, loading: false }
   const description = (row as { description?: string | { value?: string } }).description
+  // Child progress over all history, from the stubs (POD-7088).
+  const children = pool.queries.issueChildCounts(id)
+  if (children === LOADING) return { target: null, loading: true }
   const issue = {
     ...row,
     description: typeof description === 'string' ? description : (description?.value ?? ''),
-    ...pool.queries.issueChildCounts(id),
+    ...children,
     ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
   } as unknown as RefIssueLike
   return { target: { kind: 'issue', ref: parsed, issue }, loading: false }

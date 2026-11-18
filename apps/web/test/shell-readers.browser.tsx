@@ -186,8 +186,7 @@ const ChromeControls = observer(function ChromeControls() {
         {isComplexFlightDeckMission(chrome.missionRoot) ? 'Expanded' : 'Compact'} mission chrome
       </p>
       <p>
-        {chrome.repoCount} repositories · {chrome.worktreeCount} worktrees · {chrome.sessionCount}{' '}
-        sessions
+        {chrome.repoCount} repositories · {chrome.worktreeCount} worktrees
       </p>
       <p>
         Palette {String(chrome.paletteOpen)} · Superagent {String(chrome.superOpen)}

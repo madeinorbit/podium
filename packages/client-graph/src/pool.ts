@@ -828,7 +828,17 @@ export class MobxPool {
     let server = coldSummary ? undefined : (this.tables[core].get(id) as object | undefined)
     if (server === undefined) {
       // Resident readers finish teardown, but missing rows must not restart a retired loader.
-      if (this.disposed || residency === null) return NOT_VISIBLE
+      if (this.disposed) return NOT_VISIBLE
+      if (residency === null) {
+        // A pool fed rows directly that reads a device store (POD-7088): a
+        // record the device does not hold is on its way like any lookup,
+        // never "gone" because history is not here. Maintenance modes start
+        // no load.
+        const loads = absent === 'load' || absent === 'summary' || absent === 'summary-fields'
+        return (loads && (core === 'issue' || core === 'session')
+          ? this.collections.absent(core, id)
+          : undefined) ?? NOT_VISIBLE
+      }
       if (absent === 'load') return residency.lookup(core, id)
       if (residency.removed(core, id)) return REMOVED
       // A summary reader of a record the device does not hold asks for it
@@ -893,7 +903,19 @@ export class MobxPool {
     return this.residency.lookup('issue', id)
   }
 
-  get undeletedIssueCount(): number {
+  /**
+   * TRACKED: undeleted issues over all history. A pool that reads a device
+   * store counts them from the stubs, LOADING until those are complete
+   * (POD-7088, design "Counts"); the rows in memory are not all history.
+   */
+  get undeletedIssueCount(): number | typeof LOADING {
+    if (!this.collections.available) return this.issueCount.get()
+    const byDeleted = this.collections.countBy('deletedAt')
+    return byDeleted === LOADING ? LOADING : (byDeleted.get(null) ?? 0)
+  }
+
+  /** TRACKED: undeleted issues the device holds whole; a lower bound of the count above. */
+  get heldUndeletedIssueCount(): number {
     return this.issueCount.get()
   }
 

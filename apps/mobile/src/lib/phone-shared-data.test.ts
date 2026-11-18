@@ -1,12 +1,9 @@
 import { here } from '@podium/client-graph/lookup'
-import { compareRecency } from '@podium/client-core/focus'
-import type { SessionView } from '@podium/client-core/session-values'
 import { createMobileInboxViews } from '../../test/legacy-mobile-inbox'
-import { MobileInbox, ProposalScreening } from '@podium/client-graph/mobile-triage'
-import { SessionModel } from '@podium/client-graph/models'
+import { ProposalScreening } from '@podium/client-graph/mobile-triage'
 import { MobxPool } from '@podium/client-graph/pool'
 import { autorun } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { resolvePoolWorkMenu } from '../../test/legacy-pool-work-menu'
 import { resolvePoolWorkMenu as resolveSharedWorkMenu } from './pool-work-menu'
 import { reconcileScreeningIds } from '../../test/legacy-screening-order'
@@ -58,15 +55,7 @@ function fixture(extra = 0) {
       ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
     ],
   })
-  return { pool, old: createMobileInboxViews(pool), inbox: new MobileInbox(pool) }
-}
-function oldGroups(old: ReturnType<typeof createMobileInboxViews>) {
-  return Object.fromEntries(
-    Object.entries(old.inbox().groups).map(([group, rows]) => [
-      group,
-      rows.map((row: SessionView) => row.sessionId),
-    ]),
-  )
+  return { pool, old: createMobileInboxViews(pool) }
 }
 
 it('compares shared menu facts and actions with the old captured menu on the same fixture', () => {
@@ -91,43 +80,6 @@ it('compares shared menu facts and actions with the old captured menu on the sam
       )
     }
   } finally {
-    f.old.dispose()
-    f.pool.dispose()
-  }
-})
-
-it('compares ID groups and displayed session identities with the old inbox on the same fixture', () => {
-  const f = fixture()
-  const stop = autorun(() => {
-    void f.inbox.groups
-  })
-  try {
-    expect(f.inbox.groups).toEqual(oldGroups(f.old))
-    for (const ids of Object.values(f.inbox.groups)) {
-      const models = ids.map((id) => f.inbox.session(id))
-      expect(models.map((row) => row.sessionId)).toEqual(ids)
-      expect(
-        models
-          .slice()
-          .sort((a, b) => compareRecency(a as never, b as never))
-          .map((row) => row.id),
-      ).toEqual(ids)
-    }
-    f.pool.apply({
-      type: 'update',
-      rows: [
-        {
-          kind: 'session',
-          id: 'work',
-          value: session('work', {
-            agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } },
-          }),
-        },
-      ],
-    })
-    expect(f.inbox.groups).toEqual(oldGroups(f.old))
-  } finally {
-    stop()
     f.old.dispose()
     f.pool.dispose()
   }
@@ -163,64 +115,6 @@ it('compares stable deck order with old queue/reconciliation through edits, remo
     f.pool.dispose()
   }
 })
-
-for (const scale of [1, 4])
-  it(`keeps unrelated activity out of groups and off-deck card facts cold at ${scale}x`, () => {
-    const f = fixture(32 * scale),
-      deck = new ProposalScreening(f.pool)
-    const close = deck.open(),
-      stop = autorun(() => {
-        void f.inbox.groups
-      })
-    try {
-      const groups = f.inbox.groups
-      const reads = vi.spyOn(f.pool, 'row')
-      f.pool.apply({
-        type: 'update',
-        rows: [
-          {
-            kind: 'session',
-            id: 'hidden-0',
-            value: session('hidden-0', { archived: true, lastActiveAt: '2026-10-08T13:00:00Z' }),
-          },
-        ],
-      })
-      expect(f.inbox.groups).toBe(groups)
-      // Pool publication may inspect the addressed archive marker; no inbox member is reread.
-      expect(
-        reads.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'hidden-0'),
-      ).toHaveLength(0)
-      reads.mockClear()
-      const displayed: string[] = []
-      const stored = SessionModel.prototype.storedField
-      const fields = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (
-        this: SessionModel,
-        name: string,
-      ) {
-        if (name === 'title') displayed.push(this.id)
-        return stored.call(this, name)
-      })
-      try {
-        for (const id of f.inbox.groups.needsYou) void f.inbox.session(id).title
-        expect(displayed).toEqual(f.inbox.groups.needsYou)
-      } finally {
-        fields.mockRestore()
-      }
-      reads.mockClear()
-      const current = deck.current
-      if (current && typeof current !== 'symbol') void current.title
-      expect(
-        reads.mock.calls.filter(
-          ([kind, id, mode]) => kind === 'issue' && mode !== 'summary' && id === 'c',
-        ),
-      ).toHaveLength(0)
-    } finally {
-      close()
-      stop()
-      f.old.dispose()
-      f.pool.dispose()
-    }
-  })
 
 it('keeps opening choices while shared menu titles, child counts and action targets update', () => {
   const f = fixture(),

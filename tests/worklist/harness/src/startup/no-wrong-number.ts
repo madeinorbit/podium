@@ -31,6 +31,9 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
 import { headerView } from '@podium/client-graph/header-views'
+import { screeningTotal } from '@podium/client-graph/mobile-triage'
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
+import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
 import {
   hasStaleActivation,
   isActivationEligible,
@@ -41,8 +44,12 @@ import {
 /** Viewer request answer and device checkpoints, separate from the partial record pool. */
 export type StartupSetupFacts = Omit<Parameters<typeof isActivationEligible>[0], 'repoCount'>
 
-/** The questions whose readers POD-7087 moved onto markers and stubs: never wrong in any state. */
-export const MOVED_READERS = /^(first-screen:sidebar-row:|counts:stub-|closed-children:stub-)/
+/**
+ * The questions whose readers POD-7087 and POD-7088 moved onto collections,
+ * markers and stubs: never wrong in any state. Only the search surfaces are
+ * left, and POD-7089 moves those.
+ */
+export const MOVED_READERS = /^(first-screen:|counts:|board-archive:|closed-children:)/
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
@@ -191,10 +198,16 @@ export function startupQuestions(
     }
   })
 
-  add('counts', 'issues', (pool) => pool.queries.count('issue'))
-  add('counts', 'sessions', (pool) => pool.queries.count('session'))
+  // POD-7088: the device's own counts (`heldCount`) are no question of all
+  // history and are not asked; sessions have no stub and no screen counts
+  // them over history.
   add('counts', 'undeleted-issues', (pool) => pool.undeletedIssueCount)
-  add('counts', 'proposed', (pool) => pool.queries.ids({ kind: 'proposedIssues' }).length)
+  add('counts', 'first-task', (pool) => settingsHasFirstTask(pool))
+  add('counts', 'proposed', (pool) => screeningTotal(pool))
+  for (const stage of ISSUE_BOARD_STAGES)
+    for (const showAgentTasks of [false, true])
+      add('counts', `board-column:${stage}${showAgentTasks ? ':agents' : ''}`, (pool) =>
+        board(pool).columnCount({ filter: {}, ordering: 'updated', showAgentTasks, stage }))
   // POD-7087: counts over all history read the stubs, once they are complete.
   add('counts', 'stub-by-stage', (pool) => pool.collections.countBy('stage'))
   add('counts', 'stub-by-repo', (pool) => pool.collections.countBy('repoId'))
@@ -212,7 +225,14 @@ export function startupQuestions(
     })
   }
 
-  add('board-archive', 'archived', (pool) => pool.queries.ids({ kind: 'boardIssues', archived: true }))
+  // POD-7088: the closed tabs' counts, the archived ones shown too.
+  for (const stage of ['done', 'backlog'] as const)
+    add('board-archive', `archived:${stage}`, (pool) =>
+      board(pool).columnCount({ filter: { archived: true }, ordering: 'updated', showAgentTasks: false, stage }))
+  add('board-archive', 'closed-status', (pool) =>
+    board(pool).columnCount({ filter: { status: 'closed' }, ordering: 'updated', showAgentTasks: false, stage: 'done' }))
+
+
 
   for (const id of targets.parents) {
     add('closed-children', `child-counts:${id}`, (pool) => pool.queries.issueChildCounts(id))
@@ -232,7 +252,9 @@ export function startupQuestions(
     })
     add('closed-children', `board-card:${id}`, (pool) => {
       const card = board(pool).issue(id)
-      return card === LOADING || card === undefined ? card : { progress: (card as { progress?: unknown }).progress }
+      return card === LOADING || card === undefined
+        ? card
+        : { childCount: card.childCount, childDoneCount: card.childDoneCount }
     })
   }
   return questions

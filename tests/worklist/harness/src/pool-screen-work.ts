@@ -721,7 +721,6 @@ async function measureScreenCells(
     )
     add('issue-page.catalog', ['IssueContextMenu'], () => ({
       issues: page.issues(),
-      explorer: page.explorer(),
     }))
     // These clicks open the launcher palette, not the Tasks filter menu.
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
@@ -878,13 +877,8 @@ async function measureScreenCells(
     }))
     add(
       'mobile-inbox',
-      ['InboxScreen', 'SessionsScreen', 'ScreeningScreen', 'PodiumLinkHost'],
+      ['ScreeningScreen', 'PodiumLinkHost'],
       () => ({
-        inbox: {
-          groups: mobileInbox.inbox().groups,
-          booting: mobileInbox.inbox().booting,
-          outboxSize: mobileInbox.inbox().outboxSize,
-        },
         screening: {
           queue: mobileInbox.screening().queue,
           booting: mobileInbox.screening().booting,

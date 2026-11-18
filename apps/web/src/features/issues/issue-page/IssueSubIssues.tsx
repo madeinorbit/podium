@@ -1,3 +1,4 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { issueObserver as observer } from './issue-observer'
 import { useIssuePageContext } from './issue-page-data'
 import type { PageIssue } from '@podium/client-graph/issue-page'
@@ -153,6 +154,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows
+  const progress = childProgressOf(issue)
   const legacyWorkers =
     suppliedChildren && sessions
       ? confirmedWorkingAgentCountsByIssue(suppliedChildren, sessions, now ?? Date.now())
@@ -160,7 +162,11 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
-        count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
+        count={
+          progress && progress.childCount > 0
+            ? `${progress.childDoneCount}/${progress.childCount}`
+            : undefined
+        }
       >
         Sub-tasks
       </SectionHeading>

@@ -443,6 +443,7 @@ function argsFor(collection: Collection): Record<string, Scalar> {
   const values: Record<string, Scalar> = {
     root: 'iss_root',
     stage: 'done',
+    priority: 2,
     issueId: 'iss_root',
     sessionId: 's-live',
     id: one[collection.of] ?? 'absent',

@@ -490,6 +490,51 @@ methods in about 35 files); not every call site was read.
 | "Sessions: N" in phone settings | A diagnostic | The number on the device |
 | Hiding duplicate sessions | The two records, when both are on the device | The existing rule, over sessions in memory |
 
+### Every reader, call site by call site (POD-7088)
+
+The table above was made per kind of question. POD-7088 read every call site of the reader
+questions (`shared/reader-questions.ts`, `reader-queries.ts`) and the counts beside them; these
+are the readers the rows above did not name, with the answer each now has. "Device" means the
+records the device holds, which the policy bounds, and is only used where the question is about
+the device or its live work.
+
+| Reader (where) | What it needs | Answer |
+|---|---|---|
+| Child counts: `issueChildCounts`, the issue model's `childCount`, `childDoneCount`, `closeChildren` (board card, sub-issue lists, task sheet, screening card, ref miniview, close guard, flight deck menu) | Children and done children over all history | Stubs (`collections.childCounts`); LOADING until the stubs or the tree are complete |
+| Flight deck progress | Every member of the tree | The tree collection: reading the deck asks for the tree whole; progress is LOADING until it is held |
+| Flight deck root header | The root's description and state line | The root's body part (`issueDescription.ofIssue`, `issuePanelState.ofIssue`), asked for when the deck opens |
+| Board column counts | A column's cards over all history | Local when the device holds the column whole (sidebar collection, or a stage page read to its end); else stubs when the filter reads only stub fields; with the page under a priority filter (`issueProjection.byStagePriority`); else LOADING |
+| Board columns not held whole | The rest of the stage | The stage page (`issueProjection.byStage`), asked for by the column |
+| Board scope (audience, draft) of an issue not held | Draft, deleted, archived, agent | Stubs |
+| Board filter menu: projects | Project paths | Repository records |
+| Board and issue menus: labels | The label list | The server's label list, asked for when the menu opens; there are no label records |
+| Board filter menu: assignees | — | Not read by any screen; removed |
+| Undeleted issue count; "first task" (cold-start composer) | Whether any undeleted issue exists | An issue the device holds, else the stubs |
+| Proposal screening count | Proposals to screen over all history | Stubs (the screenable test reads only stub fields) |
+| Proposal screening cards | The next cards | The proposed stage page, held while the deck is open; the next page when the deck nears the end |
+| Position of a new task (`draftSortKey`) | The top of the list | Sidebar collection members of the repository |
+| Issue references and chips (`linkedIssueId`, `issueReferenceId`, `hasIssuePrefix`) for an issue held only as a stub | Repository and number | Stubs |
+| Session references (`sessionReferenceId`, `linkedSessionId`, the phone's link routing) | The session | The session if held; an absent one stays uncoloured (no by-reference collection yet, see "To settle") |
+| "Is the device still empty" (phone booting, link routing, screening deck, dock shell pane) | Whether the device holds anything | The device's own count (`heldCount`) |
+| "Sessions: N" (phone settings) | A diagnostic | The number on the device |
+| Paused sessions (machine info) | Sessions paused by memory pressure | Device: a paused-sessions bucket; they are recent |
+| Header working sessions and occupancy (`headerSessions`) | Live sessions | Live collection |
+| Dock's most recent session (`headerRecentSession`) | The latest session for a checkout | Recent collection |
+| Sessions of an issue (`commandIssueSessions`: workspace, navigation) | That issue's sessions | What the issue comes with (sidebar), else the sessions of one issue |
+| Folder owner (`containingIssueId`: dock git, mail, shipping) | Open issues with a worktree | Sidebar collection |
+| Default agent, default machine (`setupDefaultAgent`, `latestMachineSession`) | The latest session | The latest session on the device, else the default |
+| Automation and workflow run session (`setupSessionPresent`) | One session | An ordinary lookup |
+| Command palette issues and sessions (`commandIssues`, `commandSessions`) | Matches and recents | POD-7089: device, then server search |
+| Chat mentions (`mentionIssues`, `referenceSessions` in `chat-context.ts`) | The best matches | POD-7089 |
+| Phone link-target picker (`mobileIssueTargets`) | Matches in one repository | POD-7089 |
+| Web issue pickers (duplicate, relation, parent targets, the overflow menu's target count; `pageIssues`) | Matches | POD-7089: one helper, device first, then server search (coordinator, 2026-11-18). Until then `pageIssues` answers the issues the device holds |
+| Board and phone text filter (`localTextIds`) | Title and reference matches | POD-7089 |
+| Never called in shipping, deleted: shell issues and sessions, issue page explorer, settings session list, phone session roster and mention issues, mission issues, header shipping | — | — |
+
+`all-records-readers.test.ts` holds the rest to it: it asks the reader index which question
+kinds answer every record of their kind, and fails on any production use of one outside its
+table of the POD-7089 surfaces.
+
 Two of these have a history worth keeping:
 
 - **Duplicate sessions.** Two session records can point at the same agent conversation, and the
@@ -579,6 +624,9 @@ its question list when it moves a reader.
   screen depends on that. They are separate log entries today.
 - Settled (POD-7084): "asking" reads the session's saved offer and agent state: an offer, or a
   phase that needs the user or errored, or idle on a question or an approval, and not archived.
+- How a session reference that the device does not hold loads: sessions have no stub and
+  there is no collection by reference (repository, number, letter). POD-7088 leaves such a
+  reference uncoloured.
 - What the sidebar shows on an empty device while its collection arrives: rows from the top down
   as a sorted range, or a loading state until complete.
 - Settled (POD-7084): the collection of each record type, per the table above, is declared in

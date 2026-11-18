@@ -385,7 +385,25 @@ export class ReaderQueries {
       }
     }
     this.counts.scalarVisits++
-    return value
+    return value ?? this.stubIdentity(identities, identifier)
+  }
+  /**
+   * A reference to an issue the device holds only as a stub: the stub knows
+   * its repository and number, so a link or chip resolves at once (POD-7088,
+   * design "Search and references"). Tracked through the stubs; `#N` alone
+   * names no repository and stays unresolved.
+   */
+  private stubIdentity(identities: IssueIdentities, identifier: string): string | undefined {
+    if (!this.pool.collections.available) return undefined
+    for (const key of identities.aliasKeys(identifier)) {
+      if (key.startsWith('#')) continue
+      const [prefix, seq] = JSON.parse(key) as [string, string]
+      for (const repoId of identities.repoIds(prefix)) {
+        const id = this.pool.collections.stubIdAt(repoId, Number(seq))
+        if (id !== undefined) return id
+      }
+    }
+    return undefined
   }
   private publishLinkedIssue(question: string): void {
     const state = this.linkedIssueAtoms.get(question)
@@ -494,7 +512,11 @@ export class ReaderQueries {
         this.issuePrefixAtoms.set(key, { atom, value, prefix, includeDeleted })
     }
     this.counts.scalarVisits++
-    return value
+    if (value || !this.pool.collections.available) return value
+    // Issues the device holds only as stubs still count (POD-7088).
+    return this.issueIdentities()
+      .repoIds(prefix)
+      .some((repoId) => this.pool.collections.hasStubIn(repoId, includeDeleted))
   }
   private publishIssuePrefix(prefix: string): void {
     for (const includeDeleted of [false, true]) {
@@ -644,9 +666,20 @@ export class ReaderQueries {
     return value
   }
   private issueScopeValue(id: string): IssueScopeFacts | undefined {
-    return this.residentIssueIds.has(id)
-      ? this.residents.issueScope(id)
-      : this.index().issueScope(id)
+    if (this.residentIssueIds.has(id)) return this.residents.issueScope(id)
+    const indexed = this.index().issueScope(id)
+    if (indexed !== undefined || !this.pool.collections.available) return indexed
+    // The four bits are stub fields: an issue the device holds only as a
+    // stub still answers (POD-7088), an absent one stays undefined.
+    const stub = this.pool.collections.stubOf(id)
+    return stub === undefined
+      ? undefined
+      : {
+          draft: Boolean(stub.isDraftVessel),
+          deleted: Boolean(stub.deletedAt),
+          archived: Boolean(stub.archived),
+          agent: stub.audience === 'agent',
+        }
   }
   private scopeBits(value: IssueScopeFacts | undefined): number {
     return value === undefined
@@ -830,8 +863,12 @@ export class ReaderQueries {
     for (const key of keys) this.sessionAtoms.get(key)?.reportChanged()
   }
   /** Raw parent edges count archived/deleted children, with only stage=done
-   * contributing to the completed count, matching the issue close contract. */
-  issueChildCounts(id: string): IssueChildCounts {
+   * contributing to the completed count, matching the issue close contract.
+   * A pool that reads a device store answers from the stubs, for all history,
+   * and LOADING until they (or the parent's tree) are complete (POD-7088,
+   * design "Counts"); the rows in memory are not all history. */
+  issueChildCounts(id: string): IssueChildCounts | typeof LOADING {
+    if (this.pool.collections.available) return this.pool.collections.childCounts(id)
     const value = this.issueQuestions().childCounts(id),
       state = this.issueChildAtoms.get(id)
     if (state) state.atom.reportObserved()
@@ -1461,7 +1498,13 @@ export class ReaderQueries {
     this.counts.returnedIds += ids.length
     return ids
   }
-  count(entity: 'issue' | 'session'): number {
+  /**
+   * How many records of the kind the DEVICE holds whole: "is the device
+   * still empty" and diagnostics ("Sessions: N"). Never a count over all
+   * history: the device holds the policy's collections, not history
+   * (POD-7088). Counts over all history read `pool.collections`.
+   */
+  heldCount(entity: 'issue' | 'session'): number {
     const question: ReaderQuestion = {
       kind: entity === 'issue' ? 'commandIssues' : 'commandSessions',
     }

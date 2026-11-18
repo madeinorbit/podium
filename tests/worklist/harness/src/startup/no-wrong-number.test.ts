@@ -42,65 +42,28 @@ import {
 } from './startup-states'
 
 /**
- * The policy set's answers on h1a1 (seed 4443), per group: equal / LOADING /
- * wrong. Recorded by POD-7086; POD-7088 must bring every `wrong` to zero, and
- * this test then asserts that. A change here is a change of what users see.
+ * The search surfaces' wrong answers per state on h1a1 (seed 4443), as
+ * POD-7086 and POD-7087 recorded them. They are POD-7089's to move (the
+ * command palette, mentions, the local text index and the board's text
+ * filter); a change that adds one fails. Every other group was moved by
+ * POD-7088 and must have none (`MOVED_READERS`).
  */
-const POLICY_SET_BASELINE = {
-  'first-screen': { equal: 24, loading: 0, wrong: 0 },
-  counts: { equal: 0, loading: 0, wrong: 4 },
-  search: { equal: 4, loading: 0, wrong: 9 },
-  'board-archive': { equal: 0, loading: 0, wrong: 1 },
-  'closed-children': { equal: 39, loading: 0, wrong: 57 },
+const SEARCH_WRONG_AT_MOST: Readonly<Record<string, number>> = {
+  'policy set': 9,
+  always: 13,
+  'always+recent': 9,
+  'always+recent+sidebar': 9,
+  'always+recent+sidebar+stubs': 9,
 }
 
-/**
- * POD-7087 added questions whose readers it moved onto the stubs: two counts
- * and two per parent. The policy set holds every stub, so each is equal.
- */
-const withStubQuestions = (parents: number) => ({
-  ...POLICY_SET_BASELINE,
-  counts: { ...POLICY_SET_BASELINE.counts, equal: POLICY_SET_BASELINE.counts.equal + 2 },
-  'closed-children': {
-    ...POLICY_SET_BASELINE['closed-children'],
-    equal: POLICY_SET_BASELINE['closed-children'].equal + 2 * parents,
-  },
-})
-
-/**
- * Each intermediate state of a first download on h1a1 (seed 4443), per group:
- * equal / LOADING / wrong (POD-7087, vega). The readers POD-7087 moved are
- * never among the wrong ones; the rest are POD-7088's, like the policy set's.
- */
-const FIRST_DOWNLOAD_BASELINE: Record<string, unknown> = {
-  always: {
-    'first-screen': { equal: 0, loading: 24, wrong: 0 },
-    counts: { equal: 0, loading: 2, wrong: 4 },
-    search: { equal: 0, loading: 0, wrong: 13 },
-    'board-archive': { equal: 0, loading: 0, wrong: 1 },
-    'closed-children': { equal: 15, loading: 48, wrong: 81 },
-  },
-  'always+recent': {
-    'first-screen': { equal: 0, loading: 24, wrong: 0 },
-    counts: { equal: 0, loading: 2, wrong: 4 },
-    search: { equal: 4, loading: 0, wrong: 9 },
-    'board-archive': { equal: 0, loading: 0, wrong: 1 },
-    'closed-children': { equal: 36, loading: 48, wrong: 60 },
-  },
-  'always+recent+sidebar': {
-    'first-screen': { equal: 24, loading: 0, wrong: 0 },
-    counts: { equal: 0, loading: 2, wrong: 4 },
-    search: { equal: 4, loading: 0, wrong: 9 },
-    'board-archive': { equal: 0, loading: 0, wrong: 1 },
-    'closed-children': { equal: 39, loading: 48, wrong: 57 },
-  },
-  'always+recent+sidebar+stubs': {
-    'first-screen': { equal: 24, loading: 0, wrong: 0 },
-    counts: { equal: 2, loading: 0, wrong: 4 },
-    search: { equal: 4, loading: 0, wrong: 9 },
-    'board-archive': { equal: 0, loading: 0, wrong: 1 },
-    'closed-children': { equal: 87, loading: 0, wrong: 57 },
-  },
+/** The answers of one state, held to POD-7088's acceptance. */
+function expectMoved(name: string, report: ReturnType<typeof checkNoWrongNumber>) {
+  const groups = summarize(report)
+  const moved = report.wrong.filter((w) => MOVED_READERS.test(w.name))
+  expect(moved, `${name}: moved readers answer wrong`).toEqual([])
+  expect(groups.search?.wrong ?? 0, `${name}: search`).toBeLessThanOrEqual(SEARCH_WRONG_AT_MOST[name]!)
+  for (const w of report.wrong) expect(w.name, `${name}: only search is left`).toMatch(/^search:/)
+  return groups
 }
 
 let feed: StartupFeed
@@ -261,7 +224,7 @@ describe('startup states against the full bootstrap (h1a1)', () => {
       expect(groups[group]?.wrong ?? 0, group).toBeGreaterThan(0)
   }, 600_000)
 
-  it('the policy set with markers answers as recorded (POD-7086); POD-7088 brings the wrong ones to zero', () => {
+  it('the policy set with markers gives no wrong number outside search (POD-7088)', () => {
     collectGarbage()
     const pool = policySetPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
@@ -280,15 +243,13 @@ describe('startup states against the full bootstrap (h1a1)', () => {
       })),
     })
     expect(report.asked).toBe(questions.length)
-    expect(groups).toEqual(withStubQuestions(startupTargets(feed.rows).parents.length))
+    expectMoved('policy set', report)
   }, 600_000)
 
-  it('no intermediate state of a first download adds a wrong answer (POD-7087 acceptance 5)', () => {
-    // The last state is the policy set: its wrong answers are POD-7088's
-    // (recorded above). No reader POD-7087 moved (the sidebar's rows, the stub
-    // counts) is ever wrong. Earlier states have more wrong answers among the
-    // readers POD-7088 moves (mention search, closed children): recorded per
-    // state in FIRST_DOWNLOAD_BASELINE, so a change that adds one fails.
+  it('no intermediate state of a first download gives a wrong number outside search (POD-7087, POD-7088)', () => {
+    // The last state is the policy set. Only the search surfaces may still
+    // answer wrong (POD-7089), no worse than recorded per state; every
+    // reader POD-7087 and POD-7088 moved answers equal or LOADING.
     const states: Record<
       string,
       { groups: ReturnType<typeof summarize>; added: string[]; moved: string[] }
@@ -311,9 +272,11 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     writeResult('startup-no-wrong-number-first-download-h1a1', states)
     for (const [name, state] of Object.entries(states)) {
       expect(state.moved, `${name}: moved readers`).toEqual([])
-      // The readers POD-7088 moves answer from fewer rows in an earlier state:
-      // recorded per state, like the policy set's, so worse fails.
-      expect(state.groups, `${name}: answers per group`).toEqual(FIRST_DOWNLOAD_BASELINE[name])
+      expect(state.groups.search?.wrong ?? 0, `${name}: search`).toBeLessThanOrEqual(
+        SEARCH_WRONG_AT_MOST[name]!,
+      )
+      for (const group of Object.keys(state.groups))
+        if (group !== 'search') expect(state.groups[group as keyof typeof state.groups]?.wrong, `${name}: ${group}`).toBe(0)
     }
   }, 1_800_000)
 })

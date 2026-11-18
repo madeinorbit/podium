@@ -64,6 +64,7 @@ import { activityMsOf, DEFER_NEXT_MESSAGE, displayRefOf, originRefPartOf, parseM
 import { isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs } from './worklist/rollup'
 import { fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
 import type { VisibleInputs } from './worklist/visible'
+import type { IssueChildCounts } from './shared/issue-questions'
 import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
@@ -529,8 +530,15 @@ export class IssueModel extends EntityModel {
   get closeMembers(): IssueCloseMemberCounts {
     return this.host.queries.issueCloseCounts(this.id)
   }
-  get closeChildren() {
+  /** Children and done children over all history, from the stubs (POD-7088). */
+  get childProgress(): IssueChildCounts | typeof LOADING {
     return this.host.queries.issueChildCounts(this.id)
+  }
+  /** Throws LOADING until the stubs answer; readers settle it. */
+  get closeChildren(): IssueChildCounts {
+    const value = this.childProgress
+    if (value === LOADING) throw LOADING
+    return value
   }
   /** Existing scalar consumers share the raw member fact, without another cache. */
   get sessionSummary() {
@@ -820,14 +828,10 @@ export class IssueModel extends EntityModel {
   }
 
   // Task progress: formal descendants, independent of sidebar/mission placement.
-  get childCount(): number { return this.host.relations.size('issue', this.id, 'treeChildren') }
+  /** Over all history from the stubs; throws LOADING until they answer (`childProgress`). */
+  get childCount(): number { return this.closeChildren.childCount }
 
-  get childDoneCount(): number { return this.childCount ? this.finishedChildren : 0 }
-
-  @lazy
-  private get finishedChildren(): number {
-    return this.host.queries.issueChildCounts(this.id).childDoneCount
-  }
+  get childDoneCount(): number { return this.closeChildren.childDoneCount }
 
   get confirmedWorkingAgents(): number {
     return this.memberCount ? this.confirmedWorkerCount : 0

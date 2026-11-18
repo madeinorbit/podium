@@ -1,7 +1,7 @@
 import { omitGone } from './lookup'
-import type { AttentionGroup } from '@podium/client-core/focus'
 import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
+import { type IssueStub, stagePage } from './collections'
 import { readPageIssue, type PageIssue } from './issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from './pool'
@@ -59,76 +59,31 @@ function readScreeningId(pool: MobxPool, id: string): Loaded<string> {
 }
 
 const EMPTY: string[] = []
-/** Complement timestamp code units so the query tree maintains newest-first order. */
-function descending(value: string) {
-  let key = ''
-  for (let at = 0; at < value.length; at++)
-    key += String.fromCharCode(0xffff - value.charCodeAt(at))
-  return key
+
+/** The proposal deck's page: the proposed stage, newest first, a page at a time. */
+const PROPOSED_PAGE = stagePage('proposed')
+
+/** A screenable root by its stub: proposed, live, not a draft or agent task, no proposed ancestor. */
+function screenableStub(stub: IssueStub, stubOf: (id: string) => IssueStub | undefined): boolean {
+  if (!isScreenableRoot(stub as unknown as ScreeningSummary)) return false
+  const seen = new Set<string>([stub.id])
+  let parentId = stub.parentId
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = stubOf(parentId)
+    if (!parent) break
+    if (parent.stage === 'proposed') return false
+    parentId = parent.parentId
+  }
+  return true
 }
 
-/** Membership only. Card fields and issue joins belong to mounted row observers. */
-export class MobileInbox {
-  constructor(readonly pool: MobxPool) {}
-
-  private group(group: AttentionGroup) {
-    return this.pool.queries.summarize(
-      { kind: 'inboxSessions' },
-      `mobileInbox.${group}`,
-      (id) => {
-        if (this.pool.queries.collapsed(id)) return undefined
-        const session = this.pool.sessionObject(id)
-        try {
-          return session.onRoster && session.attentionGroup === group ? id : undefined
-        } catch (error) {
-          if (error === LOADING) return LOADING
-          throw error
-        }
-      },
-      {
-        order: (id) => {
-          const session = this.pool.sessionObject(id)
-          return `${descending(session.recency)}:${descending(session.createdAt ?? '')}`
-        },
-      },
-    )
-  }
-
-  @lazy get needsYou() {
-    return this.group('needsYou')
-  }
-  @lazy get idle() {
-    return this.group('idle')
-  }
-  @lazy get working() {
-    return this.group('working')
-  }
-  @lazy get groups() {
-    return { needsYou: this.needsYou.rows, idle: this.idle.rows, working: this.working.rows }
-  }
-  @lazy get booting() {
-    const state = omitGone(this.pool.row('mobileInboxState', 'state'))
-    return (
-      !state ||
-      state === LOADING ||
-      (!state.hasCursor &&
-        this.pool.queries.count('session') === 0 &&
-        this.pool.queries.count('issue') === 0) ||
-      this.needsYou.pending + this.idle.pending + this.working.pending > 0
-    )
-  }
-  /** This device's unsent writes: a LiveStore condition (POD-5798). */
-  @lazy get outboxSize() {
-    return this.pool.live?.outbox.pending ?? 0
-  }
-  session(id: string) {
-    return this.pool.sessionObject(id)
-  }
-  issue(id: string) {
-    return readPageIssue(this.pool, id)
-  }
+/** How many proposals there are to screen, over all history: from the stubs (POD-7088). */
+export function screeningTotal(pool: MobxPool): number | typeof LOADING {
+  return pool.collections.countStubs('screenable-proposals', screenableStub)
 }
 
+/** The cards the device holds, in screening order. The deck holds the page while open. */
 export function screeningQueue(pool: MobxPool): Loaded<string[]> {
   return pool.queries.project(
     { kind: 'proposedIssues' },
@@ -171,14 +126,18 @@ export class ProposalScreening {
   @lazy get queue() {
     return screeningQueue(this.pool)
   }
+  /** All proposals to screen, from the stubs; LOADING until they answer. */
+  @lazy get total() {
+    return screeningTotal(this.pool)
+  }
   @lazy get booting() {
     const state = omitGone(this.pool.row('mobileInboxState', 'state'))
     return (
       !state ||
       state === LOADING ||
       (!state.hasCursor &&
-        this.pool.queries.count('session') === 0 &&
-        this.pool.queries.count('issue') === 0) ||
+        this.pool.queries.heldCount('session') === 0 &&
+        this.pool.queries.heldCount('issue') === 0) ||
       this.queue === LOADING
     )
   }
@@ -230,6 +189,9 @@ export class ProposalScreening {
     })
   }
   open() {
+    // The deck holds its page while open; nearing the end of the cards the
+    // device holds asks for the next page (design "Proposal screening").
+    const release = this.pool.collections.show(PROPOSED_PAGE)
     const stop = reaction(
       () => (this.booting ? undefined : this.queue),
       (queue) => {
@@ -237,7 +199,16 @@ export class ProposalScreening {
       },
       { fireImmediately: true },
     )
+    const stopPaging = reaction(
+      () => this.order.length - this.index <= 5,
+      (near) => {
+        if (near) this.pool.collections.nextPage(PROPOSED_PAGE)
+      },
+      { fireImmediately: true },
+    )
     return () => {
+      release()
+      stopPaging()
       stop()
       for (const cancel of this.waits) cancel()
     }

@@ -4,7 +4,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { openScreeningPool, readPoolScreening } from '../../test/pool-board-fixture'
-import { reconcileScreeningIds } from '../client/use-inbox-data'
+import { reconcileScreeningIds } from '../client/use-pool-links'
 import { applyScreeningDecision, screeningTally } from './screening'
 
 const issue = (partial: Partial<IssueViewModel> & Pick<IssueViewModel, 'id'>) =>

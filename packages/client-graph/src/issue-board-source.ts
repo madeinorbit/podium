@@ -3,9 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId, machinePathBasename, machinePathKey } from '@podium/model/browser'
 import { issueRefText } from '@podium/protocol'
-import { compareStructural } from 'mobx'
 import { headerView } from './header-views'
-import { inBoardScope } from './issue-board-cards'
 import { createBoardLayout } from './issue-board-layout'
 import {
   type BoardCatalog,
@@ -82,14 +80,6 @@ export function createIssueBoardSource(
       worktreePath: raw.worktreePath ?? null,
     } as IssueViewModel
   }
-  function scoped(
-    row: IssueViewModel,
-    agents: boolean,
-    liveParents = false,
-    id: string = row.id,
-  ): boolean {
-    return inBoardScope(pool, row, id, agents, liveParents)
-  }
   function roster(id: string) {
     let result = rosters.get(id)
     if (!result) {
@@ -115,69 +105,35 @@ export function createIssueBoardSource(
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
     return layout.queryIds(query)
   }
-  const catalogEntry = keyedComputed(
-    'IssueBoard.catalogEntry',
-    (key: string) => {
-      const [id, agents] = JSON.parse(key) as [string, boolean]
-      const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
-      if (!row || row === LOADING) return row
-      const eligible = !row.archived && !row.deletedAt && scoped(row, agents, true, id)
+  /**
+   * The filter menu's projects, from the repository records (an "always"
+   * collection), never from a walk over every issue (POD-7088). Labels are
+   * the server's label list, asked for when the menu opens.
+   */
+  function catalog(_agents: boolean): Loaded<BoardCatalog> {
+    return memo('catalog', () => {
+      const paths = new Map<string, string>()
+      for (const row of pool.tables.repo.values()) {
+        const path = (row as { repoPath?: unknown }).repoPath
+        if (typeof path === 'string' && path && !paths.has(machinePathKey(path)))
+          paths.set(machinePathKey(path), path)
+      }
       return {
-        path: row.repoPath,
-        eligible,
-        assignee: eligible ? row.assignee : undefined,
-        labels: eligible ? row.labels : [],
+        projectPaths: [...paths.values()].sort((a, b) =>
+          (machinePathBasename(a) || a).localeCompare(machinePathBasename(b) || b),
+        ),
       }
-    },
-    { equals: compareStructural },
-  )
-  function catalog(agents: boolean): Loaded<BoardCatalog> {
-    return memo(`catalog:${agents}`, () => {
-      const scope: string[] = [],
-        paths = new Map<string, string>(),
-        assignees = new Set<string>(),
-        labels = new Set<string>()
-      const visit = (id: string) => {
-        const row = catalogEntry(JSON.stringify([id, agents]))
-        if (row === LOADING) return false
-        if (!row) return true
-        if (row.path && !paths.has(machinePathKey(row.path)))
-          paths.set(machinePathKey(row.path), row.path)
-        if (row.eligible) {
-          scope.push(id)
-          if (row.assignee) assignees.add(row.assignee)
-          for (const label of row.labels) labels.add(label)
-        }
-        return true
-      }
-      let pending = false
-      for (const id of pool.queries.ids({ kind: 'boardCatalog' })) if (!visit(id)) pending = true
-      return pending
-        ? LOADING
-        : {
-            scope: scope.sort(byId),
-            assignees: [...assignees].sort(),
-            labels: [...labels].sort(),
-            projectPaths: [...paths.values()].sort((a, b) =>
-              (machinePathBasename(a) || a).localeCompare(machinePathBasename(b) || b),
-            ),
-          }
     })
   }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`row:${id}`, () => {
       const value = facts(id)
       if (!value || value === LOADING) return value
+      // The children the device holds; their counts over all history come
+      // from the stubs, LOADING until those answer (POD-7088).
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
-      let childDoneCount = 0
-      for (const childId of childIds) {
-        const row = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<{
-          stage?: string
-          closedReason?: string | null
-        }>
-        if (row === LOADING) return LOADING
-        if (row && isFinished(row)) childDoneCount++
-      }
+      const children = pool.queries.issueChildCounts(id)
+      if (children === LOADING) return LOADING
       const dependents: IssueViewModel['dependents'] = []
       for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
         const row = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{
@@ -211,8 +167,8 @@ export function createIssueBoardSource(
         // My pin record (POD-6692), never a field of the row.
         pinned: pool.isPinned('issue', id),
         childIds: childIds.map(asIssueId),
-        childCount: childIds.length,
-        childDoneCount,
+        childCount: children.childCount,
+        childDoneCount: children.childDoneCount,
         dependents,
         memberSessionIds,
         unread: !value.deletedAt && unread,
@@ -267,6 +223,10 @@ export function createIssueBoardSource(
       }
       case 'issueBoardColumn':
         return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
+      case 'issueBoardColumnCount': {
+        const count = layout.columnCount(JSON.parse(id) as BoardColumnOptions)
+        return count === LOADING ? LOADING : { count: count ?? 0 }
+      }
       case 'issueBoardOpenIds': {
         const options = JSON.parse(id)
         return layout.openIds(options, options.id)
@@ -289,11 +249,12 @@ export function createIssueBoardSource(
     for (const result of [...rosters.values()]) result.dispose()
     rosters.clear()
     cache.clear()
-    catalogEntry.clear()
   }
   return Object.assign(frame, {
     board,
     columnIds: layout.columnIds,
+    columnCount: layout.columnCount,
+    columnHeld: layout.columnHeld,
     openIds: layout.openIds,
     issue,
     sessions,
@@ -302,7 +263,7 @@ export function createIssueBoardSource(
     stats: () => ({
       residentRows: 0,
       demandKeys: layout.stats().demandKeys,
-      cached: cache.size + catalogEntry.size + layout.stats().cached,
+      cached: cache.size + layout.stats().cached,
     }),
   })
 }

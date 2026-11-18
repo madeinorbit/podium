@@ -267,7 +267,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
         !deck || deck.order.length === 0
           ? undefined
           : current && current !== LOADING
-            ? `${deck.index + 1} of ${deck.order.length} · ${repoName(current)}`
+            ? `${deck.index + 1} of ${deck.total === LOADING ? deck.order.length : Math.max(deck.total, deck.order.length)} · ${repoName(current)}`
             : `${tally.total} decided`
       }
       onBack={() => leave()}

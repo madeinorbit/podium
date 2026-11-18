@@ -106,7 +106,6 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
     ])
     const rows = vi.spyOn(f.pool, 'row'),
       ids = vi.spyOn(f.pool.queries, 'ids'),
-      roster = vi.spyOn(settingsView(f.pool), 'sessions'),
       keys = vi.spyOn(f.pool.tables.session, 'keys')
     const view = createPoolProjection(f.pool, (pool) => ({
         setup: settingsView(pool).setup(['/shown', '/absent']),
@@ -182,7 +181,6 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
       ).toBe(true)
       expect(paint).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
-      expect(roster).not.toHaveBeenCalled()
       expect(keys).not.toHaveBeenCalled()
       return Object.fromEntries(
         Object.entries({ first, repeated, unrelated, targetUpdate, named, removed, closed }).map(
@@ -193,7 +191,6 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
       stop()
       rows.mockRestore()
       ids.mockRestore()
-      roster.mockRestore()
       keys.mockRestore()
       f.pool.dispose()
     }
@@ -328,7 +325,6 @@ it('orders visible automation targets with path maxima and no session catalog at
     settings.seed(f.pool)
     attachSettingsSource(f.pool, settings.owner)
     const rows = vi.spyOn(f.pool, 'row'),
-      roster = vi.spyOn(settingsView(f.pool), 'sessions'),
       ids = vi.spyOn(f.pool.queries, 'ids')
     const view = createPoolProjection(f.pool, (pool) => automationViews(pool).targets()),
       paint = vi.fn()
@@ -396,7 +392,6 @@ it('orders visible automation targets with path maxima and no session catalog at
         ),
       ).toBe(true)
       expect(paint).not.toHaveBeenCalled()
-      expect(roster).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
       return Object.fromEntries(
         Object.entries({ first, repeated, unrelated, changed, closed }).map(([name, value]) => [
@@ -408,7 +403,6 @@ it('orders visible automation targets with path maxima and no session catalog at
       stop()
       view.dispose()
       rows.mockRestore()
-      roster.mockRestore()
       ids.mockRestore()
       f.pool.dispose()
     }

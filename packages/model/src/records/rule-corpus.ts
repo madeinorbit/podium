@@ -32,6 +32,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       repoId: 'r1',
       seq: 1,
       stage: 'in_progress',
+      priority: 1,
       archived: false,
       audience: 'human',
       updatedAt: ago(1),
@@ -81,6 +82,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       seq: 6,
       parentId: 'i1',
       stage: 'in_progress',
+      priority: 2,
       closedReason: 'cancelled',
       archived: false,
       updatedAt: ago(30),
@@ -334,6 +336,12 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
   { rule: 'issueProjection.tree', args: { root: 'gone' }, expect: ['i11'] },
   { rule: 'issueProjection.byStage', args: { stage: 'in_progress' }, expect: ['i1', 'i8'] },
   { rule: 'issueProjection.byStage', args: { stage: 'review' }, expect: ['i11'] },
+  {
+    rule: 'issueProjection.byStagePriority',
+    args: { stage: 'in_progress', priority: 2 },
+    expect: ['i8'],
+  },
+  { rule: 'issueProjection.byStagePriority', args: { stage: 'review', priority: 2 }, expect: [] },
   { rule: 'issueProjection.one', args: { id: 'i3' }, expect: ['i3'] },
   { rule: 'issueProjection.one', args: { id: 'nope' }, expect: [] },
   {

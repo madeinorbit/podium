@@ -28,7 +28,7 @@ export function paneHandingOffTo(pool: MobxPool, id: string): string | undefined
   return machine?.name || machineId
 }
 export function paneHasSessions(pool: MobxPool): boolean {
-  return pool.queries.count('session') > 0
+  return pool.queries.heldCount('session') > 0
 }
 export function paneSpawnConfirmed(pool: MobxPool, id: string): boolean {
   const window = paneWindow(pool)

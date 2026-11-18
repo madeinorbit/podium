@@ -75,8 +75,6 @@ afterEach(() => {
 it('keeps idle demand zero and first issue/session/artifact activation flat at 1x/4x', async () => {
   async function measured(scale: 1 | 4) {
     const f = fixture(scale); pools.push(f.pool); owner.pool = f.pool
-    const views = shellViews(f.pool)
-    const allIssues = vi.spyOn(views, 'issues'), allSessions = vi.spyOn(views, 'sessions')
     const refs = vi.spyOn(f.pool.sources, 'view')
     const idle = await measureWork(async () => { await act(async () => { root.render(<PodiumLinkHost />) }) }, { pool: f.pool })
     expect(idle.work.rows).toBe(0)
@@ -89,7 +87,7 @@ it('keeps idle demand zero and first issue/session/artifact activation flat at 1
     }), { pool: f.pool })
     expect(owner.setOpenIssueId).toHaveBeenCalledWith('target')
     expect(owner.navigateToSession).toHaveBeenCalledWith('target-seat')
-    expect(allIssues).not.toHaveBeenCalled(); expect(allSessions).not.toHaveBeenCalled(); expect(refs.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0)
+    expect(refs.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0)
     await act(async () => { root.render(null) })
     return { idle: idle.work, click: click.work }
   }

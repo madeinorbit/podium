@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ScreenState } from '@podium/client-core/ui'
 import type { ActiveWorktree } from '@podium/client-core/values'
@@ -64,10 +63,7 @@ export class ShellIssueChrome {
 /** Only scalar answers and stable companions enter the shell's chrome snapshot. */
 export class ShellChrome {
   private readonly issue = companion((issue: IssueModel) => new ShellIssueChrome(issue, this.pool))
-  constructor(
-    private readonly pool: MobxPool,
-    private readonly sessionCount: () => number,
-  ) {}
+  constructor(private readonly pool: MobxPool) {}
 
   @lazy private get missionRoot(): Loaded<ShellIssueChrome> {
     const state = omitGone(this.pool.row('shellWindow', 'window'))
@@ -93,7 +89,6 @@ export class ShellChrome {
         selectedIssueId: state.selectedIssueId,
         repoCount: headerView(this.pool).repositoryCount(),
         worktreeCount: headerView(this.pool).worktreeCount(),
-        sessionCount: this.sessionCount(),
         missionRoot,
       }
     } catch (error) {
@@ -293,11 +288,6 @@ function createShellViews(pool: MobxPool) {
       displayRef: issueRefText(input.seq as number, prefix),
     } as unknown as ShellIssue
   }
-  function sessions(): Loaded<SessionView[]> {
-    return pool.queries.project({ kind: 'shellSessions' }, 'shell.sessions', session, {
-      order: (id) => pool.queries.orderKey(id),
-    })
-  }
   function linkedIssue(identifier: string): Loaded<ShellIssue> {
     const id = pool.queries.linkedIssueId(identifier)
     return id === undefined ? undefined : issue(id)
@@ -321,20 +311,7 @@ function createShellViews(pool: MobxPool) {
         : undefined
     })
   }
-  function sessionCount(): number {
-    return pool.queries.setupSessionCount()
-  }
-  function issues(): Loaded<IssueViewModel[]> {
-    return memo('issues', () => {
-      const values: IssueViewModel[] = []
-      for (const id of pool.queries.ids({ kind: 'shellIssues' }).sort()) {
-        const row = issue(id)
-        if (row === LOADING) return LOADING
-        if (row) values.push(row as IssueViewModel)
-      }
-      return values
-    })
-  }
+
   function repositories(): HeaderRows['repository'][] {
     return memo('repositories', () =>
       headerIds(pool, 'repository').flatMap((id) => {
@@ -386,7 +363,7 @@ function createShellViews(pool: MobxPool) {
       return layout === LOADING ? LOADING : { workspaceKey: key, layout, fileTabs }
     })
   }
-  const shellChrome = new ShellChrome(pool, sessionCount)
+  const shellChrome = new ShellChrome(pool)
   const shellDock = new ShellDock(pool, files)
   function chrome() {
     return shellChrome.value
@@ -401,11 +378,9 @@ function createShellViews(pool: MobxPool) {
     window: windowSnapshot,
     files,
     lanes,
-    sessions,
     session,
     linkedIssue,
     linkedSession,
-    issues,
     issue,
     machines,
     repositories,

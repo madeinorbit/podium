@@ -38,7 +38,7 @@ vi.mock('../client/auth-context', () => ({ useAuthStatus: () => seams.authStatus
 vi.mock('../client/hooks', () => ({
   useHttpOrigin: () => seams.httpOrigin,
 }))
-vi.mock('../client/use-inbox-data', () => ({
+vi.mock('../client/use-pool-links', () => ({
   usePoolLinkData: (target: PodiumTarget | null) => {
     const fixture = poolRouteFixture({ issues: seams.issues, sessions: seams.sessions })
     const route = target ? fixture.route(target) : null

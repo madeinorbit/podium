@@ -36,7 +36,6 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
       expect(answers, `chrome runs after message ${message}`).toHaveLength(1)
     }
     expect(counts, 'mission projection body runs').not.toHaveBeenCalled()
-    expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(false)
     const copies = projections.mock.calls.filter(([entries]) =>
       Array.isArray(entries) && entries.some(([key]) => key === 'gitState'))
     expect(copies, 'issue summary materializations').toHaveLength(0)

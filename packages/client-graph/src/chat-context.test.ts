@@ -4,7 +4,6 @@ import { dedupeSessionsByResume } from '@podium/model'
 import { autorun, observable, runInAction } from 'mobx'
 import { chatContextReadStats, chatReferenceSessions, createChatContextReader, chatMentionMatches } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
-import { createMobileSessionReader } from './mobile-session-context'
 import { MOBILE_SESSION_SUMMARIES } from './mobile-session-schema'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -197,22 +196,6 @@ it('matches the previous reference answers through field, rank, order and member
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'replacement', value: { ...sessions[0]!, sessionId: 'replacement' } as never }] })
     parity()
   } finally { stop() }
-})
-
-it('preserves richer mobile roster fields while chat references ignore unrelated status details', () => {
-  const { pool, sessions } = fixture(2, true, MOBILE_SESSION_SUMMARIES)
-  const mobile = createMobileSessionReader(pool)
-  let chat!: ReturnType<typeof chatReferenceSessions>, roster!: ReturnType<typeof mobile.sessions>
-  const stopChat = autorun(() => { chat = chatReferenceSessions(pool) })
-  const stopMobile = autorun(() => { roster = mobile.sessions() })
-  try {
-    const initialChat = chat
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[0]!.sessionId, value: {
-      ...sessions[0]!, agentState: { phase: 'working' }, agentColor: '#336699', busy: true,
-    } as never }] })
-    expect(chat).toBe(initialChat)
-    expect(roster.sessions[1]).toMatchObject({ agentState: { phase: 'working' }, agentColor: '#336699', busy: true })
-  } finally { stopChat(); stopMobile() }
 })
 
 it('constructs no mention candidates until demand, then preserves candidates and replica order using fields only', () => {

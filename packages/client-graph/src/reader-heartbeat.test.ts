@@ -76,7 +76,7 @@ it('matches complete question rebuilds across individual field edits, visibility
 it('matches full facet filing through resident field edits and reused addresses', () => {
   const index = createReaderIndex({ targetSearch: false, recent: false })
   const questions: ReaderQuestion[] = [
-    { kind: 'commandSessions' }, { kind: 'inboxSessions' }, { kind: 'headerOccupancy' },
+    { kind: 'commandSessions' }, { kind: 'pausedSessions' }, { kind: 'headerOccupancy' },
     { kind: 'referenceSessions' }, { kind: 'sessionReference', ref: 'POD-1-A' },
     { kind: 'sessionReference', ref: 'POD-2-B' },
     ...['one', 'two'].flatMap(issueId => [false, true].flatMap(archived => [false, true].map(includeShells =>
@@ -123,7 +123,7 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
     cold: () => source, load: () => undefined, schedule: () => () => {},
   })
   const questions: ReaderQuestion[] = [
-    { kind: 'commandSessions' }, { kind: 'inboxSessions' }, { kind: 'headerOccupancy' },
+    { kind: 'commandSessions' }, { kind: 'pausedSessions' }, { kind: 'headerOccupancy' },
     { kind: 'sessionReference', ref: 'POD-S1' }, { kind: 'commandIssues' },
     { kind: 'boardIssues', priority: 2 }, { kind: 'boardIssues', projectPaths: ['/repo'] },
     { kind: 'containingIssues', cwd: '/repo/nested' }, { kind: 'proposedIssues' },
@@ -168,7 +168,7 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
     apply({ type: 'replace', rows: [...rows.values()] })
     questions.forEach((question, at) => stops.push(autorun(() => { seen[at] = pool.queries.ids(question) })))
     stops.push(autorun(() => { recent = pool.queries.ids({ kind: 'headerRecentSession' }) }))
-    stops.push(autorun(() => { count = pool.queries.count('session'); setup = pool.queries.setupSessionCount(); machine = pool.queries.latestMachineSession(['machine']) }))
+    stops.push(autorun(() => { count = pool.queries.heldCount('session'); setup = pool.queries.setupSessionCount(); machine = pool.queries.latestMachineSession(['machine']) }))
     const revisions = vi.spyOn(source, 'readerRevision'), membership = vi.spyOn(source, 'readerContains')
     const checks = pool.queries.counts.revisionChecks
     const probes = pool.queries.counts.membershipChecks
@@ -192,10 +192,10 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
 it('routes projected membership once per changed key and retains both projections on replacement', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const session = (patch: object = {}): RowRecord => ({ kind: 'session', id: 'a', value: {
-    sessionId: 'a', agentKind: 'codex', status: 'live', archived: false, cwd: '/repo', ...patch,
+    sessionId: 'a', agentKind: 'codex', status: 'hibernated', archived: false, cwd: '/repo', ...patch,
   } } as RowRecord)
   let first: unknown, second: unknown
-  const question = { kind: 'inboxSessions' } as const
+  const question = { kind: 'pausedSessions' } as const
   pool.apply({ type: 'replace', rows: [session()] })
   const stops = [
     autorun(() => { first = pool.queries.project(question, 'first', id => id) }),
@@ -207,12 +207,12 @@ it('routes projected membership once per changed key and retains both projection
     pool.apply({ type: 'update', rows: [session({ lastActiveAt: '2026-10-09' })] })
     expect(pool.queries.counts.membershipChecks - before).toBe(0)
     before = pool.queries.counts.membershipChecks
-    pool.apply({ type: 'update', rows: [session({ archived: true })] })
+    pool.apply({ type: 'update', rows: [session({ status: 'live' })] })
     expect(pool.queries.counts.membershipChecks - before).toBe(2)
     expect(first).toEqual([]); expect(second).toEqual([])
     pool.apply({ type: 'replace', rows: [session()] })
     expect(first).toEqual(['a']); expect(second).toEqual(['a'])
-    pool.apply({ type: 'update', rows: [session({ archived: true })] })
+    pool.apply({ type: 'update', rows: [session({ status: 'live' })] })
     expect(first).toEqual([]); expect(second).toEqual([])
   } finally { for (const stop of stops) stop(); pool.dispose() }
 })

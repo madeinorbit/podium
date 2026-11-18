@@ -67,6 +67,7 @@ import { useIssuesFilters, useMemberScope } from './issues-filters-state'
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import type { IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
+import { useLabelPool } from './use-label-pool'
 import { PoolIssuePage } from './pool-issue-page'
 
 const IssueContextMenu = lazy(() =>
@@ -186,10 +187,8 @@ export function IssuesView(): JSX.Element {
     [display.layout, display.ordering, showAgentTasks, deferredFilter, expanded, isMobile],
   )
   const { view } = useBoardData(options)
-  const catalog = useBoardCatalog(
-    projectMenuOpen || propMenu?.kind === 'a' || propMenu?.kind === 'l',
-    showAgentTasks,
-  )
+  const catalog = useBoardCatalog(projectMenuOpen, showAgentTasks)
+  const labelPool = useLabelPool(propMenu?.kind === 'l', () => trpc.issues.labelList.query({}))
   const menuInputs = useBoardMenu(ctxMenu?.ids, showAgentTasks)
   const addressedIds = useMemo(
     () => [
@@ -581,7 +580,7 @@ export function IssuesView(): JSX.Element {
               issue={target}
               kind={propMenu.kind}
               roster={roster}
-              labelPool={catalog.labels}
+              labelPool={labelPool as string[]}
               onMoveIssue={moveIssue}
               onSetPriority={setPriority}
               onSetAssignee={setAssignee}

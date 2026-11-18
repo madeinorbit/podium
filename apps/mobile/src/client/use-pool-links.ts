@@ -2,23 +2,11 @@ import { machineFacts } from '@podium/client-graph/machine-facts'
 import type { IssueReferenceModel } from '@podium/client-core/values'
 import { headerView } from '@podium/client-graph/header-views'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
-import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import type { HostMetricsWire, MachineFacts } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { useCallback, useEffect, useRef } from 'react'
-import { demoEnabled } from './demoData'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 
-type InboxData = Pick<ReturnType<MobileInboxViews['inbox']>, 'groups' | 'booting' | 'outboxSize'>
-const EMPTY_INBOX: InboxData = {
-  groups: { needsYou: [], idle: [], working: [] },
-  booting: true,
-  outboxSize: 0,
-}
-const EMPTY_QUEUE: { queue: string[]; booting: boolean } = {
-  queue: [],
-  booting: true,
-}
 const EMPTY_CHIP: { known: boolean; model: IssueReferenceModel | null } = {
   known: false,
   model: null,
@@ -33,8 +21,6 @@ const EMPTY_LINK = {
   sessions: [] as import('@podium/client-core/session-values').SessionView[],
 }
 type Pool = Parameters<typeof mobileInboxViews>[0]
-const readInbox = (pool: Pool) => mobileInboxViews(pool)?.inbox() ?? EMPTY_INBOX
-const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_QUEUE
 /** My fleet as plain values: new when a machine's facts move, never on a
  *  health sample (POD-6644; Pulse memoizes on this array). */
 const readMachines = (pool: Pool): MachineFacts[] => headerView(pool).machines().map(machineFacts)
@@ -44,19 +30,11 @@ const readQuota = (pool: Pool) => pool.live?.quota
 /** This account's usage: reading it while Pulse is mounted is what holds `account.usage`. */
 const readUsage = (pool: Pool) => pool.live?.usage()
 
-/** Readers stay mounted while the existing pool attaches. */
-export function useInboxData(): InboxData {
-  const data = useMobilePoolProjection(readInbox, EMPTY_INBOX)
-  return demoEnabled() && data.booting
-    ? { groups: data.groups, outboxSize: data.outboxSize, booting: false }
-    : data
-}
-
-export function useScreeningQueue(): typeof EMPTY_QUEUE {
-  const data = useMobilePoolProjection(readQueue, EMPTY_QUEUE)
-  return demoEnabled() && data.booting ? { queue: data.queue, booting: false } : data
-}
-
+/**
+ * The phone's pool readers for references, links and Pulse. The inbox and
+ * sessions screens these sat beside were never routed and are gone
+ * (POD-7088); their all-sessions readers with them.
+ */
 export function usePoolRefChip(token: string, refKind: 'issue' | 'session', prefix: string) {
   const read = useCallback(
     (pool: Pool) => mobileInboxViews(pool)?.chip(token, refKind, prefix) ?? EMPTY_CHIP,

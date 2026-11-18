@@ -26,7 +26,7 @@ import { useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
-import { usePulseLive } from '../client/use-inbox-data'
+import { usePulseLive } from '../client/use-pool-links'
 import {
   beginCapacityRefresh,
   CapacityRefreshFence,

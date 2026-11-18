@@ -213,24 +213,6 @@
     },
     {
       "file": "apps/mobile/src/client/use-session-context.ts",
-      "holder": "issuesRead/callback",
-      "rule": "zero-arg:issues",
-      "tokens": "130a60ef9c0366c393d63eedc6b2ce33abc074da75f11954ce16d274ec07dc88",
-      "gate": [],
-      "origin": [
-        "d5f0f61f92b0eb9e4f4d007b755c75ee30ffb719bf9b55e18fca78dec70ef264"
-      ],
-      "fingerprint": "4cf679da1f5c0d52e87b8d9239a7ff14985bea23a1ec488de22fc7dd238398f4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of issuesRead/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:issues carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-session-context.ts",
       "holder": "mobileConversationPorts/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
       "tokens": "f756db6d35401b9a3435150b2a15dc072cd9ed55df8631b2d82fe129dc53a971",
@@ -246,24 +228,6 @@
       "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
       "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: c8e79f254816c2e0cc3a9b553da18b96b6f36372f885c141c1f824c72ff89499.",
       "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
-    },
-    {
-      "file": "apps/mobile/src/client/use-session-context.ts",
-      "holder": "sessionsRead/callback",
-      "rule": "zero-arg:sessions",
-      "tokens": "ac197bf52b03a1bca7eda22a00fc4721c28daa548b1642adbefa6a62c43d64fc",
-      "gate": [],
-      "origin": [
-        "1480ca1a1fe8c9e162bc95b416b0be9daefc58fc9c6f3f0ceb051db36487c501"
-      ],
-      "fingerprint": "a4167a4f0d95726bac1d60f222511c31ee418b39361e0857816e3d4c4e36ec9d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sessionsRead/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:sessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/components/InboxSessionRow.tsx",
@@ -952,20 +916,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "3f40f20380b49117138c8a3943d442abb63705cd5d26312ac677e00b33275bd4",
+      "fingerprint": "65217871e2ba6d7894ba742bc203d025af2c3e542d335ff774cf93ab89410c35",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of AppBodyView",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 4cb8e988140e62d4837b5527fbb71bbd45d77259624ec8be7aa5a4ddae6d28f3, f035e5aee1b9e5e9b5042e6e9a711ab35b3854ccebc5131966f3475dbd3211c1.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 4cb8e988140e62d4837b5527fbb71bbd45d77259624ec8be7aa5a4ddae6d28f3, f035e5aee1b9e5e9b5042e6e9a711ab35b3854ccebc5131966f3475dbd3211c1. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -976,20 +939,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "c7bedd4858e54ab49f4a968ce9e7bd1d44ba5ed7dc15c43447b84b9a5949e324",
+      "fingerprint": "0c4dfdba362907e40f3c11430d2cf055e9e4000346bd11ef1d0f5e85e87f1cc3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of BrowserOpenOverlay/BrowserOpenOverlay/resolveSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1246,20 +1208,19 @@
       ],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "28fed9ba7762fc817544288ad5d903655326501b587fddd3572c2fec95bcd359",
+      "fingerprint": "3fa58a5c464013e91f22765a07d6bab7ebce461886b8bdb6d9a0e5563cec289f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of RightDock/RightDock",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1273,20 +1234,19 @@
       ],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "2af088a621775a79a58cb7dc7abdbcd14b06e8a6c1c015c07357f7c92cfb8b61",
+      "fingerprint": "d352d6096ce8ffdca587e9397ea5a32e25ea08079a3d2b262a31e2bef8d3ba2b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of RightDock/RightDock",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1300,20 +1260,19 @@
       ],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "eb92d9fb550d1a3bca430eb474d8383c8722813f8a2906ae859f036e4de7353c",
+      "fingerprint": "f866be93e72f8be50f8962b03b9ba2cb3cbbd0e413b1b8501dba89c46cd172b2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of RightDock/RightDock",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1324,20 +1283,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "6d31a705ba5f5c3c1d97e282dbb68f77404dc00b155405a5c91af287534d6cfc",
+      "fingerprint": "2f799621e9c9e1c014a5ecb5548132b535a39b3ffdcf79923fe03664212e4ba7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The shell or pane reader is observed or called.",
       "bound": "No collection bound is established by this model migration.",
-      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
+      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
     },
     {
@@ -1348,20 +1306,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "ff8cb49b9a42b8734f93824eec2dfcd999b66f2ad8dac9756777a961b18c2ef3",
+      "fingerprint": "578a78bfd1ff92cfcc12cf5af5a760e40c8021b15b0507cdc47a416920b39838",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of RightDock/RightDock",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1372,20 +1329,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "40c13ffbfad9ad983fac48c9f66848985dcf9ac59d8400159d37d47b853d127a",
+      "fingerprint": "39f5f11888cab6508694f303e02e430fa76b64296f122f9c9c30e18366144813",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of RightRail/RightRail/shipping",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2312,26 +2268,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/shell-data.ts",
-      "holder": "useShellSessions/value",
-      "rule": "zero-arg:sessions",
-      "tokens": "d8a9defee1d62ef25833b859577e49a523889956bbd94a15cc3d06947b9c9718",
-      "gate": [
-        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
-      ],
-      "origin": [
-        "edae39b5d2a201ba6d209c36c3b4ba5f91e5c51f116fc8a22d2c44c789895479"
-      ],
-      "fingerprint": "3a0f89461da80c0d79f8ebf5f5bfc7a06078aab8992a7223f5ddf7c14553f0b1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "The shell or pane reader is observed or called.",
-      "bound": "No collection bound is established by this model migration.",
-      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
-      "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
-    },
-    {
       "file": "apps/web/src/app/use-desktop-close-tab.ts",
       "holder": "useDesktopCloseTab/data",
       "rule": "reader-summary",
@@ -2339,20 +2275,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "b29206e5080c0dcb23be6e304825d0d1b2d6fb54fa91d634a78859ada1305acb",
+      "fingerprint": "eb43fdb01d5fd97741819d173c5319c2ab20f3b178e58c68940b92d558859225",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/data",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2363,20 +2298,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "d6ebe6a93ff1b68b94cce07d74107450de37c12f25c5bd79eddd80adbdb02bd2",
+      "fingerprint": "0b520bdc5d1fe5669bef3f34487d44dbd86dc4fea82c6b465a344b22f8daff5e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/useEffect:callback/activeTabId",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2387,20 +2321,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "8416edba551a4d8a3cb46c4a5d5f92f7b9af3c832da8ec4fb09adf47b5202f10",
+      "fingerprint": "93ede5a1965628b4f4d312d16a822b2bd3be815f1fd27d149d9bd2c7017c1e01",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/useEffect:callback/fileIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2411,20 +2344,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "c5b8a2a581b58d2d8d3dea5bb603c326a5d1c57839d7ee7f6c0cd080f4d3de8c",
+      "fingerprint": "71dca7e93f7466642044fb752eab59c7caadb84647498ea371c0b8409e91939a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/useEffect:callback/fileIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2437,20 +2369,19 @@
       ],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "9c1be71f94f3a609488b75a3e6adf53508a4be321e2e6e7e3e3675ad343e7842",
+      "fingerprint": "c780fd156c23adc2e69e88e0214613bb71d888dea38389e33be8dd8c2145b42e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/useEffect:callback/layout",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2461,20 +2392,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "9a25aba3ee8c6b9833d31061751b45279f79c877114cc47f54d00e5791a0267a",
+      "fingerprint": "41284a78abc50cee93df866d2a0f5c498d9438a40f421122a4bbc85bb350cf5a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useDesktopCloseTab/useEffect:callback/openTabIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3487,19 +3417,15 @@
       "tokens": "1b0ed9b6066fd4277619dcd32866d2c5c80d54c7796d37eacd70c1595e27a0f8",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "5aa9789b2a7772683ed9cd3c862de04e4daa9beb3c0c2efbc1e3635ddf720c6e",
+      "fingerprint": "4aeb41606eefca4f8c176f3e7448660109d8c90b8b59231c15fd8c7341e37ee8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/action",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3511,19 +3437,15 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "f4d4ca5f7d08d4035b300f1bba1bc6431f1a7b9611c9d9cd2d1a2b5ebbf26f55",
+      "fingerprint": "1340e7e28c74957afd0c0d2102f6e1fe856953732e3419dd0cd661c3a25d305c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3535,19 +3457,15 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "4f4a87827811642321e0b2af43c74d6cba8e78d2af9045caf4c444e03d8245b6",
+      "fingerprint": "638ae9389eef3dffd4336e7149c58c60d661a207d64ad46262d662689bf09b17",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3559,19 +3477,15 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "f4c69bba14fe016d83aadd37fdcbe280e8054bd10c6aeb338e2e2c2502686123",
+      "fingerprint": "cdb9dd4573f2944cf3e11d459e7026cf34c126ba61a70a6c362e7e662ce2d5f7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3581,39 +3495,33 @@
       "tokens": "f1185a6e54b1ad5610b14bd14c6edb432eed8c83568b3dd797120ec84be43687",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "c4b9e74284c9d44767ff45aff14a1f734920d8396685df17d562209b3fd0ff2a",
+      "fingerprint": "31ddea84ef62f7eb365e05b3c78d5876500faada8165fd75cc76d72e988f4f5b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/menuIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
       "holder": "IssueCompactControls/IssueCompactControls/sessions",
       "rule": "reader-summary",
-      "tokens": "1177ea2ec9694a7dd651c86bb394e8de5848f426a1ed75d24f73bac55cddd339",
+      "tokens": "631350552ada553ec79898130a989ffc9b1ffc58f25a81788d74771761d333fc",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "55b676a43ed3f00b78cef13f73d6391c96717b8a34dc36d39a51c6c9d7085f96",
+      "fingerprint": "9169d3e282866a5a1002ac758db4d6a09e7510996de0e3f9bd2aeae02b2dbfcd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueCompactControls/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3625,19 +3533,15 @@
         "exit:then:5961ab3f21f15d525e29ace91a12d2406c352cc33eb153a4033b58c32d62ef51"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "3aee8b4dce3c3fb935236ab3b2ab6a595ec90a13dd8b233bd439d0e3d318f942",
+      "fingerprint": "090af4dd88a25787d5606b0dad57deca3db14025d87fb5cc3b8fa8d6c0865cd4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3647,19 +3551,15 @@
       "tokens": "314f2728879503778886148fe884a049304ee4e8b6f7d33d574028fa271a32eb",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "e334c33b6fb00b3ef42e70915e8bb05cfc39eacd7c4a4555f596f30dc671e355",
+      "fingerprint": "d9b475703d7e76afd42b66baa33a0467db2b3b1c10ed41a8e0d55d94a6a03579",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3671,19 +3571,15 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "758513abf123add93eaa6fd2a33b4b97c560e908a5d17f0ec1a390288dcea4a7",
+      "fingerprint": "03748b09ace206b1cbd465d76fa07f7606bff0402808022463c2ec6ade3b2792",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3695,19 +3591,15 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "a29dbde83c3454b459b804c216edc1b2fbfd9c9273fa88c38e4709d8c1ebbb9a",
+      "fingerprint": "6ce1c688157d8a9d0765d0fdce52d902bf8dd9f66fe1031e012de430de220149",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3719,41 +3611,33 @@
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "6a7b024ac7512b5247bfdfe82f717090143a16e0235c39decabf5eb6c314031c",
+      "fingerprint": "c26ac06beee944847164906cd91c585aec87253931d3036c1c954dacccb3fbd5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand/active",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
       "holder": "IssueDecisionBand/IssueDecisionBand/sessions",
       "rule": "reader-summary",
-      "tokens": "1177ea2ec9694a7dd651c86bb394e8de5848f426a1ed75d24f73bac55cddd339",
+      "tokens": "631350552ada553ec79898130a989ffc9b1ffc58f25a81788d74771761d333fc",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "e82744d14a66058c8991a011dcc1cd19458f923046869289a7e8b7d0dbd60eae",
+      "fingerprint": "4acac521e19707ce4db9186078f7f5094b93b32dbc6641bdbe7ec9c5a6cff0bf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueDecisionBand/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3801,19 +3685,15 @@
       "tokens": "a58eaf65e8b39fab4644a644030d9e64bf0c4b1bcf13f0ad54035eb34d66e890",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
+        "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "e4b60e0828bdaa2a93fb3b47fb2556ea9a04724a388822d9fbfc29824313dffe",
+      "fingerprint": "7f6189b87f0a855d27f4261671d4c11b0436ddd4fd6c980210ac32bf65a721a2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueSessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3887,17 +3767,15 @@
       "tokens": "17994dcb795857d0f6b5bb4eaf5c3f0d6b92444928f250e850d5bca91a38f66e",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "5221fa5834a4b1c126c47e888961273ab243f7468a790720a7ec8c2c20cc0e3c",
+      "fingerprint": "f219440dd50509b669b8f5720cb9575923062353ef48057abd5eb93fd62265a8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of IssueContextMenu/IssueContextMenu/choiceViews",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -3909,17 +3787,15 @@
         "then:df52555c006090619824aa4a7ffb57375096567bb56528ef6617e4e97db72264"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "b4fe576573e92bec6fcb918bf309cf82a9a396e9cde39bf1abaae994a840f9f3",
+      "fingerprint": "48e333e01c323c9893ffa06b55e4b9ab55675518e1c31a574bb96595699069a2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of IssueContextMenu/IssueContextMenu/readChoices/useCallback:callback",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing helper-consumer collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing helper-consumer collection path. This lifetime change does not claim to repair its collection work. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -5712,17 +5588,15 @@
       "tokens": "031eca3c58a7487acaafdd677e03ecb0a671147ae606e410831179d671b794c8",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "4a82d9a58e9d914bacdedef6e2570647d717772bf6e9073664279745310a752f",
+      "fingerprint": "76cc4edd078c446d79a2a63c7e36b507442c0753bdaa582452be6b527d0b4766",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of labelPoolOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5750,17 +5624,15 @@
       "tokens": "4313ed32530565751c8c45ea08efc7cdaaf70a36713d672c18877d2d91ed169b",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "294d9e8b4ce63ae542c28c9f103f10688d5c1e907b2ad734197d88c6c949b672",
+      "fingerprint": "bddc0af4d2fd4018082e5bdf5bc9bc9599634f1db4c6ded4d91a522801c05beb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of labelPoolOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5788,17 +5660,15 @@
       "tokens": "dec24879f6742df4da4a263c07063ed23a4ffd68ab8d29f31c69e22c7d6d145f",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "6e2f450d3cfd094c450e0e794d8e2b14ab57a3d3da951b4f5ec7b2b4f178b2a7",
+      "fingerprint": "d5c901da622df61055f3149ac1e289e6bd06aed052239918ab8b6e270e2d728f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of labelPoolOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5826,17 +5696,15 @@
       "tokens": "70e7909d8a77c93d9ca98c751531157a0e67eeb9f1ac3982c965bc1f0587438e",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "5c59cafb8d617da6c05d5a9598b1f30cbeba9cef4a4c5023a8502de2440598f2",
+      "fingerprint": "98667a5f2644bfeb632b059a7091eb6bf82a3741730054a3275ca11726af9513",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of labelPoolOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5900,17 +5768,15 @@
       "tokens": "33005a4d619db5c04682eecfb1eb0e6551e914e5463c482911f6f5b7e4e97a4c",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "f76299d58738e749349762cd3fc56b18394d022382a302a399e994836e845c0d",
+      "fingerprint": "8b16a394085efa3064b3184ffeed6eb114844e90b42e7f828db8ab9a555e8706",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of mateOptionsOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5920,17 +5786,15 @@
       "tokens": "eb9ac9e7d664a003a93dcada14e4330134945b230e70262aee4e0d112dd5c41c",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "c9d952e8026b48223404cb83f2c26bcb6a2e28a0641f9e40a0eb4af63ccdebc5",
+      "fingerprint": "e663df96e66b3842d7213dc3c556ce2db41fd3bdfe2c01d4a668acbe6de45b69",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of repoMatesOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5976,17 +5840,15 @@
       "tokens": "195dead971cadc7dbd0ed9046425918378eb248cd95c9119675ca25b057b38aa",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "3354e0bd7cb96539345b5190cc030b889f1eed535fe930b6c5343772f6595ece",
+      "fingerprint": "65c98736d1b881907edeaa786ec40556fc4f9cf97bdbe6bc75c14a34b22db4ea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of repoMatesOf",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6090,17 +5952,15 @@
       "tokens": "a0cf6dbd82e8b4e6635c6d8dbc4ce169adce43107e063719cef69b5e25d6aab4",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "e56f8e97e2bb7a1fbf0bf73de852ac2c4a7fccf74ac85936aef04bab497e8d38",
+      "fingerprint": "64b3bbe83db6e51b5e42124fcd3df74ccd503bd9cb577a32e2381af4b5da180c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueOverflowMenu/catalog",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6113,17 +5973,15 @@
         "then:d188b061378ab72f4065ad9c1307545f1ea8f8d83a007fbbf0244fe239603079"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "e6cb4a990bc0fa1c9e221914276a19420059b38a8972d8dda09ff4ae354e2bbd",
+      "fingerprint": "60a9d9e75b5442ea16ecf27698e2873b917f23d2232470898151d3caf717d2c2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueOverflowMenu/map:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6135,17 +5993,15 @@
         "??:ce60c19f576a2f42c165b33c16436d78545500554800332e2e8f46f993a18c19"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "d4d1981bcd5b5ea2a22dff8794eef7e50defa62c6e03a66c927b58e2c237aab3",
+      "fingerprint": "df1309fd8289164b73189e9b1ae6f185c5b043c45fd2d20840d8849dfd2084c7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueOverflowMenu/targets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6157,17 +6013,15 @@
         "??:ce60c19f576a2f42c165b33c16436d78545500554800332e2e8f46f993a18c19"
       ],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "ab2293b2cda06d59ab3eed79ef5499f94562fd491692e532d057e072b260b644",
+      "fingerprint": "943a75324121b73449eb11123b28175a838e89ee667b6c8fecc36a27240029bd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueOverflowMenu/targets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6277,17 +6131,15 @@
       "tokens": "e4456ebe56a85c6034d4a95d6cf43832dfd8b7d9b80c7f6e83318ec5cf743ada",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "1652c5f06d799f96bb70341d9ef68463657555f09a0d38002c87631a2df4261e",
+      "fingerprint": "71ea797dba9632b22c3c2cd1d0f82f21dfeff63fe8c2407bbc08f2823db2fe58",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6354,17 +6206,15 @@
       "tokens": "55b7ffb610abda634ec85c7a5b161692be0ff454041a1f4878d6f3752f2ed617",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "5b16dde84080b9f226f057379bd90af82c746a684972fb7a0ccc0e66d8bbbd9c",
+      "fingerprint": "2f9e13a10a3d08835570111e24c4236ce7d79dc87b7a8fa6b675795f998ee8da",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/issues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6374,17 +6224,15 @@
       "tokens": "4847ee94f0930beadf1f0886b6114586a1b292cde71a64e7214544da3650effd",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "09fd43b146dc92d0dc70d74ad695fed065b849405a68ceec24d50561ec9fc7b0",
+      "fingerprint": "6e91251fff8b98f660a914c400db3eff184ca236cfeae770b486879789f40326",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/labelPool",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6394,17 +6242,15 @@
       "tokens": "a82eb122c302b459c6fc7a0f9c26c6002b1c0246e540f0eda6bf3b7cc4163c8a",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "edb1dff316de406ed2d3a21967f9e5259c65b03ef9c0dcda35ef29a4e4b59d51",
+      "fingerprint": "988f44094c34d9e5d3ac2ff4daa7a8e4af51708ec7e4e99f1cc279a7db0cb498",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/labelPool",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6414,17 +6260,15 @@
       "tokens": "fc1ecefc40d73483bc73e160a405f2211712eae4cd8ea2de9d482e38082a3899",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "57a32d736e1edd9d41c4bb5394bdb19f8f3822706b2690659ca362907d1b6820",
+      "fingerprint": "56c52c3be72f08ee06e7b8f539b9a2653ea616e4c3dd9171b98b1dc863062513",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/mateOptions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6434,17 +6278,15 @@
       "tokens": "dde8930ae835a1c10fdeb93d7279470f66c66764f16005ca251a64c05f3f7f97",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "90dc9549b570a88b1be9822d2d9d43194535f3d9eb68e9af451360c5d3a1aae5",
+      "fingerprint": "9915a5de071868057f30d52f9c129c6d28833431e8a9ded5f773fd9ac1e2d620",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/mateOptions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6454,17 +6296,15 @@
       "tokens": "8935b35b6cf199b4fa8fa67469d03e13602d32473e5406aa835104505230f50a",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "e267c5921754acf9f35a2bcae827d0bf52c5b113ac882e8dff930b773e2221db",
+      "fingerprint": "34cc87dbab186ee1d0a2a5f956d8429db5943ebb0eea5690d1440d6e15604f9e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/matesById",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6474,17 +6314,15 @@
       "tokens": "3b2bb33c7dd54d0c3ea769ece44bdb10d43680055548a68bb2fc0b02d103cd81",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "e6eadde1b8f8c5edb08ba17c7bdd3c4d60f029b170421e69de62e60f6d07c9b7",
+      "fingerprint": "324f1c1672ae5908a3e786842293738bafc069608fce14a7f7f7906ac4935ff0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/matesById",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6494,17 +6332,15 @@
       "tokens": "6ad2c9650b11194faaaf00bd1035df456100febe69e02a2eacd76e5a715437e0",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "51b7f18f387e5c28d2b4101bd351f4026ebe47a241372e48198f2ac7b0792145",
+      "fingerprint": "7c9520c6c2797b4de72cea2fc7f3392bc47b82d224312dc0294fa1b43f05ae79",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/repoMates",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6514,17 +6350,15 @@
       "tokens": "407807da1074183da9ac54d581d6cb726b853d4dcf65b30ddf1ed17d88c0b84f",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "513285674b8882ef449b12d5f93dc6d426a321e1bc5cb5d04a97a982f9267d2a",
+      "fingerprint": "69eb7e2cc11e01500d1db4e81f03e124780c621a6b629e5a32863aad3fddd243",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssueProperties/repoMates",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6534,61 +6368,15 @@
       "tokens": "0d8a576fa327ba9c7ff2537b3834490a1b0c1e975774f5df04d77dc8b12dc16c",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "d1554fc627c15dd063540ccda2c7772a26e47446e93481b57e7d00cefc6d56c9",
+      "fingerprint": "1fe9458e00ea167f0463d172773a8f9eae02327fbb368c3113f003bfdd6190d7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of useIssuePageCatalog/views",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
-      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-page/issue-page-data.tsx",
-      "holder": "useIssuePageSessions/sessions",
-      "rule": "reader-summary",
-      "tokens": "8975690db33d682c3ca02f9fb713d5161d425f632eff5cdbd929cbd1050eddf6",
-      "gate": [
-        "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8",
-        "??:d04d1885a847b6a1d07902a05096383ccdd83f350314d8b9d6fa2339948367a6"
-      ],
-      "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "9a0078911297c665d74a46f7bffb1eab31f9cc64ece9ed67d6b7fc5b9cc2e6fa"
-      ],
-      "fingerprint": "1b82810bc9bf8a16233f7614b478c872a2b9a008d42ae73b89fe446307d2862f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useIssuePageIssues",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-page/issue-page-data.tsx",
-      "holder": "usePoolSessions/views",
-      "rule": "reader-summary",
-      "tokens": "bd5149cc889d5f58774048939961719ee0fe9f46c79bbd0ab25e991cecf21bd3",
-      "gate": [],
-      "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
-      ],
-      "fingerprint": "4c0cd01ed22ce8b52547c6cb912df2b28e65beb24ace50a9377a9f3ce2f82c58",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5866",
-      "trigger": "Invocation of usePoolSessions/views",
-      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -7060,17 +6848,15 @@
       "tokens": "bd5149cc889d5f58774048939961719ee0fe9f46c79bbd0ab25e991cecf21bd3",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "ce7b98eb6e305f6dd41c63f2494a80cf7e0f2e300214d72b253a5bf5779f1e96",
+      "fingerprint": "281ffefef0724adba9f71da906864cf55b90668cb9ea0812316e43de3427ff48",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of PoolIssuePage/views",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -7080,53 +6866,51 @@
       "tokens": "bd5149cc889d5f58774048939961719ee0fe9f46c79bbd0ab25e991cecf21bd3",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
       ],
-      "fingerprint": "d44b914cca1c18e100f685d1f320098c9dc6bdd94cfcdcbc3764cd1cbf0aea29",
+      "fingerprint": "4d103c466713ab88362d1f12e4a1251ae4332266386822ecb793d04d95839cd2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of PoolIssuePanelView/views",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
       "file": "apps/web/src/features/machines/HostMemoryView.tsx",
       "holder": "readParkedCount/callback",
       "rule": "consume:reduce",
-      "tokens": "c655f54fea65d4292e8f18f13dd15214caf1f3a6007b0aafce9519fa96f56b52",
+      "tokens": "00d4906ef273017c792bac1e4945a84705618ddead7cd9a68fa0ca7aa5a9e48b",
       "gate": [],
       "origin": [
-        "cbfe69a01eef8baf0e3bb10408b14886e157b3ba38072b9113d606c196c0a511"
+        "2f78eb601a14f6d92fe5e75abd46f2f299e4aff7a55c217eb65d202fac070b63"
       ],
-      "fingerprint": "b0c250410b63dc0b22312f269561a8e31b6aa5f20db753a927a1f348be92ba60",
+      "fingerprint": "bd44cf34ed9ac97392de03fbf165ae4a7dc1e4e5a02685b3a3a09fb30d3c90fa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of readParkedCount/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:reduce carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:reduce carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/machines/HostMemoryView.tsx",
       "holder": "readParkedCount/callback",
-      "rule": "question:shellSessions",
-      "tokens": "0684540cac4e47b32bbab3e5bf9038862a423d78b8d831e8f07c3aa74404e902",
+      "rule": "question:pausedSessions",
+      "tokens": "3c92e9a435c29028e8d98540893b598596c9d1b80ae669a7bfec524342e2ff84",
       "gate": [],
       "origin": [
-        "cbfe69a01eef8baf0e3bb10408b14886e157b3ba38072b9113d606c196c0a511"
+        "2f78eb601a14f6d92fe5e75abd46f2f299e4aff7a55c217eb65d202fac070b63"
       ],
-      "fingerprint": "0b96327dd901a942a18c4f7db778a4e8f47cdd5095b7e4c9c9d3e5d342ea6357",
+      "fingerprint": "ab20829a29f281df7529f45267b2f8a580efbd766fc75c22639baf2189fbf7af",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "owner": "POD-7088",
       "trigger": "Invocation of readParkedCount/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:shellSessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "bound": "Bounded by the paused sessions the device holds (the policy holds live, asking and recent sessions); no proven cap beyond that.",
+      "reason": "POD-7088: the paused count reads its own bucket (hibernated sessions) instead of every session; the device holds only the policy's sessions.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -7273,24 +7057,6 @@
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
       "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "apps/web/src/features/settings/readers.ts",
-      "holder": "useSettingsSetupSummary/readSetup/useCallback:callback",
-      "rule": "helper-consumer",
-      "tokens": "43fbd0e56a990baec5512fdcbee6a15b3132e00e053c965016c0cfaacd0602ad",
-      "gate": [],
-      "origin": [
-        "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
-      ],
-      "fingerprint": "1990846de0e7b72a4706fb51cd176254048072e85ffd9d22f799b6ace9540c7c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useSettingsSetupSummary/readSetup/useCallback:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/web/src/features/settings/sections/members-invite.tsx",
@@ -24510,20 +24276,19 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "400fdc70323b2486deffa535ec6f4d365449f55d4e9a64e8d9ed50e3eb5adbaa",
+      "fingerprint": "5b3b25d0979e79c82b61a7c6b82c82ff60c3e561267f1a8beac5b343ab97e2d8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of allTabIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -25285,20 +25050,19 @@
       ],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "3ca49bccea1c9f46f9a72256c611e4006da384fed990374a4de5dc4d2b488502",
+      "fingerprint": "3817085861642f3477af8981efff231e43ebaa439f7be220447549329c60906e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of focusedPane",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -28404,76 +28168,141 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnCount",
+      "rule": "reader-summary",
+      "tokens": "88e7abab845aa1191dbf634d3798ffaef354d28814783dd6eb3c49eb4492460f",
+      "gate": [],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "220cefb1836253e1452b1441dc6cb93aae4c1445909d566dd9131ead850208fc",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
+      "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/dispose",
+      "rule": "loop:for-of",
+      "tokens": "7befc092a7f0ef9b47df0b4a20d96428235b734cd2fdb330b349970504314339",
+      "gate": [],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "4f263e21dd372f36dcd19e7d7ec8b2d4352bd9e1c08cbd9ccdf017ed173a3a69",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Invocation of createBoardLayout/dispose",
+      "bound": "Constant: the layout's fixed list of keyed caches, two more since POD-7088 (column held and column count).",
+      "reason": "The loop walks the cache objects, not records.",
+      "guard": "issue-board-layout.test.ts disposes and counts the layout's caches."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/reposAt/callback",
+      "rule": "loop:for-of",
+      "tokens": "aaec8ab90522360fd6cfb55dff8cbc57177f136a987ed6d1b47db39a6e6a45cd",
+      "gate": [],
+      "origin": [
+        "0e3dcf0aa9113060135a563330c116463b5b119d0c31ba8df705a980540dd7fe"
+      ],
+      "fingerprint": "190b781412fe5af7a664f3be999360f6a8f678b4885a1395086f5dad5c327397",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Opening the board's project menu, or counting a column filtered by project.",
+      "bound": "The repository records: an \"always\" collection that does not grow with history (POD-7059 \"Collections\").",
+      "reason": "POD-7088: the filter menu and the project filter read the repository records, never a walk over every issue.",
+      "guard": "issue-board-source.test.ts reads the catalog; moved-readers.test.ts counts a project-filtered column."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/stats/callback/cached",
+      "rule": "consume:reduce",
+      "tokens": "15a99c7f1894889fb3287b1e5e809441c4a5ff0f3ecead1eb14d412eb3e5466f",
+      "gate": [],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024",
+        "c63c0d9b905896d1d9d5e096b7db11f06cf3a38b196cfeaa96d9b17a8c6ac848"
+      ],
+      "fingerprint": "71c81052afec4924ee6a39689ef7893bd88457336c77c6c50a940c501aa45a71",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Invocation of createBoardLayout/stats/callback/cached",
+      "bound": "Constant: the layout's fixed list of keyed caches, two more since POD-7088 (column held and column count).",
+      "reason": "The loop walks the cache objects, not records.",
+      "guard": "issue-board-layout.test.ts disposes and counts the layout's caches."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnCount/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "3d6c38cd6aa26ede6108356a1ce437eaad2b5c93728dcc3f17084009caf1a42d",
+      "gate": [
+        "exit:then:a6bb87e28ed667592089fb1c756c430a40e6eba717678da2499eb35dc369e8d4",
+        "exit:then:56eb2495d35052474b9db7089d356821b835a99b60d5682460f7548cae41b2c0",
+        "then:685d096730bfe03f14de9aa8838054555e25112f90979c7bdb6d9746eeb91872"
+      ],
+      "origin": [
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "28fee11ac71dd7512ac467171b68d56ea97b065dc58e6498ff5a4b0fa072c675",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
+      "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnCount/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "3d6c38cd6aa26ede6108356a1ce437eaad2b5c93728dcc3f17084009caf1a42d",
+      "gate": [
+        "then:56eb2495d35052474b9db7089d356821b835a99b60d5682460f7548cae41b2c0"
+      ],
+      "origin": [
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "e789453d540c9bfb20707d5bd92b1d936aa470dc63fb616d33330bd0818d6e1a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
+      "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
+    },
+    {
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/catalog/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "2e17bd8d6e38ec4a0068581e0c9fab99add0777cd82566da07e92104a34d840f",
+      "tokens": "a913d2b475ed16fae6bcf98f05ab124e3e8db5daf5a35e492b4e473182724a15",
       "gate": [],
       "origin": [
-        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1"
+        "0d341da4122bfbc1cc5908d5f70f01df35caa1d8f0dd6095feb37541f97b11e0",
+        "738badeb97bce6e7fd70975453a3fb8e5c66053bec204136379719a0c1318524"
       ],
-      "fingerprint": "52f582b5a7271c2f619d36ba2c409096d5501e90bf11ae6008ff5dd5820d0717",
+      "fingerprint": "09e978f8a4c60fa17dac9d8bd7d6d60308c432decca59bb135be87f18a9a4717",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueBoardSource/catalog/memo:callback/indexed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/catalog/memo:callback",
-      "rule": "question:boardCatalog",
-      "tokens": "fb189ed1c95f5115eaa2ec617319723fe87fb076b5ef80737b6930f9fe15b0e5",
-      "gate": [],
-      "origin": [
-        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1"
-      ],
-      "fingerprint": "be382096f88a86012e28dbb4b98c0375bb926240c5165a247ca7ed26de5d94c7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createIssueBoardSource/catalog/memo:callback/indexed:callback/cold",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:boardCatalog carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-page.ts",
-      "holder": "createIssuePageViews/explorerIssues/ids/callback",
-      "rule": "question:pageIssues",
-      "tokens": "8a3d660789c060c99ab3b5760bb4790bd026c9c6e90acaece6232596fa922cc7",
-      "gate": [],
-      "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704"
-      ],
-      "fingerprint": "cecb7d67d0988b5001f08a06ee7d6a0b11113d5dd06302ebe64dd0e4f48c5267",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5866",
-      "trigger": "Invocation of createIssuePageViews/explorerIssues/ids/callback",
-      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing question:pageIssues collection path. This lifetime change does not claim to repair its collection work.",
-      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
-      "file": "packages/client-graph/src/issue-page.ts",
-      "holder": "createIssuePageViews/explorerSeats/ids/callback",
-      "rule": "question:explorerSessions",
-      "tokens": "02c7d1952c2d256783fb5db35835a9acefb78fba7157601df689fd71ec1e2b81",
-      "gate": [],
-      "origin": [
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6"
-      ],
-      "fingerprint": "2f1b3f44c7e72bf7025f12099a4dbc8f1975b2e0ee461888378dbfbe1303279e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Initial demand for the retained explorer session catalog.",
-      "bound": "The requested catalog has no cardinality cap; later session updates read only their addressed answer.",
-      "reason": "Existing session catalog acquisition moved to the ordered query seed; its classification is preserved.",
-      "guard": "packages/client-graph/src/issue-explorer-catalog.test.ts"
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
@@ -29254,106 +29083,6 @@
       "bound": "The addressed issue's own crew (row.sessions) and its immediate children's lazy words; no catalogue read.",
       "reason": "POD-6170: ef3c9624aa (POD-6134) wraps rowState's existing row.sessions and child-word reads in settled()/settledAll so all cold inputs load in one window. The row word is a per-row lazy MobX value; a change re-derives one path upward.",
       "guard": "packages/client-graph/src/mission-view.test.ts: unrelated sessions grown to 1,000 read only the selected mission's attachment edges; a hidden row's collapsed count leaves crew presentation unobserved; POD-6134 settles 24 cold rows in at most three load windows."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-session-context.ts",
-      "holder": "pooledMobileSessions",
-      "rule": "loop:for-of",
-      "tokens": "a954d40f9320f6662ed3fd608c0d63cb8fb2f5ac3757c529b4ab79058b64e7a7",
-      "gate": [
-        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
-      ],
-      "origin": [
-        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
-      ],
-      "fingerprint": "fa4cba0683c8fe40fbd57b61c288190d06c27508fa197cf31f0b5f2e6342c31f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5848",
-      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-session-context.ts",
-      "holder": "pooledMobileSessions",
-      "rule": "materialize:Set",
-      "tokens": "d8e3ac183bf991308f93c1ccdfb3f0636f126b2211a5bf1e14c02060cdd9fcd6",
-      "gate": [
-        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
-      ],
-      "origin": [
-        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
-      ],
-      "fingerprint": "cf216d65acb26032675d0045cb75019cb338a530489d861260087c098f2db7b4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5848",
-      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-session-context.ts",
-      "holder": "pooledMobileSessions",
-      "rule": "spread",
-      "tokens": "4a509824cb1f9c3e942e1ab266ac76763ad91fdc9325e4156fb8640a5eb9e0af",
-      "gate": [
-        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
-      ],
-      "origin": [
-        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
-      ],
-      "fingerprint": "1e902f6c891ea70073a769c820d275d308e323b7e13606a45174062ffdb5ceff",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5848",
-      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-session-context.ts",
-      "holder": "pooledMobileSessions/known",
-      "rule": "question:referenceSessions",
-      "tokens": "3321028675d2138093fb7cf67a24b454679465114d0388da8fc620f4b6c2940e",
-      "gate": [
-        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
-      ],
-      "origin": [
-        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
-      ],
-      "fingerprint": "9ff930a3d7c87dbe28fc340deb509aff0ccf477341a44cd2f3bca07913b7e19a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5848",
-      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:referenceSessions carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-session-context.ts",
-      "holder": "pooledMobileSessions/present",
-      "rule": "materialize:Set",
-      "tokens": "e99af3c7e7a649e6156c3d50e3ce5ddac9fcba4ba08fa3c14d48a5c5c8f4825a",
-      "gate": [
-        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
-      ],
-      "origin": [
-        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
-      ],
-      "fingerprint": "7829f4082342f60f0504fd5bfff50b4f575b2bba8b1777bd6991a66eb15fd3b5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5848",
-      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/mobile-settings.ts",
@@ -31113,60 +30842,6 @@
       "trigger": "Invocation of tableColdRule/ctx",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/issues/memo:callback",
-      "rule": "consume:sort",
-      "tokens": "b9ca229689687b5d4a18e6c93a5c15d0fd8fc947b6acd672ccedd3c0be91e40a",
-      "gate": [],
-      "origin": [
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
-      ],
-      "fingerprint": "42ce84db70a910593b25a57db846221b86824e8630a9759ead2346eccbf61cc7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/issues/memo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/issues/memo:callback",
-      "rule": "loop:for-of",
-      "tokens": "fb0a59e957ea66b611c8c68b958dda80039ba9184299eb7a51f4939e372b106f",
-      "gate": [],
-      "origin": [
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
-      ],
-      "fingerprint": "ae5d9c8c3f0faf0e66cdca17ce53c2a0d0fd1911f022e54027747c027754e18d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/issues/memo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-\u2026); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/issues/memo:callback",
-      "rule": "question:shellIssues",
-      "tokens": "3f1ae8425816d2c8f7f10f064a2c504bdd94485020d7fcd70c231eae8af9885a",
-      "gate": [],
-      "origin": [
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
-      ],
-      "fingerprint": "c6ba16e2abbba94ea31935c5d5ddaff475244b5cfcafb4b7159babc19bf20ccb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/issues/memo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:shellIssues carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33661,7 +33336,6 @@
       "tokens": "d885ef95c5db299d546985b649bc8b2a54e4cccd299c0a6123476af0d81915a6",
       "gate": [],
       "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "108db4795cb373320091b36ae4710f20597f2ab09644298c9447d14e7ed5d427",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
@@ -33676,9 +33350,7 @@
         "73fc6ac8474972e8390049381280f6016c6e783a4c53017f0e6b141d47066ace",
         "7dd69102ce93127148f25a4ac2bb36f83e2d882230d0007ce2fe0923cfe35458",
         "817ecc6bbfcc0faf265ba91310e86a6477735cbdd6c698786fa50f3e3c863de2",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
@@ -33691,53 +33363,53 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "8a725e4a3062a0362cb8e2c2f592c59ce107b9c155840b2ef422e86ad6e21d3c",
+      "fingerprint": "6a6b24c5f37857815912fcb47455f48955818a2b311d2d04cb429d89a791d4be",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "eded0e084edacd82aea3307e67151c829dd6ecfa695578af6f60f350df265ea7",
+      "tokens": "e237a7084e75a28a63a5a323831c410b079c4600418ca7cc86fd9f98efd4d60d",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "8284dcdc31072262acbac7f62eac7e00902ed8a8ae643bbb5db20e46ece05ed0",
+      "fingerprint": "f8c381ae50737a55558c83b2e65a8b864b59dff54a12dc6777d66e6ad824a7a2",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "b7926429b9c3729fad9da8983ea8737343bd987e3de3f0868ef54015ba0267b2",
+      "tokens": "99c8f1cb7cbb301bf63457349d176f689c07b9c49f36f9a567a31d6d60f9340a",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "586ace8640fe3af17b0e98adc831e0fbb5a0c555871b332ddd0134d64b8701f4",
+      "fingerprint": "f4b05aeb17f13350a7c328db9388c7ea2fd0d269d3640f4ab7ede019b5fdb1de",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -33753,7 +33425,6 @@
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
@@ -33762,13 +33433,13 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "cf471af02d7c2f9d9b5c579e8c05b856fae6a5fad858451fd21b483294f8ea03",
+      "fingerprint": "d2d15bde2d4b08c5a3438797f4b0b260abb6ed57f67fd693593abc1741ea08a4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/current",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33784,7 +33455,6 @@
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
@@ -33793,13 +33463,13 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "25db30f7e7e8ef8429e455888862fc49fda85436084e3d10c4a57aeeeb78494b",
+      "fingerprint": "6b1a271d3e772ff1152fb31dee31f103a4a7f850cdaeaa01fb9c7b1115b02e34",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/projection/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35301,19 +34971,19 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/menu",
       "rule": "reader-summary",
-      "tokens": "d79bddc27b89f0e877990940af0174705b501235fede105c3e006a6433fd91cb",
+      "tokens": "0c8f7a5ba19bd831ce5f33be547e480830b6752793a62c58e8fc6265135c79a4",
       "gate": [],
       "origin": [
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "c00e8e1390de5ec336a55248b377d47a95800f1dfa19b5ff5b69fd9b07deb05b",
+      "fingerprint": "5eb1da1e8cbab0b10cf4d5b316cdb1c56241916583ea8b128de1f028215ec782",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
       "trigger": "Invocation of createIssueBoardSource/menu",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
+      "reason": "reader-summary carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35394,6 +35064,24 @@
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
       "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-source.ts",
+      "holder": "createIssueBoardSource/catalog/memo:callback",
+      "rule": "enumerate:values",
+      "tokens": "7c1e3f2bdce47b3cb9458019741c7cd3e6ef76f05eee34e6ed57064d8c48a3bd",
+      "gate": [],
+      "origin": [
+        "0d341da4122bfbc1cc5908d5f70f01df35caa1d8f0dd6095feb37541f97b11e0"
+      ],
+      "fingerprint": "3ec3598f1d6d034deb7db23a1bff5093703af6eb7827db4e4b9d6f1cf5270ff5",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Opening the board's project menu, or counting a column filtered by project.",
+      "bound": "The repository records: an \"always\" collection that does not grow with history (POD-7059 \"Collections\").",
+      "reason": "POD-7088: the filter menu and the project filter read the repository records, never a walk over every issue.",
+      "guard": "issue-board-source.test.ts reads the catalog; moved-readers.test.ts counts a project-filtered column."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
@@ -35886,6 +35574,42 @@
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
       "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "packages/client-graph/src/mission-screen.ts",
+      "holder": "MissionScreen/rootBodyHeld/description",
+      "rule": "reader-summary",
+      "tokens": "90312119fcc0fce46640615cfe3a4fff0c27e8f0f641714d51a28a756e861634",
+      "gate": [],
+      "origin": [
+        "87de5dffe9bf19b844ef5e3610e2a824a73ea0dc7e3b37b471efd1ba5cbaf645"
+      ],
+      "fingerprint": "950d2c84b4b236224b02a6df1b998816d2f0ae76c109859a39df57dc0321503c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Opening a flight deck.",
+      "bound": "Constant: two addressed instances (the root's description and state line).",
+      "reason": "POD-7088: the deck asks for its root's body part when it opens; no member's body is read.",
+      "guard": "mission screen tests open a deck over a pool without a loader (held) and the startup check reads decks."
+    },
+    {
+      "file": "packages/client-graph/src/mission-screen.ts",
+      "holder": "MissionScreen/rootBodyHeld/state",
+      "rule": "reader-summary",
+      "tokens": "29a4528158b072d1685b7de017ea90f79405f2dadb78a24fdf45304fff707b53",
+      "gate": [],
+      "origin": [
+        "87de5dffe9bf19b844ef5e3610e2a824a73ea0dc7e3b37b471efd1ba5cbaf645"
+      ],
+      "fingerprint": "34010f576638bd1733e9505e76d056a0f0a093ef2127543aa4b3f7d902c3a115",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Opening a flight deck.",
+      "bound": "Constant: two addressed instances (the root's description and state line).",
+      "reason": "POD-7088: the deck asks for its root's body part when it opens; no member's body is read.",
+      "guard": "mission screen tests open a deck over a pool without a loader (held) and the startup check reads decks."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -36505,6 +36229,71 @@
       "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "92d1c42c2d17b1dcfb454d2a34463848c3f57e0d6c8d486456ac55a5646ff751",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7088",
+      "trigger": "Invocation of keyedComputed/read/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint from a new keyed reader (POD-7088 board column held/count); a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "557efef92defc7b2714708c81dbd5c5c04928e755a2ff2ddcc6670d31a5b6174",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7088",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint from a new keyed reader (POD-7088 board column held/count); a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "2f53b647cf130f4484ddac5747d530ca399f61ac54e24f2e99025bdef7db5cc0",
+        "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
+      ],
+      "fingerprint": "23d443079fe71f5fdb09b40f8739753f4125b41c2cf437eefae5232e90d92454",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7088",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint from a new keyed reader (POD-7088 board column held/count); a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -37248,101 +37037,6 @@
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
       "fingerprint": "f869ac9076a824403c7d1810cccbb4eba3de1d447df28d43227448a6c6c9700a",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/client/use-inbox-data.ts",
-      "holder": "readHosts/callback",
-      "rule": "reader-summary",
-      "tokens": "b367643c7cd1cdd48d284a11da5579cb7168f30932b74f19b793f71c922e5c2e",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "e77bd3cf8fb01184abd9bd2317da7ffa28923615da3fbf1e72af3fc7dc8c11d9",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/client/use-inbox-data.ts",
-      "holder": "readMachines/callback",
-      "rule": "reader-summary",
-      "tokens": "6d921485c3ecbe62c025782153f530a148db96b4fb669acfb2b182cfe7869713",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "13f0dd3801f94056c2952a56c485f9f84da42d89ddb6586f8fa32b0009b08f49",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/client/use-inbox-data.ts",
-      "holder": "readMachines/callback",
-      "rule": "consume:map",
-      "tokens": "dc05559822738aad30dfe5026997d10d711da10fa9564d9884bf7496b2cc5b57",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "1a74799dff74498ee05f0639144d3a5b2632cda9842e76f2da5c54b9f353d277",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/client/use-inbox-data.ts",
-      "holder": "usePulseLive/hosts",
-      "rule": "reader-summary",
-      "tokens": "e3d7e74453009e6f2dbca37762d08d2b5e4a7a1e289823310104cea1838266da",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "deae7144f3e34de63d94e16dd6105ad8bb7431bcfb2a8671264258b4e81f3e4a",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/client/use-inbox-data.ts",
-      "holder": "usePulseLive/machines",
-      "rule": "reader-summary",
-      "tokens": "28229925c46c7460f61789e07d2aa3f5196b6f9d06791d90f001ce590bbae24f",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "06b2c520c1c6ab88e34a0a2da8a3a82f3bd82eba5c9d7c0c7ee03d0cc0315a51",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -40345,6 +40039,119 @@
       "bound": "One initialization pass over the declared live parts: four compiled topic schemas today, independent of record count, history and watchers.",
       "reason": "The records argument contains record declarations, not record instances. The loop creates one map and demand atom family per declared live part; it never enumerates stored rows or a screen's records.",
       "guard": "packages/client-core/src/live/live-store.declaration.test.ts checks declaration-only additions, schema coverage, first/last demand and the single generic map factory; live.test.ts preserves topic lifetimes."
+    },
+    {
+      "file": "apps/mobile/src/client/use-pool-links.ts",
+      "holder": "readHosts/callback",
+      "rule": "reader-summary",
+      "tokens": "b367643c7cd1cdd48d284a11da5579cb7168f30932b74f19b793f71c922e5c2e",
+      "gate": [],
+      "origin": [
+        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+      ],
+      "fingerprint": "2f1165bfa370a56ce4af49dfd669bcf0e57818e7d750289c12a0d3f271e57263",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6644",
+      "trigger": "A machine or checkout record change, or the first read of my fleet",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/client/use-pool-links.ts",
+      "holder": "readMachines/callback",
+      "rule": "consume:map",
+      "tokens": "dc05559822738aad30dfe5026997d10d711da10fa9564d9884bf7496b2cc5b57",
+      "gate": [],
+      "origin": [
+        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+      ],
+      "fingerprint": "47100a1836b5860341b7c424fc1de877966bc3633c7dd6045ae453503ec4e6c1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6644",
+      "trigger": "A machine or checkout record change, or the first read of my fleet",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/client/use-pool-links.ts",
+      "holder": "readMachines/callback",
+      "rule": "reader-summary",
+      "tokens": "6d921485c3ecbe62c025782153f530a148db96b4fb669acfb2b182cfe7869713",
+      "gate": [],
+      "origin": [
+        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+      ],
+      "fingerprint": "8c6d04b18e58075ecb91f43ea5c1bcc932c4bdbec3c33cf2814b7ca557d7c0d9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6644",
+      "trigger": "A machine or checkout record change, or the first read of my fleet",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/client/use-pool-links.ts",
+      "holder": "usePulseLive/hosts",
+      "rule": "reader-summary",
+      "tokens": "e3d7e74453009e6f2dbca37762d08d2b5e4a7a1e289823310104cea1838266da",
+      "gate": [],
+      "origin": [
+        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+      ],
+      "fingerprint": "62e147c82df68e36be4c428028cf688fac006b820d9c0fbf3651a46571b25d84",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6644",
+      "trigger": "A machine or checkout record change, or the first read of my fleet",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/client/use-pool-links.ts",
+      "holder": "usePulseLive/machines",
+      "rule": "reader-summary",
+      "tokens": "28229925c46c7460f61789e07d2aa3f5196b6f9d06791d90f001ce590bbae24f",
+      "gate": [],
+      "origin": [
+        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+      ],
+      "fingerprint": "ca6f89ea0e7beead7d10224cb758c0a49c76364c378604e2457b4b89b5f2d2e7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6644",
+      "trigger": "A machine or checkout record change, or the first read of my fleet",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "packages/client-graph/src/mobile-triage.ts",
+      "holder": "ProposalScreening/total",
+      "rule": "reader-summary",
+      "tokens": "3ccc2085849e3338bf1820ef1316bd445ffc5a0ccb476bad482a372d6d17f2a9",
+      "gate": [],
+      "origin": [
+        "efd2129bf6f6de5dc5e7b2910b054059edc625fbbb1cd04d2d4fac48bed8a547"
+      ],
+      "fingerprint": "3bf37cb6ec5be003443bc8678a61220cfac15f0706cbbda1fb34187bf104e190",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7088",
+      "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
+      "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
     }
   ]
 }

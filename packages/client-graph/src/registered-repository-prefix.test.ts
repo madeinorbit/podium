@@ -51,7 +51,7 @@ it('supplies registered zero-issue prefixes from the production feed and keeps a
       return measureWork(async () => insideReader(name, action), { pool })
     }
     try {
-      expect(pool.queries.count('issue')).toBe(0)
+      expect(pool.queries.heldCount('issue')).toBe(0)
       expect(value.split(',')).toHaveLength(128 * scale)
       const first = await measure('registered prefix first demand', () => {
         pool.queries.repositoryPrefixKey()

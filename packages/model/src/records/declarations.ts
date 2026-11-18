@@ -359,6 +359,23 @@ const issueProjection = defineRecord({
       },
       why: 'One page of a stage, sorted: a board column, the proposal deck.',
     },
+    byStagePriority: {
+      part: 'main',
+      where: {
+        stage: { eq: param('stage') },
+        priority: { eq: param('priority') },
+        archived: false,
+        deletedAt: { empty: true },
+      },
+      page: {
+        sort: [
+          { field: 'updatedAt', direction: 'desc' },
+          { field: 'id', direction: 'asc' },
+        ],
+        size: 50,
+      },
+      why: 'One page of a stage under a priority filter: a board column whose count the stub cannot answer, so its total comes with the page.',
+    },
     one: one('id'),
   },
   why: 'The issue record without its body: the unit of work.',

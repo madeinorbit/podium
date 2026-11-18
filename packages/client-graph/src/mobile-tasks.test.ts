@@ -192,7 +192,7 @@ async function workAt(scale: number, plant = false) {
         model.title
         model.confirmedWorkingAgents
         model.taskProgress
-        if (plant) [...pool.queries.ids({ kind: 'boardCatalog' })]
+        if (plant) [...pool.queries.ids({ kind: 'pageIssues' })]
       }),
     ),
   )

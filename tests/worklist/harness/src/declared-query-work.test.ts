@@ -188,7 +188,7 @@ async function measured(
           : rows
       })
     if (mechanism === 'count' && plant) {
-      vi.spyOn(f.pool.queries, 'count').mockImplementation((entity) => {
+      vi.spyOn(f.pool.queries, 'heldCount').mockImplementation((entity) => {
         if (plant === 'wrong') return 0
         // The exact original count correction, planted in the real reader.
         return (
@@ -210,7 +210,7 @@ async function measured(
       async () => {
         if (mechanism === 'count')
           insideReader('count', () => {
-            actual = f.pool.queries.count('session')
+            actual = f.pool.queries.heldCount('session')
           })
         else
           insideArm(() => {
