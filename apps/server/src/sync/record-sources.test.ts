@@ -257,7 +257,7 @@ async function buildCorpus(): Promise<Corpus> {
     await db.run(sql`INSERT INTO checkouts (workspace_id, machine_id, path, root, kind, branch, updated_at)
       VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
     await db.run(sql`INSERT INTO subscriptions (workspace_id, id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
-      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, 1, 0, 'custom', 1, ${AT})`)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, ${true}, ${false}, 'custom', ${true}, ${AT})`)
     for (const [id, createdBy] of [
       ['eff_person_scan', owner],
       ['eff_system_scan', null],
@@ -550,7 +550,10 @@ describe('record sources (POD-6920)', () => {
     await corpus?.store.close()
   })
 
-  describe('one-row generation (POD-7091)', () => {
+  // The frozen evidence was captured on SQLite (`__fixtures__/README.md`) and is
+  // replayed with SQLite's deferred foreign keys: the group runs on SQLite. The
+  // record bytes on Postgres are held by record-payloads.pg.test.ts (POD-7118).
+  describe.runIf(testStoreEngine() !== 'pg')('one-row generation (POD-7091)', () => {
     const after = serverRecordBuilders()
     const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
