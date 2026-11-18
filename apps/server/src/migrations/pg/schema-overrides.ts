@@ -92,8 +92,8 @@ export const PG_UNMAINTAINED_COLUMNS: Readonly<Record<string, string>> = {
     "SQLite's triggers write it (migration 20261117220206_session-asks-user, POD-7104); the " +
     'Postgres chain has no triggers, so it stays false there. The collection fetch reads the ' +
     'asking clauses from the offer and the checkpoints on Postgres instead (`derived.engines` in ' +
-    'sync/collection-sql.ts). Writing it in the write path on Postgres is the follow-up under ' +
-    'POD-6951 (POD-7118).',
+    'sync/collection-sql.ts). Writing it in the write path on Postgres is POD-7123 ' +
+    '(POD-7118).',
 }
 
 /** One key expression of an index written another way on Postgres, and why. */
