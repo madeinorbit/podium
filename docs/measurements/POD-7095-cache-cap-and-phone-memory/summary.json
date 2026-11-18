@@ -1,12 +1,28 @@
 {
   "schemaVersion": 1,
   "primaryStartupRound": 40,
-  "primaryStartupExceptions": {
-    "desktop/operator": 41
+  "primaryStartupExceptions": {},
+  "startupAdmissionNote": "All round 40 cells are complete; desktop 10x before has two admitted controls and one unexplained HTTP 404 rejection.",
+  "deckRound": 45,
+  "deckStatus": "pending corrected tip from coordinator after POD-7165",
+  "originalFixedTipDeckObservations": {
+    "product": "af8b3091e0",
+    "phone": {
+      "sampleCount": 1,
+      "tree12Ms": 1157.638,
+      "tree970CensoredLowerBoundMs": 60000,
+      "causeOwner": "POD-7155"
+    },
+    "web": {
+      "sampleCount": 1,
+      "tree12Ms": 1832.158,
+      "tree970Ms": 92068.409,
+      "tree970MainThreadMs": 91946.813,
+      "causeOwner": "POD-7165"
+    },
+    "limits": "Single observations; not pooled into the corrected deck cohort. Excluded collector and interrupted attempts are preserved in private issue artifacts."
   },
-  "desktopOperatorNote": "Startup and cold-memory fields precede all deck interactions in round 41.",
-  "deckRound": 41,
-  "costProductNotes": "SQLite r21, feed r26 and cache r28 measured the earlier policy product at 726a06ad16; final startup/deck/search use af8b3091e0. Fixed feed evidence is reused from POD-7119, documented in the report.",
+  "costProductNotes": "SQLite r21, feed r26 and cache r28 measured the earlier policy product at 726a06ad16; final startup/search use af8b3091e0; corrected deck source is pending POD-7165. Fixed feed evidence is reused from POD-7119, documented in the report.",
   "beforeProduct": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
   "afterProduct": "af8b3091e06e254d25809b66da8507a7e11d5478",
   "units": {
@@ -8640,6 +8656,2426 @@
         ],
         "rejected": []
       },
+      "desktop/h1a1/before": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "h1a1",
+        "before": true,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              6057.239,
+              6130.155,
+              6231.563
+            ],
+            "median": 6130.155,
+            "min": 6057.239,
+            "max": 6231.563
+          },
+          "warmMs": {
+            "samples": [
+              5093.912,
+              4789.282,
+              4631.005
+            ],
+            "median": 4789.282,
+            "min": 4631.005,
+            "max": 5093.912
+          },
+          "coldCpuMs": {
+            "samples": [
+              5559.219,
+              5633.373,
+              5643.72
+            ],
+            "median": 5633.373,
+            "min": 5559.219,
+            "max": 5643.72
+          },
+          "warmCpuMs": {
+            "samples": [
+              4654.224,
+              4423.923,
+              4193.766
+            ],
+            "median": 4423.923,
+            "min": 4193.766,
+            "max": 4654.224
+          },
+          "coldLayoutMs": {
+            "samples": [
+              97.362,
+              88.73,
+              88.129
+            ],
+            "median": 88.73,
+            "min": 88.129,
+            "max": 97.362
+          },
+          "warmLayoutMs": {
+            "samples": [
+              67.643,
+              66.963,
+              60.195
+            ],
+            "median": 66.963,
+            "min": 60.195,
+            "max": 67.643
+          },
+          "coldTaskMs": {
+            "samples": [
+              7756.579,
+              7735.902999999999,
+              7865.319
+            ],
+            "median": 7756.579,
+            "min": 7735.902999999999,
+            "max": 7865.319
+          },
+          "warmTaskMs": {
+            "samples": [
+              5808.413999999999,
+              5763.557000000001,
+              5361.484
+            ],
+            "median": 5763.557000000001,
+            "min": 5361.484,
+            "max": 5808.413999999999
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              203.63775253295898,
+              203.53015518188477,
+              203.55895614624023
+            ],
+            "median": 203.55895614624023,
+            "min": 203.53015518188477,
+            "max": 203.63775253295898
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              581.9453125,
+              580.4921875,
+              580.5234375
+            ],
+            "median": 580.5234375,
+            "min": 580.4921875,
+            "max": 581.9453125
+          },
+          "rendererRssMiB": {
+            "samples": [
+              437.8515625,
+              436.52734375,
+              436.9921875
+            ],
+            "median": 436.9921875,
+            "min": 436.52734375,
+            "max": 437.8515625
+          },
+          "rendererPssMiB": {
+            "samples": [
+              357.759765625,
+              355.7431640625,
+              356.4619140625
+            ],
+            "median": 356.4619140625,
+            "min": 355.7431640625,
+            "max": 357.759765625
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              17.881387999999788,
+              15.225291000000652,
+              28.657837000000654
+            ],
+            "median": 17.881387999999788,
+            "min": 15.225291000000652,
+            "max": 28.657837000000654
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              20839.099999997765,
+              21017.70000000298,
+              20779
+            ],
+            "median": 20839.099999997765,
+            "min": 20779,
+            "max": 21017.70000000298
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              14781.860999997765,
+              14887.545000002981,
+              14547.437
+            ],
+            "median": 14781.860999997765,
+            "min": 14547.437,
+            "max": 14887.545000002981
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "dc527e887ed6015f478c00e7262114229bff7b34204bdb2b58261efe9a7ea0a5",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "h1a1"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:03:39.167Z",
+            "coldMs": 6057.239,
+            "warmMs": 5093.912,
+            "coldCpuMs": 5559.219,
+            "warmCpuMs": 4654.224,
+            "coldLayoutMs": 97.362,
+            "warmLayoutMs": 67.643,
+            "coldTaskMs": 7756.579,
+            "warmTaskMs": 5808.413999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 203.63775253295898,
+            "rendererPeakMiB": 581.9453125,
+            "rendererRssMiB": 437.8515625,
+            "rendererPssMiB": 357.759765625,
+            "bootstrapFixtureMs": 17.881387999999788,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 20839.099999997765,
+            "coldDurableAfterPaintMs": 14781.860999997765
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:29:25.490Z",
+            "coldMs": 6130.155,
+            "warmMs": 4789.282,
+            "coldCpuMs": 5633.373,
+            "warmCpuMs": 4423.923,
+            "coldLayoutMs": 88.73,
+            "warmLayoutMs": 66.963,
+            "coldTaskMs": 7735.902999999999,
+            "warmTaskMs": 5763.557000000001,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 203.53015518188477,
+            "rendererPeakMiB": 580.4921875,
+            "rendererRssMiB": 436.52734375,
+            "rendererPssMiB": 355.7431640625,
+            "bootstrapFixtureMs": 15.225291000000652,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 21017.70000000298,
+            "coldDurableAfterPaintMs": 14887.545000002981
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:56:05.153Z",
+            "coldMs": 6231.563,
+            "warmMs": 4631.005,
+            "coldCpuMs": 5643.72,
+            "warmCpuMs": 4193.766,
+            "coldLayoutMs": 88.129,
+            "warmLayoutMs": 60.195,
+            "coldTaskMs": 7865.319,
+            "warmTaskMs": 5361.484,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 203.55895614624023,
+            "rendererPeakMiB": 580.5234375,
+            "rendererRssMiB": 436.9921875,
+            "rendererPssMiB": 356.4619140625,
+            "bootstrapFixtureMs": 28.657837000000654,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 20779,
+            "coldDurableAfterPaintMs": 14547.437
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/h10a1/before": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "h10a1",
+        "before": true,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              19238.589,
+              19046.761
+            ],
+            "median": 19142.675,
+            "min": 19046.761,
+            "max": 19238.589
+          },
+          "warmMs": {
+            "samples": [
+              14403.724,
+              14653.239
+            ],
+            "median": 14528.4815,
+            "min": 14403.724,
+            "max": 14653.239
+          },
+          "coldCpuMs": {
+            "samples": [
+              16549.879,
+              16366.662
+            ],
+            "median": 16458.2705,
+            "min": 16366.662,
+            "max": 16549.879
+          },
+          "warmCpuMs": {
+            "samples": [
+              12780.597,
+              13014.428
+            ],
+            "median": 12897.5125,
+            "min": 12780.597,
+            "max": 13014.428
+          },
+          "coldLayoutMs": {
+            "samples": [
+              91.248,
+              105.031
+            ],
+            "median": 98.1395,
+            "min": 91.248,
+            "max": 105.031
+          },
+          "warmLayoutMs": {
+            "samples": [
+              71.928,
+              94.858
+            ],
+            "median": 83.393,
+            "min": 71.928,
+            "max": 94.858
+          },
+          "coldTaskMs": {
+            "samples": [
+              19150.224,
+              19071.47
+            ],
+            "median": 19110.847,
+            "min": 19071.47,
+            "max": 19150.224
+          },
+          "warmTaskMs": {
+            "samples": [
+              13991.301999999998,
+              14028.199
+            ],
+            "median": 14009.750499999998,
+            "min": 13991.301999999998,
+            "max": 14028.199
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              569.2312088012695,
+              569.381404876709
+            ],
+            "median": 569.3063068389893,
+            "min": 569.2312088012695,
+            "max": 569.381404876709
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              1196.4609375,
+              1207.625
+            ],
+            "median": 1202.04296875,
+            "min": 1196.4609375,
+            "max": 1207.625
+          },
+          "rendererRssMiB": {
+            "samples": [
+              815.953125,
+              827.90625
+            ],
+            "median": 821.9296875,
+            "min": 815.953125,
+            "max": 827.90625
+          },
+          "rendererPssMiB": {
+            "samples": [
+              734.5244140625,
+              746.99609375
+            ],
+            "median": 740.76025390625,
+            "min": 734.5244140625,
+            "max": 746.99609375
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              79.78738299999895,
+              77.01675100000102
+            ],
+            "median": 78.40206699999999,
+            "min": 77.01675100000102,
+            "max": 79.78738299999895
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0
+            ],
+            "median": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              167309,
+              166943.1000000015
+            ],
+            "median": 167126.05000000075,
+            "min": 166943.1000000015,
+            "max": 167309
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              148070.411,
+              147896.3390000015
+            ],
+            "median": 147983.37500000076,
+            "min": 147896.3390000015,
+            "max": 148070.411
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "f1294d135bd244a88b4bd69a16a5364e21a9a9cf42a78f357c1cdaf7f3355fba",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "h10a1"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:17:47.587Z",
+            "coldMs": 19238.589,
+            "warmMs": 14403.724,
+            "coldCpuMs": 16549.879,
+            "warmCpuMs": 12780.597,
+            "coldLayoutMs": 91.248,
+            "warmLayoutMs": 71.928,
+            "coldTaskMs": 19150.224,
+            "warmTaskMs": 13991.301999999998,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 569.2312088012695,
+            "rendererPeakMiB": 1196.4609375,
+            "rendererRssMiB": 815.953125,
+            "rendererPssMiB": 734.5244140625,
+            "bootstrapFixtureMs": 79.78738299999895,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 167309,
+            "coldDurableAfterPaintMs": 148070.411
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:57:00.759Z",
+            "coldMs": 19046.761,
+            "warmMs": 14653.239,
+            "coldCpuMs": 16366.662,
+            "warmCpuMs": 13014.428,
+            "coldLayoutMs": 105.031,
+            "warmLayoutMs": 94.858,
+            "coldTaskMs": 19071.47,
+            "warmTaskMs": 14028.199,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 569.381404876709,
+            "rendererPeakMiB": 1207.625,
+            "rendererRssMiB": 827.90625,
+            "rendererPssMiB": 746.99609375,
+            "bootstrapFixtureMs": 77.01675100000102,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 166943.1000000015,
+            "coldDurableAfterPaintMs": 147896.3390000015
+          }
+        ],
+        "rejected": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:04:34.365Z",
+            "heapMiB": 569.5804443359375,
+            "rendererPeakMiB": 1010.81640625,
+            "rendererRssMiB": 817.16796875,
+            "rendererPssMiB": 735.6689453125,
+            "rejection": "startup admission guard rejected unexpected browser errors",
+            "observedActions": [
+              {
+                "action": "app-cold-start",
+                "inputToPaintMs": 19377.328
+              },
+              {
+                "action": "app-warm-start",
+                "inputToPaintMs": 14144.896
+              }
+            ]
+          }
+        ]
+      },
+      "desktop/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              7607.428,
+              8434.425,
+              8011.285
+            ],
+            "median": 8011.285,
+            "min": 7607.428,
+            "max": 8434.425
+          },
+          "warmMs": {
+            "samples": [
+              6090.563,
+              6149.198,
+              5876.431
+            ],
+            "median": 6090.563,
+            "min": 5876.431,
+            "max": 6149.198
+          },
+          "coldCpuMs": {
+            "samples": [
+              6913.95,
+              7733.013,
+              7302.976
+            ],
+            "median": 7302.976,
+            "min": 6913.95,
+            "max": 7733.013
+          },
+          "warmCpuMs": {
+            "samples": [
+              5594.742,
+              5573.408,
+              5269.519
+            ],
+            "median": 5573.408,
+            "min": 5269.519,
+            "max": 5594.742
+          },
+          "coldLayoutMs": {
+            "samples": [
+              90.352,
+              105.936,
+              104.844
+            ],
+            "median": 104.844,
+            "min": 90.352,
+            "max": 105.936
+          },
+          "warmLayoutMs": {
+            "samples": [
+              71.245,
+              72.383,
+              73.045
+            ],
+            "median": 72.383,
+            "min": 71.245,
+            "max": 73.045
+          },
+          "coldTaskMs": {
+            "samples": [
+              10532.467999999999,
+              11258.882,
+              10904.137999999999
+            ],
+            "median": 10904.137999999999,
+            "min": 10532.467999999999,
+            "max": 11258.882
+          },
+          "warmTaskMs": {
+            "samples": [
+              8364.992999999999,
+              8181.989999999999,
+              7851.670999999999
+            ],
+            "median": 8181.989999999999,
+            "min": 7851.670999999999,
+            "max": 8364.992999999999
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              292.4034652709961,
+              292.38096618652344,
+              292.440673828125
+            ],
+            "median": 292.4034652709961,
+            "min": 292.38096618652344,
+            "max": 292.440673828125
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              781.53125,
+              787.66015625,
+              792.7734375
+            ],
+            "median": 787.66015625,
+            "min": 781.53125,
+            "max": 792.7734375
+          },
+          "rendererRssMiB": {
+            "samples": [
+              544.30859375,
+              544.93359375,
+              547.24609375
+            ],
+            "median": 544.93359375,
+            "min": 544.30859375,
+            "max": 547.24609375
+          },
+          "rendererPssMiB": {
+            "samples": [
+              463.837890625,
+              464.650390625,
+              466.4755859375
+            ],
+            "median": 464.650390625,
+            "min": 463.837890625,
+            "max": 466.4755859375
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              18.54725999999937,
+              21.161658000000898,
+              21.303937999999107
+            ],
+            "median": 21.161658000000898,
+            "min": 18.54725999999937,
+            "max": 21.303937999999107
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              46265.199999999255,
+              46917,
+              45848.39999999851
+            ],
+            "median": 46265.199999999255,
+            "min": 45848.39999999851,
+            "max": 46917
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              38657.771999999255,
+              38482.575,
+              37837.11499999851
+            ],
+            "median": 38482.575,
+            "min": 37837.11499999851,
+            "max": 38657.771999999255
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:08:23.625Z",
+            "coldMs": 7607.428,
+            "warmMs": 6090.563,
+            "coldCpuMs": 6913.95,
+            "warmCpuMs": 5594.742,
+            "coldLayoutMs": 90.352,
+            "warmLayoutMs": 71.245,
+            "coldTaskMs": 10532.467999999999,
+            "warmTaskMs": 8364.992999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 292.4034652709961,
+            "rendererPeakMiB": 781.53125,
+            "rendererRssMiB": 544.30859375,
+            "rendererPssMiB": 463.837890625,
+            "bootstrapFixtureMs": 18.54725999999937,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 46265.199999999255,
+            "coldDurableAfterPaintMs": 38657.771999999255
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:21:32.110Z",
+            "coldMs": 8434.425,
+            "warmMs": 6149.198,
+            "coldCpuMs": 7733.013,
+            "warmCpuMs": 5573.408,
+            "coldLayoutMs": 105.936,
+            "warmLayoutMs": 72.383,
+            "coldTaskMs": 11258.882,
+            "warmTaskMs": 8181.989999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 292.38096618652344,
+            "rendererPeakMiB": 787.66015625,
+            "rendererRssMiB": 544.93359375,
+            "rendererPssMiB": 464.650390625,
+            "bootstrapFixtureMs": 21.161658000000898,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 46917,
+            "coldDurableAfterPaintMs": 38482.575
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T19:34:44.814Z",
+            "coldMs": 8011.285,
+            "warmMs": 5876.431,
+            "coldCpuMs": 7302.976,
+            "warmCpuMs": 5269.519,
+            "coldLayoutMs": 104.844,
+            "warmLayoutMs": 73.045,
+            "coldTaskMs": 10904.137999999999,
+            "warmTaskMs": 7851.670999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 292.440673828125,
+            "rendererPeakMiB": 792.7734375,
+            "rendererRssMiB": 547.24609375,
+            "rendererPssMiB": 466.4755859375,
+            "bootstrapFixtureMs": 21.303937999999107,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 45848.39999999851,
+            "coldDurableAfterPaintMs": 37837.11499999851
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/h1a1/after": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "h1a1",
+        "before": false,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              6979.078,
+              6462.315,
+              6827.313
+            ],
+            "median": 6827.313,
+            "min": 6462.315,
+            "max": 6979.078
+          },
+          "warmMs": {
+            "samples": [
+              5345.89,
+              5299.48,
+              5142.071
+            ],
+            "median": 5299.48,
+            "min": 5142.071,
+            "max": 5345.89
+          },
+          "coldCpuMs": {
+            "samples": [
+              6267.019,
+              5810.359,
+              6156.202
+            ],
+            "median": 6156.202,
+            "min": 5810.359,
+            "max": 6267.019
+          },
+          "warmCpuMs": {
+            "samples": [
+              4775.337,
+              4767.595,
+              4704.633
+            ],
+            "median": 4767.595,
+            "min": 4704.633,
+            "max": 4775.337
+          },
+          "coldLayoutMs": {
+            "samples": [
+              125.274,
+              115.029,
+              121.31
+            ],
+            "median": 121.31,
+            "min": 115.029,
+            "max": 125.274
+          },
+          "warmLayoutMs": {
+            "samples": [
+              81.128,
+              128.073,
+              71.706
+            ],
+            "median": 81.128,
+            "min": 71.706,
+            "max": 128.073
+          },
+          "coldTaskMs": {
+            "samples": [
+              8022.130000000001,
+              7455.283,
+              7714.882
+            ],
+            "median": 7714.882,
+            "min": 7455.283,
+            "max": 8022.130000000001
+          },
+          "warmTaskMs": {
+            "samples": [
+              5332.9209999999985,
+              5455.8859999999995,
+              5232.759
+            ],
+            "median": 5332.9209999999985,
+            "min": 5232.759,
+            "max": 5455.8859999999995
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              190.39126205444336,
+              190.43428802490234,
+              190.3395004272461
+            ],
+            "median": 190.39126205444336,
+            "min": 190.3395004272461,
+            "max": 190.43428802490234
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              578.0703125,
+              612.453125,
+              603.9140625
+            ],
+            "median": 603.9140625,
+            "min": 578.0703125,
+            "max": 612.453125
+          },
+          "rendererRssMiB": {
+            "samples": [
+              426.8828125,
+              425.15234375,
+              424.4921875
+            ],
+            "median": 425.15234375,
+            "min": 424.4921875,
+            "max": 426.8828125
+          },
+          "rendererPssMiB": {
+            "samples": [
+              345.6083984375,
+              344.2177734375,
+              344.169921875
+            ],
+            "median": 344.2177734375,
+            "min": 344.169921875,
+            "max": 345.6083984375
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              191.7830040000008,
+              192.04590599999938,
+              202.69877499999893
+            ],
+            "median": 192.04590599999938,
+            "min": 191.7830040000008,
+            "max": 202.69877499999893
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              9.205041999999594,
+              12.6072750000003,
+              9.821530000001076
+            ],
+            "median": 9.821530000001076,
+            "min": 9.205041999999594,
+            "max": 12.6072750000003
+          },
+          "collectionRouteMs": {
+            "samples": [
+              117.36503799999991,
+              118.72084900000118,
+              91.21953199999916
+            ],
+            "median": 117.36503799999991,
+            "min": 91.21953199999916,
+            "max": 118.72084900000118
+          },
+          "collectionRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "coldRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              117.36503799999991,
+              118.72084900000118,
+              91.21953199999916
+            ],
+            "median": 117.36503799999991,
+            "min": 91.21953199999916,
+            "max": 118.72084900000118
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              9.205041999999594,
+              12.6072750000003,
+              9.821530000001076
+            ],
+            "median": 9.821530000001076,
+            "min": 9.205041999999594,
+            "max": 12.6072750000003
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              32574.10000000149,
+              32108.699999999255,
+              32455.800000000745
+            ],
+            "median": 32455.800000000745,
+            "min": 32108.699999999255,
+            "max": 32574.10000000149
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              25595.02200000149,
+              25646.384999999256,
+              25628.487000000743
+            ],
+            "median": 25628.487000000743,
+            "min": 25595.02200000149,
+            "max": 25646.384999999256
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "dc527e887ed6015f478c00e7262114229bff7b34204bdb2b58261efe9a7ea0a5",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "h1a1"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:10:16.857Z",
+            "coldMs": 6979.078,
+            "warmMs": 5345.89,
+            "coldCpuMs": 6267.019,
+            "warmCpuMs": 4775.337,
+            "coldLayoutMs": 125.274,
+            "warmLayoutMs": 81.128,
+            "coldTaskMs": 8022.130000000001,
+            "warmTaskMs": 5332.9209999999985,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 190.39126205444336,
+            "rendererPeakMiB": 578.0703125,
+            "rendererRssMiB": 426.8828125,
+            "rendererPssMiB": 345.6083984375,
+            "bootstrapFixtureMs": 191.7830040000008,
+            "collectionFixtureMs": 9.205041999999594,
+            "collectionRouteMs": 117.36503799999991,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 117.36503799999991,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 9.205041999999594,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 32574.10000000149,
+            "coldDurableAfterPaintMs": 25595.02200000149
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:22:57.528Z",
+            "coldMs": 6462.315,
+            "warmMs": 5299.48,
+            "coldCpuMs": 5810.359,
+            "warmCpuMs": 4767.595,
+            "coldLayoutMs": 115.029,
+            "warmLayoutMs": 128.073,
+            "coldTaskMs": 7455.283,
+            "warmTaskMs": 5455.8859999999995,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 190.43428802490234,
+            "rendererPeakMiB": 612.453125,
+            "rendererRssMiB": 425.15234375,
+            "rendererPssMiB": 344.2177734375,
+            "bootstrapFixtureMs": 192.04590599999938,
+            "collectionFixtureMs": 12.6072750000003,
+            "collectionRouteMs": 118.72084900000118,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 118.72084900000118,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 12.6072750000003,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 32108.699999999255,
+            "coldDurableAfterPaintMs": 25646.384999999256
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:36:08.542Z",
+            "coldMs": 6827.313,
+            "warmMs": 5142.071,
+            "coldCpuMs": 6156.202,
+            "warmCpuMs": 4704.633,
+            "coldLayoutMs": 121.31,
+            "warmLayoutMs": 71.706,
+            "coldTaskMs": 7714.882,
+            "warmTaskMs": 5232.759,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 190.3395004272461,
+            "rendererPeakMiB": 603.9140625,
+            "rendererRssMiB": 424.4921875,
+            "rendererPssMiB": 344.169921875,
+            "bootstrapFixtureMs": 202.69877499999893,
+            "collectionFixtureMs": 9.821530000001076,
+            "collectionRouteMs": 91.21953199999916,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 91.21953199999916,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 9.821530000001076,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 32455.800000000745,
+            "coldDurableAfterPaintMs": 25628.487000000743
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/h10a1/after": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "h10a1",
+        "before": false,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              7700.476,
+              7990.709,
+              7670.283
+            ],
+            "median": 7700.476,
+            "min": 7670.283,
+            "max": 7990.709
+          },
+          "warmMs": {
+            "samples": [
+              5821.431,
+              5834.549,
+              6222.887
+            ],
+            "median": 5834.549,
+            "min": 5821.431,
+            "max": 6222.887
+          },
+          "coldCpuMs": {
+            "samples": [
+              6677.724,
+              6963.112,
+              6722.534
+            ],
+            "median": 6722.534,
+            "min": 6677.724,
+            "max": 6963.112
+          },
+          "warmCpuMs": {
+            "samples": [
+              5070.264,
+              5056.791,
+              5317.618
+            ],
+            "median": 5070.264,
+            "min": 5056.791,
+            "max": 5317.618
+          },
+          "coldLayoutMs": {
+            "samples": [
+              103.729,
+              102.472,
+              102.356
+            ],
+            "median": 102.472,
+            "min": 102.356,
+            "max": 103.729
+          },
+          "warmLayoutMs": {
+            "samples": [
+              74.075,
+              70.8,
+              75.925
+            ],
+            "median": 74.075,
+            "min": 70.8,
+            "max": 75.925
+          },
+          "coldTaskMs": {
+            "samples": [
+              8329.611,
+              8680.944,
+              8549.465000000002
+            ],
+            "median": 8549.465000000002,
+            "min": 8329.611,
+            "max": 8680.944
+          },
+          "warmTaskMs": {
+            "samples": [
+              5657.552000000002,
+              5651.195999999999,
+              5938.568
+            ],
+            "median": 5657.552000000002,
+            "min": 5651.195999999999,
+            "max": 5938.568
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              195.80162048339844,
+              195.87225341796875,
+              195.86351776123047
+            ],
+            "median": 195.86351776123047,
+            "min": 195.80162048339844,
+            "max": 195.87225341796875
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              629.78125,
+              640.421875,
+              658.53515625
+            ],
+            "median": 640.421875,
+            "min": 629.78125,
+            "max": 658.53515625
+          },
+          "rendererRssMiB": {
+            "samples": [
+              441.26953125,
+              441.94921875,
+              445.27734375
+            ],
+            "median": 441.94921875,
+            "min": 441.26953125,
+            "max": 445.27734375
+          },
+          "rendererPssMiB": {
+            "samples": [
+              360.6005859375,
+              361.40234375,
+              364.4423828125
+            ],
+            "median": 361.40234375,
+            "min": 360.6005859375,
+            "max": 364.4423828125
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              388.45986000000084,
+              369.8318930000005,
+              368.057694000001
+            ],
+            "median": 369.8318930000005,
+            "min": 368.057694000001,
+            "max": 388.45986000000084
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              17.952793000000383,
+              20.47827899999902,
+              10.691309000001638
+            ],
+            "median": 17.952793000000383,
+            "min": 10.691309000001638,
+            "max": 20.47827899999902
+          },
+          "collectionRouteMs": {
+            "samples": [
+              132.40750599999956,
+              163.28323300000193,
+              152.83529500000077
+            ],
+            "median": 152.83529500000077,
+            "min": 132.40750599999956,
+            "max": 163.28323300000193
+          },
+          "collectionRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "coldRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              132.40750599999956,
+              163.28323300000193,
+              152.83529500000077
+            ],
+            "median": 152.83529500000077,
+            "min": 132.40750599999956,
+            "max": 163.28323300000193
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              17.952793000000383,
+              20.47827899999902,
+              10.691309000001638
+            ],
+            "median": 17.952793000000383,
+            "min": 10.691309000001638,
+            "max": 20.47827899999902
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              45020.199999999255,
+              45568.400000002235,
+              44170.599999997765
+            ],
+            "median": 45020.199999999255,
+            "min": 44170.599999997765,
+            "max": 45568.400000002235
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              37319.72399999925,
+              37577.69100000223,
+              36500.31699999776
+            ],
+            "median": 37319.72399999925,
+            "min": 36500.31699999776,
+            "max": 37577.69100000223
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "f1294d135bd244a88b4bd69a16a5364e21a9a9cf42a78f357c1cdaf7f3355fba",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "h10a1"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:11:23.862Z",
+            "coldMs": 7700.476,
+            "warmMs": 5821.431,
+            "coldCpuMs": 6677.724,
+            "warmCpuMs": 5070.264,
+            "coldLayoutMs": 103.729,
+            "warmLayoutMs": 74.075,
+            "coldTaskMs": 8329.611,
+            "warmTaskMs": 5657.552000000002,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 195.80162048339844,
+            "rendererPeakMiB": 629.78125,
+            "rendererRssMiB": 441.26953125,
+            "rendererPssMiB": 360.6005859375,
+            "bootstrapFixtureMs": 388.45986000000084,
+            "collectionFixtureMs": 17.952793000000383,
+            "collectionRouteMs": 132.40750599999956,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 132.40750599999956,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 17.952793000000383,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 45020.199999999255,
+            "coldDurableAfterPaintMs": 37319.72399999925
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:26:59.212Z",
+            "coldMs": 7990.709,
+            "warmMs": 5834.549,
+            "coldCpuMs": 6963.112,
+            "warmCpuMs": 5056.791,
+            "coldLayoutMs": 102.472,
+            "warmLayoutMs": 70.8,
+            "coldTaskMs": 8680.944,
+            "warmTaskMs": 5651.195999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 195.87225341796875,
+            "rendererPeakMiB": 640.421875,
+            "rendererRssMiB": 441.94921875,
+            "rendererPssMiB": 361.40234375,
+            "bootstrapFixtureMs": 369.8318930000005,
+            "collectionFixtureMs": 20.47827899999902,
+            "collectionRouteMs": 163.28323300000193,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 163.28323300000193,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 20.47827899999902,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 45568.400000002235,
+            "coldDurableAfterPaintMs": 37577.69100000223
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:37:14.835Z",
+            "coldMs": 7670.283,
+            "warmMs": 6222.887,
+            "coldCpuMs": 6722.534,
+            "warmCpuMs": 5317.618,
+            "coldLayoutMs": 102.356,
+            "warmLayoutMs": 75.925,
+            "coldTaskMs": 8549.465000000002,
+            "warmTaskMs": 5938.568,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 195.86351776123047,
+            "rendererPeakMiB": 658.53515625,
+            "rendererRssMiB": 445.27734375,
+            "rendererPssMiB": 364.4423828125,
+            "bootstrapFixtureMs": 368.057694000001,
+            "collectionFixtureMs": 10.691309000001638,
+            "collectionRouteMs": 152.83529500000077,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 152.83529500000077,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 10.691309000001638,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 44170.599999997765,
+            "coldDurableAfterPaintMs": 36500.31699999776
+          }
+        ],
+        "rejected": []
+      },
+      "desktop/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "desktop",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "complete",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              6040.885,
+              6285.19,
+              6340.499
+            ],
+            "median": 6285.19,
+            "min": 6040.885,
+            "max": 6340.499
+          },
+          "warmMs": {
+            "samples": [
+              4929.169,
+              5145.578,
+              4835.391
+            ],
+            "median": 4929.169,
+            "min": 4835.391,
+            "max": 5145.578
+          },
+          "coldCpuMs": {
+            "samples": [
+              5394.098,
+              5645.213,
+              5657.965
+            ],
+            "median": 5645.213,
+            "min": 5394.098,
+            "max": 5657.965
+          },
+          "warmCpuMs": {
+            "samples": [
+              4389.123,
+              4576.081,
+              4309.094
+            ],
+            "median": 4389.123,
+            "min": 4309.094,
+            "max": 4576.081
+          },
+          "coldLayoutMs": {
+            "samples": [
+              107.899,
+              117.908,
+              108.856
+            ],
+            "median": 108.856,
+            "min": 107.899,
+            "max": 117.908
+          },
+          "warmLayoutMs": {
+            "samples": [
+              77.57,
+              72.015,
+              82.501
+            ],
+            "median": 77.57,
+            "min": 72.015,
+            "max": 82.501
+          },
+          "coldTaskMs": {
+            "samples": [
+              7115.999000000001,
+              7188.999,
+              7366.032999999999
+            ],
+            "median": 7188.999,
+            "min": 7115.999000000001,
+            "max": 7366.032999999999
+          },
+          "warmTaskMs": {
+            "samples": [
+              5000.007999999999,
+              5167.918000000002,
+              4940.054
+            ],
+            "median": 5000.007999999999,
+            "min": 4940.054,
+            "max": 5167.918000000002
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": {
+            "samples": [
+              176.76738739013672,
+              176.9224510192871,
+              176.74660110473633
+            ],
+            "median": 176.76738739013672,
+            "min": 176.74660110473633,
+            "max": 176.9224510192871
+          },
+          "rendererPeakMiB": {
+            "samples": [
+              606.19921875,
+              579.0234375,
+              589.35546875
+            ],
+            "median": 589.35546875,
+            "min": 579.0234375,
+            "max": 606.19921875
+          },
+          "rendererRssMiB": {
+            "samples": [
+              409.55859375,
+              410.6328125,
+              408.4921875
+            ],
+            "median": 409.55859375,
+            "min": 408.4921875,
+            "max": 410.6328125
+          },
+          "rendererPssMiB": {
+            "samples": [
+              328.48828125,
+              329.958984375,
+              328.681640625
+            ],
+            "median": 328.681640625,
+            "min": 328.48828125,
+            "max": 329.958984375
+          },
+          "bootstrapFixtureMs": {
+            "samples": [
+              185.05157900000086,
+              190.97462499999892,
+              252.16986600000018
+            ],
+            "median": 190.97462499999892,
+            "min": 185.05157900000086,
+            "max": 252.16986600000018
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              7.80746100000033,
+              4.992129999998724,
+              4.701785999999629
+            ],
+            "median": 4.992129999998724,
+            "min": 4.701785999999629,
+            "max": 7.80746100000033
+          },
+          "collectionRouteMs": {
+            "samples": [
+              108.07668300000114,
+              154.80359800000042,
+              127.69534300000123
+            ],
+            "median": 127.69534300000123,
+            "min": 108.07668300000114,
+            "max": 154.80359800000042
+          },
+          "collectionRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "coldRouteCount": {
+            "samples": [
+              1,
+              1,
+              1
+            ],
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "warmRouteCount": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              108.07668300000114,
+              154.80359800000042,
+              127.69534300000123
+            ],
+            "median": 127.69534300000123,
+            "min": 108.07668300000114,
+            "max": 154.80359800000042
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              7.80746100000033,
+              4.992129999998724,
+              4.701785999999629
+            ],
+            "median": 4.992129999998724,
+            "min": 4.701785999999629,
+            "max": 7.80746100000033
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0,
+              0,
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              27652.699999999255,
+              30747.60000000149,
+              21634.599999997765
+            ],
+            "median": 27652.699999999255,
+            "min": 21634.599999997765,
+            "max": 30747.60000000149
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              21611.814999999253,
+              24462.41000000149,
+              15294.100999997765
+            ],
+            "median": 21611.814999999253,
+            "min": 15294.100999997765,
+            "max": 24462.41000000149
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "5bfa5c37-c6af-4bf2-bf84-2fe422053a0d",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "desktop",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:12:44.483Z",
+            "coldMs": 6040.885,
+            "warmMs": 4929.169,
+            "coldCpuMs": 5394.098,
+            "warmCpuMs": 4389.123,
+            "coldLayoutMs": 107.899,
+            "warmLayoutMs": 77.57,
+            "coldTaskMs": 7115.999000000001,
+            "warmTaskMs": 5000.007999999999,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 176.76738739013672,
+            "rendererPeakMiB": 606.19921875,
+            "rendererRssMiB": 409.55859375,
+            "rendererPssMiB": 328.48828125,
+            "bootstrapFixtureMs": 185.05157900000086,
+            "collectionFixtureMs": 7.80746100000033,
+            "collectionRouteMs": 108.07668300000114,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 108.07668300000114,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 7.80746100000033,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 27652.699999999255,
+            "coldDurableAfterPaintMs": 21611.814999999253
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:28:20.963Z",
+            "coldMs": 6285.19,
+            "warmMs": 5145.578,
+            "coldCpuMs": 5645.213,
+            "warmCpuMs": 4576.081,
+            "coldLayoutMs": 117.908,
+            "warmLayoutMs": 72.015,
+            "coldTaskMs": 7188.999,
+            "warmTaskMs": 5167.918000000002,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 176.9224510192871,
+            "rendererPeakMiB": 579.0234375,
+            "rendererRssMiB": 410.6328125,
+            "rendererPssMiB": 329.958984375,
+            "bootstrapFixtureMs": 190.97462499999892,
+            "collectionFixtureMs": 4.992129999998724,
+            "collectionRouteMs": 154.80359800000042,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 154.80359800000042,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 4.992129999998724,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 30747.60000000149,
+            "coldDurableAfterPaintMs": 24462.41000000149
+          },
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+            "productTreeSha256": "55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca",
+            "startedAt": "2026-11-18T19:55:10.567Z",
+            "coldMs": 6340.499,
+            "warmMs": 4835.391,
+            "coldCpuMs": 5657.965,
+            "warmCpuMs": 4309.094,
+            "coldLayoutMs": 108.856,
+            "warmLayoutMs": 82.501,
+            "coldTaskMs": 7366.032999999999,
+            "warmTaskMs": 4940.054,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "heapMiB": 176.74660110473633,
+            "rendererPeakMiB": 589.35546875,
+            "rendererRssMiB": 408.4921875,
+            "rendererPssMiB": 328.681640625,
+            "bootstrapFixtureMs": 252.16986600000018,
+            "collectionFixtureMs": 4.701785999999629,
+            "collectionRouteMs": 127.69534300000123,
+            "collectionRouteCount": 1,
+            "coldRouteCount": 1,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 127.69534300000123,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 4.701785999999629,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 21634.599999997765,
+            "coldDurableAfterPaintMs": 15294.100999997765
+          }
+        ],
+        "rejected": []
+      },
       "phone/h1a1/before": {
         "hostLabel": "VM B",
         "surface": "phone",
@@ -11098,6 +13534,700 @@
             "coldDurableAfterPaintMs": 10013.041999998062
           }
         ],
+        "rejected": []
+      }
+    },
+    "41": {
+      "phone/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "phone",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              8518.773
+            ],
+            "median": 8518.773,
+            "min": 8518.773,
+            "max": 8518.773
+          },
+          "warmMs": {
+            "samples": [
+              7752.603
+            ],
+            "median": 7752.603,
+            "min": 7752.603,
+            "max": 7752.603
+          },
+          "coldCpuMs": {
+            "samples": [
+              7434.14
+            ],
+            "median": 7434.14,
+            "min": 7434.14,
+            "max": 7434.14
+          },
+          "warmCpuMs": {
+            "samples": [
+              6880.362
+            ],
+            "median": 6880.362,
+            "min": 6880.362,
+            "max": 6880.362
+          },
+          "coldLayoutMs": {
+            "samples": [
+              69.477
+            ],
+            "median": 69.477,
+            "min": 69.477,
+            "max": 69.477
+          },
+          "warmLayoutMs": {
+            "samples": [
+              70.582
+            ],
+            "median": 70.582,
+            "min": 70.582,
+            "max": 70.582
+          },
+          "coldTaskMs": {
+            "samples": [
+              9346.18
+            ],
+            "median": 9346.18,
+            "min": 9346.18,
+            "max": 9346.18
+          },
+          "warmTaskMs": {
+            "samples": [
+              8139.451000000001
+            ],
+            "median": 8139.451000000001,
+            "min": 8139.451000000001,
+            "max": 8139.451000000001
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              34.76948099999936
+            ],
+            "median": 34.76948099999936,
+            "min": 34.76948099999936,
+            "max": 34.76948099999936
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              41590.414999999106
+            ],
+            "median": 41590.414999999106,
+            "min": 41590.414999999106,
+            "max": 41590.414999999106
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              33071.641999999105
+            ],
+            "median": 33071.641999999105,
+            "min": 33071.641999999105,
+            "max": 33071.641999999105
+          },
+          "deck12Ms": {
+            "samples": [
+              927.408
+            ],
+            "median": 927.408,
+            "min": 927.408,
+            "max": 927.408
+          },
+          "deck12CpuMs": {
+            "samples": [
+              759.0029999999999
+            ],
+            "median": 759.0029999999999,
+            "min": 759.0029999999999,
+            "max": 759.0029999999999
+          },
+          "deck970Ms": {
+            "samples": [
+              3981.92
+            ],
+            "median": 3981.92,
+            "min": 3981.92,
+            "max": 3981.92
+          },
+          "deck970CpuMs": {
+            "samples": [
+              5433.153000000001
+            ],
+            "median": 5433.153000000001,
+            "min": 5433.153000000001,
+            "max": 5433.153000000001
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "3b4b94df-5cf5-43e1-a414-1c9bb1b98937",
+            "collectorSha256": "0fd286debe86f45c9a9ef7d9a7d4f4f030b1cde95023a2c5362c142bdd945016",
+            "surface": "phone",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T17:47:38.336Z",
+            "coldMs": 8518.773,
+            "warmMs": 7752.603,
+            "coldCpuMs": 7434.14,
+            "warmCpuMs": 6880.362,
+            "coldLayoutMs": 69.477,
+            "warmLayoutMs": 70.582,
+            "coldTaskMs": 9346.18,
+            "warmTaskMs": 8139.451000000001,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 34.76948099999936,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 41590.414999999106,
+            "coldDurableAfterPaintMs": 33071.641999999105,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "mission-details-deck",
+                "targetChild": "i2",
+                "treeRequested": false,
+                "inputToPaintMs": 927.408,
+                "mainThreadMs": 759.0029999999999,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "mission-details-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 3981.92,
+                "mainThreadMs": 5433.153000000001,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "phone/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "phone",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": null,
+          "warmMs": null,
+          "coldCpuMs": null,
+          "warmCpuMs": null,
+          "coldLayoutMs": null,
+          "warmLayoutMs": null,
+          "coldTaskMs": null,
+          "warmTaskMs": null,
+          "coldCollectionCount": null,
+          "warmCollectionCount": null,
+          "coldCollectionTotalMs": null,
+          "warmCollectionTotalMs": null,
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": null,
+          "collectionFixtureMs": null,
+          "collectionRouteMs": null,
+          "collectionRouteCount": null,
+          "coldRouteCount": null,
+          "warmRouteCount": null,
+          "coldRouteTotalMs": null,
+          "warmRouteTotalMs": null,
+          "coldFixtureMs": null,
+          "warmFixtureMs": null,
+          "coldDurableAtMs": null,
+          "coldDurableAfterPaintMs": null
+        },
+        "provenance": [],
+        "admitted": [],
+        "rejected": []
+      }
+    },
+    "44": {
+      "web/operator/before": {
+        "hostLabel": "VM B",
+        "surface": "web",
+        "cell": "operator",
+        "before": true,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": {
+            "samples": [
+              7623.009
+            ],
+            "median": 7623.009,
+            "min": 7623.009,
+            "max": 7623.009
+          },
+          "warmMs": {
+            "samples": [
+              5656.266
+            ],
+            "median": 5656.266,
+            "min": 5656.266,
+            "max": 5656.266
+          },
+          "coldCpuMs": {
+            "samples": [
+              6960.083
+            ],
+            "median": 6960.083,
+            "min": 6960.083,
+            "max": 6960.083
+          },
+          "warmCpuMs": {
+            "samples": [
+              4958.873
+            ],
+            "median": 4958.873,
+            "min": 4958.873,
+            "max": 4958.873
+          },
+          "coldLayoutMs": {
+            "samples": [
+              105.161
+            ],
+            "median": 105.161,
+            "min": 105.161,
+            "max": 105.161
+          },
+          "warmLayoutMs": {
+            "samples": [
+              73.796
+            ],
+            "median": 73.796,
+            "min": 73.796,
+            "max": 73.796
+          },
+          "coldTaskMs": {
+            "samples": [
+              10565.677
+            ],
+            "median": 10565.677,
+            "min": 10565.677,
+            "max": 10565.677
+          },
+          "warmTaskMs": {
+            "samples": [
+              7293.416
+            ],
+            "median": 7293.416,
+            "min": 7293.416,
+            "max": 7293.416
+          },
+          "coldCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmCollectionTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": {
+            "samples": [
+              23.096262999999453
+            ],
+            "median": 23.096262999999453,
+            "min": 23.096262999999453,
+            "max": 23.096262999999453
+          },
+          "collectionFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "collectionRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteCount": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmRouteTotalMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "warmFixtureMs": {
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "coldDurableAtMs": {
+            "samples": [
+              46903.300000000745
+            ],
+            "median": 46903.300000000745,
+            "min": 46903.300000000745,
+            "max": 46903.300000000745
+          },
+          "coldDurableAfterPaintMs": {
+            "samples": [
+              39280.29100000075
+            ],
+            "median": 39280.29100000075,
+            "min": 39280.29100000075,
+            "max": 39280.29100000075
+          },
+          "deck12Ms": {
+            "samples": [
+              1225.841
+            ],
+            "median": 1225.841,
+            "min": 1225.841,
+            "max": 1225.841
+          },
+          "deck12CpuMs": {
+            "samples": [
+              1059.4719999999995
+            ],
+            "median": 1059.4719999999995,
+            "min": 1059.4719999999995,
+            "max": 1059.4719999999995
+          },
+          "deck970Ms": {
+            "samples": [
+              6394.944
+            ],
+            "median": 6394.944,
+            "min": 6394.944,
+            "max": 6394.944
+          },
+          "deck970CpuMs": {
+            "samples": [
+              5182.510999999998
+            ],
+            "median": 5182.510999999998,
+            "min": 5182.510999999998,
+            "max": 5182.510999999998
+          }
+        },
+        "provenance": [
+          {
+            "semanticSha256": "ecf58adff74aa2194b43334e047e90b93f1cbc87220cca99222f23be3380a761",
+            "browser": "148.0.7778.96",
+            "httpCache": "disabled by bootstrap request routing",
+            "cohort": "6fa3a15c-fdcd-4d5f-9ee6-20bff8f5d1a6",
+            "collectorSha256": "f786e771bcfe5834dc6804490777adcf3f2d71e84f81a5a14bb1ee0c586a2418",
+            "surface": "web",
+            "scale": 1,
+            "cell": "operator"
+          }
+        ],
+        "admitted": [
+          {
+            "fixtureSha256": "aa1d34d9fdb4e44cee14aef056f590a87f192107e04475748ea03fee3b841e40",
+            "collectionMetricsValid": true,
+            "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+            "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+            "startedAt": "2026-11-18T18:36:01.018Z",
+            "coldMs": 7623.009,
+            "warmMs": 5656.266,
+            "coldCpuMs": 6960.083,
+            "warmCpuMs": 4958.873,
+            "coldLayoutMs": 105.161,
+            "warmLayoutMs": 73.796,
+            "coldTaskMs": 10565.677,
+            "warmTaskMs": 7293.416,
+            "coldCollectionCount": 0,
+            "warmCollectionCount": 0,
+            "coldCollectionTotalMs": 0,
+            "warmCollectionTotalMs": 0,
+            "bootstrapFixtureMs": 23.096262999999453,
+            "collectionFixtureMs": 0,
+            "collectionRouteMs": 0,
+            "collectionRouteCount": 0,
+            "coldRouteCount": 0,
+            "warmRouteCount": 0,
+            "coldRouteTotalMs": 0,
+            "warmRouteTotalMs": 0,
+            "coldFixtureMs": 0,
+            "warmFixtureMs": 0,
+            "coldDurableAtMs": 46903.300000000745,
+            "coldDurableAfterPaintMs": 39280.29100000075,
+            "decks": [
+              {
+                "size": 12,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i1",
+                "treeRequested": false,
+                "inputToPaintMs": 1225.841,
+                "mainThreadMs": 1059.4719999999995,
+                "collectionResources": []
+              },
+              {
+                "size": 970,
+                "boundary": "expanded-flight-deck",
+                "targetChild": "i13",
+                "treeRequested": false,
+                "inputToPaintMs": 6394.944,
+                "mainThreadMs": 5182.510999999998,
+                "collectionResources": []
+              }
+            ]
+          }
+        ],
+        "rejected": []
+      },
+      "web/operator/after": {
+        "hostLabel": "VM B",
+        "surface": "web",
+        "cell": "operator",
+        "before": false,
+        "seriesStatus": "running",
+        "collectionMetricsValid": true,
+        "stats": {
+          "coldMs": null,
+          "warmMs": null,
+          "coldCpuMs": null,
+          "warmCpuMs": null,
+          "coldLayoutMs": null,
+          "warmLayoutMs": null,
+          "coldTaskMs": null,
+          "warmTaskMs": null,
+          "coldCollectionCount": null,
+          "warmCollectionCount": null,
+          "coldCollectionTotalMs": null,
+          "warmCollectionTotalMs": null,
+          "heapMiB": null,
+          "rendererPeakMiB": null,
+          "rendererRssMiB": null,
+          "rendererPssMiB": null,
+          "bootstrapFixtureMs": null,
+          "collectionFixtureMs": null,
+          "collectionRouteMs": null,
+          "collectionRouteCount": null,
+          "coldRouteCount": null,
+          "warmRouteCount": null,
+          "coldRouteTotalMs": null,
+          "warmRouteTotalMs": null,
+          "coldFixtureMs": null,
+          "warmFixtureMs": null,
+          "coldDurableAtMs": null,
+          "coldDurableAfterPaintMs": null
+        },
+        "provenance": [],
+        "admitted": [],
         "rejected": []
       }
     }
@@ -13851,6 +16981,253 @@
           "endedAt": "2026-11-18T10:21:48.966Z",
           "arm": "after",
           "hostLabel": "VM A"
+        }
+      ]
+    },
+    "search-r42": {
+      "scheduledSamples": 6,
+      "recordedSamples": 6,
+      "status": "complete",
+      "samples": [
+        {
+          "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 62.40741900000012
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 67.3298909999994
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 107.51058999999987
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 51.41371600000093
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1841.515402000001
+            }
+          ],
+          "arm": "before",
+          "hostLabel": "VM B"
+        },
+        {
+          "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 65.1263399999998
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 54.55578499999956
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 104.94510400000036
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 48.496337000000494
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1742.8461019999995
+            }
+          ],
+          "arm": "after",
+          "hostLabel": "VM B"
+        },
+        {
+          "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 62.264202000000296
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 53.10671699999966
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 100.57708399999956
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 49.76241300000038
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1755.7537890000003
+            }
+          ],
+          "arm": "before",
+          "hostLabel": "VM B"
+        },
+        {
+          "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 60.338236999999936
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 53.434118000000126
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 102.61238199999934
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 48.117662000000564
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1624.331795
+            }
+          ],
+          "arm": "after",
+          "hostLabel": "VM B"
+        },
+        {
+          "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 63.2192699999996
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 57.70853299999999
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 102.03458799999953
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 50.60367899999983
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1882.7614349999985
+            }
+          ],
+          "arm": "before",
+          "hostLabel": "VM B"
+        },
+        {
+          "sha": "c030eb8435702e4fa3663f5e57bcb94107edc185",
+          "cell": "operator",
+          "issues": 8687,
+          "engine": "SQLite",
+          "results": [
+            {
+              "name": "no-match",
+              "text": "no-such-search-token-7089",
+              "hits": 0,
+              "elapsedMs": 60.508224000000155
+            },
+            {
+              "name": "specific-title",
+              "text": "Measurement tree 12 issue 1",
+              "hits": 4,
+              "elapsedMs": 55.076695000000655
+            },
+            {
+              "name": "description",
+              "text": "Body 71",
+              "hits": 111,
+              "elapsedMs": 111.711319
+            },
+            {
+              "name": "brief",
+              "text": "unique-brief-token:i0",
+              "hits": 1,
+              "elapsedMs": 50.72439299999951
+            },
+            {
+              "name": "broad-title",
+              "text": "re",
+              "hits": 6135,
+              "elapsedMs": 1886.1976430000013
+            }
+          ],
+          "arm": "after",
+          "hostLabel": "VM B"
         }
       ]
     }
