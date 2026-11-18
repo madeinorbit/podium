@@ -391,6 +391,10 @@ const rowKeyOf = (row: Pick<EntityRecord, 'entity' | 'entityId'>): string =>
  * Plan a trim. `held` are the keys the policy and the open views hold (and
  * fetches in flight); every other instance is cache. Instances that arrived
  * because another record is held (`via`) are kept exactly while that record is.
+ * A fetch in flight (`inFlight`) has no marker until its last chunk: what it
+ * has brought so far is kept by its rule, so a trim between two chunks of an
+ * answer never takes back the rows the answer's marker will then vouch for
+ * (POD-7155).
  *
  * POD-7115: linear in what it keeps. A keyed instance finds its members
  * through an index by its key field, not by testing every record of its type,
@@ -404,6 +408,8 @@ export function planTrim(input: {
   readonly rows: readonly EntityRecord[]
   readonly instances: ReadonlyMap<string, InstanceRecord>
   readonly held: ReadonlySet<string>
+  /** Instances being fetched, which may have no marker yet. */
+  readonly inFlight?: readonly InstanceSpec[]
   readonly policy: CachePolicy | null
   readonly cap: number
   readonly now: number
@@ -422,6 +428,18 @@ export function planTrim(input: {
     const instance = resolveInstance(record, args)
     if (instance !== undefined) resolved.set(key, instance)
   }
+  /** Fetches in flight without a marker yet: kept by their rule, never dropped (they have no marker to drop). */
+  const pending = new Set<string>()
+  for (const spec of input.inFlight ?? []) {
+    const key = instanceKey(spec)
+    if (input.instances.has(key) || pending.has(key)) continue
+    const instance = resolveInstance(spec, args)
+    if (instance === undefined) continue
+    resolved.set(key, instance)
+    pending.add(key)
+  }
+  /** An instance the trim can keep: marked on the device, or on its way. */
+  const known = (key: string): boolean => input.instances.has(key) || pending.has(key)
   /** kind → key field → value → the records with that value: a keyed instance's candidates. */
   const byField = new Map<string, Map<string, Map<unknown, EntityRecord[]>>>()
   const candidatesOf = (instance: ResolvedInstance): readonly EntityRecord[] => {
@@ -524,14 +542,13 @@ export function planTrim(input: {
       const memberOf = membershipsOf(rowKeyOf(row), trial)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, input.now)) {
         const key = instanceKey(spec)
-        if (input.instances.has(key)) keepInstance(key, work, into, trial)
+        if (known(key)) keepInstance(key, work, into, trial)
       }
     }
   }
 
   const work: EntityRecord[] = []
-  for (const key of input.held)
-    if (input.instances.has(key)) keepInstance(key, work, kept, undefined)
+  for (const key of input.held) if (known(key)) keepInstance(key, work, kept, undefined)
   settle(work, kept, undefined)
   const base = kept.rows.size
   const cache = [...input.instances.values()]

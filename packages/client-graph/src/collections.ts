@@ -25,6 +25,7 @@
  * collection definition.
  */
 
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import { createAtom, type IAtom } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
@@ -88,6 +89,15 @@ export interface StubTreeProgress {
 
 const ISSUE = LOADER_KIND.issue
 
+/** One instance, as the reads map keys it (the kernel's instance key, minus a page's position). */
+const readKey = (spec: LoaderInstance): string =>
+  JSON.stringify([
+    spec.collection,
+    spec.part,
+    spec.via ?? '',
+    Object.entries(spec.args ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  ])
+
 export class PoolCollections {
   private readonly markers: IAtom
   private readonly stubs: IAtom
@@ -101,6 +111,24 @@ export class PoolCollections {
   private readonly refIndexes = new WeakMap<object, Map<string, string>>()
   /** Per stub array: whether each repository has a live issue, or only deleted ones. */
   private readonly repoPresence = new WeakMap<object, Map<string, 'live' | 'deleted'>>()
+  /** What an open view reads, by its key: the instance, and its hold's release once taken. */
+  private readonly reads = new Map<string, { spec: LoaderInstance; release?: () => void }>()
+  /**
+   * An instance an open view reads is held while the view reads it (design
+   * "Two holders of an instance": the policy and an open view) and is cache
+   * again once no view does. As cache, a tree or a page bigger than the cap
+   * was trimmed after every answer while its view still read it, and asked
+   * for again: the flight deck never settled (POD-7155).
+   */
+  private readonly readDemand = createDemandAtoms<string>((key) => `pool.collections.read:${key}`, {
+    onObserved: (key) => {
+      const read = this.reads.get(key)
+      const loader = this.loader()
+      if (read === undefined || read.release !== undefined || loader === undefined) return
+      read.release = loader.show(read.spec)
+    },
+    onUnobserved: (key) => this.releaseRead(key),
+  })
 
   constructor(private source: () => CollectionLoaderPort | undefined) {
     this.markers = createAtom('pool.collections.markers')
@@ -186,6 +214,7 @@ export class PoolCollections {
   /** TRACKED: whether the device holds a paged instance to its end (or whole). */
   pageEnded(spec: LoaderInstance): boolean {
     this.markers.reportObserved()
+    this.holdWhileRead(spec)
     const marker = this.loader()?.isComplete(spec)
     return marker !== undefined && (marker.range === undefined || marker.range.end)
   }
@@ -193,6 +222,7 @@ export class PoolCollections {
   /** TRACKED: a paged instance's whole size for this viewer, from its first page. */
   pageTotal(spec: LoaderInstance): number | typeof LOADING {
     this.markers.reportObserved()
+    this.holdWhileRead(spec)
     return this.loader()?.isComplete(spec)?.total ?? LOADING
   }
 
@@ -211,12 +241,13 @@ export class PoolCollections {
 
   /**
    * TRACKED: whether the device holds the instance complete; if not, ask
-   * for it at the front of the queue. Without a loader the pool holds what
-   * it was given: true.
+   * for it at the front of the queue. The reader holds it while it reads it.
+   * Without a loader the pool holds what it was given: true.
    */
   held(spec: LoaderInstance): boolean {
     const loader = this.loader()
     if (loader === undefined) return true
+    this.holdWhileRead(spec)
     if (this.complete(spec)) return true
     loader.request([spec], 'visible')
     return false
@@ -419,18 +450,36 @@ export class PoolCollections {
    * part): the tree of its top-level ancestor, or of `id` itself, is
    * complete. Otherwise it asks for the top-level tree, at the front of the
    * queue, and answers false: a view that shows a tree (a flight deck) reads
-   * its members as LOADING until then. No tree is preloaded; one that was
-   * opened stays (design "No tree preloading"). Without a loader the pool
+   * its members as LOADING until then. No tree is preloaded (design "No tree
+   * preloading"); a reader holds the tree while it reads it, and once no
+   * reader does it is cache, kept while it fits. Without a loader the pool
    * holds what it was given, so it answers true.
    */
   treeHeld(id: string): boolean {
     const loader = this.loader()
     if (loader === undefined) return true
-    const top = this.topOf(id)
-    if (this.complete(treeOf(id, 'main')) || (top !== undefined && this.complete(treeOf(top, 'main'))))
-      return true
-    loader.request([treeOf(top ?? id, 'main')], 'visible')
+    const own = this.complete(treeOf(id, 'main'))
+    const root = own ? id : (this.topOf(id) ?? id)
+    this.holdWhileRead(treeOf(root, 'main'))
+    if (own || this.complete(treeOf(root, 'main'))) return true
+    loader.request([treeOf(root, 'main')], 'visible')
     return false
+  }
+
+  /** TRACKED: an open view reads `spec`; it is held while that view observes it. */
+  private holdWhileRead(spec: LoaderInstance): void {
+    const key = readKey(spec)
+    if (!this.reads.has(key)) {
+      const { after: _position, ...instance } = spec
+      this.reads.set(key, { spec: instance })
+    }
+    if (!this.readDemand.observe(key) && !this.readDemand.has(key)) this.reads.delete(key)
+  }
+
+  private releaseRead(key: string): void {
+    const read = this.reads.get(key)
+    this.reads.delete(key)
+    read?.release?.()
   }
 
   /** TRACKED: the top-level ancestor of `id` by the stubs, or undefined when the chain leaves them. */
@@ -465,6 +514,8 @@ export class PoolCollections {
 
   dispose(): void {
     this.disposed = true
+    for (const key of [...this.reads.keys()]) this.releaseRead(key)
+    this.readDemand.clear()
     this.off?.()
     this.off = undefined
     this.bound = undefined

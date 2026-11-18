@@ -12,7 +12,12 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CollectionServer, issue, WORLD_NOW } from '../../sync/src/conformance/collection-server'
+import {
+  CollectionServer,
+  issue,
+  session,
+  WORLD_NOW,
+} from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
 import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
@@ -20,7 +25,11 @@ import { Replica } from '../../sync/src/replica/replica'
 import type { CachePolicy, InstanceSpec } from '../../sync/src/replica/types'
 import { oneRecordOf } from './collections'
 import { createWorklistPool } from './create'
+import { createBoardLayout } from './issue-board-layout'
+import type { BoardColumnOptions } from './issue-board-schema'
 import { LOADING } from './loading'
+import { MissionScreen } from './mission-screen'
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
 
@@ -66,12 +75,17 @@ afterEach(() => {
   for (const dispose of disposers.splice(0).reverse()) dispose()
 })
 
-async function boot() {
+async function boot(
+  world: (server: CollectionServer) => void = (server) => {
+    server.put(ISSUE, 'OPEN', value('OPEN', { stage: 'in_progress' }))
+    server.put(ISSUE, 'OLD', value('OLD', { stage: 'done', closedReason: 'completed' }))
+  },
+  policy: Partial<CachePolicy> = {},
+) {
   const server = new CollectionServer()
-  server.policy = POLICY
+  server.policy = { ...POLICY, ...policy }
   server.chunkRows = 50
-  server.put(ISSUE, 'OPEN', value('OPEN', { stage: 'in_progress' }))
-  server.put(ISSUE, 'OLD', value('OLD', { stage: 'done', closedReason: 'completed' }))
+  world(server)
   const storage = await inMemoryInstantiation.open()
   const { cache } = storage.viewFor('u-ada')
   const timer = manualSchedule()
@@ -125,7 +139,7 @@ async function boot() {
   await settle()
   const naming = (spec: InstanceSpec) =>
     server.fetches.filter((batch) => batch.some((r) => instanceKey(r) === instanceKey(spec))).length
-  return { server, replica: kernel, loader: loader!, pool: handle.pool, settle, naming }
+  return { server, replica: kernel, loader: loader!, pool: handle.pool, settle, naming, rows }
 }
 
 describe('a lookup through the one loader', () => {
@@ -198,7 +212,11 @@ it('server search adopts hits as cached one-record instances through the real lo
   expect(replica.view(ISSUE, 'OLD')).toBeUndefined()
   const { issuePages } = await import('./issue-page')
   const page = issuePages(pool)
-  try { expect(page.row('OPEN').hasTargets).toBe(true) } finally { page.dispose() }
+  try {
+    expect(page.row('OPEN').hasTargets).toBe(true)
+  } finally {
+    page.dispose()
+  }
   expect(naming(one)).toBe(0)
   issueSearch(pool).bind(async () => [{ id: 'OLD' }])
   let ids: readonly string[] = []
@@ -219,4 +237,107 @@ it('server search adopts hits as cached one-record instances through the real lo
   } finally {
     stop()
   }
+})
+
+describe('an open view holds what it reads, over a small cache cap (POD-7155)', () => {
+  it('reaches ready, keeps its tree while open and stops fetching; closed, the tree is cache', async () => {
+    const members: string[] = []
+    const { server, replica, pool, settle } = await boot(
+      (server) => {
+        server.put(ISSUE, 'R', value('R', { stage: 'in_progress' }))
+        const closed = (id: string, parentId: string) => {
+          server.put(ISSUE, id, value(id, { parentId, stage: 'done', closedReason: 'completed' }))
+          // Each member's session comes with its issue (and that issue with its parent).
+          server.put(
+            'session',
+            `S-${id}`,
+            session(`S-${id}`, { issueId: id, status: 'ended', cwd: '/synthetic' }),
+          )
+          members.push(id)
+        }
+        for (let a = 1; a <= 3; a += 1) {
+          closed(`A${a}`, 'R')
+          for (let b = 1; b <= 3; b += 1) {
+            closed(`B${a}${b}`, `A${a}`)
+            for (let c = 1; c <= 3; c += 1) closed(`C${a}${b}${c}`, `B${a}${b}`)
+          }
+        }
+      },
+      // Fewer records than the tree and what it comes with: as cache it never fits.
+      { cacheCap: 10 },
+    )
+    attachMissionTestPreferences(pool)
+    const tree: InstanceSpec = {
+      collection: 'issueProjection.tree',
+      args: { root: 'R' },
+      part: 'main',
+    }
+    const screen = new MissionScreen(pool, 'R', { sessionName: (s) => s.name ?? '' })
+    let rows = 0
+    const stop = autorun(() => {
+      if (!screen.ready) return
+      rows = screen.rows.length
+    })
+    for (let round = 0; round < 6 && !screen.ready; round += 1) await settle()
+    expect(screen.ready).toBe(true)
+    expect(rows).toBe(members.length + 1)
+    for (const id of members) expect(replica.view(ISSUE, id)).toBeDefined()
+
+    // Open, the deck asks for nothing more, a trim included.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    expect(screen.ready).toBe(true)
+    expect(server.fetches.length).toBe(before)
+
+    // Closed, the tree is cache: over the cap, the trim lets it go.
+    stop()
+    screen.close()
+    await settle()
+    await replica.trim()
+    expect(replica.isComplete(tree)).toBeUndefined()
+  })
+
+  it('an open board column keeps its page and stops fetching; closed, the page is cache', async () => {
+    const { server, replica, pool, settle } = await boot(
+      (server) => {
+        for (let i = 1; i <= 30; i += 1)
+          server.put(ISSUE, `D${i}`, value(`D${i}`, { stage: 'done', closedReason: 'completed' }))
+      },
+      { cacheCap: 10 },
+    )
+    const board = createBoardLayout(pool)
+    const column: BoardColumnOptions = {
+      filter: {},
+      ordering: 'priority',
+      showAgentTasks: false,
+      stage: 'done',
+    }
+    const page: InstanceSpec = {
+      collection: 'issueProjection.byStage',
+      args: { stage: 'done' },
+      part: 'main',
+    }
+    let held = false
+    const stop = autorun(() => {
+      held = board.columnHeld(column)
+    })
+    for (let round = 0; round < 6 && !held; round += 1) await settle()
+    expect(held).toBe(true)
+    expect(replica.isComplete(page)).toBeDefined()
+
+    // Open, the trim keeps the page and the column asks for nothing more.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    expect(held).toBe(true)
+    expect(replica.isComplete(page)).toBeDefined()
+    expect(server.fetches.length).toBe(before)
+
+    // Closed, the page is cache: over the cap, the trim lets it go.
+    stop()
+    await settle()
+    await replica.trim()
+    expect(replica.isComplete(page)).toBeUndefined()
+  })
 })

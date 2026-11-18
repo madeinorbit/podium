@@ -465,3 +465,55 @@ describe('comes with, on the client', () => {
     expect(d.replica.view(SESSION, 'SX')).toBeUndefined()
   })
 })
+
+describe('a trim while an answer streams (POD-7155)', () => {
+  it('keeps the records an instance in flight has brought before its marker', async () => {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 2
+    server.put(ISSUE, 'R', issue('R', { stage: 'in_progress' }))
+    const members = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6']
+    for (const id of members)
+      server.put(ISSUE, id, issue(id, { parentId: 'R', stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+
+    // The tree's answer stops after its first two chunks: four members are
+    // on the device whole, and its marker has not come yet.
+    let resume: () => void = () => {}
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    const answer = server.collections.bind(server)
+    server.collections = (instances) => {
+      const chunks = answer(instances)
+      if (!instances.some((request) => request.collection === 'issueProjection.tree')) return chunks
+      return (async function* () {
+        let served = 0
+        for await (const chunk of chunks) {
+          if (served === 2) await paused
+          served += 1
+          yield chunk
+        }
+      })()
+    }
+    const release = d.loader.show(tree('R'))
+    d.timer.due()
+    const loading = d.loader.flush()
+    await ticks(20)
+    expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
+    expect(d.replica.isComplete(tree('R'))).toBeUndefined()
+
+    // A trim runs meanwhile (another answer ended, a view let go).
+    await d.replica.trim()
+    expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
+
+    resume()
+    await loading
+    await settle(d)
+    expect(d.replica.isComplete(tree('R'))).toBeDefined()
+    for (const id of members) expect(d.replica.view(ISSUE, id)).toBeDefined()
+    release()
+  })
+})

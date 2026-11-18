@@ -2078,6 +2078,7 @@ export class Replica implements DeviceCollectionReads {
       rows: this.store.readEntities(),
       instances: this.store.readInstances(),
       held,
+      inFlight: [...this.inFlight.values()],
       policy,
       cap: policy.cacheCap,
       now: this.now(),
