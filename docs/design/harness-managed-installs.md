@@ -1,12 +1,15 @@
 # Managed installs: Podium installs a harness and keeps it current
 
 Design proposal for POD-6880, the design task of the Managed installs phase
-(POD-6865) of POD-6858. Revision 4, 2026-11-18. Not yet reviewed. Revision 2
+(POD-6865) of POD-6858. Revision 5, 2026-11-18. Not yet reviewed. Revision 2
 applied the operator's first answers (section 6). Revision 3 fitted the design
 to the two epics as they were built: session posture (POD-6858, landed on
 `dev/mw`) and credential management (POD-6857, finished, not yet landed).
 Revision 4 ties the managed install to Podium's own homes (3.10): a managed
-binary never runs in the person's own harness folder.
+binary never runs in the person's own harness folder. Revision 5 makes that
+one Podium home per harness with the credential passed in, and names the two
+cases the design serves: the person's full local setup, and a machine that
+holds nothing of the person's.
 
 It builds on the harness access contract (`harness-access-contract.md`,
 section 6) and on session posture (`harness-session-posture.md`, section 9).
@@ -483,15 +486,26 @@ them to every credential Podium holds.**
 | | The person's side | Podium's side |
 |---|---|---|
 | **Binary** | their install, on their path | the managed release, `<state>/harnesses/<harness>/…` |
-| **Home** (login, conversations, harness state) | the harness's own folder: `~/.claude`, `~/.codex` | `<state>/homes/<credential>/<harness>/`, one per credential |
+| **Home** (settings, conversations, harness state) | the harness's own folder: `~/.claude`, `~/.codex` | one Podium home per harness, `<state>/homes/podium/<harness>/`; the credential is passed in |
 | **Credential** | the login they made there themselves | anything held by Podium: a key, a token, a login made through Podium |
 | **Updated by** | the vendor, as the person set it up | Podium |
 | **Podium writes there** | only posture's few edits (3.11) | anything; the folder is Podium's |
 | **Removed by** | the person | Podium |
 
-A harness can be on one side, the other, or both. The person's side is used as
-found, when it exists and is new enough. Podium's side is used for everything
-Podium was given.
+The two sides are the two cases Podium has to serve:
+
+- **The person's side is the all-in-one local case.** Their install, their
+  settings, skills, plugins, MCP servers and login, used exactly as found.
+  Credential management's extra-account homes belong here too: they run the
+  person's binary and link the person's settings, as built. Nothing in this
+  design changes that side.
+- **Podium's side is the machine that holds nothing of the person's**: a fresh
+  VPS today, a short-lived cloud machine as the future default. Podium brings
+  the binary, the home and the credential.
+
+A machine uses Podium's side for a harness when a managed install of it
+exists. Otherwise it uses the person's side, as today. The person's own login
+always runs on the person's side.
 
 The line that must hold is M9: **the managed binary never runs in the person's
 folder.** Reasons, none of which the earlier revisions weighed enough:
@@ -531,45 +545,54 @@ Amp does the same for a Claude plan: the person links the subscription to Amp
 once, Amp runs Claude Code in its own environment, and the person's
 `~/.claude` settings are not loaded (Amp documentation, read 2026-11-18).
 
-#### What changes in credential management
+#### One Podium home per harness; the credential is passed in
 
-Credential management as built gives a Podium home only to a subscription
-login made through Podium. A key or a token is delivered as an environment
-variable, and the session runs in the person's folder. With a managed binary
-that would break M9. So:
+A home per credential is needed only where the login is a file the harness
+renews in its folder. Most credentials are not that:
 
-1. **Every credential Podium holds gets a home**, for the harnesses that have a
-   folder variable. A key or token is still delivered as a variable; the
-   session simply runs in the credential's home instead of the person's
-   folder. The home registry already keys homes by credential, so this is one
-   rule in `control/access.ts` (`homeIdOf`), not a new mechanism.
-2. **Only the person's own login runs in the person's folder**, and only on
-   the person's own binary.
+| Credential | How it reaches the harness | Needs its own folder |
+|---|---|---|
+| API key | environment variable | no |
+| Claude long-lived token (`claude setup-token`) | environment variable | no |
+| ChatGPT plan signed in to Podium (Codex server driver) | a one-hour token, environment variable | no |
+| A subscription signed in with the vendor's own sign-in | the login file in the harness's folder, renewed there | yes: one folder per login |
 
-Everything else stays as built: one home per credential and harness, the
-directory as the record, sign-in in a home, per-home login, quota and model
-reads, the conversation copy when a session changes credential, and home
-removal with the credential.
+So Podium's side has **one home per harness**, and every passed-in credential
+runs in it. Conversations and settings stay in one place, and changing a
+session's credential copies nothing. This is also the only form that works on
+a short-lived machine: nobody signs in on a machine that lives for an hour.
 
-#### Settings in a Podium home
+A vendor sign-in on Podium's side still gets its own folder, as credential
+management built it, because the login cannot live anywhere else. That folder
+links its settings from the Podium home of the same harness, not from the
+person's folder, so there is still one set of settings on Podium's side.
 
-As built, a Podium home links the person's settings, instructions, skills and
-plugins from their own folder, and both harnesses write through those links
-(`homes/share.ts`). That was right for "a second account on my own CLI". It is
-not right for the managed binary: Claude Code writing a permission, or Codex
-writing folder trust, would go through the link into the person's own
-`settings.json` or `config.toml`, which is M9 again.
+Changes to credential management as built:
 
-Proposed split, by who writes the file:
+1. On Podium's side, a passed-in credential runs in the Podium home instead of
+   the person's folder (one rule in `control/access.ts`).
+2. On Podium's side, a login home links from the Podium home
+   (`homes/share.ts` takes the folder to link from; today it is always the
+   person's).
 
-| Entry | In a Podium home |
-|---|---|
-| Instructions, skills, agents, commands, plugins (the person writes them, the harness reads them) | linked, as built |
-| `settings.json`, `config.toml` (the harness writes them too) | the home's own. The person's MCP servers are copied in at each launch, as is already done for Claude Code's `.claude.json`. Permissions, trust, hooks and update settings are Podium's: posture supplies them. |
-| Logins, conversations, harness state | the home's own, as built |
+On the person's side nothing changes.
 
-On a fresh machine there is nothing to link and nothing to copy, and the home
-is simply Podium's.
+#### What fills the Podium home
+
+Nothing has to be kept in step between homes: there is one Podium home per
+harness, and it has one source.
+
+- **On a machine that also has the person's folder**, the Podium home is
+  filled from it once, when the managed install is made, and again on request
+  ("Take my settings"): instructions, skills, agents, commands, plugins and MCP
+  servers are copied. Permissions, folder trust, hooks and update settings are
+  not copied; posture supplies them.
+- **On a machine with nothing of the person's**, the same content has to come
+  from Podium: the person's harness setup, held by the server and placed in
+  the Podium home when the machine is prepared. That is its own piece of work
+  and not part of this phase. This design gives it the place to land, and
+  until it exists such a machine starts with the repository's own instruction
+  files and whatever the image holds.
 
 #### Harnesses with no folder variable
 
@@ -804,8 +827,8 @@ work starts.
 | The installer's `--agents` option installs once and forgets | installs a managed release and records it |
 | The inventory keeps one executable per harness, from the command path | up to two: the managed one from the ledger and the person's own (3.6) |
 | A session's binary is "the" executable of its harness | it follows the session's home (3.6) |
-| A key or token session runs in the person's harness folder | it runs in the credential's Podium home (3.10) |
-| A Podium home links the person's `settings.json` and `config.toml` | those two are the home's own; MCP servers are copied in (3.10) |
+| A key or token session runs in the person's harness folder | on Podium's side it runs in the Podium home of that harness (3.10) |
+| A login home links the person's settings | on Podium's side it links the Podium home's (3.10) |
 | `HarnessInstallation` has no provenance | `provenance: 'managed' \| 'external'` |
 | Posture only quiets update menus | it also turns the vendor's updater off for a managed install (3.9) |
 | A waking engine reuses the first context while the daemon lives | it takes the current release when its own is managed and no longer current (3.8) |
@@ -863,9 +886,10 @@ sign-in, the per-home probes, the conversation copy and home removal.
 10. **A managed binary runs only in Podium homes**, never in the person's own
     harness folder. The person's login is not carried over; they sign in once
     for Podium or add a key (3.10).
-11. **Two changes to credential management as built**: every credential Podium
-    holds gets a home, and a Podium home no longer links the two settings files
-    the harness writes (3.10).
+11. **One Podium home per harness, with the credential passed in.** Only a
+    vendor sign-in gets a folder of its own, linked to that home. The person's
+    side, with its linked extra-account homes, stays as credential management
+    built it (3.10).
 12. **A harness with no folder variable is managed only where the person has no
     install of their own**, until a variable is measured (3.10).
 13. **The ledger is a small SQLite database on the machine**, holding only what
@@ -913,8 +937,9 @@ To be split into tasks once the design is agreed. Proposed tasks, in order:
 4. **Inventory and provenance.** Two installs per harness, `provenance` on
    `HarnessInstallation`, the binary chosen by the session's home, the wire
    fields.
-4a. **Homes for every credential.** A home for a key or token credential; the
-   settings split of 3.10. Changes credential management's code.
+4a. **The Podium home.** One per harness, used by passed-in credentials and
+   linked from login homes on Podium's side; filled from the person's folder
+   where there is one. Changes credential management's code.
 5. **One task per harness**: Claude Code, Codex, Grok; then OpenCode, Pi and
    Cursor. Each is the install section plus the updater switch in its posture
    section.
