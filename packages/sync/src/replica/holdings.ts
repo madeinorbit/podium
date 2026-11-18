@@ -24,22 +24,27 @@
 
 import {
   andWhere,
-  type Clause,
   COLLECTIONS,
   type Collection,
   type ComesWith,
-  clausesOf,
   instanceParams,
-  isParam,
   matchesWhere,
-  RECORD_KINDS,
   type RecordDeclaration,
   type RuleArgs,
   recordOf,
   type Where,
 } from '@podium/model'
-import { type InstanceMap, instanceKey } from './cache-state'
+import { instanceKey, listedMarkers } from './cache-state'
+import {
+  cachedKeyField,
+  type HeldSpec,
+  isListed,
+  keyedShapeOf,
+  keyedShapesOfKind,
+} from './instance-shapes'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
+
+export type { HeldSpec } from './instance-shapes'
 
 /** The rows a decision reads, synchronously, from the store in memory. */
 export interface HeldRows {
@@ -114,35 +119,6 @@ export function stubOfValue(kind: string, value: unknown): Record<string, unknow
 // Matching a record against instances
 // ---------------------------------------------------------------------------
 
-/** `{ field: { eq: param } }` on the instance's one argument: the key a keyed instance is found by. */
-function keyFieldOf(collection: Collection): string | undefined {
-  const params = instanceParams(collection)
-  if (params.length !== 1 || collection.where === undefined) return undefined
-  const clauses = clausesOf(collection.where)
-  if (clauses.length !== 1) return undefined
-  for (const [field, test] of Object.entries(clauses[0] as Clause)) {
-    if (
-      test !== null &&
-      typeof test === 'object' &&
-      'eq' in test &&
-      isParam(test.eq) &&
-      test.eq.param === params[0]
-    )
-      return field
-  }
-  return undefined
-}
-
-const keyFieldCache = new Map<string, string | null>()
-function cachedKeyField(collection: Collection): string | undefined {
-  let field = keyFieldCache.get(collection.id)
-  if (field === undefined) {
-    field = keyFieldOf(collection) ?? null
-    keyFieldCache.set(collection.id, field)
-  }
-  return field ?? undefined
-}
-
 /** Compare two sort values in one direction; nulls sort last. */
 function compareSort(a: unknown, b: unknown): number {
   if (a === b) return 0
@@ -167,118 +143,6 @@ function withinRange(
     return sort.direction === 'asc' ? order < 0 : order > 0
   }
   return true
-}
-
-/** An instance as the index reads it: a marker (with its range) or a fetch in flight. */
-export type HeldSpec = InstanceSpec & { readonly range?: InstanceRecord['range'] }
-
-/** A keyed collection: the field its one argument equals, and every `via` an instance can name. */
-interface KeyedShape {
-  readonly collection: Collection
-  readonly field: string
-  readonly param: string
-  readonly vias: readonly (string | undefined)[]
-}
-
-/** The holders (record kinds and collections) whose comes-with name each collection. */
-let viasByCollection: Map<string, Set<string>> | undefined
-function viasOf(collection: string): ReadonlySet<string> {
-  if (viasByCollection === undefined) {
-    const out = new Map<string, Set<string>>()
-    const add = (via: string, entries: readonly ComesWith[] | undefined): void => {
-      for (const entry of entries ?? []) {
-        let set = out.get(entry.collection)
-        if (set === undefined) {
-          set = new Set()
-          out.set(entry.collection, set)
-        }
-        set.add(via)
-      }
-    }
-    for (const kind of RECORD_KINDS) add(kind, recordOf(kind)?.comesWith)
-    for (const held of COLLECTIONS.values()) add(held.id, held.comesWith)
-    viasByCollection = out
-  }
-  return viasByCollection.get(collection) ?? EMPTY_SET
-}
-const EMPTY_SET: ReadonlySet<string> = new Set()
-
-/** A collection's keyed shape; `undefined` for one found by listing its instances. */
-const keyedShapes = new Map<string, KeyedShape | null>()
-function keyedShapeOf(collection: Collection): KeyedShape | undefined {
-  let shape = keyedShapes.get(collection.id)
-  if (shape === undefined) {
-    const field = cachedKeyField(collection)
-    shape =
-      field === undefined
-        ? null
-        : {
-            collection,
-            field,
-            param: instanceParams(collection)[0] as string,
-            vias: [undefined, ...viasOf(collection.id)],
-          }
-    keyedShapes.set(collection.id, shape)
-  }
-  return shape ?? undefined
-}
-
-/** The keyed shapes of a record kind's collections, in declaration order. */
-const keyedByKind = new Map<string, readonly KeyedShape[]>()
-function keyedShapesOfKind(kind: string): readonly KeyedShape[] {
-  let shapes = keyedByKind.get(kind)
-  if (shapes === undefined) {
-    const out: KeyedShape[] = []
-    for (const collection of COLLECTIONS.values()) {
-      if (collection.of !== kind) continue
-      const shape = keyedShapeOf(collection)
-      if (shape !== undefined) out.push(shape)
-    }
-    shapes = out
-    keyedByKind.set(kind, shapes)
-  }
-  return shapes
-}
-
-/**
- * Whether a held instance can be found only by listing: a collection without
- * a key field, or a keyed one whose marker does not have the key a record's
- * field gives it (its one argument missing, others besides it, a `via` this
- * build does not declare). Such instances are few: the policy's, the trees
- * and pages a view opened.
- */
-function listed(spec: HeldSpec): boolean {
-  const collection = COLLECTIONS.get(spec.collection)
-  if (collection === undefined) return false
-  const shape = keyedShapeOf(collection)
-  if (shape === undefined) return true
-  if (spec.via !== undefined && spec.via !== '' && !viasOf(collection.id).has(spec.via)) return true
-  const args = spec.args as Readonly<Record<string, unknown>> | undefined
-  if (args === undefined || args[shape.param] === undefined || args[shape.param] === null)
-    return true
-  for (const name in args) if (name !== shape.param) return true
-  return false
-}
-
-/** The listed instances of one base of markers, found once per base. */
-const listedByBase = new WeakMap<ReadonlyMap<string, HeldSpec>, ReadonlyMap<string, HeldSpec>>()
-
-function listedIn(markers: ReadonlyMap<string, HeldSpec>): Map<string, HeldSpec> {
-  const layers = layersOf(markers)
-  const base = layers?.base ?? markers
-  let inBase = listedByBase.get(base)
-  if (inBase === undefined) {
-    const found = new Map<string, HeldSpec>()
-    for (const [key, spec] of base) if (listed(spec)) found.set(key, spec)
-    inBase = found
-    listedByBase.set(base, inBase)
-  }
-  const out = new Map(inBase)
-  for (const [key, spec] of layers?.changes ?? []) {
-    if (spec !== undefined && listed(spec)) out.set(key, spec)
-    else out.delete(key)
-  }
-  return out
 }
 
 /**
@@ -312,8 +176,8 @@ export class HeldIndex {
       ? instances
       : new Map([...instances].map((spec) => [instanceKey(spec), spec]))
     this.fetching = new Map([...fetching].map((spec) => [instanceKey(spec), spec]))
-    const listedFetches = [...this.fetching.values()].filter(listed)
-    this.listed = [...listedIn(this.markers).values(), ...listedFetches]
+    const listedFetches = [...this.fetching.values()].filter(isListed)
+    this.listed = [...listedMarkers(this.markers).values(), ...listedFetches]
   }
 
   /** Every held instance the record belongs to, at the given part. */
@@ -351,8 +215,7 @@ export class HeldIndex {
       // argument first, as the record's field gives it: one whose argument is
       // another record's (or missing) is not asked, so its rule never runs
       // without the argument it needs.
-      const collection = COLLECTIONS.get(spec.collection)
-      const shape = collection === undefined ? undefined : keyedShapeOf(collection)
+      const shape = keyedShapeOf(spec.collection)
       if (
         shape !== undefined &&
         ((spec.args as Readonly<Record<string, unknown>> | undefined)?.[shape.param] ?? null) !==
@@ -380,14 +243,6 @@ const isSpecMap = (
   // By shape, not class: a second copy of this module in a bundle has its own InstanceMap.
   typeof (value as Partial<ReadonlyMap<string, HeldSpec>>).get === 'function' &&
   typeof (value as Partial<ReadonlyMap<string, HeldSpec>>).has === 'function'
-
-/** The base and change layer of a layered marker map, by shape; `undefined` for a plain map. */
-const layersOf = (
-  markers: ReadonlyMap<string, HeldSpec>,
-): ReturnType<InstanceMap['layers']> | undefined =>
-  typeof (markers as Partial<InstanceMap>).layers === 'function'
-    ? (markers as InstanceMap).layers()
-    : undefined
 
 function matchContext(
   declaration: RecordDeclaration | undefined,

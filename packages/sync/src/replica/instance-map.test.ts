@@ -4,7 +4,14 @@
  * from unchanged.
  */
 import { describe, expect, it } from 'vitest'
-import { EMPTY_CACHE_META, nextCacheMeta } from './cache-state'
+import {
+  decodeCacheMeta,
+  EMPTY_CACHE_META,
+  instanceMetaKey,
+  listedMarkers,
+  nextCacheMeta,
+} from './cache-state'
+import { isListed } from './instance-shapes'
 import type { InstanceOperation } from './ports'
 import type { InstanceRecord } from './types'
 
@@ -86,5 +93,61 @@ describe('the markers of a cache (POD-7115)', () => {
     }).meta
     const same = nextCacheMeta(meta, { operations: [], instances: [{ kind: 'drop', key: 'zz' }] })
     expect(same.meta.instances).toBe(meta.instances)
+  })
+})
+
+describe('the listed markers (POD-7119)', () => {
+  /** Keyed markers a record's key finds, and the few only a listing finds; two shapes share a key, so a mark can change what it is. */
+  const shapes: ((key: string, at: number) => InstanceRecord)[] = [
+    marker,
+    (key, at) => ({ ...marker(key, at), collection: 'session.ofIssue', args: { issueId: key } }),
+    (key, at) => ({ ...marker(key, at), collection: 'issueProjection.tree', args: { root: key } }),
+    (key, at) => ({ ...marker(key, at), collection: 'issueProjection.sidebar', args: {} }),
+    (key, at) => ({ ...marker(key, at), via: 'not-declared' }),
+    (key, at) => ({ ...marker(key, at), args: { id: key, also: 1 } }),
+  ]
+  const scan = (map: ReadonlyMap<string, InstanceRecord>) =>
+    [...map].filter(([, record]) => isListed(record)).map(([key]) => key)
+
+  it('are exactly what a walk of every marker finds, after every mutation and a decode', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const next = random(seed)
+      let meta = EMPTY_CACHE_META
+      for (let step = 0; step < 120; step += 1) {
+        const ops: InstanceOperation[] = []
+        for (let n = Math.floor(next() * 6); n > 0; n -= 1) {
+          const key = `K${Math.floor(next() * 60)}`
+          const roll = next()
+          const shape = shapes[Math.floor(next() * shapes.length)] as (typeof shapes)[number]
+          const record = shape(key, step)
+          if (roll < 0.6)
+            ops.push({
+              kind: 'mark',
+              instance: {
+                ...record,
+                key: `${key}|${record.collection}|${record.via ?? ''}`,
+              },
+            })
+          else if (roll < 0.95)
+            ops.push({
+              kind: 'drop',
+              key: [...meta.instances.keys()][Math.floor(next() * meta.instances.size)] ?? key,
+            })
+          else if (roll < 0.97) ops.push({ kind: 'dropAll' })
+          else ops.push({ kind: 'release', key, at: step })
+        }
+        meta = nextCacheMeta(meta, { operations: [], instances: ops }).meta
+        expect(
+          [...listedMarkers(meta.instances).keys()].sort(),
+          `seed ${seed} step ${step}`,
+        ).toEqual(scan(meta.instances).sort())
+      }
+      const decoded = decodeCacheMeta(
+        [...meta.instances.values()].map((value) => ({ key: instanceMetaKey(value.key), value })),
+      ).instances
+      expect([...listedMarkers(decoded).keys()].sort(), `seed ${seed} decoded`).toEqual(
+        scan(decoded).sort(),
+      )
+    }
   })
 })

@@ -175,9 +175,19 @@ export function assertWhere(where: Where): void {
 
 const DAY_MS = 86_400_000
 
+/** The last cutoff per number of days: every record tested at one `now` compares against the same one. */
+const cutoffs = new Map<number, { readonly now: number; readonly cutoff: string }>()
+
 /** The cutoff a `newerThan` test compares against: a time saved after it is newer. */
-export const newerThanCutoff = (now: number, days: number): string =>
-  new Date(now - days * DAY_MS).toISOString()
+export function newerThanCutoff(now: number, days: number): string {
+  // POD-7119: formatting a date per test was most of a feed change's rule cost.
+  const last = cutoffs.get(days)
+  if (last !== undefined && last.now === now) return last.cutoff
+  const cutoff = new Date(now - days * DAY_MS).toISOString()
+  if (cutoffs.size > 16) cutoffs.clear()
+  cutoffs.set(days, { now, cutoff })
+  return cutoff
+}
 
 export function resolveValue(value: RuleValue, args: RuleArgs): Scalar {
   if (!isParam(value)) return value

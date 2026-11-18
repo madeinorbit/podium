@@ -10,6 +10,7 @@
  * would be two answers to the same question.
  */
 
+import { isListed } from './instance-shapes'
 import type { CacheMutation, CacheOperation } from './ports'
 import {
   type CachePolicy,
@@ -89,13 +90,22 @@ export class InstanceMap implements ReadonlyMap<string, InstanceRecord> {
     /** Keys that iterate after the base, in the order they were (re)added. */
     private readonly appended: ReadonlyMap<string, true>,
     readonly size: number,
+    /** POD-7119: the markers only a listing finds (`isListed`), kept as markers are set. */
+    private readonly listedOnes: ReadonlyMap<string, InstanceRecord>,
   ) {}
 
   /** An editor over `from`; `done()` gives the next map and leaves `from` as it was. */
   static edit(from: ReadonlyMap<string, InstanceRecord>): InstanceMapEditor {
     if (from instanceof InstanceMap)
-      return new InstanceMapEditor(from, from.base, from.changes, from.appended, from.size)
-    return new InstanceMapEditor(from, from, new Map(), new Map(), from.size)
+      return new InstanceMapEditor(
+        from,
+        from.base,
+        from.changes,
+        from.appended,
+        from.size,
+        from.listedOnes,
+      )
+    return new InstanceMapEditor(from, from, new Map(), new Map(), from.size, listedMarkers(from))
   }
 
   /** @internal The editor's result. */
@@ -104,8 +114,14 @@ export class InstanceMap implements ReadonlyMap<string, InstanceRecord> {
     changes: ReadonlyMap<string, InstanceRecord | undefined>,
     appended: ReadonlyMap<string, true>,
     size: number,
+    listed: ReadonlyMap<string, InstanceRecord>,
   ): InstanceMap {
-    return new InstanceMap(base, changes, appended, size)
+    return new InstanceMap(base, changes, appended, size, listed)
+  }
+
+  /** The markers a record's key cannot find (POD-7119): few, and never found by walking every marker. */
+  listed(): ReadonlyMap<string, InstanceRecord> {
+    return this.listedOnes
   }
 
   get(key: string): InstanceRecord | undefined {
@@ -186,6 +202,7 @@ function flatten(
 /** The changes one mutation makes to the markers, staged over the map it started from. */
 export class InstanceMapEditor {
   private touched = false
+  private listedOwned = false
 
   constructor(
     private readonly from: ReadonlyMap<string, InstanceRecord>,
@@ -193,6 +210,7 @@ export class InstanceMapEditor {
     private changes: ReadonlyMap<string, InstanceRecord | undefined>,
     private appended: ReadonlyMap<string, true>,
     private count: number,
+    private listed: ReadonlyMap<string, InstanceRecord>,
   ) {}
 
   get(key: string): InstanceRecord | undefined {
@@ -208,6 +226,8 @@ export class InstanceMapEditor {
       appended.set(key, true)
     }
     changes.set(key, record)
+    if (isListed(record)) this.ownListed().set(key, record)
+    else if (this.listed.has(key)) this.ownListed().delete(key)
   }
 
   delete(key: string): boolean {
@@ -217,6 +237,7 @@ export class InstanceMapEditor {
     appended.delete(key)
     if (this.base.has(key)) changes.set(key, undefined)
     else changes.delete(key)
+    if (this.listed.has(key)) this.ownListed().delete(key)
     return true
   }
 
@@ -226,6 +247,8 @@ export class InstanceMapEditor {
     this.changes = new Map()
     this.appended = new Map()
     this.count = 0
+    this.listed = new Map()
+    this.listedOwned = true
   }
 
   /** The markers after this mutation: the map it started from when nothing changed. */
@@ -236,9 +259,18 @@ export class InstanceMapEditor {
     // the mutations that grew the layer.
     if (this.changes.size > Math.max(32, Math.ceil(Math.sqrt(this.base.size)))) {
       const folded = flatten(this.base, this.changes, this.appended)
-      return InstanceMap.of(folded, new Map(), new Map(), folded.size)
+      return InstanceMap.of(folded, new Map(), new Map(), folded.size, this.listed)
     }
-    return InstanceMap.of(this.base, this.changes, this.appended, this.count)
+    return InstanceMap.of(this.base, this.changes, this.appended, this.count, this.listed)
+  }
+
+  /** The listed markers this editor writes: copied once (they are few). */
+  private ownListed(): Map<string, InstanceRecord> {
+    if (!this.listedOwned) {
+      this.listedOwned = true
+      this.listed = new Map(this.listed)
+    }
+    return this.listed as Map<string, InstanceRecord>
   }
 
   /** The layer this editor writes: copied once, so the map it started from stays as it was. */
@@ -256,6 +288,28 @@ export class InstanceMapEditor {
       appended: this.appended as Map<string, true>,
     }
   }
+}
+
+/** The listed markers of a decoded map, registered as it decodes (a decoded map is never changed). */
+const listedOfPlain = new WeakMap<ReadonlyMap<string, unknown>, ReadonlyMap<string, unknown>>()
+
+/**
+ * The markers of `markers` that only a listing finds (`isListed`). A layered
+ * map keeps them and a decoded map had them registered; any other plain map
+ * (a test's, an empty one) is walked, since nothing says it stays unchanged.
+ */
+export function listedMarkers<T extends InstanceSpec>(
+  markers: ReadonlyMap<string, T>,
+): ReadonlyMap<string, T> {
+  // By shape, not class: a second copy of this module in a bundle has its own InstanceMap.
+  const layered = markers as Partial<InstanceMap>
+  if (typeof layered.listed === 'function')
+    return layered.listed() as unknown as ReadonlyMap<string, T>
+  const decoded = listedOfPlain.get(markers) as ReadonlyMap<string, T> | undefined
+  if (decoded !== undefined) return decoded
+  const out = new Map<string, T>()
+  for (const [key, spec] of markers) if (isListed(spec)) out.set(key, spec)
+  return out
 }
 
 /** One principal's cache metadata. */
@@ -404,6 +458,7 @@ export function decodeCacheMeta(
 ): CacheMeta {
   let cursor: ScopedCacheCursor | null = null
   const instances = new Map<string, InstanceRecord>()
+  const listed = new Map<string, InstanceRecord>()
   let policy: CachePolicy | null = null
   let loadingSince: number | null = null
   for (const { key, value } of rows) {
@@ -411,9 +466,13 @@ export function decodeCacheMeta(
     else if (key === POLICY_META_KEY) policy = isPolicy(value) ? value : null
     else if (key === LOADING_SINCE_META_KEY)
       loadingSince = typeof value === 'number' && Number.isSafeInteger(value) ? value : 0
-    else if (key.startsWith(INSTANCE_META_PREFIX) && isInstance(value))
+    else if (key.startsWith(INSTANCE_META_PREFIX) && isInstance(value)) {
       instances.set(value.key, value)
+      if (isListed(value)) listed.set(value.key, value)
+      else listed.delete(value.key)
+    }
   }
+  listedOfPlain.set(instances, listed)
   return { cursor, instances, policy, loadingSince }
 }
 
