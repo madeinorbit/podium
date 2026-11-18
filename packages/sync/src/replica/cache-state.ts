@@ -302,7 +302,7 @@ export function listedMarkers<T extends InstanceSpec>(
   markers: ReadonlyMap<string, T>,
 ): ReadonlyMap<string, T> {
   // By shape, not class: a second copy of this module in a bundle has its own InstanceMap.
-  const layered = markers as Partial<InstanceMap>
+  const layered = markers as unknown as Partial<InstanceMap>
   if (typeof layered.listed === 'function')
     return layered.listed() as unknown as ReadonlyMap<string, T>
   const decoded = listedOfPlain.get(markers) as ReadonlyMap<string, T> | undefined
