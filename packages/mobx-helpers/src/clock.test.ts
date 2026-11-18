@@ -1,36 +1,64 @@
 import { autorun, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clockStore, DeadlineClock, nextUp, now, nowForAge, refreshClocks, setClockWakeSource } from './clock'
+import {
+  clockStore,
+  DeadlineClock,
+  nextUp,
+  now,
+  nowForAge,
+  refreshClocks,
+  setClockWakeSource,
+} from './clock'
 
 describe('DeadlineClock', () => {
   it('wakes only readers whose deadline is crossed', () => {
-    const clock = new DeadlineClock(0), answers: boolean[][] = [[], []]
-    const first = autorun(() => { answers[0]!.push(clock.reached(10)) })
-    const second = autorun(() => { answers[1]!.push(clock.reached(20)) })
+    const clock = new DeadlineClock(0),
+      answers: boolean[][] = [[], []]
+    const first = autorun(() => {
+      answers[0]!.push(clock.reached(10))
+    })
+    const second = autorun(() => {
+      answers[1]!.push(clock.reached(20))
+    })
     try {
       runInAction(() => clock.advance(15))
       expect(answers).toEqual([[false, true], [false]])
       expect(clock.crossings).toBe(1)
       runInAction(() => clock.advance(20))
-      expect(answers).toEqual([[false, true], [false, true]])
+      expect(answers).toEqual([
+        [false, true],
+        [false, true],
+      ])
       expect(clock.current).toBe(20)
-    } finally { first(); second(); clock.clear() }
+    } finally {
+      first()
+      second()
+      clock.clear()
+    }
   })
 
   it('tracks rewind and the strict passed boundary', () => {
-    const clock = new DeadlineClock(100), answers: boolean[] = []
-    const stop = autorun(() => { answers.push(clock.passed(50)) })
+    const clock = new DeadlineClock(100),
+      answers: boolean[] = []
+    const stop = autorun(() => {
+      answers.push(clock.passed(50))
+    })
     try {
       runInAction(() => clock.advance(50))
       runInAction(() => clock.advance(nextUp(50)))
       expect(answers).toEqual([true, false, true])
-    } finally { stop(); clock.clear() }
+    } finally {
+      stop()
+      clock.clear()
+    }
   })
 
   it('forgets a deadline when its last observer leaves', () => {
     const clock = new DeadlineClock(0)
-    const one = autorun(() => clock.reached(10)), two = autorun(() => clock.reached(10))
-    one(); two()
+    const one = autorun(() => clock.reached(10)),
+      two = autorun(() => clock.reached(10))
+    one()
+    two()
     runInAction(() => clock.advance(20))
     expect(clock.crossings).toBe(0)
     clock.clear()
@@ -46,16 +74,65 @@ describe('DeadlineClock', () => {
   })
 })
 
-afterEach(() => { setClockWakeSource(undefined); vi.useRealTimers() })
+afterEach(() => {
+  setClockWakeSource(undefined)
+  vi.useRealTimers()
+})
 
 describe('on-demand clock', () => {
+  it('shares one minute tick for relative text, with no seconds clock or work after unmount', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const timeout = vi.spyOn(globalThis, 'setTimeout')
+    const values: number[][] = [[], []]
+    const a = autorun(() => values[0]!.push(nowForAge(0, 0, 0)))
+    const b = autorun(() => values[1]!.push(nowForAge(0, 0, 0)))
+    try {
+      expect(timeout).toHaveBeenCalledTimes(1)
+      expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000)
+      vi.advanceTimersByTime(59_999)
+      expect(values).toEqual([[10_000], [10_000]])
+      vi.advanceTimersByTime(1)
+      expect(values).toEqual([
+        [10_000, 70_000],
+        [10_000, 70_000],
+      ])
+    } finally {
+      a()
+      b()
+      timeout.mockRestore()
+    }
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not subscribe to time for an invalid timestamp', () => {
+    vi.useFakeTimers()
+    const stop = autorun(() => nowForAge(''))
+    expect(vi.getTimerCount()).toBe(0)
+    stop()
+  })
+
+  it('keeps relative labels on minutes even when a server timestamp is ahead of this device', () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000)
+    const timeout = vi.spyOn(globalThis, 'setTimeout')
+    const stop = autorun(() => nowForAge(10_000, 0, 0))
+    try { expect(timeout).toHaveBeenLastCalledWith(expect.any(Function), 60_000) }
+    finally { stop(); timeout.mockRestore() }
+  })
+
   it('does zero clock work over an idle minute and shares one timer per observed precision', () => {
-    vi.useFakeTimers(); vi.setSystemTime(100_000)
-    for (let i = 0; i < 100; i++) { now(1000); new DeadlineClock().reached(200_000) }
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    for (let i = 0; i < 100; i++) {
+      now(1000)
+      new DeadlineClock().reached(200_000)
+    }
     expect(vi.getTimerCount()).toBe(0)
     vi.advanceTimersByTime(60_000)
     expect(vi.getTimerCount()).toBe(0)
-    const one: number[] = [], two: number[] = [], minutes: number[] = []
+    const one: number[] = [],
+      two: number[] = [],
+      minutes: number[] = []
     const a = autorun(() => one.push(now(1000)))
     const b = autorun(() => two.push(now(1000)))
     const c = autorun(() => minutes.push(now(60_000)))
@@ -65,14 +142,21 @@ describe('on-demand clock', () => {
       expect(one).toEqual([160_000, 161_000])
       expect(two).toEqual(one)
       expect(minutes).toEqual([160_000])
-      a(); expect(vi.getTimerCount()).toBe(2)
-      b(); expect(vi.getTimerCount()).toBe(1)
-    } finally { a(); b(); c() }
+      a()
+      expect(vi.getTimerCount()).toBe(2)
+      b()
+      expect(vi.getTimerCount()).toBe(1)
+    } finally {
+      a()
+      b()
+      c()
+    }
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('changes age-label precision at one hour and releases the second clock', () => {
-    vi.useFakeTimers(); vi.setSystemTime(3_598_000)
+    vi.useFakeTimers()
+    vi.setSystemTime(3_598_000)
     const values: number[] = []
     const stop = autorun(() => values.push(nowForAge(0)))
     try {
@@ -83,13 +167,17 @@ describe('on-demand clock', () => {
       expect(values).toHaveLength(length)
       vi.advanceTimersByTime(1)
       expect(values.at(-1)).toBe(3_660_000)
-    } finally { stop() }
+    } finally {
+      stop()
+    }
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('fires an exact deadline within 50ms and wakes only crossed readers', () => {
-    vi.useFakeTimers(); vi.setSystemTime(1000)
-    const clock = new DeadlineClock(), values: boolean[][] = [[], []]
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+    const clock = new DeadlineClock(),
+      values: boolean[][] = [[], []]
     const a = autorun(() => values[0]!.push(clock.reached(1250)))
     const b = autorun(() => values[1]!.push(clock.reached(1600)))
     try {
@@ -101,39 +189,63 @@ describe('on-demand clock', () => {
       expect(Date.now() - 1250).toBeLessThanOrEqual(50)
       expect(vi.getTimerCount()).toBe(1)
       vi.advanceTimersByTime(350)
-      expect(values).toEqual([[false, true], [false, true]])
+      expect(values).toEqual([
+        [false, true],
+        [false, true],
+      ])
       expect(vi.getTimerCount()).toBe(0)
-    } finally { a(); b(); clock.clear() }
+    } finally {
+      a()
+      b()
+      clock.clear()
+    }
   })
 
   it('rechecks injected wake boundaries immediately after suspension', () => {
-    vi.useFakeTimers(); vi.setSystemTime(1000)
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
     let active = true
     let wake: (() => void) | undefined
-    setClockWakeSource({ isActive: () => active, subscribe: callback => {
-      wake = callback
-      return () => { wake = undefined }
-    } })
-    const clock = new DeadlineClock(), values: boolean[] = [], times: number[] = []
+    setClockWakeSource({
+      isActive: () => active,
+      subscribe: (callback) => {
+        wake = callback
+        return () => {
+          wake = undefined
+        }
+      },
+    })
+    const clock = new DeadlineClock(),
+      values: boolean[] = [],
+      times: number[] = []
     const a = autorun(() => values.push(clock.reached(1500)))
     const b = autorun(() => times.push(now(1000)))
     try {
-      active = false; wake!()
+      active = false
+      wake!()
       expect(vi.getTimerCount()).toBe(0)
       vi.setSystemTime(2000)
       expect(values).toEqual([false])
-      active = true; wake!()
+      active = true
+      wake!()
       expect(values).toEqual([false, true])
       expect(times.at(-1)).toBe(2000)
-      vi.setSystemTime(3000); refreshClocks()
+      vi.setSystemTime(3000)
+      refreshClocks()
       expect(times.at(-1)).toBe(3000)
-    } finally { a(); b(); clock.clear() }
+    } finally {
+      a()
+      b()
+      clock.clear()
+    }
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('keeps React snapshots stable and creates no timer for an unmounted or disabled store', () => {
-    vi.useFakeTimers(); vi.setSystemTime(1000)
-    const store = clockStore(() => now(1000)), changed = vi.fn()
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+    const store = clockStore(() => now(1000)),
+      changed = vi.fn()
     vi.setSystemTime(1500)
     expect(store.getSnapshot()).toBe(1000)
     expect(vi.getTimerCount()).toBe(0)
@@ -161,8 +273,10 @@ describe('on-demand clock', () => {
 })
 
 it('shares one injected subscription and releases it with the last time reader', () => {
-  vi.useFakeTimers(); vi.setSystemTime(1000)
-  const detach = vi.fn(), subscribe = vi.fn(() => detach)
+  vi.useFakeTimers()
+  vi.setSystemTime(1000)
+  const detach = vi.fn(),
+    subscribe = vi.fn(() => detach)
   setClockWakeSource({ isActive: () => true, subscribe })
   now(1000)
   expect(subscribe).not.toHaveBeenCalled()
@@ -171,8 +285,14 @@ it('shares one injected subscription and releases it with the last time reader',
   const b = autorun(() => now(1000))
   try {
     expect(subscribe).toHaveBeenCalledTimes(1)
-    a(); expect(detach).not.toHaveBeenCalled()
-    b(); expect(detach).toHaveBeenCalledTimes(1)
+    a()
+    expect(detach).not.toHaveBeenCalled()
+    b()
+    expect(detach).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
-  } finally { a(); b(); clock.clear() }
+  } finally {
+    a()
+    b()
+    clock.clear()
+  }
 })

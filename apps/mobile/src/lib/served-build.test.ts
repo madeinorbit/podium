@@ -174,4 +174,33 @@ describe('useServedBuildRefresh keeps asking', () => {
     })
     expect(read).toHaveBeenCalledTimes(settled)
   })
+
+  it('removes the polling interval while the document is hidden and catches up on return', async () => {
+    vi.useFakeTimers()
+    const visible = vi.spyOn(document, 'visibilityState', 'get')
+    visible.mockReturnValue('visible')
+    const read = vi
+      .fn<() => Promise<ServedBuild | undefined>>()
+      .mockResolvedValue({ appVersion: '0.1.1-edge.3' })
+    const { view } = mountHook(read)
+    await act(async () => {})
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(1)
+    await act(async () => {
+      visible.mockReturnValue('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    await act(async () => vi.advanceTimersByTime(SERVED_BUILD_POLL_MS * 2))
+    expect(read).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      visible.mockReturnValue('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(1)
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
 })

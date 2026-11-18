@@ -236,7 +236,12 @@ export const TranscriptTail = observer(function TranscriptTail({
   const waitingOnDependency = state?.mode === 'wait'
   // Two clocks so nothing wakes faster than its figure can change: the working
   // timer counts seconds, and an idle one only needs that in its first minute.
-  const now = useAgeNow(startedAt, 0, known && !!state && !inline)
+  const now = useAgeNow(
+    startedAt,
+    0,
+    known && !!state && !inline,
+    working || waitingOnDependency ? 3_600_000 : 60_000,
+  )
   const elapsed = known ? Math.max(0, now - startedAt) : 0
 
   if (!state) return null

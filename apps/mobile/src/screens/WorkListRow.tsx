@@ -299,7 +299,12 @@ const WorkStamp = observer(function WorkStamp({
       : row.issue.updatedAt
   const age = Date.parse(updated)
   const live = lane === 'open' && (timing.phase === 'working' || timing.phase === 'waiting')
-  const now = useAgeNow(live ? timing.sinceMs : age, live ? (timing.baseMs ?? 0) : 0)
+  const now = useAgeNow(
+    live ? timing.sinceMs : age,
+    live ? (timing.baseMs ?? 0) : 0,
+    true,
+    live && timing.phase === 'working' ? 3_600_000 : 0,
+  )
   const stamp = (live ? mobileRowStamp(timing, now) : relativeTime(updated, now))
     ?.replace(/ ago$/, '')
     .replace('just now', 'now')

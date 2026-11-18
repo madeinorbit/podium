@@ -16,6 +16,7 @@ import { useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
+import { useContentActive } from '../lib/visible-content'
 import {
   beginCapacityRefresh,
   CapacityRefreshFence,
@@ -71,6 +72,7 @@ const EMPTY_MACHINES: readonly MachineWire[] = []
 const readMachines = (pool: Parameters<typeof headerView>[0]) => headerView(pool).machines()
 
 export function usePulseFeed(pulse: PulseView | null): PulseFeed {
+  const active = useContentActive()
   // Subscribe only to the three live values Pulse paints. A whole-store
   // subscription would re-render this tab for unrelated replica publishes.
   const trpc = useTrpc()
@@ -109,6 +111,7 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
   // looking at, on a phone paying for the radio.
   useFocusEffect(
     useCallback(() => {
+      if (!active) return
       if (demo) {
         void pulse?.refresh(
           () => Promise.resolve({ buckets: DEMO_USAGE_BUCKETS }),
@@ -267,14 +270,15 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
         clearInterval(poll)
         pulse?.cancel()
       }
-    }, [capacityFence, capacityScheduler, pulse, demo, profileKey, trpc]),
+    }, [active, capacityFence, capacityScheduler, pulse, demo, profileKey, trpc]),
   )
 
   useFocusEffect(
     useCallback(() => {
+      if (!active) return
       machinesRef.current = machines
       capacityLoadRef.current()
-    }, [machines]),
+    }, [machines, active]),
   )
 
   if (demo) {

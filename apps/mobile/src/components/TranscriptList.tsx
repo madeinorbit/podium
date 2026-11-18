@@ -804,7 +804,7 @@ const ToolsRun = observer(function ToolsRun({
   const failures = run?.failures ?? toolRunFailures(blocks)
   const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
   const first = run?.firstBlock ?? blocks[0]
-  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined)
+  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined, 3_600_000)
   const durationMs = live
     ? (run?.elapsed(now) ??
       (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
@@ -899,7 +899,7 @@ function elapsedSince(since: string | undefined, now: number): string | null {
 function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   const since =
     state?.label === 'interrupted' || state?.label === 'Sending' ? undefined : state?.since
-  const now = useAgeNow(since ?? '', 0, !!since)
+  const now = useAgeNow(since ?? '', 0, !!since, state?.tone === 'working' ? 3_600_000 : 60_000)
 
   if (!state) return null
   const elapsed = elapsedSince(since, now)

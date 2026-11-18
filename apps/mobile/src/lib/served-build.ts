@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { appVersion } from './logging'
+import { useContentVisible } from './visible-content'
 
 /** The stamp file the built dist carries, as far as this comparison cares. */
 export interface ServedBuild {
@@ -99,31 +100,36 @@ export function useServedBuildRefresh(
   pageVersion: string = appVersion(),
 ): ServedBuildRefresh {
   const [needsRefresh, setNeedsRefresh] = useState(false)
+  const visible = useContentVisible()
 
   useEffect(() => {
     // Only the web build has a served dist to be behind. A native app updates
     // through its store and has no stamp file to read.
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    if (needsRefresh) return // The answer cannot become false; stop asking.
+    if (needsRefresh || !visible) return // The answer cannot become false; stop asking.
     let cancelled = false
     const check = async (): Promise<void> => {
       const served = await read()
       if (!cancelled && servesNewerBuild(pageVersion, served)) setNeedsRefresh(true)
     }
-    void check()
-    const timer = window.setInterval(() => void check(), SERVED_BUILD_POLL_MS)
+    let timer: ReturnType<typeof window.setInterval> | undefined
     // The decisive moment for an installed phone app: it comes back to the
     // foreground, which is where hours of missed polls are made up in one ask.
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') void check()
+      window.clearInterval(timer)
+      timer = undefined
+      if (document.visibilityState !== 'visible') return
+      void check()
+      timer = window.setInterval(() => void check(), SERVED_BUILD_POLL_MS)
     }
+    onVisible()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [needsRefresh, pageVersion, read])
+  }, [needsRefresh, pageVersion, read, visible])
 
   const refresh = useCallback(() => refreshToServedBuild(), [])
   return { needsRefresh, refresh }
