@@ -118,7 +118,7 @@ describe('the server setup answer', () => {
     await f.store.sessions.softDeleteSessions(
       fixtureWriteScope(),
       [asSessionId('setup-session-0')],
-      '2026-11-17T12:00:00Z',
+      '2026-11-17T12:00:00.000Z',
       'standalone',
     )
     expect(await f.viewer()).toMatchObject({ setupFinished: true })

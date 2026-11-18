@@ -707,8 +707,10 @@ const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
       ],
       analyze: ['effects'],
       values: [WS_LITERAL, `'machine.scan'`, `'machine'`, `'busy'`, `'pending'`, `'running'`, '1'],
+      // Its key also starts (workspace, status): the same few active rows.
+      alsoReads: 'idx_effects_status_finished',
       reason:
-        "A target's newest active effect (POD-7031). The active records are a few and a target's finished history is long (a machine keeps thousands of scans); on that shape Postgres reads idx_effects_status_deadline, as SQLite is told to. On the seed every target holds a record or two, so the target's own records are the fewer.",
+        "A target's newest active effect (POD-7031). The active records are a few and a target's finished history is long (a machine keeps thousands of scans); on that shape Postgres reads the active statuses' range of idx_effects_status_deadline, as SQLite is told to, or of idx_effects_status_finished, whose key starts with the same workspace and status: the same rows. On the seed every target holds a record or two, so the target's own records are the fewer.",
     },
   ],
   [
@@ -889,14 +891,6 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
         { values: [WS_LITERAL, RECENT_CUTOFF], reason: RECENT_RANGE },
       ] as const,
   ),
-  [
-    'apps/server/src/store/collections.ts:collectionRows [|conversation.page#after#]',
-    {
-      values: [WS_LITERAL, RECENT_CUTOFF, RECENT_CUTOFF, RECENT_CUTOFF, "'x'", '20'],
-      reason:
-        'A later page of the conversation history (POD-7085): below a position, at most a page. The generic plan takes the position as a third of the history; for a real one Postgres walks idx_conversations_created_at down from it and stops at the page.',
-    },
-  ],
   ...(
     [
       'issueProjection.byStage#sorted#stage:s',
