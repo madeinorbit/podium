@@ -47,6 +47,7 @@ import { userCommandPrincipal } from '../command-principal'
 import * as schema from '../migrations/schema'
 import { effectPublication } from '../modules/effects/published-input'
 import { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import type { DriverSession } from '../store/executor/driver'
 import { probeStatements, type StatementProbeHolder } from '../store/executor/statement-probe'
@@ -247,16 +248,16 @@ async function buildCorpus(): Promise<Corpus> {
   // own connect scan, which no device receives and the log never carries.
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
   await seedRows(store, async () => {
-    await db.run(sql`INSERT INTO automation_runs (id, on_behalf_of, automation_id, fired_at, session_id, outcome, detail)
-      SELECT 'run-row-1', ${owner}, id, ${AT}, ${sessionId}, 'spawned', NULL FROM automations LIMIT 1`)
-    await db.run(sql`INSERT INTO workflow_revisions (id, workflow_id, version, instructions, steps_json, created_by_kind, created_at)
-      VALUES ('rev-row-1', 'wf-6920', 1, 'Review', '[{"id":"review","title":"Review"}]', 'operator', ${AT})`)
-    await db.run(sql`INSERT INTO workflow_bindings (target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
-      VALUES ('global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
-    await db.run(sql`INSERT INTO checkouts (machine_id, path, root, kind, branch, updated_at)
-      VALUES (${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
-    await db.run(sql`INSERT INTO subscriptions (id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
-      VALUES ('sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, 1, 0, 'custom', 1, ${AT})`)
+    await db.run(sql`INSERT INTO automation_runs (workspace_id, id, on_behalf_of, automation_id, fired_at, session_id, outcome, detail)
+      SELECT workspace_id, 'run-row-1', ${owner}, id, ${AT}, ${sessionId}, 'spawned', NULL FROM automations LIMIT 1`)
+    await db.run(sql`INSERT INTO workflow_revisions (workspace_id, id, workflow_id, version, instructions, steps_json, created_by_kind, created_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'rev-row-1', 'wf-6920', 1, 'Review', '[{"id":"review","title":"Review"}]', 'operator', ${AT})`)
+    await db.run(sql`INSERT INTO workflow_bindings (workspace_id, target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
+    await db.run(sql`INSERT INTO checkouts (workspace_id, machine_id, path, root, kind, branch, updated_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
+    await db.run(sql`INSERT INTO subscriptions (workspace_id, id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, 1, 0, 'custom', 1, ${AT})`)
     for (const [id, createdBy] of [
       ['eff_person_scan', owner],
       ['eff_system_scan', null],
@@ -522,6 +523,24 @@ async function withSources<T>(
  */
 const onSqliteTriggers = it.runIf(testStoreEngine() !== 'pg')
 
+/** Where a frozen table's rows live now: the settings blob moved to `workspace_meta`. */
+const replayedTable = (table: string): string => (table === 'meta' ? 'workspace_meta' : table)
+
+/**
+ * A capture trigger with the workspace's additions (POD-7021, POD-7013) taken out:
+ * the key column, the test for a move between workspaces, each lookup's workspace
+ * term, and the table the settings blob moved to.
+ */
+function withoutWorkspaceTerms(trigger: string): string {
+  return trigger
+    .replaceAll('OLD."workspace_id", ', '')
+    .replaceAll('NEW."workspace_id", ', '')
+    .replaceAll('OLD."workspace_id" IS NOT NEW."workspace_id" OR ', '')
+    .replace(/"?workspace_id"? = (OLD|NEW)\."?workspace_id"? AND /g, '')
+    .replace(/(\w+)\."workspace_id" = (OLD|NEW)\."workspace_id" AND /g, '')
+    .replace(' ON "workspace_meta" ', ' ON "meta" ')
+}
+
 describe('record sources (POD-6920)', () => {
   let corpus: Corpus
   beforeAll(async () => {
@@ -535,6 +554,12 @@ describe('record sources (POD-6920)', () => {
     const after = serverRecordBuilders()
     const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+    const byId = (streamed: string): string =>
+      JSON.stringify(
+        (JSON.parse(streamed) as { id: string }[]).sort((a, b) =>
+          a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+        ),
+      )
     let replay: Corpus
 
     beforeAll(async () => {
@@ -551,14 +576,17 @@ describe('record sources (POD-6920)', () => {
         await seedRows(store, async () => {
           // The captured inputs are in parent-first order. Deferral also
           // allows self-referencing rows to be replayed in their stored order.
+          // The frozen rows come from a store with no workspaces (POD-7118): each
+          // is replayed into the self-hosted workspace, and `meta`'s settings blob
+          // into `workspace_meta`, where the meta split moved it.
           await db.run(sql`PRAGMA defer_foreign_keys = ON`)
           for (const [table] of [...tables].reverse())
-            await db.run(sql`DELETE FROM ${sql.identifier(table)}`)
+            await db.run(sql`DELETE FROM ${sql.identifier(replayedTable(table))}`)
           for (const [table, rows] of tables) {
             for (const row of rows) {
-              const columns = Object.entries(row)
+              const columns = Object.entries({ workspace_id: SELF_HOSTED_WORKSPACE_ID, ...row })
               await db.run(
-                sql`INSERT INTO ${sql.identifier(table)} (${sql.join(
+                sql`INSERT INTO ${sql.identifier(replayedTable(table))} (${sql.join(
                   columns.map(([name]) => sql.identifier(name)),
                   sql`, `,
                 )}) VALUES (${sql.join(
@@ -614,10 +642,13 @@ describe('record sources (POD-6920)', () => {
           JSON.parse(expected.streamBytes).length,
           `${kind}: frozen records must be nonempty`,
         ).toBeGreaterThan(0)
+        // A stream is a set of records: the reads name no order, and the workspace
+        // key leads SQLite through the key index instead of the table's row order
+        // (POD-7118; Postgres has its own). Each record's bytes are compared, by id.
         expect(
-          bytes(await collectRecords(after.streamAll(replay.reads, kind))),
+          byId(bytes(await collectRecords(after.streamAll(replay.reads, kind)))),
           `${kind}: stream`,
-        ).toBe(expected.streamBytes)
+        ).toBe(byId(expected.streamBytes))
         expect(bytes(await after.build(replay.reads, kind, expected.ids)), `${kind}: build`).toBe(
           expected.buildBytes,
         )
@@ -649,8 +680,18 @@ describe('record sources (POD-6920)', () => {
       }
     })
 
-    it('keeps every generated capture trigger textually equal to before', () => {
-      expect(captureTriggerStatements()).toEqual(frozen.triggers)
+    // The frozen triggers predate the workspace (POD-7118): the integration's
+    // capture keys lead with `workspace_id`, a move of a row's workspace is a
+    // change, every lookup a filter makes matches the row's workspace, and the
+    // settings blob is captured on `workspace_meta`. With exactly those taken out,
+    // every trigger is the frozen text; and every trigger keys its row's workspace.
+    it('keeps every generated capture trigger textually equal to before, with the workspace added', () => {
+      const triggers = captureTriggerStatements()
+      expect(triggers.map(withoutWorkspaceTerms)).toEqual(frozen.triggers)
+      // `meta` is an install table: its fleet keys capture no workspace.
+      for (const trigger of triggers.filter((text) => !text.includes(' ON "meta" '))) {
+        expect(trigger, trigger.slice(0, 80)).toMatch(/json_array\((OLD|NEW)\."workspace_id", /)
+      }
     })
 
     it('keeps captured record identities for inserts, moves and deletes', async () => {
@@ -658,10 +699,13 @@ describe('record sources (POD-6920)', () => {
         const source = ROW_RECORDS[kind].sources[0]
         if (!source) throw new Error(`${kind}: missing capture source`)
         const expected = frozen.captures[kind]
-        expect(
-          [...(await source.ids(expected.changes as SourceChange[], replay.reads))],
-          kind,
-        ).toEqual(expected.ids)
+        // The captured keys lead with the row's workspace (POD-7118).
+        const changes = (expected.changes as SourceChange[]).map((change) => ({
+          ...change,
+          old: change.old === null ? null : [SELF_HOSTED_WORKSPACE_ID, ...change.old],
+          new: change.new === null ? null : [SELF_HOSTED_WORKSPACE_ID, ...change.new],
+        }))
+        expect([...(await source.ids(changes, replay.reads))], kind).toEqual(expected.ids)
       }
     })
 
