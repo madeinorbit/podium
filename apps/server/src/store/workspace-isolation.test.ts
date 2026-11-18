@@ -33,6 +33,8 @@ import { type SQL, sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { MODEL_CATALOG_VERSION } from '../model-catalog'
 import type { SessionStore } from '../store'
+import { testStoreEngine } from '../test-support/pg-test-database'
+import { storeSql } from '../test-support/store-sql'
 import * as conversations from '../test-support/workspace-seeds/conversations'
 import * as events from '../test-support/workspace-seeds/events'
 import * as issues from '../test-support/workspace-seeds/issues'
@@ -42,23 +44,10 @@ import * as remaining from '../test-support/workspace-seeds/remaining'
 import * as sessions from '../test-support/workspace-seeds/sessions'
 import * as shipping from '../test-support/workspace-seeds/shipping'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
-import { dialectOf } from './executor/dialect-prepared'
 import { TABLE_MANIFEST, type TableOrigin } from './workspace-manifest'
 
 type Tag = 'a' | 'b'
 const otherOf = (tag: Tag): Tag => (tag === 'a' ? 'b' : 'a')
-
-/**
- * Raw statements on the store's own drizzle instance, on either engine (POD-6994): the
- * store's connection routes them like any repository statement, and `engine` says which
- * dialect the SQL text must be written for where the two differ.
- */
-interface RawDb {
-  all<T = Record<string, unknown>>(statement: SQL): Promise<T[]>
-  run(statement: SQL): Promise<unknown>
-}
-const rawDb = (store: SessionStore): RawDb => store.database.queries.rootDb as unknown as RawDb
-const engineOf = (store: SessionStore) => dialectOf(store.database.queries.rootDb)
 
 /**
  * A whole store seen as a group's slice (`engine`, `all`, `run`): the slice seeds take that
@@ -66,10 +55,10 @@ const engineOf = (store: SessionStore) => dialectOf(store.database.queries.rootD
  */
 function asSlice<T>(store: SessionStore): T {
   const view = Object.create(store) as Record<string, unknown>
-  view.engine = engineOf(store)
-  view.all = async (statement: SQL) => await rawDb(store).all(statement)
+  view.engine = storeSql(store).engine
+  view.all = async (statement: SQL) => await storeSql(store).all(statement)
   view.run = async (statement: SQL) => {
-    await rawDb(store).run(statement)
+    await storeSql(store).run(statement)
   }
   return view as T
 }
@@ -137,6 +126,22 @@ const WORKSPACE_TABLES = Object.entries(TABLE_MANIFEST)
   )
   .map(([table]) => table)
   .sort()
+
+/**
+ * Workspace tables Postgres keeps in another shape, by the SQLite table: the row's workspace
+ * lives in the Postgres-only table (`PG_ONLY_TABLES`, `migrations/pg/schema-overrides.ts`).
+ */
+const PG_WORKSPACE_TWINS: Readonly<Record<string, string>> = {
+  // SQLite keeps each transcript search row's workspace in transcript_fts_keys beside the
+  // FTS5 table; Postgres keeps the rows, workspace included, in transcript_text.
+  transcript_fts_keys: 'transcript_text',
+}
+
+/** The workspace tables `engine` holds: the manifest's, with Postgres's twins in place. */
+const workspaceTablesOf = (engine: 'sqlite' | 'pg'): string[] =>
+  engine === 'pg'
+    ? WORKSPACE_TABLES.map((table) => PG_WORKSPACE_TWINS[table] ?? table).sort()
+    : WORKSPACE_TABLES
 
 /**
  * Workspace tables no repository seed fills, each with the reason. A table here is still
@@ -702,7 +707,7 @@ const remainingGroup: Group = {
           remaining.READER,
           remaining.TARGET,
           `${tag}-mark-2`,
-          'at-2',
+          remaining.REMARKED_AT,
         )
       },
     },
@@ -876,10 +881,10 @@ const othersGroup: Group = {
     })
     // No repository writes these two: the kind generations are bumped by migrations, and the
     // upstream outbox is archived (read only). Raw rows of this workspace, for their reads.
-    await rawDb(store).run(
+    await storeSql(store).run(
       sql`INSERT INTO sync_kind (workspace_id, kind, generation) VALUES (${sessions.WS[tag]}, 'isolation-kind', ${tag === 'a' ? 1 : 2})`,
     )
-    await rawDb(store).run(
+    await storeSql(store).run(
       sql`INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at, queue_order) VALUES (${sessions.WS[tag]}, 'outbox-1', ${`${tag}.proc`}, '{}', ${tag === 'a' ? 1 : 2}, 1)`,
     )
     await store.pendingUploads.insert({
@@ -1033,13 +1038,13 @@ const holdsSomething = (value: unknown): boolean =>
 
 /** The workspace tables this database holds (search's key table exists only with search on). */
 async function presentTables(store: SessionStore): Promise<string[]> {
-  const rows = await rawDb(store).all<{ name: string }>(
-    engineOf(store) === 'pg'
+  const rows = await storeSql(store).all<{ name: string }>(
+    storeSql(store).engine === 'pg'
       ? sql`SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`
       : sql`SELECT name FROM sqlite_master WHERE type = 'table'`,
   )
   const names = new Set(rows.map((row) => row.name))
-  return WORKSPACE_TABLES.filter((table) => names.has(table))
+  return workspaceTablesOf(storeSql(store).engine).filter((table) => names.has(table))
 }
 
 /** Every workspace table's rows of one workspace, each as a set (sorted by text). */
@@ -1047,7 +1052,9 @@ async function workspaceRows(store: SessionStore, ws: string): Promise<Record<st
   const out: Record<string, string[]> = {}
   for (const table of await presentTables(store)) {
     out[table] = (
-      await rawDb(store).all(sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${ws}`)
+      await storeSql(store).all(
+        sql`SELECT * FROM ${sql.identifier(table)} WHERE workspace_id = ${ws}`,
+      )
     )
       .map((row) => canonical(row))
       .sort()
@@ -1097,7 +1104,7 @@ async function checkGroup(group: Group, plant?: Plant): Promise<Outcome> {
       for (const table of await presentTables(stores.a)) {
         const counts: number[] = []
         for (const tag of ['a', 'b'] as const) {
-          const [row] = await rawDb(stores.a).all<{ n: number | string }>(
+          const [row] = await storeSql(stores.a).all<{ n: number | string }>(
             sql`SELECT count(*) AS n FROM ${sql.identifier(table)} WHERE workspace_id = ${group.ws[tag]}`,
           )
           counts.push(Number(row?.n ?? 0))
@@ -1159,7 +1166,9 @@ describe('POD-7025 — no repository and no workspace table is left out', () => 
     // Runs after the groups above (vitest runs a file's cases in order).
     expect(outcomes.size).toBe(GROUPS.length)
     const filled = new Set([...outcomes.values()].flatMap((outcome) => [...outcome.filled]))
-    const missing = WORKSPACE_TABLES.filter((table) => !filled.has(table) && !(table in UNSEEDED))
+    const missing = workspaceTablesOf(testStoreEngine()).filter(
+      (table) => !filled.has(table) && !(table in UNSEEDED),
+    )
     expect(missing).toEqual([])
     // And no reason stays once a seed fills its table.
     expect(Object.keys(UNSEEDED).filter((table) => filled.has(table))).toEqual([])
@@ -1173,7 +1182,7 @@ describe('POD-7025 — no repository and no workspace table is left out', () => 
         store.readWatermarks.getRecapWatermark = async (reader, sessionId) => {
           // The second workspace's row first (ws_b sorts after ws_a): Postgres has no rowid to
           // order the newest by, and both rows carry the same update time.
-          const [row] = await rawDb(store).all<{ watermark: string }>(
+          const [row] = await storeSql(store).all<{ watermark: string }>(
             sql`SELECT watermark FROM recap_watermarks WHERE reader = ${reader} AND session_id = ${sessionId} ORDER BY workspace_id DESC LIMIT 1`,
           )
           return row?.watermark ?? null

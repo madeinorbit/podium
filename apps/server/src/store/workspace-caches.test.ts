@@ -58,7 +58,7 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { FeedIdentityRegistry } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { type SQL, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type MachineRowSource, ownershipFromMachinesPerPass } from '../machine-access'
 import { ModelCatalog } from '../model-catalog'
@@ -69,6 +69,7 @@ import { GreenPrefixCache, isolateShippingTrain } from '../modules/shipping/queu
 import type { SessionStore } from '../store'
 import { kindGenerationBump } from '../sync/kind-tokens'
 import { testStoreEngine } from '../test-support/pg-test-database'
+import { storeSql } from '../test-support/store-sql'
 import * as issueSeed from '../test-support/workspace-seeds/issues'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import { withOperation } from './executor/operation-scope'
@@ -97,13 +98,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await stores.a.close()
 })
-
-/** Raw statements on the store's own drizzle instance, on either engine (POD-6994). */
-interface RawDb {
-  all<T = Record<string, unknown>>(statement: SQL): Promise<T[]>
-  run(statement: SQL): Promise<unknown>
-}
-const rawDb = (store: SessionStore): RawDb => store.database.queries.rootDb as unknown as RawDb
 
 function session(tag: Tag, patch: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -517,17 +511,17 @@ describe('the cache table of design 2.8, each row with the same key in both work
 
   it('kind schemas are code; the kind generations they pair with are each workspace’s own', async () => {
     const generations = async (tag: Tag) =>
-      await rawDb(stores.a).all<{ generation: number }>(
+      await storeSql(stores.a).all<{ generation: number }>(
         sql`SELECT kind, generation FROM sync_kind WHERE workspace_id = ${WS[tag]} AND kind = 'bench-kind'`,
       )
     // The bump the migrations use: one row per provisioned workspace.
-    await rawDb(stores.a).run(sql.raw(kindGenerationBump(['bench-kind' as never])))
+    await storeSql(stores.a).run(sql.raw(kindGenerationBump(['bench-kind' as never])))
     const first: number[][] = []
     for (const tag of TAGS)
       first.push((await generations(tag)).map((row) => Number(row.generation)))
     expect(first.every((rows) => rows.length === 1)).toBe(true)
     // A workspace's own bump moves its row only.
-    await rawDb(stores.a).run(
+    await storeSql(stores.a).run(
       sql`UPDATE sync_kind SET generation = generation + 1 WHERE workspace_id = ${WS.a} AND kind = 'bench-kind'`,
     )
     expect(Number((await generations('a'))[0]?.generation)).toBe(first[0]![0]! + 1)

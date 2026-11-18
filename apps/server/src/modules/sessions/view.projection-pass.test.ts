@@ -1,4 +1,3 @@
-import { applyMembership } from '@podium/identity'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -18,6 +17,7 @@ afterAll(() => {
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { residentRecords } from '../../test-support/session-records'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
@@ -255,24 +255,21 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      // The reader's member row, through the one member writer: active, later disabled.
-      const membership = async (version: number, status: 'active' | 'disabled') =>
-        await applyMembership(f.store.users.memberRows, {
-          memberId: reader,
-          version,
-          authorizationVersion: 0,
-          status,
-          role: 'member',
-          accountId: null,
-          profile: { name: 'Reader', email: null, image: null },
-          actor: { system: 'upgrade' },
-        })
-      await membership(1, 'active')
+      // The reader's member row, through the two-engine member fixture (the one member
+      // writer underneath): active, later disabled.
+      const members = memberFacts(f.store)
+      await members.create({
+        id: reader,
+        displayName: 'Reader',
+        role: 'member',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        disabledAt: null,
+      })
       expect(await f.store.users.get(reader)).toBeDefined()
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
       ).toEqual([true, true, true, true, false])
-      await membership(2, 'disabled')
+      await members.disable(reader)
       expect(await f.store.users.get(reader)).toBeUndefined()
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
