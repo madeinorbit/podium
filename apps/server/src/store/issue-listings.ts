@@ -320,11 +320,11 @@ export const issueCountGroups = preparedFamily((db, t, key: string) => {
       priority: t.issues.priority,
       type: t.issues.type,
       assignee: t.issues.ownerUserId,
-      n: count(),
-      first:
-        dialect === 'pg'
-          ? sql<string>`min((${t.issues.repoPath} || chr(1) || lpad(${t.issues.seq}::text, 20, '0')) COLLATE "C")`
-          : sql<string>`min(${t.issues.repoPath} || char(0) || printf('%020d', ${t.issues.seq}))`,
+      n: count().as('n'),
+      first: (dialect === 'pg'
+        ? sql<string>`min((${t.issues.repoPath} || chr(1) || lpad(${t.issues.seq}::text, 20, '0')) COLLATE "C")`
+        : sql<string>`min(${t.issues.repoPath} || char(0) || printf('%020d', ${t.issues.seq}))`
+      ).as('first'),
     })
     .from(t.issues)
     .where(listingWhere(t, shape, dialect))
@@ -333,15 +333,25 @@ export const issueCountGroups = preparedFamily((db, t, key: string) => {
 })
 
 /** `issues.stats`: totals over one listing shape; deferral is counted by the
- *  caller over the rows that carry a `defer_until`. */
+ *  caller over the rows that carry a `defer_until`. Each total has its own alias:
+ *  unaliased, Postgres names all three `coalesce` and the row keeps one of them
+ *  (POD-7103; `dialect-census.test.ts` refuses such a select list). */
 export const issueStatTotals = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
   return db
     .select({
-      total: count(),
-      closed: sql<number>`coalesce(sum(case when ${closedOf(t.issues)} then 1 else 0 end), 0)`,
-      ready: sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${inArray(t.issues.stage, [...READY_STAGES])} and not ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`,
-      blocked: sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`,
+      total: count().as('total'),
+      closed: sql<number>`coalesce(sum(case when ${closedOf(t.issues)} then 1 else 0 end), 0)`.as(
+        'closed',
+      ),
+      ready:
+        sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${inArray(t.issues.stage, [...READY_STAGES])} and not ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`.as(
+          'ready',
+        ),
+      blocked:
+        sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`.as(
+          'blocked',
+        ),
     })
     .from(t.issues)
     .where(listingWhere(t, shape, dialectOf(db)))

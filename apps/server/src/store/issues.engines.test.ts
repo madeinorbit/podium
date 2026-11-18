@@ -196,6 +196,31 @@ describe('the issue listings', () => {
   })
 })
 
+describe('the listing totals', () => {
+  it('counts closed, ready and blocked issues each in its own column (POD-7103)', async () => {
+    // Distinct totals, so a column read in another's place cannot pass: 7 issues, 2 closed,
+    // 3 ready, 1 blocked, and one open issue that is neither (a stage that is not ready).
+    // Unaliased, Postgres named the three sums `coalesce` and the row kept only one.
+    const store = await openStore()
+    await seed(store, { id: asIssueId('iss_done'), seq: 1, stage: 'done' })
+    await seed(store, { id: asIssueId('iss_dup'), seq: 2, closedReason: 'duplicate' })
+    const blocker = await seed(store, { id: asIssueId('iss_blocker'), seq: 3 })
+    const blocked = await seed(store, { id: asIssueId('iss_blocked'), seq: 4 })
+    await seed(store, { id: asIssueId('iss_planning'), seq: 5, stage: 'planning' })
+    await seed(store, { id: asIssueId('iss_review'), seq: 6, stage: 'review' })
+    await seed(store, { id: asIssueId('iss_proposed'), seq: 7, stage: 'proposed' })
+    await store.issues.addIssueDep(blocked.id, blocker.id)
+
+    expect(await store.issues.issueStatTotals({ repo: false, live: true, order: 'seq' })).toEqual({
+      total: 7,
+      closed: 2,
+      ready: 3,
+      blocked: 1,
+    })
+    await store.close()
+  })
+})
+
 describe('labels, worktrees and paths', () => {
   it('orders the vocabulary by lower-cased name in byte order, and finds a name ignoring case', async () => {
     const store = await openStore()

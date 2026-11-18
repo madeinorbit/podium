@@ -29,7 +29,11 @@
  *  - it takes a `UNION` (not `UNION ALL`) of selects that return a `json` column: the
  *    duplicate removal compares rows, and `json` has no equality;
  *  - it orders by a nullable column without NULLS FIRST / NULLS LAST: SQLite sorts NULL
- *    first ascending and Postgres last, so the rows come back in another order.
+ *    first ascending and Postgres last, so the rows come back in another order;
+ *  - its result rows hold two expression columns without an alias, or two columns of one
+ *    name: Postgres names an expression after its function (`coalesce`, `count`), the
+ *    driver hands drizzle each row keyed by name, and columns of one name collapse, so the
+ *    values after them move (POD-7103).
  *
  * Each such definition is on {@link NEEDS_PG_FORM} with what it needs, and the task that
  * adds its Postgres form is the one that owns its file ({@link TASK_OF_FILE}, from design
@@ -760,6 +764,123 @@ function nullOrderFindings(tokens: Token[]): string[] {
   return found
 }
 
+/** Words that end a select list at its own depth. */
+const SELECT_LIST_END = new Set([
+  'FROM',
+  'WHERE',
+  'GROUP',
+  'HAVING',
+  'WINDOW',
+  'ORDER',
+  'LIMIT',
+  'OFFSET',
+  'FETCH',
+  'FOR',
+  'UNION',
+  'EXCEPT',
+  'INTERSECT',
+  'ON',
+])
+
+/** One result column of a select list: its name, and whether an expression gave it. */
+function resultColumn(
+  tokens: Token[],
+  start: number,
+  end: number,
+): { name: string; unaliased: boolean } | undefined {
+  const at = (k: number) => tokenAt(tokens, k)
+  const bare = (token: Token) =>
+    token.kind === 'name' ? token.text.slice(1, -1) : token.text.toLowerCase()
+  if (end > start && upper(at(end - 1)) === 'AS') return { name: bare(at(end)), unaliased: false }
+  if (at(end).text === '*') return undefined
+  if (start === end && (at(start).kind === 'name' || at(start).kind === 'word')) {
+    return { name: bare(at(start)), unaliased: false }
+  }
+  const reference = (token: Token) => token.kind === 'name' || token.kind === 'word'
+  if (
+    end === start + 2 &&
+    at(start + 1).text === '.' &&
+    reference(at(start)) &&
+    reference(at(end))
+  ) {
+    return { name: bare(at(end)), unaliased: false }
+  }
+  // An expression: Postgres names it after its outermost call or CASE, else `?column?`.
+  if (
+    at(start).kind === 'word' &&
+    at(start + 1).text === '(' &&
+    closing(tokens, start + 1) === end
+  ) {
+    return { name: at(start).text.toLowerCase(), unaliased: true }
+  }
+  if (upper(at(start)) === 'CASE' && upper(at(end)) === 'END')
+    return { name: 'case', unaliased: true }
+  return { name: '?column?', unaliased: true }
+}
+
+/**
+ * A select (or RETURNING) list that holds two or more expression columns without an alias,
+ * or two result columns of one name. The Postgres driver hands drizzle each row as an object
+ * keyed by column name, so columns of one name collapse into one and every value after them
+ * moves (`coalesce(…), coalesce(…)` read as one column): an expression column is named by
+ * the engine, so each one needs its own alias (POD-7103).
+ */
+function resultNameFindings(tokens: Token[]): string[] {
+  const found: string[] = []
+  let depth0 = 0
+  /** The last statement keyword at depth 0: a SELECT that feeds an INSERT returns no rows. */
+  let statement = ''
+  let afterSetOperator = false
+  for (let i = 0; i < tokens.length; i += 1) {
+    const text = tokenAt(tokens, i).text
+    if (text === '(') depth0 += 1
+    else if (text === ')') depth0 -= 1
+    const word = upper(tokens[i])
+    if (depth0 !== 0) continue
+    if (/^(INSERT|UPDATE|DELETE|WITH)$/.test(word)) statement = word
+    if (/^(UNION|EXCEPT|INTERSECT)$/.test(word)) afterSetOperator = true
+    if (word !== 'SELECT' && word !== 'RETURNING') continue
+    // Only the rows the statement hands back are named: not an INSERT's source rows, nor a
+    // later arm of a UNION (the first arm names the columns), nor a subquery's.
+    if (word === 'SELECT' && (statement === 'INSERT' || afterSetOperator)) continue
+    let start = i + 1
+    if (upper(tokens[start]) === 'DISTINCT' || upper(tokens[start]) === 'ALL') start += 1
+    if (upper(tokens[start]) === 'ON' && tokens[start + 1]?.text === '(') {
+      start = closing(tokens, start + 1) + 1
+    }
+    const columns: { name: string; unaliased: boolean }[] = []
+    let depth = 0
+    let item = start
+    let j = start
+    for (; j < tokens.length; j += 1) {
+      const token = tokenAt(tokens, j)
+      if (token.text === '(') depth += 1
+      else if (token.text === ')') {
+        if (depth === 0) break
+        depth -= 1
+      } else if (depth === 0 && (token.text === ',' || SELECT_LIST_END.has(upper(token)))) {
+        const column = resultColumn(tokens, item, j - 1)
+        if (column) columns.push(column)
+        if (token.text !== ',') break
+        item = j + 1
+      }
+    }
+    if (j >= tokens.length || tokenAt(tokens, j).text === ')') {
+      const column = resultColumn(tokens, item, j - 1)
+      if (column) columns.push(column)
+    }
+    if (columns.filter((column) => column.unaliased).length >= 2) {
+      found.push('two or more expression columns without an alias in one select list')
+    }
+    const seen = new Set<string>()
+    for (const { name } of columns) {
+      if (seen.has(name)) found.push(`two result columns named ${name} in one select list`)
+      seen.add(name)
+    }
+  }
+  return found
+}
+
 /** Every finding in one Postgres statement, deduplicated. */
 function findingsIn(sql: string): string[] {
   const tokens = tokenize(sql)
@@ -773,6 +894,7 @@ function findingsIn(sql: string): string[] {
   for (const finding of unaryPlusFindings(tokens)) found.add(finding)
   for (const finding of unionOverJsonFindings(tokens)) found.add(finding)
   for (const finding of nullOrderFindings(tokens)) found.add(finding)
+  for (const finding of resultNameFindings(tokens)) found.add(finding)
   return [...found].sort()
 }
 
@@ -1057,5 +1179,43 @@ describe('the census reads Postgres SQL', () => {
     expect(findingsIn('select "id" from "sessions" order by coalesce("stopped_at", $1)')).toEqual(
       [],
     )
+  })
+
+  it('finds a select list whose result columns would collapse into one name (POD-7103)', () => {
+    // The planted case: `issueStatTotals` as it stood, three unaliased `coalesce(…)`.
+    expect(
+      findingsIn(
+        'select count(*), coalesce(sum(case when "stage" = $1 then 1 else 0 end), 0), coalesce(sum(case when "stage" <> $2 then 1 else 0 end), 0) from "issues"',
+      ),
+    ).toEqual([
+      'two or more expression columns without an alias in one select list',
+      'two result columns named coalesce in one select list',
+    ])
+    // Two columns of one name from two tables collapse as well.
+    expect(
+      findingsIn(
+        'select "issues"."id", "blocker"."id" from "issues" join "issues" "blocker" on true',
+      ),
+    ).toEqual(['two result columns named id in one select list'])
+    // A RETURNING list is read the same way.
+    expect(findingsIn('delete from "issues" returning count(*), max("seq")')).toEqual([
+      'two or more expression columns without an alias in one select list',
+    ])
+    // Aliased, one expression, an INSERT's source rows, a later UNION arm or a subquery: clean.
+    expect(
+      findingsIn(
+        'select count(*) as "total", coalesce(sum("seq"), 0) as "closed", "id" from "issues"',
+      ),
+    ).toEqual([])
+    expect(findingsIn('select "id", count(*) from "issues" group by "id"')).toEqual([])
+    expect(findingsIn('insert into "sync_capture" ("a", "b") select $1, $2 from "issues"')).toEqual(
+      [],
+    )
+    expect(
+      findingsIn('select "id" as "x" from "issues" union all select $1, $2 from "issues"'),
+    ).toEqual([])
+    expect(
+      findingsIn('select "id" from "issues" where "seq" = (select max("seq") from "issues")'),
+    ).toEqual([])
   })
 })
