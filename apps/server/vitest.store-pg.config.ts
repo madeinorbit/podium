@@ -15,10 +15,27 @@
 
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import { BaseSequencer, type TestSpecification } from 'vitest/node'
 import { sharedVitestConfig } from '../../vitest.config'
 import { postgresLegFiles } from './src/test-support/test-store-engines'
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
+
+/**
+ * The isolation pair (`src/store/pg-test-isolation-{1,2}.test.ts`) proves two workers of one
+ * run see different databases, so its two files must run at the same time. Left to the
+ * default order, a whole-leg run can reach them minutes apart, and each waits out its
+ * partner (POD-6994: seen at five workers). Scheduled first, they start together on the
+ * first two workers; everything else keeps the default order.
+ */
+const ISOLATION_PAIR = /\/pg-test-isolation-[12]\.test\.ts$/
+class IsolationPairFirst extends BaseSequencer {
+  override async sort(files: TestSpecification[]): Promise<TestSpecification[]> {
+    const sorted = await super.sort(files)
+    const pair = (file: TestSpecification) => ISOLATION_PAIR.test(file.moduleId)
+    return [...sorted.filter(pair), ...sorted.filter((file) => !pair(file))]
+  }
+}
 
 export default defineConfig({
   root: repositoryRoot,
@@ -29,6 +46,7 @@ export default defineConfig({
     include: postgresLegFiles(repositoryRoot),
     passWithNoTests: false,
     retry: 0,
+    sequence: { sequencer: IsolationPairFirst },
     // Every statement is a round trip to a server here, where SQLite's is a call into
     // the process: a statement pin's 200-row world takes several times as long to build
     // (POD-6994). The SQLite lanes keep the shared 20 s.
