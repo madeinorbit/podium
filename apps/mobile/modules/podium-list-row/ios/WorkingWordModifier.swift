@@ -1,84 +1,50 @@
-import Combine
-import QuartzCore
 import SwiftUI
 
-/// One native clock for all visible words. No JS frames or per-row timers.
-private final class WorkingWordClock: NSObject, ObservableObject {
-  static let shared = WorkingWordClock()
-  @Published private(set) var progress: Double = 0
-  private var users = 0
-  private var link: CADisplayLink?
-
-  func subscribe() {
-    users += 1
-    guard link == nil else { return }
-    let displayLink = CADisplayLink(target: self, selector: #selector(tick))
-    displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
-    displayLink.add(to: .main, forMode: .common)
-    link = displayLink
-  }
-
-  func unsubscribe() {
-    users -= 1
-    guard users == 0 else { return }
-    link?.invalidate()
-    link = nil
-    progress = 0
-  }
-
-  @objc private func tick(_ displayLink: CADisplayLink) {
-    progress = displayLink.timestamp.truncatingRemainder(dividingBy: 2.2) / 2.2
-  }
-}
-
-/// Applied to the native Text itself: its font, width and Dynamic Type metrics
-/// also define the glint mask. Recycling never measures or positions an RN view.
+/// Desktop's Working glint, applied to the native Text itself: its font, width and
+/// Dynamic Type metrics also define the glint mask. Recycling never measures or
+/// positions an RN view.
+///
+/// The clock is `TimelineView(.animation)`. SwiftUI advances it only while this
+/// word is in a window that is drawing, so offscreen rows, covered screens and a
+/// backgrounded app do no frame work, and every word reads the same date, which
+/// keeps all rows on one shared 2.2s timeline with their own phase.
+///
+/// Never gate this on `@Environment(\.scenePhase)`: views hosted by @expo/ui's
+/// UIHostingController are outside a SwiftUI scene and read the default
+/// `.background` forever, which kept the glint static on every device.
 struct WorkingWordModifier: ViewModifier {
   let phase: Double
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.scenePhase) private var scenePhase
-  @ObservedObject private var clock = WorkingWordClock.shared
-  @State private var visible = false
-  @State private var subscribed = false
-
-  init(phase: Double) {
-    self.phase = phase
-  }
 
   func body(content: Content) -> some View {
     content
       .overlay {
         if !reduceMotion {
-          GeometryReader { geometry in
-            Rectangle()
-              .fill(Color.primary)
-              .mask(content)
-              .mask {
-                LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
-                  .frame(width: geometry.size.width * 0.4)
-                  .offset(x: offset(width: geometry.size.width))
-                  .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
-              }
+          TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+            GeometryReader { geometry in
+              Rectangle()
+                .fill(Color.primary)
+                .mask(content)
+                .mask {
+                  LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: geometry.size.width * 0.4)
+                    .offset(x: glintOffset(at: timeline.date, width: geometry.size.width))
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                }
+            }
           }
           .allowsHitTesting(false)
           .accessibilityHidden(true)
         }
       }
-      .onAppear { visible = true; reconcile() }
-      .onDisappear { visible = false; reconcile() }
-      .onChange(of: reduceMotion) { _ in reconcile() }
-      .onChange(of: scenePhase) { _ in reconcile() }
   }
 
-  private func reconcile() {
-    let wanted = visible && !reduceMotion && scenePhase != .background
-    guard wanted != subscribed else { return }
-    subscribed = wanted
-    if wanted { clock.subscribe() } else { clock.unsubscribe() }
-  }
-
-  private func offset(width: CGFloat) -> CGFloat {
-    let position = (clock.progress + phase).truncatingRemainder(dividingBy: 1)
+  /// The window travels from -40% to 100% of the word over the first 66% of the
+  /// period, then rests outside the text, as `flight-v6-glint-window` does.
+  private func glintOffset(at date: Date, width: CGFloat) -> CGFloat {
+    let period = 2.2
+    let clock = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+    let position = (clock + phase).truncatingRemainder(dividingBy: 1)
     let travel = min(1, position / 0.66)
     return width * CGFloat(-0.4 + 1.4 * easeInOut(travel))
   }
