@@ -1,19 +1,8 @@
 import {
-  type ColdContext as ActiveWorkContext,
-  type ColdSpec,
-  coldByRule,
-  ISSUE_ACTIVE_WORK,
   isMachinePathWithinRoot,
-  keepDeadline,
-  type KeptBySpec,
-  keptByKey,
-  type LaneKeptBySpec,
   machinePathAncestors,
   machinePathKey,
   machinePathSeparator,
-  type MemberKeep,
-  type MembersKeptBySpec,
-  SESSION_ACTIVE_WORK,
 } from '@podium/model/browser'
 import { linkKeys, type RecordKind, type RecordLinkField, type RecordReplicaKind, recordOf } from '@podium/model'
 import { FULL_DECK_SESSION_FIELDS, MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
@@ -38,12 +27,10 @@ import { FULL_DECK_SESSION_FIELDS, MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSI
  *
  * WHAT IS NOT. Visibility, ordering, grouping, roll-ups and the row shape —
  * those are the row view contract (L1b) and the worklist phase. A rule that
- * reads more than one entity's fields is not a schema rule, with ONE declared
- * exception: the issue's residency (`cold: unlessShown`, POD-4665) reads its
- * member sessions (explicit ones, and since POD-4745 the issueless ones its
- * own checkout seats), because a row the list draws must be resident and the
- * sessions are what keep a closed issue drawn. It is an upper bound on
- * visibility, not visibility.
+ * reads more than one entity's fields is not a schema rule. Which rows are on
+ * the device is not a schema rule either: the server's policy and the views'
+ * collections decide it (`@podium/model` `records/declarations.ts`), and every
+ * row on the device is in the pool (POD-7094).
  *
  * SOURCES. Every field cites a zod schema in `@podium/model`, which is the
  * authoritative definition site [ADR 4], plus the replica collection the row
@@ -340,32 +327,12 @@ export interface ComponentSpec {
   readonly why: string
 }
 
-/**
- * The residency rule's declarations (`ColdSpec` and its sources) and its
- * evaluator are the active-work rule in `@podium/model` (POD-5593): one
- * definition for the pool, the server and the disk stores. Re-exported here
- * for the pool's readers.
- */
+/** Merge verdicts the pool's readers use (`@podium/model`). */
 export {
-  type ActiveWorkRow,
   awaitingMergeOf,
-  COLD_SESSION_FIELDS,
-  coldByRule,
-  type ColdSpec,
-  keepDeadline,
-  type KeptBySpec,
-  keptByKey,
-  type LaneKeptBySpec,
-  type MemberKeep,
-  type MembersKeptBySpec,
   type MergeVerdictRow,
-  type UnlessShownColdSpec,
   unmergedDeliveryOf,
-  viaTargetOf,
 } from '@podium/model/browser'
-
-/** What the rule asks of its caller, over the pool schema's entities. */
-export type ColdContext = ActiveWorkContext<EntityName>
 
 /**
  * A whole-kind membership rule: rows of one entity that share a group key
@@ -402,7 +369,13 @@ export interface EntitySpec {
   readonly components: Readonly<Record<string, ComponentSpec>>
   readonly fields: Readonly<Record<string, FieldSpec>>
   readonly relations: Readonly<Record<string, RelationSpec>>
-  readonly cold: ColdSpec
+  /**
+   * POD-7094 — set when a row of this entity can be absent from the device
+   * (history is not on it): a lookup then answers LOADING and asks the one
+   * loader for the record. Why, in words. Every row of any other entity the
+   * user may see is on the device.
+   */
+  readonly loadable?: string
   /** A whole-kind collapse rule over this entity's rows, when it has one. */
   readonly collapse?: CollapseSpec
   readonly why: string
@@ -467,7 +440,6 @@ function syncedIdentity(schema: ModelSchemaName, arrivesOn: RowArrival) {
   return {
     key: 'id', components: {}, relations: {},
     fields: { id: { type: 'id' as const, source: { schema, arrivesOn } } },
-    cold: { kind: 'never' as const, why: 'Synced records stay resident.' },
     why: 'Detailed fields and models register from the deferred synced-models module.',
   }
 }
@@ -498,7 +470,6 @@ function perUser(
       ),
     },
     relations: {},
-    cold: { kind: 'never' as const, why: 'A person has few of these: always resident.' },
   }
 }
 const effectWire = (property?: string): FieldSource => recordSource('effect', 'EffectRecordWire', property)
@@ -643,7 +614,7 @@ const DECLARED = defineSchema({
         inverse: 'parent',
         lazy: true,
         slice: 'R1',
-        why: 'The inverse collection the pool maintains; a child of a closed parent may be cold.',
+        why: 'The inverse collection the pool maintains; a child of a held parent may not be on the device.',
       }),
       treeParent: belongsTo({
         to: 'issue',
@@ -796,7 +767,7 @@ const DECLARED = defineSchema({
         why: 'Replaces the denormalized `issue.prefix`: `displayRef` reads `issue.repo.prefix` (replica/contract.ts:106-110).',
       }),
     },
-    cold: ISSUE_ACTIVE_WORK,
+    loadable: 'Only the held collections are on the device; any other issue loads by id, and its stub describes it meanwhile.',
   },
 
   /** One session (slice §1). */
@@ -969,7 +940,7 @@ const DECLARED = defineSchema({
         'dedupeSessionsByResume (model/src/identity/session-identity.ts), preserved by the pool resumeGroup collapse rule.',
       why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
-    cold: SESSION_ACTIVE_WORK,
+    loadable: 'Only the held collections are on the device; any other session loads by id. Sessions have no stub.',
   },
 
   /**
@@ -1012,7 +983,7 @@ const DECLARED = defineSchema({
           issueless: {
             fields: ['issueId'],
             test: (row: Readonly<Record<string, unknown>>) => row['issueId'] === undefined,
-            why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3), and keep a closed one of them shown (`issue.cold.keptBy`, POD-4745).",
+            why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3).",
           },
         },
       }),
@@ -1030,7 +1001,6 @@ const DECLARED = defineSchema({
         why: 'The lane’s repo, for the group key, label and prefix.',
       }),
     },
-    cold: { kind: 'never', why: 'One row per checkout on the machine: tens, not thousands. Always resident.' },
   },
 
   /**
@@ -1071,7 +1041,6 @@ const DECLARED = defineSchema({
       issues: hasMany({ to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.' }),
       worktrees: hasMany({ to: 'worktree', inverse: 'repo', lazy: false, why: 'The repo’s lanes.' }),
     },
-    cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
   },
   /**
    * A one-off action outside the database, as data (ADR 12 D5 E2): a merge, a
@@ -1136,7 +1105,6 @@ const DECLARED = defineSchema({
         why: 'The issue an effect acts on (a start, a stop), for its `effects` collection.',
       }),
     },
-    cold: { kind: 'never', why: 'Effects are few and pruned after the retention window: always resident.' },
   },
   /**
    * MY PINS, TAB ORDERS, PERSONAL SETTINGS AND READ POSITIONS (POD-6673): synced
@@ -1231,7 +1199,7 @@ const DECLARED = defineSchema({
   workflowRevision: syncedIdentity('WorkflowRevisionWire', 'replica:workflowRevisions'),
   workflowBinding: syncedIdentity('WorkflowBindingWire', 'replica:workflowBindings'),
   workflowRun: syncedIdentity('WorkflowRunRecord', 'replica:workflowRuns'),
-  issuePanelTodo: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+  issuePanelTodo: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
       issueId: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
@@ -1239,7 +1207,7 @@ const DECLARED = defineSchema({
       text: { type: 'string', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
       done: { type: 'boolean', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
     }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelTodo', 'issueId'), inverse: 'panelTodoRecords', lazy: true, why: 'The parent issue.' }) } },
-  issuePanelArtifact: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+  issuePanelArtifact: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
       issueId: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
@@ -1257,7 +1225,7 @@ const DECLARED = defineSchema({
       tracking: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
       untrackedPaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
     }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelArtifact', 'issueId'), inverse: 'panelArtifactRecords', lazy: true, why: 'The parent issue.' }) } },
-  issuePanelDeferred: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+  issuePanelDeferred: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
       issueId: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
@@ -1265,18 +1233,18 @@ const DECLARED = defineSchema({
       text: { type: 'string', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
       addedAt: { type: 'isoDate', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
     }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelDeferred', 'issueId'), inverse: 'panelDeferredRecords', lazy: true, why: 'The parent issue.' }) } },
-  issuePanelState: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+  issuePanelState: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
       text: { type: 'string', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
       updatedAt: { type: 'isoDate', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
     }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelState', 'id'), inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
-  issueBrief: { key: 'id', why: 'An issue brief, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+  issueBrief: { key: 'id', why: 'An issue brief, its own synced record (POD-6921).', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
       text: { type: 'string', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
     }, relations: { issue: belongsTo({ to: 'issue', ...link('issueBrief', 'id'), inverse: 'briefRecords', lazy: true, why: 'The parent issue.' }) } },
-  issueDescription: { key: 'id', why: 'An issue description, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+  issueDescription: { key: 'id', why: 'An issue description, its own synced record (POD-6921).', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
       text: { type: 'string', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
@@ -1299,212 +1267,17 @@ export type DeclaredSchema = typeof DECLARED
 // ---------------------------------------------------------------------------
 
 /**
- * A relation is lazy iff its TARGET entity can be non-resident.
- *
- * "Lazy" is about RESIDENCY, not about the cold predicate: a closed issue that
- * has been touched is resident, but its sessions need not be, so reading
- * `issue.sessions` can still require a load. Callers of a lazy relation must
- * handle the unhydrated state (audit §7: "type-level marking of unhydrated
- * relations"); callers of a non-lazy one never see it.
+ * A relation is lazy iff its TARGET entity can be absent from the device
+ * (`loadable`): reading `issue.sessions` of an issue whose sessions the
+ * device does not hold can still require a load. Callers of a lazy relation
+ * must handle the unhydrated state (audit §7: "type-level marking of
+ * unhydrated relations"); callers of a non-lazy one never see it.
  *
  * `schema.test.ts` recomputes every declared flag from this function, so a
  * hand-edited flag fails the test.
  */
 export function expectedLazy(schema: ModelSchema, relation: RelationSpec): boolean {
-  return schema[relation.to].cold.kind !== 'never'
-}
-
-/**
- * The pre-nesting presence bound in a cold issue's declared summary. Reuses
- * its compact own/finish deadlines and existing keeper indexes; no row read.
- * A placement-cold issue with a live descendant needs a load only while
- * this bound could still give it a row before nesting.
- */
-export function coldFlatUntil(
-  schema: ModelSchema,
-  entity: EntityName,
-  id: string,
-  summary: Readonly<Record<string, unknown>>,
-  bound: { readonly finish: number | null; readonly shownUntil: number },
-  ctx: ColdContext,
-): number {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'unlessShown') return Number.NEGATIVE_INFINITY
-  let until = bound.shownUntil
-  for (const source of spec.keptBy) {
-    const key = keptByKey(schema, entity, { ...summary, [schema[entity].key]: id }, source)
-    if (key === null) continue
-    for (const keep of ctx.keeps(entity, source, key)) until = Math.max(until, keepDeadline(keep, bound.finish))
-  }
-  return until
-}
-
-/** A `members` source, resolved: the member entity and the `belongsTo` naming the owner. */
-interface MembersLink {
-  readonly source: MembersKeptBySpec
-  readonly member: EntityName
-  readonly link: BelongsToSpec
-}
-
-/** The `members` sources of `entity`'s `keptBy`, resolved (throws on a malformed one). */
-function membersLinks(schema: ModelSchema, entity: EntityName): MembersLink[] {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'unlessShown') return []
-  const out: MembersLink[] = []
-  for (const source of spec.keptBy) {
-    if (source.kind !== 'members') continue
-    const relation = schema[entity].relations[source.relation]
-    if (relation?.kind !== 'hasMany') {
-      throw new Error(`[schema] ${entity}.cold.keptBy must name a hasMany (got ${relation?.kind})`)
-    }
-    const link = schema[relation.to].relations[relation.inverse]
-    if (link?.kind !== 'belongsTo') {
-      throw new Error(`[schema] ${entity}.cold.keptBy's inverse must be a belongsTo (got ${link?.kind})`)
-    }
-    out.push({ source, member: relation.to, link })
-  }
-  return out
-}
-
-/**
- * A `lane` source of an `unlessShown` entity, resolved against the schema
- * (POD-4745). For the issue: `issue.worktree` → `worktree.sessions` (the
- * inverse of the `session.worktree` prefix), unowned by `session.issue`, and
- * the owners a member at a lane can keep are `worktree.issues`.
- */
-export interface LaneSource {
-  readonly owner: EntityName
-  readonly source: LaneKeptBySpec
-  /** The owner's `belongsTo` naming its lane (`issue.worktree`). */
-  readonly through: BelongsToSpec
-  /** The lane entity (`worktree`). */
-  readonly lane: EntityName
-  /** The lane's collection of owners, `through`'s inverse (`issues`). */
-  readonly owners: string
-  /** The lane's collection the members sit in (`sessions`). */
-  readonly relation: string
-  /** The member entity (`session`). */
-  readonly member: EntityName
-  /** The member's `prefix` relation name and spec (`session.worktree`). */
-  readonly prefixName: string
-  readonly prefix: PrefixSpec
-  /** The subset of `relation` whose members count (`issueless`), and its declaration. */
-  readonly subsetName: string
-  readonly subset: SubsetSpec
-}
-
-/** A `lane` source's resolution, or the reason it does not resolve. */
-function resolveLane(
-  schema: ModelSchema,
-  owner: EntityName,
-  source: LaneKeptBySpec,
-): LaneSource | string {
-  const through = schema[owner].relations[source.through]
-  if (through?.kind !== 'belongsTo') return `through "${source.through}" must name a belongsTo`
-  const lane = through.to
-  const relation = schema[lane].relations[source.relation]
-  if (relation?.kind !== 'hasMany') {
-    return `relation "${lane}.${source.relation}" must name a hasMany`
-  }
-  const prefix = schema[relation.to].relations[relation.inverse]
-  if (prefix?.kind !== 'prefix') {
-    return `"${lane}.${source.relation}"'s inverse must be a prefix (got ${prefix?.kind})`
-  }
-  const subset = relation.subsets?.[source.subset]
-  if (subset === undefined) {
-    return `subset "${source.subset}" is not declared on ${lane}.${source.relation}`
-  }
-  return {
-    owner,
-    source,
-    through,
-    lane,
-    owners: through.inverse,
-    relation: source.relation,
-    member: relation.to,
-    prefixName: relation.inverse,
-    prefix,
-    subsetName: source.subset,
-    subset,
-  }
-}
-
-function laneOf(schema: ModelSchema, owner: EntityName, source: LaneKeptBySpec): LaneSource {
-  const found = resolveLane(schema, owner, source)
-  if (typeof found === 'string') throw new Error(`[schema] ${owner}.cold.keptBy (lane): ${found}`)
-  return found
-}
-
-/** Every `lane` source in the schema, resolved (throws on a malformed one). */
-export function laneSources(schema: ModelSchema): readonly LaneSource[] {
-  const out: LaneSource[] = []
-  for (const owner of Object.keys(schema) as EntityName[]) {
-    const spec = schema[owner].cold
-    if (spec.kind !== 'unlessShown') continue
-    for (const source of spec.keptBy) {
-      if (source.kind === 'lane') out.push(laneOf(schema, owner, source))
-    }
-  }
-  return out
-}
-
-/** The entities whose rows can keep an `unlessShown` row of another entity resident. */
-export function keeperEntities(schema: ModelSchema): ReadonlySet<EntityName> {
-  const out = new Set<EntityName>()
-  for (const entity of Object.keys(schema) as EntityName[]) {
-    for (const found of membersLinks(schema, entity)) out.add(found.member)
-  }
-  for (const lane of laneSources(schema)) out.add(lane.member)
-  return out
-}
-
-/**
- * The row `row` of `entity` can keep resident through a `members` source,
- * and how long ({@link MembersKeptBySpec}): by the RAW foreign key of the
- * relation's inverse, with that relation's `where` applied (a headless
- * session keeps nothing), before any collapse; null when it names nothing.
- */
-export function keeperOf(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-): {
-  readonly to: EntityName
-  readonly id: string
-  readonly source: MembersKeptBySpec
-  readonly keep: MemberKeep
-} | null {
-  const fields = row as Readonly<Record<string, unknown>>
-  for (const owner of Object.keys(schema) as EntityName[]) {
-    for (const found of membersLinks(schema, owner)) {
-      if (found.member !== entity) continue
-      if (found.link.where !== undefined && !found.link.where.test(fields)) return null
-      const key = fields[found.link.foreignKey]
-      if (typeof key !== 'string' || key.length === 0) return null
-      return { to: owner, id: key, source: found.source, keep: found.source.keep(fields) }
-    }
-  }
-  return null
-}
-
-/**
- * How long `row` of `lane.member` can keep, through `lane`, the owners of
- * whatever lane seats it (POD-4745): its keep while it passes the lane's
- * declared subset (POD-4758), else null. Which lane seats it (the prefix's
- * `where`, collapse, the union roots) is the relation's to say, not the
- * row's.
- */
-export function laneKeepOf(lane: LaneSource, row: object): MemberKeep | null {
-  const fields = row as Readonly<Record<string, unknown>>
-  return lane.subset.test(fields) ? lane.source.keep(fields) : null
-}
-
-/** `schema[entity].cold.finishOf(row)` for an `unlessShown` entity, else null. */
-export function coldFinishOf(schema: ModelSchema, entity: EntityName, row: object): number | null {
-  const spec = schema[entity].cold
-  return spec.kind === 'unlessShown'
-    ? spec.finishOf(row as Readonly<Record<string, unknown>>)
-    : null
+  return schema[relation.to].loadable !== undefined
 }
 
 /**
@@ -1528,112 +1301,6 @@ export function collapsedIds(
   }
   for (const group of groups.values()) for (const id of collapseLosers(rule, group)) out.add(id)
   return out
-}
-
-/**
- * A `lane` source over whole tables: lane key → the keeps of the unowned
- * members it seats, resolved from scratch exactly as the engines hold the
- * relation (collapsed twins out, the prefix's `where`, the longest root of
- * the union set: the lane table's keys plus every `alsoRoots` value).
- */
-function laneKeepsOver(
-  schema: ModelSchema,
-  lane: LaneSource,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-): Map<string, MemberKeep[]> {
-  const out = new Map<string, MemberKeep[]>()
-  const members = tables(lane.member)
-  if (members === undefined) return out
-  const roots = new Set<string>(tables(lane.prefix.to)?.keys() ?? [])
-  for (const root of extraRootsOf(lane.prefix, (entity) => tables(entity)?.values())) {
-    roots.add(root)
-  }
-  const collapsed = collapsedIds(schema[lane.member].collapse, members)
-  for (const [id, row] of members) {
-    if (collapsed.has(id)) continue
-    const fields = row as Readonly<Record<string, unknown>>
-    if (lane.prefix.where !== undefined && !lane.prefix.where.test(fields)) continue
-    const keep = laneKeepOf(lane, fields)
-    if (keep === null) continue
-    const path = fields[lane.prefix.sourceField]
-    if (typeof path !== 'string') continue
-    let at: string | null = machinePathSeparator(path) === '\\' ? longestPrefixPath(path, roots) : null
-    for (const candidate of prefixCandidates(normalizeRootPath(path))) {
-      if (roots.has(candidate)) {
-        at = candidate
-        break
-      }
-    }
-    if (at === null) continue
-    const keeps = out.get(at)
-    if (keeps === undefined) out.set(at, [keep])
-    else keeps.push(keep)
-  }
-  return out
-}
-
-/**
- * The rule over whole row tables at `now`: `coldTarget` recurses by rule over
- * `tables`, `keeps` reads an index of every member row built once here, per
- * source. What a rebuild, a re-partition's staged slice and the gate's check
- * pass. A `lane` source resolves its lanes over the lane table too, so pass
- * every entity's table.
- */
-export function tableColdContext(
-  schema: ModelSchema,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-  now: number,
-): ColdContext {
-  const index = new Map<KeptBySpec, Map<string, MemberKeep[]>>()
-  for (const member of keeperEntities(schema)) {
-    for (const row of tables(member)?.values() ?? []) {
-      const keeper = keeperOf(schema, member, row as object)
-      if (keeper === null) continue
-      let byKey = index.get(keeper.source)
-      if (byKey === undefined) {
-        byKey = new Map()
-        index.set(keeper.source, byKey)
-      }
-      const keeps = byKey.get(keeper.id)
-      if (keeps === undefined) byKey.set(keeper.id, [keeper.keep])
-      else keeps.push(keeper.keep)
-    }
-  }
-  for (const lane of laneSources(schema)) {
-    index.set(lane.source, laneKeepsOver(schema, lane, tables))
-  }
-  const ctx: ColdContext = {
-    now,
-    summary: (entity, id) => {
-      const row = tables(entity)?.get(id) as Readonly<Record<string, unknown>> | undefined
-      const spec = schema[entity].cold
-      if (row === undefined || spec.kind !== 'unlessShown' || spec.canShow === undefined) return undefined
-      return Object.fromEntries(spec.canShow.fields.map((field) => [field, row[field]]))
-    },
-    coldTarget: (to, id) => {
-      const row = tables(to)?.get(id)
-      return row !== undefined && coldByRule(schema, to, row as object, ctx)
-    },
-    keeps: (_entity, source, key) => index.get(source)?.get(key) ?? [],
-  }
-  return ctx
-}
-
-/**
- * {@link coldByRule} for the rows of whole tables at `now`, by entity and id
- * (false for an unknown row): what a test or a measurement partitions a
- * corpus with, instead of restating the rule.
- */
-export function tableColdRule(
-  schema: ModelSchema,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-  now: number,
-): (entity: EntityName, id: string) => boolean {
-  const ctx = tableColdContext(schema, tables, now)
-  return (entity, id) => {
-    const row = tables(entity)?.get(id)
-    return row !== undefined && coldByRule(schema, entity, row as object, ctx)
-  }
 }
 
 /** Every relation in the schema, with the entity and name it is declared under. */
@@ -1816,60 +1483,6 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       }
     }
 
-    if (entity.cold.kind === 'own' || entity.cold.kind === 'unlessShown') {
-      for (const field of entity.cold.dependsOn) {
-        if (!(field in entity.fields)) {
-          problems.push(`${from}.cold.dependsOn names undeclared field "${field}"`)
-        }
-      }
-    }
-    if (entity.cold.kind === 'unlessShown') {
-      if (entity.cold.canShow !== undefined) {
-        for (const field of entity.cold.canShow.fields) {
-          if (!(field in entity.fields)) problems.push(`${from}.cold.canShow names undeclared field "${field}"`)
-        }
-        const through = entity.relations[entity.cold.canShow.through]
-        if (through?.kind !== 'belongsTo' || through.to !== from) {
-          problems.push(`${from}.cold.canShow.through must name a self belongsTo`)
-        }
-      }
-      for (const source of entity.cold.keptBy) {
-        let member: EntityName
-        if (source.kind === 'members') {
-          const relation = entity.relations[source.relation]
-          const back =
-            relation === undefined ? undefined : schema[relation.to].relations[relation.inverse]
-          if (relation?.kind !== 'hasMany' || back?.kind !== 'belongsTo') {
-            problems.push(`${from}.cold.keptBy must name a hasMany whose inverse is a belongsTo`)
-            continue
-          }
-          member = relation.to
-        } else {
-          const lane = resolveLane(schema, from, source)
-          if (typeof lane === 'string') {
-            problems.push(`${from}.cold.keptBy (lane): ${lane}`)
-            continue
-          }
-          member = lane.member
-        }
-        for (const field of source.dependsOn) {
-          if (!(field in schema[member].fields)) {
-            problems.push(
-              `${from}.cold.keptBy.dependsOn names undeclared ${member} field "${field}"`,
-            )
-          }
-        }
-      }
-    }
-    if (entity.cold.kind === 'via' && !(entity.cold.relation in entity.relations)) {
-      problems.push(`${from}.cold.via names undeclared relation "${entity.cold.relation}"`)
-    }
-    if (entity.cold.kind === 'via') {
-      for (const field of entity.cold.unbound?.dependsOn ?? []) {
-        if (!(field in entity.fields)) problems.push(`${from}.cold.unbound.dependsOn names undeclared field "${field}"`)
-      }
-    }
-
     if (entity.collapse !== undefined) {
       for (const field of [...entity.collapse.fields, entity.collapse.recency]) {
         if (!(field in entity.fields)) {
@@ -1917,7 +1530,7 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       const wantLazy = expectedLazy(schema, relation)
       if (relation.lazy !== wantLazy) {
         problems.push(
-          `${here}: lazy=${relation.lazy} contradicts Rule L (target "${relation.to}" cold.kind="${target.cold.kind}" ⇒ lazy=${wantLazy})`,
+          `${here}: lazy=${relation.lazy} contradicts Rule L (target "${relation.to}" loadable=${target.loadable !== undefined} ⇒ lazy=${wantLazy})`,
         )
       }
 

@@ -17,7 +17,7 @@ import { omitGone } from './lookup'
 import { loadSyncedModels } from './models'
 import { MobxPool } from './pool'
 import { paneSession, paneSpawnConfirmed, paneWindow } from './session-pane'
-import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
+import { SESSION_PANE_ENTITIES, } from './session-pane-schema'
 import { SessionPaneSource } from './session-pane-source'
 import { sessionPaneView } from './session-pane-view'
 import { LOADING } from './worklist/rollup'
@@ -51,7 +51,6 @@ function fixture(attachLog = true) {
   }) as unknown as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find((row) => row.sessionId === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
-    summaries: SESSION_PANE_SUMMARIES,
     load: load as never,
     schedule: () => () => {},
   })
@@ -158,25 +157,6 @@ it('reports a wrong status, model, queued wake, host and mode by position withou
     liveFixture(f.pool).online('machine-a', true)
     const changed = { ...f.state(), panelMode: { [row.sessionId]: 'native' as const } }
     expect(checkSessionPanes(f.pool, changed).first?.section).toBe(1)
-  } finally {
-    f.pool.dispose()
-  }
-})
-
-it('loads cold pane detail through one batched reader, with no full payload retained in its summary', () => {
-  const f = fixture()
-  try {
-    const cold = f.sessions.at(-1)!
-    expect(f.pool.tables.session.has(cold.sessionId)).toBe(false)
-    expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
-    expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
-    expect(f.load).not.toHaveBeenCalled()
-    expect(omitGone(f.pool.row('session', cold.sessionId, 'summary'))).not.toHaveProperty(
-      'configureFields',
-    )
-    expect(f.pool.hydrate()).toBe(1)
-    expect(f.load).toHaveBeenCalledTimes(1)
-    expect(paneSession(f.pool, cold.sessionId)).toEqual(cold)
   } finally {
     f.pool.dispose()
   }

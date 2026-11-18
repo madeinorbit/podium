@@ -115,7 +115,7 @@ export function useIssueEdgeResolver(): (
       resolveIssueEdge(
         id,
         (targetId) => {
-          const row = omitGone(pool?.row('issue', targetId, 'summary-fields'))
+          const row = omitGone(pool?.row('issue', targetId))
           return row && typeof row !== 'symbol'
             ? (pool!.issueObject(targetId) as PageIssue)
             : undefined

@@ -125,7 +125,7 @@ describe('pool screening incrementality', () => {
     const raw = pool.row.bind(pool) as (...args: unknown[]) => unknown
     const spy = vi.spyOn(pool, 'row')
     spy.mockImplementation(((...args: unknown[]) => {
-      if (args[0] === 'issue' && args[2] === 'summary') reads++
+      if (args[0] === 'issue' && args[2] === undefined) reads++
       return raw(...args)
     }) as never)
     try {

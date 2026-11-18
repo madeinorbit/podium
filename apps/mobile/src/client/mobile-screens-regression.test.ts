@@ -14,7 +14,6 @@ import {
   trackMobileScreenRead as tracked,
 } from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { MobxPool } from '@podium/client-graph/pool'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -73,7 +72,6 @@ it.each([
 ])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, header, hash }) => {
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-    summaries: MOBILE_SCREEN_SUMMARIES,
   })
   await attachMobileScreens(handle.pool)
   try {
@@ -99,62 +97,6 @@ it.each([
     handle.dispose()
     feeds.dispose()
     ctx.dispose()
-  }
-})
-
-it('phone mission batches cold spin-offs and their dependency targets together', () => {
-  const stamp = new Date(FIXED_NOW).toISOString()
-  const old = new Date(FIXED_NOW - 30 * 86_400_000).toISOString()
-  const issue = (id: string, patch: Record<string, unknown> = {}) => ({
-    id, seq: 1, title: id, description: '', stage: 'in_progress', deps: [], parentId: null,
-    repoPath: '/synthetic', createdAt: old, updatedAt: stamp, readAt: stamp, ...patch,
-  }) as unknown as IssueNavigationModel
-  const width = 80
-  const cold = { stage: 'done', closedAt: old, updatedAt: old, readAt: old }
-  const rows = [
-    issue('root'),
-    ...Array.from({ length: width }, (_, index) => issue(`branch-${index}`, {
-      ...cold,
-      deps: [{ id: 'root', type: 'discovered-from' }, { id: `target-${index}`, type: 'blocked-by' }],
-    })),
-    ...Array.from({ length: width }, (_, index) => issue(`target-${index}`, cold)),
-    issue('unrelated-history', cold),
-  ]
-  const byId = new Map(rows.map(row => [row.id as string, row]))
-  const load = vi.fn((_entity: string, id: string) => byId.get(id))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: FIXED_NOW }, undefined, {
-    load, summaries: MOBILE_SCREEN_SUMMARIES, schedule: () => () => {},
-  })
-  attachMissionTestPreferences(pool)
-  const screen = new MissionScreen(pool, 'root')
-  let stop = () => {}
-  try {
-    pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
-    // The phone's opening draws where the work went: every cold spin-off and
-    // the dependency each one waits on. A cold sibling must not prevent the
-    // remaining siblings from requesting their rows.
-    const read = () => settled(() => screen.ready
-      ? [screen.rootId, ...screen.departures.map(departure => departure.issue.id), ...screen.departures.flatMap(departure =>
-        departure.issue.deps.filter(dep => dep.type === 'blocked-by').map(dep => dep.id))]
-      : LOADING)
-    // Keep the opening mounted while hydration publishes the next load wave.
-    stop = autorun(() => { read() })
-    expect(read()).toBe(LOADING)
-    expect(load).not.toHaveBeenCalled()
-    let batches = 0
-    while (pool.hydrate() > 0) batches++
-    const addressed = read()
-    expect(addressed).not.toBe(LOADING)
-    if (addressed === LOADING) throw new Error('Phone mission is still loading')
-    expect(new Set(addressed)).toEqual(new Set(rows.slice(0, -1).map(row => row.id)))
-    expect(batches).toBeLessThanOrEqual(2)
-    expect(load).toHaveBeenCalledTimes(width * 2)
-    expect(pool.hydrate()).toBe(0)
-    expect(pool.tables.issue.has('unrelated-history')).toBe(false)
-  } finally {
-    stop()
-    screen.close()
-    pool.dispose()
   }
 })
 
@@ -223,7 +165,6 @@ for (const scale of [1, 4] as const)
     const ctx = await startScenarioEngine(scale),
       feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-      summaries: MOBILE_SCREEN_SUMMARIES,
     })
     await attachMobileScreens(handle.pool)
     try {

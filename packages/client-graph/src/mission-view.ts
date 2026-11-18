@@ -1234,9 +1234,7 @@ export class MissionViewReader {
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = omitGone(
-      this.pool.row('issue', id, 'summary-fields'),
-    ) as Loaded<IssueNavigationModel>
+    const row = omitGone(this.pool.row('issue', id)) as Loaded<IssueNavigationModel>
     if (!row || row === LOADING) return row
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId
@@ -1552,7 +1550,7 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const currentId = id
-      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{
+      const facts = omitGone(this.pool.row('issue', id)) as Loaded<{
         archived?: boolean
         deletedAt?: string
       }>

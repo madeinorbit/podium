@@ -35,60 +35,6 @@ function fixture() {
   return { pool, rows, exits, load, schedule }
 }
 
-it('compares the old and new answers on resident, cold, removed and inaccessible fixtures', () => {
-  const f = fixture()
-  try {
-    expect(f.pool.row('issue', 'hot')).toBe(oldRow(f.pool, 'hot'))
-    expect(f.pool.model('issue', 'hot')).toBe(oldModel(f.pool, 'hot'))
-    expect(f.pool.row('issue', 'cold')).toBe(oldRow(f.pool, 'cold'))
-    expect(oldModel(f.pool, 'cold')).toBeUndefined()
-    expect(f.pool.model('issue', 'cold')).toBe(LOADING)
-    expect(oldRow(f.pool, 'deleted')).toBeUndefined()
-    expect(f.pool.row('issue', 'deleted')).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.model('issue', 'deleted')).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.row('issue', 'private')).toBe(LOADING)
-    f.pool.hydrate()
-    expect(f.pool.row('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
-    expect(f.pool.model('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
-    // Existing nullable/list callers deliberately keep their former answers.
-    expect(here(f.pool.model('issue', 'cold'))).toBe(oldModel(f.pool, 'cold'))
-    expect(omitGone(f.pool.row('issue', 'deleted'))).toBe(oldRow(f.pool, 'deleted'))
-    expect(here(f.pool.model('issue', 'deleted'))).toBe(oldModel(f.pool, 'deleted'))
-  } finally { f.pool.dispose() }
-})
-
-it('a server-deleted cold record never starts another load', () => {
-  const f = fixture()
-  try {
-    f.exits.set('cold', 'removed')
-    f.rows.delete('cold')
-    expect(f.pool.row('issue', 'cold')).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.model('issue', 'cold')).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.row('issue', 'deleted', 'summary')).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.hydrate()).toBe(0)
-    expect(f.schedule).not.toHaveBeenCalled()
-    expect(f.load).not.toHaveBeenCalled()
-  } finally { f.pool.dispose() }
-})
-
-it('the row boundary displays pending once and never spins for a deleted or inaccessible record', () => {
-  const f = fixture()
-  const render = (id: string) => renderToStaticMarkup(createElement(PoolRowSlot, {
-    pool: f.pool, id,
-    renderRow: row => createElement('span', null, row.id),
-    renderLoading: () => createElement('span', null, 'loading'),
-  }))
-  try {
-    expect(render('hot')).toBe('<span>hot</span>')
-    expect(render('cold')).toBe('<span>loading</span>')
-    expect(render('deleted')).toBe('')
-    expect(render('private')).toBe('<span>loading</span>')
-    f.pool.hydrate()
-    expect(render('private')).toBe('')
-    expect(render('deleted')).toBe('')
-  } finally { f.pool.dispose() }
-})
-
 // Compiled by the full typecheck; never invoked. The raw APIs force narrowing
 // before reading record fields and cannot silently answer undefined.
 function lookupTypes(pool: MobxPool) {
@@ -114,23 +60,6 @@ function lookupTypes(pool: MobxPool) {
   void absent; void complete
 }
 void lookupTypes
-
-it('batches cold, unknown and evicted requests and reloads the evicted record', () => {
-  const f = fixture()
-  try {
-    f.rows.set('evicted', issue('evicted'))
-    expect(f.pool.model('issue', 'cold')).toBe(LOADING)
-    expect(f.pool.model('issue', 'evicted')).toBe(LOADING)
-    expect(f.pool.row('issue', 'cold')).toBe(LOADING)
-    expect(f.schedule).toHaveBeenCalledTimes(1)
-    expect(f.load).not.toHaveBeenCalled()
-    expect(f.pool.hydrate()).toBe(2)
-    expect(f.pool.row('issue', 'cold')).toBe(f.rows.get('cold'))
-    expect(f.pool.row('issue', 'evicted')).toBe(f.rows.get('evicted'))
-    expect(f.load).toHaveBeenCalledTimes(2)
-    expect(f.pool.model('issue', 'evicted')).toBe(f.pool.issueObject('evicted'))
-  } finally { f.pool.dispose() }
-})
 
 it('a deletion wakes its observer to gone and never queues another load', () => {
   const f = fixture()
@@ -181,24 +110,6 @@ it('compares old and new resident identity subscriptions while fields stay live'
   } finally { oldStop(); stop(); fieldsStop(); f.pool.dispose() }
 })
 
-it('a failed load settles once, and a later publication makes the record available again', () => {
-  const f = fixture()
-  const answers: unknown[] = []
-  const stop = autorun(() => { answers.push(f.pool.row('issue', 'private')) })
-  try {
-    expect(answers.at(-1)).toBe(LOADING)
-    f.pool.hydrate()
-    expect(answers.at(-1)).toEqual({ kind: 'gone', reason: 'not-visible' })
-    expect(f.pool.row('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
-    expect(f.pool.hydrate()).toBe(0)
-    expect(f.load).toHaveBeenCalledTimes(1)
-    const value = issue('private')
-    f.rows.set('private', value)
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'private', value }] })
-    expect(answers.at(-1)).toBe(value)
-  } finally { stop(); f.pool.dispose() }
-})
-
 it('resident observes presence without subscribing to payload changes', () => {
   const f = fixture()
   const presence: boolean[] = [], answers: string[] = [], titles: unknown[] = []
@@ -227,28 +138,6 @@ it('resident observes presence without subscribing to payload changes', () => {
     expect(presence).toEqual([true, false, true])
     expect(answers).toEqual(['resident', 'absent', 'resident'])
   } finally { presenceStop(); stop(); fieldsStop(); f.pool.dispose() }
-})
-
-it('resident keeps loading and absence transitions live', () => {
-  const f = fixture()
-  const cold: string[] = [], missing: string[] = []
-  const coldStop = autorun(() => { cold.push(f.pool.resident('issue', 'cold')) })
-  const missingStop = autorun(() => { missing.push(f.pool.resident('issue', 'private')) })
-  try {
-    expect(cold).toEqual(['loading'])
-    expect(missing).toEqual(['loading'])
-    expect(f.pool.resident('issue', 'deleted')).toBe('absent')
-    expect(f.pool.hydrate()).toBe(1)
-    expect(cold).toEqual(['loading', 'resident'])
-    expect(missing).toEqual(['loading', 'absent'])
-    expect(f.pool.resident('issue', 'private')).toBe('absent')
-    expect(f.pool.hydrate()).toBe(0)
-    expect(f.load).toHaveBeenCalledTimes(2)
-    const value = issue('private')
-    f.rows.set('private', value)
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'private', value }] })
-    expect(missing).toEqual(['loading', 'absent', 'resident'])
-  } finally { coldStop(); missingStop(); f.pool.dispose() }
 })
 
 it('keeps the old Gone guard answers and property reads on the same fixtures', () => {

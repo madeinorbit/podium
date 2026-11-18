@@ -1,7 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
@@ -103,7 +102,6 @@ function open(scale: number) {
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
   const pool = new MobxPool({ coarseNow: Date.parse(stamp), selectedIssueId: null }, undefined, {
     load,
-    summaries: MISSION_VIEW_SUMMARIES,
     schedule: () => () => {},
   })
   pools.push(pool)
@@ -132,8 +130,6 @@ function open(scale: number) {
       },
     },
   ])
-  expect(pool.tables.session.has('chosen-session')).toBe(false)
-  expect(pool.tables.issue.has('chosen-issue')).toBe(false)
   return { pool, load }
 }
 const props = {

@@ -16,7 +16,6 @@ import { insideReader, measureWork } from '../../../tests/worklist/harness/src/w
 import { EMPTY_HOST_AGGREGATE } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { MobxPool } from './pool'
-import { LOADING } from './worklist/rollup'
 const NO_REQUESTS = { settings: { get: { query: async () => ({}) } } } as unknown as HeaderRequestsApi
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
@@ -60,7 +59,6 @@ function fixture(coldCount = 0) {
   }
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined, {
-    header: true,
     load,
     schedule: () => () => {},
   })
@@ -77,9 +75,8 @@ function fixture(coldCount = 0) {
     ],
   })
   replace()
-  expect(pool.tables.session.size).toBe(32)
-  // POD-5407: the pool keeps no list of its cold rows; the index knows them.
-  expect(pool.coldIndex().count('session') - pool.tables.session.size).toBe(coldCount)
+  // POD-7094: every session the device holds is in the pool.
+  expect(pool.tables.session.size).toBe(32 + coldCount)
   // The old aggregate uses the header source's resident-only machine edges.
   const stopEdges = observe(pool.tables.session, (change) =>
     headerEntities(pool).change(
@@ -151,7 +148,6 @@ describe('incremental header sessions', () => {
     const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })
     expect(f.pool.queries.ids({ kind: 'headerSessions' })).toContain('cold-0')
-    expect(f.pool.tables.session.has('cold-0')).toBe(false)
     let references: (string | undefined)[] = []
     const stop = autorun(() => { references = headerView(f.pool).working().map(value => value.displayRef) })
     try {
@@ -159,7 +155,6 @@ describe('incremental header sessions', () => {
       f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: REF_REPO,
         value: { id: REF_REPO, prefix: 'NEXT', repoPath: '/synthetic/header' } as never }] })
       expect(references).toEqual(['NEXT-1-A'])
-      expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(f.load).not.toHaveBeenCalled()
     } finally { stop(); f.dispose() }
   })
@@ -262,7 +257,6 @@ describe('incremental header sessions', () => {
         expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['resident-0'])
         expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(1)
         f.change('cold-0', { status: 'live', agentState: state('working') })
-        expect(f.pool.tables.session.has('cold-0')).toBe(false)
         expect(headerView(f.pool).workingCount()).toBe(2)
         expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['cold-0', 'resident-0'])
         expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(2)
@@ -279,7 +273,6 @@ describe('incremental header sessions', () => {
         f.change('resident-0', { agentState: state('working') })
         f.change('cold-0', { status: 'live', agentState: state('working') })
       })
-      expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(headerView(f.pool).workingCount()).toBe(2)
       // Unknown is not offline: an app that has no reading yet counts as before.
       live.online(HOSTS[0]!, undefined)
@@ -299,7 +292,6 @@ describe('incremental header sessions', () => {
   it('releases header demand at the last reader and leaves untracked reads unsubscribed', () => {
     const f = fixture(1)
     const dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
-    const cold = vi.spyOn(HeaderSessions.prototype as unknown as { cold(id: string): void }, 'cold')
     try {
       expect(headerView(f.pool).workingCount()).toBe(0)
       expect(dispose).toHaveBeenCalledTimes(1)
@@ -309,66 +301,13 @@ describe('incremental header sessions', () => {
       expect(dispose).toHaveBeenCalledTimes(1)
       second()
       expect(dispose).toHaveBeenCalledTimes(2)
-      cold.mockClear()
       f.change('cold-0', { status: 'live', agentState: state('working') })
       f.change('resident-0', { agentState: state('working') })
       f.pool.clock.advance(NOW + 1000)
-      expect(cold).not.toHaveBeenCalled()
       const stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(2) })
       stop()
       expect(dispose).toHaveBeenCalledTimes(3)
-    } finally { cold.mockRestore(); dispose.mockRestore(); f.dispose() }
-  })
-
-  it('reads painted fields of a working cold session without hydrating it', () => {
-    const f = fixture(1)
-    f.change('cold-0', { status: 'live', agentState: state('working') })
-    let working: ReturnType<ReturnType<typeof headerView>['working']> = []
-    const stop = autorun(() => {
-      working = headerView(f.pool).working()
-    })
-    try {
-      f.paint('cold-0', { title: 'Pending title', name: 'Pending name' })
-      expect(working).toEqual([
-        expect.objectContaining({
-          sessionId: 'cold-0',
-          title: 'Pending title',
-          name: 'Pending name',
-        }),
-      ])
-      f.paint('cold-0', { archived: true })
-      expect(working).toEqual([])
-      f.rebase('cold-0')
-      expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'cold-0' })])
-      expect(f.pool.tables.session.has('cold-0')).toBe(false)
-      expect(f.pool.hydrate()).toBe(0)
-      expect(f.load).not.toHaveBeenCalled()
-    } finally {
-      stop()
-      f.dispose()
-    }
-  })
-
-  it('queues a missing cold header summary once and restores the roster on hydration', () => {
-    const f = fixture(1)
-    f.change('cold-0', { status: 'live', agentState: state('working') })
-    const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
-    let working: string[] = []
-    const stop = autorun(() => {
-      working = headerView(f.pool).working().map((row) => row.sessionId)
-    })
-    try {
-      expect(working).toEqual([])
-      expect(f.load).not.toHaveBeenCalled()
-      expect(f.pool.hydrate()).toBe(1)
-      expect(f.load).toHaveBeenCalledExactlyOnceWith('session', 'cold-0')
-      expect(working).toEqual(['cold-0'])
-      expect(f.pool.hydrate()).toBe(0)
-    } finally {
-      missing.mockRestore()
-      stop()
-      f.dispose()
-    }
+    } finally { dispose.mockRestore(); f.dispose() }
   })
 
   it.each([
@@ -390,13 +329,8 @@ describe('incremental header sessions', () => {
       check('resident-0', () => f.change('resident-0', { agentState: state('working') }))
       expect(working).toEqual(['resident-0'])
       check('cold-0', () => f.change('cold-0', { status: 'live', agentState: state('compacting') }))
-      expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       expect(working).toEqual(['cold-0', 'resident-0'])
       expect(f.load).not.toHaveBeenCalled()
-      check('cold-0', () => {
-        expect(omitGone(f.pool.row('session', 'cold-0'))).toBe(LOADING)
-        expect(f.pool.hydrate()).toBe(1)
-      })
       expect(working).toEqual(['cold-0', 'resident-0'])
       check('resident-0', () => f.change('resident-0', { archived: true }))
       expect(working).toEqual(['cold-0'])
@@ -441,10 +375,6 @@ describe('incremental header sessions', () => {
       check('cold-0', () => f.change('cold-0', { machineId: HOSTS[1] }))
       expect(first.count).toBe(32)
       expect(second).toMatchObject({ count: 1, idleSplit: { protected: 1 } })
-      check('cold-0', () => {
-        omitGone(f.pool.row('session', 'cold-0'))
-        f.pool.hydrate()
-      })
       expect(second.count).toBe(1)
       check('resident-0', () => f.change('resident-0', { archived: true }))
       expect(first.count).toBe(31)
@@ -513,14 +443,13 @@ describe('incremental header sessions', () => {
       parity()
       f.apply('resident-0', undefined)
       parity()
-      // A resident eviction followed by a returning cold summary must replace,
-      // rather than duplicate, its earlier contribution.
+      // A removal followed by the session's return must replace, rather than
+      // duplicate, its earlier contribution.
       const returned = f.rows.get('cold-0')!
       f.apply('cold-0', undefined)
       parity()
       f.apply('cold-0', returned)
       parity()
-      expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       f.rows.clear()
       f.rows.set('z', session('z', { agentState: state('working') }))
       f.rows.set('a', session('a', { agentState: state('compacting') }))

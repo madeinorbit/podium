@@ -1,4 +1,3 @@
-import type { ColdQueries, HeldSummaries } from './cold-index'
 import type { FeedDiagnostics } from './feed-diagnostics'
 /** Row and local channels consumed by the worklist pool. */
 import type { IssueSessionFactReader } from './issue-session-facts'
@@ -24,23 +23,14 @@ export interface RowSource {
   /**
    * POD-4567 (Ma3) — one row's current value by id, exactly as `snapshot(kind)`
    * would carry it (the kernel's per-row read, `replica.row`, with that row's
-   * overlays in `overlaid` mode); `undefined` when the row is gone. How a pool
-   * hydrates a cold row it holds only the id of (schema doc §5). Only the kinds
-   * that can be cold. Optional: a source without it cannot back a lazy pool.
+   * overlays in `overlaid` mode); `undefined` when the device does not hold it
+   * whole. How a pool tells a row the feed is about to publish from one the
+   * loader must fetch. Optional: a source without it cannot back a lazy pool.
    */
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
   /** Canonical replica exit evidence, addressed and read without loading. */
   exitKind?(kind: RowRecord['kind'], id: string): 'removed' | 'evicted' | undefined
-  /**
-   * POD-5405 — the residency rule's questions over EVERY row this feed carries
-   * (`cold-index.ts`): built on first call from one snapshot per kind, then
-   * kept current from this feed's own publications. Declared questions only;
-   * never a map. Optional: a source without it cannot back a resident-only
-   * attach. `summaries` (POD-5407): declared summary fields its rows must
-   * also hold; a call naming fields the index lacks rebuilds it with them.
-   */
-  cold?(summaries?: HeldSummaries): ColdQueries
-  /** A keyed identity read from the local replica, including cold issues. */
+  /** A keyed identity read from the local replica. */
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]
   /**
@@ -89,6 +79,8 @@ export interface CollectionLoaderPort {
   stubRows(
     entity: string,
   ): readonly { readonly id: string; readonly stub: Readonly<Record<string, unknown>> }[]
+  /** The record at a reference (repository and number), by the stubs (POD-7094: a table lookup). */
+  stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
   subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 

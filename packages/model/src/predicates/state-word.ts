@@ -16,7 +16,7 @@
  */
 
 import type { IdleVerdict } from '../entities/session'
-import { issueAbandoned } from './active-work'
+import { issueAbandoned } from './issue-landing'
 import { isFinished } from './issue-lifecycle'
 import {
   type CoordinatedSeat,

@@ -41,12 +41,11 @@
  * look the same, spec §2); every removal is reported in `IngestOut.removed`
  * so the pool drops the row's model.
  *
- * RESIDENCY (POD-4567). In the live pool a row of an entity that can be cold
- * (`schema[entity].cold`) is routed through `IngestTarget.residency`
- * (`residency.ts`): a cold row is registered by id and linked, never stored.
+ * EVERY ROW IS STORED (POD-7094). History is not on the device, so every row
+ * the feed carries is placed; there are no cold rows.
  *
  * RELATIONS (POD-4566, POD-5407). The relations are maintained by the
- * relation index the cold index holds (`shared/relation-index.ts`), from the
+ * relation index the device index holds (`shared/relation-index.ts`), from the
  * same publication, before the pool's tables see it; a table write tells
  * nothing to the relations. Ingest only reads them (`repo.worktrees`, for a
  * repo handed between lanes). The rebuild and the replace staging ingest
@@ -56,7 +55,6 @@
 import { getAtom, type IAtom, isObservableMap, type ObservableMap, observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationMaintenance } from './relations'
-import type { Residency } from './residency'
 import { createFieldInputs } from './shared/field-inputs'
 import { ingestWorktreeRecord, repoFieldOf } from './shared/repo-from-lane'
 import { type EntityName, SCHEMA } from './shared/schema'
@@ -143,12 +141,6 @@ export interface IngestTarget {
    * rebuild, which stores every row whole.
    */
   readonly volatile?: VolatileLane
-  /**
-   * The live pool's residency (POD-4567, `residency.ts`): a row of an entity
-   * that can be cold is routed through it, and a cold row never reaches
-   * `write`. The rebuild and the replace staging hold every row.
-   */
-  readonly residency?: Pick<Residency, 'capable' | 'ingest' | 'attach'>
 }
 
 /**
@@ -157,7 +149,7 @@ export interface IngestTarget {
  * row for anything else — standing, rank, placement, views) stays quiet,
  * while the cursor's own readers (`unread`, a decay row's `flat`) re-run
  * through the lane. Skipping the slot write skips nothing else: no declared
- * relation reads the cursor, and residency routes only new rows by rule.
+ * relation reads the cursor.
  */
 export interface VolatileLane {
   /**
@@ -166,7 +158,7 @@ export interface VolatileLane {
    * return false (the caller writes the slot and records the cursor itself).
    */
   absorbIssueRead(id: string, previous: StoredRow, next: StoredRow): boolean
-  /** Record the cursor of an incoming or cold-registered issue row. */
+  /** Record the cursor of an incoming issue row. */
   setIssueRead(id: string, row: StoredRow): void
   /** Forget the cursor of a removed issue row. */
   removeIssueRead(id: string): void
@@ -273,10 +265,6 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
       record.id,
       value,
     )
-    return
-  }
-  if (target.residency?.capable(record.kind)) {
-    target.residency.ingest(target, record.kind, record.id, value, out)
     return
   }
   if (value === undefined) drop(target, record.kind, record.id, out)

@@ -1,6 +1,6 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { type BoardOptions, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
+import { type BoardOptions, } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -14,7 +14,7 @@ const options: BoardOptions = {
 it('keeps broad-search scalar reads and context-menu facts bounded at 1x and 4x', () => {
   const measurements = [1, 4].map(scale => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-      load: vi.fn(), summaries: ISSUE_BOARD_SUMMARIES, schedule: () => () => {},
+      load: vi.fn(), schedule: () => () => {},
     })
     pool.apply({ type: 'replace', rows: Array.from({ length: 128 * scale }, (_, seq) => {
       const id = `issue-${seq}`
@@ -30,7 +30,7 @@ it('keeps broad-search scalar reads and context-menu facts bounded at 1x and 4x'
     let summaries = 0
     const read = pool.row.bind(pool)
     const spy = vi.spyOn(pool, 'row').mockImplementation((...args: Parameters<typeof pool.row>) => {
-      if (args[0] === 'issue' && args[2] === 'summary-fields') summaries++
+      if (args[0] === 'issue' && args[2] === undefined) summaries++
       return read(...args)
     })
     const stops = [autorun(() => { board = source.board({ ...options, filter: { text: needle.get() } }) })]

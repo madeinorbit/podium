@@ -1,24 +1,19 @@
 /** The phone uses one shared pool over its existing runtime, replica and outbox.
  * Screens read only that pool; actions keep the existing store API and owner. */
-import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
+import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import {
   MOBILE_INBOX_ENTITIES,
   MOBILE_INBOX_SOURCE_KEY,
-  MOBILE_INBOX_SUMMARIES,
   MOBILE_INBOX_VIEW_KEY,
 } from '@podium/client-graph/mobile-inbox-schema'
-import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
-import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import { navigationPoolScreen } from '@podium/client-graph/navigation-screen'
-import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
-  SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
 import { useProjectionFocus } from './projection-focus'
 
@@ -33,7 +28,6 @@ export function createMobilePool(dev: boolean): MobilePool {
       navigationPoolScreen,
       {
         id: 'mobile-screens',
-        options: () => ({ summaries: MOBILE_SCREEN_SUMMARIES }),
         async attach(runtime, pool) {
           const [{ attachMobileScreens }, { attachIssuePageSource }] = await Promise.all([
             import('@podium/client-graph/mobile-screens'),
@@ -45,7 +39,6 @@ export function createMobilePool(dev: boolean): MobilePool {
       },
       {
         id: 'mobile-work',
-        options: () => ({ summaries: COMMAND_SUMMARIES }),
         async attach(runtime, pool) {
           // POD-5423: the Work screen draws the worklist's lanes; hold them
           // filed from the attachment, before the lazy imports below.
@@ -74,15 +67,6 @@ export function createMobilePool(dev: boolean): MobilePool {
           preferences: true,
           header: true,
           settings: true,
-          summaries: {
-            issue: [...MOBILE_INBOX_SUMMARIES.issue, ...MOBILE_SESSION_SUMMARIES.issue],
-            session: [
-              ...SUPERAGENT_SUMMARIES.session,
-              ...NOTICE_SUMMARIES.session,
-              ...MOBILE_INBOX_SUMMARIES.session,
-              ...MOBILE_SESSION_SUMMARIES.session,
-            ],
-          },
         }),
         async attach(runtime, pool) {
           const {

@@ -517,9 +517,6 @@ it('updates conversation ports without a whole-record store or whole-kind reads'
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
   const enabled = await mount('probe')
-  expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty(
-    'privateBody',
-  )
   const state = referenceState(enabled.runtime)
   const ids = [SID, 'synthetic-session-11', 'missing-session']
   // The mounted probe asks only for SID. The complete frozen output also asks

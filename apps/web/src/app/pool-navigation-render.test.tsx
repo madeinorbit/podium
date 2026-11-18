@@ -4,10 +4,8 @@ import { type ScreenState, workspaceKeyForState } from '@podium/client-core/ui'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { computed } from '@podium/client-graph/react'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import { asIssueId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
@@ -15,7 +13,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { planNavigation } from '../../../../packages/client-core/src/ui/navigation'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 
 const binding = vi.hoisted(() => ({
@@ -91,9 +88,7 @@ const output = (container: HTMLElement) =>
 it('renders identical workspace labels, tab order and layout after pool navigation', async () => {
   const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
   const runtime = ctx.engine
-  const handle = createRuntimeWorklistPool(runtime, {
-    summaries: mergePoolSummaries(NAVIGATION_SUMMARIES, MISSION_VIEW_SUMMARIES),
-  })
+  const handle = createRuntimeWorklistPool(runtime, {})
   binding.pool = handle.pool
   const provider = createPoolNavigationProvider(handle.pool)
   try {

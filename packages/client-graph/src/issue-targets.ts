@@ -29,7 +29,7 @@ export function issueTargets(
   for (const id of issueSearch(pool).read(query, device, issue.repoPath).ids) {
     if (result.length >= limit) break
     if (id === issue.id) continue
-    const target = omitGone(pool.row('issue', id, 'summary-fields'))
+    const target = omitGone(pool.row('issue', id))
     if (
       target &&
       target !== LOADING &&

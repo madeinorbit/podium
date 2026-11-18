@@ -5,7 +5,7 @@
  * pooled feed, the check compares four candidate states with the full
  * bootstrap (`no-wrong-number.ts`, `startup-states.ts`):
  * - a second full bootstrap: every answer equal (the check is not noisy);
- * - a partial store without markers (active rows only): wrong numbers in
+ * - a partial store without markers (the policy set's rows only): wrong numbers in
  *   counts, search, the board's closed tabs and closed-children progress.
  *   That is the failure POD-5595's markers must turn into LOADING;
  * - the policy set with markers (POD-7086): what the device holds since the
@@ -13,8 +13,7 @@
  *   pool and answer smaller numbers, not LOADING; the answers are recorded
  *   below so a change that makes them worse fails, and POD-7088 brings the
  *   wrong ones to zero by moving the readers onto collections and stubs.
- * The lazy pool (before and after its cold rows load) is in
- * `no-wrong-number.lazy.test.ts`: its own worker, for memory.
+ * The production pool on the whole feed is in `no-wrong-number.live.test.ts`.
  */
 
 import { MobxPool } from '@podium/client-graph/pool'

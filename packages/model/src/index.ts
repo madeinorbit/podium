@@ -148,7 +148,7 @@ export * from './identity/worktree'
 // package as their destination. THE single definition site for a brand.
 export * from './ids'
 export * from './machine-path'
-export * from './predicates/active-work'
+export * from './predicates/issue-landing'
 export * from './predicates/agent-computing'
 export * from './predicates/idle-verdict'
 export { isClosed, isExcluded, isFinished } from './predicates/issue-lifecycle'

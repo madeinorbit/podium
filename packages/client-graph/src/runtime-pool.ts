@@ -15,7 +15,6 @@ import { sessionPaneView } from './session-pane-view'
 import { attachSettingsSource } from './settings-source'
 import { createRowSource, type RowSourceRuntime } from './shared/row-source'
 import { shellViews } from './shell-views'
-import type { PoolSummaryFields } from './source-registry'
 import { draftSortKey } from './write/launch-rows'
 import { startEffects } from './write/start-effects'
 import {
@@ -353,7 +352,6 @@ export function createRuntimeWorklistPool(
     preferences?: boolean
     settings?: boolean
     header?: boolean
-    summaries?: PoolSummaryFields
   } = {},
 ): WorklistPoolHandle & { readonly transactions: PoolTransactions } {
   const transactions = createRuntimeTransactions(runtime)
@@ -387,9 +385,7 @@ export function createRuntimeWorklistPool(
       // POD-5423: the worklist's lanes are filed only while a screen that
       // draws them holds them (its pool screen's attachment) or reads them.
       {
-        header: options.header,
         settings: options.settings,
-        summaries: options.summaries,
         worklist: 'demand',
         ...(runtime.fixtureClock ? { clock: new DeadlineClock(runtime.fixtureClock.now()) } : {}),
       },

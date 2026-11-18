@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { ReaderQueries } from './reader-queries'
-import { createColdIndex } from './shared/cold-index'
 import { createReaderIndex, type ReaderQuestion } from './shared/reader-questions'
 import { createRelationIndex } from './shared/relation-index'
 import { SCHEMA } from './shared/schema'
 import type { RowSourceEvent } from './shared/source'
 import { createObservableTables } from './tables'
-import { knownIds, residentIds } from './enumerate'
+import { residentIds } from './enumerate'
+import { createDeviceIndex } from './shared/device-index'
 import { workProbe, type PrimitiveWork } from './primitive-work.test.helpers'
 import { LOADING } from './worklist/rollup'
 
@@ -167,7 +167,7 @@ function queryResult(scale: number, change: Change, broad: boolean): PrimitiveWo
 }
 
 function readerQueries(scale: number, change: Change, surface: 'ids' | 'project'): PrimitiveWork {
-  const probe = workProbe(), initial = records(scale), source = createColdIndex(SCHEMA)
+  const probe = workProbe(), initial = records(scale), source = createDeviceIndex(SCHEMA)
   source.apply({ type: 'replace', rows: initial })
   const rows = observable.map(initial.map(record => [record.id, record.value] as const), { deep: false })
   // Drive ReaderQueries directly, excluding pool ingestion and screen work.
@@ -214,20 +214,17 @@ it('the lightweight probe detects real iteration and restores methods after fail
 
 it('whole-catalog enumeration costs its explicitly requested output', () => {
   const run = (count: number) => {
-    const probe = workProbe(), tables = createObservableTables(), source = createColdIndex(SCHEMA)
+    const probe = workProbe(), tables = createObservableTables(), source = createDeviceIndex(SCHEMA)
     const rows = records(1).slice(0, 2)
     rows.push(...Array.from({ length: count }, (_, i): ProbeRecord => ({ kind: 'issue', id: `cold-${i}`, value: issue(`cold-${i}`) })))
     source.apply({ type: 'replace', rows })
     runInAction(() => { for (const row of rows) tables.issue.set(row.id, row.value) })
-    const pool = { tables, coldIndex: () => source } as unknown as MobxPool
+    const pool = { tables } as unknown as MobxPool
     const resident = probe.measure(() => residentIds(pool, 'issue'))
-    const known = probe.measure(() => knownIds(pool, 'issue'))
     expect(resident.value.length).toBe(count + 2)
-    expect(known.value).toEqual(resident.value.toSorted())
-    return { resident: resident.work, known: known.work }
+    return { resident: resident.work }
   }
   const one = run(128), four = run(512)
   console.info(`[primitive bounds] explicit catalog enumeration ${JSON.stringify({ one, four })}`)
   expect(four.resident.visits).toBeGreaterThan(one.resident.visits)
-  expect(four.known.visits).toBeGreaterThan(one.known.visits)
 })

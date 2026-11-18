@@ -570,7 +570,7 @@ it('keeps the first source alias owner and hands it to the next owner on evictio
   }
 })
 
-it('resolves an earlier cold alias owner before a later resident claimant and follows its eviction', async () => {
+it('resolves an earlier alias owner before a later claimant and follows its eviction', async () => {
   const app = await mount(null, (data) => {
     for (const [id, repoId] of [
       ['synthetic-18', 'missing-a'],
@@ -588,10 +588,7 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
     target = { kind: 'issue' as const, issue: '#99999' }
   const padded = { kind: 'issue' as const, issue: '#099999' }
   expect(views.route(padded)).toBeNull()
-  expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
-  expect(app.pool.residency!.isCold('issue', 'synthetic-7')).toBe(false)
   expect(views.route(target)).toBe('/issue/synthetic-18')
-  expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
   await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-18'))
   await act(async () => {
     app.data.records.delete('issueProjection:synthetic-18')

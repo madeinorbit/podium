@@ -649,7 +649,6 @@ describe('test lane configuration', () => {
       'shared/src/overlay-row.test.ts',
       'harness/src/heartbeat-ancestors.test.ts',
       'harness/src/perf/header-work.test.ts',
-      'harness/src/cold-structures.test.ts',
       'harness/src/mission-screen-work.test.ts',
       'product/mission-pane.work.test.ts',
     ]

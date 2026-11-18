@@ -2,10 +2,8 @@ import { type SessionValueInput, sessionValues } from '@podium/client-core/sessi
 import { machinePathKey, machinePathsEqual } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
 import { compareStructural, runInAction } from 'mobx'
-import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { IssueSessionFactsIndex } from './issue-session-facts'
 import { isFinished } from './predicates'
-import { SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * The feed folds the supplied per-row transaction lists over kernel truth. There is no runtime record snapshot or whole-list optimism fold.
  * Kernel addresses and transaction repaint calls name exactly the touched
@@ -115,7 +113,7 @@ export interface RowSourceStats {
   enumerations: number
   flushes: number
   events: number
-  /** Failed cold-index or listener applications, including recovery attempts. */
+  /** Failed listener applications, including recovery attempts. */
   applyErrors: number
   sessionFactsVisited: number
   sessionFactsRescanned: number
@@ -1288,7 +1286,7 @@ export function createRowSource(
       if (value === undefined) published.delete(key)
       else published.set(key, value)
     }
-    function failed(kind: 'listener' | 'cold-index', error: unknown): void {
+    function failed(kind: 'listener', error: unknown): void {
       stats.applyErrors += 1
       diagnostics.resyncPending = true
       // One automatic recovery per failing publication. A recovery that also
@@ -1296,23 +1294,6 @@ export function createRowSource(
       // the event loop with an unbounded microtask chain.
       if (!recovering) schedule()
       diagnostics.report(`${kind}:${event.type}`, error)
-    }
-    if (coldIndex !== null) {
-      try {
-        if (coldNeedsReseed) {
-          // Use this replacement's rows and every declared summary field.
-          // Never let a reader silently rebuild the damaged index on demand.
-          const index = createColdIndex(SCHEMA, coldHeld)
-          index.apply(event)
-          coldIndex = index
-          coldNeedsReseed = false
-        } else coldIndex.apply(event)
-      } catch (error) {
-        coldNeedsReseed = true
-        failed('cold-index', error)
-        // The pool must not consume a publication backed by a partial index.
-        return
-      }
     }
     for (const listener of [...listeners]) {
       try {
@@ -1365,7 +1346,7 @@ export function createRowSource(
   }
 
   /** One row by id, as `snapshot(kind)` would carry it, with no enumeration
-   *  (POD-4567: a pool hydrating a cold row). Keeps the object last emitted
+   *  (a pool asking whether the device holds a row). Keeps the object last emitted
    *  when the fold recomposed an equal one; leaves the emit memo alone, so
    *  the next flush still emits whatever moved. Throws on a disposed source,
    *  like `snapshot()` (POD-4574). */
@@ -1377,52 +1358,6 @@ export function createRowSource(
     }
     stats.rowsVisited += 1
     return retain(`${kind}:${id}`, resolve(kind, id, readPending()))
-  }
-
-  /** POD-5405 — the cold index, built on the first question and fed by `emit`. */
-  let coldIndex: ColdIndex | null = null
-  let coldNeedsReseed = false
-  /** POD-5407 — the declared summary fields it holds (the union of every caller's), and the last declaration found held. */
-  let coldHeld: HeldSummaries = {}
-  let coldChecked: HeldSummaries | undefined
-  function cold(summaries?: HeldSummaries): ColdQueries {
-    if (disposed) {
-      throw new Error(
-        'createRowSource: cold() on a disposed source (the principal switched; rebind first)',
-      )
-    }
-    if (coldNeedsReseed) {
-      throw new Error('createRowSource: cold index awaiting replacement resync')
-    }
-    if (coldIndex !== null && summaries !== undefined && summaries !== coldChecked) {
-      if (coldIndex.holds(summaries)) coldChecked = summaries
-      else coldIndex = null
-    }
-    if (coldIndex === null) {
-      const held: Record<string, readonly string[]> = { ...coldHeld }
-      for (const [entity, fields] of Object.entries(summaries ?? {})) {
-        held[entity] = [...new Set([...(held[entity] ?? []), ...(fields ?? [])])]
-      }
-      coldHeld = held as HeldSummaries
-      coldChecked = summaries
-      const index = createColdIndex(SCHEMA, coldHeld)
-      index.apply({
-        type: 'replace',
-        rows: [
-          ...snapshot('session'),
-          ...snapshot('issue'),
-          ...snapshot('worktree'),
-          ...snapshot('repo'),
-          ...snapshot('machine'),
-          ...snapshot('automation'),
-          ...snapshot('automationRun'),
-          ...snapshot('effect'),
-          ...RECORD_COMPANION_KINDS.flatMap((kind) => snapshot(kind)),
-        ],
-      })
-      coldIndex = index
-    }
-    return coldIndex
   }
 
   const source: RowSource = {
@@ -1450,7 +1385,6 @@ export function createRowSource(
       const entity = kind === 'issue' ? 'issueProjection' : kind
       return replica.exitKind?.(entity, id)
     },
-    cold,
     ...(replica.issueIdByRef
       ? {
           issueIdByRef(ref: string): string | undefined {
@@ -1624,8 +1558,6 @@ export function createRowSource(
       }
       listeners.clear()
       issueSessionFacts.clear()
-      coldIndex = null
-      coldNeedsReseed = false
       diagnostics.resyncPending = false
       pendingAddresses.clear()
       published.clear()

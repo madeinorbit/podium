@@ -46,7 +46,7 @@ export function createIssueBoardSource(
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
-    const row = omitGone(pool.row('issue', id, 'summary-fields'))
+    const row = omitGone(pool.row('issue', id))
     if (!row || row === LOADING) return row
     const raw = row as unknown as Record<string, unknown>
     // Cold input already IS the declared summary. Picking every field again
@@ -91,7 +91,7 @@ export function createIssueBoardSource(
         read: (sid) =>
           pool.graph.isCollapsed('session', sid)
             ? undefined
-            : (omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>),
+            : (omitGone(pool.row('session', sid)) as Loaded<SessionView>),
         subscribe: (changed) => pool.queries.onMembers('issue', id, 'missionSessions', changed),
         released: () => rosters.delete(id),
       })
@@ -136,7 +136,7 @@ export function createIssueBoardSource(
       if (children === LOADING) return LOADING
       const dependents: IssueViewModel['dependents'] = []
       for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-        const row = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{
+        const row = omitGone(pool.row('issue', sourceId)) as Loaded<{
           deps?: { id: string; type: string }[]
         }>
         if (row === LOADING) return LOADING
@@ -152,7 +152,7 @@ export function createIssueBoardSource(
       const byPhase: Record<string, number> = {}
       let total = 0
       for (const sid of memberSessionIds) {
-        const seat = omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>
+        const seat = omitGone(pool.row('session', sid)) as Loaded<SessionView>
         if (seat === LOADING) return LOADING
         if (!seat) continue
         total++

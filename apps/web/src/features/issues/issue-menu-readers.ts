@@ -17,7 +17,7 @@ export function readIssueMenuOrigins(pool: MobxPool, issues: readonly IssueNavig
   return [
     ...issues,
     ...[...origins].flatMap((id) => {
-      const row = omitGone(pool.row('issue', id, 'summary-fields'))
+      const row = omitGone(pool.row('issue', id))
       if (!row || typeof row === 'symbol') return []
       return [
         {

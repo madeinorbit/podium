@@ -45,7 +45,7 @@ export function workflowSubject(
   const present =
     run.subjectKind === 'session'
       ? pool.queries.setupSessionPresent(run.subjectId)
-      : omitGone(pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary'))
+      : omitGone(pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId))
   if (present === LOADING) return LOADING
   return runSubjectReference(run, (id) => (present ? { id } : undefined))
 }

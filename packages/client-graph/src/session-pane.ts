@@ -51,7 +51,7 @@ export interface PaneIssue {
 export function eligiblePaneIssue(pool: MobxPool, id: string): Loaded<PaneIssue> {
   // An unknown ID has no summary yet; its addressed read requests the batch.
   // Removed and failed-load answers remain gone and never restart that load.
-  const summary = (omitGone(pool.row('issue', id, 'summary')) ??
+  const summary = (omitGone(pool.row('issue', id)) ??
     omitGone(pool.row('issue', id))) as Loaded<PaneIssue>
   if (summary === LOADING) return LOADING
   return summary && !summary.archived && !summary.deletedAt ? summary : undefined

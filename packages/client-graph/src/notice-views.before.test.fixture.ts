@@ -14,7 +14,7 @@ function messageNotice(pool: MobxPool, id: string): { notice?: MessageNotice; pe
   const record = omitGone(pool.row('messageRecord', id))
   if (record === LOADING) return { pending: 1 }
   if (!record || !isMessageRecordAttention(record.status)) return { pending: 0 }
-  const session = omitGone(pool.row('session', record.sessionId, 'summary')) as NoticeSessionSummary | typeof LOADING | undefined
+  const session = omitGone(pool.row('session', record.sessionId)) as NoticeSessionSummary | typeof LOADING | undefined
   const label = !session ? 'a closed session' : session === LOADING ? 'Loading session…'
     : session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind
   const first = record.body.trim().split('\n')[0] ?? ''

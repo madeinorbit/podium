@@ -1,8 +1,5 @@
 import { MobxPool } from '@podium/client-graph'
-import { SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
-import { createColdIndex } from '@podium/client-graph/shared/cold-index'
-import { SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RowRecord, RowSourceEvent } from '@podium/client-graph/shared/source'
 import { podiumTargetPath } from '@podium/protocol'
 import { act } from 'react'
@@ -44,14 +41,12 @@ function fixture(scale: 1 | 4, target = true) {
     ...Array.from({ length: scale * 128 }, (_, n) => issue(`foreign-${n}`, n + 2)),
     ...Array.from({ length: scale * 128 }, (_, n) => session(`history-${n}`, n + 2)),
   ]
-  const source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
-    cold: () => source, load: () => undefined, summaries: SHELL_SUMMARIES,
+    load: () => undefined, 
     worklist: 'demand', schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  return { pool, publish(event: RowSourceEvent) { source.apply(event); pool.apply(event) } }
+  return { pool, publish(event: RowSourceEvent) { pool.apply(event) } }
 }
 
 let root: Root, container: HTMLDivElement

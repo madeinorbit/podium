@@ -242,8 +242,9 @@ const session = defineRecord({
     noIssue: {
       part: 'main',
       // Bounded by the work, not by history: the sidebar hides a finished
-      // session within days (`predicates/active-work.ts`), so an old idle one
-      // is never shown and loads only when a view asks for it.
+      // session within days (its visibility rule, client-graph
+      // `worklist/visible.ts`), so an old idle one is never shown and loads
+      // only when a view asks for it.
       where: [
         { archived: false, issueId: { empty: true }, status: { in: ['starting', 'live'] } },
         ...ASKING_WHERE.map((clause) => ({ ...clause, issueId: { empty: true } }) as const),

@@ -4,9 +4,7 @@ import { dedupeSessionsByResume } from '@podium/model'
 import { autorun, observable, runInAction } from 'mobx'
 import { chatContextReadStats, chatReferenceSessions, createChatContextReader, chatMentionMatches } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
-import { MOBILE_SESSION_SUMMARIES } from './mobile-session-schema'
 import { MobxPool } from './pool'
-import { LOADING } from './worklist/rollup'
 
 const pools: MobxPool[] = []
 afterEach(() => {
@@ -14,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function fixture(size = 2, resident = false, summaries: { session: readonly string[]; issue: readonly string[] } = CHAT_CONTEXT_SUMMARIES) {
+function fixture(size = 2, resident = false) {
   const issues = ['first', 'second', 'deleted'].map((id, index) => ({
     id, seq: index + 1, title: 'Matching task', repoId: 'repo', repoPath: '/synthetic',
     stage: resident ? 'in_progress' : 'done', archived: !resident, deletedAt: id === 'deleted' ? '2020-01-01T00:00:00Z' : undefined,
@@ -31,7 +29,7 @@ function fixture(size = 2, resident = false, summaries: { session: readonly stri
   const load = vi.fn((entity: string, id: string) => entity === 'issue'
     ? issues.find(row => row.id === id) : sessions.find(row => row.sessionId === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') }, undefined, {
-    load, summaries, schedule: () => () => {},
+    load, schedule: () => () => {},
   })
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [
@@ -66,7 +64,7 @@ it.each([false, true])('shares observed references and checks only changed %s-re
     try {
       const initial = seen[0]!
       expect(initial.pending).toBe(0)
-      expect(pool.tables.session.size).toBe(resident ? size : 0)
+      expect(pool.tables.session.size).toBe(size)
       expect(initial.sessions.map(row => row.sessionId)).toEqual(sessions.map(row => row.sessionId).reverse())
       // Counts belong to the shared computation, rather than each panel.
       expect(reader.counts.referenceBuilds + secondReader.counts.referenceBuilds).toBe(1)
@@ -154,7 +152,7 @@ function previousReferenceSessions(pool: MobxPool) {
   if (!order || typeof order === 'symbol') return { sessions, pending }
   const known = pool.queries.ids({ kind: 'referenceSessions' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
-    const row = omitGone(pool.row('session', id, 'summary-fields'))
+    const row = omitGone(pool.row('session', id))
     if (typeof row === 'symbol') pending++
     else if (row) sessions.push(row as unknown as import('@podium/client-core/session-values').SessionView)
   }
@@ -200,7 +198,7 @@ it('matches the previous reference answers through field, rank, order and member
 
 it('constructs no mention candidates until demand, then preserves candidates and replica order using fields only', () => {
   const { pool, load } = fixture()
-  const row = vi.spyOn(pool, 'row'), summary = vi.spyOn(pool.residency!, 'summary')
+  const row = vi.spyOn(pool, 'row')
   const reader = createChatContextReader(pool)
   pool.sources.register(['chatContextReader'], { read: () => reader, dispose() {} })
   expect(row).not.toHaveBeenCalled()
@@ -219,29 +217,10 @@ it('constructs no mention candidates until demand, then preserves candidates and
   expect(chatContextReadStats(pool)).toMatchObject({
     mentionBuilds: 1, mentionIssueReads: 3, referenceBuilds: 1, referenceSessionReads: 2,
   })
-  expect(summary.mock.calls.length).toBeGreaterThan(0)
-  expect(summary.mock.calls.every(([, , decorate]) => decorate === false)).toBe(true)
   expect(row.mock.calls.filter(([entity]) => entity === 'issue' || entity === 'session')
-    .every(([, , purpose]) => purpose === 'summary-fields' || purpose === 'mark')).toBe(true)
-  expect(pool.tables.issue.size).toBe(0)
-  expect(pool.tables.session.size).toBe(0)
+    .every(([, , purpose]) => purpose === undefined || purpose === 'mark')).toBe(true)
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
-})
-
-it('keeps a known missing mention summary pending and coalesces its batched load', () => {
-  const { pool, load } = fixture()
-  const reader = createChatContextReader(pool)
-  const summary = pool.residency!.summary.bind(pool.residency!)
-  vi.spyOn(pool.residency!, 'summary').mockImplementation((entity, id, decorate) =>
-    entity === 'issue' && id === 'first' ? undefined : summary(entity, id, decorate))
-  expect(reader.issue('first')).toBe(LOADING)
-  expect(reader.mentions()).toMatchObject({ pending: 1, issues: [{ id: 'second' }] })
-  expect(reader.mentions().pending).toBe(1)
-  expect(load).not.toHaveBeenCalled()
-  expect(pool.hydrate()).toBe(1)
-  expect(load).toHaveBeenCalledTimes(1)
-  expect(reader.mentions()).toMatchObject({ pending: 0, issues: [{ id: 'second' }, { id: 'first' }] })
 })
 
 
@@ -263,7 +242,7 @@ it('reads at most five source-ranked mention summaries on first/repeated 1x/4x h
       expect(rows.mock.calls.some(([kind]) => String(kind) === 'chatIssueOrder')).toBe(false)
       const summaries = rows.mock.calls.filter(([kind]) => kind === 'issue')
       expect(summaries).toHaveLength(5)
-      expect(summaries.every(([, , purpose]) => purpose === 'summary-fields' || purpose === 'mark')).toBe(true)
+      expect(summaries.every(([, , purpose]) => purpose === undefined || purpose === 'mark')).toBe(true)
       work.push(summaries.length)
     }
   }

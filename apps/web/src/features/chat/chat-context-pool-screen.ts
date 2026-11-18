@@ -1,22 +1,9 @@
-import { CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
-import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import { replicaSourcePorts, superagentSourcePorts } from '@podium/client-graph/source-ports'
-import { SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
 
 export const chatContextPoolScreen: PoolScreen = {
   id: 'chatContext',
-  options: () => ({
-    header: true,
-    summaries: {
-      issue: CHAT_CONTEXT_SUMMARIES.issue,
-      session: [
-        ...CHAT_CONTEXT_SUMMARIES.session,
-        ...NOTICE_SUMMARIES.session,
-        ...SUPERAGENT_SUMMARIES.session,
-      ],
-    },
-  }),
+  options: () => ({ header: true }),
   async attach(runtime, pool) {
     const [
       { ChatContextSource },

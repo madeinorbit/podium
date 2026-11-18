@@ -6,11 +6,11 @@
  * row feed the app's pool reads once, and drops the engine (memory: the check
  * then holds only the rows). The feed's `source` serves those rows. From it:
  * - `fullPool`: the full bootstrap, every row resident (the CONTROL);
- * - `partialPool`: only the active rows (what the client's cold rule keeps
- *   resident), with nothing saying history is missing: today's pool on a
- *   partial store without markers;
- * - `lazyPool`: the production lazy pool on the whole feed before any cold
- *   row is loaded (`hydrateAll` then loads them as the app does).
+ * - `partialPool`: only the policy set's rows, with nothing saying history is
+ *   missing: a pool on a partial store without markers;
+ * - `productionPool`: the production pool (`createWorklistPool`) on the whole
+ *   feed, every collection complete: what the app builds when the device
+ *   holds everything.
  * - `policySetPool` (POD-7086): what a device holds under the server's policy
  *   once its first download finished, every collection with its marker. The
  *   pool's readers read whole records only, so the stubs are not in it.
@@ -26,29 +26,22 @@
  */
 import { COLLECTIONS, matchesWhere, type Where } from '@podium/model'
 import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
-import { ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { MobxPool } from '@podium/client-graph/pool'
-import { type EntityName, SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import type { CollectionLoaderPort, LoaderInstance, RowRecord, RowSource } from '@podium/client-graph/shared/source'
 import type { SliceLocals } from '../../../shared/src/slice-types'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import { runInAction } from 'mobx'
 import { referenceState } from '../../../diagnostics/reference-state'
 import { createRowSource } from '../../../shared/src/row-source'
 import { startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpusCell, type CorpusCell } from '../fixture'
-import { ask, type StartupQuestion } from './no-wrong-number'
 
 export interface StartupFeed {
-  /** The rows as a static feed: what a lazy pool reads its cold rows from. */
+  /** The rows as a static feed: what a production pool reads. */
   readonly source: RowSource
   /** Every row the feed carries, as one bootstrap would install them. */
   readonly rows: readonly RowRecord[]
   readonly locals: SliceLocals
-  /** The client's own cold rule over the feed (`tableColdRule`): history. */
-  readonly cold: (kind: RowRecord['kind'], id: string) => boolean
 }
 
 export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<StartupFeed> {
@@ -76,9 +69,6 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
     if (!table) tables.set(row.kind, (table = new Map()))
     table.set(row.id, row.value)
   }
-  const rule = tableColdRule(SCHEMA, (entity) => tables.get(entity), locals.coarseNow)
-  const cold = (kind: RowRecord['kind'], id: string) =>
-    (kind === 'issue' || kind === 'session') && rule(kind as EntityName, id)
   const ownRows = new Map<RowRecord['kind'], RowRecord[]>()
   for (const row of rows.slice(0, rows.length - companions.length)) {
     let list = ownRows.get(row.kind)
@@ -91,7 +81,7 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
     subscribe: () => () => {},
     row: (kind, id) => tables.get(kind)?.get(id) as RowRecord['value'],
   }
-  return { source, rows, locals, cold }
+  return { source, rows, locals }
 }
 
 /** The old full-device local search is the comparison oracle. */
@@ -178,10 +168,11 @@ export function devicePort(feed: StartupFeed, state: DeviceState): CollectionLoa
   }
 }
 
-/** Only the active rows, and nothing that says history is missing. */
-export function partialPool(feed: StartupFeed): MobxPool {
+/** Only the policy set's rows, and nothing that says history is missing. */
+export function partialPool(feed: StartupFeed, recentDays = 30): MobxPool {
+  const held = heldRows(feed, FIRST_DOWNLOAD_STEPS.length, recentDays)
   const pool = new MobxPool(feed.locals)
-  runInAction(() => pool.apply({ type: 'replace', rows: feed.rows.filter((row) => !feed.cold(row.kind, row.id)) }))
+  runInAction(() => pool.apply({ type: 'replace', rows: held.rows }))
   return pool
 }
 
@@ -216,6 +207,25 @@ export function policySetPool(feed: StartupFeed, recentDays = 30): MobxPool {
  * its records come with; the later ones not yet. `steps` = 4 is the policy set.
  */
 export function firstDownloadPool(feed: StartupFeed, steps: number, recentDays = 30): MobxPool {
+  const done = FIRST_DOWNLOAD_STEPS.slice(0, steps)
+  const held = heldRows(feed, steps, recentDays)
+  const pool = new MobxPool(feed.locals)
+  const port = devicePort(feed, {
+    complete: new Set(done.flatMap((step) => STEP_COLLECTIONS[step])),
+    stubs: done.includes('stubs') ? 'all' : held.issues,
+    firstDownload: steps < FIRST_DOWNLOAD_STEPS.length,
+  })
+  pool.collections.attach(() => port)
+  runInAction(() => pool.apply({ type: 'replace', rows: held.rows }))
+  return pool
+}
+
+/** The rows the first `steps` steps of a first download hold, with what they come with. */
+function heldRows(
+  feed: StartupFeed,
+  steps: number,
+  recentDays: number,
+): { rows: RowRecord[]; issues: Set<string> } {
   const done = FIRST_DOWNLOAD_STEPS.slice(0, steps)
   const now = feed.locals.coarseNow ?? Date.now()
   const where = (collection: string): Where => {
@@ -260,51 +270,26 @@ export function firstDownloadPool(feed: StartupFeed, steps: number, recentDays =
       parent = issues.get(parent)?.['parentId']
     }
   }
-  const pool = new MobxPool(feed.locals)
-  const port = devicePort(feed, {
-    complete: new Set(done.flatMap((step) => STEP_COLLECTIONS[step])),
-    stubs: done.includes('stubs') ? 'all' : heldIssues,
-    firstDownload: steps < FIRST_DOWNLOAD_STEPS.length,
-  })
-  pool.collections.attach(() => port)
-  runInAction(() =>
-    pool.apply({
-      type: 'replace',
-      rows: feed.rows.filter((row) =>
-        row.kind === 'issue' ? heldIssues.has(row.id) : row.kind === 'session' ? heldSessions.has(row.id) : true,
-      ),
-    }),
-  )
-  return pool
+  return {
+    rows: feed.rows.filter((row) =>
+      row.kind === 'issue' ? heldIssues.has(row.id) : row.kind === 'session' ? heldSessions.has(row.id) : true,
+    ),
+    issues: heldIssues,
+  }
 }
 
 /**
- * The production lazy pool on the whole feed; nothing loads until
- * `hydrateAll`. The device holds the whole feed, every collection complete.
+ * The production pool (`createWorklistPool`) on the whole feed: the device
+ * holds every row, every collection complete, so every row is in memory.
  */
-export function lazyPool(feed: StartupFeed): { pool: MobxPool; dispose(): void } {
+export function productionPool(feed: StartupFeed): { pool: MobxPool; dispose(): void } {
   const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false })
   const handle = createWorklistPool({ ...feed.source, loader: () => port }, fixedLocals(feed.locals).source, {
-    summaries: mergePoolSummaries(ISSUE_BOARD_SUMMARIES, MISSION_VIEW_SUMMARIES),
     worklist: 'demand',
     schedule: () => () => {},
   })
   fullSearchControl(handle.pool)
   return handle
-}
-
-/** Ask, load what the questions demanded, and repeat until nothing is loading. */
-export function hydrateAll(pool: MobxPool, questions: readonly StartupQuestion[], rounds = 16): number {
-  let loaded = 0
-  for (let round = 0; round < rounds; round++) {
-    ask(pool, questions)
-    collectGarbage()
-    memoryAt(`hydrate round ${round}`)
-    const count = pool.hydrate()
-    if (!count) return loaded
-    loaded += count
-  }
-  throw new Error(`[startup-states] still loading after ${rounds} rounds`)
 }
 
 /** Between pools: give back what a disposed pool held (Bun, when present). */

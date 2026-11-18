@@ -47,7 +47,7 @@ export function resolveEdgeFromPool(pool: MobxPool | null, id: string | undefine
   return resolveIssueEdge(
     id,
     (targetId) => {
-      const raw = omitGone(pool?.row('issue', targetId, 'summary-fields'))
+      const raw = omitGone(pool?.row('issue', targetId))
       return raw && typeof raw !== 'symbol' ? (pool!.issueObject(targetId) as PageIssue) : undefined
     },
     'opaque',

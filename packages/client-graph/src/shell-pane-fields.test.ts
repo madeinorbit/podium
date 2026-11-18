@@ -24,7 +24,7 @@ import { worklistView } from './worklist/view-model'
 /** The removed pane reader, verbatim (POD-5878): it took the whole session row. */
 function paneStampIssue(pool: MobxPool, session: SessionView | undefined) {
   const eligible = (id: string) => {
-    const summary = omitGone(pool.row('issue', id, 'summary')) as { archived?: boolean; deletedAt?: string | null } | undefined | typeof LOADING
+    const summary = omitGone(pool.row('issue', id)) as { archived?: boolean; deletedAt?: string | null } | undefined | typeof LOADING
     if (summary === LOADING) return LOADING
     return summary && !summary.archived && !summary.deletedAt ? summary : undefined
   }
@@ -256,9 +256,8 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     f.change({ repos: [] })
     check('no scan: attached issue scope')
     f.change({ paneA: asSessionId('shell-session-missing') })
-    // The addressed lookup keeps the dock pending until the batch establishes
-    // that the unknown session is gone, then retains the old recent fallback.
-    expect(dock.active).toBe(LOADING)
+    // An unknown pane session is not visible (no loader here): the dock
+    // retains the old recent fallback.
     check('unknown pane session settles gone and falls back')
     expect(checked).toHaveLength(16)
   } finally {

@@ -7,7 +7,7 @@ import {
   type WorkCounts,
 } from '../../../tests/worklist/harness/src/work-meter'
 import { attachMobileScreens } from './mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
+import type { MobileTasksOptions } from './mobile-screens-schema'
 import { MobileTasksBoard } from './mobile-tasks'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -61,7 +61,6 @@ async function setup(rows: ReturnType<typeof issue>[], seats: ReturnType<typeof 
   )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: MOBILE_SCREEN_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -80,22 +79,6 @@ const layout = (board: MobileTasksBoard) => {
   if (sections === LOADING) throw new Error('Tasks still loading')
   return sections.map((section) => ({ ...section, rows: section.rows.map((row) => ({ ...row })) }))
 }
-
-it('borrows cold board summaries for ID membership without loading rich rows or sessions', async () => {
-  const { pool, load } = await setup([
-    issue('root'),
-    issue('cold', { archived: true, stage: 'done' }),
-  ])
-  const board = new MobileTasksBoard(pool, { ...options, filter: { archived: true } })
-  disposals.push(autorun(() => board.sections))
-  expect(layout(board)).toMatchObject([
-    { stage: 'in_progress', rows: [{ id: 'root', depth: 0 }] },
-    { stage: 'done', rows: [{ id: 'cold', depth: 0 }] },
-  ])
-  expect(pool.tables.issue.has('cold')).toBe(false)
-  expect(pool.hydrate()).toBe(0)
-  expect(load).not.toHaveBeenCalled()
-})
 
 it('keeps list membership, peer rows and proposals quiet when one drawn issue changes', async () => {
   const { pool } = await setup([

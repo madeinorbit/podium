@@ -54,7 +54,7 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 
 /** Setup decoration and the first-task decision belong to the setup screen. */
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
-  const row = omitGone(pool.row('session', id, 'summary-fields'))
+  const row = omitGone(pool.row('session', id))
   return row && row !== LOADING
     ? setupSessionSummary(
         row as unknown as Readonly<Record<string, unknown>>,

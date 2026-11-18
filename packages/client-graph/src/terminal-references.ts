@@ -24,7 +24,7 @@ function referenceRow(pool: MobxPool, token: string) {
   const key = issueToken(token)
   const id = key === undefined ? undefined : pool.queries.issueReferenceId(key)
   if (id === undefined) return undefined
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{
+  const row = omitGone(pool.row('issue', id)) as Loaded<{
     stage: IssueStage
     closedReason?: string | null
     deletedAt?: string

@@ -152,7 +152,6 @@ function fixture(scale: 1 | 4) {
     }),
   )
   pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined, {
-    header: true,
     worklist: 'demand',
     load: () => undefined,
     schedule: () => () => {},

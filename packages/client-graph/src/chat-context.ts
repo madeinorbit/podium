@@ -43,7 +43,7 @@ export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
   )
 }
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
+  const row = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
@@ -272,7 +272,7 @@ class ReferenceSessionSummary {
   ) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     if (this.counts) this.counts.referenceSessionReads++
-    const row = omitGone(this.pool.row('session', this.model.id, 'summary-fields')) as Loaded<SessionView>
+    const row = omitGone(this.pool.row('session', this.model.id)) as Loaded<SessionView>
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.

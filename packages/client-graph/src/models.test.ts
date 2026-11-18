@@ -98,27 +98,6 @@ it('keeps Acceptance readers isolated from title and description edits while fol
   } finally { stop(); pool.dispose() }
 })
 
-it.each([true, false])('a cold reference uses only declared identity (%s) without requesting its payload', declared => {
-  const schedule = vi.fn(() => () => {})
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load: () => undefined, schedule, summaries: { issue: declared ? ['seq', 'repoPath'] : [] },
-  })
-  pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: '/synthetic', value: { id: '/synthetic', path: '/synthetic', prefix: 'POD' } as never },
-    { kind: 'issue', id: 'cold-ref', value: issueRow('cold-ref', {
-      seq: 0, repoId: '/synthetic', stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
-    }) as never },
-  ] })
-  try {
-    const stored = omitGone(pool.row('issue', 'cold-ref', 'summary-fields'))
-    expect(stored && stored !== LOADING ? Reflect.get(stored, 'seq') : undefined).toBe(declared ? 0 : undefined)
-    expect(pool.issueObject('cold-ref').displayRef).toBe(declared ? displayRefOf(0, 'POD') : '')
-    expect(pool.tables.issue.has('cold-ref')).toBe(false)
-    expect(schedule).not.toHaveBeenCalled()
-    expect(pool.issueObject('missing-ref').displayRef).toBe('')
-  } finally { pool.dispose() }
-})
-
 // A present parent is always placed (POD-2167: any audience at the top
 // level, POD-2157: only a real parentId nests), so the parent's own nesting
 // is what can still move under an unchanged parent.

@@ -15,7 +15,7 @@ import {
 import type { DeviceSignInView, PendingInteractionWire } from '@podium/protocol'
 import type { MessagePoolRow } from './message-models'
 import { isPinned } from './per-user-records'
-import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
+import type { SetupSession } from './settings-schema'
 import { readSetupSession } from './settings-views'
 import {
   type IssueSessionFactReader,
@@ -23,13 +23,7 @@ import {
   IssueSessionFactsIndex,
 } from './shared/issue-session-facts'
 import { ISSUE_JOIN_FIELDS, joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
-import {
-  mergePoolSummaries,
-  type PoolSourceRows,
-  PoolSources,
-  type PoolSummaryFields,
-  type SourceEntity,
-} from './source-registry'
+import { type PoolSourceRows, PoolSources, type SourceEntity } from './source-registry'
 
 /**
  * POD-4565 (Ma1) — the MobX pool: one per principal. Entity tables from the
@@ -49,25 +43,21 @@ import {
  * the schema; the action ends with one `flush`, which applies each touched
  * bucket's net moves once, one element per member added or removed.
  *
- * RESIDENCY (POD-4567, `residency.ts`). With a per-row read (`lazy.load`, the
- * feed's `RowSource.row`), rows the schema lets be cold (closed issues and
- * their sessions) never enter the tables: ingest registers their ids and the
- * relation engine links them. A derivation that reaches one through a lazy
- * relation gets `loading` and queues it; the 50 ms window's batch installs
- * every queued row in ONE action (`hydrate`). A row that stops being cold (a
- * reopen's sessions, an issue a session keeps shown) is installed from the
- * publication when it carries the row, else asked for the same way: the
- * window is the only per-row read (POD-4753). The harness drains the window
- * (`hydrate` in a loop) before it reads. Without `lazy` every row is
- * resident (Ma1/Ma2 tests).
+ * EVERY ROW ON THE DEVICE IS IN MEMORY (POD-7094, design POD-7059 "Memory,
+ * cache and leaving"). History is not on the device, so the pool places
+ * every row its feed carries and every index covers exactly those rows (the
+ * device index, `shared/device-index.ts`). A row the pool does not hold
+ * answers through `residency.ts`: REMOVED, LOADING while the one loader
+ * fetches it, or gone; an issue's reference, state and parent come from its
+ * stub (`stub`). Typed references resolve in one short window (`hydrate`).
  *
  * READ PATH. Every row a model, view, visibility part, roll-up or group
  * placement reads comes from ONE reader, `row(entity, id, absent)`
  * (POD-4743): the table's row, which is already the visible row (the pool's
  * transaction log writes pending changes into it, POD-5431/POD-5432, so the
  * reader lays nothing over it), and for a row not in memory the answer the
- * caller names (`AbsentRead`: `LOADING` with its load queued,
- * `LOADING` alone, or its current value by id through the feed). Every table
+ * caller names (`AbsentRead`: `LOADING` with its load started, or the answer
+ * alone without starting one). Every table
  * read goes through the tables, every relation read through the relation
  * engine. Derivations run lazily: a row field computes when a mounted row
  * reads it and suspends when nothing does (no `keepAlive`).
@@ -121,14 +111,9 @@ import { type IssueStub, PoolCollections } from './collections'
 import { debugName } from './debug-name'
 import { headerIds, reseed } from './enumerate'
 import { headerEntities } from './header-entities'
-import {
-  HEADER_ISSUE_SUMMARY_FIELDS,
-  HEADER_SESSION_SUMMARY_FIELDS,
-  type HeaderEntity,
-  isHeaderEntity,
-} from './header-schema'
+import { type HeaderEntity, isHeaderEntity } from './header-schema'
 import { referenceViewIfPresent } from './issue-reference'
-import { here, isGone, type Lookup, NOT_VISIBLE, omitGone, REMOVED } from './lookup'
+import { here, isGone, type Lookup, NOT_VISIBLE, omitGone } from './lookup'
 import {
   type EntityModel,
   type IssueModel,
@@ -143,11 +128,11 @@ import { ReaderQueries } from './reader-queries'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
 import { type SeatRelation, sessionSeats } from './session-seats'
-import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
+import { createDeviceIndex, type DeviceIndex, type DeviceQueries } from './shared/device-index'
 import { FeedDiagnostics } from './shared/feed-diagnostics'
 import { relationLinks } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
-import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
+import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -172,7 +157,6 @@ import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
 import {
   type HeldIssue,
-  HIDDEN_ISSUE_FIELDS,
   readAtOf,
   rollupInputsOf,
   VisibleCollection,
@@ -224,27 +208,27 @@ function cursorOnlyChange(previous: object, next: object): boolean {
   return true
 }
 
-/** Residency options: the per-row read, and (tests) the window and timer. */
+/** A live pool's options: the per-row read, the loader, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   /** Explicit deterministic clock for corpus/replay fixtures. */
   readonly clock?: DeadlineClock
   readonly diagnostics?: FeedDiagnostics
   readonly issueSessionFact?: IssueSessionFactReader
-  readonly load: LoadRow
+  /**
+   * The feed's per-row read (`RowSource.row`). Since POD-7094 the pool reads
+   * no row through it (the feed publishes every row the device holds); it
+   * marks a live pool, one with a feed, apart from a pool fed rows directly.
+   */
+  readonly load?: LoadRow
   readonly exitKind?: (entity: EntityName, id: string) => 'removed' | 'evicted' | undefined
-  /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
-  readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
   readonly issueIdByRef?: (ref: string) => string | undefined
   /**
    * POD-7087 — the one loader (`RowSource.loader`): a record the device does
    * not hold whole is asked for through it, from the server.
    */
   readonly loader?: () => CollectionLoaderPort | undefined
-  /** Add the header's declared cold summaries only for its startup switch. */
-  readonly header?: boolean
+  /** Keep the sessions' arrival positions readable (the settings list's order). */
   readonly settings?: boolean
-  /** Additional named cold fields, declared before the first row ingest. */
-  readonly summaries?: PoolSummaryFields
   readonly windowMs?: number
   readonly schedule?: Schedule
   /**
@@ -267,23 +251,15 @@ export interface PoolMutator {
 }
 
 /**
- * What `MobxPool.row` answers for a row that is not in memory (a cold row):
- * - `load`: `LOADING`, and the row is queued for the next load window (a
- *   derivation's first access);
- * - `mark`: `LOADING`, nothing queued (maintenance inside an action, which
- *   must not arm the window);
- * - `peek`: the row's current value, read by id through the feed and counted,
- *   nothing queued (the visibility parts decide a cold row without loading it).
- * - `summary`: the resident row or the declared cold fields, with pending
- *   edits overlaid; a missing cold summary queues the normal batched load.
- * - `summary-fields`: the same declared fields and pending edits, without
- *   the worklist-only flatUntil decoration or copying the cold summary.
- * Addressed load reads queue unknown rows once; non-loading probes never queue them.
+ * What `MobxPool.row` answers for a row that is not in memory, which since
+ * POD-7094 means a row the device does not hold:
+ * - `load`: `LOADING`, and its load starts through the one loader (a
+ *   derivation's first access), or gone;
+ * - `mark` and `peek`: the answer without starting a load (maintenance
+ *   inside an action, and the visibility parts): REMOVED or NOT_VISIBLE, or
+ *   `LOADING` for a row the feed is about to publish.
  */
-/** What the cold index holds per issue for `readCursor`. */
-const READ_CURSOR_FIELDS = ['readAt'] as const
-
-export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
+export type AbsentRead = 'load' | 'mark' | 'peek'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
@@ -432,10 +408,10 @@ export class MobxPool {
   readonly sources = new PoolSources(this)
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
-  /** Only demanded positions are retained; the cold index owns the values. */
+  /** Only demanded positions are retained; the device index owns the values. */
   private readonly sourcePositions = new Map<string, number | undefined>()
   private readonly sourcePositionDemand: ReturnType<typeof createDemandAtoms<string>> | undefined
-  /** The source index's undeleted issue count, published with each batch. */
+  /** The device index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
   readonly tables: PoolTables
   /** The last addressed phase batch. Replacements are silent; no history scan. */
@@ -460,7 +436,7 @@ export class MobxPool {
   readonly rollupInputs: RollupInputs
   /** The visible collection and its order. */
   readonly worklist: VisibleCollection
-  /** Residency (POD-4567); null when the pool holds every row. */
+  /** Where a row the pool does not hold stands; null for a pool fed rows directly. */
   readonly residency: Residency | null
   /** POD-7087 — the device's collections and the one loader, tracked. */
   readonly collections: PoolCollections
@@ -486,13 +462,10 @@ export class MobxPool {
   private readonly seatList: (id: string) => readonly string[]
   /** Refresh every seat list made so far (after an attach). */
   private readonly reseatAll: () => void
-  /** The pool's own cold index, when its feed has none (fixtures, standalone pools). */
-  private ownIndex: ColdIndex | undefined
-  private readonly sourceIndex: (() => ColdQueries) | undefined
-  /** The index the pool last applied a publication with (a source may replace its index). */
-  private indexSeen: ColdQueries | undefined
+  /** The device index: the pool's indexes over the rows it holds (POD-7094). */
+  private ownIndex: DeviceIndex | undefined
   /** What a disposed pool answers from: nothing. */
-  private emptyIndex: ColdIndex | undefined
+  private emptyIndex: DeviceIndex | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private readonly joinedRows = new WeakMap<object, object>()
   private disposed = false
@@ -510,42 +483,16 @@ export class MobxPool {
       lazy?.settings === true
         ? createDemandAtoms<string>((id) => `pool.sourcePosition:${id}`, {
             onObserved: (id) =>
-              this.sourcePositions.set(id, this.coldIndex().position('session', id)),
+              this.sourcePositions.set(id, this.deviceIndex().position('session', id)),
             onUnobserved: (id) => this.sourcePositions.delete(id),
           })
         : undefined
     this.tables = createObservableTables()
-    // POD-5407: the cold index holds every relation and the cold rule's
-    // inputs for every row the feed carries. A source's own index is used as
-    // it stands (the source applies each publication before the pool sees
-    // it); a feed without one gets the pool's, applied first in each
+    // POD-7094: the device index holds every relation and every reader
+    // index over the rows the pool holds, applied first in each
     // publication's action.
-    // What visibility reads of a hidden issue (POD-4753), never the row, and
-    // what the screens declared. The cold index holds these fields per row,
-    // so a cold row's declared summary costs no row read (POD-5407).
-    const summaries =
-      lazy === undefined
-        ? undefined
-        : mergePoolSummaries(
-            {
-              issue: lazy.header
-                ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS]
-                : HIDDEN_ISSUE_FIELDS,
-              session: [
-                ...COLD_SESSION_FIELDS,
-                ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []),
-                ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : []),
-              ],
-            },
-            lazy.summaries ?? {},
-          )
-    // The index also holds each issue's read cursor (`readCursor`).
-    const held = mergePoolSummaries(summaries ?? {}, { issue: ['readAt'] })
-    const sourceCold = lazy?.cold
-    this.sourceIndex = sourceCold === undefined ? undefined : () => sourceCold(held)
-    this.ownIndex =
-      this.sourceIndex === undefined ? createColdIndex(schema ?? SCHEMA, held) : undefined
-    this.queries = new ReaderQueries(this, schema ?? SCHEMA, () => this.coldIndex())
+    this.ownIndex = createDeviceIndex(schema ?? SCHEMA)
+    this.queries = new ReaderQueries(this, schema ?? SCHEMA, () => this.deviceIndex())
     const tables = this.tables
     const residency =
       lazy === undefined
@@ -553,15 +500,10 @@ export class MobxPool {
         : new Residency({
             schema: schema ?? SCHEMA,
             hot: tables,
-            index: () => this.coldIndex(),
-            load: (entity, id) => lazy.load(entity, id),
             absent: (entity, id) => this.collections.absent(entity, id),
             exitKind: lazy.exitKind,
-            // Read at ingest, after the constructor has built the clock.
-            now: () => this.clock.peekNow(),
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
-            summaries: summaries ?? {},
           })
     this.residency = residency
     this.collections = new PoolCollections(lazy?.loader ?? (() => undefined))
@@ -607,9 +549,9 @@ export class MobxPool {
       }
     }
     this.graph = new PoolRelations({
-      index: () => this.coldIndex().relations,
-      // A target is present when it is in memory, or known and cold (tracked).
-      present: (entity, id) => tables[entity].has(id) || (residency?.known(entity, id) ?? false),
+      index: () => this.deviceIndex().relations,
+      // A target is present when it is in memory (tracked).
+      present: (entity, id) => tables[entity].has(id),
       ...(schema === undefined ? {} : { schema }),
       // File the explicit seat delta (one element) into a list something has
       // read, in the same action that moved the bucket: binary search by id
@@ -653,7 +595,6 @@ export class MobxPool {
           this.readStates.delete(id)
         },
       },
-      ...(residency === null ? {} : { residency }),
     }
     projectIndex(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
@@ -680,7 +621,7 @@ export class MobxPool {
       links,
       issue: (id) => inMemory(omitGone(this.row('issue', id))) as SliceIssue | undefined,
       session: (id) => inMemory(omitGone(this.row('session', id))) as SliceSession | undefined,
-      // The member's cached stamp (its object's, hot or cold): no row read.
+      // The member's cached stamp (its object's): no row read.
       sessionActivity: (id) => (this.object('session', id) as SessionModel).activityMs,
       repo: (id) => inMemory(omitGone(this.row('repo', id))) as RepoRow | undefined,
       // An issue answers from its object's cached in-memory read (no table
@@ -716,7 +657,7 @@ export class MobxPool {
                 : issue.headlessOccupied
         ) as IssueSessionFacts[typeof field]
       },
-      // Hot or cold: a cold row is read by id through the feed, never loaded.
+      // A row the pool does not hold is not loaded for visibility.
       // untracked-read: visibility-issue-peek
       issueRow: (id) => omitGone(this.row('issue', id, 'peek')) as SliceIssue | undefined,
       // untracked-read: visibility-session-peek
@@ -779,26 +720,16 @@ export class MobxPool {
    * overlay, no Proxy and no per-read pending lookup. Resident readers
    * subscribe to the table slot.
    *
-   * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
-   * cold row's value is read by id through the feed; it is tracked by
-   * residency's per-id atom, which reports every relink and the load.
-   * Unknown addressed rows load once, then answer Gone if not visible. Never blocks.
+   * Not in memory: what `absent` names (`AbsentRead`). Unknown addressed
+   * rows load once through the one loader, then answer Gone if not visible.
+   * Never blocks.
    */
   row<E extends SourceEntity>(entity: E, id: string): Lookup<PoolSourceRows[E]>
   row(entity: 'setupSession', id: string): Lookup<SetupSession>
   row(entity: 'preference', id: string): Lookup<PreferenceRow>
   row(entity: HeaderEntity, id: string): Lookup<object>
   row(entity: EntityName, id: string, absent: 'peek'): Lookup<object>
-  row<E extends EntityName>(
-    entity: E,
-    id: string,
-    absent: 'summary' | 'summary-fields',
-  ): Lookup<Partial<PoolRows[E]>>
-  row<E extends EntityName>(
-    entity: E,
-    id: string,
-    absent?: 'load' | 'mark' | 'summary' | 'summary-fields',
-  ): Lookup<PoolRows[E]>
+  row<E extends EntityName>(entity: E, id: string, absent?: 'load' | 'mark'): Lookup<PoolRows[E]>
   row(
     entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference',
     id: string,
@@ -817,46 +748,21 @@ export class MobxPool {
       // untracked-read: pool-auxiliary-presence
       return table.has(id) ? untracked(() => table.get(id))! : NOT_VISIBLE
     }
-    const residency = this.residency
-    // The residency key already reports cold-summary changes, hydration and
-    // removal. Do not also subscribe to an absent table slot for that row.
-    const coldSummary =
-      (absent === 'summary' || absent === 'summary-fields') &&
-      residency?.isCold(core, id) === true &&
-      // untracked-read: pool-cold-presence
-      !untracked(() => this.tables[core].has(id))
-    let server = coldSummary ? undefined : (this.tables[core].get(id) as object | undefined)
+    const server = this.tables[core].get(id) as object | undefined
     if (server === undefined) {
       // Resident readers finish teardown, but missing rows must not restart a retired loader.
       if (this.disposed) return NOT_VISIBLE
+      const residency = this.residency
       if (residency === null) {
         // A pool fed rows directly that reads a device store (POD-7088): a
         // record the device does not hold is on its way like any lookup,
         // never "gone" because history is not here. Maintenance modes start
         // no load.
-        const loads = absent === 'load' || absent === 'summary' || absent === 'summary-fields'
-        return (loads && (core === 'issue' || core === 'session')
+        return (absent === 'load' && (core === 'issue' || core === 'session')
           ? this.collections.absent(core, id)
           : undefined) ?? NOT_VISIBLE
       }
-      if (absent === 'load') return residency.lookup(core, id)
-      if (residency.removed(core, id)) return REMOVED
-      // A summary reader of a record the device does not hold asks for it
-      // (POD-7087): on its way, never "gone" because history is not here.
-      if (!residency.known(core, id))
-        return (absent === 'summary' || absent === 'summary-fields') && this.collections.available
-          ? residency.lookup(core, id)
-          : NOT_VISIBLE
-      if (absent === 'mark') return residency.lookup(core, id, false)
-      if (absent === 'summary' || absent === 'summary-fields') {
-        server = residency.summary(core, id, absent === 'summary')
-        if (server === undefined) return residency.lookup(core, id)
-      } else
-        server =
-          core === 'session'
-            ? (residency.summary(core, id) ?? residency.read(core, id))
-            : residency.read(core, id)
-      if (server === undefined) return absent === 'peek' ? NOT_VISIBLE : residency.lookup(core, id)
+      return residency.lookup(core, id, absent === 'load')
     }
     if (
       (core === 'session' || core === 'issue') &&
@@ -899,7 +805,8 @@ export class MobxPool {
     if (resident !== undefined) return pickStub(id, resident)
     const stub = this.collections.stubOf(id)
     if (stub !== undefined) return stub
-    if (this.disposed || this.residency === null) return NOT_VISIBLE
+    if (this.disposed) return NOT_VISIBLE
+    if (this.residency === null) return this.collections.absent('issue', id) ?? NOT_VISIBLE
     return this.residency.lookup('issue', id)
   }
 
@@ -923,37 +830,29 @@ export class MobxPool {
   sourcePosition(entity: 'session', id: string): number | undefined {
     if (!this.disposed) this.sourcePositionDemand?.observe(id)
     // untracked-read: pool-session-position
-    return untracked(() => this.coldIndex().position(entity, id))
+    return untracked(() => this.deviceIndex().position(entity, id))
   }
 
   /**
-   * POD-5407 — the cold index: every relation and the cold rule's inputs for
-   * every row the feed carries (the source's, or the pool's own). Declared
-   * questions only (`ColdQueries`).
+   * POD-7094 — the device index: every relation and reader index over the
+   * rows the pool holds. Declared questions only (`DeviceQueries`).
    */
-  coldIndex(): ColdQueries {
-    if (this.disposed) {
-      this.emptyIndex ??= createColdIndex(this.graph.schema)
+  deviceIndex(): DeviceQueries {
+    if (this.disposed || this.ownIndex === undefined) {
+      this.emptyIndex ??= createDeviceIndex(this.graph.schema)
       return this.emptyIndex
     }
-    return this.sourceIndex?.() ?? (this.ownIndex as ColdIndex)
+    return this.ownIndex
   }
 
   /**
    * TRACKED: an issue's read cursor, from the read-state lane (POD-4686: per
    * key, so a mark-read re-validates only its own row). A pending mark-read is
    * already in it: the lane follows the visible row the log painted.
-   *
-   * The lane holds resident issues only (POD-5407: the pool keeps nothing per
-   * cold row). A cold issue's cursor is the one the cold index holds for it,
-   * tracked by its residency key, which every publication of the row reports.
+   * Undefined for an issue the pool does not hold.
    */
   readCursor(id: string): string | null | undefined {
-    const cursor = this.readStates.get(id)
-    if (cursor !== undefined) return cursor
-    if (this.residency === null || !this.residency.known('issue', id)) return undefined
-    const held = this.coldIndex().heldFields('issue', id, READ_CURSOR_FIELDS)
-    return held === undefined ? undefined : readAtOf(held['readAt'])
+    return this.readStates.get(id)
   }
 
   /** The addressed model, a batched load, or a terminal absence (tracked). */
@@ -970,8 +869,7 @@ export class MobxPool {
 
   /**
    * The one object of `entity:id`, built on first request, whether or not its
-   * row is in memory (the worklist holds cold issues too; their visibility
-   * reads the cold row by id). Untracked: an identity memo.
+   * row is in memory. Untracked: an identity memo.
    */
   private object(entity: EntityName, id: string, Model = MODEL_CLASSES[entity]!): EntityModel {
     const models = this.models[entity]
@@ -985,13 +883,12 @@ export class MobxPool {
 
   /**
    * Forget the object of `entity:id` once nothing can ask for it again as
-   * the same row: an issue neither in memory nor tracked by the worklist, a
-   * session no longer known, any other row no longer in memory.
+   * the same row: an issue neither in memory nor tracked by the worklist,
+   * any other row no longer in memory.
    */
   private release(entity: EntityName, id: string): void {
     if (this.tables[entity].has(id)) return
     if (entity === 'issue' && this.worklist.tracks(id)) return
-    if (entity === 'session' && this.residency?.isCold('session', id) === true) return
     this.models[entity].delete(id)
   }
 
@@ -1040,14 +937,6 @@ export class MobxPool {
     return count === 0 ? NO_INTERACTIONS : { count, since }
   }
 
-  sessionSummaryField(property: string): boolean {
-    return this.residency?.hasSummaryField('session', property) ?? false
-  }
-
-  issueSummaryField(property: string): boolean {
-    return this.residency?.hasSummaryField('issue', property) ?? false
-  }
-
   issueExitKind(id: string) {
     const exit = omitGone(this.row('issueExit', id))
     if (exit === LOADING) throw LOADING
@@ -1064,14 +953,13 @@ export class MobxPool {
   }
 
   /**
-   * TRACKED: the object of issue `id` while the pool knows the issue (in
-   * memory or cold), else undefined: a cross-issue read (a parent, a child,
-   * a starter's owner) that reaches an unknown id re-runs when it becomes
-   * known. A presence probe, not a row read.
+   * TRACKED: the object of issue `id` while the pool holds the issue, else
+   * undefined: a cross-issue read (a parent, a child, a starter's owner)
+   * that reaches an unknown id re-runs when it arrives. A presence probe,
+   * not a row read.
    */
   knownIssue(id: string): HeldIssue | undefined {
-    const known = this.tables.issue.has(id) || this.residency?.known('issue', id) === true
-    return known ? worklistView(this).row(this.issueObject(id)) : undefined
+    return this.tables.issue.has(id) ? worklistView(this).row(this.issueObject(id)) : undefined
   }
 
   /** A model's edit (`issue.title = x`): one transaction of the pool's log. */
@@ -1139,46 +1027,29 @@ export class MobxPool {
   }
 
   /** TRACKED: the declared parent key, without reading either row's fields.
-   * Only the source changes this relation: its table slot or cold residency
-   * address already reports those writes, including removal and promotion. */
+   * Only the source changes this relation: its table slot already reports
+   * those writes, including removal and arrival. */
   formalParent(id: string): string | null {
-    if (this.tables.issue.get(id) === undefined) this.residency?.known('issue', id)
+    this.tables.issue.has(id)
     // untracked-read: pool-formal-parent
     return untracked(() => this.graph.forwardTarget('issue', id, 'parent'))
   }
 
   /**
-   * TRACKED: where the row `entity:id` stands. A cold row answers `loading`
-   * and is queued (first access); a reader renders that as loading, never as
-   * an empty row.
+   * TRACKED: where the row `entity:id` stands. A row the pool does not hold
+   * answers `loading` and its load starts (first access); a reader renders
+   * that as loading, never as an empty row.
    */
-  resident(entity: EntityName, id: string, absent: 'load' | 'summary-fields' = 'load'): Residence {
+  resident(entity: EntityName, id: string): Residence {
     // Availability observes presence; payload changes belong to field readers.
     if (this.tables[entity].has(id)) return 'resident'
-    const answer = this.row(entity, id, absent)
+    const answer = this.row(entity, id)
     return answer === LOADING ? 'loading' : isGone(answer) ? 'absent' : 'resident'
   }
 
   /**
-   * TRACKED: the declared summary of a row the cold rule keeps hidden
-   * (POD-4753): a hidden issue's visibility reads it instead of its row.
-   * Undefined for a row in memory, one held out beside the rule, or unknown.
-   */
-  private hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
-    const residency = this.residency
-    if (residency === null) return undefined
-    // A row in memory is never hidden, and its reader already tracks its
-    // table slot (a `replace` that makes it cold rewrites that slot): asked
-    // untracked, so no residency atom is made per issue in memory.
-    // untracked-read: pool-hidden-presence
-    if (untracked(() => this.tables[entity].has(id))) return undefined
-    if (!residency.hidden(entity, id)) return undefined
-    return residency.summary(entity, id) ?? {}
-  }
-
-  /**
    * TRACKED: a lazy collection (Rule L) as its resident members plus the
-   * count still loading, every cold one queued. The shape a roll-up reads
+   * count still loading, each absent one asked for. The shape a roll-up reads
    * (Mb3): it derives from `ready` and reports loading while `pending > 0`.
    * `ready` is in bucket order, which is unordered (M3 F1).
    */
@@ -1195,46 +1066,30 @@ export class MobxPool {
   }
 
   /**
-   * Close the load window now: install every queued cold row, read by id
-   * through the feed, in ONE action. The window's timer calls this; the
-   * harness drains it in a loop before it reads. Returns how many rows the
-   * window installed.
-   *
-   * A row it installs enters the issue table, which makes it a filing
-   * candidate (`followTable`); the rows it no longer keeps cold are asked for
-   * in turn, and the lanes it moved are settled (`Residency.install`).
+   * Close the reference window now: resolve every queued typed reference
+   * against the device's identities in ONE action. The window's timer calls
+   * this; the harness drains it before it reads. Returns how many
+   * references it resolved.
    */
   hydrate(): number {
     const residency = this.residency
     if (residency === null) return 0
-    const batch = residency.take()
     const refs = residency
       .takeReferences()
       .filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
+    if (refs.length === 0) return 0
     const identities = refs.map((ref) => [ref, this.issueIdByRef?.(ref) ?? null] as const)
-    const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
-    for (const [, id] of identities) {
-      if (id !== null && residency.isCold('issue', id) && !queuedIssues.has(id)) {
-        queuedIssues.add(id)
-        batch.push(['issue', id])
-      }
-    }
-    if (batch.length === 0 && identities.length === 0) return 0
-    const out = ingestOut()
     return runInAction(() => {
       for (const [ref, id] of identities) referenceViewIfPresent(this)?.resolved(ref, id)
-      const rows = residency.install(this.target, batch, out)
-      this.seatVerdicts.flush()
-      return rows
+      return identities.length
     })
   }
 
   /**
-   * One feed publication, one action. The cold index holds it first (the
-   * source's own applied it before calling; the pool's own applies it here),
+   * One feed publication, one action. The device index applies it first,
    * then the tables follow: an update ingests its records; a `replace`
-   * attaches (POD-5407: the resident candidates only). The relation reader
-   * reports what the index's delta moved.
+   * reseeds every table. The relation reader reports what the index's delta
+   * moved.
    */
   apply(event: RowSourceEvent): void {
     if (this.disposed) return
@@ -1284,67 +1139,38 @@ export class MobxPool {
       const reseedRows = event.rows
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
-      const index = this.coldIndex()
-      // A source that explicitly reseeded its failed index is a new
-      // slice to the pool: attach to it, whatever this publication carries.
-      const fresh = this.indexSeen !== undefined && this.indexSeen !== index
-      this.indexSeen = index
+      const index = this.deviceIndex()
       if (event.type === 'replace') {
         referenceViewIfPresent(this)?.resetUnresolved()
-        reseed(this.target, reseedRows, out, this.ownIndex === undefined, (entity) =>
-          this.sources.ownsRecords(entity),
-        )
+        reseed(this.target, reseedRows, out, (entity) => this.sources.ownsRecords(entity))
         this.graph.reset()
         this.reseatAll()
         this.seatVerdicts.reset()
       } else {
-        if (fresh) {
-          // The source rebuilt its index (it holds this publication already):
-          // the cold-capable rows follow it again; lanes and repos stay.
-          this.residency?.attach(this.target, null, out)
-          this.graph.reset()
-          this.reseatAll()
-          this.seatVerdicts.reset()
-        }
-        // POD-4753: a row this update carries is installed from it; any
-        // other row it warms is asked for (the load window).
-        this.residency?.publication(event.rows)
         for (const record of tableRows) ingestRecord(this.target, record, out)
-        const delta = index.changes(event)
-        // POD-4745: a row the rule no longer keeps cold is warmed, once every
-        // row of the update is in.
-        this.residency?.settle(this.target, out, fresh ? undefined : delta)
-        if (!fresh) this.graph.publish(delta)
+        this.graph.publish(index.changes(event))
       }
       this.issueCount.set(index.undeleted('issue'))
       if (
         this.sourcePositionDemand !== undefined &&
-        (fresh || event.type === 'replace' || this.positionsSeen !== index.positionVersion)
+        (event.type === 'replace' || this.positionsSeen !== index.positionVersion)
       ) {
         this.positionsSeen = index.positionVersion
         // Ordinary publications address only their session ids. A replacement
-        // or rebuilt index can move any demanded position, even at the same
-        // version; compare those keys without opening the session catalog.
-        if (fresh || event.type === 'replace') {
+        // can move any demanded position, even at the same version; compare
+        // those keys without opening the session catalog.
+        if (event.type === 'replace') {
           for (const id of this.sourcePositionDemand.keys()) this.refreshSourcePosition(index, id)
         } else
           for (const record of event.rows) {
             if (record.kind === 'session') this.refreshSourcePosition(index, record.id)
           }
       }
-      // An attach files its resident sessions as they enter the table
-      // (`observe` above); a history row it carries is never visited.
-      // A cold row's update reaches no table slot; the seat verdicts read it
-      // as the members group does (hot or cold).
+      // An attach files its sessions as they enter the table (`observe`
+      // above).
       for (const record of event.type === 'replace' ? [] : event.rows) {
-        if (record.kind === 'session') {
-          this.seatVerdicts.queueSession(record.id)
-        }
-        if (record.kind === 'issue') {
-          this.seatVerdicts.queueIssue(record.id)
-          if (record.value && this.residency?.isCold('issue', record.id))
-            referenceViewIfPresent(this)?.arrived(record.value as SliceIssue)
-        }
+        if (record.kind === 'session') this.seatVerdicts.queueSession(record.id)
+        if (record.kind === 'issue') this.seatVerdicts.queueIssue(record.id)
       }
       this.seatVerdicts.flush()
       this.queries.publish(event)
@@ -1378,7 +1204,7 @@ export class MobxPool {
     worklistView(this).applyLocals(locals, changed)
   }
 
-  private refreshSourcePosition(index: ColdQueries, id: string): void {
+  private refreshSourcePosition(index: DeviceQueries, id: string): void {
     const atom = this.sourcePositionDemand?.get(id)
     if (!atom) return
     const position = index.position('session', id)
@@ -1413,8 +1239,7 @@ export class MobxPool {
     this.residency?.clear()
     if (this.clock !== deadlineClock) this.clock.clear()
     // A retired pool may outlive its switch (POD-5402); it must not hold the
-    // retired feed's cold index, which carries every row's relations.
-    this.indexSeen = undefined
+    // retired feed's device index, which carries every row's relations.
     this.ownIndex = undefined
   }
 

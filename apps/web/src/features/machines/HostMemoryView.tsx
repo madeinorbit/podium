@@ -35,7 +35,7 @@ import { useReclaimInventory } from './use-reclaim-inventory'
 const readParkedCount = (pool: MobxPool): number =>
   pool.queries.ids({ kind: 'pausedSessions' }).reduce((count, id) => {
     if (pool.queries.collapsed(id)) return count
-    const row = omitGone(pool.row('session', id, 'summary-fields'))
+    const row = omitGone(pool.row('session', id))
     return (
       count +
       (row && typeof row !== 'symbol' && (row as { status?: string }).status === 'hibernated'

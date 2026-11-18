@@ -18,7 +18,7 @@ export class NoticeMessage implements MessageNotice {
   @lazy get sessionLabel(): string {
     const session = this.pool.sessionObject(this.sessionId)
     if (!session.known) {
-      const row = this.pool.row('session', this.sessionId, 'summary-fields')
+      const row = this.pool.row('session', this.sessionId)
       return typeof row === 'symbol' ? 'Loading session…' : 'a closed session'
     }
     return session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind || 'a closed session'
@@ -59,7 +59,7 @@ function messageNotice(pool: MobxPool, id: string): { notice?: NoticeMessage; pe
   if (message === LOADING) return { pending: 1 }
   if (!message || !isMessageRecordAttention(message.status)) return { pending: 0 }
   const notice = noticeCompanions(pool).message(message)
-  const labelPending = pool.resident('session', notice.sessionId, 'summary-fields') === 'loading'
+  const labelPending = pool.resident('session', notice.sessionId) === 'loading'
   return { notice, pending: labelPending ? 1 : 0, labelPending }
 }
 

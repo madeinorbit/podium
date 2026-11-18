@@ -237,7 +237,7 @@ describe('shell pool', () => {
         isDraftVessel: true,
         worktreePath: null,
       })
-      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId, 'summary'))).toMatchObject({
+      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId))).toMatchObject({
         archived: true,
       })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
@@ -258,25 +258,6 @@ describe('shell pool', () => {
       f.lane(undefined)
       expect(f.pool.sources.related('shellShipLane', 'shell-repo', 'shipLanes')).toEqual([])
       expect(settled(f).differences).toBe(0)
-    } finally {
-      f.pool.dispose()
-    }
-  })
-  it('keeps cold manifests out of summaries and batches repeated artifact demand through the one reader', () => {
-    const f = shellFixture()
-    try {
-      const id = f.issues[30]!.id
-      expect(f.pool.tables.issue.has(id)).toBe(false)
-      expect(omitGone(f.pool.row('issue', id, 'summary'))).not.toHaveProperty('panel')
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(f.loads).toEqual([])
-      expect(f.pool.hydrate()).toBe(1)
-      expect(f.loads).toEqual([`issue:${id}`])
-      expect(shellViews(f.pool).issue(id, true)).toHaveProperty(
-        'panel.artifacts.0.artifactId',
-        'synthetic-artifact',
-      )
     } finally {
       f.pool.dispose()
     }

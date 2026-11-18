@@ -17,7 +17,6 @@ import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
-  SUPERAGENT_SUMMARIES,
   superagentCursor,
   superagentFeed,
   superagentQuestion,
@@ -147,7 +146,7 @@ async function fixture() {
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: Date.parse('2026-10-03T00:00:00Z') },
     undefined,
-    { summaries: SUPERAGENT_SUMMARIES, load, schedule: () => () => {} },
+    { load, schedule: () => () => {} },
   )
   pool.apply({
     type: 'replace',
@@ -427,41 +426,6 @@ it('reuses notice payloads while preserving first-question insertion order', asy
   f.batch('pendingInteractions', 'z-first')
   expect(superagentQuestion(f.pool, 's-a' as never).question?.id).toBe('a-second')
   expect(f.source.counts.questionCollections).toBe(scans)
-})
-it('batches addressed cold session loads without indexing cold session payloads', async () => {
-  const f = await fixture()
-  await settle(f)
-  f.rows.mockClear()
-  const cold = {
-    sessionId: 'cold-private-session',
-    cwd: '/synthetic',
-    machineId: 'm',
-    status: 'exited',
-    archived: true,
-    stoppedAt: '2025-01-01T00:00:00Z',
-    createdAt: '2025-01-01T00:00:00Z',
-    lastActiveAt: '2025-01-01T00:00:00Z',
-  } as Store['sessions'][number]
-  f.publish({ sessions: [...f.state.sessions, cold] })
-  await Promise.resolve()
-  f.pool.apply({
-    type: 'update',
-    rows: [{ kind: 'session', id: cold.sessionId, value: cold as never }],
-  })
-  f.load.mockClear()
-  expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
-  expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
-  expect(f.pool.tables.session.has(cold.sessionId)).toBe(false)
-  expect(f.rows.mock.calls.some(([kind]) => kind === 'sessions')).toBe(false)
-  expect(f.load).not.toHaveBeenCalled()
-  expect(f.pool.hydrate()).toBe(1)
-  expect(f.load).toHaveBeenCalledTimes(1)
-  expect(omitGone(f.pool.row('session', cold.sessionId))).toMatchObject({ cwd: '/synthetic' })
-  const beforeMissing = f.load.mock.calls.length
-  expect(omitGone(f.pool.row('session', 'known-absent'))).toBe(LOADING)
-  f.pool.hydrate()
-  expect(f.load.mock.calls.slice(beforeMissing)).toEqual([['session', 'known-absent']])
-  expect(omitGone(f.pool.row('session', 'known-absent'))).toBeUndefined()
 })
 it('releases all scoped state and subscriptions, including an already queued demand', async () => {
   const f = await fixture()

@@ -1,15 +1,9 @@
 import type { PoolScreen } from '@podium/client-graph/host'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
-import { SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 export const shellPoolScreen: PoolScreen = {
   id: 'shell',
   options: () => ({
     shell: true,
     header: true,
-    summaries: {
-      issue: [...SHELL_SUMMARIES.issue, ...MISSION_VIEW_SUMMARIES.issue],
-      session: [...SHELL_SUMMARIES.session, ...MISSION_VIEW_SUMMARIES.session],
-    },
   }),
   async attach(runtime, pool) {
     const [{ ShellSource }, { SHELL_SOURCE_KEY, SHELL_ENTITIES }] = await Promise.all([

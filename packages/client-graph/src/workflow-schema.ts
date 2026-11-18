@@ -10,8 +10,3 @@ export const WORKFLOW_SCHEMA = {
   session: { entity: 'session', fields: SETUP_SESSION_SUMMARY_FIELDS, residency: 'declared-summary' },
   relations: {},
 } as const
-
-export const WORKFLOW_SUMMARIES = {
-  issue: WORKFLOW_SCHEMA.issue.fields,
-  session: WORKFLOW_SCHEMA.session.fields,
-}

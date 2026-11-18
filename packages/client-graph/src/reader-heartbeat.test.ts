@@ -2,23 +2,19 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
 import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
-import { SCHEMA } from './shared/schema'
 import { createSessionQuestions } from './shared/session-questions'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
-it.each([false, true])('evaluates only activity-reading resident questions on a heartbeat (external: %s)', external => {
-  const source = createColdIndex(SCHEMA)
+it('evaluates only activity-reading resident questions on a heartbeat', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
-    ...(external ? { cold: () => source } : {}), load: () => undefined, schedule: () => () => {},
+    load: () => undefined, schedule: () => () => {},
   })
   const row = { sessionId: 'active', cwd: '/repo/nested', issueId: 'one', agentKind: 'codex',
     status: 'live', archived: false, headless: false, machineId: 'machine',
     refRepoId: 'repo', refSeq: 1, refLetter: 'a', createdAt: '2026-10-01', lastActiveAt: '2026-10-01' }
   const apply = (value: object) => {
     const event: RowSourceEvent = { type: 'update', rows: [{ kind: 'session', id: 'active', value } as RowRecord] }
-    if (external) source.apply(event)
     pool.apply(event)
   }
   try {
@@ -27,7 +23,7 @@ it.each([false, true])('evaluates only activity-reading resident questions on a 
     apply({ ...row, lastActiveAt: '2026-10-09' })
     const delta = Object.fromEntries(Object.entries(pool.queries.residentUpdates)
       .map(([key, count]) => [key, count - before[key as keyof typeof before]]))
-    console.info('[resident heartbeat questions]', JSON.stringify({ external, delta }))
+    console.info('[resident heartbeat questions]', JSON.stringify(delta))
     expect(delta).toEqual({ sessionFacets: 0, close: 0, setupCount: 0, setupAgent: 1,
       reference: 0, triage: 1, recent: 1, machine: 0, activity: 1 })
     expect(pool.queries.activity({ kind: 'commandRootActivity', roots: ['/repo'] })).toBe(Date.parse('2026-10-09'))
@@ -118,9 +114,8 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
   for (const row of [issue('one'), issue('two'), session('active'), session('other'),
     { kind: 'repo', id: 'repo', value: { id: 'repo', prefix: 'POD', repoPath: '/repo' } } as RowRecord])
     rows.set(`${row.kind}:${row.id}`, row)
-  const source = createColdIndex(SCHEMA)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-08') }, undefined, {
-    cold: () => source, load: () => undefined, schedule: () => () => {},
+    load: () => undefined, schedule: () => () => {},
   })
   const questions: ReaderQuestion[] = [
     { kind: 'commandSessions' }, { kind: 'pausedSessions' }, { kind: 'headerOccupancy' },
@@ -153,7 +148,7 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
       }
       if (questionEntity(question) === 'session') expected[at]!.sort()
     }
-    source.apply(event); pool.apply(event)
+    pool.apply(event)
     if (stops.length) {
       expect(seen).toEqual(expected)
       expect(recent).toEqual(rebuilt.ids({ kind: 'headerRecentSession' }))
@@ -169,6 +164,7 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
     questions.forEach((question, at) => stops.push(autorun(() => { seen[at] = pool.queries.ids(question) })))
     stops.push(autorun(() => { recent = pool.queries.ids({ kind: 'headerRecentSession' }) }))
     stops.push(autorun(() => { count = pool.queries.heldCount('session'); setup = pool.queries.setupSessionCount(); machine = pool.queries.latestMachineSession(['machine']) }))
+    const source = pool.deviceIndex()
     const revisions = vi.spyOn(source, 'readerRevision'), membership = vi.spyOn(source, 'readerContains')
     const checks = pool.queries.counts.revisionChecks
     const probes = pool.queries.counts.membershipChecks

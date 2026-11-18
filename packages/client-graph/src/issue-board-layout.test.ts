@@ -3,7 +3,7 @@ import { asIssueId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_BOARD_STAGES } fr
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { boardCards } from './issue-board-cards'
-import { type BoardOptions, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
+import { type BoardOptions, } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -29,7 +29,7 @@ function setup(scale: number) {
   const rows = ISSUE_BOARD_STAGES.flatMap(stage => Array.from({ length: 128 * scale }, (_, n) =>
     row(`${stage}-${n}`, { stage, seq: n + 1 })))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load: vi.fn(), summaries: ISSUE_BOARD_SUMMARIES, schedule: () => () => {},
+    load: vi.fn(), schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
   const source = createIssueBoardSource(pool)

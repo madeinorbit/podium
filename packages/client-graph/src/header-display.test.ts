@@ -26,7 +26,7 @@ function fixture() {
   const rows = new Map(['z', 'a', 'cold'].map(id => [id, session(id, id === 'cold'
     ? { status: 'exited', stoppedAt: stamp(NOW - 30 * 86_400_000) } : {})]))
   const pool = new MobxPool({ selectedIssueId: 'one', coarseNow: NOW }, undefined,
-    { header: true, load: (_kind, id) => rows.get(id), schedule: () => () => {} })
+    { load: (_kind, id) => rows.get(id), schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [
     { kind: 'repo', id: 'repo', value: { id: 'repo', prefix: 'HEAD', repoPath: '/header' } as never },
     ...['one', 'two'].map((id, i) => ({ kind: 'issue' as const, id, value: issue(id, i + 1) })),

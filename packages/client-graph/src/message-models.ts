@@ -164,10 +164,6 @@ const schema = {
       ),
     },
     relations: {},
-    cold: {
-      kind: 'never',
-      why: 'Synced working set and requested ledger records use existing resident tables.',
-    },
   },
   pendingInteraction: {
     key: 'id',
@@ -219,7 +215,6 @@ const schema = {
       ),
     },
     relations: {},
-    cold: { kind: 'never', why: 'The synced pending ask set stays resident.' },
   },
 } satisfies Pick<ModelSchema, 'messageRecord' | 'pendingInteraction'>
 registerModels(schema, { messageRecord: MessageModel, pendingInteraction: InteractionModel })

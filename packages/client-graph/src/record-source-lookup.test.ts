@@ -52,9 +52,9 @@ it('server deletion and revoked visibility remain distinct through the replica a
     expect(handle.pool.row('issue', 'deleted')).toEqual({ kind: 'gone', reason: 'removed' })
     expect(handle.pool.model('issue', 'deleted')).toEqual({ kind: 'gone', reason: 'removed' })
     expect(schedule).not.toHaveBeenCalled()
-    expect(handle.pool.model('issue', 'private')).toBe(LOADING)
-    expect(handle.pool.hydrate()).toBe(0)
+    // No loader here: a record the device does not hold is not visible.
     expect(handle.pool.model('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
+    expect(handle.pool.hydrate()).toBe(0)
     expect(handle.pool.row('issue', 'deleted')).not.toBe(LOADING)
 
     const readmit = authority.head()

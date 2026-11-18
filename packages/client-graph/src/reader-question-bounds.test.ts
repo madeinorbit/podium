@@ -1,10 +1,8 @@
-import { autorun, runInAction } from 'mobx'
+import { autorun, } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
 import { createKeyedAnswer } from './query-result'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import { createSessionQuestions } from './shared/session-questions'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
@@ -81,22 +79,15 @@ function fixture(scale: 1 | 4 = 1) {
       session(`session-${n}`),
     ]).flat(),
   ]
-  // Reference inputs survive cold summaries only through their declaration.
-  const summaries = { session: ['displayRef'] }
-  const source = createColdIndex(SCHEMA, summaries)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    cold: () => source,
-    summaries,
     load: () => undefined,
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
   const publish = (event: RowSourceEvent) => {
-    source.apply(event)
     pool.apply(event)
   }
-  return { pool, source, rows, issue, session, target, mine, peer, publish }
+  return { pool, source: pool.deviceIndex(), rows, issue, session, target, mine, peer, publish }
 }
 
 it('keeps narrowed answers and scalar questions flat with fully resident history at 1x/4x', async () => {
@@ -144,35 +135,6 @@ it('keeps narrowed answers and scalar questions flat with fully resident history
   expect(second.work.rows).toBe(first.work.rows)
   expect(second.work.derivations).toBe(first.work.derivations)
   expect(second.work.elements).toBe(first.work.elements)
-})
-
-it('shadows long runs of newer source facts without walking excluded resident history', () => {
-  for (const scale of [1, 4] as const) {
-    const f = fixture(scale)
-    try {
-      const records = f.rows.filter(
-        (row) => row.kind === 'session' && row.id.startsWith('session-'),
-      )
-      f.source.apply({
-        type: 'update',
-        rows: records.map((row) =>
-          f.session(row.id, {
-            ...(row.value as object),
-            lastActiveAt: '2028-01-01T00:00:00Z',
-            createdAt: '2028-01-01T00:00:00Z',
-            machineId: 'm0',
-          }),
-        ),
-      })
-      f.pool.apply({ type: 'update', rows: records })
-      const before = f.pool.queries.counts.scalarVisits
-      expect(f.pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['mine'])
-      expect(f.pool.queries.latestMachineSession(['m0', 'm1'])?.machineId).toBe('m0')
-      expect(f.pool.queries.counts.scalarVisits - before).toBe(3)
-    } finally {
-      f.pool.dispose()
-    }
-  }
 })
 
 it('maintains resident predicate moves, removals and per-path repo identities by changed key', () => {
@@ -299,46 +261,6 @@ it('answers successor after mass snooze expiry and clock rewind without replayin
   }
 })
 
-it('keeps resident scalar overrides independent of source snooze and replacement collapse', () => {
-  const f = fixture()
-  try {
-    const sleeping = f.session('sleeper', {
-      lastActiveAt: old,
-      snoozedUntil: '2026-10-02T12:00:00Z',
-    })
-    f.publish({ type: 'update', rows: [sleeping] })
-    f.source.apply({
-      type: 'update',
-      rows: [f.session('sleeper', { lastActiveAt: old, snoozedUntil: '2030-10-02T12:00:00Z' })],
-    })
-    f.pool.apply({ type: 'update', rows: [sleeping] })
-    const scalar = f.pool.queries.nextTriageSession('peer')
-    expect(scalar).toBe('sleeper')
-    const resume = { kind: 'codex-thread', value: 'resident-twins' }
-    const loser = f.session('twin-a', {
-      status: 'exited',
-      resume,
-      cwd: '/twin',
-      machineId: 'twin',
-      createdAt: stamp,
-    })
-    const winner = f.session('twin-z', {
-      status: 'hibernated',
-      resume,
-      cwd: '/twin',
-      machineId: 'twin',
-      createdAt: old,
-    })
-    f.publish({ type: 'update', rows: [loser, winner] })
-    expect(f.pool.queries.latestMachineSession(['twin'])?.createdAt).toBe(old)
-    // The resident loser row retains its identity; only source collapse changes.
-    f.publish({ type: 'replace', rows: [...f.rows, loser] })
-    expect(f.pool.queries.latestMachineSession(['twin'])?.createdAt).toBe(stamp)
-  } finally {
-    f.pool.dispose()
-  }
-})
-
 it('preserves collapsed command order for equal machine creation timestamps', () => {
   const f = fixture()
   try {
@@ -373,7 +295,6 @@ it('prunes deadline-ineligible subtrees for first and successor answers', () => 
 })
 
 it('publishes scalar replacement when independent resident revisions collide with source revisions', () => {
-  const source = createColdIndex(SCHEMA)
   const session = (id: string, patch: object = {}): RowRecord =>
     ({
       kind: 'session',
@@ -397,9 +318,7 @@ it('publishes scalar replacement when independent resident revisions collide wit
     stoppedAt: old,
     createdAt: old,
   })
-  source.apply({ type: 'replace', rows: [resident, cold] })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
   })
@@ -407,7 +326,6 @@ it('publishes scalar replacement when independent resident revisions collide wit
   const answers: unknown[] = [],
     stop = autorun(() => answers.push(pool.queries.latestMachineSession(['m0', 'm1'])))
   try {
-    expect(pool.tables.session.has('c')).toBe(false)
     for (let n = 0; n < 6; n++) {
       resident = session('r', { createdAt: `2027-01-0${n + 1}T00:00:00Z` })
       pool.apply({ type: 'update', rows: [resident] })
@@ -426,7 +344,6 @@ it('publishes scalar replacement when independent resident revisions collide wit
         }),
       ],
     }
-    source.apply(replacement)
     pool.apply(replacement)
     expect(answers.at(-1)).toMatchObject({ machineId: 'm1' })
   } finally {

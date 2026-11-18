@@ -39,7 +39,7 @@ interface ScreeningEntry {
  * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
  * proposal change never re-reads this entry. */
 export function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
-  const row = omitGone(pool.row('issue', id, 'summary')) as Loaded<ScreeningSummary>
+  const row = omitGone(pool.row('issue', id)) as Loaded<ScreeningSummary>
   if (row === LOADING) return LOADING
   if (!row || !isScreenableRoot(row)) return undefined
   const seen = new Set<string>([row.id])
@@ -47,7 +47,7 @@ export function readScreeningEntry(pool: MobxPool, id: string): Loaded<Screening
     pending = false
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId)
-    const parent = omitGone(pool.row('issue', parentId, 'summary')) as Loaded<ScreeningSummary>
+    const parent = omitGone(pool.row('issue', parentId)) as Loaded<ScreeningSummary>
     if (parent === LOADING) {
       pending = true
       break

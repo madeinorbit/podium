@@ -6,7 +6,6 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { checkMissions, compareMissionSnapshots, type MissionCheckRow } from '../../diagnostics/mission-check'
 import { LOADING } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
@@ -32,7 +31,7 @@ function open(issues: SliceIssue[], seats: SliceSession[] = [], lazy = false) {
   ])
   const load = vi.fn((kind: string, id: string) => input.get(`${kind}:${id}`))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined,
-    lazy ? { load, summaries: MISSION_SUMMARIES, schedule: () => () => {} } : undefined)
+    lazy ? { load, schedule: () => () => {} } : undefined)
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
@@ -161,37 +160,6 @@ describe('declared pool mission', () => {
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     ctx.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'sender', value: undefined }] })
     expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
-  })
-
-  it('answers cold missions through declared summaries without loading or peeking', () => {
-    const ctx = open([issue('root', { archived: true }), issue('child', { parentId: 'root', stage: 'done', closedAt: STAMP }),
-      issue('spin', { archived: true, startedBySession: 'sender' })], [session('sender', 'root', { archived: true, status: 'exited' })], true)
-    expect(runInAction(() => ctx.pool.tables.issue.has('root'))).toBe(false)
-    const before = ctx.load.mock.calls.length, read = vi.spyOn(ctx.pool, 'row')
-    expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child', 'spin']))
-    expect(ctx.load.mock.calls.length).toBe(before)
-    expect(read.mock.calls.some(call => String(call[2]) === 'peek')).toBe(false)
-    expect(runInAction(() => ctx.pool.tables.issue.has('root'))).toBe(false)
-    ctx.patchIssue('spin', { stage: 'planning', deps: [{ type: 'discovered-from', id: 'absent' }] })
-    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
-    expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-  })
-
-  it('returns LOADING and batches a cold read when the summary is incomplete', () => {
-    const ctx = open([issue('root', { archived: true })], [], true)
-    const original = ctx.pool.row.bind(ctx.pool)
-    vi.spyOn(ctx.pool, 'row').mockImplementation(((kind: string, id: string, absent?: string) =>
-      absent === 'summary' && original('issue', id, 'mark') === LOADING
-        ? {} : original(kind as 'issue', id, absent as 'load')) as typeof ctx.pool.row)
-    expect(tracked(() => ctx.view.rootFor('root'))).toBe(LOADING)
-    expect(tracked(() => ctx.view.members('root'))).toBe(LOADING)
-    expect(tracked(() => ctx.view.contains('root', 'root'))).toBe(LOADING)
-    const count = ctx.load.mock.calls.length
-    ctx.pool.hydrate()
-    expect(ctx.load.mock.calls.length - count).toBe(1)
-    expect(tracked(() => ctx.view.rootFor('root'))).toBe('root')
-    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root']))
   })
 
   it('tracks added, archived, deleted and removed ancestors and a late sender', () => {

@@ -21,7 +21,6 @@ import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenario
 import { headerView } from './header-views'
 import { MissionScreen, missionRootId } from './mission-screen'
 import { requireLoaded, settled } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { attachMobileScreens } from './mobile-screens'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
@@ -150,7 +149,6 @@ function corpusPool(scale: 1 | 4, cold = false) {
   const pool = cold
     ? new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined, {
         load: (entity: string, id: string) => input.get(`${entity}:${id}`),
-        summaries: MISSION_VIEW_SUMMARIES,
         schedule: () => () => {},
       })
     : new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })

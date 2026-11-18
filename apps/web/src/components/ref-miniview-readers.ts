@@ -8,7 +8,7 @@ import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-minivi
 
 export function readReferenceSession(pool: MobxPool, ref: string) {
   const id = pool.queries.sessionReferenceId(ref)
-  return id ? omitGone(pool.row('session', id, 'summary-fields')) : undefined
+  return id ? omitGone(pool.row('session', id)) : undefined
 }
 
 /** The named row is the card's whole input. Its parent label, its session

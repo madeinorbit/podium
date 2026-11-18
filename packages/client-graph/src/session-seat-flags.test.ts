@@ -15,7 +15,6 @@ it('publishes archived-state changes without depending on display fields or row 
   const flag = vi.spyOn(pool.queries, 'sessionStoredField')
   const update = (value: Readonly<Record<string, unknown>> | undefined) => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value }] })
   try {
-    expect(pool.tables.session.has('seat')).toBe(false)
     expect(values).toEqual([false])
     update({ ...row, title: 'Renamed', readAt: '2026-10-01T12:00:00Z', lastActiveAt: '2026-10-01T12:00:01Z' })
     expect(values).toEqual([false])

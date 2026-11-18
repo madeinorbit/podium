@@ -203,9 +203,7 @@ export class Worklist {
   }
 
   knownRow(id: string): WorklistIssue | undefined {
-    return this.pool.tables.issue.has(id) || this.pool.residency?.known('issue', id) === true
-      ? this.row(this.pool.issueObject(id))
-      : undefined
+    return this.pool.tables.issue.has(id) ? this.row(this.pool.issueObject(id)) : undefined
   }
 }
 

@@ -767,7 +767,6 @@ describe('mobile pool work-list actions', () => {
       loads = vi.spyOn(f.replica, 'row')
     }, 'synthetic-5')
     loads!.mockClear()
-    expect(pool().tables.issue.has('synthetic-5')).toBe(false)
     fireEvent.click(screen.getByTestId('menu-probe'))
     fireEvent.click(screen.getByTestId('menu-probe'))
     expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()

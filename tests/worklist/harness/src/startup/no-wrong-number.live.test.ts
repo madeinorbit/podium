@@ -14,8 +14,8 @@ import {
 import {
   collectGarbage,
   fullPool,
-  lazyPool,
   openStartupFeed,
+  productionPool,
   type StartupFeed,
 } from './startup-states'
 
@@ -73,7 +73,7 @@ const cells: CorpusCell[] = [
 describe('declared live parts against the old full-load control', () => {
   for (const cell of cells) {
     const label = `h${cell.history}a${cell.active}`
-    it(`${label}: full and lazy startup answers equal the control or are LOADING`, async () => {
+    it(`${label}: full and production startup answers equal the control or are LOADING`, async () => {
       const feed = await openStartupFeed(cell)
       const questions = startupQuestions(startupTargets(feed.rows))
       const controlPool = fullPool(feed)
@@ -106,40 +106,20 @@ describe('declared live parts against the old full-load control', () => {
         current.dispose()
         collectGarbage()
       }
-      const handle = lazyPool(feed)
+      const handle = productionPool(feed)
       const live = new LiveStore({ now: () => 1 })
       handle.pool.bindLive(live)
       seed(live, feed)
       try {
-        // This static feed only installs previously cold rows. Bound the drain
-        // by its records, not a fixed number of windows: a question can discover
-        // another dependency on each window. Check every intermediate answer.
-        let loaded = 0
-        let windows = 0
-        const drain = (expected: Map<string, unknown>, phase: string) => {
-          for (;;) {
-            compare(handle.pool, `${label} ${phase} window ${windows}`, expected)
-            const installed = handle.pool.hydrate()
-            if (installed === 0) return
-            windows += 1
-            loaded += installed
-            expect(loaded, 'a static fixture must never load a row twice').toBeLessThanOrEqual(
-              feed.rows.length,
-            )
-          }
-        }
-        expect(
-          compare(handle.pool, `${label} before loading`, control).loading.length,
-        ).toBeGreaterThan(0)
-        drain(control, 'online')
-        expect(compare(handle.pool, `${label} loaded`, control).loading).toEqual([])
+        // The production pool holds every row the device holds (POD-7094):
+        // nothing is on its way, online or after the connection is lost.
+        expect(compare(handle.pool, `${label} production`, control).loading).toEqual([])
         lose(live)
-        drain(disconnected, 'disconnected')
-        expect(compare(handle.pool, `${label} loaded disconnected`, disconnected).loading).toEqual(
-          [],
-        )
+        expect(
+          compare(handle.pool, `${label} production disconnected`, disconnected).loading,
+        ).toEqual([])
         console.info(
-          `[live-store no-wrong-number] ${label}: ${questions.length} questions, ${windows} windows, ${loaded} rows; full, lazy and disconnected answers agree`,
+          `[live-store no-wrong-number] ${label}: ${questions.length} questions; full, production and disconnected answers agree`,
         )
       } finally {
         handle.dispose()

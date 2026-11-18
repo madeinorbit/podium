@@ -74,27 +74,6 @@ it('keeps declared subset lists stable and follows members moving in and out', (
   } finally { stop(); pool.dispose() }
 })
 
-it('a retained collection leaves loading after hydration and follows deletion and re-addition', () => {
-  const cold = issue('cold', { parentId: 'root', stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z' })
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load: () => cold.value, schedule: () => () => {}, summaries: { issue: ['parentId', 'stage', 'closedAt', 'updatedAt'] },
-  })
-  pool.apply({ type: 'replace', rows: [issue('root'), cold] })
-  const root = requireHere(pool.model('issue', 'root')), held = root.children
-  let answer: readonly EntityModel[] = [], loading = -1
-  const stop = autorun(() => { answer = held.ready; loading = held.loading })
-  try {
-    expect(answer).toEqual([]); expect(loading).toBe(1)
-    runInAction(() => { pool.hydrate() })
-    expect(loading).toBe(0); expect(answer.map(row => row.id)).toEqual(['cold'])
-    const loaded = answer
-    runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: undefined }] }))
-    expect(answer).toEqual([])
-    runInAction(() => pool.apply({ type: 'update', rows: [issue('cold', { parentId: 'root' })] }))
-    expect(answer.map(row => row.id)).toEqual(['cold']); expect(answer).not.toBe(loaded)
-  } finally { stop(); pool.dispose() }
-})
-
 it('releases list demand and reopens with current membership', async () => {
   const pool = fixture(), root = requireHere(pool.model('issue', 'root')), held = root.children
   const stop = autorun(() => { void held.ready; void pool.graph.many('issue', 'root', 'children') })

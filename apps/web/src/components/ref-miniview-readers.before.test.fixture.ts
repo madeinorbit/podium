@@ -49,7 +49,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
         .filter((id) => pool.queries.has(question, id) && !pool.queries.collapsed(id))
         .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
       for (const id of ids) {
-        const seat = omitGone(pool.row('session', id, 'summary-fields'))
+        const seat = omitGone(pool.row('session', id))
         if (typeof seat === 'symbol') loading = true
         else if (seat && (seat as unknown as SessionView).status !== 'exited') {
           sessions.push(seat as unknown as SessionView)

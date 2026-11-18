@@ -132,7 +132,7 @@ function createHeaderViews(pool: MobxPool) {
     return omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
   }
   function issueSummary(id: string): (Partial<SliceIssue> & { machineId?: MachineId }) | undefined {
-    const value = omitGone(pool.row('issue', id, 'summary'))
+    const value = omitGone(pool.row('issue', id))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined)
@@ -143,7 +143,7 @@ function createHeaderViews(pool: MobxPool) {
     const model =
       here(pool.row('session', id, 'mark')) === undefined ? undefined : pool.sessionObject(id)
     if (model) return headerModel(pool).session(model).headerDock
-    const value = omitGone(pool.row('session', id, 'summary'))
+    const value = omitGone(pool.row('session', id))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined)
@@ -176,14 +176,14 @@ function createHeaderViews(pool: MobxPool) {
             const member = session ? headerModel(pool).session(session).headerHost : null
             return member ? [member.cwd] : []
           }
-          const summary = omitGone(pool.row('session', id, 'summary')) as
+          const summary = omitGone(pool.row('session', id)) as
             | SessionView
             | typeof LOADING
             | undefined
           const member =
             summary && summary !== LOADING && ['live', 'starting'].includes(summary.status)
               ? memo(`coldHost:${id}`, () => {
-                  const value = omitGone(pool.row('session', id, 'summary')) as
+                  const value = omitGone(pool.row('session', id)) as
                     | SessionView
                     | typeof LOADING
                     | undefined

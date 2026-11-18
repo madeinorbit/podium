@@ -132,12 +132,10 @@ it('matches scoped placement and cold issue/session targets through the one read
   await waitFor(() => expect(result.current.machines.pending).toBe(0))
   const pool = result.current.pool!,
     row = vi.spyOn(pool, 'row')
-  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   const check = checkWorkflows(pool, referenceState(result.current.owner), fixture)
   expect(check).toMatchObject({ differences: 0, pending: 0, positions: 14, first: null })
   expect(result.current.issue).toMatchObject({ state: 'present' })
   expect(result.current.session).toMatchObject({ state: 'present' })
-  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   expect(placementOptions(result.current.machines.views)).toMatchObject({
     offerable: [{ id: 'synthetic-available' }],
   })

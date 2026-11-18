@@ -272,6 +272,7 @@ export class PoolCollections {
     const loader = this.loader()
     if (loader === undefined) return undefined
     this.stubs.reportObserved()
+    if (loader.stubIdAt !== undefined) return loader.stubIdAt(ISSUE, repoId, seq)
     const rows = loader.stubRows(ISSUE)
     let index = this.refIndexes.get(rows)
     if (index === undefined) {

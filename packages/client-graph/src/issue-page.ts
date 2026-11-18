@@ -34,14 +34,14 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
     has: (id) => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
     order: (id) => {
-      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
+      const row = omitGone(pool.row('issue', id)) as
         | { seq?: number }
         | typeof LOADING
         | undefined
       return row === LOADING ? '' : String(row?.seq ?? 0).padStart(12, '0')
     },
     read: (id) => {
-      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
+      const row = omitGone(pool.row('issue', id)) as
         | { deletedAt?: string }
         | typeof LOADING
         | undefined
@@ -387,7 +387,7 @@ export function createIssuePageViews(pool: MobxPool) {
     const result: IssueViewModel['dependents'] = []
     let pending = false
     for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-      const source = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{
+      const source = omitGone(pool.row('issue', sourceId)) as Loaded<{
         deps?: { id: string; type: string }[]
       }>
       if (source === LOADING) pending = true
@@ -402,7 +402,7 @@ export function createIssuePageViews(pool: MobxPool) {
     prefixes?: Map<string, string | undefined>,
   ): Loaded<IssueViewModel> {
     // Menus need declared fields, not the worklist's computed presence bound.
-    const row = omitGone(pool.row('issue', id, 'summary-fields'))
+    const row = omitGone(pool.row('issue', id))
     if (!row || row === LOADING) return row
     // Pick declared menu facts even for a resident row: a read cursor or
     // body update cannot invalidate the whole menu/edge lookup world.
@@ -541,7 +541,7 @@ export function readIssueCloseFacts(
   pool: MobxPool,
   id: string,
 ): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
-  const known = omitGone(pool.row('issue', id, 'summary-fields'))
+  const known = omitGone(pool.row('issue', id))
   if (!known || known === LOADING) return known
   const model = pool.issueObject(id) as PageIssue
   try {

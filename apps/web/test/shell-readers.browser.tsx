@@ -445,7 +445,7 @@ const driver = {
   }),
   artifacts: () =>
     referenceState(runtime!).fileTabs.filter((file) => file.scope.kind === 'artifact').length,
-  artifactCold: () => pool?.residency?.isCold('issue', artifactIssueId) ?? null,
+  artifactCold: () => (pool ? !pool.tables.issue.has(artifactIssueId) : null),
 }
 Object.assign(window, { __shellReaders: driver })
 declare global {

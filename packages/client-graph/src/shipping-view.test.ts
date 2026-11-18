@@ -17,7 +17,6 @@ type Order = ShipOrderProjection
 
 function fixture(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: base }, undefined, {
-    header: true,
     load: () => undefined,
     schedule: () => () => {},
   })

@@ -1,20 +1,13 @@
 import { expect, it, vi } from 'vitest'
 import { attachPoolScreens, type PoolScreen, screenOptions } from './screens'
 
-it('screen declarations union summaries before ingest', () => {
+it('screen declarations merge their pool options before ingest', () => {
   expect(
     screenOptions(
-      [
-        {
-          options: () => ({ settings: true, summaries: { session: ['title'] } }),
-        },
-        {
-          options: () => ({ summaries: { session: ['title', 'name'] } }),
-        },
-      ],
+      [{ options: () => ({ settings: true }) }, { options: () => ({ header: true }) }, {}],
       {} as never,
     ),
-  ).toEqual({ settings: true, summaries: { session: ['title', 'name'] } })
+  ).toEqual({ settings: true, header: true })
 })
 
 it('screen registry releases late attachments after principal teardown exactly once', async () => {

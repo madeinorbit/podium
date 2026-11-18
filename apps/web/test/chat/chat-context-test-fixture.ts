@@ -24,7 +24,6 @@ import type {
 import { MobxPool } from '@podium/client-graph'
 import {
   CHAT_CONTEXT_ENTITIES,
-  CHAT_CONTEXT_SUMMARIES,
 } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
@@ -273,7 +272,6 @@ export async function createChatContextFixture(resumeTwins = false) {
     { coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null },
     undefined,
     {
-      summaries: CHAT_CONTEXT_SUMMARIES,
       load: (entity, id) =>
         (entity === 'issue' ? issues : rawSessions).find(
           (row) => ('id' in row ? row.id : row.sessionId) === id,

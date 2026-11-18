@@ -155,7 +155,6 @@ describe('declared settings readers', () => {
     expect(omitGone(pool.row('setupSession', 'cold'))).not.toHaveProperty('privatePayload')
     expect(payloadReads).toBe(0)
     expect(load).not.toHaveBeenCalled()
-    expect(pool.tables.session.has('cold')).toBe(false)
   })
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
@@ -196,25 +195,6 @@ describe('declared settings readers', () => {
     await Promise.resolve()
     expect(omitGone(pool.row('settingsMachine', 'host'))).toBeUndefined()
     expect(omitGone(pool.row('settingsCatalog', 'catalog'))).toMatchObject({ machines: [] })
-  })
-
-  it('preserves default-agent ties across hot and cold summaries, updates and hydration', () => {
-    const { pool, load, feed } = fixture([
-      session('z-cold', 'codex', true),
-      session('a-hot', 'claude-code'),
-    ])
-    expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(load).not.toHaveBeenCalled()
-    expect(omitGone(pool.row('setupSession', 'z-cold'))).not.toHaveProperty('title')
-    const next = { ...feed.get('z-cold')!, title: 'not a summary field' }
-    feed.set('z-cold', next)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'z-cold', value: next }] })
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(omitGone(pool.row('session', 'z-cold'))).toBe(LOADING)
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
   })
 
   it('compares catalog, tab, resume twins, usage, agent and demanded preferences with no differences', async () => {

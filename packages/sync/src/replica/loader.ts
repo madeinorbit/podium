@@ -55,6 +55,8 @@ export interface LoaderReplica {
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
   stubsByParent(parentId: string): readonly string[]
   stubRows(entity: string): readonly StubRow[]
+  /** The record at a reference (repository and number), by the stubs. */
+  stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
 }
 
 /** How a view reads one instance: held complete, on its way, or not loadable without a connection. */
@@ -217,6 +219,10 @@ export class CollectionLoader {
 
   stubRows(entity: string): readonly StubRow[] {
     return this.replica.stubRows(entity)
+  }
+
+  stubIdAt(entity: string, repoId: string, seq: number): string | undefined {
+    return this.replica.stubIdAt?.(entity, repoId, seq)
   }
 
   /** Something a view may read changed: markers, stubs, the connection. */

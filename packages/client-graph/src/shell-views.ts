@@ -30,8 +30,7 @@ export class ShellIssueChrome {
 
   @lazy get known(): Loaded<boolean> {
     const row =
-      omitGone(this.pool.row('issue', this.id, 'summary')) ??
-      omitGone(this.pool.row('issue', this.id))
+      omitGone(this.pool.row('issue', this.id)) ?? omitGone(this.pool.row('issue', this.id))
     if (row === LOADING) {
       void omitGone(this.pool.row('issue', this.id))
       return LOADING
@@ -110,7 +109,7 @@ export class ShellDockSession {
     if (this.pool.queries.collapsed(this.session.id)) return undefined
     // An absent summary still needs the addressed lookup's pending/gone answer.
     const row =
-      omitGone(this.pool.row('session', this.session.id, 'summary-fields')) ??
+      omitGone(this.pool.row('session', this.session.id)) ??
       omitGone(this.pool.row('session', this.session.id))
     return row === LOADING ? LOADING : row ? true : undefined
   }
@@ -261,11 +260,8 @@ function createShellViews(pool: MobxPool) {
     return values
   }
   function issue(id: string, full = false): Loaded<ShellIssue> {
-    const value = omitGone(pool.row('issue', id, full ? 'load' : 'summary'))
-    if (value === LOADING) {
-      void omitGone(pool.row('issue', id))
-      return LOADING
-    }
+    const value = omitGone(pool.row('issue', id))
+    if (value === LOADING) return LOADING
     if (!value) return undefined
     const input = value as unknown as Record<string, unknown>,
       repoId = input.repoId as string | undefined
@@ -299,7 +295,7 @@ function createShellViews(pool: MobxPool) {
   function session(id: string): Loaded<SessionView> {
     return memo(`session:${id}`, () => {
       if (pool.queries.collapsed(id)) return undefined
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       if (row === LOADING) return LOADING
       return row
         ? (Object.fromEntries(

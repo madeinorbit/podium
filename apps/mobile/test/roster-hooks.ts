@@ -28,7 +28,7 @@ function sessionsOf(pool: MobxPool): SessionView[] {
   const present = new Set(known)
   const sessions: SessionView[] = []
   for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
-    const row = omitGone(pool.row('session', id, 'summary-fields')) as SessionView | symbol | undefined
+    const row = omitGone(pool.row('session', id)) as SessionView | symbol | undefined
     if (row && typeof row !== 'symbol') sessions.push(row)
   }
   return dedupeSessionsByResume(sessions)

@@ -50,6 +50,7 @@ import {
 } from './holdings'
 import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
+import { StubTable } from './stub-table'
 import {
   type AuthorityReadPort,
   type CacheMutation,
@@ -273,8 +274,13 @@ export class Replica implements DeviceCollectionReads {
         readonly index: HeldIndex
       }
     | undefined
-  private stubsByParentIndex: Map<string, string[]> | undefined
-  private stubRowsIndex: Map<string, readonly StubRow[]> | undefined
+  /**
+   * POD-7094 — the stubs in memory as a compact table, per record type with a
+   * stub: built from the store on first read, then kept current record by
+   * record from this replica's events (`emit`). Dropped, and built again on
+   * the next read, only after an event that may move many rows at once.
+   */
+  private stubTables: Map<string, StubTable> | undefined
   private readonly viewRequests: (() => readonly InstanceRequest[]) | undefined
   private readonly requestHook: ((specs: readonly InstanceSpec[]) => void) | undefined
 
@@ -298,15 +304,7 @@ export class Replica implements DeviceCollectionReads {
     this.now = options.now ?? (() => Date.now())
     const onEvent = options.onEvent ?? (() => {})
     this.emit = (event) => {
-      if (
-        event.type !== 'cursor' &&
-        event.type !== 'posture' &&
-        event.type !== 'heal-progress' &&
-        event.type !== 'markers'
-      ) {
-        this.stubsByParentIndex = undefined
-        this.stubRowsIndex = undefined
-      }
+      this.followStubs(event)
       onEvent(event)
     }
     this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
@@ -1902,58 +1900,96 @@ export class Replica implements DeviceCollectionReads {
 
   /** The stub part of a record the device holds, stub or whole; `undefined` when absent. */
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined {
+    const table = this.stubTable(entity)
+    if (table !== undefined) return table.stubOf(entityId)
     const row = this.store.readRow(entity, entityId)
     return row === undefined ? undefined : stubOfValue(entity, row.value)
   }
 
   /** The ids of the issues whose parent is `parentId`, over every issue on the device. */
   stubsByParent(parentId: string): readonly string[] {
-    let index = this.stubsByParentIndex
-    if (index === undefined) {
-      index = new Map()
-      for (const row of [...this.store.readEntities(), ...this.store.readStubs()]) {
-        const parentLink = parentLinkOf(row.entity)
-        if (parentLink === undefined) continue
-        const parent = (row.value as Record<string, unknown> | null)?.[parentLink]
-        if (typeof parent !== 'string' || parent === '') continue
-        const list = index.get(parent) ?? []
-        list.push(row.entityId)
-        index.set(parent, list)
-      }
-      this.stubsByParentIndex = index
+    const out: string[] = []
+    for (const table of this.allStubTables().values()) out.push(...table.childrenOf(parentId))
+    return out
+  }
+
+  /** The issue at a reference (repository and number), by the stubs; the lowest id when several. */
+  stubIdAt(entity: string, repoId: string, seq: number): string | undefined {
+    return this.stubTable(entity)?.idAt(repoId, seq)
+  }
+
+  /** Every record type with a stub, its table (built from the store on first read). */
+  private allStubTables(): Map<string, StubTable> {
+    let tables = this.stubTables
+    if (tables === undefined) {
+      tables = new Map()
+      for (const row of this.store.readEntities())
+        this.stubPut(tables, row.entity, row.entityId, row.value)
+      for (const row of this.store.readStubs())
+        this.stubPut(tables, row.entity, row.entityId, row.value)
+      this.stubTables = tables
     }
-    return index.get(parentId) ?? []
+    return tables
+  }
+
+  private stubTable(entity: string): StubTable | undefined {
+    if (stubFieldsOf(entity).length === 0) return undefined
+    const tables = this.allStubTables()
+    let table = tables.get(entity)
+    if (table === undefined) {
+      table = new StubTable(stubFieldsOf(entity), parentLinkOf(entity))
+      tables.set(entity, table)
+    }
+    return table
+  }
+
+  private stubPut(
+    tables: Map<string, StubTable>,
+    entity: string,
+    id: string,
+    value: unknown,
+  ): void {
+    if (stubFieldsOf(entity).length === 0) return
+    let table = tables.get(entity)
+    if (table === undefined) {
+      table = new StubTable(stubFieldsOf(entity), parentLinkOf(entity))
+      tables.set(entity, table)
+    }
+    table.put(id, value)
+  }
+
+  /** Keep the stub tables current from one event; drop them after a bulk change. */
+  private followStubs(event: ReplicaEvent): void {
+    const tables = this.stubTables
+    if (tables === undefined) return
+    switch (event.type) {
+      case 'upserted':
+      case 'stub-upserted':
+        this.stubPut(tables, event.record.entity, event.record.entityId, event.record.value)
+        return
+      case 'removed':
+      case 'evicted':
+        tables.get(event.entity)?.remove(event.entityId)
+        return
+      // The record falls back to the stub it held, or leaves a type with none.
+      case 'released':
+      case 'cursor':
+      case 'posture':
+      case 'heal-progress':
+      case 'markers':
+        return
+      default:
+        this.stubTables = undefined
+    }
   }
 
   /**
    * The stub part of every record of `entity` on the device, stubs and whole
-   * records alike: what counts over all history read (design "Counts").
-   * Built once per change of the device's rows, in no particular order.
+   * records alike: what counts over all history read (design "Counts"). One
+   * array per change of a stub, in no particular order.
    */
   stubRows(entity: string): readonly StubRow[] {
-    let index = this.stubRowsIndex
-    if (index === undefined) {
-      index = new Map()
-      this.stubRowsIndex = index
-    }
-    let rows = index.get(entity)
-    if (rows === undefined) {
-      const out: StubRow[] = []
-      if (stubFieldsOf(entity).length > 0) {
-        for (const row of this.store.readEntities())
-          if (row.entity === entity)
-            out.push({ id: row.entityId, stub: stubOfValue(entity, row.value) })
-        for (const row of this.store.readStubs())
-          if (row.entity === entity)
-            out.push({
-              id: row.entityId,
-              stub: (row.value ?? {}) as Readonly<Record<string, unknown>>,
-            })
-      }
-      rows = out
-      index.set(entity, rows)
-    }
-    return rows
+    return this.stubTable(entity)?.rows() ?? []
   }
 
   /** Whether a load can start now: the device has a feed to answer against. */

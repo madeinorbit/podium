@@ -5,7 +5,7 @@ import type { MissionIssueTopology } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { knownIds } from '@podium/client-graph/enumerate'
+import { residentIds } from '@podium/client-graph/enumerate'
 import { missions } from '@podium/client-graph/mission'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
@@ -39,7 +39,7 @@ export function legacyMissionSnapshot(issues: readonly MissionIssueTopology[], s
 
 export function poolMissionSnapshot(pool: MobxPool): MissionCheckRow[] {
   const view = missions(pool)
-  return knownIds(pool, 'issue').map(id => {
+  return residentIds(pool, 'issue').map(id => {
     const root = view.rootFor(id) ?? null
     const members = root === LOADING ? LOADING : root === id ? view.members(id) : null
     return { id, root, members: members === LOADING || members === null ? members : [...members].sort() }

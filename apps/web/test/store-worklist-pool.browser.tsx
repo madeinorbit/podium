@@ -170,7 +170,7 @@ const fixture = {
   ],
   mountReference(): void {
     const host = document.getElementById('offline-reference-host')
-    if (!host || !current?.residency?.isCold('issue', coldId))
+    if (!host || current === null || current.tables.issue.has(coldId))
       throw new Error('offline reference must begin with a cold issue')
     const anchor = document.createElement('a')
     anchor.className = 'ref-link--issue'
@@ -181,7 +181,7 @@ const fixture = {
   },
   referenceState: () => ({
     online: navigator.onLine,
-    cold: current?.residency?.isCold('issue', coldId) ?? false,
+    cold: current !== null && !current.tables.issue.has(coldId),
     resident: current?.tables.issue.has(coldId) ?? false,
     issueId: currentReplica?.issueIdByRef('POD-1234'),
     serverCalls,

@@ -165,7 +165,6 @@ describe('per-issue pool references', () => {
     const queue = vi.fn(),
       refs = new IssueReferences(pool, queue),
       paint = vi.fn()
-    expect(pool.tables.issue.has(cold.id)).toBe(false)
     const stop = reaction(() => refs.read('POD-01'), paint, { fireImmediately: true })
     expect(refs.read('POD-1')).toBe(LOADING)
     expect(queue).not.toHaveBeenCalled()
