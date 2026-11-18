@@ -12,30 +12,35 @@
  */
 
 import { asSessionId, asThreadId, MESSAGE_DELIVERY_STATUSES, type SessionId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { legacyWorkspaceQueries } from './executor/sync-drizzle'
-import { MessagesRepository } from './messages'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
+import { storeSql } from '../test-support/store-sql'
+import type { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
-let db: SqlDatabase
+// On the run's engine (POD-7118): the store's own messages repository.
+let store: SessionStore
 let messages: MessagesRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the synchronous query capability is absent on this handle')
-  messages = new MessagesRepository(legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
+beforeEach(async () => {
+  store = await openTestStore(':memory:')
+  messages = store.messages
 })
+
+afterEach(async () => {
+  await store.close()
+})
+
+/** A time `s` seconds into the fixture's minute, in the form both engines store. */
+const at = (s: number): string => `2026-11-17T10:00:0${s}.000Z`
 
 const A = asSessionId('ses_a')
 const B = asSessionId('ses_b')
 const C = asSessionId('ses_c')
-const NOW = 't5'
+const NOW = at(5)
 
 let n = 0
 async function message(overrides: Partial<MessageRow>): Promise<void> {
@@ -54,7 +59,7 @@ async function message(overrides: Partial<MessageRow>): Promise<void> {
     lifecycle: 'wait',
     body: id,
     expiresAt: null,
-    createdAt: `t${n % 4}`,
+    createdAt: at(n % 4),
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -67,7 +72,9 @@ async function message(overrides: Partial<MessageRow>): Promise<void> {
   }
   const { deliveryStatus, ...rest } = row
   await messages.addMessage(fixtureWriteScope(), { ...rest, deliveryStatus: 'stored' })
-  db.prepare('UPDATE messages SET delivery_status = ? WHERE id = ?').run(deliveryStatus, id)
+  await storeSql(store).run(
+    sql`UPDATE messages SET delivery_status = ${deliveryStatus} WHERE id = ${id}`,
+  )
 }
 
 describe('pendingForSessionsProof (POD-7036)', () => {
@@ -91,14 +98,14 @@ describe('pendingForSessionsProof (POD-7036)', () => {
           toId: to,
           deliveredTo: to,
           expectsResponse: true,
-          expiresAt: 't1',
+          expiresAt: at(1),
         })
         await message({
           deliveryStatus: status,
           toId: to,
           deliveredTo: to,
           expectsResponse: true,
-          expiresAt: 't9',
+          expiresAt: at(9),
         })
         // Addressed to an issue but handed to the session.
         await message({ deliveryStatus: status, toKind: 'issue', toId: 'iss_x', deliveredTo: to })

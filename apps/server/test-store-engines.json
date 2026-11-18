@@ -81,7 +81,8 @@
     "apps/server/src/store.legacy-worktree-machine.test.ts": "Tests the boot backfill that pins the worktree issues of a v0.1.0 SQLite database to a machine, on a file seeded as that build left it; a Postgres install starts from the baseline and has no such rows (design 2.9).",
     "apps/server/src/store.lifecycle.test.ts": "Tests the server-transfer fence and the background proof of SQLite backup snapshots around the store file; hosted Postgres has no transfer and no file snapshots (design 2.9).",
     "apps/server/src/store.search-index.test.ts": "Tests the SQLite FTS5 search index behind the search flag: its DDL, its triggers on conversations and their removal; Postgres search has its own form (store/conversations/search-contract.test.ts).",
-    "apps/server/src/store/planner-statistics.test.ts": "Tests the SQLite planner statistics refresh (ANALYZE, PRAGMA optimize); on Postgres autoanalyze owns this and the refresh is a no-op (design 2.8)."
+    "apps/server/src/store/planner-statistics.test.ts": "Tests the SQLite planner statistics refresh (ANALYZE, PRAGMA optimize); on Postgres autoanalyze owns this and the refresh is a no-op (design 2.8).",
+    "apps/server/src/store/session-asks-user.test.ts": "Tests the SQLite triggers and view that keep sessions.asks_user (migration 20261117220206_session-asks-user, POD-7104); the Postgres chain has no triggers and nothing writes the column there until POD-7123, so the collection fetch reads the asking clauses on Postgres (collections.workspace.test.ts, collection-sql.test.ts on both engines)."
   },
   "pending": [],
   "beyondStoreShard": {
