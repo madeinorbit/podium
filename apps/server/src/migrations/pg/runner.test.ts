@@ -121,6 +121,12 @@ describe.skipIf(testStoreEngine() !== 'pg')('the runner on Postgres', () => {
         WHERE conname = 'fk_sync_capture_undrained_sync_capture_guard_id_fk'`,
     )
     expect(guard).toEqual({ deferrable: true, deferred: true })
+    // A run that applied something analyses the database afterwards (design 2.8): a table
+    // never analysed or vacuumed has reltuples -1; an analysed empty one has 0.
+    const [analysed] = await sql.unsafe<{ reltuples: number }[]>(
+      "SELECT reltuples::float8 AS reltuples FROM pg_class WHERE relname = 'issues' AND relkind = 'r'",
+    )
+    expect(Number(analysed?.reltuples)).toBe(0)
 
     expect(await migratePg(sql)).toEqual([])
     expect(await ledger(sql)).toEqual(PG_MIGRATIONS.map((m) => m.name))

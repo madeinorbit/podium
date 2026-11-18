@@ -212,7 +212,7 @@ export async function migratePg(
   migrations: readonly DrizzleMigration[] = PG_MIGRATIONS,
 ): Promise<string[]> {
   await ensureLedger(sql)
-  return await sql.begin(async (tx) => {
+  const applied = await sql.begin(async (tx) => {
     // First, before reading the ledger: a second migrator waits here, and its read
     // below then sees what the first one committed.
     await tx.unsafe(`LOCK TABLE ${LEDGER} IN EXCLUSIVE MODE`)
@@ -228,6 +228,12 @@ export async function migratePg(
     }
     return plan.pending.map((m) => m.name)
   })
+  // The planner's statistics after a schema change (POD-6958 design 2.8): autoanalyze
+  // reaches a table only once enough of it has changed, and a migration that builds an
+  // index or rewrites rows changes the plans at once. Outside the migration's
+  // transaction, as ANALYZE must be for its statistics to outlive a rollback.
+  if (applied.length > 0) await sql.unsafe('ANALYZE')
+  return applied
 }
 
 /**

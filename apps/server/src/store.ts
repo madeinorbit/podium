@@ -356,7 +356,7 @@ export class StoreDatabase {
     try {
       if (lifecycle.applied.length > 0)
         log.info('applied migrations', { applied: lifecycle.applied })
-      const store = new StoreDatabase(hostMachineId, lifecycle)
+      const store = new StoreDatabase(location, hostMachineId, lifecycle)
       const backfillStarted = performance.now()
       await store.boot(options.bootWorkspace, options.queryOnly === true)
       bootStage('backfill', backfillStarted)
@@ -387,6 +387,12 @@ export class StoreDatabase {
   }
 
   private constructor(
+    /**
+     * Where the database is, which names its engine: a SQLite file path or a Postgres
+     * URL. What a sync worker or the janitor opens its own read session on. Never logged:
+     * a URL carries its credential.
+     */
+    readonly location: string,
     hostMachineId: MachineId,
     /** The engine's lifecycle steps, and the executor every repository runs on. */
     private readonly lifecycle: StoreLifecycle,
