@@ -20,6 +20,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
+import type { StatementProbeHolder } from '../apps/server/src/store/executor/statement-probe'
 import type { WorkspaceWriteObservation } from '../apps/server/src/store/executor/workspace-write-metrics'
 
 interface Config {
@@ -84,7 +85,7 @@ async function serverModules() {
   const model: typeof import('@podium/model') = await import(
     Bun.resolveSync('@podium/model', serverPath)
   )
-  const { z }: typeof import('zod') = await import(Bun.resolveSync('zod', serverPath))
+  const { z } = await import(Bun.resolveSync('zod', serverPath))
   const { SessionStore } = await import('../apps/server/src/store')
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { appRouter } = await import('../apps/server/src/router')
@@ -131,7 +132,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
     probes,
     workspaceWriteMetrics,
   } = modules
-  type Registry = InstanceType<typeof SessionRegistry>
+  type Registry = Awaited<ReturnType<typeof SessionRegistry.create>>
   type Store = InstanceType<typeof SessionStore>
   const contexts: {
     store: Store
@@ -266,7 +267,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
       }
     }
 
-    const operations: Record<string, number> = {
+    const operations = {
       runtimeEvent: 0,
       messages: 0,
       effects: 0,
@@ -341,7 +342,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
           ] as const,
       )
       stops.push(
-        probes.probeStatements(base, (statement) => {
+        probes.probeStatements(base as unknown as StatementProbeHolder, (statement) => {
           if (!measuring || statement.intent !== 'write') return
           for (const [table, pattern] of sourcePatterns) {
             if (pattern.test(statement.sql)) sourceWrites[table] = (sourceWrites[table] ?? 0) + 1
@@ -350,7 +351,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
       )
       stops.push(
         // Workspace handles on this database share one probe hub.
-        probes.probeRoundTrips(base, (trip) => {
+        probes.probeRoundTrips(base as unknown as StatementProbeHolder, (trip) => {
           if (measuring) roundTrips++
           if (config.latencyMs === 0) return
           const inHold = trip.lane === 'write' && !trip.root && trip.call !== 'begin'
