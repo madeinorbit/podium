@@ -532,6 +532,22 @@ export interface IssueRow {
   startedBySession?: SessionId | null
 }
 
+/**
+ * What the sharing rules read of an issue (POD-7153): the execution pointers
+ * (`executionPointersOf`) and the checkout path. The feed's visibility pass
+ * reads this, never the whole row with its bodies.
+ */
+export type IssueAccessRow = Pick<
+  IssueRow,
+  | 'id'
+  | 'ownerUserId'
+  | 'machineId'
+  | 'worktreePath'
+  | 'coordinatorSessionId'
+  | 'startedBySession'
+  | 'humanQuestionAskedBy'
+>
+
 export interface IssueCommentRow {
   id: string
   issueId: IssueId

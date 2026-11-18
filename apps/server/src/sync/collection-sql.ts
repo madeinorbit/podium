@@ -558,6 +558,30 @@ export function collectionStatement(
 }
 
 /**
+ * One page of a type's record keys, in key order, strictly after `after`: the
+ * listing of a collection with no rule, by its primary key (POD-7153). A
+ * stub-level answer lists ids this way and builds only the ones not sent yet,
+ * where streaming every record built them all. Only a type keyed by one column.
+ */
+export function keyPageStatement(
+  kind: CollectionKind,
+  after: string,
+  limit: number,
+): CollectionStatement {
+  const { from, keys, base } = TABLES[kind] as CollectionTable
+  if (keys.length !== 1) throw new Error(`${kind} is not keyed by one column`)
+  const key = col(keys[0]!)
+  return assemble({
+    select: [key],
+    from,
+    where: [...(base === undefined ? [] : [base]), `${key} > ?`].join(' AND '),
+    orderBy: key,
+    limit: true,
+    params: [after, limit],
+  })
+}
+
+/**
  * Every ancestor of the given issues, as one walk up the parent column: what
  * "an issue comes with its parent" reaches, transitively, in one statement.
  * The given issues themselves are not in the answer unless one is another's

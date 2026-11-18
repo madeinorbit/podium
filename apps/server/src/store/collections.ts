@@ -18,6 +18,7 @@ import { type SQL, sql } from 'drizzle-orm'
 import {
   ancestorsKey,
   inListSize,
+  keyPageKey,
   type ResolvedRule,
   resolveRule,
   ruleStatement,
@@ -25,7 +26,12 @@ import {
   shapeKey,
   statementOfKey,
 } from '../sync/collection-shapes'
-import type { CollectionStatement } from '../sync/collection-sql'
+import {
+  type CollectionKind,
+  type CollectionStatement,
+  isCollectionKind,
+  keyPageStatement,
+} from '../sync/collection-sql'
 import {
   executeRaw,
   preparedFamily,
@@ -115,6 +121,16 @@ export class CollectionsRepository {
     return await this.run(shapeKey(rule, 'keyed', args), ruleStatement(rule, 'keyed', args, now))
   }
 
+  /**
+   * At most `limit` record ids of a type keyed by one column, in key order,
+   * strictly after `after` (`''` for the first page): a collection with no
+   * rule, listed without building its records.
+   */
+  async keyPage(kind: CollectionKind, after: string, limit: number): Promise<string[]> {
+    const rows = await this.run(keyPageKey(kind), keyPageStatement(kind, after, limit))
+    return rows.map((row) => String(row[0]))
+  }
+
   /** Every ancestor of these issues, by one walk up the parent column. */
   async ancestors(ids: readonly string[]): Promise<string[]> {
     if (ids.length === 0) return []
@@ -145,6 +161,13 @@ export function auditedCollectionShapes(sizes: readonly number[] = [1, 4]): stri
     keys.add(shapeKey(rule, mode, args))
   }
   for (const collection of COLLECTIONS.values()) {
+    // A stub-level collection with no rule is listed a page of keys at a time.
+    if (
+      collection.where === undefined &&
+      collection.part === 'stub' &&
+      isCollectionKind(collection.of)
+    )
+      keys.add(keyPageKey(collection.of))
     if (collection.where === undefined && collection.page === undefined) continue
     const rule = resolveRule(collection.id)
     const args = argsOf(rule)

@@ -30,6 +30,7 @@ import {
   collectionStatement,
   isCollectionKind,
   keyedWhere,
+  keyPageStatement,
 } from './collection-sql'
 
 /** A request names a collection, an argument or a holder no declaration has. */
@@ -141,11 +142,16 @@ function argsOfShape(shape: string): RuleArgs {
   )
 }
 
-/** The prepared statement's key: `<rule id>#<mode>#<arguments>`, or `ancestors#<size>`. */
+/**
+ * The prepared statement's key: `<rule id>#<mode>#<arguments>`, `ancestors#<size>`,
+ * or `keys#<record type>` for a page of a type's record keys.
+ */
 export const shapeKey = (rule: ResolvedRule, mode: ShapeMode, args: RuleArgs): string =>
   `${rule.via ?? ''}|${rule.collection.id}#${mode}#${argShape(args)}`
 
 export const ancestorsKey = (size: number): string => `ancestors#${inListSize(size)}`
+
+export const keyPageKey = (kind: CollectionKind): string => `keys#${kind}`
 
 /** Rebuild a rule from the head of its key. */
 function ruleOfKey(head: string): ResolvedRule {
@@ -185,6 +191,7 @@ export function statementOfKey(key: string): CollectionStatement {
   const [head, mode, shape = ''] = key.split('#') as [string, string, string?]
   if (head === 'ancestors')
     return ancestorsStatement(Array.from({ length: Number(mode) }, () => 'x'))
+  if (head === 'keys') return keyPageStatement(mode as CollectionKind, '', 1)
   const rule = ruleOfKey(head)
   const sort = rule.collection.page?.sort ?? []
   return ruleStatement(

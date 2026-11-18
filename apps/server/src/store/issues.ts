@@ -98,6 +98,7 @@ import { IssuePanelRepository } from './issue-panel'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
 import type {
+  IssueAccessRow,
   IssueCommentRow,
   IssueMessageRow,
   IssueRow,
@@ -171,6 +172,30 @@ const issueClosureRowsOf = preparedFamily((db: StoreDrizzle, size: number) =>
 const issuesByIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select()
+    .from(issues)
+    .where(inListOf(issues.id, size, 'ids'))
+    .prepare(),
+)
+
+/**
+ * What the sharing rules read of an issue (POD-7153): the execution pointers
+ * and the checkout path, plus the four columns the quarantine checks. Never
+ * the bodies, which a decision does not read.
+ */
+const issueAccessByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      id: issues.id,
+      repoPath: issues.repoPath,
+      stage: issues.stage,
+      title: issues.title,
+      ownerUserId: issues.ownerUserId,
+      machineId: issues.machineId,
+      worktreePath: issues.worktreePath,
+      coordinatorSessionId: issues.coordinatorSessionId,
+      startedBySession: issues.startedBySession,
+      humanQuestionAskedBy: issues.humanQuestionAskedBy,
+    })
     .from(issues)
     .where(inListOf(issues.id, size, 'ids'))
     .prepare(),
@@ -1371,6 +1396,33 @@ export class IssuesRepository {
    * Shares {@link getIssues}' mapping and quarantine; every caller gets its
    * own copy.
    */
+  /** {@link loadIssueAccess}'s loader: the same scope and invalidation as {@link rowLoader}. */
+  private readonly accessLoader = operationLoader<string, IssueAccessRow>(
+    async (ids) => {
+      const out = new Map<string, IssueAccessRow>()
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500)
+        const size = inListSize(chunk.length)
+        for (const r of await issueAccessByIds(this.db, size).all(
+          inListValues(chunk.map(asIssueId), size, 'ids'),
+        )) {
+          if (!structurallySound(r)) continue
+          out.set(r.id, {
+            id: r.id,
+            ownerUserId: r.ownerUserId,
+            machineId: r.machineId,
+            worktreePath: r.worktreePath,
+            coordinatorSessionId: r.coordinatorSessionId,
+            startedBySession: r.startedBySession ?? null,
+            humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
+          })
+        }
+      }
+      return out
+    },
+    { copy: (row) => ({ ...row }), perOperation: true },
+  )
+
   private readonly rowLoader = operationLoader<string, IssueRow>(
     async (ids) => await this.readIssuesByIds(ids),
     {
@@ -1476,6 +1528,7 @@ export class IssuesRepository {
 
   private rowsWritten(): void {
     this.rowLoader.invalidate()
+    this.accessLoader.invalidate()
     this.userStateLoader.invalidate()
   }
 
@@ -1762,6 +1815,17 @@ export class IssuesRepository {
    *  the operation (POD-6158). Deleted rows included. */
   async loadIssue(id: string): Promise<IssueRow | undefined> {
     return await this.rowLoader.load(id)
+  }
+
+  /**
+   * What the sharing rules read of these issues (POD-7153), by the same
+   * quarantine as {@link loadIssues}: an issue {@link loadIssues} would skip is
+   * absent here too. One `IN (…)` read per 500, without the bodies.
+   */
+  async loadIssueAccess(ids: Iterable<string>): Promise<Map<string, IssueAccessRow>> {
+    const out = new Map<string, IssueAccessRow>()
+    for (const [id, row] of await this.accessLoader.loadMany(ids)) if (row) out.set(id, row)
+    return out
   }
 
   /** {@link loadIssue} for many ids; absent ids are absent from the map. */

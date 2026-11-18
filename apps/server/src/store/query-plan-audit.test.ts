@@ -261,6 +261,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
   ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],
   ['apps/server/src/store/issues.ts:issuesByIds', SIZES],
+  ['apps/server/src/store/issues.ts:issueAccessByIds', SIZES],
   ['apps/server/src/store/issues.ts:issueUserStatesOf', SIZES],
   ['apps/server/src/store/issues.ts:issueRefsAtSeqsOf', SIZES],
   ['apps/server/src/store/issue-listings.ts:issueListing', LISTING_KEYS],
