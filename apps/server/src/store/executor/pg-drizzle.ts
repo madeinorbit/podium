@@ -218,11 +218,18 @@ class StorePgDatabase extends PgRemoteDatabase<EmptyRelations> {
 
   private raw<T>(query: SQLWrapper | string, method: RawMethod): StorePgRaw<T> {
     const built = typeof query === 'string' ? sql.raw(query) : query.getSQL()
+    const text = this.storeDialect.sqlToQuery(built)
+    // A raw statement that is one SELECT reads, so it runs where reads run: in a read
+    // session's read-only transaction (the sync worker's collection fetch, POD-7118)
+    // and, in a store, without its workspace's write lock. Any other raw statement
+    // writes, as a builder's does.
+    const reads = method !== 'run' && /^\s*select\b/i.test(text.sql)
     const prepared = this.storeSession.prepareQuery(
-      this.storeDialect.sqlToQuery(built),
+      text,
       'raw',
       false,
       undefined,
+      reads ? { type: 'select', tables: [] } : undefined,
     )
     return new StorePgRaw<T>(prepared, method)
   }
