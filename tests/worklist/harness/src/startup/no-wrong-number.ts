@@ -41,6 +41,9 @@ import {
 /** Viewer request answer and device checkpoints, separate from the partial record pool. */
 export type StartupSetupFacts = Omit<Parameters<typeof isActivationEligible>[0], 'repoCount'>
 
+/** The questions whose readers POD-7087 moved onto markers and stubs: never wrong in any state. */
+export const MOVED_READERS = /^(first-screen:sidebar-row:|counts:stub-|closed-children:stub-)/
+
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
   | 'first-screen' | 'counts' | 'search' | 'board-archive' | 'closed-children'
@@ -192,6 +195,9 @@ export function startupQuestions(
   add('counts', 'sessions', (pool) => pool.queries.count('session'))
   add('counts', 'undeleted-issues', (pool) => pool.undeletedIssueCount)
   add('counts', 'proposed', (pool) => pool.queries.ids({ kind: 'proposedIssues' }).length)
+  // POD-7087: counts over all history read the stubs, once they are complete.
+  add('counts', 'stub-by-stage', (pool) => pool.collections.countBy('stage'))
+  add('counts', 'stub-by-repo', (pool) => pool.collections.countBy('repoId'))
 
   add('search', 'command-issues', (pool) => pool.queries.ids({ kind: 'commandIssues' }))
   for (const needle of targets.needles) {
@@ -210,6 +216,9 @@ export function startupQuestions(
 
   for (const id of targets.parents) {
     add('closed-children', `child-counts:${id}`, (pool) => pool.queries.issueChildCounts(id))
+    // POD-7087: child counts and tree progress from the stubs, for all history.
+    add('closed-children', `stub-child-counts:${id}`, (pool) => pool.collections.childCounts(id))
+    add('closed-children', `stub-tree-progress:${id}`, (pool) => pool.collections.treeProgress(id))
     add('closed-children', `model:${id}`, (pool) => {
       const model = omitGone(pool.issue(id))
       if (model === LOADING || model === undefined) return model
