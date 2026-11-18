@@ -351,9 +351,10 @@ const expiredQueued = (t: StoreTables) =>
   )
 
 /**
- * The sessions holding input queued past the horizon, oldest first, one row each. SQLite
- * walks the session index (named), so the rows group in session order; the table is a
- * queue. Whether a session is running, and drains its own queue, is the server's to say.
+ * The sessions holding input queued past the horizon, oldest first, one row each. The
+ * table is a queue its consumer empties (a small table to both query-plan audits), so no
+ * index is named; the session index leads with the queue's order, not its time.
+ * Whether a session is running, and drains its own queue, is the server's to say.
  */
 const queuedExpiryPageOf = prepared((db, t) =>
   db
@@ -362,7 +363,7 @@ const queuedExpiryPageOf = prepared((db, t) =>
       through: sql<number>`MAX(${sql.identifier('queued_at')})`.mapWith(Number).as('through'),
       rows: count().as('n'),
     })
-    .from(fromIndexed(db, t.queuedMessages, 'queued_messages_session'))
+    .from(t.queuedMessages)
     .where(expiredQueued(t))
     .groupBy(sql`${sql.identifier('session_id')}`)
     .orderBy(sql`MIN(${sql.identifier('queued_at')}) ASC`, sql`${sql.identifier('session_id')} ASC`)
@@ -372,11 +373,7 @@ const queuedExpiryPageOf = prepared((db, t) =>
 
 /** How many rows of every session are queued past the horizon. */
 const queuedExpiryCountOf = prepared((db, t) =>
-  db
-    .select({ n: count() })
-    .from(fromIndexed(db, t.queuedMessages, 'queued_messages_session'))
-    .where(expiredQueued(t))
-    .prepare(),
+  db.select({ n: count() }).from(t.queuedMessages).where(expiredQueued(t)).prepare(),
 )
 
 // ---------------------------------------------------------------------------

@@ -176,6 +176,10 @@ const MIN_MAX_SEEK =
   "entry at that end of the workspace's index range (a Limit 1 over the index), so it reads " +
   'one entry; the plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/sessions.ts:anySession',
+    'One-row existence probe for setup (POD-7118 from dev/mw): LIMIT 1 stops at the first stored session of the workspace, including tombstones. Reads at most one row regardless of history.',
+  ],
   // Postgres only: plans SQLite makes without a scan or sort.
   [
     'apps/server/src/store/messages.ts:messagesAddressedTo [no-id]',
@@ -191,10 +195,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/janitor-reads.ts:eventPruneHeadOf',
     "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
-  ],
-  [
-    'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf',
-    "Counts the workspace's events above the row cap's guess on the narrowest index (named on SQLite): a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035, as events.ts:eventsAboveId).",
   ],
   [
     'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
@@ -299,10 +299,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "The feed-window events of the issues in the IN list (POD-6766): read from the window's oldest id up, so bounded by the window, and sorted by id.",
   ],
   ['apps/server/src/store/events.ts:highestEventId', MIN_MAX_SEEK],
-  [
-    'apps/server/src/store/events.ts:eventIdBeyondCap',
-    'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
-  ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',
     'Reads the oldest events in id order and stops at the batch limit.',
@@ -438,6 +434,14 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * one-time repairs. The list may only shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  // The first page of a history collection (POD-7085), as the SQLite audit lists them.
+  ...(['automationRun', 'conversation', 'workflowRun'] as const).map(
+    (kind) =>
+      [
+        `apps/server/src/store/collections.ts:collectionRows [|${kind}.page#sorted#]`,
+        'The first page of a history collection (POD-7085): the whole collection in its order, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+      ] as const,
+  ),
   // The janitor's archive sweeps (POD-6993), as the SQLite audit lists them.
   [
     'apps/server/src/store/janitor-reads.ts:sessionArchiveOf',
@@ -636,6 +640,10 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
  * defers it (the SQLite audit's `SHAPE_DEBT`). The list may only shrink.
  */
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|session.asking#ids#]',
+    "Who waits for the user, read from each live session's offer and checkpoints: on SQLite the derived column sessions.asks_user answers it through idx_sessions_asking, but on Postgres nothing writes that column yet (PG_UNMAINTAINED_COLUMNS), so the rule reads the workspace's live sessions and probes their satellites. Bounded by the live sessions; POD-7123 keeps the column on Postgres and returns this to the index.",
+  ],
   // Mirrored from the SQLite audit: the same statement, the same reason.
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|any]',
@@ -690,6 +698,66 @@ const WS_LITERAL = `'${SELF_HOSTED_WORKSPACE_ID}'`
 
 /** Keyed `file:name [shape]`. Each is proven by the INDEXED BY test below. */
 const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
+  [
+    'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
+    {
+      reshape: [`UPDATE effects SET status = 'succeeded' WHERE right(id, 2) <> '00'`],
+      analyze: ['effects'],
+      reason:
+        "A target's newest active effect (POD-7031). The active records are a few and a target's finished history is long; on that shape Postgres reads idx_effects_status_deadline, as SQLite is told to. On the seed every status is as common as the next, so the target's own records are the fewer.",
+    },
+  ],
+  [
+    'apps/server/src/store/effects.ts:purgeTombstones [undefined]',
+    {
+      values: [WS_LITERAL, WS_LITERAL, '10', '5'],
+      reason:
+        "The tombstone purge's batch: effects deleted before a bound, at most a batch. The generic plan takes the bound as a third of the table; for a real one Postgres reads idx_effects_tombstones, as SQLite is told to.",
+    },
+  ],
+  ...(
+    [
+      'apps/server/src/store/events.ts:eventsAboveId [undefined]',
+      'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf [undefined]',
+    ] as const
+  ).map(
+    (key) =>
+      [
+        key,
+        {
+          alsoReads: 'podium_events_pkey',
+          reason:
+            "Counts the events above the row cap's guess (POD-7035). SQLite is told its narrowest index, whose entries it counts without a table page; Postgres counts the primary key's range above the guess, the same rows.",
+        },
+      ] as const,
+  ),
+  [
+    'apps/server/src/store/events.ts:matchingSubscriptions [a|1]',
+    {
+      alsoReads: 'idx_sessions_issue_archived',
+      reason:
+        'The sessions of the anchored issue (POD-7034). SQLite is told idx_sessions_issue; Postgres reads idx_sessions_issue_archived, whose key starts with the same workspace and issue, the same rows.',
+    },
+  ],
+  [
+    'apps/server/src/store/events.ts:matchingSubscriptions [ra|4]',
+    {
+      alsoReads: 'sessions_pk',
+      reason:
+        "The sessions of the anchored issues (POD-7034). With both arms the subscriptions it matches are few, so Postgres probes each candidate session by its key and tests its issue, instead of reading the issues' sessions through idx_sessions_issue as SQLite is told to; the same rows.",
+    },
+  ],
+  ...[1, 4].map(
+    (size) =>
+      [
+        `apps/server/src/store/workflows.ts:stepsOfRuns [${size}]`,
+        {
+          alsoReads: 'workflow_run_steps_workspace_id_run_id_position_unique',
+          reason:
+            'The steps of the listed runs (POD-7034). SQLite is told the primary key (workspace, run, step); Postgres reads the unique (workspace, run, position), whose key starts with the same run, the same rows.',
+        },
+      ] as const,
+  ),
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:newestAgedSeq [undefined]',
     {
@@ -795,7 +863,61 @@ const JSON_BATCH =
   "A write over a JSON batch of keys: Postgres estimates any JSON list at 100 rows, so against the audit's 10,000-row table a hash join over the whole table is cheaper than 100 key lookups. Joined key by key (the proof), it reads the primary key; at a real table's size that is also the cheaper plan."
 
 /** Keyed `file:name` or `file:name [shape]`. */
+const RECENT_CUTOFF = "'2026-01-01T02:45:00Z'"
+
+/** A collection's recent rule: a range on its time from a cutoff the generic plan cannot know. */
+const RECENT_RANGE =
+  "A collection's recent records (POD-7085): those after a cutoff of the last N days. The generic plan cannot know the cutoff and takes a third of the rows as recent; for a real one, the newest few, Postgres reads the time index."
+
 const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, PlannerChoice>([
+  ...(
+    [
+      'automationRun.recent',
+      'conversation.recent',
+      'issueProjection.recent',
+      'session.recent',
+      'workflowRun.recent',
+    ] as const
+  ).map(
+    (collection) =>
+      [
+        `apps/server/src/store/collections.ts:collectionRows [|${collection}#ids#recentDays:d]`,
+        { values: [WS_LITERAL, RECENT_CUTOFF], reason: RECENT_RANGE },
+      ] as const,
+  ),
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|conversation.page#after#]',
+    {
+      values: [WS_LITERAL, RECENT_CUTOFF, RECENT_CUTOFF, RECENT_CUTOFF, "'x'", '20'],
+      reason:
+        'A later page of the conversation history (POD-7085): below a position, at most a page. The generic plan takes the position as a third of the history; for a real one Postgres walks idx_conversations_created_at down from it and stops at the page.',
+    },
+  ],
+  ...(
+    [
+      'issueProjection.byStage#sorted#stage:s',
+      'issueProjection.byStagePriority#sorted#priority:s,stage:s',
+      'issueProjection.sidebar#ids#',
+    ] as const
+  ).map(
+    (shape) =>
+      [
+        `apps/server/src/store/collections.ts:collectionRows [|${shape}]`,
+        {
+          off: ['enable_seqscan', 'enable_bitmapscan', 'enable_sort'],
+          reason:
+            'Issues by stage (POD-7085). Its stages are bound as parameters, so the generic plan cannot know which, and on the seed every stage is as common as the next: it reads the whole table and sorts. idx_issues_stage_updated (workspace, stage, updated_at desc, id) serves a stage in its order; on a real database the open stages are a small share of the history.',
+        },
+      ] as const,
+  ),
+  [
+    'packages/sync/src/adapters/sqlite/sync-repository.ts:deleteAppliedMutationsBatch',
+    {
+      values: [WS_LITERAL, WS_LITERAL, '10', '5'],
+      reason:
+        "The receipt prune's batch (POD-7035): receipts applied before a cutoff, oldest first, at most a batch. The generic plan takes the cutoff as a third of the receipts; for a real one Postgres reads the batch off idx_applied_mutations_applied_at.",
+    },
+  ],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:deleteChangeHead',
     {
@@ -809,7 +931,7 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
     {
       values: [WS_LITERAL, WS_LITERAL, '10', '5'],
       reason:
-        "The tombstone purge's batch: effects deleted before a bound, at most a batch. The generic plan takes the bound as a third of the table; for a real one Postgres reads the batch through idx_effects_deleted.",
+        "The tombstone purge's batch: effects deleted before a bound, at most a batch. The generic plan takes the bound as a third of the table; for a real one Postgres reads the batch through idx_effects_tombstones (partial over the tombstones since POD-7034).",
     },
   ],
   [
@@ -863,14 +985,6 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
   [
     'apps/server/src/store/conversations/registry.ts:adoptParents',
     { off: KEY_LOOKUPS, reads: 'conversation_identities_pk', reason: JSON_BATCH },
-  ],
-  [
-    'apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds [4]',
-    {
-      off: NESTED_LOOP_ONLY,
-      reason:
-        "Which of the listed subjects' transcripts are complete: the planner groups the subjects' few events by sorting them; read in index order it needs no sort.",
-    },
   ],
   [
     'apps/server/src/store/events.ts:runtimeEventsAfter',
