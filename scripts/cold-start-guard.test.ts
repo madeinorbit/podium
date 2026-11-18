@@ -58,6 +58,34 @@ function compare(old: ReturnType<typeof run>, candidate: ReturnType<typeof run>,
 }
 
 describe('cold startup admission', () => {
+  it('adds a privately configured measurement VM without rerouting a recorded host', () => {
+    const directory = fileURLToPath(new URL('../apps/web/harness/', import.meta.url))
+    const probe = `import argparse, sys
+sys.path.insert(0, sys.argv[1])
+import measure_hosts
+parser = argparse.ArgumentParser()
+measure_hosts.add_arguments(parser)
+args = parser.parse_args(['--host=fixture-vm', '--local', '--lock-held'])
+host = measure_hosts.resolve(args)
+assert (host.alias, host.lock, host.local, host.held) == ('fixture-alias', 'test:fixture-vm', True, True)
+`
+    const configured = (mapping: Record<string, string[]>) =>
+      spawnSync('python3', ['-c', probe, directory], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PYTHONDONTWRITEBYTECODE: '1',
+          PODIUM_MEASUREMENT_HOSTS: JSON.stringify(mapping),
+        },
+      })
+    const added = configured({ 'fixture-vm': ['fixture-alias', 'test:fixture-vm'] })
+    expect(added.status, added.stderr).toBe(0)
+    const rerouted = configured({ vega: ['fixture-alias', 'test:fixture-vm'] })
+    expect(rerouted.status).not.toBe(0)
+    expect(rerouted.stderr).toContain('Additional measurement hosts')
+    expect(configured({ 'fixture-vm': ['fixture-alias', 'merge:main'] }).status).not.toBe(0)
+  })
+
   it('recovers a completed pair only for its original plan and cohort', () => {
     const controller = fileURLToPath(
       new URL('../apps/web/harness/startup-baseline.py', import.meta.url),

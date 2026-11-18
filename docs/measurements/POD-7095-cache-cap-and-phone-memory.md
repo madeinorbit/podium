@@ -79,6 +79,8 @@ Rejected timing pairs stay in the evidence and out of the medians:
 
 ## Scope and provenance
 
+Phone captures use the original measurement VM (VM A). The web series is moving to a second authorized VM (VM B), with both fixed arms interleaved there. Its partial VM A cohort is retained but will not be pooled into VM B medians; the host move was directed for availability, not selected by latency. Operational SSH aliases and locks stay in private run configuration and artifacts.
+
 All builds and measurement workloads ran on an authorized, dedicated Linux agent VM under its shared host lock. None ran on the shared development host. Before is `17d01cd9c530eb22d902b352837cbfc9eb5a15a3` from `dev/mw`. After product is `726a06ad16f676c58fab051e477b0f1e18a92c7d`, the completed integration, now also landed on `dev/mw` by the operator. Later commits used by this issue change measurement harnesses and reports; the only server edit is a policy comment. No wire version or suggested optimization was changed.
 
 The phone proxy is the production phone web client in Chromium plus the real synchronous mobile SQLite adapter under `bun:sqlite`. The coordinator approved this because there is no native-device or simulator baseline for this phase. Desktop is the production web renderer using the desktop server policy, excluding Tauri startup. These results do not claim physical-phone, native SQLite bridge, disk-cold device or desktop-shell performance.
@@ -98,7 +100,7 @@ Completed comparisons below use three interleaved samples per arm and cell, reta
 
 The real IndexedDB adapter and replica receive the **same 100 sidebar issue updates** in every arm. The before engine has no per-client policy, so one full-history before arm is shared by the three policy candidates. The initial static policy projection is held fixed throughout this series; this is the first delta after that projection, not warmed steady-state feed throughput and not the cost of updating mounted UI models. Initial database population, model setup and settling are outside the timed region.
 
-`receive` is replica application wall time; `durable wait` is the subsequent asynchronous settle wall time. `storage submit` sums synchronous IndexedDB put/delete/clear submissions on the main thread. `main thread` is Chromium's thread task time across parsing, application and durability; the columns overlap and must not be added. The setup may have an adapter backlog; the ledger keeps its full settle time. Each received result and durable cursor/title is checked.
+`receive` is replica application wall time; `durable wait` is the subsequent asynchronous settle wall time. `storage submit` sums synchronous IndexedDB put/delete/clear submissions on the main thread. `main thread` is Chromium's task time across parsing, application, durability, row checks and the final replica disconnect/store close. It is a window including cleanup, not pure per-delta CPU; the columns overlap and must not be added. Setup awaits store and replica settling before timing. Its ledger records the resident-row count, not setup elapsed time. The durable wait in the table is the subsequent post-delta storage settle. Each received result and durable cursor/title is checked.
 
 | Corpus | Arm | Parse | Receive | Durable wait | Storage submit | Main thread |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -117,7 +119,7 @@ The real IndexedDB adapter and replica receive the **same 100 sidebar issue upda
 
 After source: `3afa48321d82c684c4682d7639d3825e2cd8e64c`; before source: `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`. Round 26 is complete: 36 cases, with unchanged fixture source throughout. The update-ID digest is `994d22e96ea881e153690014672ee5e4587b00553d382a25319eb447977c7c8a` for both two-axis cells and `a8b7df58faadb372515af9abdc64e56edbdc97fe1ced35b6a042a72e8a4be9b0` for the operator set.
 
-This is a regression in feed application CPU: for example phone x1 is 59.70 ms versus 16.34 ms, and phone x10 is 162.54 ms versus 22.39 ms. Smaller retained history has not made the first delta cheaper. This report records it without adding an optimization.
+This is a regression in the measured feed window (which includes cleanup): for example phone x1 is 59.70 ms versus 16.34 ms, and phone x10 is 162.54 ms versus 22.39 ms. Receive wall time, measured before durability/checks/cleanup, independently regresses on phone from 8.80 / 12.60 ms to 52.30 / 73.20 ms at x1/x10. Smaller retained history has not made the first delta cheaper. POD-7119 owns the fix; this report records the measured values without adding an optimization.
 
 ## Synchronous phone SQLite startup
 
