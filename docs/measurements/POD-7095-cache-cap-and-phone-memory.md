@@ -262,12 +262,32 @@ No optimization in this table is built by this issue. There is no agreed native-
 Follow [startup-baseline.md](startup-baseline.md) for Paint and admission. Every build, measurement and validation goes through `remote-lane` on an authorized VM, from committed HEAD, one call at a time. Use a scratch worktree at collector `4fbaace526` to reproduce the fixed product; for a fresh candidate, record its product digest. Resolve private host aliases/lock mapping from the issue artifact; they are deliberately absent here.
 
 ```sh
-# Private host mapping is supplied by the coordinator.
+# Set an authorized measurement VM and a never-used round number.
+measurement_vm=vega2
+fresh_round=100
+# At collector 4fbaace526 for phone/web, c030eb8435 for desktop/search:
 remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py prepare --host="$measurement_vm" --base=17d01cd9c5 --cells=h1a1,h10a1,operator
 remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --surface=phone --cells=h1a1,h10a1,operator --samples=3 --round="$fresh_round" --measure-memory --max-pairs=3
-# Repeat for web and desktop; resume only the unchanged saved schedule.
-# Deck: a separate fresh round, operator cell, --decks, each surface.
-# Search: device-cost-series.py search --host="$measurement_vm" --round="$fresh_round".
+# Continue that same saved schedule in five further sequential short windows:
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --surface=phone --cells=h1a1,h10a1,operator --samples=3 --round="$fresh_round" --measure-memory --max-pairs=3 --resume
+# Use the same sequence for --surface=web and --surface=desktop.
+# Decks: use the corrected product/collector pin recorded with their table.
+fresh_round=101
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --surface=phone --cells=operator --samples=3 --round="$fresh_round" --decks --max-pairs=3
+# One further identical call with --resume completes that deck surface; use
+# fresh surface ledgers for web and desktop. Do not reuse a startup ledger.
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py search --host="$measurement_vm" --base=17d01cd9c5 --samples=3 --round="$fresh_round"
+# In a separate checkout, use the original SQLite/feed/cache source product
+# 726a06ad16 with the archived cost-series collector, as recorded in its samples.
+fresh_round=102
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py build --host="$measurement_vm" --base=17d01cd9c5 --round="$fresh_round"
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py sqlite --host="$measurement_vm" --base=17d01cd9c5 --clients=phone --samples=3 --round="$fresh_round"
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py feed --host="$measurement_vm" --base=17d01cd9c5 --samples=3 --round="$fresh_round" --max-cases=6
+# Resume the unchanged feed schedule in bounded windows until complete.
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/device-cost-series.py cache --host="$measurement_vm" --samples=3 --round="$fresh_round" --max-cases=6
+# Resume the unchanged 30-case cap sweep in bounded windows until complete.
 ```
+
+Before each call, read both issue and session inboxes and preserve the source, VM, corpus and saved schedule. Complete each command before launching the next. A new product, collector or cell list needs a fresh round. The fixed-feed replacement is POD-7119’s independent series; use its report’s commands and pins rather than attributing the original feed runner to that fix.
 
 The single end validation is pending the corrected deck series and final integration rebase. No READY or gate pass is claimed yet.
