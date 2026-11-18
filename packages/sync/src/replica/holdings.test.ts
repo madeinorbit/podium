@@ -32,6 +32,9 @@ import {
   type HeldRows,
   planTrim,
   policyArgs,
+  type ResolvedInstance,
+  resolveInstance,
+  stubFieldsOf,
   stubOfValue,
 } from './holdings'
 import type { EntityRecord, InstanceRecord, InstanceSpec } from './types'
@@ -270,5 +273,121 @@ describe('the trim, over random worlds', () => {
       if (witness !== undefined) return
     }
     throw new Error('no world dropped an instance with a member: the property test is vacuous')
+  })
+})
+
+/**
+ * POD-7115 — the trim before it was made linear: every instance tested every
+ * record of its type, and every cache instance was tried on a copy of what was
+ * kept. Kept here as the oracle the plan must still equal.
+ */
+function oldPlanTrim(input: Parameters<typeof planTrim>[0]) {
+  const args = policyArgs(input.policy)
+  const main = input.rows.filter((row) => row.part !== 'stub')
+  const byKind = new Map<string, EntityRecord[]>()
+  for (const row of main) byKind.set(row.entity, [...(byKind.get(row.entity) ?? []), row])
+  const resolved = new Map<string, ResolvedInstance>()
+  for (const [key, record] of input.instances) {
+    const instance = resolveInstance(record, args)
+    if (instance !== undefined) resolved.set(key, instance)
+  }
+  const belongs = (instance: ResolvedInstance, row: EntityRecord) =>
+    new HeldIndex([{ ...instance.spec, range: instance.range }], args)
+      .matching(row.entity, row.value, input.store, input.now)
+      .some((found) => found.key === instance.key)
+  let keptInstances = new Set<string>()
+  let keptRows = new Set<string>()
+  let memberships = new Map<string, ResolvedInstance[]>()
+  const key = (row: EntityRecord) => rowKey(row.entity, row.entityId)
+  const keepInstance = (k: string, work: EntityRecord[]) => {
+    if (keptInstances.has(k)) return
+    const instance = resolved.get(k)
+    keptInstances.add(k)
+    if (instance === undefined || instance.spec.part === 'stub') return
+    for (const row of (byKind.get(instance.of) ?? []).filter((row) => belongs(instance, row))) {
+      memberships.set(key(row), [...(memberships.get(key(row)) ?? []), instance])
+      if (keptRows.has(key(row))) {
+        if ((instance.collection.comesWith?.length ?? 0) > 0) work.push(row)
+        continue
+      }
+      keptRows.add(key(row))
+      work.push(row)
+    }
+  }
+  const settle = (work: EntityRecord[]) => {
+    while (work.length > 0) {
+      const row = work.pop() as EntityRecord
+      for (const spec of comesWithOf(
+        row.entity,
+        row.value,
+        memberships.get(key(row)) ?? [],
+        input.now,
+      )) {
+        const k = instanceKey(spec)
+        if (input.instances.has(k)) keepInstance(k, work)
+      }
+    }
+  }
+  const work: EntityRecord[] = []
+  for (const k of input.held) if (input.instances.has(k)) keepInstance(k, work)
+  settle(work)
+  const base = new Set(keptRows)
+  const cache = [...input.instances.values()]
+    .filter((record) => record.via === undefined && !keptInstances.has(record.key))
+    .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0) || (a.key < b.key ? -1 : 1))
+  let cacheRecords = 0
+  for (const record of cache) {
+    const before = {
+      keptInstances: new Set(keptInstances),
+      keptRows: new Set(keptRows),
+      memberships: new Map([...memberships].map(([k, list]) => [k, [...list]])),
+    }
+    const next: EntityRecord[] = []
+    keepInstance(record.key, next)
+    settle(next)
+    const count = [...keptRows].filter((k) => !base.has(k)).length
+    if (count > input.cap) {
+      keptInstances = before.keptInstances
+      keptRows = before.keptRows
+      memberships = before.memberships
+      break
+    }
+    cacheRecords = count
+  }
+  return {
+    dropInstances: [...input.instances.keys()].filter((k) => !keptInstances.has(k)),
+    toStub: main.filter((row) => !keptRows.has(key(row)) && stubFieldsOf(row.entity).length > 0),
+    remove: main.filter((row) => !keptRows.has(key(row)) && stubFieldsOf(row.entity).length === 0),
+    cacheRecords,
+  }
+}
+
+describe('the linear trim (POD-7115)', () => {
+  it('plans exactly what the trim before it planned, over the same random worlds', () => {
+    const ids = (rows: readonly EntityRecord[]) =>
+      rows.map((row) => rowKey(row.entity, row.entityId)).sort()
+    for (let seed = 1; seed <= 300; seed += 1) {
+      const c = buildCase(seed)
+      const store: HeldRows = { readRow: (entity, id) => c.rows.get(rowKey(entity, id)) }
+      // Larger caps too, so many cache instances are admitted before one does not fit.
+      for (const cap of [c.cap, c.cap * 4, 1_000]) {
+        const input = {
+          rows: [...c.rows.values()],
+          instances: c.instances,
+          held: c.held,
+          policy: WORLD_POLICY,
+          cap,
+          now: WORLD_NOW,
+          store,
+        }
+        const plan = planTrim(input)
+        const old = oldPlanTrim(input)
+        const label = `seed ${seed} cap ${cap}`
+        expect([...plan.dropInstances].sort(), label).toEqual([...old.dropInstances].sort())
+        expect(ids(plan.toStub), label).toEqual(ids(old.toStub))
+        expect(ids(plan.remove), label).toEqual(ids(old.remove))
+        expect(plan.cacheRecords, label).toBe(old.cacheRecords)
+      }
+    }
   })
 })

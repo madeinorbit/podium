@@ -22,6 +22,7 @@
  */
 
 import type { MutationId } from '@podium/model'
+import { ChangedKeyDraft } from '../adapters/changed-key-draft'
 import {
   type CacheMeta,
   cursorTriple,
@@ -41,6 +42,8 @@ import type {
   SyncUnitOfWork,
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
+import { RowMirror } from './row-mirror'
+import type { StubTableReader } from './stub-table'
 import type { CachePolicy, Cursor, EntityRecord, InstanceRecord, KindTokens } from './types'
 
 const key = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
@@ -117,14 +120,19 @@ export class InMemoryOutbox {
   }
 }
 
-/** The staged post-state of the cache region inside one span. */
+/**
+ * The staged post-state of the cache region inside one span: the keys it
+ * changes over the published rows (or, for an install, the rows replacing
+ * them), never a copy of every row.
+ */
 interface CacheDraft {
-  rows: Map<string, EntityRecord>
+  rows: ChangedKeyDraft<EntityRecord, RowMirror>
   meta: CacheMeta
 }
 
 class InMemoryCache implements ReplicaCacheStore {
-  private rows = new Map<string, EntityRecord>()
+  // POD-7115: a stub is kept only in its record type's stub table.
+  private rows = new RowMirror()
   private meta: CacheMeta = EMPTY_CACHE_META
   private readonly drafts = new Map<SyncSpan, CacheDraft>()
   corrupt = false
@@ -160,7 +168,7 @@ class InMemoryCache implements ReplicaCacheStore {
 
   readEntities(): readonly EntityRecord[] {
     this.guard()
-    return [...this.rows.values()].filter(isMainRow)
+    return this.rows.mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
@@ -175,7 +183,12 @@ class InMemoryCache implements ReplicaCacheStore {
 
   readStubs(): readonly EntityRecord[] {
     this.guard()
-    return [...this.rows.values()].filter((row) => !isMainRow(row))
+    return this.rows.stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.guard()
+    return this.rows.stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -188,19 +201,20 @@ class InMemoryCache implements ReplicaCacheStore {
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
     this.guard()
     if (span === undefined) {
-      // Build the post-state first and swap once: a throw part-way through leaves
-      // the pre-operation snapshot, never a torn mix (ADR 6 D4.1).
-      const next = new Map(this.rows)
-      applyInto(next, mutation)
-      this.meta = nextCacheMeta(this.meta, mutation).meta
-      this.rows = next
+      // Stage the post-state first and publish once: a throw part-way through
+      // leaves the pre-operation rows, never a torn mix (ADR 6 D4.1).
+      const next = new ChangedKeyDraft<EntityRecord, RowMirror>()
+      applyInto(next, this.rows, mutation)
+      const meta = nextCacheMeta(this.meta, mutation).meta
+      this.rows = next.publish(this.rows)
+      this.meta = meta
       this.physical.countTransaction()
       return
     }
     const draft = this.draftFor(span)
     // EXTENDS the one draft. A second call must not restage from the live map, or
     // the first call's operations would be silently dropped at publish.
-    applyInto(draft.rows, mutation)
+    applyInto(draft.rows, this.rows, mutation)
     draft.meta = nextCacheMeta(draft.meta, mutation).meta
   }
 
@@ -217,19 +231,19 @@ class InMemoryCache implements ReplicaCacheStore {
     // cursor commits — one transaction, no half-installed replica, and no window
     // in which the replica holds a mixture of two principals' slices.
     const draft = span === undefined ? undefined : this.draftFor(span)
-    const next = new Map<string, EntityRecord>()
-    for (const row of rows) next.set(key(row.entity, row.entityId), row)
+    const replacement = RowMirror.of(rows)
+    const next = new ChangedKeyDraft<EntityRecord, RowMirror>(replacement)
     let meta = nextCacheMeta(EMPTY_CACHE_META, {
       operations: [],
       cursor,
       ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
     }).meta
     for (const mutation of buffered) {
-      applyInto(next, mutation)
+      applyInto(next, replacement, mutation)
       meta = nextCacheMeta(meta, mutation).meta
     }
     if (draft === undefined) {
-      this.rows = next
+      this.rows = replacement
       this.meta = meta
       this.physical.countTransaction()
       return
@@ -245,7 +259,7 @@ class InMemoryCache implements ReplicaCacheStore {
     // Reaches entities and the cursor. There is no outbox here to reach, and no
     // span either: a discard is a lone single-region operation (D10 clause 2), so
     // it cannot be composed into a transaction that also touches the outbox.
-    this.rows = new Map()
+    this.rows = new RowMirror()
     this.meta = EMPTY_CACHE_META
     this.physical.countTransaction()
   }
@@ -257,7 +271,10 @@ class InMemoryCache implements ReplicaCacheStore {
   private draftFor(span: SyncSpan): CacheDraft {
     const existing = this.drafts.get(span)
     if (existing !== undefined) return existing
-    const draft: CacheDraft = { rows: new Map(this.rows), meta: this.meta }
+    const draft: CacheDraft = {
+      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(),
+      meta: this.meta,
+    }
     this.drafts.set(span, draft)
     span.join({
       prepare: () => {
@@ -269,7 +286,7 @@ class InMemoryCache implements ReplicaCacheStore {
         }
       },
       publish: () => {
-        this.rows = draft.rows
+        this.rows = draft.rows.publish(this.rows)
         this.meta = draft.meta
         this.drafts.delete(span)
       },
@@ -285,14 +302,18 @@ class InMemoryCache implements ReplicaCacheStore {
   }
 }
 
-function applyInto(rows: Map<string, EntityRecord>, mutation: CacheMutation): void {
+function applyInto(
+  rows: ChangedKeyDraft<EntityRecord, RowMirror>,
+  base: RowMirror,
+  mutation: CacheMutation,
+): void {
   // IN ORDER. Never grouped by kind: a frame carrying remove(seq 1) then
   // upsert(seq 2) for one entity must leave the entity PRESENT, and any adapter
   // that batches by type gets that backwards (ADR 2 D9/D13 — order is the
   // correctness property). POD-374/POD-375 inherit this obligation.
   for (const op of mutation.operations) {
     const at = key(op.entity, op.entityId)
-    const next = rowAfter(rows.get(at), op)
+    const next = rowAfter(rows.get(at, base), op)
     if (next === undefined) continue
     // A tombstone and an eviction both drop the row from the CACHE. They stay
     // separate op kinds so the layer above can still tell them apart

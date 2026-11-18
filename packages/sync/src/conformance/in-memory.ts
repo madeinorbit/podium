@@ -32,6 +32,7 @@ import type { OutboxRecord } from '../outbox/records'
 import { InMemoryOutboxStore, InMemoryUnitOfWork } from '../outbox/test-doubles'
 import { InMemoryReplicaStore, type StoreView } from '../replica/memory-store'
 import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../replica/ports'
+import type { StubTableReader } from '../replica/stub-table'
 import type {
   CachePolicy,
   Cursor,
@@ -96,6 +97,9 @@ class GatedCache implements ReplicaCacheStore {
   }
   readStubs(): readonly EntityRecord[] {
     return this.inner.readStubs()
+  }
+  readStubTable(entity: string): StubTableReader | undefined {
+    return this.inner.readStubTable(entity)
   }
   beginSpan(): OwnedSyncSpan {
     return this.inner.beginSpan()

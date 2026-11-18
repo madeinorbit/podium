@@ -92,6 +92,8 @@ import type {
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
+import { RowMirror } from '../../replica/row-mirror'
+import type { StubTableReader } from '../../replica/stub-table'
 import type {
   CachePolicy,
   Cursor,
@@ -199,7 +201,7 @@ type IdbOp =
 /** The post-state one span has staged, per region, plus the durable operations that produce it. */
 interface SpanDraft {
   /** Principal → changed keys or snapshot replacement. Absent means untouched. */
-  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord, RowMirror>>
   /** Principal → the cursor, markers, policy and load state this draft leaves. */
   readonly metas: Map<string, CacheMeta>
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -324,7 +326,8 @@ export class IndexedDbSyncStore {
   private mode: DurabilityMode = 'durable'
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
-  private readonly entities = new Map<string, Map<string, EntityRecord>>()
+  // POD-7115: a stub is kept only in its record type's stub table.
+  private readonly entities = new Map<string, RowMirror>()
   private readonly metas = new Map<string, CacheMeta>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, IndexedDbStoreView>()
@@ -457,7 +460,7 @@ export class IndexedDbSyncStore {
           key: [principal, row.entity, row.entityId],
         })
       }
-      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
+      draft.entities.set(principal, new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()))
       this.stageMetaReset(draft, principal)
       draft.touchedCache = true
 
@@ -938,7 +941,7 @@ export class IndexedDbSyncStore {
     this.nextOrdinal = 0
     for (const row of entities) {
       if (!this.retainsEntity(row.entity)) continue
-      const slice = this.entities.get(row.principal) ?? new Map<string, EntityRecord>()
+      const slice = this.entities.get(row.principal) ?? new RowMirror()
       slice.set(rowKey(row.entity, row.entityId), {
         entity: row.entity,
         entityId: row.entityId,
@@ -1111,8 +1114,8 @@ export class IndexedDbSyncStore {
     return this.options.retainEntity?.(entity) ?? true
   }
 
-  entitiesOf(principal: string): Map<string, EntityRecord> {
-    return this.entities.get(principal) ?? new Map()
+  entitiesOf(principal: string): RowMirror {
+    return this.entities.get(principal) ?? new RowMirror()
   }
 
   metaOf(principal: string): CacheMeta {
@@ -1235,7 +1238,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
 
   readEntities(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()].filter(isMainRow)
+    return this.store.entitiesOf(this.principal).mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
@@ -1250,7 +1253,12 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
 
   readStubs(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()].filter((row) => !isMainRow(row))
+    return this.store.entitiesOf(this.principal).stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -1286,7 +1294,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
       const current = this.slice(draft)
-      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
+      const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
       for (const existing of current.values(this.store.entitiesOf(this.principal))) {
         draft.ops.push({
           kind: 'delete',
@@ -1333,7 +1341,10 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
           key: [this.principal, row.entity, row.entityId],
         })
       }
-      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
+      draft.entities.set(
+        this.principal,
+        new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()),
+      )
       this.store.stageMetaReset(draft, this.principal)
       draft.touchedCache = true
     })
@@ -1366,7 +1377,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: ChangedKeyDraft<EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord, RowMirror>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
@@ -1396,10 +1407,10 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   }
 
   /** Stage only changed keys; published rows stay untouched until publish. */
-  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord, RowMirror> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const changes = new ChangedKeyDraft<EntityRecord>()
+    const changes = new ChangedKeyDraft<EntityRecord, RowMirror>()
     draft.entities.set(this.principal, changes)
     return changes
   }

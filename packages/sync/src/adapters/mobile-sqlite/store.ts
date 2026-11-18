@@ -112,6 +112,8 @@ import type {
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
+import { RowMirror } from '../../replica/row-mirror'
+import type { StubTableReader } from '../../replica/stub-table'
 import type {
   CachePolicy,
   Cursor,
@@ -208,7 +210,7 @@ interface SqlOp {
 /** The post-state one span has staged, per region, plus the statements that produce it. */
 interface SpanDraft {
   /** Principal → changed keys or snapshot replacement. Absent means untouched. */
-  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord, RowMirror>>
   /** Principal → the cursor, markers, policy and load state this draft leaves. */
   readonly metas: Map<string, CacheMeta>
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -303,7 +305,8 @@ export class SqliteSyncStore {
   private mode: DurabilityMode = 'durable'
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
-  private readonly entities = new Map<string, Map<string, EntityRecord>>()
+  // POD-7115: a stub is kept only in its record type's stub table.
+  private readonly entities = new Map<string, RowMirror>()
   private readonly metas = new Map<string, CacheMeta>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, SqliteStoreView>()
@@ -434,7 +437,7 @@ export class SqliteSyncStore {
           params: [principal],
         },
       )
-      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
+      draft.entities.set(principal, new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()))
       draft.metas.set(principal, EMPTY_CACHE_META)
       draft.outbox.set(principal, [])
       draft.touchedCache = true
@@ -856,7 +859,7 @@ export class SqliteSyncStore {
       if (row.provenance === null) {
         throw new Error(`entity row ${row.entity}/${row.entity_id} has no provenance`)
       }
-      const slice = this.entities.get(row.principal) ?? new Map<string, EntityRecord>()
+      const slice = this.entities.get(row.principal) ?? new RowMirror()
       slice.set(rowKey(row.entity, row.entity_id), {
         entity: row.entity,
         entityId: row.entity_id,
@@ -945,8 +948,8 @@ export class SqliteSyncStore {
     if (this.corrupt) throw new ReplicaStoreCorruptError()
   }
 
-  entitiesOf(principal: string): Map<string, EntityRecord> {
-    return this.entities.get(principal) ?? new Map()
+  entitiesOf(principal: string): RowMirror {
+    return this.entities.get(principal) ?? new RowMirror()
   }
 
   metaOf(principal: string): CacheMeta {
@@ -1033,7 +1036,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
 
   readEntities(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()].filter(isMainRow)
+    return this.store.entitiesOf(this.principal).mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
@@ -1048,7 +1051,12 @@ class SqliteCacheStore implements ReplicaCacheStore {
 
   readStubs(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()].filter((row) => !isMainRow(row))
+    return this.store.entitiesOf(this.principal).stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -1085,7 +1093,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
         params: [this.principal],
       })
-      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
+      const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
@@ -1117,7 +1125,10 @@ class SqliteCacheStore implements ReplicaCacheStore {
     // Reaches entities and the cache's metadata. The `outbox` table is not named
     // here, and there is no method on this port through which it could be.
     this.store.autocommit((draft) => {
-      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
+      draft.entities.set(
+        this.principal,
+        new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()),
+      )
       draft.ops.push({
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
         params: [this.principal],
@@ -1164,7 +1175,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: ChangedKeyDraft<EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord, RowMirror>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
@@ -1193,10 +1204,10 @@ class SqliteCacheStore implements ReplicaCacheStore {
   }
 
   /** Stage only changed keys; published rows stay untouched until publish. */
-  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord, RowMirror> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const changes = new ChangedKeyDraft<EntityRecord>()
+    const changes = new ChangedKeyDraft<EntityRecord, RowMirror>()
     draft.entities.set(this.principal, changes)
     return changes
   }

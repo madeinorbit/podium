@@ -62,6 +62,190 @@ export function instanceKey(spec: InstanceSpec): string {
 // Metadata: cursor, markers, policy, load
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Markers: a map each mutation extends without copying
+// ---------------------------------------------------------------------------
+
+/**
+ * POD-7115 — the markers of one cache, as a value each mutation replaces.
+ *
+ * A mutation's markers are a new map (the replica caches by its identity),
+ * but copying every marker per mutation made a first download quadratic:
+ * each chunk and each fetched instance is its own mutation, and the comes-with
+ * markers number in the thousands. This map is a frozen base plus a small
+ * layer of the changes since it; a mutation copies only that layer, and folds
+ * it into a new base once it outgrows the square root of the base. Iteration
+ * order is a `Map`'s: a key set again keeps its place, a key deleted and set
+ * again goes last.
+ */
+export class InstanceMap implements ReadonlyMap<string, InstanceRecord> {
+  /** A plain map of every marker, made on the first iteration (the map never changes). */
+  private flat: Map<string, InstanceRecord> | undefined
+
+  private constructor(
+    private readonly base: ReadonlyMap<string, InstanceRecord>,
+    /** Changed keys: the new record, or `undefined` once deleted. */
+    private readonly changes: ReadonlyMap<string, InstanceRecord | undefined>,
+    /** Keys that iterate after the base, in the order they were (re)added. */
+    private readonly appended: ReadonlyMap<string, true>,
+    readonly size: number,
+  ) {}
+
+  /** An editor over `from`; `done()` gives the next map and leaves `from` as it was. */
+  static edit(from: ReadonlyMap<string, InstanceRecord>): InstanceMapEditor {
+    if (from instanceof InstanceMap)
+      return new InstanceMapEditor(from, from.base, from.changes, from.appended, from.size)
+    return new InstanceMapEditor(from, from, new Map(), new Map(), from.size)
+  }
+
+  /** @internal The editor's result. */
+  static of(
+    base: ReadonlyMap<string, InstanceRecord>,
+    changes: ReadonlyMap<string, InstanceRecord | undefined>,
+    appended: ReadonlyMap<string, true>,
+    size: number,
+  ): InstanceMap {
+    return new InstanceMap(base, changes, appended, size)
+  }
+
+  get(key: string): InstanceRecord | undefined {
+    return this.changes.has(key) ? this.changes.get(key) : this.base.get(key)
+  }
+
+  has(key: string): boolean {
+    return this.get(key) !== undefined
+  }
+
+  entries(): MapIterator<[string, InstanceRecord]> {
+    return this.plain().entries()
+  }
+
+  keys(): MapIterator<string> {
+    return this.plain().keys()
+  }
+
+  values(): MapIterator<InstanceRecord> {
+    return this.plain().values()
+  }
+
+  [Symbol.iterator](): MapIterator<[string, InstanceRecord]> {
+    return this.plain().entries()
+  }
+
+  forEach(
+    callback: (
+      value: InstanceRecord,
+      key: string,
+      map: ReadonlyMap<string, InstanceRecord>,
+    ) => void,
+    thisArg?: unknown,
+  ): void {
+    for (const [key, value] of this.plain()) callback.call(thisArg, value, key, this)
+  }
+
+  private plain(): Map<string, InstanceRecord> {
+    if (this.flat === undefined) {
+      if (this.changes.size === 0 && this.base instanceof Map) return this.base
+      this.flat = flatten(this.base, this.changes, this.appended)
+    }
+    return this.flat
+  }
+}
+
+/** Every marker of a layered map, in `Map` order. */
+function flatten(
+  base: ReadonlyMap<string, InstanceRecord>,
+  changes: ReadonlyMap<string, InstanceRecord | undefined>,
+  appended: ReadonlyMap<string, true>,
+): Map<string, InstanceRecord> {
+  const out = new Map<string, InstanceRecord>()
+  for (const [key, record] of base) {
+    if (appended.has(key)) continue
+    const value = changes.has(key) ? changes.get(key) : record
+    if (value !== undefined) out.set(key, value)
+  }
+  for (const key of appended.keys()) {
+    const value = changes.get(key)
+    if (value !== undefined) out.set(key, value)
+  }
+  return out
+}
+
+/** The changes one mutation makes to the markers, staged over the map it started from. */
+export class InstanceMapEditor {
+  private touched = false
+
+  constructor(
+    private readonly from: ReadonlyMap<string, InstanceRecord>,
+    private base: ReadonlyMap<string, InstanceRecord>,
+    private changes: ReadonlyMap<string, InstanceRecord | undefined>,
+    private appended: ReadonlyMap<string, true>,
+    private count: number,
+  ) {}
+
+  get(key: string): InstanceRecord | undefined {
+    return this.changes.has(key) ? this.changes.get(key) : this.base.get(key)
+  }
+
+  set(key: string, record: InstanceRecord): void {
+    const { changes, appended } = this.own()
+    if (this.get(key) === undefined) {
+      // A new key, or one deleted before: it goes last, as in a `Map`.
+      this.count += 1
+      appended.delete(key)
+      appended.set(key, true)
+    }
+    changes.set(key, record)
+  }
+
+  delete(key: string): boolean {
+    if (this.get(key) === undefined) return false
+    const { changes, appended } = this.own()
+    this.count -= 1
+    appended.delete(key)
+    if (this.base.has(key)) changes.set(key, undefined)
+    else changes.delete(key)
+    return true
+  }
+
+  clear(): void {
+    this.touched = true
+    this.base = new Map()
+    this.changes = new Map()
+    this.appended = new Map()
+    this.count = 0
+  }
+
+  /** The markers after this mutation: the map it started from when nothing changed. */
+  done(): ReadonlyMap<string, InstanceRecord> {
+    if (!this.touched) return this.from
+    // Past the square root of the base, the layer folds into a new base: a
+    // mutation copies at most that many changes, and a fold is paid for by
+    // the mutations that grew the layer.
+    if (this.changes.size > Math.max(32, Math.ceil(Math.sqrt(this.base.size)))) {
+      const folded = flatten(this.base, this.changes, this.appended)
+      return InstanceMap.of(folded, new Map(), new Map(), folded.size)
+    }
+    return InstanceMap.of(this.base, this.changes, this.appended, this.count)
+  }
+
+  /** The layer this editor writes: copied once, so the map it started from stays as it was. */
+  private own(): {
+    changes: Map<string, InstanceRecord | undefined>
+    appended: Map<string, true>
+  } {
+    if (!this.touched) {
+      this.touched = true
+      this.changes = new Map(this.changes)
+      this.appended = new Map(this.appended)
+    }
+    return {
+      changes: this.changes as Map<string, InstanceRecord | undefined>,
+      appended: this.appended as Map<string, true>,
+    }
+  }
+}
+
 /** One principal's cache metadata. */
 export interface CacheMeta {
   readonly cursor: ScopedCacheCursor | null
@@ -114,7 +298,7 @@ export function nextCacheMeta(
   }
   let instances = meta.instances
   if (mutation.instances !== undefined && mutation.instances.length > 0) {
-    const next = new Map(meta.instances)
+    const next = InstanceMap.edit(meta.instances)
     for (const op of mutation.instances) {
       switch (op.kind) {
         case 'mark':
@@ -138,7 +322,7 @@ export function nextCacheMeta(
         }
       }
     }
-    instances = next
+    instances = next.done()
   }
   let policy = meta.policy
   if (mutation.policy !== undefined) {

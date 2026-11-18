@@ -20,6 +20,7 @@
  */
 
 import type { OwnedSyncSpan, SyncSpan } from '../span'
+import type { StubTableReader } from './stub-table'
 import type {
   BootstrapChunk,
   BootstrapRequired,
@@ -173,6 +174,12 @@ export interface ReplicaCacheStore {
   readRow(entity: string, entityId: string): EntityRecord | undefined
   /** Every row held only as a stub. */
   readStubs(): readonly EntityRecord[]
+  /**
+   * The stubs of `entity`, whole records and stubs alike, kept current with
+   * every published write (POD-7115): the one copy of the stubs in memory.
+   * `undefined` for a record type without a stub.
+   */
+  readStubTable(entity: string): StubTableReader | undefined
   /**
    * Open a span over the physical store this port is a view of (D10 clause 1).
    *

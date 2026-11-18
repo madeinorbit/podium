@@ -383,6 +383,14 @@ const rowKeyOf = (row: Pick<EntityRecord, 'entity' | 'entityId'>): string =>
  * Plan a trim. `held` are the keys the policy and the open views hold (and
  * fetches in flight); every other instance is cache. Instances that arrived
  * because another record is held (`via`) are kept exactly while that record is.
+ *
+ * POD-7115: linear in what it keeps. A keyed instance finds its members
+ * through an index by its key field, not by testing every record of its type,
+ * and each cache instance is tried in a layer over what is kept so far: kept
+ * if it fits under the cap, forgotten if not, never copying what is kept.
+ * The trim runs after every fetch, so a first download used to pay for every
+ * instance times every record, and again per cache instance while the cache
+ * stayed under its cap.
  */
 export function planTrim(input: {
   readonly rows: readonly EntityRecord[]
@@ -406,11 +414,40 @@ export function planTrim(input: {
     const instance = resolveInstance(record, args)
     if (instance !== undefined) resolved.set(key, instance)
   }
+  /** kind → key field → value → the records with that value: a keyed instance's candidates. */
+  const byField = new Map<string, Map<string, Map<unknown, EntityRecord[]>>>()
+  const candidatesOf = (instance: ResolvedInstance): readonly EntityRecord[] => {
+    const rows = byKind.get(instance.of) ?? []
+    const field = cachedKeyField(instance.collection)
+    if (field === undefined) return rows
+    let fields = byField.get(instance.of)
+    if (fields === undefined) {
+      fields = new Map()
+      byField.set(instance.of, fields)
+    }
+    let index = fields.get(field)
+    if (index === undefined) {
+      index = new Map()
+      for (const row of rows) {
+        const value = ((row.value ?? {}) as Record<string, unknown>)[field] ?? null
+        const list = index.get(value)
+        if (list === undefined) index.set(value, [row])
+        else list.push(row)
+      }
+      fields.set(field, index)
+    }
+    const param = instanceParams(instance.collection)[0]
+    return index.get(param === undefined ? null : (instance.args[param] ?? null)) ?? []
+  }
 
-  /** Incremental closure: kept instances and kept rows, extended monotonically. */
-  const keptInstances = new Set<string>()
-  const keptRows = new Set<string>()
-  const memberships = new Map<string, ResolvedInstance[]>()
+  /** What is kept: instances, rows, and the collections each kept row belongs to. */
+  const kept = {
+    instances: new Set<string>(),
+    rows: new Set<string>(),
+    memberships: new Map<string, ResolvedInstance[]>(),
+  }
+  /** One cache instance on trial: what it would add over `kept`. */
+  type Layer = typeof kept
   const ctxFor = new Map<string, (args: RuleArgs) => Parameters<typeof matchesWhere>[2]>()
   const ctxOf = (kind: string) => {
     let ctx = ctxFor.get(kind)
@@ -420,81 +457,100 @@ export function planTrim(input: {
     }
     return ctx
   }
+  const membershipsOf = (key: string, trial: Layer | undefined): readonly ResolvedInstance[] => {
+    const base = kept.memberships.get(key) ?? []
+    const more = trial?.memberships.get(key)
+    return more === undefined ? base : [...base, ...more]
+  }
   const keepRows = (
     rows: readonly EntityRecord[],
     via: ResolvedInstance | undefined,
     work: EntityRecord[],
+    into: Layer,
+    trial: Layer | undefined,
   ) => {
     for (const row of rows) {
       const key = rowKeyOf(row)
       if (via !== undefined) {
-        const list = memberships.get(key) ?? []
-        list.push(via)
-        memberships.set(key, list)
+        const list = into.memberships.get(key)
+        if (list === undefined) into.memberships.set(key, [via])
+        else list.push(via)
       }
-      if (keptRows.has(key)) {
+      if (kept.rows.has(key) || trial?.rows.has(key) === true) {
         // A row already kept may now belong to one more collection, whose
         // comes-with it must bring along too.
         if (via !== undefined && (via.collection.comesWith?.length ?? 0) > 0) work.push(row)
         continue
       }
-      keptRows.add(key)
+      into.rows.add(key)
       work.push(row)
     }
   }
-  const keepInstance = (key: string, work: EntityRecord[]): void => {
-    if (keptInstances.has(key)) return
+  const keepInstance = (
+    key: string,
+    work: EntityRecord[],
+    into: Layer,
+    trial: Layer | undefined,
+  ): void => {
+    if (kept.instances.has(key) || trial?.instances.has(key) === true) return
     const instance = resolved.get(key)
-    keptInstances.add(key)
+    into.instances.add(key)
     if (instance === undefined || instance.spec.part === 'stub') return
     const ctx = ctxOf(instance.of)
-    const members = (byKind.get(instance.of) ?? []).filter((row) =>
+    const members = candidatesOf(instance).filter((row) =>
       belongs(instance, (row.value ?? {}) as Record<string, unknown>, ctx),
     )
-    keepRows(members, instance, work)
+    keepRows(members, instance, work, into, trial)
   }
-  const settle = (work: EntityRecord[]): void => {
+  /** Close over comes-with; stops early once `over()` says the layer cannot fit. */
+  const settle = (
+    work: EntityRecord[],
+    into: Layer,
+    trial: Layer | undefined,
+    over: () => boolean = () => false,
+  ): void => {
     for (let guard = 0; work.length > 0; guard += 1) {
       if (guard > 10_000_000) throw new Error('trim closure did not settle')
+      if (over()) return
       const row = work.pop()!
-      const memberOf = memberships.get(rowKeyOf(row)) ?? []
+      const memberOf = membershipsOf(rowKeyOf(row), trial)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, input.now)) {
         const key = instanceKey(spec)
-        if (input.instances.has(key)) keepInstance(key, work)
+        if (input.instances.has(key)) keepInstance(key, work, into, trial)
       }
     }
   }
 
   const work: EntityRecord[] = []
-  for (const key of input.held) if (input.instances.has(key)) keepInstance(key, work)
-  settle(work)
-  const base = new Set(keptRows)
+  for (const key of input.held)
+    if (input.instances.has(key)) keepInstance(key, work, kept, undefined)
+  settle(work, kept, undefined)
+  const base = kept.rows.size
   const cache = [...input.instances.values()]
-    .filter((record) => record.via === undefined && !keptInstances.has(record.key))
+    .filter((record) => record.via === undefined && !kept.instances.has(record.key))
     .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0) || (a.key < b.key ? -1 : 1))
   let cacheRecords = 0
   for (const record of cache) {
-    // Tentatively keep it; give it back if it takes the cache above the cap.
-    const instancesBefore = new Set(keptInstances)
-    const rowsBefore = new Set(keptRows)
-    const membershipsBefore = new Map([...memberships].map(([key, list]) => [key, [...list]]))
+    if (kept.instances.has(record.key)) continue
+    // Tried in a layer: it is kept only if the cache stays under the cap.
+    const trial: Layer = { instances: new Set(), rows: new Set(), memberships: new Map() }
     const next: EntityRecord[] = []
-    keepInstance(record.key, next)
-    settle(next)
-    let count = 0
-    for (const key of keptRows) if (!base.has(key)) count += 1
-    if (count > input.cap) {
-      keptInstances.clear()
-      for (const key of instancesBefore) keptInstances.add(key)
-      keptRows.clear()
-      for (const key of rowsBefore) keptRows.add(key)
-      memberships.clear()
-      for (const [key, list] of membershipsBefore) memberships.set(key, list)
-      // Released longest ago go first: this one and every older one are dropped.
-      break
+    const over = () => kept.rows.size - base + trial.rows.size > input.cap
+    keepInstance(record.key, next, trial, trial)
+    settle(next, trial, trial, over)
+    // Released longest ago go first: this one and every older one are dropped.
+    if (over()) break
+    for (const key of trial.instances) kept.instances.add(key)
+    for (const key of trial.rows) kept.rows.add(key)
+    for (const [key, list] of trial.memberships) {
+      const held = kept.memberships.get(key)
+      if (held === undefined) kept.memberships.set(key, list)
+      else held.push(...list)
     }
-    cacheRecords = count
+    cacheRecords = kept.rows.size - base
   }
+  const keptInstances = kept.instances
+  const keptRows = kept.rows
 
   const dropInstances = [...input.instances.keys()].filter((key) => !keptInstances.has(key))
   const toStub: EntityRecord[] = []

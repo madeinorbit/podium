@@ -35,7 +35,7 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import { recordOf as recordOfKind } from '@podium/model'
+import { RECORDS } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
 import {
   comesWithOf,
@@ -50,7 +50,6 @@ import {
 } from './holdings'
 import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
-import { StubTable } from './stub-table'
 import {
   type AuthorityReadPort,
   type CacheMutation,
@@ -274,13 +273,6 @@ export class Replica implements DeviceCollectionReads {
         readonly index: HeldIndex
       }
     | undefined
-  /**
-   * POD-7094 — the stubs in memory as a compact table, per record type with a
-   * stub: built from the store on first read, then kept current record by
-   * record from this replica's events (`emit`). Dropped, and built again on
-   * the next read, only after an event that may move many rows at once.
-   */
-  private stubTables: Map<string, StubTable> | undefined
   private readonly viewRequests: (() => readonly InstanceRequest[]) | undefined
   private readonly requestHook: ((specs: readonly InstanceSpec[]) => void) | undefined
 
@@ -303,10 +295,7 @@ export class Replica implements DeviceCollectionReads {
     this.validator = options.validator
     this.now = options.now ?? (() => Date.now())
     const onEvent = options.onEvent ?? (() => {})
-    this.emit = (event) => {
-      this.followStubs(event)
-      onEvent(event)
-    }
+    this.emit = onEvent
     this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
     this.viewRequests = options.view
@@ -1900,7 +1889,7 @@ export class Replica implements DeviceCollectionReads {
 
   /** The stub part of a record the device holds, stub or whole; `undefined` when absent. */
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined {
-    const table = this.stubTable(entity)
+    const table = this.store.readStubTable(entity)
     if (table !== undefined) return table.stubOf(entityId)
     const row = this.store.readRow(entity, entityId)
     return row === undefined ? undefined : stubOfValue(entity, row.value)
@@ -1909,87 +1898,26 @@ export class Replica implements DeviceCollectionReads {
   /** The ids of the issues whose parent is `parentId`, over every issue on the device. */
   stubsByParent(parentId: string): readonly string[] {
     const out: string[] = []
-    for (const table of this.allStubTables().values()) out.push(...table.childrenOf(parentId))
+    for (const kind of STUB_KINDS) {
+      const children = this.store.readStubTable(kind)?.childrenOf(parentId)
+      if (children !== undefined) out.push(...children)
+    }
     return out
   }
 
   /** The issue at a reference (repository and number), by the stubs; the lowest id when several. */
   stubIdAt(entity: string, repoId: string, seq: number): string | undefined {
-    return this.stubTable(entity)?.idAt(repoId, seq)
-  }
-
-  /** Every record type with a stub, its table (built from the store on first read). */
-  private allStubTables(): Map<string, StubTable> {
-    let tables = this.stubTables
-    if (tables === undefined) {
-      tables = new Map()
-      for (const row of this.store.readEntities())
-        this.stubPut(tables, row.entity, row.entityId, row.value)
-      for (const row of this.store.readStubs())
-        this.stubPut(tables, row.entity, row.entityId, row.value)
-      this.stubTables = tables
-    }
-    return tables
-  }
-
-  private stubTable(entity: string): StubTable | undefined {
-    if (stubFieldsOf(entity).length === 0) return undefined
-    const tables = this.allStubTables()
-    let table = tables.get(entity)
-    if (table === undefined) {
-      table = new StubTable(stubFieldsOf(entity), parentLinkOf(entity))
-      tables.set(entity, table)
-    }
-    return table
-  }
-
-  private stubPut(
-    tables: Map<string, StubTable>,
-    entity: string,
-    id: string,
-    value: unknown,
-  ): void {
-    if (stubFieldsOf(entity).length === 0) return
-    let table = tables.get(entity)
-    if (table === undefined) {
-      table = new StubTable(stubFieldsOf(entity), parentLinkOf(entity))
-      tables.set(entity, table)
-    }
-    table.put(id, value)
-  }
-
-  /** Keep the stub tables current from one event; drop them after a bulk change. */
-  private followStubs(event: ReplicaEvent): void {
-    const tables = this.stubTables
-    if (tables === undefined) return
-    switch (event.type) {
-      case 'upserted':
-      case 'stub-upserted':
-        this.stubPut(tables, event.record.entity, event.record.entityId, event.record.value)
-        return
-      case 'removed':
-      case 'evicted':
-        tables.get(event.entity)?.remove(event.entityId)
-        return
-      // The record falls back to the stub it held, or leaves a type with none.
-      case 'released':
-      case 'cursor':
-      case 'posture':
-      case 'heal-progress':
-      case 'markers':
-        return
-      default:
-        this.stubTables = undefined
-    }
+    return this.store.readStubTable(entity)?.idAt(repoId, seq)
   }
 
   /**
    * The stub part of every record of `entity` on the device, stubs and whole
    * records alike: what counts over all history read (design "Counts"). One
-   * array per change of a stub, in no particular order.
+   * array per change of a stub, in no particular order. The store's table
+   * (POD-7115): the one copy of the stubs in memory, current with every write.
    */
   stubRows(entity: string): readonly StubRow[] {
-    return this.stubTable(entity)?.rows() ?? []
+    return this.store.readStubTable(entity)?.rows() ?? []
   }
 
   /** Whether a load can start now: the device has a feed to answer against. */
@@ -2333,15 +2261,10 @@ function recordFromOp(op: CacheOperation & { readonly kind: 'upsert' }): EntityR
   }
 }
 
-/** The parent link of a record type, for the children-by-parent index. */
-function parentLinkOf(kind: string): string | undefined {
-  return stubFieldsOf(kind).length > 0 ? parentLinkCache(kind) : undefined
-}
-const parentLinks = new Map<string, string | undefined>()
-function parentLinkCache(kind: string): string | undefined {
-  if (!parentLinks.has(kind)) parentLinks.set(kind, recordOfKind(kind)?.parentLink)
-  return parentLinks.get(kind)
-}
+/** The record types with a stub (POD-7115: their tables are the store's). */
+const STUB_KINDS: readonly string[] = RECORDS.filter((record) => record.stub.length > 0).map(
+  (record) => record.kind,
+)
 
 function rungFor(cause: RebootstrapCause): HealRung {
   switch (cause) {
