@@ -87,7 +87,7 @@ export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   /** Compatibility callers can explicitly name the member of a legacy namespace. */
   readonly clientPrincipal?: string
   readonly evidence?: LegacyIdentityEvidence
-  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch' | 'clientType'>
   readonly pendingPrincipalCleanups?: readonly { principal: string; complete(): Promise<void> }[]
   readonly onDegraded?: (detail: unknown) => void
   readonly onAuthExpired?: () => void
@@ -253,6 +253,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       cache: view.cache,
       side,
       exits: (entity, entityId) => kernel?.exitKind(entity, entityId),
+      collections: () => kernel,
       ...(transcriptCache ? { transcripts: transcriptCache } : {}),
     })
     const cancelSweep = transcriptStore
@@ -291,35 +292,35 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     const replicaKernel = new KernelReplica({
       store: view.cache,
       authority: {
-        async *bootstrap(signal, kinds) {
+        async *bootstrap(signal, view) {
           progress.beginAttempt()
           try {
-            for await (const chunk of bootstraps.bootstrap(signal, kinds)) {
+            for await (const chunk of bootstraps.bootstrap(signal, view)) {
               if (chunk.last) progress.noteSaving()
               yield chunk
             }
           } catch (error) {
-            if (
-              !kinds ||
-              error instanceof SyncAuthExpiredError ||
-              error instanceof SyncNetworkError
-            )
+            reportFailure(error)
+            throw error
+          }
+        },
+        // The one fetch route (POD-7085): what held records come with, a
+        // resumed first download, a kind reload. A failure here is the fetch's
+        // own; only a lost session or network says anything about the sync.
+        async *collections(instances, signal) {
+          try {
+            yield* bootstraps.collections(instances, signal)
+          } catch (error) {
+            if (error instanceof SyncAuthExpiredError || error instanceof SyncNetworkError)
               reportFailure(error)
             throw error
           }
         },
-        async changesRange(cursor, signal, onTarget, options) {
-          if (!options) progress.beginAttempt()
-          const report = (error: unknown) => {
-            if (
-              !options ||
-              error instanceof SyncAuthExpiredError ||
-              error instanceof SyncNetworkError
-            )
-              reportFailure(error)
-          }
+        async changesRange(cursor, signal, onTarget) {
+          progress.beginAttempt()
+          const report = (error: unknown) => reportFailure(error)
           try {
-            const range = await deltas.changesRange(cursor, signal, onTarget, options)
+            const range = await deltas.changesRange(cursor, signal, onTarget)
             if ('kind' in range) return range
             return (async function* () {
               try {

@@ -214,7 +214,7 @@ export interface MobileReplicaDeps {
    * Production HTTP sources. The optional legacy read below keeps the pushed
    * feed test fixtures intact until the programme cutover removes that path.
    */
-  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch' | 'clientType'>
 
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string, tone?: NoticeTone) => void
@@ -860,6 +860,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           })),
           httpSync: {
             origin: config.httpOrigin,
+            clientType: 'phone',
             streamingFetch: createMobileSyncFetch(
               bearer,
               undefined,
