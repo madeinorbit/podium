@@ -64,9 +64,10 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
  *
- * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every eligible issue in memory
- * is a filing candidate (`VisibleCollection.track`, taken when its row enters
- * the table and released when it leaves) and, while a list is on screen
+ * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every issue in memory the
+ * rule can show is a filing candidate (`VisibleCollection.track`, taken when
+ * its row or a session that can keep it enters the table and released when
+ * it leaves: `SIDEBAR_CANDIDATES`) and, while a list is on screen
  * (POD-5423), holds ONE reaction on what it files: its placement and rank
  * while it is visible, nothing while it is not. The effect moves
  * that row alone in the visible order and in the groups' lanes
@@ -87,6 +88,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
 
 import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
 import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact, sessionWorkingFact } from '@podium/model/browser'
+import { matchesWhere, SIDEBAR_STAGES, type Where } from '@podium/model'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -1336,6 +1338,80 @@ export function sortByRank(
 export interface HeldIssue extends Omit<IssueVisibility, 'unread'> {
   readonly id: string
   readonly placement: Placement | undefined
+}
+
+// ------------------------------------------------------------ candidates
+
+/** Not excluded (`isExcluded`): an absent flag reads as unset, as the rule reads it. */
+const NOT_EXCLUDED = { archived: { not: true }, deletedAt: { empty: true } } as const
+/** Not `proposed` and not `shipping` (system custody): stages the rule excludes. */
+const SHOWN_STAGE = { not: { in: ['proposed', 'shipping'] } } as const
+/** Finished (`isFinished`): done, or closed with a reason. */
+const FINISHED = [{ stage: 'done' }, { stage: SHOWN_STAGE, closedReason: { not: { empty: true } } }] as const
+
+/**
+ * THE SIDEBAR'S FILING CANDIDATES (POD-7148), DECLARED AS DATA: the issues
+ * the rule above can show, and no others. The device holds far more issues
+ * than the sidebar shows (recent history, open trees, pages, lookups: design
+ * POD-7059), and a candidate pays for standing, nesting, presence and rank
+ * while the list is on screen, so only an issue that can earn a row is one.
+ * Both rules are the declared rule vocabulary (`@podium/model` `Where`), read
+ * by one generic read ({@link isSidebarCandidate}, {@link sidebarKeeperOf}).
+ *
+ * - `issue`, by the issue's own row: the sidebar collection's rule
+ *   (`SIDEBAR_WHERE`: open, not proposed), and the finished rows the rule keeps
+ *   by their own fields, which reach the device through the recent collection:
+ *   a human issue (the closed fold, a finished child's window) and one with a
+ *   private branch (awaiting merge). The clock decides inside those windows,
+ *   so neither tests a time: the device's holdings already bound recency, and
+ *   a time here would hide a row the rule shows.
+ * - `keeper`, a session the device holds: R-VIS 2's seat (not archived, not
+ *   a shell). Its issue is a candidate while one is held, whatever its own row
+ *   says: a closed issue that a live, asking or recent session brought along
+ *   (its declared comes-with) stays shown while the session keeps it.
+ *
+ * Every other issue files nothing: an agent task that is done and has no
+ * held seat, a proposed, archived or deleted one, whatever collection (a
+ * tree, a page, a lookup) brought it. Pending local writes are in the row the
+ * pool holds (the transaction log writes the rebased row into the table), so
+ * a local create or edit is judged like any other row.
+ *
+ * A superset, never a subset, of what shows: the rule still decides. One case
+ * is left to the seat: a finished agent issue kept only by an issueless
+ * session in its checkout (R3, `laneMemberIds`) files once a seat or its row
+ * makes it a candidate; the residency rule this replaces counted none
+ * (POD-4745).
+ */
+export const SIDEBAR_CANDIDATES = {
+  issue: [
+    // The sidebar collection's rule, the stages the worklist excludes aside.
+    {
+      ...NOT_EXCLUDED,
+      stage: { in: SIDEBAR_STAGES.filter((stage) => stage !== 'shipping') },
+      closedReason: { empty: true },
+    },
+    ...FINISHED.map((finished) => ({ ...NOT_EXCLUDED, ...finished, audience: 'human' }) as const),
+    ...FINISHED.map((finished) => ({ ...NOT_EXCLUDED, ...finished, branch: { not: { empty: true } } }) as const),
+  ],
+  keeper: { archived: { not: true }, agentKind: { not: 'shell' }, issueId: { not: { empty: true } } },
+} as const satisfies { readonly issue: Where; readonly keeper: Where }
+
+/** Neither rule tests a time or an argument. */
+const NO_CLOCK = { now: 0, args: {} } as const
+
+/** Whether an issue's own row makes it a filing candidate (`SIDEBAR_CANDIDATES.issue`). */
+export function isSidebarCandidate(row: SliceIssue): boolean {
+  return matchesWhere(SIDEBAR_CANDIDATES.issue, row as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
+}
+
+/** The issue a held session keeps a filing candidate (`SIDEBAR_CANDIDATES.keeper`), or undefined. */
+export function sidebarKeeperOf(session: SliceSession | undefined): string | undefined {
+  if (
+    session === undefined ||
+    !matchesWhere(SIDEBAR_CANDIDATES.keeper, session as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
+  )
+    return undefined
+  return session.issueId as string
 }
 
 /** What the collection reads from the pool. */
