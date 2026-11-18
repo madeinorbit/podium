@@ -52,7 +52,9 @@ export function DeckContent({ children }: { children: ReactNode }) {
 function Content({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false)
   return (
-    <VStack modifiers={[...headerInsets, contentVisibility(setVisible)]}>
+    // Visibility wraps the content in an availability branch, so it must sit inside the
+    // row-inset trait; applied after it, SwiftUI drops the zero insets for the defaults.
+    <VStack modifiers={[contentVisibility(setVisible), ...headerInsets]}>
       <RNHostView matchContents={{ vertical: true }}>
         <View collapsable={false} style={styles.content}>
           <VisibleContent visible={visible}>{children}</VisibleContent>
