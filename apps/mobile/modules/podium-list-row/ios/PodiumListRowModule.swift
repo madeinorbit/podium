@@ -12,6 +12,25 @@ public final class PodiumListRowModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PodiumListRow")
 
+    // Called once on the JS thread by WorkingMark.ios.tsx, before any mark mounts.
+    Function("setWorkingMarkFrames") { (samples: [Double], dots: Int, rest: [Double], loopMs: Double) in
+      WorkingMarkFrames.shared = WorkingMarkFrames(samples: samples, dots: dots, rest: rest, loopMs: loopMs)
+    }
+
+    View(PodiumWorkingMarkView.self) {
+      Prop("active") { (view: PodiumWorkingMarkView, active: Bool?) in view.active = active ?? false }
+      Prop("tint") { (view: PodiumWorkingMarkView, tint: UIColor?) in view.tint = tint ?? .systemBlue }
+    }
+
+    View(PodiumWorkingGlintView.self) {
+      Prop("active") { (view: PodiumWorkingGlintView, active: Bool?) in view.active = active ?? false }
+      Prop("phase") { (view: PodiumWorkingGlintView, phase: Double?) in view.phase = phase ?? 0 }
+    }
+
+    View(PodiumBlinkView.self) {
+      Prop("active") { (view: PodiumBlinkView, active: Bool?) in view.active = active ?? false }
+    }
+
     OnCreate {
       ViewModifierRegistry.register(rowHairlineModifier) { params, _, _ in
         RowHairlineModifier(

@@ -8,6 +8,9 @@ const samples = Array.from({ length: SAMPLE_COUNT + 1 }, (_, i) =>
   dotsAt(tetra, (i * tetra.loop) / SAMPLE_COUNT),
 )
 
+/** The loop's samples, endpoint included: iOS hands this table to Core Animation. */
+export const workingMarkSamples = samples
+
 /** Linear interpolation keeps the original design and its four-second loop. */
 export function workingMarkDot(index: number, progress: number) {
   'worklet'
