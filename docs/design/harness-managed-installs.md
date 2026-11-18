@@ -154,7 +154,7 @@ different releases for a few hours, as they can today.
 
 ```
 <Podium state folder>/
-  homes/                   credential management's homes, one per credential (3.10)
+  homes/                   the Podium home per harness, and login homes (3.10)
   harnesses/
     ledger.db              which release is current, and what else Podium owns (3.11)
     claude-code/
@@ -478,8 +478,8 @@ Open question from the brief: does a managed install also get a harness home
 that Podium owns?
 
 **Yes. A managed binary runs only in homes Podium owns. Those homes already
-exist: credential management built them. This design uses them, and widens
-them to every credential Podium holds.**
+exist: credential management built them. This design adds one Podium home
+per harness, into which a credential is passed.**
 
 #### Two sides on one machine
 
