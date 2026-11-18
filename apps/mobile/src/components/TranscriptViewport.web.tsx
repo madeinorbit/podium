@@ -49,12 +49,10 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   ref: ForwardedRef<TranscriptViewportHandle>,
 ) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
-  const nativeScroller = useRef<ScrollView | null>(null)
   const content = useRef<HTMLDivElement | null>(null)
   const readBounds = useCallback((receive: (bounds: ActivityBounds) => void) => {
-    nativeScroller.current?.measureInWindow((x, y, width, height) =>
-      receive({ x, y, width, height }),
-    )
+    const element = scrollerRef.current
+    if (element) receive(element.getBoundingClientRect())
   }, [])
   const viewport = useActivityViewport(readBounds, visibleInsets)
   const [following, setFollowing] = useState(true)
@@ -132,7 +130,6 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   }, [positionOfKey, renderStart, scroll.scrollToBlock])
   const setScrollView = useCallback(
     (node: ScrollView | null) => {
-      nativeScroller.current = node
       const element = (node?.getNativeScrollRef() ?? null) as HTMLDivElement | null
       // RN Web installs its {x, y, animated} scrollTo on this DOM node. Our
       // shared browser scroll authority needs the native {top, behavior} API.
@@ -174,8 +171,8 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
         keyboardDismissMode="none"
         testID="transcript-scroller"
         ref={setScrollView}
-        onScroll={(event) => {
-          scroll.onScroll(event)
+        onScroll={() => {
+          scroll.onScroll()
           viewport.refresh()
         }}
         onLayout={(event) => {

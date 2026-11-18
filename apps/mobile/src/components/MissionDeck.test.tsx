@@ -155,7 +155,16 @@ describe('MissionDeck', () => {
     await act(async () => {
       replica.applyChanges(
         'sessions',
-        [{ ...session, agentState: { phase: 'idle', since: '2026-08-04T20:16:04.230Z' } }],
+        [
+          {
+            ...session,
+            agentState: {
+              phase: 'idle',
+              since: '2026-08-04T20:16:04.230Z',
+              nativeSubagentCount: 0,
+            },
+          },
+        ],
         [],
       )
     })

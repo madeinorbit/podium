@@ -112,7 +112,7 @@ export function useServedBuildRefresh(
       const served = await read()
       if (!cancelled && servesNewerBuild(pageVersion, served)) setNeedsRefresh(true)
     }
-    let timer: ReturnType<typeof window.setInterval> | undefined
+    let timer: number | undefined
     // The decisive moment for an installed phone app: it comes back to the
     // foreground, which is where hours of missed polls are made up in one ask.
     const onVisible = (): void => {

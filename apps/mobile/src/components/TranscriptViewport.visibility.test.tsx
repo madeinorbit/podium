@@ -1,7 +1,7 @@
 import type { ChatBlock } from '@podium/client-core/values'
 import type { CellRendererProps } from '@react-native/virtualized-lists'
 import { act, cleanup, render, screen } from '@testing-library/react'
-import type { ComponentProps, ComponentType, ReactNode } from 'react'
+import type { ComponentPropsWithRef, ComponentType, ReactNode } from 'react'
 import type {
   FlatListProps,
   NativeScrollEvent,
@@ -26,7 +26,7 @@ vi.mock('react-native', async (original) => {
   const { forwardRef, useImperativeHandle, useRef } = await import('react')
   return {
     ...actual,
-    View: ({ ref, ...props }: ComponentProps<typeof RNView>) => {
+    View: ({ ref, ...props }: ComponentPropsWithRef<typeof RNView>) => {
       const element = useRef<RNView>(null)
       useImperativeHandle(ref, () => {
         const node = element.current
@@ -67,7 +67,7 @@ vi.mock('react-native', async (original) => {
       const Cell = props.CellRendererComponent as ComponentType<CellRendererProps<string>>
       return (
         <div>
-          {props.data?.map((item, index) => (
+          {Array.from(props.data ?? []).map((item, index) => (
             <Cell key={item} cellKey={item} index={index} item={item} style={undefined}>
               {props.renderItem?.({
                 item,
@@ -138,7 +138,7 @@ const viewport = (line: ReactNode, insets = { top: 0, bottom: 0 }, identity = 'c
     data={[identity]}
     keyExtractor={(key) => key}
     positionOfKey={() => 0}
-    renderItem={() => line}
+    renderItem={() => <>{line}</>}
     visibleInsets={insets}
   />
 )

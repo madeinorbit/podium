@@ -9,7 +9,7 @@ import {
   useImperativeHandle,
   useRef,
 } from 'react'
-import { FlatList, Platform, View } from 'react-native'
+import { FlatList, Platform, type ScrollView, View } from 'react-native'
 import { ScrollViewMarker } from 'react-native-screens/experimental'
 import { useNativeTranscriptScroll } from '../hooks/useNativeTranscriptScroll'
 import { listWindow } from './list-window'
@@ -57,11 +57,12 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
 ) {
   const listRef = useRef<FlatList<Item>>(null)
   const readBounds = useCallback((receive: (bounds: ActivityBounds) => void) => {
-    listRef.current
-      ?.getNativeScrollRef()
-      ?.measureInWindow((x: number, y: number, width: number, height: number) =>
-        receive({ x, y, width, height }),
-      )
+    // FlatList's declaration still names ScrollViewComponent here, but this
+    // method returns the same native host as ScrollView.getNativeScrollRef.
+    const node = listRef.current?.getNativeScrollRef() as
+      | ReturnType<ScrollView['getNativeScrollRef']>
+      | undefined
+    node?.measureInWindow((x, y, width, height) => receive({ x, y, width, height }))
   }, [])
   const viewport = useActivityViewport(readBounds, visibleInsets)
   const scrollToOffset = useCallback((offset: number) => {

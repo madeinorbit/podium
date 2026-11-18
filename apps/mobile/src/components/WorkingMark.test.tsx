@@ -27,7 +27,7 @@ vi.mock('react-native', async () => {
     View: ({ children, ...props }: ComponentProps<typeof RNView>) => {
       const style = actual.StyleSheet.flatten(props.style)
       if (props.testID === 'working-mark') cells.push({ ...props, ...style })
-      if (style?.width === 2 && style.height === 2) dots.push(style)
+      if (style?.width === 2 && style.height === 2) dots.push({ ...style })
       return <actual.View {...props}>{children}</actual.View>
     },
     AppState: {
