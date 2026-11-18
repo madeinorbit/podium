@@ -162,6 +162,12 @@ export interface PoolTransactionsPorts {
   /** The ids of the held rows of `entity` whose `field` equals `value`: a new
    *  record's placement guess (an issue's repo by path, POD-6400). */
   readonly known?: (entity: string, field: string, value: unknown) => readonly string[]
+  /**
+   * POD-7087 — whether the device holds an issue or session record whole. A
+   * change to one it does not hold paints nothing: the command is sent, and
+   * its result arrives through the feed. Absent, every record counts as held.
+   */
+  readonly holds?: (entity: 'issueProjections' | 'sessions', id: string) => boolean
   /** The shared command reducer. Only a test replaces it, to plant a wrong
    *  one and prove the differential check against an independent log fails. */
   readonly reduce?: typeof overlaysForOutboxEntry
@@ -255,7 +261,26 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   const mintId = ports.mintId ?? (() => asMutationId(randomUUID()))
   const reduceWith = ports.reduce ?? overlaysForOutboxEntry
   const viewer = { userId: ports.userId, ...(ports.known ? { known: ports.known } : {}) }
-  const reduce = (entry: Parameters<typeof overlaysForOutboxEntry>[0]) => reduceWith(entry, viewer)
+  const holds = ports.holds
+  const reduce = (entry: Parameters<typeof overlaysForOutboxEntry>[0]) => {
+    const overlays = reduceWith(entry, viewer)
+    if (holds === undefined) return overlays
+    // No optimistic change on a record the device does not hold (POD-7087):
+    // a create still paints its insert.
+    return overlays.filter(
+      (overlay) =>
+        overlay.op === 'insert' ||
+        (overlay.entity !== 'issueProjections' && overlay.entity !== 'sessions') ||
+        holds(overlay.entity, overlay.id) ||
+        paintsInsert(overlay.entity, overlay.id),
+    )
+  }
+  /** A record this log paints itself (a spawn placeholder, a create still queued) is held. */
+  const paintsInsert = (entity: 'issueProjections' | 'sessions', id: string): boolean =>
+    spawns.some((o) => o.entity === entity && o.id === id) ||
+    [...(byRow[entity].get(id) ?? [])].some((t) =>
+      t.overlays.some((o) => o.op === 'insert' && o.entity === entity && o.id === id),
+    )
 
   let source: RowSourceRepaint | null = null
   let disposed = false

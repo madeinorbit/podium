@@ -162,7 +162,10 @@ describe('PoolTransactions refusal (POD-5431)', () => {
  * for `awaiting()` before its outcome fires, then subscribers hear the change;
  * only confirmation (`retire`) takes it out of `awaiting()`.
  */
-function confirmationLog(row: Record<string, unknown>) {
+function confirmationLog(
+  row: Record<string, unknown>,
+  holds?: (entity: string, id: string) => boolean,
+) {
   let queue: OutboxEntry[] = []
   let awaiting: OutboxEntry[] = []
   let truth = row
@@ -190,6 +193,7 @@ function confirmationLog(row: Record<string, unknown>) {
       queue = [...queue, { kind, input, ...opts }]
       publish(queue.length)
     },
+    ...(holds === undefined ? {} : { holds }),
   })
   tx.bind({ truth: () => truth, repaint: () => null })
   return {
@@ -214,6 +218,21 @@ function confirmationLog(row: Record<string, unknown>) {
     },
   }
 }
+
+describe('PoolTransactions on a record the device does not hold (POD-7087)', () => {
+  it('sends the command and paints nothing; a held record still paints', async () => {
+    const absent = confirmationLog({ id: 'i-1', title: 'Old' }, () => false)
+    await absent.tx.write('issueUpdate', { id: 'i-1', patch: { title: 'Mine' } })
+    expect(absent.tx.size()).toBe(1)
+    expect(absent.painted()).toBe(0)
+    absent.tx.dispose()
+    const held = confirmationLog({ id: 'i-1', title: 'Old' }, () => true)
+    await held.tx.write('issueUpdate', { id: 'i-1', patch: { title: 'Mine' } })
+    expect(held.painted()).toBe(1)
+    expect(held.shown()).toMatchObject({ title: 'Mine' })
+    held.tx.dispose()
+  })
+})
 
 describe('PoolTransactions confirmation (POD-6279)', () => {
   afterEach(() => vi.useRealTimers())

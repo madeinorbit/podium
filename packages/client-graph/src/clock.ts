@@ -31,4 +31,5 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'lazy-batch-probe': 'Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader\'s dependency.',
   'spawn-sort-peek': 'Read addressed placement rows inside the spawn action without requesting cold payloads.',
   'fresh-record-placement': 'Read held rows once when a create is pressed, to guess a new record\'s placement; its paint is fixed for the entry\'s life.',
+  'command-target-held': 'Ask once, when a command is reduced, whether the device holds its target; an absent target paints nothing and its result arrives through the feed.',
 }

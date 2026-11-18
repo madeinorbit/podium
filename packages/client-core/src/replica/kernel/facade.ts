@@ -1,6 +1,7 @@
 /** Kernel-backed client replica. Wire-v1 writer methods refuse; the kernel owns entity writes. */
 
 import type {
+  CollectionLoader,
   DeviceCollectionReads,
   EntityRecord,
   ExitKind,
@@ -84,6 +85,8 @@ export interface KernelReplicaInit {
    * instance reads as not complete and no stub is held.
    */
   readonly collections?: () => DeviceCollectionReads | undefined
+  /** The one loader (POD-7087), closed over for the same reason. */
+  readonly loader?: () => CollectionLoader | undefined
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -101,6 +104,8 @@ export interface KernelBackedReplica extends Replica {
   onKernelEvent(event: ReplicaEvent): void
   /** Markers and stubs on the device (POD-7086), for the readers POD-7088 moves. */
   readonly collections: DeviceCollectionReads
+  /** The one loader (POD-7087): what a lookup or a view asks for goes through it. */
+  loader(): CollectionLoader | undefined
 }
 
 /** The kinds a single event touches. `bootstrap-installed` and the cache-wide
@@ -605,7 +610,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       isComplete: (spec) => init.collections?.()?.isComplete(spec),
       stubOf: (entity, entityId) => init.collections?.()?.stubOf(entity, entityId),
       stubsByParent: (parentId) => init.collections?.()?.stubsByParent(parentId) ?? EMPTY,
+      stubRows: (entity) => init.collections?.()?.stubRows(entity) ?? EMPTY,
     },
+    loader: () => init.loader?.(),
 
     rowCount(kind): number {
       if (!projected.has(kind)) buildMissingProjections()

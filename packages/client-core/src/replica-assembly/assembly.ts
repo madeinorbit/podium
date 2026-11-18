@@ -1,6 +1,7 @@
 import { asUserId } from '@podium/model'
 import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
+  CollectionLoader,
   Replica as KernelReplica,
   type ReplicaCacheStore,
   type SyncUnitOfWork,
@@ -151,6 +152,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
   }
   let side: ReturnType<typeof createSideCache> | undefined
   let kernel: KernelReplica | undefined
+  let loader: CollectionLoader | undefined
   let transcriptStore: TranscriptStore | undefined
   let transcriptCache: StoreTranscriptCache | undefined
   try {
@@ -254,6 +256,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       side,
       exits: (entity, entityId) => kernel?.exitKind(entity, entityId),
       collections: () => kernel,
+      loader: () => loader,
       ...(transcriptCache ? { transcripts: transcriptCache } : {}),
     })
     const cancelSweep = transcriptStore
@@ -345,6 +348,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         syncTelemetry.noteReplicaEvent(event)
         progress.noteEvent(event)
         facade.onKernelEvent(event)
+        loader?.onEvent(event)
         // A reply recorded while this commit was in flight was not yet applied when
         // the commit decided what it covers. Its cursor is durable now, so ask again
         // (from memory; a commit that covers nothing writes nothing).
@@ -355,8 +359,13 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         }
       },
       batchEvents: (emitAll) => facade.batch(emitAll),
+      // The one loader (POD-7087): the visible view rides in the first
+      // download, and what held records come with shares its window.
+      view: () => loader?.takeView() ?? [],
+      request: (specs) => loader?.request(specs),
     })
     kernel = replicaKernel
+    loader = new CollectionLoader({ replica: replicaKernel })
     // AT REST: what the persisted cursor already covers retires before anything
     // paints — a receipt at or below it, and every applied entry without a receipt
     // that an older build left behind (the stranded nulldisk clear). What is ahead
@@ -405,6 +414,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       stopped = true
       replicaKernel.disconnect()
       side?.dispose()
+      loader?.dispose()
       cancelSweep?.()
       transcriptCache?.dispose()
     }

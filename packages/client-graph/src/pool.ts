@@ -117,6 +117,7 @@ import {
   untracked,
 } from 'mobx'
 import { DeadlineClock, deadlineClock } from './clock'
+import { type IssueStub, PoolCollections } from './collections'
 import { debugName } from './debug-name'
 import { headerIds, reseed } from './enumerate'
 import { headerEntities } from './header-entities'
@@ -154,7 +155,7 @@ import type {
   SliceSession,
   SliceWorktree,
 } from './shared/slice-types'
-import type { RowSourceEvent } from './shared/source'
+import type { CollectionLoaderPort, RowSourceEvent } from './shared/source'
 import {
   createObservableTables,
   ENTITIES,
@@ -234,6 +235,11 @@ export interface PoolLazyOptions {
   /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
   readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
   readonly issueIdByRef?: (ref: string) => string | undefined
+  /**
+   * POD-7087 — the one loader (`RowSource.loader`): a record the device does
+   * not hold whole is asked for through it, from the server.
+   */
+  readonly loader?: () => CollectionLoaderPort | undefined
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
   readonly settings?: boolean
@@ -456,6 +462,8 @@ export class MobxPool {
   readonly worklist: VisibleCollection
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
+  /** POD-7087 — the device's collections and the one loader, tracked. */
+  readonly collections: PoolCollections
   /**
    * The pool's transaction log (POD-5431, `write/transactions.ts`), attached
    * after construction because it repaints through the row source the pool is
@@ -547,6 +555,7 @@ export class MobxPool {
             hot: tables,
             index: () => this.coldIndex(),
             load: (entity, id) => lazy.load(entity, id),
+            absent: (entity, id) => this.collections.absent(entity, id),
             exitKind: lazy.exitKind,
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.peekNow(),
@@ -555,6 +564,7 @@ export class MobxPool {
             summaries: summaries ?? {},
           })
     this.residency = residency
+    this.collections = new PoolCollections(lazy?.loader ?? (() => undefined))
     /**
      * The explicit seats (`issue.sessions`), maintained SORTED from the
      * relation's own bucket deltas (one element per move: binary search +
@@ -821,7 +831,12 @@ export class MobxPool {
       if (this.disposed || residency === null) return NOT_VISIBLE
       if (absent === 'load') return residency.lookup(core, id)
       if (residency.removed(core, id)) return REMOVED
-      if (!residency.known(core, id)) return NOT_VISIBLE
+      // A summary reader of a record the device does not hold asks for it
+      // (POD-7087): on its way, never "gone" because history is not here.
+      if (!residency.known(core, id))
+        return (absent === 'summary' || absent === 'summary-fields') && this.collections.available
+          ? residency.lookup(core, id)
+          : NOT_VISIBLE
       if (absent === 'mark') return residency.lookup(core, id, false)
       if (absent === 'summary' || absent === 'summary-fields') {
         server = residency.summary(core, id, absent === 'summary')
@@ -860,6 +875,22 @@ export class MobxPool {
       return view
     }
     return server
+  }
+
+  /**
+   * TRACKED (POD-7087, design "Lookup"): an issue's STUB, its reference,
+   * state and parent. A stub is "here" for a reader of stub fields: the
+   * device holds every issue at least as a stub, so this never fetches when
+   * the stub is on the device. An issue the device does not hold at all
+   * answers like any lookup (LOADING and one batched load, or gone).
+   */
+  stub(id: string): Lookup<IssueStub> {
+    const resident = this.tables.issue.get(id) as Readonly<Record<string, unknown>> | undefined
+    if (resident !== undefined) return pickStub(id, resident)
+    const stub = this.collections.stubOf(id)
+    if (stub !== undefined) return stub
+    if (this.disposed || this.residency === null) return NOT_VISIBLE
+    return this.residency.lookup('issue', id)
   }
 
   get undeletedIssueCount(): number {
@@ -1337,6 +1368,7 @@ export class MobxPool {
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     this.queries.dispose()
+    this.collections.dispose()
     this.disposed = true
     this.sessionFactsIndex?.clear()
     runInAction(() => {
@@ -1394,3 +1426,26 @@ class OpenInteractionSessions {
   }
 }
 const NO_SESSIONS: readonly string[] = Object.freeze([])
+
+/** The stub fields of a resident issue row (the declaration's: reference, state, parent). */
+function pickStub(id: string, row: Readonly<Record<string, unknown>>): IssueStub {
+  const known = stubsOfRows.get(row)
+  if (known !== undefined) return known
+  const stub: IssueStub = {
+    id,
+    repoId: row['repoId'] as string | null | undefined,
+    seq: row['seq'] as number | undefined,
+    stage: row['stage'] as string | undefined,
+    closedReason: row['closedReason'] as string | null | undefined,
+    archived: row['archived'] as boolean | undefined,
+    deletedAt: row['deletedAt'] as string | null | undefined,
+    isDraftVessel: row['isDraftVessel'] as boolean | undefined,
+    audience: row['audience'] as string | null | undefined,
+    parentId: row['parentId'] as string | null | undefined,
+  }
+  stubsOfRows.set(row, stub)
+  return stub
+}
+
+/** One stub object per row object, so a reader sees the same answer until the row changes. */
+const stubsOfRows = new WeakMap<object, IssueStub>()

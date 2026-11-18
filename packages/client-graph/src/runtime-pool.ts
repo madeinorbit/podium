@@ -275,6 +275,14 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       await outbox.enqueue(kind, input, opts)
     },
     addressed: subscribeAddressed,
+    // POD-7087: a command on a record the device does not hold makes no
+    // optimistic change; its result arrives through the feed.
+    holds: (entity, id) => {
+      const replica = runtime.replica
+      if (replica.row === undefined) return true
+      // untracked-read: command-target-held
+      return untracked(() => replica.row!(entity, id) !== undefined)
+    },
     // A new record's placement guess (POD-6400): the held repos whose field
     // matches (an issue's repo by its path). Repos only: a handful of rows, read
     // when a create is reduced, never observed. Any other table answers none.

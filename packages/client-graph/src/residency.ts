@@ -30,6 +30,14 @@
  * still known stays resident. No other row is visited: the attach is
  * O(resident), not O(history) (POD-5391).
  *
+ * WHAT THIS IS NOT (POD-7087). A record the device does not hold whole is
+ * not loaded here: a lookup of one hands it to the one loader (`absent`,
+ * `collections.ts`, `@podium/sync` `CollectionLoader`), which fetches its
+ * "one record" instance from the server in its own 50 ms batch. What stays
+ * here is placement: moving a row the device already holds into the pool's
+ * tables. That is the active-work rule's half, deleted with the cold index
+ * (POD-7094).
+ *
  * HOW A ROW BECOMES HOT, and nothing else makes it so. A row whose value the
  * publication at hand carries is installed at once from it; any other row is
  * ASKED FOR: queued for the load window like a first access, and it answers
@@ -100,6 +108,13 @@ export interface ResidencyOptions {
   readonly hot: { readonly [E in EntityName]: { get(id: string): unknown; has(id: string): boolean } }
   /** The one per-row read through the feed. */
   readonly load: LoadRow
+  /**
+   * POD-7087 — a record the device does not hold whole: the one loader asks
+   * the server for it (its "one record" instance) and answers LOADING, or
+   * gone once the server answered without it. `undefined` when there is no
+   * loader: the window then reads the feed by id, as before.
+   */
+  readonly absent?: (entity: LoadableEntity, id: string) => typeof LOADING | Gone | undefined
   /** Borrow canonical replica exits; never copy its tombstone ledger. */
   readonly exitKind?: (entity: EntityName, id: string) => 'removed' | 'evicted' | undefined
   /** The cold index (the row source's, or the pool's own), read at every call. */
@@ -135,6 +150,7 @@ export class Residency {
   private readonly schema: ModelSchema
   private readonly hot: ResidencyOptions['hot']
   private readonly load: LoadRow
+  private readonly absent: ResidencyOptions['absent']
   private readonly exitKind: ResidencyOptions['exitKind']
   /** Only failed addressed requests, cleared when the feed publishes that id. */
   private readonly unavailable = new Set<string>()
@@ -189,6 +205,7 @@ export class Residency {
     this.schema = options.schema
     this.hot = options.hot
     this.load = options.load
+    this.absent = options.absent
     this.exitKind = options.exitKind
     this.index = options.index
     this.clock = options.now
@@ -308,7 +325,14 @@ export class Residency {
     if (!loadable(entity) || this.unavailable.has(`${entity}:${id}`)) return NOT_VISIBLE
     if (!request && !this.isCold(entity, id)) return NOT_VISIBLE
     this.see(entity, id)
-    if (request) this.request(entity, id)
+    if (!request) return LOADING
+    // Not on the device whole (POD-7087): the one loader fetches it from the
+    // server. A row the device holds is only placed, in this window.
+    if (!this.isCold(entity, id) && this.load(entity, id) === undefined) {
+      const answer = this.absent?.(entity, id)
+      if (answer !== undefined) return answer
+    }
+    this.request(entity, id)
     return LOADING
   }
 
@@ -560,7 +584,9 @@ export class Residency {
       if (this.hot[entity].has(id) || this.removed(entity, id)) continue
       const value = this.load(entity, id) as StoredRow | undefined
       if (value === undefined) {
-        this.unavailable.add(`${entity}:${id}`)
+        // The device let it go before it was placed (POD-7087): the loader
+        // asks the server for it, so it is on its way, not gone.
+        if (this.absent?.(entity, id) === undefined) this.unavailable.add(`${entity}:${id}`)
         this.notify(entity, id)
         continue
       }

@@ -54,7 +54,7 @@ import { repositoriesFromCheckouts } from './checkout-repositories'
 import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
-import type { RowRecord, RowSource, RowSourceEvent } from './source'
+import type { CollectionLoaderPort, RowRecord, RowSource, RowSourceEvent } from './source'
 
 type AnyRow = { [k: string]: unknown }
 
@@ -98,6 +98,8 @@ export interface RowSourceReplica {
   row?<K extends ReplicaKind>(kind: K, id: string): AnyRow | undefined
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]
+  /** POD-7087 — the one loader, late-bound (`RowSource.loader`). */
+  loader?(): CollectionLoaderPort | undefined
 }
 
 /** Counts-first instrumentation (methodology §5.7). `rowsVisited` counts slice
@@ -1465,6 +1467,7 @@ export function createRowSource(
           },
         }
       : {}),
+    ...(replica.loader ? { loader: () => (disposed ? undefined : replica.loader?.()) } : {}),
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)
       return () => {

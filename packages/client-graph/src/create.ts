@@ -1,6 +1,6 @@
+import { MobxPool, type PoolLazyOptions } from './pool'
 import type { LocalsSource, RowSource } from './shared/source'
 import { worklistView } from './worklist/view-model'
-import { MobxPool, type PoolLazyOptions } from './pool'
 
 export interface WorklistPoolHandle {
   readonly pool: MobxPool
@@ -36,6 +36,7 @@ export function createWorklistPool(
     load: row,
     exitKind: source.exitKind?.bind(source),
     issueIdByRef: source.issueIdByRef?.bind(source),
+    ...(source.loader === undefined ? {} : { loader: source.loader.bind(source) }),
     cold: source.cold?.bind(source),
   })
   // POD-5407: a source with its own cold index hands over only the rows that

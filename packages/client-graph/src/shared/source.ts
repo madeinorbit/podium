@@ -1,9 +1,9 @@
-import type { EntityName } from './schema'
+import type { ColdQueries, HeldSummaries } from './cold-index'
+import type { FeedDiagnostics } from './feed-diagnostics'
 /** Row and local channels consumed by the worklist pool. */
 import type { IssueSessionFactReader } from './issue-session-facts'
-import type { FeedDiagnostics } from './feed-diagnostics'
-import type { ColdQueries, HeldSummaries } from './cold-index'
-import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
+import type { EntityName } from './schema'
+import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceWorktree } from './slice-types'
 
 /**
  * The kernel's effective per-row row stream, as the arms see it. Owned by G3
@@ -43,6 +43,53 @@ export interface RowSource {
   /** A keyed identity read from the local replica, including cold issues. */
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]
+  /**
+   * POD-7087 — the one loader over the device's collections: what a lookup
+   * that finds a record absent, or a view, asks for. Late-bound (the root
+   * builds it with the device store). Absent, nothing is fetched from the
+   * server and every record not on the device reads as not visible.
+   */
+  loader?(): CollectionLoaderPort | undefined
+}
+
+/** One instance of a declared collection (`@podium/model` `records/`), as the loader takes it. */
+export interface LoaderInstance {
+  readonly collection: string
+  readonly args?: Readonly<
+    Record<string, string | number | boolean | null | readonly (string | number | boolean | null)[]>
+  >
+  readonly part: 'stub' | 'main'
+  readonly via?: string
+  readonly after?: readonly (string | number | boolean | null)[]
+}
+
+/** A marker: the instance is complete; a paged one says how far, and its whole size. */
+export interface LoaderMarker {
+  readonly range?: { readonly through?: readonly unknown[]; readonly end: boolean }
+  readonly total?: number
+}
+
+/**
+ * The one loader as the pool reads it: `@podium/sync`'s `CollectionLoader`,
+ * structurally (POD-7087). Synchronous reads from the device; requests
+ * batch for 50 ms and go to the server's one fetch route.
+ */
+export interface CollectionLoaderPort {
+  request(requests: readonly LoaderInstance[], priority?: 'visible' | 'background'): void
+  show(spec: LoaderInstance): () => void
+  requestRecords(kind: string, ids: readonly string[], priority?: 'visible' | 'background'): void
+  status(spec: LoaderInstance): 'complete' | 'loading' | 'offline'
+  readonly online: boolean
+  /** The device started empty and its first download has not finished. */
+  readonly firstDownload: boolean
+  isComplete(spec: LoaderInstance): LoaderMarker | undefined
+  wasRefused(spec: LoaderInstance): boolean
+  stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
+  stubsByParent(parentId: string): readonly string[]
+  stubRows(
+    entity: string,
+  ): readonly { readonly id: string; readonly stub: Readonly<Record<string, unknown>> }[]
+  subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 
 /**
