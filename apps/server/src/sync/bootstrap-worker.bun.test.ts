@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
-import { asIssueId, asMachineId, asUserId, issueEventRowId, RECORD_KINDS } from '@podium/model'
+import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { Hono } from 'hono'
@@ -113,12 +113,17 @@ async function fixture() {
     visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
     anchors: feed.anchors,
   })
-  /** An issue row with a state paragraph of `bytes` characters: a real record
-   *  of any size, read by every member (POD-6288). */
+  /** An issue row with `bytes` characters of text: a real record of any size,
+   *  read by every member (POD-6288). In its state paragraph (the issue's body,
+   *  which a first download does not carry) or in its main part. */
   let seeded = 0
-  const seedIssue = async (id: string, bytes = 0) => {
-    await store.issues.upsertIssue(fixtureWriteScope(), { ...issue(id), seq: ++seeded })
-    if (bytes > 0) {
+  const seedIssue = async (id: string, bytes = 0, part: 'body' | 'main' = 'body') => {
+    await store.issues.upsertIssue(fixtureWriteScope(), {
+      ...issue(id),
+      seq: ++seeded,
+      ...(part === 'main' && bytes > 0 ? { acceptance: 'x'.repeat(bytes) } : {}),
+    })
+    if (part === 'body' && bytes > 0) {
       await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
         id: asIssueId(id),
         text: 'x'.repeat(bytes),
@@ -201,13 +206,16 @@ describe('cursor expiry worker reload', () => {
       replica.connect()
       await replica.settled()
       // The delta is refused, then the first download (POD-7085) is the
-      // policy's collections. Today's client then reloads by name the kinds
-      // the first download does not hold (its kind-token check); that path
-      // moves to collections with POD-7086.
-      expect(requests.slice(0, 2).map((r) => r.split('?')[0])).toEqual(['/sync/delta', '/sync/bootstrap'])
+      // policy's collections. Nothing after it names kinds (POD-7086): what a
+      // held record comes with, and any kind-token reload, is a collection fetch.
+      expect(requests.slice(0, 2).map((r) => r.split('?')[0])).toEqual([
+        '/sync/delta',
+        '/sync/bootstrap',
+      ])
       expect(requests[1]).toBe('/sync/bootstrap')
-      for (const request of requests.slice(2)) expect(request).toStartWith('/sync/bootstrap?kinds=')
-      expect(admitted).toHaveBeenCalledTimes(requests.length - 1)
+      for (const request of requests.slice(2))
+        expect(['/sync/collections', '/sync/delta']).toContain(request.split('?')[0])
+      expect(admitted).toHaveBeenCalledTimes(1)
       expect(builds).not.toHaveBeenCalled()
       expect(replica.posture).toBe('live')
       expect(replica.cursor).toEqual({ ...oldCursor, seq: 2 })
@@ -222,7 +230,7 @@ describe('cursor expiry worker reload', () => {
   })
 })
 
-it('filters the snapshot and changes only the token whose generation was bumped', async () => {
+it('changes only the token whose generation was bumped, on the first download and the feed', async () => {
   const f = await fixture()
   try {
     await f.seedIssue('first', 12)
@@ -247,29 +255,17 @@ it('filters the snapshot and changes only the token whose generation was bumped'
     } finally {
       db.close()
     }
-    const filtered = await records('/sync/bootstrap?kinds=issuePanelState')
-    expect(filtered[0]).toMatchObject({ kinds: ['issuePanelState'], seq: full[0].seq })
-    expect(filtered[0].kindTokens).toEqual({
-      ...before,
-      issuePanelState: before.issuePanelState.replace(/:1$/, ':2'),
-    })
-    expect(
-      filtered
-        .filter((record) => record.type === 'feedBootstrap')
-        .flatMap((record) => record.changes)
-        .map((row) => [row.entity, row.entityId]),
-    ).toEqual([['issuePanelState', 'first']])
-    expect(
-      (await f.app.request('/sync/bootstrap?kinds=issuePanelState,issuePanelState')).status,
-    ).toBe(400)
-    const delta = await records(
-      '/sync/delta?feedId=fixture-feed&epoch=fixture-epoch&from=0&to=1&omitKinds=issueProjection',
-    )
-    expect(delta[0].kindTokens).toEqual(filtered[0].kindTokens)
-    expect(
-      delta.filter((record) => record.type === 'feedDelta').flatMap((record) => record.changes),
-    ).toEqual([])
-    expect(delta.at(-1)).toMatchObject({ type: 'syncComplete', seq: 1, rows: 0 })
+    const bumped = { ...before, issuePanelState: before.issuePanelState.replace(/:1$/, ':2') }
+    const again = await records('/sync/bootstrap')
+    expect(again[0]).toMatchObject({ seq: full[0].seq })
+    expect(again[0]).not.toHaveProperty('kinds')
+    expect(again[0].kindTokens).toEqual(bumped)
+    // A kind-named load is no longer a route: the query is ignored, not obeyed.
+    const named = await records('/sync/bootstrap?kinds=issuePanelState')
+    expect(named[0]).not.toHaveProperty('kinds')
+    const delta = await records('/sync/delta?feedId=fixture-feed&epoch=fixture-epoch&from=0&to=1')
+    expect(delta[0].kindTokens).toEqual(bumped)
+    expect(delta.at(-1)).toMatchObject({ type: 'syncComplete', seq: 1 })
   } finally {
     await f.close()
   }
@@ -288,9 +284,9 @@ it.each([
     await f.moveHead()
     const expected = await f.authority.bootstrap(principal)
     const head = await f.store.sync.maxChangeSeq()
-    // Every kind, whole: the stream the Authority's bootstrap is held to. The
-    // first download without kinds is the policy's collections (POD-7085).
-    const response = await f.app.request(`/sync/bootstrap?kinds=${RECORD_KINDS.join(',')}`, {
+    // The first download is the policy's collections (POD-7085): the open
+    // issues whole, without their bodies.
+    const response = await f.app.request('/sync/bootstrap', {
       headers: { 'accept-encoding': coding },
     })
     expect(response.status).toBe(200)
@@ -310,13 +306,19 @@ it.each([
       epoch: 'fixture-epoch',
     })
     expect(records.at(-1)).toMatchObject({ type: 'syncComplete', seq: head })
-    // The same rows; a load that names its kinds streams them kind by kind.
-    const order = (r: { entity: string; entityId: string }) => `${r.entity}\u0000${r.entityId}`
-    const sorted = <T extends { entity: string; entityId: string }>(list: readonly T[]) =>
-      [...list].sort((x, y) => (order(x) < order(y) ? -1 : order(x) > order(y) ? 1 : 0))
-    expect(
-      sorted(records.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)),
-    ).toEqual(sorted(expected.changes))
+    // The same issue records as the Authority's bootstrap, and no body: the
+    // state paragraph arrives when the issue is opened.
+    type Row = { entity: string; entityId: string; value?: unknown; payload?: unknown }
+    const shaped = (list: readonly Row[]) =>
+      list
+        .filter((row) => row.entity === 'issueProjection')
+        .map((row) => ({ entityId: row.entityId, value: row.value ?? row.payload }))
+        .sort((x, y) => (x.entityId < y.entityId ? -1 : x.entityId > y.entityId ? 1 : 0))
+    const delivered: Row[] = records
+      .filter((r) => r.type === 'feedBootstrap')
+      .flatMap((r) => r.changes)
+    expect(shaped(delivered)).toEqual(shaped(expected.changes as readonly Row[]))
+    expect(delivered.some((row) => row.entity === 'issuePanelState')).toBe(false)
     // Every member reads every task (POD-6288): the reader gets both issues
     // and the state paragraph, each row stamped with the head number.
     expect(
@@ -392,11 +394,12 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
     ping: number[] = []
   let probes: Promise<void[]> | undefined
   try {
-    // 5,120 issues, each with a 10 KiB state paragraph: 50 MiB of real records.
+    // 5,120 open issues, each with 10 KiB in its main part: 50 MiB of real
+    // records the first download carries (a body would not be in it).
     const stateBytes = 10 * 1024
     const issues = 5120
     await f.store.transact(async () => {
-      for (let n = 0; n < issues; n++) await f.seedIssue(`issue-${n}`, stateBytes)
+      for (let n = 0; n < issues; n++) await f.seedIssue(`issue-${n}`, stateBytes, 'main')
     })
     await f.moveHead()
     server = runtime.Bun.serve({
@@ -444,9 +447,8 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
       }
     }
     probes = Promise.all([healthLoop(), pingLoop()])
-    // Every kind, whole: the large stream this measures (the first download is
-    // the policy set, POD-7085).
-    const response = await fetch(`${origin}/sync/bootstrap?kinds=${RECORD_KINDS.join(',')}`, {
+    // The first download (the policy set, POD-7085): the large stream this measures.
+    const response = await fetch(`${origin}/sync/bootstrap`, {
       headers: { 'accept-encoding': 'identity' },
     })
     expect(response.status).toBe(200)

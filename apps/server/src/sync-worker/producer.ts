@@ -2,7 +2,6 @@ import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
-  type MetadataEntityKind,
   SYNC_BATCH_MAX_ROWS,
   SYNC_BATCH_TARGET_BYTES,
   SYNC_LINE_MAX_BYTES,
@@ -10,12 +9,10 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import type { RecordSourcePort } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
   FEED_RESCOPE_THRESHOLD,
   scopeChangesRange,
-  shapedValue,
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
@@ -90,20 +87,6 @@ function outputLines(output: FetchOutput, range: AnswerRange): unknown[] {
   return lines
 }
 
-/** Full loads share grouped reads; filtered loads read only the requested kinds. */
-async function* bootstrapPages(
-  source: RecordSourcePort,
-  kinds: readonly MetadataEntityKind[] | undefined,
-) {
-  if (kinds === undefined) {
-    yield* source.streamAllKinds()
-    return
-  }
-  for (const entity of kinds) {
-    for await (const records of source.streamAll(entity)) yield { entity, records }
-  }
-}
-
 /**
  * One read-only WAL connection per active job in the one worker. Holding the reader
  * for a transfer prevents checkpointing past its snapshot until completion/cancel;
@@ -174,7 +157,6 @@ async function* produceRecords(
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
       const { policy, anchors, sync } = context
       const kindTokens = await readKindTokens(sync, options.effectKinds)
-      const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
         sync,
         { policy, anchors, rescopeThreshold: FEED_RESCOPE_THRESHOLD },
@@ -215,11 +197,7 @@ async function* produceRecords(
             })
             return
           }
-          // Scope the entire log batch first: an omitted row can still
-          // change visibility for a kind the replica is catching up.
-          const changes = omitted
-            ? delivery.changes.filter((change) => !omitted.has(change.entity))
-            : delivery.changes
+          const changes = delivery.changes
           rows += changes.length
           yield line({
             type: 'feedDelta',
@@ -259,10 +237,8 @@ async function* produceRecords(
     const { policy: world, records: source, sync, collections } = context
     const kindTokens = await readKindTokens(sync, options.effectKinds)
     check()
-    // The first download is the policy's collections in its order (POD-7085);
-    // a request that names kinds still streams those kinds whole.
-    const fetch = job.mode === 'collections' || job.kinds === undefined
-    const syncPolicy = fetch ? policyFor(job.clientType) : undefined
+    // The first download is the policy's collections in its order (POD-7085).
+    const syncPolicy = policyFor(job.clientType)
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
       formatVersion: 1,
@@ -275,8 +251,7 @@ async function* produceRecords(
       seq,
       minAvailableSeq,
       kindTokens,
-      ...(job.mode !== 'collections' && job.kinds && { kinds: job.kinds }),
-      ...(job.mode !== 'collections' && syncPolicy && { policy: syncPolicy }),
+      ...(job.mode !== 'collections' && { policy: syncPolicy }),
       // No `totalRows`: the count is known only once every table is read, and
       // the load streams in one pass.
     }
@@ -285,109 +260,34 @@ async function* produceRecords(
     onMeta(JSON.parse(new TextDecoder().decode(metaBytes)) as SyncMetaSummary)
     yield metaBytes
     const range = { feedId: job.feedId, epoch: job.epoch, fromSeq: 0, seq, minAvailableSeq }
-    let batch: unknown[] = [],
-      batchBytes = 0
-    const frame = (changes: unknown[], last: boolean) => ({
-      type: 'feedBootstrap',
-      ...range,
-      changes,
-      last,
-      // The total, once it is known: on the last chunk.
-      ...(last ? { totalRows: rows } : {}),
+    const answer = new CollectionAnswer({
+      collections,
+      records: source,
+      visibility: world,
+      principal: job.principal,
+      now: options.now?.() ?? Date.now(),
+      policyArgs: { recentDays: syncPolicy.recentDays },
     })
-    const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
-    if (fetch) {
-      const answer = new CollectionAnswer({
-        collections,
-        records: source,
-        visibility: world,
-        principal: job.principal,
-        now: options.now?.() ?? Date.now(),
-        policyArgs: { recentDays: syncPolicy!.recentDays },
-      })
-      const instances =
-        job.mode === 'collections' ? job.instances : firstDownload(syncPolicy!, job.view ?? [])
-      for (const instance of instances) {
-        const outputs = answer.instance(resolveInstance(instance))
-        for await (const output of outputs) {
-          check()
-          for (const object of outputLines(output, range)) yield line(object)
-          if (output.type !== 'complete') {
-            rows += output.records.length
-            refCount += output.records.length
-          }
-          await yieldLoop()
-          check()
-        }
-      }
-      heapAfterPrefetch = process.memoryUsage().heapUsed
-      // The first download ends as a start-up load does: one last chunk.
-      if (job.mode !== 'collections') yield line(frame([], true))
-      check()
-      yield line({
-        type: 'syncComplete',
-        transferId: job.transferId,
-        seq,
-        records: records - 1,
-        rows,
-      } satisfies SyncComplete)
-      outcome = 'complete'
-      return
-    }
-    const pages = bootstrapPages(source, job.kinds)[Symbol.asyncIterator]()
-    try {
-      for (;;) {
-        const build = performance.now()
-        const next = await pages.next()
-        phase('build', build)
-        if (next.done) break
-        const { entity, records: page } = next.value
-        refCount += page.length
+    const instances =
+      job.mode === 'collections' ? job.instances : firstDownload(syncPolicy, job.view ?? [])
+    for (const instance of instances) {
+      const outputs = answer.instance(resolveInstance(instance))
+      for await (const output of outputs) {
         check()
-        // The sharing rules' facts for exactly this page's records.
-        const prepare = performance.now()
-        const policy = await world.forBootstrap(
-          page.map((record) => ({ entity, entityId: record.id })),
-        )
-        phase('visibility', prepare)
-        check()
-        for (const record of page) {
-          const ref = { entity, entityId: record.id }
-          if (!policy.decide(job.principal, ref).visible) continue
-          const change = {
-            seq,
-            entity,
-            entityId: record.id,
-            op: 'upsert',
-            // The row as this principal may receive it (design §4.2, POD-6288).
-            value: shapedValue(policy, job.principal, ref, record.value),
-          }
-          const size = utf8.encode(JSON.stringify(change)).byteLength
-          if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES)
-            throw new SyncWorkerError('row-too-large')
-          if (
-            batch.length &&
-            (batch.length >= SYNC_BATCH_MAX_ROWS ||
-              batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
-          ) {
-            yield line(frame(batch, false))
-            batch = []
-            batchBytes = 0
-            await yieldLoop()
-            check()
-          }
-          batch.push(change)
-          batchBytes += size
-          rows++
+        for (const object of outputLines(output, range)) yield line(object)
+        if (output.type !== 'complete') {
+          rows += output.records.length
+          refCount += output.records.length
         }
         await yieldLoop()
         check()
       }
-    } finally {
-      await pages.return?.()
     }
     heapAfterPrefetch = process.memoryUsage().heapUsed
-    yield line(frame(batch, true))
+    // The first download ends as a start-up load does: one last chunk,
+    // carrying the total once it is known.
+    if (job.mode !== 'collections')
+      yield line({ type: 'feedBootstrap', ...range, changes: [], last: true, totalRows: rows })
     check()
     yield line({
       type: 'syncComplete',

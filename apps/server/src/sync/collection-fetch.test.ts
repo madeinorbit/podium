@@ -39,7 +39,6 @@ import {
   type IssueId,
   interactionRowId,
   matchesWhere,
-  RECORD_KINDS,
   type RuleArgs,
   recordOf,
   type Scalar,
@@ -47,7 +46,9 @@ import {
   type UserId,
 } from '@podium/model'
 import { type CollectionInstance, ISSUE_STUB_FIELDS, type Principal } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { shapedValue } from '@podium/sync/bootstrap-worker'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableName } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -57,6 +58,7 @@ import { auditedCollectionShapes } from '../store/collections'
 import type { SessionRow } from '../store/types'
 import { produceBootstrap } from '../sync-worker/producer'
 import type { SyncJob } from '../sync-worker/types'
+import { bootstrapVisibility } from '../sync-worker/visibility'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
@@ -378,16 +380,39 @@ const markersOf = (lines: readonly Line[]) =>
     .filter((line) => line.type === 'collectionComplete')
     .flatMap((line) => line.instances as Record<string, unknown>[])
 
-/** Each person's whole world: every kind, streamed whole, filtered by their rights. */
+/**
+ * Each person's whole world: every kind, built whole and filtered by their
+ * rights, by the worker's own record builders and sharing rules on one read
+ * snapshot. No wire route streams every kind any more (POD-7086); this is the
+ * loop the removed kind-named load ran, kept as the rules' oracle.
+ */
 const worlds = new Map<UserId, Map<string, Map<string, Record<string, unknown>>>>()
 
 async function worldOf(user: UserId) {
-  const lines = await linesOf({ ...base(user), kinds: [...RECORD_KINDS] as never })
+  const db = openDatabase(path, { readOnly: true })
+  db.exec('PRAGMA query_only = ON; BEGIN')
+  const bundle = bootstrapVisibility(db, { now: () => NOW })
   const out = new Map<string, Map<string, Record<string, unknown>>>()
-  for (const change of changesOf(lines)) {
-    const kind = out.get(change.entity) ?? new Map()
-    kind.set(change.entityId, change.value)
-    out.set(change.entity, kind)
+  try {
+    const { policy: rights, records } = await bundle.context
+    const principal = principalOf(user)
+    for await (const { entity, records: page } of records.streamAllKinds()) {
+      const decided = await rights.forBootstrap(
+        page.map((record) => ({ entity, entityId: record.id })),
+      )
+      for (const record of page) {
+        const ref = { entity, entityId: record.id }
+        if (!decided.decide(principal, ref).visible) continue
+        const kind = out.get(entity) ?? new Map()
+        kind.set(
+          record.id,
+          shapedValue(decided, principal, ref, record.value) as Record<string, unknown>,
+        )
+        out.set(entity, kind)
+      }
+    }
+  } finally {
+    await bundle.executor.close()
   }
   return out
 }

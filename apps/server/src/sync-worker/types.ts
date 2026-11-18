@@ -1,7 +1,6 @@
 import type {
   ClientType,
   CollectionInstance,
-  MetadataEntityKind,
   Principal,
   SyncMeta,
   SyncBootstrapRequiredReason,
@@ -19,7 +18,6 @@ export interface BootstrapJob {
   feedId: string
   epoch: string
   encoding: 'identity' | 'gzip' | 'zstd'
-  kinds?: [MetadataEntityKind, ...MetadataEntityKind[]]
   /** Whose policy orders the first download (POD-7085); absent is a browser's. */
   clientType?: ClientType
   /** What the visible view asked for: the first download's second step. */
@@ -28,16 +26,15 @@ export interface BootstrapJob {
   deadlineMs?: number
 }
 /** A fetch of named collection instances (`POST /sync/collections`, POD-7085). */
-export interface CollectionsJob extends Omit<BootstrapJob, 'kinds' | 'mode' | 'view'> {
+export interface CollectionsJob extends Omit<BootstrapJob, 'mode' | 'view'> {
   mode: 'collections'
   instances: readonly CollectionInstance[]
 }
-export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode' | 'clientType' | 'view'> {
+export interface DeltaJob extends Omit<BootstrapJob, 'mode' | 'clientType' | 'view'> {
   mode: 'delta'
   from: number
   to?: number
   pageRows?: number
-  omitKinds?: readonly MetadataEntityKind[]
 }
 export type SyncJob = BootstrapJob | DeltaJob | CollectionsJob
 export type SyncMetaSummary = SyncMeta

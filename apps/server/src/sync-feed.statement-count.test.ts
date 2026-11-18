@@ -290,27 +290,14 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // page pays its reads once per page. Before, it was two passes over
   // `change_latest` and one prefetch for the whole world.
   // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
+  // POD-7104 answers the asking sessions from an index on a derived column, so
+  // the first download no longer reads offers and checkpoints for it: 80.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 89)
+    await expectConstantStatements(bootstrap, 80)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 89, plantPerSessionRead)
-  })
-
-  it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
-    const filtered = pin(
-      'filtered worker bootstrap',
-      (size) => world(size),
-      async (w) => await records(w, job(w, { kinds: ['issueProjection'] })),
-      (result, _w, size) => {
-        const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedBootstrap')
-        expect(rows).toHaveLength(size)
-        expect(rows).toEqual(rows.map(() => expect.objectContaining({ entity: 'issueProjection' })))
-      },
-      true,
-    )
-    await expectConstantStatements(filtered, 5)
+    await expectArmed(bootstrap, 80, plantPerSessionRead)
   })
 
   const delta = pin(

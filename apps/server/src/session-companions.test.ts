@@ -13,7 +13,7 @@ import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
-import { workerSnapshot } from './test-support/bootstrap-snapshot'
+import { worldSnapshot } from './test-support/bootstrap-snapshot'
 import { feedDelta } from './test-support/feed-delta'
 import { memberFacts } from './store/fixtures/test-support'
 
@@ -63,7 +63,7 @@ async function fixture() {
   const a = await sessions.view.principalForTrustedUser(A)
   const b = await sessions.view.principalForTrustedUser(B)
   const stateRows = async (user: typeof A) => {
-    const snapshot = await workerSnapshot(o.reg, wirePrincipal(user), ['sessionUserState'])
+    const snapshot = await worldSnapshot(o.reg, wirePrincipal(user), ['sessionUserState'])
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     return snapshot.sessionUserStates ?? []
   }
@@ -133,7 +133,7 @@ describe('S1 session companion records', () => {
       expect(markers.every((change) => change.id === sessionUserStateRowId(user, own))).toBe(true)
     }
     // Shared sessions are principal-independent; only the personal kind carries markers.
-    const shared = await workerSnapshot(f.reg, wirePrincipal(B), ['session'])
+    const shared = await worldSnapshot(f.reg, wirePrincipal(B), ['session'])
     if (shared.kind !== 'snapshot') throw new Error('expected snapshot')
     const row = shared.sessions.find((row) => row.sessionId === sessionId)
     expect(row).toBeDefined()
@@ -336,7 +336,7 @@ describe('S1 session companion records', () => {
     await f.reg.modules.machines.renameMachine(machine, 'Renamed')
     const changes = await f.reg.changeLedger.changesSince(cursor)
     expect(changes?.filter((change) => change.entity === 'machine')).toHaveLength(1)
-    const snapshot = await workerSnapshot(f.reg, wirePrincipal(C), ['machine'])
+    const snapshot = await worldSnapshot(f.reg, wirePrincipal(C), ['machine'])
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.machines).toContainEqual(
       expect.objectContaining({

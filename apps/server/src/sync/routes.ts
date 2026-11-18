@@ -5,7 +5,6 @@ import {
   ClientType,
   CollectionFetchRequest,
   CollectionInstance,
-  parseSyncBootstrapKinds,
   parseSyncDeltaQuery,
   principalRoutingId,
   SyncBootstrapRequiredReason,
@@ -73,8 +72,6 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
   app.get('/sync/bootstrap', async (c) => {
     const principal = await deps.principal(c.req.raw)
     if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
-    const kinds = parseSyncBootstrapKinds(new URL(c.req.url).searchParams)
-    if (!kinds.success) return c.json({ error: 'invalid bootstrap kinds' }, 400)
     const clientType = clientTypeOf(c.req.raw)
     if (!clientType.ok) return c.json({ error: 'unknown client type' }, 400)
     const view = parseView(new URL(c.req.url))
@@ -124,7 +121,6 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
-          ...(kinds.data && { kinds: kinds.data }),
           ...(clientType.value && { clientType: clientType.value }),
           ...(view.value.length > 0 && { view: view.value }),
         },
@@ -196,7 +192,6 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           from: query.data.from,
           to: query.data.to,
           pageRows: deps.pageRows ?? 500,
-          ...(query.data.omitKinds && { omitKinds: query.data.omitKinds }),
         },
         c.req.raw.signal,
       )
