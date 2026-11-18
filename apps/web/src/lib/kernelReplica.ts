@@ -27,6 +27,7 @@ import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/i
 import type { Trpc } from '@/app/trpc'
 import { expireSignedInRuntime } from './account-context'
 import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
+import { nativeDesktopBridge } from './nativeDesktop'
 import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:kernel-replica')
@@ -164,6 +165,9 @@ export async function openKernelAssembly(
     },
     httpSync: {
       origin: options.httpOrigin ?? '',
+      // The server's policy is per client type (POD-7085): the desktop shell
+      // keeps more cache than a browser tab.
+      clientType: nativeDesktopBridge() === undefined ? 'browser' : 'desktop',
       // The member fence (POD-6292): the feed this assembly stores is only ever
       // read as the member it was opened for.
       streamingFetch: {

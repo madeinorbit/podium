@@ -20,6 +20,7 @@ export type SessionProjectionDaemonFrame = Extract<
     type:
       | 'agentColor'
       | 'agentModel'
+      | 'agentMode'
       | 'agentContext'
       | 'title'
       | 'sessionResumeRef'
@@ -160,6 +161,17 @@ export class SessionDaemonProjection {
         if (!session) break
         const draft = this.ports.draft(session)
         if (session.setObservedModel(message.model, message.effort, draft)) {
+          const result: Promise<void> = this.ports.persistDraft(session, draft)
+          await result
+          this.ports.broadcastSessions()
+        }
+        break
+      }
+      case 'agentMode': {
+        const session = this.ports.sessions.get(message.sessionId)
+        if (!session) break
+        const draft = this.ports.draft(session)
+        if (session.setObservedMode(message.mode, draft)) {
           const result: Promise<void> = this.ports.persistDraft(session, draft)
           await result
           this.ports.broadcastSessions()

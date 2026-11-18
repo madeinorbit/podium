@@ -168,12 +168,9 @@ try {
     })
     const initial = await page.evaluate(() => Reflect.get(window, '__boardHarness').state())
     if (arm === 'pool') {
-      const baseline = runs[0] as { initial: { residentIssues: number; coldIssues: number } }
-      if (
-        initial.residentIssues !== baseline.initial.residentIssues ||
-        initial.coldIssues !== baseline.initial.coldIssues
-      )
-        throw new Error('Board startup promoted cold issues')
+      const baseline = runs[0] as { initial: { residentIssues: number } }
+      if (initial.residentIssues !== baseline.initial.residentIssues)
+        throw new Error('Board startup changed the issues in memory')
     }
     const startup = await page.evaluate(() => Reflect.get(window, '__boardHarness').stats().board)
     if (countsOnly)

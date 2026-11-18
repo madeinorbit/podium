@@ -1,7 +1,9 @@
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  APPLIED_MUTATION_PRUNE_BATCH_ROWS,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  appliedMutationsPruneRunKey,
   automationFireRunKey,
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -25,6 +27,8 @@ import {
   MESSAGE_WAIT_TTL_MS,
   maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  QUEUED_MESSAGE_MAX_AGE_MS,
+  queuedMessagesExpiryRunKey,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
   worktreeGcRunKey,
@@ -41,6 +45,7 @@ import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
+import { APPLIED_MUTATIONS_MAX_AGE_MS } from '../sessions/session-shared'
 
 const log = createLogger('server:maintenance')
 
@@ -160,6 +165,8 @@ export class MaintenanceService {
         changeKeepRows: CHANGE_KEEP_ROWS,
         changeMaxAgeMs: CHANGE_MAX_AGE_MS,
         maintenanceCommandMaxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
+        appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+        queuedMessageMaxAgeMs: QUEUED_MESSAGE_MAX_AGE_MS,
         // Settings, not a constant: the janitor gets the policy WITH the lease
         // so a flip takes effect on the next handshake (POD-564).
         worktreeGcMode: policy.mode,
@@ -216,6 +223,10 @@ export class MaintenanceService {
           return await this.applyChangeLogPrune(command, nowMs)
         case 'maintenance-commands-prune':
           return await this.applyMaintenanceCommandsPrune(command)
+        case 'applied-mutations-prune':
+          return await this.applyAppliedMutationsPrune(command, nowMs)
+        case 'queued-messages-expiry':
+          return await this.applyQueuedMessagesExpiry(command, nowMs)
         case 'issue-auto-archive':
           return await this.applyIssueAutoArchive(command, nowMs)
       }
@@ -384,6 +395,70 @@ export class MaintenanceService {
       serverCutoff,
       observed.batchSize,
     )
+    return await this.recordPrune(command, deleted)
+  }
+
+  /**
+   * One batch of the mutation receipts past their horizon (POD-7035). The
+   * observed cutoff may lag the server's (the janitor rounds it down to the
+   * hour) but never lead it: a cutoff past the server's would delete a receipt
+   * a queued write can still need (ADR 3 D11).
+   */
+  private async applyAppliedMutationsPrune(
+    command: Extract<MaintenanceCommand, { jobKind: 'applied-mutations-prune' }>,
+    nowMs: number,
+  ): Promise<MaintenanceCommandReply> {
+    const observed = command.observed
+    if (appliedMutationsPruneRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (
+      observed.maxAgeMs !== APPLIED_MUTATIONS_MAX_AGE_MS ||
+      observed.batchSize !== APPLIED_MUTATION_PRUNE_BATCH_ROWS ||
+      observed.cutoffAppliedAt > nowMs - APPLIED_MUTATIONS_MAX_AGE_MS
+    ) {
+      return this.stale(command, 'precondition')
+    }
+    const deleted = await this.store.sync.pruneAppliedMutationsBatch(
+      observed.cutoffAppliedAt,
+      observed.batchSize,
+    )
+    return await this.recordPrune(command, deleted)
+  }
+
+  /**
+   * A parked session's rows queued past the horizon (POD-7035). A session that
+   * is running drains its own queue, so its rows are left to delivery; the
+   * janitor only sees the durable table and cannot tell, so the server does.
+   */
+  private async applyQueuedMessagesExpiry(
+    command: Extract<MaintenanceCommand, { jobKind: 'queued-messages-expiry' }>,
+    nowMs: number,
+  ): Promise<MaintenanceCommandReply> {
+    const observed = command.observed
+    if (queuedMessagesExpiryRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (observed.maxAgeMs !== QUEUED_MESSAGE_MAX_AGE_MS) {
+      return this.stale(command, 'precondition')
+    }
+    if (observed.throughQueuedAt > nowMs - QUEUED_MESSAGE_MAX_AGE_MS) {
+      return this.stale(command, 'not-due')
+    }
+    if ((await this.liveSessionIds()).has(observed.sessionId)) {
+      return this.stale(command, 'precondition')
+    }
+    const deleted = await this.store.sync.expireQueuedMessagesOfSession(
+      observed.sessionId,
+      observed.throughQueuedAt,
+    )
+    if (deleted > 0) {
+      log.info('expired queued session input', {
+        sessionId: observed.sessionId,
+        rows: deleted,
+        throughQueuedAt: new Date(observed.throughQueuedAt).toISOString(),
+      })
+    }
     return await this.recordPrune(command, deleted)
   }
 

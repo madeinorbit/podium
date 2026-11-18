@@ -2,9 +2,6 @@ import { runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
-import { SHELL_SUMMARIES } from './shell-schema'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { createTerminalReferences } from './terminal-references'
 
@@ -21,19 +18,16 @@ function fixture(scale: 1 | 4 = 1, resident = false) {
     ...Array.from({ length: 128 * scale }, (_, n) => repo(`foreign-repo-${n}`, `F${n}`)),
     ...Array.from({ length: 128 * scale }, (_, n) => issue(`foreign-${n}`, n + 10, { repoId: `foreign-repo-${n}` })),
   ]
-  let source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
-    cold: () => source, summaries: SHELL_SUMMARIES, worklist: 'demand', load: () => undefined, schedule: () => () => {},
+    worklist: 'demand', load: () => undefined, schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
   if (resident) runInAction(() => {
     for (const row of rows) if (row.kind === 'issue') pool.tables.issue.set(row.id, row.value as never)
   })
   return { pool,
-    publish(event: RowSourceEvent) { source.apply(event); pool.apply(event) },
+    publish(event: RowSourceEvent) { pool.apply(event) },
     replace(rows: RowRecord[], fresh: boolean) {
-      if (fresh) source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
       this.publish({ type: 'replace', rows })
     },
   }

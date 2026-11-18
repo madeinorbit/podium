@@ -368,6 +368,9 @@ export function blockMatches(block: ChatBlock, query: string): boolean {
     block.item.text,
     block.item.toolName ?? '',
     block.item.toolInput ?? '',
+    ...(block.item.toolExecution?.inputs?.map(
+      (input) => `${input.description ?? ''}\n${input.text}`,
+    ) ?? []),
     block.result ?? block.item.toolResult ?? '',
     block.harnessSummary?.text ?? '',
   ]
@@ -539,9 +542,7 @@ export function composerState(input: {
   // "Session is not running" exactly in the window the send must survive. The
   // bubble then reads queued, never failed-or-nothing.
   const sendable =
-    !archived &&
-    !terminalError &&
-    (session?.status === 'live' || session?.status === 'starting')
+    !archived && !terminalError && (session?.status === 'live' || session?.status === 'starting')
   const canResume =
     !archived &&
     !terminalError &&

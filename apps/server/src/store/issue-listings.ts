@@ -47,6 +47,7 @@ import {
   preparedFamily,
   sameWorkspace,
 } from './executor/sync-drizzle'
+import { throughIndex } from './index-hints'
 
 /** Board stages a ready queue may hold (`isReadyIssueStage` over the enum). */
 const READY_STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done'] as const
@@ -449,18 +450,26 @@ export const commentCountsOfIssues = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
+/** A column by its bare name, mapped as the table maps it: for a FROM that is
+ *  an INDEXED BY clause, over which drizzle refuses a table column. */
+const bare = <T extends Column>(column: T) => sql`${sql.identifier(column.name)}`.mapWith(column)
+
 /** Live children of a set of parents, with the columns a report counts them by;
- *  in the boot map's order (repository path, then sequence). */
+ *  in the boot map's order (repository path, then sequence). Through
+ *  `idx_issues_children` by name on SQLite (POD-7034): the statistics average the
+ *  children over the parents that have any, so at a few hundred parents the
+ *  planner prices the seeks above a scan of every issue, while most parents a
+ *  report asks about have none. */
 export const liveChildrenOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: t.issues.id,
-      parentId: t.issues.parentId,
-      stage: t.issues.stage,
-      closedReason: t.issues.closedReason,
-      deletedAt: t.issues.deletedAt,
+      id: bare(t.issues.id),
+      parentId: bare(t.issues.parentId),
+      stage: bare(t.issues.stage),
+      closedReason: bare(t.issues.closedReason),
+      deletedAt: bare(t.issues.deletedAt),
     })
-    .from(t.issues)
+    .from(throughIndex(db, t.issues, 'idx_issues_children'))
     .where(
       inWorkspace(t.issues, inListOf(t.issues.parentId, size, 'ids'), isNull(t.issues.deletedAt)),
     )

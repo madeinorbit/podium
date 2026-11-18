@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  type AppliedTerms,
   agentStateProviderFor,
   canonicalDriverId,
   type DriverId,
@@ -14,6 +15,7 @@ import {
   harnessTranscriptStorage,
   type LaunchFile,
   type LaunchSpec,
+  noAgentTerms,
   parseHarnessVersion,
   withArgs,
 } from '@podium/harness'
@@ -50,6 +52,7 @@ import {
 } from '@podium/process/durable'
 import type { AgentPicture } from '@podium/process/screen'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
@@ -97,6 +100,20 @@ import {
   trackSessionSize,
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
+import {
+  launchFoldersFor,
+  launchPosturePart,
+  nodePrepareLaunchPorts,
+  podiumGrantsFor,
+  prepareLaunch,
+  sessionRuntimeDir,
+} from '../session-posture'
+import {
+  forgetSessionPosture,
+  recordSessionPosture,
+  spawnPosture,
+  storedSessionPosture,
+} from '../session-posture-store'
 import { Terminal } from '../terminal/terminal.js'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -472,7 +489,7 @@ export function instrumentedLaunchArgs(
 }
 
 function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string {
-  return join(ctx.settingsDir, 'session-instructions', sessionId)
+  return sessionRuntimeDir(ctx.settingsDir, sessionId)
 }
 
 function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): void {
@@ -778,6 +795,16 @@ export async function launchTerminalProcess(
       ...(instructions?.length ? { instructions: [...instructions] } : {}),
       runtimeDir,
       ...(spec.env ? { env: spec.env } : {}),
+      // THE LAUNCH'S TERMS (POD-6858): an agent's spec carries its posture and
+      // grants; a shell's or login pane's carries none and runs no agent.
+      ...('posture' in spec && 'grants' in spec
+        ? {
+            posture: launchPosturePart(
+              spec,
+              await launchFoldersFor({ settingsDir: ctx.settingsDir, sessionId, workdir: spec.workdir }),
+            ),
+          }
+        : {}),
     }
     // loginCommand is intentionally a static argv declaration: the production
     // branch below binds it to a harness context built from the current
@@ -798,14 +825,32 @@ export async function launchTerminalProcess(
     const childContext = loginContext ?? harnessContext
     const cmd: LaunchSpec =
       loginCommand && loginContext
-        ? harnessCommand(loginContext, { args: [...loginCommand.args], cwd: spec.workdir })
+        ? harnessCommand(
+            loginContext,
+            { args: [...loginCommand.args], cwd: spec.workdir },
+            noAgentTerms('native login pane: runs no agent'),
+          )
         : ctx.harnessRuntime
           ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
           : ctx.launch(agentKind, {
               ...launchOptions,
               ...(harnessContext ? { harnessContext } : {}),
             })
-    materializeLaunchFiles(cmd.files)
+    // The launch's files, home edits and unmet terms (POD-6858): a harness
+    // command carries its applied terms; the operator's shell has none. An
+    // agent's terms go to the server with its driver decision (Task 11); a
+    // login pane runs no agent and reports none.
+    if ('terms' in cmd) {
+      const applied = await prepareLaunch(
+        cmd,
+        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }),
+      )
+      if (!loginHarness && agentKind !== 'shell') {
+        reportLaunchTerms(ctx, sessionId, applied, terminalProfileFor(agentKind)?.driverId)
+      }
+    } else {
+      materializeLaunchFiles(cmd.files)
+    }
     // SQLite-backed harnesses create their store parent lazily. Create the
     // Podium-owned directory before the PTY starts so two fresh sessions
     // cannot race on a missing per-session store directory. Keyed on the
@@ -1068,6 +1113,7 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
       { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
       await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
     )
+    recordSessionPosture(msg.sessionId, base.posture)
     const spec: SessionSpec = {
       ...base,
       model: {
@@ -1286,13 +1332,27 @@ async function withOrder(
  * (POD-1761 W6): the spawn frame has never carried one, because interactive
  * sessions mount MCP through the CLI's own config file, and passing an empty
  * one would make a driver report a tool mount it did not make.
+ *
+ * POSTURE AND GRANTS (POD-6858). The session runs on the posture its spawn
+ * frame states, or the default when the frame states none (an older server,
+ * or one that picks no mode). The spawn path records it with the session
+ * ({@link recordSessionPosture}) so a later launch with no frame in hand runs
+ * on the same terms. The grants are Podium's standing facts for this session,
+ * built here on its machine like the context.
  */
 export function sessionSpecForSpawn(
   msg: SpawnControl,
   selection: SpawnSelection,
   harnessContext: HarnessContext,
+  stateRoot: string = stateDir(),
 ): SessionSpec {
-  return { ...plainSpecForSpawn(msg, selection), harnessContext }
+  const plain = plainSpecForSpawn(msg, selection)
+  return {
+    ...plain,
+    harnessContext,
+    posture: spawnPosture(msg),
+    grants: podiumGrantsFor({ stateRoot }, msg.sessionId, plain, harnessContext),
+  }
 }
 
 /** How a spawn frame selects its driver, for {@link sessionSpecForSpawn}. */
@@ -1308,7 +1368,7 @@ interface SpawnSelection {
  * harness context. No driver runs a plain terminal, so it never reaches the
  * driver boundary where {@link SessionSpec} requires one (POD-6533).
  */
-export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext'>
+export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext' | 'posture' | 'grants'>
 
 /** The spawn frame's fields as a spec, before any harness context. */
 function plainSpecForSpawn(msg: SpawnControl, selection: SpawnSelection): PlainTerminalSpec {
@@ -1647,9 +1707,26 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
       return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     try {
+      const harnessContext = await buildSessionHarnessContext(
+        ctx,
+        msg.agentKind as BuiltinHarnessKind,
+      )
+      const mcpServers: SessionSpec['mcpServers'] = {
+        supported: false,
+        reason: 'headless reattach carries no MCP mount',
+      }
       const spec: SessionSpec = {
         harness: msg.agentKind,
-        harnessContext: await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+        harnessContext,
+        // No frame here states a posture: the reattached session runs on the
+        // one recorded when it was spawned (the default for an older record).
+        posture: storedSessionPosture(msg.sessionId),
+        grants: podiumGrantsFor(
+          { stateRoot: stateDir() },
+          msg.sessionId,
+          { mcpServers },
+          harnessContext,
+        ),
         selection: {
           auth: 'unknown',
           platform: process.platform,
@@ -1663,10 +1740,7 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
           supported: false,
           reason: 'headless reattach carries no sticky instructions',
         },
-        mcpServers: {
-          supported: false,
-          reason: 'headless reattach carries no MCP mount',
-        },
+        mcpServers,
       }
       const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
       sendBind(ctx, {
@@ -1878,13 +1952,54 @@ export function reportDriverPreferenceDegrade(input: {
  * error has no driver, and announcing one would leave the row describing a
  * session that never ran.
  */
-function announceDriverSelection(
+export function announceDriverSelection(
   ctx: DaemonContext,
   sessionId: SpawnControl['sessionId'],
   driverId: string,
 ): void {
   driverTiming.driverSelected(sessionId, driverId)
+  announcedDrivers.set(sessionId, driverId)
   ctx.send({ type: 'driverSelected', sessionId, driverId })
+}
+
+/**
+ * THE DRIVER LAST ANNOUNCED PER SESSION (POD-6858 Task 11): what a launch's
+ * report repeats once its terms are applied. Kept beside the session registry,
+ * not on its entry: the entry's existence is what makes a spawn fresh
+ * (`withOrder`), and the announcement comes before that. Dropped when the
+ * session is retired.
+ */
+const announcedDrivers = new Map<SessionId, string>()
+
+/**
+ * REPORT A LAUNCH'S APPLIED TERMS (POD-6858 Task 11, harness-session-posture.md
+ * §4.6 and §5): the harness mode Podium asked for and every requirement the
+ * launch cannot meet, once, after {@link prepareLaunch} and before the process
+ * starts. It rides the decision frame, repeated with the same driver: the
+ * decision was announced before the launch was built, so it could not carry
+ * them. No driver announced and none given: nothing to repeat, and the terms
+ * stay in the daemon log `prepareLaunch` already wrote.
+ */
+export function reportLaunchTerms(
+  ctx: Pick<DaemonContext, 'send'>,
+  sessionId: SessionId,
+  applied: Pick<AppliedTerms, 'requestedMode' | 'unmet'>,
+  fallbackDriverId?: string,
+): void {
+  const driverId = announcedDrivers.get(sessionId) ?? fallbackDriverId
+  if (driverId === undefined) return
+  ctx.send({
+    type: 'driverSelected',
+    sessionId,
+    driverId,
+    posture: {
+      requestedMode: applied.requestedMode,
+      unmet: applied.unmet.map((entry) => ({
+        requirement: entry.requirement,
+        reason: entry.reason,
+      })),
+    },
+  })
 }
 
 const reportedHarnessVersions = new Set<string>()
@@ -2263,6 +2378,7 @@ export async function launchServerDriverSession(
           resolution.driverId,
         )),
     )
+    recordSessionPosture(msg.sessionId, spec.posture)
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
     // the vendor servers resume from their journal above.
@@ -3104,10 +3220,14 @@ export const sessionHandlers: Pick<
           log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {

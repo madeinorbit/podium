@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { boundaryHookResponse, installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -719,6 +719,7 @@ const answeredEvents = (world: World): Array<{ id: string; answeredBy: string }>
 const SPEC = {
   instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
   harness: 'claude-code',
+  ...testSessionTerms(),
   harnessContext: testHarnessContext({ kind: 'claude-code' }),
   selection: { auth: 'subscription' as const, platform: 'linux' as NodeJS.Platform, available: [] },
   workdir: '/tmp/w3',

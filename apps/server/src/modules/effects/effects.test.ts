@@ -8,10 +8,11 @@
  * server's runner and drives its own over the same repository.
  */
 
-import { type EffectStatus, mintDeviceId } from '@podium/model'
+import { type EffectStatus, mintDeviceId, type UserId } from '@podium/model'
 import type { SyncSubmitReply } from '@podium/protocol'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { EffectsModule } from '../../relay'
 import type { SessionStore } from '../../store'
@@ -19,7 +20,7 @@ import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-supp
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
 import { NO_TARGET } from '../sync-write/registry'
 import type { EffectExecutor, EffectOutcome, EffectRunContext } from './registry'
-import { EFFECT_RETENTION_MS, EffectsRunner } from './runner'
+import { EFFECT_RETENTION_MS, EffectsRunner, SYSTEM_EFFECT_RETENTION_MS } from './runner'
 
 afterEach(() => disposeOracles())
 
@@ -298,6 +299,116 @@ describe('the recovery sweep', () => {
     h.clock += EFFECT_RETENTION_MS + 1
     await runner.sweep()
     expect(await h.o.store.effects.get(ok)).toBeUndefined()
+  })
+
+  it("deletes the server's own ended scans after their short retention, keeping each machine's newest succeeded one (POD-6970)", async () => {
+    const h = await harness()
+    const runner = await manualRunner(h)
+    const repo = h.o.store.effects
+    const scope = fixtureWriteScope()
+    const person = 'usr_asker' as UserId
+    // One ended `machine.scan` record, created and settled at the clock's time.
+    const scan = async (
+      machine: string,
+      status: 'succeeded' | 'failed',
+      createdBy: UserId | null = null,
+    ) => {
+      const id = newId()
+      h.clock += 1_000
+      await repo.insert(
+        scope,
+        {
+          id,
+          kind: 'machine.scan',
+          target: { kind: 'machine', id: machine },
+          input: { machineId: machine },
+          deadlineAt: undefined,
+          createdBy,
+        },
+        h.clock,
+      )
+      await repo.claim(scope, id, h.clock)
+      await repo.settle(
+        scope,
+        id,
+        status,
+        status === 'failed'
+          ? { error: { code: 'unreachable', message: 'no daemon' } }
+          : { result: { repos: [machine] } },
+        h.clock,
+      )
+      return id
+    }
+    const asked = await scan('mch_one', 'succeeded', person)
+    const older = await scan('mch_one', 'succeeded')
+    const failed = await scan('mch_one', 'failed')
+    const newest = await scan('mch_one', 'succeeded')
+    const only = await scan('mch_two', 'succeeded')
+    h.clock += SYSTEM_EFFECT_RETENTION_MS - 10_000
+    await runner.sweep()
+    // Inside the window every record stays.
+    for (const id of [asked, older, failed, newest, only]) expect(await repo.get(id)).toBeDefined()
+    h.clock += 10_001
+    await runner.sweep()
+    await runner.idle()
+    // Deleted outright: the server's older succeeded scan and its failed one.
+    expect(await repo.get(older)).toBeUndefined()
+    expect(await repo.get(failed)).toBeUndefined()
+    // Each machine's last scan stays, and is what the picker reads.
+    expect((await repo.get(newest))?.deletedAt).toBeUndefined()
+    expect((await repo.get(only))?.deletedAt).toBeUndefined()
+    expect(
+      (await repo.newestOnTarget('machine.scan', { kind: 'machine', id: 'mch_one' }, 'succeeded'))
+        ?.id,
+    ).toBe(newest)
+    // A scan a person asked for is on the feed: it keeps the feed's retention.
+    expect((await repo.get(asked))?.deletedAt).toBeUndefined()
+    // No device held the server's scans, so their deletion is on no record.
+    for (const id of [older, failed, newest, only]) expect(await effectRows(h, id)).toEqual([])
+  })
+
+  it("drains a backlog of the server's own ended scans a batch per write, ten batches a sweep (POD-7031)", async () => {
+    const h = await harness()
+    const runner = await manualRunner(h)
+    const db = (h.o.store as unknown as { db: SqlDatabase }).db
+    const insert = db.prepare(
+      `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+         finished_at, created_at, updated_at, revision)
+       VALUES (?, 'machine.scan', 'machine', 'mch_one', '{}', '{}', 'succeeded', ?, ?, ?, 1)`,
+    )
+    const BACKLOG = 1_150
+    for (let at = 0; at < BACKLOG; at++) {
+      const t = h.clock - 2 * SYSTEM_EFFECT_RETENTION_MS + at
+      insert.run(`eff_backlog_${String(at).padStart(5, '0')}`, t, t, t)
+    }
+    const left = () =>
+      (
+        db.prepare("SELECT count(*) AS n FROM effects WHERE kind = 'machine.scan'").get() as {
+          n: number
+        }
+      ).n
+    const purge = vi.spyOn(h.o.store.effects, 'purgeOffFeedFinished')
+    const batches = async () =>
+      await Promise.all(purge.mock.results.map(async (result) => await result.value))
+
+    await runner.sweep()
+    // Ten writes of a hundred each; the rest waits for the next sweep.
+    expect(await batches()).toEqual(Array(10).fill(100))
+    expect(left()).toBe(BACKLOG - 1_000)
+    purge.mockClear()
+    await runner.sweep()
+    // A short batch ends the drain; the machine's newest succeeded scan stays.
+    expect(await batches()).toEqual([100, BACKLOG - 1_000 - 100 - 1])
+    expect(left()).toBe(1)
+    expect(
+      (
+        await h.o.store.effects.newestOnTarget(
+          'machine.scan',
+          { kind: 'machine', id: 'mch_one' },
+          'succeeded',
+        )
+      )?.id,
+    ).toBe(`eff_backlog_${String(BACKLOG - 1).padStart(5, '0')}`)
   })
 })
 

@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { formatClock } from '@podium/client-core/values'
+import { issueSearch } from '@podium/client-graph/issue-search'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { mapQueryResult } from '@podium/client-graph/query-result'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
@@ -116,7 +117,7 @@ export class MobileSearchSections {
     // so the keystroke projection re-runs on title/seq edits only — never
     // per row and never on the clock. The pass builds no fact objects and
     // reads no descriptions; status text is not searched locally.
-    const textIds = pool.queries.localTextIds(needle)
+    const textIds = new Set(issueSearch(pool).read(needle, pool.queries.localTextIds(needle)).ids)
     const active = new Set<string>(),
       next: MobileWorkSection[] = []
     for (const source of sections) {

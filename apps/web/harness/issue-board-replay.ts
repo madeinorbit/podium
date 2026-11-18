@@ -10,7 +10,6 @@ import { dedupeSessions } from '@podium/client-core/ui'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,
-  ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
@@ -91,7 +90,7 @@ async function main() {
     getSnapshot: () => state,
     subscribe: () => () => {},
   })
-  const handle = createReadOnlyRuntimePool(runtime as never, ISSUE_BOARD_SUMMARIES)
+  const handle = createReadOnlyRuntimePool(runtime as never)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )
@@ -131,7 +130,6 @@ async function main() {
         first: reports.find((report) => report.first)?.first ?? null,
         residentBefore: before,
         residentAfter: handle.pool.tables.issue.size,
-        cold: handle.pool.residency?.ids('issue', true).length,
       }),
     )
     if (

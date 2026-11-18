@@ -1,6 +1,7 @@
 import { asUserId } from '@podium/model'
 import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
+  CollectionLoader,
   Replica as KernelReplica,
   type ReplicaCacheStore,
   type SyncUnitOfWork,
@@ -87,7 +88,7 @@ export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   /** Compatibility callers can explicitly name the member of a legacy namespace. */
   readonly clientPrincipal?: string
   readonly evidence?: LegacyIdentityEvidence
-  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch' | 'clientType'>
   readonly pendingPrincipalCleanups?: readonly { principal: string; complete(): Promise<void> }[]
   readonly onDegraded?: (detail: unknown) => void
   readonly onAuthExpired?: () => void
@@ -151,6 +152,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
   }
   let side: ReturnType<typeof createSideCache> | undefined
   let kernel: KernelReplica | undefined
+  let loader: CollectionLoader | undefined
   let transcriptStore: TranscriptStore | undefined
   let transcriptCache: StoreTranscriptCache | undefined
   try {
@@ -253,6 +255,8 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       cache: view.cache,
       side,
       exits: (entity, entityId) => kernel?.exitKind(entity, entityId),
+      collections: () => kernel,
+      loader: () => loader,
       ...(transcriptCache ? { transcripts: transcriptCache } : {}),
     })
     const cancelSweep = transcriptStore
@@ -291,35 +295,35 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     const replicaKernel = new KernelReplica({
       store: view.cache,
       authority: {
-        async *bootstrap(signal, kinds) {
+        async *bootstrap(signal, view) {
           progress.beginAttempt()
           try {
-            for await (const chunk of bootstraps.bootstrap(signal, kinds)) {
+            for await (const chunk of bootstraps.bootstrap(signal, view)) {
               if (chunk.last) progress.noteSaving()
               yield chunk
             }
           } catch (error) {
-            if (
-              !kinds ||
-              error instanceof SyncAuthExpiredError ||
-              error instanceof SyncNetworkError
-            )
+            reportFailure(error)
+            throw error
+          }
+        },
+        // The one fetch route (POD-7085): what held records come with, a
+        // resumed first download, a kind reload. A failure here is the fetch's
+        // own; only a lost session or network says anything about the sync.
+        async *collections(instances, signal) {
+          try {
+            yield* bootstraps.collections(instances, signal)
+          } catch (error) {
+            if (error instanceof SyncAuthExpiredError || error instanceof SyncNetworkError)
               reportFailure(error)
             throw error
           }
         },
-        async changesRange(cursor, signal, onTarget, options) {
-          if (!options) progress.beginAttempt()
-          const report = (error: unknown) => {
-            if (
-              !options ||
-              error instanceof SyncAuthExpiredError ||
-              error instanceof SyncNetworkError
-            )
-              reportFailure(error)
-          }
+        async changesRange(cursor, signal, onTarget) {
+          progress.beginAttempt()
+          const report = (error: unknown) => reportFailure(error)
           try {
-            const range = await deltas.changesRange(cursor, signal, onTarget, options)
+            const range = await deltas.changesRange(cursor, signal, onTarget)
             if ('kind' in range) return range
             return (async function* () {
               try {
@@ -344,6 +348,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         syncTelemetry.noteReplicaEvent(event)
         progress.noteEvent(event)
         facade.onKernelEvent(event)
+        loader?.onEvent(event)
         // A reply recorded while this commit was in flight was not yet applied when
         // the commit decided what it covers. Its cursor is durable now, so ask again
         // (from memory; a commit that covers nothing writes nothing).
@@ -354,8 +359,13 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         }
       },
       batchEvents: (emitAll) => facade.batch(emitAll),
+      // The one loader (POD-7087): the visible view rides in the first
+      // download, and what held records come with shares its window.
+      view: () => loader?.takeView() ?? [],
+      request: (specs) => loader?.request(specs),
     })
     kernel = replicaKernel
+    loader = new CollectionLoader({ replica: replicaKernel })
     // AT REST: what the persisted cursor already covers retires before anything
     // paints — a receipt at or below it, and every applied entry without a receipt
     // that an older build left behind (the stranded nulldisk clear). What is ahead
@@ -404,6 +414,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       stopped = true
       replicaKernel.disconnect()
       side?.dispose()
+      loader?.dispose()
       cancelSweep?.()
       transcriptCache?.dispose()
     }

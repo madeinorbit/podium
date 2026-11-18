@@ -33,9 +33,96 @@ function req(overrides: Partial<BufferedHarnessRequest> = {}): BufferedHarnessRe
     requestId: 'hx-1',
     agent: 'claude-code',
     prompt: 'summarize',
+    // Every run names its folder (POD-6858); the refusal test drops it.
+    cwd: '/work/podium-test-repo',
     ...overrides,
   } as BufferedHarnessRequest
 }
+
+describe('a buffered run without a working folder (POD-6858)', () => {
+  it('is refused before anything is staged, edited or run', async () => {
+    // Its terms would otherwise trust the daemon's own working folder, and
+    // Claude's trust covers every folder below a trusted one.
+    const snapshot = vi.fn(async () => fakeSnapshot('claude-code', '/usr/bin/claude'))
+    const runChild = vi.fn(async () => ({ stdout: 'ran' }))
+    const makeTempPath = vi.fn(() => '/tmp/never.json')
+    const readFile = vi.fn(async () => undefined)
+    const writeFileAtomic = vi.fn(async () => {})
+    const createFileExclusive = vi.fn(async () => true)
+    const writeLaunchFile = vi.fn(async () => {})
+    const { cwd: _cwd, ...noCwd } = req({ mcpConfig: JSON.stringify({ mcpServers: {} }) })
+    const result = await executeBufferedHarnessTurn(
+      { homeDir: '/home/op', harnessRuntime: undefined },
+      noCwd as BufferedHarnessRequest,
+      {
+        snapshot,
+        runChild,
+        makeTempPath,
+        prepareLaunchPorts: {
+          writeLaunchFile,
+          homeEdits: { readFile, writeFileAtomic, createFileExclusive, log: () => {} },
+          log: () => {},
+        },
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(/no working folder \(cwd\)/)
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(makeTempPath).not.toHaveBeenCalled()
+    expect(runChild).not.toHaveBeenCalled()
+    expect(readFile).not.toHaveBeenCalled()
+    expect(writeFileAtomic).not.toHaveBeenCalled()
+    expect(createFileExclusive).not.toHaveBeenCalled()
+    expect(writeLaunchFile).not.toHaveBeenCalled()
+  })
+})
+
+describe("the exec frame's posture (POD-6858 Task 9)", () => {
+  async function argsFor(overrides: Partial<BufferedHarnessRequest>): Promise<string[]> {
+    const seen: string[][] = []
+    const result = await executeBufferedHarnessTurn(
+      { homeDir: '/home/op', harnessRuntime: undefined },
+      req(overrides),
+      {
+        snapshot: async () => fakeSnapshot('claude-code', '/usr/bin/claude'),
+        runChild: async ({ args }) => {
+          seen.push([...args])
+          return { stdout: 'ok' }
+        },
+        repoRootOf: async () => undefined,
+        prepareLaunchPorts: {
+          writeLaunchFile: async () => {},
+          homeEdits: {
+            readFile: async () => undefined,
+            writeFileAtomic: async () => {},
+            createFileExclusive: async () => true,
+            log: () => {},
+          },
+          log: () => {},
+        },
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(seen).toHaveLength(1)
+    return seen[0]!
+  }
+
+  it('runs on the posture the frame states', async () => {
+    const args = await argsFor({ posture: { mode: 'supervised' } } as never)
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('default')
+  })
+
+  it('runs on the default posture when an older server states none', async () => {
+    const args = await argsFor({})
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+  })
+
+  it("ignores an older server's Claude-worded allow list: the posture section owns the rules", async () => {
+    const args = await argsFor({ allowedTools: ['Read', 'Bash'] } as never)
+    expect(args).not.toContain('--allowedTools')
+    expect(args.some((arg) => arg.includes('Read,Bash'))).toBe(false)
+  })
+})
 
 describe('buffered harness compatibility (POD-4304 F09)', () => {
   it('keeps the wire frame registered with old-peer result shape', () => {

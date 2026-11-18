@@ -6,7 +6,6 @@ import { isSessionWorking, motionPhase, sessionAtWork, sessionPresentOnTask, ses
 import { sessionWord, wordWantsAttention } from '@podium/model/browser'
 import { MobxPool } from './pool'
 import { missionView, settled } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
 
 // Written against the pre-move mission predicates and row contract. These
@@ -24,7 +23,7 @@ function open(issue: object = issueRow(), sessions: SessionView[] = [sessionRow(
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value: value as never }))]
   const load = vi.fn((entity: string, id: string) => records.find(row => row.kind === entity && row.id === id)?.value)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-    cold ? { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} } : undefined)
+    cold ? { load, schedule: () => () => {} } : undefined)
   pools.push(pool); pool.apply({ type: 'replace', rows: records })
   return { pool, load, view: missionView(pool) }
 }
@@ -91,29 +90,6 @@ it('member summary preserves raw membership, ID phase order and activity', () =>
   expect(tracked(() => Object.keys(model.memberSummary.byPhase))).toEqual(['needs_user', 'working'])
 })
 
-it('cold facts queue batched loads and never synchronously invoke the loader', () => {
-  const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
-    [sessionRow({ archived: true, status: 'exited' })], true)
-  expect(tracked(() => pool.issueObject('root').visible)).toBe(LOADING)
-  expect(load).not.toHaveBeenCalled()
-  expect(pool.hydrate()).toBe(1)
-  expect(tracked(() => pool.issueObject('root').visible)).toBe(true)
-})
-
-it('member summary batches cold present and archived contributions together', () => {
-  const old = '2026-09-01T12:00:00Z'
-  const { pool, load } = open(issueRow({ stage: 'done', closedAt: old }),
-    [sessionRow({ sessionId: 'present', status: 'exited', lastActiveAt: old, stoppedAt: old,
-      agentState: { phase: 'ended' } }),
-    sessionRow({ sessionId: 'history', archived: true, status: 'exited', lastActiveAt: old,
-      stoppedAt: old, agentState: { phase: 'ended' } })], true)
-  const issue = pool.issueObject('root')
-  expect(tracked(() => issue.memberSummary)).toBe(LOADING)
-  expect(load).not.toHaveBeenCalled()
-  expect(pool.hydrate()).toBe(2)
-  expect(tracked(() => issue.memberSummary)).toEqual({ total: 2, byPhase: { ended: 2 } })
-})
-
 it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'memberLatestActivity'] as const)('rejects a deliberately wrong issue %s field', name => {
   const { pool } = open(issueRow({ coordinatorSessionId: 'crew' }))
   const model = pool.issueObject('root'), expected = tracked(() => model[name])
@@ -121,25 +97,6 @@ it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'mem
     name === 'memberSessionIds' ? ['wrong'] : name === 'memberLatestActivity' ? -Infinity : !expected
   Object.defineProperty(model, name, { configurable: true, get: () => wrong })
   expect(() => expect(model[name]).toEqual(expected)).toThrow()
-})
-
-it.each(['open', 'onRoster', 'atWork', 'attention', 'executing', 'motion', 'settled', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
-  const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
-    [sessionRow({ status: 'exited', archived: false, lastActiveAt: '2026-09-01T12:00:00Z',
-      stoppedAt: '2026-09-01T12:00:00Z', agentState: { phase: 'ended' } })], true)
-  const model = pool.sessionObject('crew')
-  expect(pool.tables.session.has('crew')).toBe(false)
-  expect(tracked(() => model[name])).toBe(LOADING)
-  expect(load).not.toHaveBeenCalled()
-  pool.hydrate()
-  expect(tracked(() => model[name])).not.toBe(LOADING)
-})
-
-it('the archived flag uses the declared scalar while a session is cold', () => {
-  const { pool, load } = open(issueRow({ stage: 'done', archived: true }), [sessionRow({ archived: true })], true)
-  expect(here(pool.model('session', 'crew'))).toBeUndefined()
-  expect(tracked(() => pool.sessionObject('crew').archived)).toBe(true)
-  expect(load).not.toHaveBeenCalled()
 })
 
 // `lastInput` is a live reading now (the session.condition topic, POD-6764),

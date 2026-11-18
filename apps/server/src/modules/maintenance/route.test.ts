@@ -19,6 +19,8 @@ describe('maintenance route [spec:SP-c29e]', () => {
     changeKeepRows: 500_000,
     changeMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
     maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+    appliedMutationMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    queuedMessageMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
     worktreeGcMode: 'propose' as const,
     worktreeGcAfterDays: 14,
   }))

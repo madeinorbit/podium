@@ -51,6 +51,7 @@ import {
   PG_CHECK_OVERRIDES,
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
+  PG_INDEX_EXPRESSION_OVERRIDES,
   PG_INDEX_NULLS_FIRST,
   PG_INDEX_WHERE_OVERRIDES,
   PG_ONLY_INDEXES,
@@ -262,7 +263,9 @@ function tableSource(
     const parts = index.config.columns.map((part) => {
       if (is(part, SQL)) {
         uses.sql = true
-        return sqlTag(sqliteSqlText(part))
+        const text = sqliteSqlText(part)
+        const expression = PG_INDEX_EXPRESSION_OVERRIDES[`${name}.${index.config.name}`]
+        return sqlTag(expression?.sqlite === text ? expression.sql : text)
       }
       const ref = columnRef(part as Column)
       return nullsFirst?.columns.includes((part as Column).name) ? `${ref}.asc().nullsFirst()` : ref

@@ -51,6 +51,10 @@
 
 import type { WorkspaceId } from '@podium/model'
 import {
+  nameQueryDefinition,
+  queryDefinitionNamingEnabled,
+} from '@podium/runtime/query-attribution'
+import {
   and,
   type Column,
   eq,
@@ -120,8 +124,7 @@ function register(
   scope: DefinitionScope,
   build: PreparedDefinition['build'],
   entry?: CrossWorkspaceEntry,
-): void {
-  if (definitions.length >= DEFINITION_LIMIT) return
+): Error {
   const site = new Error('query definition')
   // Format the stack now, while the code it names is running [POD-7064]. Left
   // unread, the engine formats it whenever a collection frees that code (Bun
@@ -129,13 +132,43 @@ function register(
   // is skipped) or at first read (with it), and one process then holds stacks
   // in two coordinate systems: transformed lines and source lines.
   void site.stack
-  definitions.push({
-    kind,
-    scope,
-    ...(entry === undefined ? {} : { entry }),
-    build,
-    site,
-  })
+  if (definitions.length < DEFINITION_LIMIT) {
+    definitions.push({
+      kind,
+      scope,
+      ...(entry === undefined ? {} : { entry }),
+      build,
+      site,
+    })
+  }
+  return site
+}
+
+/**
+ * Tell the query profiler which definition built these statements, so a stall
+ * digest can print `store/effects.ts:292 active` instead of a hash [POD-7037].
+ * Runs on a cache miss only (once per shape per drizzle instance), and only
+ * when the profiler is installed at all.
+ */
+function nameBuilt(built: unknown, site: Error, shape?: string | number, depth = 0): void {
+  if (depth === 0 && !queryDefinitionNamingEnabled()) return
+  if (built !== null && typeof built === 'object' && 'getQuery' in built) {
+    const getQuery = (built as { getQuery: unknown }).getQuery
+    if (typeof getQuery === 'function') {
+      try {
+        const query = getQuery.call(built) as { sql?: unknown }
+        if (typeof query.sql === 'string') nameQueryDefinition(query.sql, site, shape)
+      } catch {
+        // A built value that cannot say its SQL is simply left unnamed.
+      }
+      return
+    }
+  }
+  // A definition may return a small bundle of queries (the audit reads the same
+  // two levels, `statementsOf` in apps/server/src/test-support/query-plan-audit.ts).
+  if (depth < 2 && built !== null && typeof built === 'object') {
+    for (const value of Object.values(built)) nameBuilt(value, site, shape, depth + 1)
+  }
 }
 
 /** Every definition made in this process so far, oldest first (audit only). */
@@ -410,13 +443,14 @@ function workspaceDrizzle<D>(handle: QueryHandle<D> | FleetHandle<D>): D {
   return handle.drizzle
 }
 
-/** One built value per drizzle instance. */
-function perInstance<D extends object, P>(make: (db: D) => P): (db: D) => P {
+/** One built value per drizzle instance, named for the profiler when built. */
+function perInstance<D extends object, P>(make: (db: D) => P, site: Error): (db: D) => P {
   const cache = new WeakMap<D, P>()
   return (db) => {
     const hit = cache.get(db)
     if (hit !== undefined) return hit
     const made = make(db)
+    nameBuilt(made, site)
     cache.set(db, made)
     return made
   }
@@ -458,8 +492,8 @@ export function prepared<D extends object, T, P>(
   build: (db: D, t: T) => P,
 ): PreparedAccessor<D, P> {
   const make = (db: D): P => build(db, boundTables(db) as T)
-  register('prepared', 'workspace', make as PreparedDefinition['build'])
-  const statementOn = perInstance(make)
+  const site = register('prepared', 'workspace', make as PreparedDefinition['build'])
+  const statementOn = perInstance(make, site)
   const views = new WeakMap<object, Bound<P>>()
   return ((db: D | WorkspaceHandle<D>) => {
     if (handleKind(db) === undefined) return statementOn(db as D)
@@ -512,7 +546,7 @@ export function preparedFamily<D extends object, T, K extends string | number, P
   build: (db: D, t: T, key: K) => P,
 ): PreparedFamilyAccessor<D, K, P> {
   const make = (db: D, key: K): P => build(db, boundTables(db) as T, key)
-  register('family', 'workspace', make as PreparedDefinition['build'])
+  const site = register('family', 'workspace', make as PreparedDefinition['build'])
   const cache = new WeakMap<D, Map<K, P>>()
   const statementOn = (db: D, key: K): P => {
     let family = cache.get(db)
@@ -523,7 +557,9 @@ export function preparedFamily<D extends object, T, K extends string | number, P
     const hit = family.get(key)
     if (hit !== undefined) return hit
     if (family.size >= FAMILY_LIMIT) familyOverflowCount += 1
-    return keepShape(family, key, make(db, key))
+    const made = make(db, key)
+    nameBuilt(made, site, key)
+    return keepShape(family, key, made)
   }
   const views = new WeakMap<object, Map<K, Bound<P>>>()
   return ((db: D | WorkspaceHandle<D>, key: K) => {
@@ -555,8 +591,8 @@ export function preparedGlobal<D extends object, T, P>(
   build: (db: D, t: T) => P,
 ): (db: QueryHandle<D>) => P {
   const make = (db: D): P => build(db, boundTables(db) as T)
-  register('prepared', 'global', make as PreparedDefinition['build'])
-  const statementOn = perInstance(make)
+  const site = register('prepared', 'global', make as PreparedDefinition['build'])
+  const statementOn = perInstance(make, site)
   return (db) => {
     if (handleKind(db) !== 'store')
       throw new TypeError('a global definition runs on a store handle')
@@ -578,8 +614,8 @@ export function preparedAcross<D extends object, T, P>(
   build: (db: D, t: T) => P,
 ): (db: FleetHandle<D>) => P {
   const make = (db: D): P => build(db, boundTables(db) as T)
-  register('prepared', 'across', make as PreparedDefinition['build'], entry)
-  const statementOn = perInstance(make)
+  const site = register('prepared', 'across', make as PreparedDefinition['build'], entry)
+  const statementOn = perInstance(make, site)
   return (db) => {
     if (handleKind(db) !== 'fleet') {
       throw new TypeError('a cross-workspace definition runs on the fleet handle')

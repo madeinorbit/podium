@@ -42,7 +42,7 @@ export function resolvePoolWorkMenu(
       displayRef: model.displayRef,
       readAt: pool.readCursor(id),
       unread: model.unread,
-      ...pool.queries.issueChildCounts(id),
+      ...(omitGoneCounts(pool.queries.issueChildCounts(id))),
       deferred: lifecycle.deferred,
     } as unknown as IssueViewModel
     const issues = [issue]
@@ -63,4 +63,9 @@ export function resolvePoolWorkMenu(
       sessions: [],
     }
   })
+}
+
+/** Child counts as the old menu captured them; nothing while they are on their way. */
+function omitGoneCounts<T extends object>(value: T | symbol): Partial<T> {
+  return typeof value === 'symbol' ? {} : value
 }

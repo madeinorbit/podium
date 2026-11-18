@@ -71,6 +71,11 @@ import {
   readParentOutcome,
   requestParentEnrollment,
 } from '@podium/runtime/parent-control'
+import {
+  drainHeavyStatementReads,
+  formatQueryCost,
+  queryAttributionSnapshot,
+} from '@podium/runtime/query-attribution'
 import { applyPublicUrl } from '@podium/runtime/setup'
 import {
   formatTopQueries,
@@ -78,6 +83,7 @@ import {
   queryCallerStacks,
   resetQueryAttribution,
 } from '@podium/runtime/sqlite'
+import { createStallWatch, type StallWatch } from '@podium/runtime/stall-watch'
 import {
   attributeTasks,
   formatTopTasks,
@@ -1843,6 +1849,8 @@ export async function startServer(
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>
@@ -2318,6 +2326,17 @@ export async function startServer(
           })
         : undefined
       loopProfileCapture = capture
+      // POD-7037: the stall early warning — immediate alerts, an hourly digest
+      // by definition name, and the post-deploy comparison with the previous
+      // build. It reads what the per-stall record already measures, so it lives
+      // at the same level.
+      const stallWatch: StallWatch | undefined = atLeast('attribution')
+        ? createStallWatch({
+            build: appVersion,
+            log: loopLog,
+            summaryPath: join(perfDir, 'server-stall-builds.json'),
+          })
+        : undefined
       const profileStallMs = resolveProfileStallMs()
       // POD-3834: a stall no longer arms a profile by itself unless this install
       // asked it to. Arming is permanent — Bun's sampler has no stop — so the
@@ -2387,6 +2406,7 @@ export async function startServer(
                 // cause again.
                 const tasks = formatTopTasks()
                 const taskCoverage = taskAttributionCoverage(stall.durationMs)
+                stallWatch?.noteStall(stall.durationMs, queryAttributionSnapshot())
                 loopLog.warn('server event-loop stall', {
                   durationMs: stall.durationMs,
                   heapUsedBytes: mu.heapUsed,
@@ -2441,10 +2461,15 @@ export async function startServer(
         dropLoopAccounting = addLoopAccounting(loopAccounting)
         attributeTasks()
         const attributionWindow = setInterval(() => {
+          // The second's executions that read past the heavy-read line, before
+          // the window they were recorded in is dropped (POD-7037).
+          stallWatch?.noteHeavyReads(drainHeavyStatementReads())
           resetQueryAttribution()
           resetTaskAttribution()
         }, 1000)
         attributionWindow.unref?.()
+        const stallWatchTick = setInterval(() => stallWatch?.tick(), 60_000)
+        stallWatchTick.unref?.()
         // POD-1653: the window above answers "what stalled this second"; a bench
         // run asks "what ran over the last minute, and WHO issued it". Both
         // retentions already exist (queryAttributionTotals / queryCallerStacks)
@@ -2454,7 +2479,7 @@ export async function startServer(
           const out = [...queryAttributionTotals()]
             .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 15)
-            .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+            .map(([key, c]) => formatQueryCost(key, c))
           loopLog.warn('query totals', { totals: out })
           loopLog.warn('task totals', {
             totals: [...taskAttributionTotals()]

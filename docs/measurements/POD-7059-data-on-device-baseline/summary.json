@@ -1,0 +1,611 @@
+{
+  "host": "vega-agents",
+  "round": 1,
+  "memoryRound": 2,
+  "productBase": {
+    "sha": "17d01cd9c530eb22d902b352837cbfc9eb5a15a3",
+    "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04"
+  },
+  "memory": [
+    {
+      "checkout": "podium-test-7099",
+      "cell": "h1a1",
+      "surface": "web",
+      "status": "complete",
+      "failure": null,
+      "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+      "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+      "browser": "148.0.7778.96",
+      "population": {
+        "agentProfile": 6,
+        "checkout": 5,
+        "effect": 5,
+        "instancePreferences": 1,
+        "issueDep": 3594,
+        "issueDescription": 2,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4869,
+        "machine": 8,
+        "machineAccess": 2,
+        "repo": 13,
+        "session": 4309,
+        "sessionUserState": 4304,
+        "superagentThread": 1,
+        "userPreferences": 1
+      },
+      "build": {
+        "wireSchemaDigest": "ab2434260cb311c8",
+        "wireVersion": 5,
+        "appVersion": "dev+2288954",
+        "sourceSha": "2288954",
+        "bundleVersion": "bundle+kIFZj9ke"
+      },
+      "browserLibraryPath": "/home/agent/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu",
+      "heapUsedAfterGcMiB": 203.5567283630371,
+      "heapUsedBeforeGcMiB": 268.2853240966797,
+      "heapTotalAfterGcMiB": 210.83203125,
+      "rendererRssMiB": 432.3984375,
+      "rendererPssMiB": 356.9287109375,
+      "rendererPeakRssMiB": 583.49609375,
+      "browserTreeRssMiB": 1111.0390625,
+      "renderers": 2,
+      "measuredAt": "2026-11-17T18:30:57.729Z",
+      "loadStart": [
+        1.27,
+        1.62,
+        1.28
+      ],
+      "cpu": "AMD EPYC 7351P 16-Core Processor",
+      "cores": 16
+    },
+    {
+      "checkout": "podium-test-7099",
+      "cell": "h1a1",
+      "surface": "phone",
+      "status": "complete",
+      "failure": null,
+      "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+      "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+      "browser": "148.0.7778.96",
+      "population": {
+        "agentProfile": 6,
+        "checkout": 5,
+        "effect": 5,
+        "instancePreferences": 1,
+        "issueDep": 3594,
+        "issueDescription": 2,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4869,
+        "machine": 8,
+        "machineAccess": 2,
+        "repo": 13,
+        "session": 4309,
+        "sessionUserState": 4304,
+        "superagentThread": 1,
+        "userPreferences": 1
+      },
+      "build": {
+        "wireSchemaDigest": "ab2434260cb311c8",
+        "wireVersion": 5,
+        "appVersion": "dev+2288954",
+        "sourceSha": "2288954",
+        "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+      },
+      "browserLibraryPath": "/home/agent/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu",
+      "heapUsedAfterGcMiB": 182.0265235900879,
+      "heapUsedBeforeGcMiB": 220.70970916748047,
+      "heapTotalAfterGcMiB": 184.2421875,
+      "rendererRssMiB": 382.4140625,
+      "rendererPssMiB": 312.169921875,
+      "rendererPeakRssMiB": 536.9609375,
+      "browserTreeRssMiB": 1034.19921875,
+      "renderers": 2,
+      "measuredAt": "2026-11-17T18:31:36.444Z",
+      "loadStart": [
+        1.35,
+        1.63,
+        1.29
+      ],
+      "cpu": "AMD EPYC 7351P 16-Core Processor",
+      "cores": 16
+    },
+    {
+      "checkout": "podium-test-7099",
+      "cell": "h10a1",
+      "surface": "web",
+      "status": "complete",
+      "failure": null,
+      "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+      "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+      "browser": "148.0.7778.96",
+      "population": {
+        "agentProfile": 6,
+        "checkout": 5,
+        "effect": 5,
+        "instancePreferences": 1,
+        "issueDep": 19682,
+        "issueDescription": 2,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 27603,
+        "issueUserState": 27603,
+        "machine": 8,
+        "machineAccess": 2,
+        "repo": 13,
+        "session": 30616,
+        "sessionUserState": 30611,
+        "superagentThread": 1,
+        "userPreferences": 1
+      },
+      "build": {
+        "wireSchemaDigest": "ab2434260cb311c8",
+        "wireVersion": 5,
+        "appVersion": "dev+2288954",
+        "sourceSha": "2288954",
+        "bundleVersion": "bundle+kIFZj9ke"
+      },
+      "browserLibraryPath": "/home/agent/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu",
+      "heapUsedAfterGcMiB": 569.4546089172363,
+      "heapUsedBeforeGcMiB": 643.4528579711914,
+      "heapTotalAfterGcMiB": 592.14453125,
+      "rendererRssMiB": 820.5,
+      "rendererPssMiB": 744.59765625,
+      "rendererPeakRssMiB": 1197.84375,
+      "browserTreeRssMiB": 1557.38671875,
+      "renderers": 2,
+      "measuredAt": "2026-11-17T18:34:53.842Z",
+      "loadStart": [
+        2.01,
+        1.81,
+        1.37
+      ],
+      "cpu": "AMD EPYC 7351P 16-Core Processor",
+      "cores": 16
+    },
+    {
+      "checkout": "podium-test-7099",
+      "cell": "h10a1",
+      "surface": "phone",
+      "status": "complete",
+      "failure": null,
+      "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+      "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+      "browser": "148.0.7778.96",
+      "population": {
+        "agentProfile": 6,
+        "checkout": 5,
+        "effect": 5,
+        "instancePreferences": 1,
+        "issueDep": 19682,
+        "issueDescription": 2,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 27603,
+        "issueUserState": 27603,
+        "machine": 8,
+        "machineAccess": 2,
+        "repo": 13,
+        "session": 30616,
+        "sessionUserState": 30611,
+        "superagentThread": 1,
+        "userPreferences": 1
+      },
+      "build": {
+        "wireSchemaDigest": "ab2434260cb311c8",
+        "wireVersion": 5,
+        "appVersion": "dev+2288954",
+        "sourceSha": "2288954",
+        "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+      },
+      "browserLibraryPath": "/home/agent/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu",
+      "heapUsedAfterGcMiB": 542.0806007385254,
+      "heapUsedBeforeGcMiB": 615.5654602050781,
+      "heapTotalAfterGcMiB": 555.19921875,
+      "rendererRssMiB": 768.3671875,
+      "rendererPssMiB": 697.23046875,
+      "rendererPeakRssMiB": 1094.51953125,
+      "browserTreeRssMiB": 1497.96484375,
+      "renderers": 2,
+      "measuredAt": "2026-11-17T18:38:08.764Z",
+      "loadStart": [
+        1.39,
+        1.71,
+        1.42
+      ],
+      "cpu": "AMD EPYC 7351P 16-Core Processor",
+      "cores": 16
+    }
+  ],
+  "timing": {
+    "web": {
+      "surface": "web",
+      "cohort": "07614bbd-8796-446c-becf-6f8d6db47040",
+      "host": "vega-agents",
+      "arms": {
+        "h1a1": {
+          "cell": "h1a1",
+          "admitted": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-web-h1a1-r1-s0/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 5805.748,
+              "warmMs": 4111.577,
+              "startedAt": "2026-11-17T18:46:39.260Z",
+              "loadStart": [
+                1.99,
+                2.32,
+                1.91
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-web-h1a1-r1-s1/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 5842.15,
+              "warmMs": 4557.769,
+              "startedAt": "2026-11-17T18:54:32.905Z",
+              "loadStart": [
+                1.93,
+                1.99,
+                1.92
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-web-h1a1-r1-s2/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 5747.998,
+              "warmMs": 4116.766,
+              "startedAt": "2026-11-17T18:58:52.257Z",
+              "loadStart": [
+                1.18,
+                1.83,
+                1.9
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              }
+            }
+          ],
+          "rejected": [],
+          "cold": {
+            "samplesMs": [
+              5805.748,
+              5842.15,
+              5747.998
+            ],
+            "medianMs": 5805.748,
+            "minMs": 5747.998,
+            "maxMs": 5842.15
+          },
+          "warm": {
+            "samplesMs": [
+              4111.577,
+              4557.769,
+              4116.766
+            ],
+            "medianMs": 4116.766,
+            "minMs": 4111.577,
+            "maxMs": 4557.769
+          },
+          "semanticSha256": "dc527e887ed6015f478c00e7262114229bff7b34204bdb2b58261efe9a7ea0a5",
+          "browser": "148.0.7778.96",
+          "collectorSha256": "755f4ae588cd646a3456cd52a4190e0656c44a0a9024fafe140ca540fa3348be",
+          "host": "vega-agents",
+          "lock": "test:vega-agents"
+        },
+        "h10a1": {
+          "cell": "h10a1",
+          "admitted": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-web-h10a1-r1-s0/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 18475.763,
+              "warmMs": 13230.62,
+              "startedAt": "2026-11-17T18:47:29.071Z",
+              "loadStart": [
+                2.4,
+                2.45,
+                1.97
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-web-h10a1-r1-s1/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 18808.711,
+              "warmMs": 13907.755,
+              "startedAt": "2026-11-17T18:51:05.192Z",
+              "loadStart": [
+                1.36,
+                2.01,
+                1.9
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              }
+            }
+          ],
+          "rejected": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-web-h10a1-r1-s2/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 18704.75,
+              "warmMs": 13407.936,
+              "startedAt": "2026-11-17T18:55:23.128Z",
+              "loadStart": [
+                2.79,
+                2.21,
+                1.99
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+kIFZj9ke"
+              },
+              "rejected": "unexpected browser errors invalidate startup evidence",
+              "errors": [
+                "warning: 18:55:49.695 WARN  client-core:socket-hub socket closed \u2014 reconnecting retryInMs=382 cause=heartbeat-timeout silentForMs=10000 platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36",
+                "error: Failed to load resource: the server responded with a status of 404 ()"
+              ]
+            }
+          ],
+          "cold": {
+            "samplesMs": [
+              18475.763,
+              18808.711
+            ],
+            "medianMs": 18642.237,
+            "minMs": 18475.763,
+            "maxMs": 18808.711
+          },
+          "warm": {
+            "samplesMs": [
+              13230.62,
+              13907.755
+            ],
+            "medianMs": 13569.1875,
+            "minMs": 13230.62,
+            "maxMs": 13907.755
+          },
+          "semanticSha256": "f1294d135bd244a88b4bd69a16a5364e21a9a9cf42a78f357c1cdaf7f3355fba",
+          "browser": "148.0.7778.96",
+          "collectorSha256": "755f4ae588cd646a3456cd52a4190e0656c44a0a9024fafe140ca540fa3348be",
+          "host": "vega-agents",
+          "lock": "test:vega-agents"
+        }
+      }
+    },
+    "phone": {
+      "surface": "phone",
+      "cohort": "41e74b02-40c5-4166-b9b8-4267f979cc1c",
+      "host": "vega-agents",
+      "arms": {
+        "h1a1": {
+          "cell": "h1a1",
+          "admitted": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-phone-h1a1-r1-s0/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 5861.687,
+              "warmMs": 4776.14,
+              "startedAt": "2026-11-17T19:06:24.385Z",
+              "loadStart": [
+                3.63,
+                2.6,
+                2.2
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-phone-h1a1-r1-s1/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 5886.329,
+              "warmMs": 4470.32,
+              "startedAt": "2026-11-17T19:13:50.112Z",
+              "loadStart": [
+                1.97,
+                2.64,
+                2.49
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h1a1-phone-h1a1-r1-s2/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 6056.215,
+              "warmMs": 4933.352,
+              "startedAt": "2026-11-17T19:18:23.676Z",
+              "loadStart": [
+                2.1,
+                2.26,
+                2.36
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              }
+            }
+          ],
+          "rejected": [],
+          "cold": {
+            "samplesMs": [
+              5861.687,
+              5886.329,
+              6056.215
+            ],
+            "medianMs": 5886.329,
+            "minMs": 5861.687,
+            "maxMs": 6056.215
+          },
+          "warm": {
+            "samplesMs": [
+              4776.14,
+              4470.32,
+              4933.352
+            ],
+            "medianMs": 4776.14,
+            "minMs": 4470.32,
+            "maxMs": 4933.352
+          },
+          "semanticSha256": "dc527e887ed6015f478c00e7262114229bff7b34204bdb2b58261efe9a7ea0a5",
+          "browser": "148.0.7778.96",
+          "collectorSha256": "755f4ae588cd646a3456cd52a4190e0656c44a0a9024fafe140ca540fa3348be",
+          "host": "vega-agents",
+          "lock": "test:vega-agents"
+        },
+        "h10a1": {
+          "cell": "h10a1",
+          "admitted": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-phone-h10a1-r1-s0/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 18594.475,
+              "warmMs": 14325.709,
+              "startedAt": "2026-11-17T19:07:13.184Z",
+              "loadStart": [
+                4.43,
+                3.05,
+                2.37
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              }
+            },
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-phone-h10a1-r1-s1/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 17305.91,
+              "warmMs": 14621.15,
+              "startedAt": "2026-11-17T19:10:32.269Z",
+              "loadStart": [
+                2.29,
+                3.08,
+                2.55
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              }
+            }
+          ],
+          "rejected": [
+            {
+              "run": "~/podium-test-7099/.artifacts/old-vs-new/timing-h10a1-phone-h10a1-r1-s2/run.json",
+              "sha": "2288954cbb3fdb86f7f4db1b2696a295656343c0",
+              "productTreeSha256": "f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04",
+              "coldMs": 18407.484,
+              "warmMs": 13761.177,
+              "startedAt": "2026-11-17T19:14:39.030Z",
+              "loadStart": [
+                2.13,
+                2.59,
+                2.48
+              ],
+              "build": {
+                "wireSchemaDigest": "ab2434260cb311c8",
+                "wireVersion": 5,
+                "appVersion": "dev+2288954",
+                "sourceSha": "2288954",
+                "bundleVersion": "bundle+1f8f5d3ca6b7f58204d51e14506d73fb"
+              },
+              "rejected": "unexpected browser errors invalidate startup evidence",
+              "errors": [
+                "warning: {\"ts\":\"2026-11-17T19:15:05.270Z\",\"level\":\"warn\",\"ns\":\"client-core:socket-hub\",\"msg\":\"socket closed \u2014 reconnecting\",\"retryInMs\":433,\"cause\":\"heartbeat-timeout\",\"silentForMs\":10000,\"role\":\"mobile\",\"v\":\"dev+2288954\",\"platform\":\"web\"}",
+                "error: Failed to load resource: the server responded with a status of 404 ()"
+              ]
+            }
+          ],
+          "cold": {
+            "samplesMs": [
+              18594.475,
+              17305.91
+            ],
+            "medianMs": 17950.192499999997,
+            "minMs": 17305.91,
+            "maxMs": 18594.475
+          },
+          "warm": {
+            "samplesMs": [
+              14325.709,
+              14621.15
+            ],
+            "medianMs": 14473.4295,
+            "minMs": 14325.709,
+            "maxMs": 14621.15
+          },
+          "semanticSha256": "f1294d135bd244a88b4bd69a16a5364e21a9a9cf42a78f357c1cdaf7f3355fba",
+          "browser": "148.0.7778.96",
+          "collectorSha256": "755f4ae588cd646a3456cd52a4190e0656c44a0a9024fafe140ca540fa3348be",
+          "host": "vega-agents",
+          "lock": "test:vega-agents"
+        }
+      }
+    }
+  }
+}

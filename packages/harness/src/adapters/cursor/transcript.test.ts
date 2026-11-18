@@ -53,3 +53,26 @@ describe('cursorRecordToItems', () => {
     })
   })
 })
+
+it('retains explicit shell input without inventing a native batch', () => {
+  const command = `printf '%s\\n' ${'a-long-argument '.repeat(50)}`
+  const [call] = cursorRecordToItems({
+    role: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Shell',
+          id: 'shell-call',
+          input: { command, description: 'Print the arguments' },
+        },
+      ],
+    },
+  })
+  expect(call?.toolExecution?.inputs?.[0]).toMatchObject({
+    text: command,
+    description: 'Print the arguments',
+    capture: 'complete',
+  })
+  expect(call?.toolBatch).toBeUndefined()
+})

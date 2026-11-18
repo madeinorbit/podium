@@ -432,7 +432,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/store.ts',
-    line: 585,
+    line: 587,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
   {
@@ -620,6 +620,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/blob-store/src/internal.ts#KeyedMutex.release': {
     kind: 'contained',
     why: 'Resolves an in-process promise that hands the key to the next waiter; nothing outside the process can see it.',
+  },
+  'packages/sync/src/adapters/indexeddb/idb.ts#IdbKeyRangeLike.bound': {
+    kind: 'contained',
+    why: 'Builds an IndexedDB key range value (the marker rows of one principal, POD-7086) for a delete staged in the same native transaction; constructing it reads and writes nothing.',
   },
   'apps/server/src/store/events.ts#EventFeedCapture.EventFeedCapture': {
     kind: 'contained',

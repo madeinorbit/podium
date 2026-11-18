@@ -225,7 +225,7 @@ describe('announcement', () => {
   it('names the condition and the count, never the percent', () => {
     expect(announcement('catching-up', 0, 0)).toBe('Syncing')
     expect(announcement('offline', 3, 2)).toBe('Offline, 3 queued, 2 need review')
-    expect(announcement(null, 0, 1)).toBe('1 need review')
+    expect(announcement(null, 0, 1)).toBe('1 needs review')
     expect(announcement('up-to-date', 0, 0)).toBe('Up to date')
     expect(announcement(null, 0, 0)).toBe('')
   })

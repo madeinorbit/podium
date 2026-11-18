@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ScreenState } from '@podium/client-core/ui'
 import type { ActiveWorktree } from '@podium/client-core/values'
@@ -31,8 +30,7 @@ export class ShellIssueChrome {
 
   @lazy get known(): Loaded<boolean> {
     const row =
-      omitGone(this.pool.row('issue', this.id, 'summary')) ??
-      omitGone(this.pool.row('issue', this.id))
+      omitGone(this.pool.row('issue', this.id)) ?? omitGone(this.pool.row('issue', this.id))
     if (row === LOADING) {
       void omitGone(this.pool.row('issue', this.id))
       return LOADING
@@ -64,10 +62,7 @@ export class ShellIssueChrome {
 /** Only scalar answers and stable companions enter the shell's chrome snapshot. */
 export class ShellChrome {
   private readonly issue = companion((issue: IssueModel) => new ShellIssueChrome(issue, this.pool))
-  constructor(
-    private readonly pool: MobxPool,
-    private readonly sessionCount: () => number,
-  ) {}
+  constructor(private readonly pool: MobxPool) {}
 
   @lazy private get missionRoot(): Loaded<ShellIssueChrome> {
     const state = omitGone(this.pool.row('shellWindow', 'window'))
@@ -93,7 +88,6 @@ export class ShellChrome {
         selectedIssueId: state.selectedIssueId,
         repoCount: headerView(this.pool).repositoryCount(),
         worktreeCount: headerView(this.pool).worktreeCount(),
-        sessionCount: this.sessionCount(),
         missionRoot,
       }
     } catch (error) {
@@ -115,7 +109,7 @@ export class ShellDockSession {
     if (this.pool.queries.collapsed(this.session.id)) return undefined
     // An absent summary still needs the addressed lookup's pending/gone answer.
     const row =
-      omitGone(this.pool.row('session', this.session.id, 'summary-fields')) ??
+      omitGone(this.pool.row('session', this.session.id)) ??
       omitGone(this.pool.row('session', this.session.id))
     return row === LOADING ? LOADING : row ? true : undefined
   }
@@ -266,11 +260,8 @@ function createShellViews(pool: MobxPool) {
     return values
   }
   function issue(id: string, full = false): Loaded<ShellIssue> {
-    const value = omitGone(pool.row('issue', id, full ? 'load' : 'summary'))
-    if (value === LOADING) {
-      void omitGone(pool.row('issue', id))
-      return LOADING
-    }
+    const value = omitGone(pool.row('issue', id))
+    if (value === LOADING) return LOADING
     if (!value) return undefined
     const input = value as unknown as Record<string, unknown>,
       repoId = input.repoId as string | undefined
@@ -293,11 +284,6 @@ function createShellViews(pool: MobxPool) {
       displayRef: issueRefText(input.seq as number, prefix),
     } as unknown as ShellIssue
   }
-  function sessions(): Loaded<SessionView[]> {
-    return pool.queries.project({ kind: 'shellSessions' }, 'shell.sessions', session, {
-      order: (id) => pool.queries.orderKey(id),
-    })
-  }
   function linkedIssue(identifier: string): Loaded<ShellIssue> {
     const id = pool.queries.linkedIssueId(identifier)
     return id === undefined ? undefined : issue(id)
@@ -309,7 +295,7 @@ function createShellViews(pool: MobxPool) {
   function session(id: string): Loaded<SessionView> {
     return memo(`session:${id}`, () => {
       if (pool.queries.collapsed(id)) return undefined
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       if (row === LOADING) return LOADING
       return row
         ? (Object.fromEntries(
@@ -321,20 +307,7 @@ function createShellViews(pool: MobxPool) {
         : undefined
     })
   }
-  function sessionCount(): number {
-    return pool.queries.setupSessionCount()
-  }
-  function issues(): Loaded<IssueViewModel[]> {
-    return memo('issues', () => {
-      const values: IssueViewModel[] = []
-      for (const id of pool.queries.ids({ kind: 'shellIssues' }).sort()) {
-        const row = issue(id)
-        if (row === LOADING) return LOADING
-        if (row) values.push(row as IssueViewModel)
-      }
-      return values
-    })
-  }
+
   function repositories(): HeaderRows['repository'][] {
     return memo('repositories', () =>
       headerIds(pool, 'repository').flatMap((id) => {
@@ -386,7 +359,7 @@ function createShellViews(pool: MobxPool) {
       return layout === LOADING ? LOADING : { workspaceKey: key, layout, fileTabs }
     })
   }
-  const shellChrome = new ShellChrome(pool, sessionCount)
+  const shellChrome = new ShellChrome(pool)
   const shellDock = new ShellDock(pool, files)
   function chrome() {
     return shellChrome.value
@@ -401,11 +374,9 @@ function createShellViews(pool: MobxPool) {
     window: windowSnapshot,
     files,
     lanes,
-    sessions,
     session,
     linkedIssue,
     linkedSession,
-    issues,
     issue,
     machines,
     repositories,

@@ -1,9 +1,10 @@
-import type { TranscriptItem } from '@podium/model'
+import type { TranscriptItem, TranscriptToolBatch } from '@podium/model'
 import {
   encodeCursor,
   type OpencodeMessagePartRow,
   type SqliteTranscriptLocator,
 } from '../../transcript-types.js'
+import { commandExecution, executionOutput } from '../shared/execution.js'
 import { opencodeDbPath, opencodeDbPathForSession } from './paths.js'
 
 export type { OpencodeMessagePartRow } from '../../transcript-types.js'
@@ -19,13 +20,24 @@ import { toolInputPreview } from '../claude-code/transcript.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */
-export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem[] {
+export interface OpencodeExecutionBatches {
+  steps: Map<string, string>
+  parts: Map<string, TranscriptToolBatch>
+}
+
+export function opencodePartToItems(
+  row: OpencodeMessagePartRow,
+  batches?: OpencodeExecutionBatches,
+): TranscriptItem[] {
   const messageInfo = parseJsonRecord(row.messageData)
   const part = parseJsonRecord(row.partData)
   if (!messageInfo || !part) return []
 
   const role = stringField(messageInfo, 'role')
   const partType = stringField(part, 'type')
+  if (partType === 'step-start' && batches) {
+    batches.steps.set(row.messageId, row.partId)
+  }
   // How the assistant turn closed: 'stop' is the terminal, user-facing reply;
   // 'tool-calls' is an intermediate step whose text (if any) narrates the tools
   // it introduces. Present once the turn closes (protocol `finish`).
@@ -94,7 +106,21 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       const toolName = stringField(part, 'tool') ?? 'tool'
       const state = recordField(part, 'state')
       const input = state ? recordField(state, 'input') : undefined
-      const output = state ? stringField(state, 'output') : undefined
+      const output = typeof state?.output === 'string' ? state.output : undefined
+      const status = state?.status
+      const done = status === 'completed' || status === 'error'
+      const command =
+        toolName === 'bash' && typeof input?.command === 'string' ? input.command : undefined
+      const description = typeof input?.description === 'string' ? input.description : undefined
+      const step = batches?.steps.get(row.messageId)
+      const batch =
+        batches?.parts.get(row.partId) ?? (step ? { id: step, kind: 'step' as const } : undefined)
+      if (batch) batches?.parts.set(row.partId, batch)
+      const time = state ? recordField(state, 'time') : undefined
+      const durationMs =
+        typeof time?.start === 'number' && typeof time.end === 'number'
+          ? Math.max(0, time.end - time.start)
+          : undefined
       const callId = stringField(part, 'callID')
       const toolInputJson = input ? safeToolEditJsonFromInput(toolName, input) : undefined
       const items: TranscriptItem[] = [
@@ -104,19 +130,42 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
           ...(ts ? { ts } : {}),
           text: toolName,
           toolName,
+          ...(command !== undefined
+            ? {
+                toolExecution: {
+                  ...commandExecution(command, description),
+                  ...(status === 'running' || status === 'pending'
+                    ? { status: 'running' as const }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(batch ? { toolBatch: batch } : {}),
           ...(input !== undefined ? { toolInput: toolInputPreview(input) } : {}),
           ...(toolInputJson ? { toolInputJson } : {}),
           ...(callId ? { toolUseId: callId } : {}),
         },
       ]
-      if (output) {
+      if (done || output !== undefined) {
         items.push({
           id: itemId(1),
           role: 'tool',
           ...(ts ? { ts } : {}),
-          text: output,
+          text: '',
           toolName,
-          toolResult: output,
+          ...executionOutput(
+            output ?? (typeof state?.error === 'string' ? state.error : undefined),
+            {
+              ...(status === 'running' || status === 'pending'
+                ? { status: 'running' as const }
+                : status === 'error'
+                  ? { status: 'failed' as const }
+                  : status === 'completed'
+                    ? { status: 'completed' as const }
+                    : {}),
+              ...(durationMs !== undefined ? { durationMs } : {}),
+            },
+          ),
           ...(callId ? { toolUseId: callId } : {}),
         })
       }
@@ -135,7 +184,8 @@ export function isOpencodeMessageAborted(message: Record<string, unknown>): bool
 
 export function opencodeRowsToItems(rows: OpencodeMessagePartRow[]): TranscriptItem[] {
   const items: TranscriptItem[] = []
-  for (const row of rows) items.push(...opencodePartToItems(row))
+  const batches: OpencodeExecutionBatches = { steps: new Map(), parts: new Map() }
+  for (const row of rows) items.push(...opencodePartToItems(row, batches))
   return items
 }
 

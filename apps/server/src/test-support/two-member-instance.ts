@@ -73,7 +73,7 @@ import { noJanitorWorkerForTests } from '../janitor-host'
 import type { AppRouter } from '../router'
 import { startServer } from '../server'
 import { syncFeedPrincipal } from '../sync/route-support'
-import { workerSnapshot } from './bootstrap-snapshot'
+import { worldSnapshot } from './bootstrap-snapshot'
 import { attachDaemonWithInventory } from './daemon-inventory'
 
 export type MemberName = 'alice' | 'bob' | 'carol'
@@ -197,7 +197,7 @@ export interface TwoMemberInstance {
   close(): Promise<void>
 }
 
-export type FeedSnapshot = Awaited<ReturnType<typeof workerSnapshot>>
+export type FeedSnapshot = Awaited<ReturnType<typeof worldSnapshot>>
 
 export type FeedChange = FeedDeltaMessage['changes'][number]
 
@@ -552,7 +552,7 @@ export async function startTwoMemberInstance(
             throw new Error('authenticated member required')
           const principal = syncFeedPrincipal(userCommandPrincipal(userId, account.role))
           if (!principal) throw new Error('authenticated feed principal required')
-          return await workerSnapshot(registry, principal)
+          return await worldSnapshot(registry, principal)
         },
         until: async (pred, ms) => await until(pred, ms),
         closed: () => closed,
@@ -579,7 +579,7 @@ export async function startTwoMemberInstance(
     }
 
     const legacyDeviceFeed = async (): Promise<FeedSnapshot> => {
-      return await workerSnapshot(registry, DEVICE_GRADE_PRINCIPAL)
+      return await worldSnapshot(registry, DEVICE_GRADE_PRINCIPAL)
     }
 
     return {

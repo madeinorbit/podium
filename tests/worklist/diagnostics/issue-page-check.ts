@@ -5,7 +5,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations } from '@podium/client-core/values'
-import { knownIds } from '@podium/client-graph/enumerate'
+import { residentIds } from '@podium/client-graph/enumerate'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -233,7 +233,7 @@ export function legacyIssuePageSnapshot(
 }
 export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
   const views = issuePages(pool)
-  return knownIds(pool, 'issue').map((id) => {
+  return residentIds(pool, 'issue').map((id) => {
     const issue = poolIssuePageFields(pool, id),
       roster = views.attachedSessions(id)
     if (!issue || issue === LOADING || !roster || roster === LOADING) return { id, value: LOADING }

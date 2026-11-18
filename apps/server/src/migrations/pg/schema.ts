@@ -252,6 +252,7 @@ export const automationRuns = pgTable(
       table.automationId,
       table.firedAt,
     ),
+    index('idx_automation_runs_fired').on(table.workspaceId, table.firedAt, table.id),
     foreignKey({
       name: 'fk_automation_runs_automation_id_automations_id_fk',
       columns: [table.workspaceId, table.automationId],
@@ -569,6 +570,11 @@ export const conversations = pgTable(
     primaryKey({ name: 'conversations_pk', columns: [table.workspaceId, table.id] }),
     index('idx_conversations_project_path').on(table.workspaceId, table.projectPath),
     index('idx_conversations_updated_at').on(table.workspaceId, table.updatedAt),
+    index('idx_conversations_created_at').on(
+      table.workspaceId,
+      sql`coalesce("created_at", '-infinity'::timestamptz)`,
+      table.id,
+    ),
     index('idx_conversations_top_level_updated')
       .on(table.workspaceId, table.updatedAt, table.id)
       .where(sql`"parent_conversation_id" IS NULL`),
@@ -669,7 +675,9 @@ export const effects = pgTable(
       table.deadlineAt.asc().nullsFirst(),
     ),
     index('idx_effects_status_finished').on(table.workspaceId, table.status, table.finishedAt),
-    index('idx_effects_deleted').on(table.workspaceId, table.deletedAt),
+    index('idx_effects_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`"deleted_at" IS NOT NULL`),
     index('idx_effects_target').on(
       table.workspaceId,
       table.targetKind,
@@ -1198,7 +1206,9 @@ export const issues = pgTable(
   },
   (table) => [
     primaryKey({ name: 'issues_pk', columns: [table.workspaceId, table.id] }),
-    index('idx_issues_deleted_at').on(table.workspaceId, table.deletedAt),
+    index('idx_issues_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`"deleted_at" IS NOT NULL`),
     index('idx_issues_closed_projection').on(
       table.workspaceId,
       table.id,
@@ -1211,9 +1221,18 @@ export const issues = pgTable(
       table.repoId.asc().nullsFirst(),
       table.seq,
     ),
-    index('idx_issues_parent').on(table.workspaceId, table.parentId),
+    index('idx_issues_children')
+      .on(table.workspaceId, table.parentId)
+      .where(sql`"parent_id" IS NOT NULL`),
     index('idx_issues_seq').on(table.workspaceId, table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.workspaceId, table.repoPath),
+    index('idx_issues_stage_updated').on(
+      table.workspaceId,
+      table.stage,
+      sql`"updated_at" desc`,
+      table.id,
+    ),
+    index('idx_issues_updated').on(table.workspaceId, table.updatedAt),
     index('idx_issues_worktree')
       .on(table.workspaceId, table.worktreePath)
       .where(sql`"worktree_path" IS NOT NULL AND "deleted_at" IS NULL`),
@@ -1412,6 +1431,12 @@ export const maintenanceCommands = pgTable(
       name: 'maintenance_commands_pk',
       columns: [table.workspaceId, table.jobKind, table.runKey],
     }),
+    index('idx_maintenance_commands_applied_at').on(
+      table.workspaceId,
+      table.appliedAt,
+      table.jobKind,
+      table.runKey,
+    ),
   ],
 )
 
@@ -2421,6 +2446,9 @@ export const sessions = pgTable(
     agentStateJson: jsonText('agent_state_json').$type<SqliteRow<'sessions'>['agentStateJson']>(),
     observedModel: textC('observed_model').$type<SqliteRow<'sessions'>['observedModel']>(),
     observedEffort: textC('observed_effort').$type<SqliteRow<'sessions'>['observedEffort']>(),
+    observedMode: textC('observed_mode').$type<SqliteRow<'sessions'>['observedMode']>(),
+    launchPostureJson:
+      jsonText('launch_posture_json').$type<SqliteRow<'sessions'>['launchPostureJson']>(),
     handoffTargetMachineId: textC('handoff_target_machine_id').$type<
       SqliteRow<'sessions'>['handoffTargetMachineId']
     >(),
@@ -2513,6 +2541,10 @@ export const sessions = pgTable(
     lifecycleFailure: textC('lifecycle_failure').$type<SqliteRow<'sessions'>['lifecycleFailure']>(),
     desiredByUser: textC('desired_by_user').$type<SqliteRow<'sessions'>['desiredByUser']>(),
     desiredByAgent: textC('desired_by_agent').$type<SqliteRow<'sessions'>['desiredByAgent']>(),
+    asksUser: boolean('asks_user')
+      .notNull()
+      .default(false)
+      .$type<SqliteRow<'sessions'>['asksUser']>(),
     workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'sessions'>['workspaceId']>(),
   },
   (table) => [
@@ -2524,7 +2556,9 @@ export const sessions = pgTable(
     index('idx_sessions_lifecycle_pending')
       .on(table.workspaceId, table.machineId)
       .where(sql`"revision" > "observed_revision" AND "deleted_at" IS NULL`),
-    index('idx_sessions_deleted_at').on(table.workspaceId, table.deletedAt),
+    index('idx_sessions_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`"deleted_at" IS NOT NULL`),
     index('idx_sessions_resume_machine').on(table.workspaceId, table.resumeValue, table.machineId),
     index('idx_sessions_issue').on(table.workspaceId, table.issueId),
     index('idx_sessions_ref_issue')
@@ -2544,9 +2578,14 @@ export const sessions = pgTable(
         sql`"ref_issue_id" IS NULL AND "ref_draft" IS NULL AND "deleted_at" IS NULL AND "issue_id" IS NOT NULL`,
       ),
     index('idx_sessions_status').on(table.workspaceId, table.status),
+    index('idx_sessions_published_active').on(table.workspaceId, table.publishedLastActiveAt),
+    index('idx_sessions_issue_archived').on(table.workspaceId, table.issueId, table.archived),
     index('idx_sessions_headless')
       .on(table.workspaceId, table.headless)
       .where(sql`"headless" = true`),
+    index('idx_sessions_asking')
+      .on(table.workspaceId, table.asksUser)
+      .where(sql`"asks_user" = true`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,

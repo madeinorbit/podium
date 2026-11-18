@@ -31,12 +31,10 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * each other in a cycle: every cross-issue read goes one way (children up,
  * ancestors down, spin-offs across). Rescue within a raw parent cycle reads
  * only own-row/member facts, never another cycle member's presence.
- * - facts (`issueFactsOf`): the own row, hot OR cold (a cold row is read by
- *   id through the feed, `VisibleInputs.issueRow`), and the clock: the
- *   standing (structural exclusion, finished, the sessionless keep's inputs,
- *   the raw parent), the row view's own part and the settled placement. Under
- *   the declared cold rule no visible row is cold, so a cold read answers the
- *   hidden side without loading the row.
+ * - facts (`issueFactsOf`): the own row (`VisibleInputs.issueRow`), and the
+ *   clock: the standing (structural exclusion, finished, the sessionless
+ *   keep's inputs, the raw parent), the row view's own part and the settled
+ *   placement.
  * - rank: L1b `rankOf` over the own part (the order and the group lanes read
  *   every visible row's rank, so it is cached apart from the facts).
  * - members (`membersOf`): R2's seats (`issue.sessions`, the maintained
@@ -61,7 +59,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * row's nest children are the present rows whose `nestParent` it is. They
  * are found down the raw parent edge (`issue.treeChildren`, through ANY
  * issue, as the nest walk goes up through any issue): a present child is
- * one, a hidden child passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
+ * one, a child that is not present passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
  * the one rule (`nestParentPartOf`) decides and the derivation only finds.
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
@@ -72,10 +70,9 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * (POD-5423), holds ONE reaction on what it files: its placement and rank
  * while it is visible, nothing while it is not. The effect moves
  * that row alone in the visible order and in the groups' lanes
- * (`sorted-lanes.ts`, `groups.ts`). A row not in memory is hidden by the
- * cold rule, so it files nothing and holds no reaction; its object is still
- * built on first read when another issue's walk reaches it (a cold ancestor,
- * a cold child).
+ * (`sorted-lanes.ts`, `groups.ts`). A row not in memory files nothing and
+ * holds no reaction; its object is still built on first read when another
+ * issue's walk reaches it.
  *
  * CROSS-ISSUE READS STAY TRACKED. A group that looks up another issue asks
  * the pool for it (`VisibleInputs.issue`), which answers the issue's object
@@ -133,9 +130,9 @@ export interface VisibleInputs {
   readonly issueSessionFact?: IssueSessionFactReader
   /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
   readonly links: RelationLinks
-  /** An issue's row, hot or cold (a cold one read by id through the feed); undefined when unknown. */
+  /** An issue's row as the pool holds it; undefined when unknown. */
   issueRow(id: string): SliceIssue | undefined
-  /** A session's row, hot or cold; undefined when unknown. */
+  /** A session's row as the pool holds it; undefined when unknown. */
   sessionRow(id: string): SliceSession | undefined
   /** Another known issue's parts (its object in the live pool); undefined when unknown. */
   issue(id: string): Omit<IssueVisibility, 'unread'> | undefined
@@ -155,9 +152,9 @@ export interface VisibleInputs {
   passed(t: number): boolean
   /** `coarseNow >= t`. */
   reached(t: number): boolean
-  /** A RESIDENT issue row; `LOADING` when cold (the read queues its load): the roll-ups' read. */
+  /** A RESIDENT issue row; `LOADING` while it is on its way (the read starts its load): the roll-ups' read. */
   loadedIssue(id: string): Loaded<SliceIssue>
-  /** A RESIDENT session row; `LOADING` when cold (queued). */
+  /** A RESIDENT session row; `LOADING` while it is on its way. */
   loadedSession(id: string): Loaded<SliceSession>
   /** Whether a session reads as reconnecting: its model's derived condition
    *  (ADR 12 D1). Rows never carry it. Absent: not known, so not reconnecting. */
@@ -229,42 +226,6 @@ export interface Standing {
   readonly formalParent: string | null
 }
 
-/**
- * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
- * rule keeps out of memory. The raw parent and exclusion fields let nesting
- * pass through it and rescue compose below it. An unplaced agent ancestor
- * can still attract a live child before nesting; its compact `flatUntil`
- * keeper bound decides whether that child needs the ancestor loaded. Cold
- * leaves read none of their sessions. These fields and the derived deadline
- * are the declared summary, never the full row.
- */
-export const HIDDEN_ISSUE_FIELDS = ['parentId', 'audience', 'archived', 'deletedAt', 'stage'] as const
-
-/** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
-export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>> & {
-  /** Declared derived summary, from existing own/member/lane deadlines (`coldFlatUntil`). */
-  readonly flatUntil?: number
-}
-
-/** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
-export function hiddenPresenceOf(
-  input: VisibleInputs,
-  id: string,
-  hidden: HiddenIssue,
-  self: Pick<IssueVisibility, 'parentRef'>,
-): Presence {
-  rescueWalkOf(input)?.paths.delete(self)
-  const keeps = !isExcluded(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
-  // An unplaced agent row may still have pre-nesting presence from a seat.
-  // A live descendant needs that verdict: it might nest under this row and
-  // disappear with it. Load through the normal window only when needed,
-  // rather than observing all the historical row's member sessions.
-  if (keeps && hidden.audience === 'agent' && hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil)) {
-    void input.loadedIssue(id)
-  }
-  return { flat: false, keeps, present: false }
-}
-
 export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent' |
   'replicaActivityMs' | 'headlessStaffed' | 'pinned'>, sessionFact?: IssueSessionFactReader,
@@ -322,7 +283,7 @@ function issueFactsOf(
   }
 }
 
-/** The facts group of issue `id`, hot or cold; undefined when unknown. */
+/** The facts group of issue `id`; undefined when unknown. */
 export function issueFactsPartOf(input: VisibleInputs, id: string): IssueFacts | undefined {
   const issue = input.issueRow(id)
   return issue === undefined ? undefined : issueFactsOf(issue, input)
@@ -456,7 +417,7 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
 export interface SessionVisibility {
   readonly retention: Retention | null
   readonly activityMs: number | null
-  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
+  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is on its way. */
   readonly verdict: Loaded<SeatVerdict>
 }
 
@@ -481,7 +442,7 @@ export function withLiveBusy<T extends SliceSession>(
   return input.sessionBusy?.(id) === true ? { ...row, busy: true } : row
 }
 
-/** A seat's verdict from the resident row (the roll-ups never read a cold session). */
+/** A seat's verdict from the resident row. */
 export function verdictPartOf(
   input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting' | 'sessionBusy'>,
   id: string,
@@ -537,9 +498,7 @@ export interface Members {
 /** One issue's parts (see the header), and its roll-up parts (`rollup.ts`). */
 export interface IssueVisibility extends RollupParts, Members {
   readonly standing: Standing | undefined
-  /** A cold hidden issue's declared summary; absent in the plain rebuild. */
-  readonly hidden?: HiddenIssue
-  /** The raw `parentId` the nesting walk follows (`standing.parentId`; a hidden issue's from its summary). */
+  /** The raw `parentId` the nesting walk follows (`standing.parentId`). */
   readonly parentRef: string | null
   readonly childIds: readonly string[]
   /** `issue.spinOffs` (R4, the inverse edge), id order: the roll-ups' vacated and continuation tests. */
@@ -940,14 +899,9 @@ function flatKeptBelow(input: VisibleInputs, childIds: readonly string[]): boole
     seen.add(childId)
     const child = input.issue(childId)
     if (child === undefined) continue
-    const hidden = child.hidden
-    if (hidden !== undefined) {
-      if (isExcluded(hidden)) continue
-    } else {
-      const standing = child.standing
-      if (standing === undefined || standing.excluded) continue
-      if (flatOf(input, childId, standing, child)) return true
-    }
+    const standing = child.standing
+    if (standing === undefined || standing.excluded) continue
+    if (flatOf(input, childId, standing, child)) return true
     pending.push(...childIdsPartOf(input, childId))
   }
   return false

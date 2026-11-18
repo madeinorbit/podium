@@ -1,7 +1,7 @@
 import { issueRefText } from '@podium/protocol'
 import { omitGone } from '../lookup'
 import { parseMs } from '../views'
-import { compareShallow, compareStructural, untracked } from 'mobx'
+import { compareShallow, compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { type RowOriginTick, type RowRank, type RowView, isDraftNameSession } from '../shared/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
@@ -16,7 +16,7 @@ import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
 import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
 import { mobileWaitingCount, type MobileNavigation } from './mobile-row'
-import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
+import { childIdsPartOf, type HeldIssue, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
   exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
   laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
@@ -183,25 +183,16 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   @lazy
   get flat(): boolean {
-    return this.hidden === undefined && flatPartOf(this.host.visibleInputs, this.id, this)
+    return flatPartOf(this.host.visibleInputs, this.id, this)
   }
 
   @lazy
   get keeps(): boolean {
-    const hidden = this.hidden
-    return hidden === undefined
-      ? keepsPartOf(this.host.visibleInputs, this.id, this)
-      : hiddenPresenceOf(this.host.visibleInputs, this.id, hidden, this).keeps
+    return keepsPartOf(this.host.visibleInputs, this.id, this)
   }
 
   @lazy
   get present(): boolean {
-    if (this.hidden !== undefined) {
-      // A live child's nesting walk reads presence alone. Keep the cold
-      // keeper bound observed so renewal can queue the parent's load.
-      void this.keeps
-      return false
-    }
     const standing = this.standing
     return standing !== undefined && !standing.excluded &&
       (this.flat || (standing.rescuable && this.keeps))
@@ -401,9 +392,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   // Links and history
 
   get parentRef(): string | null {
-    // A cold ancestor's renewed retention can change nesting while its raw
-    // parent stays the same. Keep that view dependency beside the walk.
-    void this.hidden
     return this.issue.parentRef
   }
 
@@ -419,18 +407,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy({ equals: compareShallow }) get laneMemberIds(): readonly string[] { return laneMemberIdsPartOf(this.host.visibleInputs, this.id) }
 
   @lazy({ equals: compareShallow }) get memberIds(): readonly string[] { return memberIdsPartOf(this.seatIds, this.laneMemberIds) }
-
-  get hidden(): HiddenIssue | undefined {
-    // untracked-read: issue-hidden-presence
-    const resident = untracked(() => omitGone(this.host.row('issue', this.id, 'mark')))
-    if (resident !== LOADING) {
-      // Unknown ids must still follow a later cold publication through the reader.
-      if (resident === undefined) void omitGone(this.host.row('issue', this.id, 'summary'))
-      return undefined
-    }
-    const summary = omitGone(this.host.row('issue', this.id, 'summary'))
-    return summary === LOADING ? {} : summary as HiddenIssue | undefined
-  }
 
   get nestCandidate(): string | null {
     // Cycle walks can ask a root or an absent row for its candidate without

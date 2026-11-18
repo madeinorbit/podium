@@ -21,7 +21,6 @@ import {
 import { MobxPool } from '@podium/client-graph'
 import { preparePoolScreens, screenOptions } from '@podium/client-graph/host'
 import { omitGone } from '@podium/client-graph/lookup'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { computed } from '@podium/client-graph/react'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { IssueProjection } from '@podium/model'
@@ -34,7 +33,7 @@ import {
   referenceState,
 } from '../../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine, upsert } from '../../../../tests/worklist/shared/src/scenarios'
-import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
+import { panePoolScreen } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { attachWorklistPool } from './store-worklist-pool'
 
@@ -100,7 +99,7 @@ describe('web pool navigation', () => {
       expect(
         row.mock.calls.every(
           ([kind, id, mode]) =>
-            kind === 'session' && id === 'seat' && (mode === 'mark' || mode === 'summary-fields'),
+            kind === 'session' && id === 'seat' && (mode === 'mark' || mode === undefined),
         ),
       ).toBe(true)
     } finally {
@@ -178,7 +177,6 @@ describe('web pool navigation', () => {
     const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({
@@ -310,7 +308,7 @@ describe('web pool navigation', () => {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         if (handle) {
           runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
@@ -429,41 +427,11 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('answers cold rows with LOADING and the batched loader, then resolves the real root', () => {
-    const rows = [
-      issue('root', { archived: true }),
-      issue('child', { parentId: 'root', archived: true }),
-    ]
-    const byId = new Map(rows.map((row) => [row.id, row]))
-    const load = vi.fn((_kind: string, id: string) => byId.get(id))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pool.apply({
-      type: 'replace',
-      rows: rows.map((value) => ({ kind: 'issue', id: value.id, value })),
-    })
-    const provider = createPoolNavigationProvider(pool)
-    try {
-      expect(tracked(() => provider.issue('child'))).toBe(NAVIGATION_LOADING)
-      expect(load).not.toHaveBeenCalled()
-      pool.hydrate()
-      expect(load).toHaveBeenCalledTimes(1)
-      expect(tracked(() => provider.issue('child'))).toMatchObject({ id: 'child' })
-      expect(tracked(() => provider.missionRoot('child'))).toBe('child')
-    } finally {
-      pool.dispose()
-    }
-  })
-
   it('uses declared cold navigation summaries without loading full issue rows', () => {
     const row = issue('cold', { archived: true, worktreePath: '/repo/branch' })
     const load = vi.fn(() => row)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
@@ -517,7 +485,6 @@ describe('web pool navigation', () => {
     ] as SessionView[]
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load: () => undefined,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({
@@ -546,33 +513,6 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('loads missing cold activity facts in the ordinary batch', () => {
-    const rows = [
-      issue('root'),
-      issue('hidden', { parentId: 'root', archived: true, updatedAt: '2026-09-25T00:00:00.000Z' }),
-    ]
-    const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pool.apply({
-      type: 'replace',
-      rows: rows.map((value) => ({ kind: 'issue', id: value.id, value })),
-    })
-    const provider = createPoolNavigationProvider(pool)
-    try {
-      expect(tracked(() => provider.activityAt('root'))).toBe(NAVIGATION_LOADING)
-      expect(load).not.toHaveBeenCalled()
-      expect(pool.hydrate()).toBe(1)
-      expect(tracked(() => provider.activityAt('root'))).toBe(legacyActivity(rows, []))
-      expect(load).toHaveBeenCalledExactlyOnceWith('issue', 'hidden')
-    } finally {
-      pool.dispose()
-    }
-  })
-
   it('always prepares navigation and combines declared cold fields with other screens', () => {
     const setNavigationProvider = vi.fn(),
       prepare = vi.fn(),
@@ -591,7 +531,6 @@ describe('web pool navigation', () => {
     const detach = preparePoolScreens(screens, runtime)
     expect(screenOptions(screens, runtime)).toEqual({
       settings: true,
-      summaries: NAVIGATION_SUMMARIES,
     })
     expect(prepare).toHaveBeenCalledTimes(1)
     expect(setNavigationProvider).toHaveBeenCalledExactlyOnceWith(loadingNavigationProvider)
@@ -652,7 +591,7 @@ describe('web pool navigation', () => {
 
   it.each([
     1, 4,
-  ])('keeps local birth refs canonical, including a cold ref through its declared summary (%ix history)', (scale) => {
+  ])('keeps local birth refs canonical, including a stopped session ref (%ix history)', (scale) => {
     const seat = {
       sessionId: 'seat',
       displayRef: 'POD-529-A',
@@ -667,7 +606,6 @@ describe('web pool navigation', () => {
     const load = vi.fn((_kind: string, id: string) => (id === seat.sessionId ? seat : undefined))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: { session: ['displayRef'] },
       schedule: () => () => {},
     })
     pool.apply({
@@ -683,20 +621,19 @@ describe('web pool navigation', () => {
     })
     const provider = createPoolNavigationProvider(pool)
     const questions = vi.spyOn(pool.queries, 'sessionReferenceId')
-    const catalog = vi.spyOn(pool.coldIndex(), 'readerIds')
+    const catalog = vi.spyOn(pool.deviceIndex(), 'readerIds')
     const residentKeys = vi.spyOn(pool.tables.session, 'keys')
     try {
-      expect(tracked(() => provider.session(seat.displayRef))).toBe(NAVIGATION_LOADING)
-      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toBe(NAVIGATION_LOADING)
+      expect(tracked(() => provider.session(seat.displayRef))).toMatchObject({
+        sessionId: seat.sessionId,
+      })
+      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({
+        sessionId: seat.sessionId,
+      })
       expect(load).not.toHaveBeenCalled()
       expect(questions).toHaveBeenCalledWith(seat.displayRef)
       expect(catalog).not.toHaveBeenCalled()
       expect(residentKeys).not.toHaveBeenCalled()
-      pool.hydrate()
-      expect(load).toHaveBeenCalledTimes(1)
-      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({
-        sessionId: seat.sessionId,
-      })
       expect(tracked(() => provider.session('POD-530-A'))).toBeUndefined()
     } finally {
       pool.dispose()
@@ -733,7 +670,7 @@ describe('web pool navigation', () => {
       referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
       referenceState(runtime).setView('settings')
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         expect(referenceState(runtime).view).toBe('settings')
@@ -752,7 +689,7 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, {})
     const target = asIssueId(ctx.targets.visibleRootId)
     const initial = referenceState(runtime)
     runtime.setNavigationProvider(
@@ -783,7 +720,7 @@ describe('web pool navigation', () => {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         if (handle) runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         const st = referenceState(runtime)
@@ -828,7 +765,7 @@ describe('web pool navigation', () => {
     const target = asIssueId(ctx.targets.visibleRootId)
     referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, {})
     const navigation = createPoolNavigationProvider(handle.pool)
     const markRead = runtime.services.markRead
     if (!markRead) throw new Error('Mark-read service is not installed')
@@ -882,7 +819,7 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, {})
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st = referenceState(runtime)

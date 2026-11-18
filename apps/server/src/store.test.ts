@@ -237,6 +237,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     agentColor: null,
     observedModel: null,
     observedEffort: null,
+    // The harness-reported mode and the last launch's terms (POD-6858).
+    observedMode: null,
+    launchPosture: null,
     handoffTargetMachineId: null,
     ...overrides,
     // The published activity time reads back as the row's own unless a test
@@ -706,6 +709,24 @@ describe('SessionStore sessions', () => {
     })
     await store.sessions.upsertSession(fixtureWriteScope(), stopped)
     expect(await store.sessions.loadSessions()).toEqual([stopped])
+    await store.close()
+  })
+
+  // POD-6858 Task 11: a server restart keeps the mode the harness reported and
+  // what the last launch could not meet, so the notices and the chip survive.
+  it('round-trips the harness-reported mode and the launch report', async () => {
+    const store = await openTestStore(':memory:')
+    const launched = row({
+      observedMode: 'default',
+      launchPosture: {
+        requestedMode: 'auto',
+        unmet: [
+          { requirement: 'podium-cli', reason: 'this engine takes no allow rule per launch' },
+        ],
+      },
+    })
+    await store.sessions.upsertSession(fixtureWriteScope(), launched)
+    expect(await store.sessions.loadSessions()).toEqual([launched])
     await store.close()
   })
 

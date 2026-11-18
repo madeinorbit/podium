@@ -49,7 +49,10 @@ import {
   claimQueryAttribution,
   queryCallerStacksEnabled,
   queryKey,
+  readBytesSince,
   recordQuery,
+  sampleBatchRead,
+  sampleStatementRead,
 } from '@podium/runtime/query-attribution'
 import { currentStoreContext } from './context'
 import type {
@@ -104,6 +107,12 @@ export interface StatementObservation {
   readonly batchIndex: number
   /** Which execution seam saw it. */
   readonly seam: 'driver'
+  /**
+   * Bytes SQLite read from the database file during the DRIVER CALL, present
+   * only when the profiler sampled it (`sampleStatementRead`, POD-7037). Like
+   * {@link durationMs} it is the whole batch's figure on every member.
+   */
+  readonly readBytes?: number
   /**
    * The RAW stack of the call site, present only while a probe asked for it
    * ({@link StatementProbeHub.captureIssueSites}) or the statement arrived
@@ -419,8 +428,8 @@ export function installQueryAttributionProbe(hub: StatementProbeHub): void {
  * Caller stacks ride along inside `recordQuery`, still gated at the `full`
  * profile level.
  *
- * A batch member is attributed `durationMs / batchSize`, which sums to the
- * batch's real cost instead of multiplying it.
+ * A batch member is attributed `durationMs / batchSize` (and its read bytes
+ * likewise), which sums to the batch's real cost instead of multiplying it.
  */
 export const queryAttributionProbe: StatementProbe = (observation) => {
   recordQuery(
@@ -428,6 +437,7 @@ export const queryAttributionProbe: StatementProbe = (observation) => {
     observation.durationMs / observation.batchSize,
     observation.rows,
     observation.issueStack,
+    observation.readBytes === undefined ? undefined : observation.readBytes / observation.batchSize,
   )
 }
 
@@ -585,13 +595,30 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       const trip = trips.beforeStatements('statement', [statement])
       if (trip) await trip
       if (!hub.active) return await session.execute(statement)
+      // The driver's SQLite work is the SYNCHRONOUS body of `execute`, so the
+      // read counter is taken around the call and before its await: that window
+      // holds this statement's reads and no one else's.
+      const readBefore = hub.attributing ? sampleStatementRead(statement.sql) : undefined
       const startedAt = performance.now()
       let result: StatementResult | undefined
+      let readBytes: number | undefined
       try {
-        result = await claim(hub, () => session.execute(statement))
+        const pending = claim(hub, () => session.execute(statement))
+        readBytes = readBytesSince(readBefore)
+        result = await pending
         return result
       } finally {
-        hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0, doorStack))
+        hub.emit(
+          observationOf(
+            statement,
+            result,
+            performance.now() - startedAt,
+            1,
+            0,
+            doorStack,
+            readBytes ?? readBytesSince(readBefore),
+          ),
+        )
       }
     },
     async executeBatch(statements) {
@@ -604,14 +631,21 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       const trip = trips.beforeStatements('batch', statements)
       if (trip) await trip
       if (!hub.active) return await batchCounted(trips, () => session.executeBatch(statements))
+      const readBefore = hub.attributing
+        ? sampleBatchRead(statements.map((each) => each.sql))
+        : undefined
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
+      let readBytes: number | undefined
       try {
-        results = await claim(hub, () =>
+        const pending = claim(hub, () =>
           batchCounted(trips, () => session.executeBatch(statements)),
         )
+        readBytes = readBytesSince(readBefore)
+        results = await pending
         return results
       } finally {
+        readBytes ??= readBytesSince(readBefore)
         const durationMs = performance.now() - startedAt
         // Every member is reported even when the batch failed part-way: the
         // batch is atomic, so none of it applied, and a probe counting round
@@ -625,6 +659,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
               statements.length,
               index,
               doorStack,
+              readBytes,
             ),
           )
         })
@@ -714,6 +749,7 @@ function observationOf(
   batchSize: number,
   batchIndex: number,
   doorStack?: string,
+  readBytes?: number,
 ): StatementObservation {
   // The nearer capture wins: the query client took its stack in the caller's
   // turn, the door took its own one await later. See StatementObservation.
@@ -733,5 +769,6 @@ function observationOf(
     batchIndex,
     seam: 'driver',
     ...(issueStack === undefined ? {} : { issueStack }),
+    ...(readBytes === undefined ? {} : { readBytes }),
   }
 }

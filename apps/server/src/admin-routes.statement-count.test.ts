@@ -9,8 +9,8 @@ import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { registerAdminRoutes } from './admin-routes'
-import { registerSignInRoutes } from './sign-in-routes'
 import { registerMemberRoutes } from './member-routes'
+import { registerSignInRoutes } from './sign-in-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import {
@@ -89,6 +89,8 @@ async function setup(size: number): Promise<Fixture> {
   const resolveUserId = async () => admin
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>

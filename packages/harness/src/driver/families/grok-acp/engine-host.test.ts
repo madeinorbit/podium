@@ -19,7 +19,11 @@ import { manifestFor } from '../../../registry.js'
 import { isDriverRefusal } from '../../errors.js'
 import type { TestEngineSpawn } from '../../testing/binding-records.js'
 import { createTestEngineOwner } from '../../testing/binding-records.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type {
   EngineAttachment,
@@ -52,6 +56,7 @@ function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
     checkVersion: async () => ({ drivable: true as const }),
     // The session's context names the account home its files live under
     // (POD-6536): a host built over `homeDir` pins a context for that home.
+    ...testEngineTerms(),
     harnessContextFor: async () =>
       extra.homeDir
         ? testHarnessContext({ kind: 'grok', executable: '/opt/rig/bin/grok', home: extra.homeDir })
@@ -162,6 +167,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const endpoint = await host.launch({
       sessionId: SESSION,
       workdir: '/tmp',
+      ...testSessionTerms(),
       harnessContext: CONTEXT,
     })
     expect(launched).toHaveLength(1)
@@ -185,6 +191,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const endpoint = await host.launch({
       sessionId: SESSION,
       workdir: '/tmp',
+      ...testSessionTerms(),
       harnessContext: CONTEXT,
     })
     const lines: string[] = []
@@ -219,7 +226,12 @@ describe('headless engine lifecycle (POD-4433)', () => {
       ...fakePorts({ startEngine: async () => session }),
     })
     await expect(
-      host.launch({ sessionId: SESSION, workdir: '/tmp', harnessContext: CONTEXT }),
+      host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        ...testSessionTerms(),
+        harnessContext: CONTEXT,
+      }),
     ).rejects.toBeInstanceOf(GrokEngineLeaseRefused)
   })
 
@@ -231,6 +243,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const endpoint = await host.launch({
       sessionId: SESSION,
       workdir: '/tmp',
+      ...testSessionTerms(),
       harnessContext: CONTEXT,
     })
     let closed = 0
@@ -399,6 +412,7 @@ describe('readHistory — the Store read over updates.jsonl', () => {
         entries: Map<SessionId, GrokAcpJournalEntry>,
         seq: { n: number },
       ): GrokAcpRuntimeHost => ({
+        ...testEngineTerms(),
         harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
         stageAttachment: createMemoryAttachmentStager(),
         bindings: {
@@ -423,6 +437,7 @@ describe('readHistory — the Store read over updates.jsonl', () => {
       })
       const spec = () => ({
         harness: 'grok' as const,
+        ...testSessionTerms(),
         harnessContext: testHarnessContext({ kind: 'grok' }),
         selection: {
           auth: 'subscription' as const,

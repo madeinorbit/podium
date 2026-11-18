@@ -26,6 +26,7 @@
  * numbers, so `formatTopQueries` and the stall reporter keep reading one window.
  */
 
+import { openSync, readSync } from 'node:fs'
 import { attribute } from './loop-accounting'
 import { atLeast } from './loop-profile'
 
@@ -39,6 +40,16 @@ export interface QueryCost {
   wallMs: number
   /** Rows handed back across those executions (`all` only; `get` counts 0/1). */
   rows: number
+  /** The slowest single execution, ms. Absent only on a hand-built cost. */
+  maxMs?: number
+  /**
+   * Bytes SQLite read from the database file across the SAMPLED executions — see
+   * {@link sampleStatementRead}. Absent when no execution of this statement was
+   * sampled, which is not the same as zero.
+   */
+  readBytes?: number
+  /** How many executions {@link readBytes} covers. */
+  readSamples?: number
 }
 
 const costs = new Map<string, QueryCost>()
@@ -58,6 +69,26 @@ const costs = new Map<string, QueryCost>()
  * in a short hash of the whole statement. The prefix still reads as before.
  */
 export function queryKey(sql: string, maxLength = 120): string {
+  if (maxLength === 120) {
+    const memo = keys.get(sql)
+    if (memo !== undefined) return memo
+  }
+  const key = foldedKey(sql, maxLength)
+  if (maxLength === 120 && keys.size < KEY_MEMO_CAP) keys.set(sql, key)
+  return key
+}
+
+/**
+ * The key of each statement text already seen. Every execution used to fold and
+ * hash its text again; the texts are a small, fixed set per process (prepared
+ * definitions and their families), so the fold is paid once. The cap only
+ * guards against a caller that inlines values into its SQL: past it, a text is
+ * folded each time as before.
+ */
+const keys = new Map<string, string>()
+const KEY_MEMO_CAP = 8192
+
+function foldedKey(sql: string, maxLength: number): string {
   const folded = sql.replace(/\s+/g, ' ').trim()
   if (folded.length <= maxLength) return folded
   const head = folded.slice(0, maxLength - 1)
@@ -138,19 +169,28 @@ export function claimQueryAttribution<T>(claimed: () => T): T {
  * wrapping decision because it is per-EXECUTION, not per-handle: the same wrapper
  * records for statements a driver claimed and for statements nobody else can see.
  */
-export function recordQuery(sql: string, wallMs: number, rows: number, issueStack?: string): void {
+export function recordQuery(
+  sql: string,
+  wallMs: number,
+  rows: number,
+  issueStack?: string,
+  readBytes?: number,
+): void {
   if (claimDepth > 0) return
   const key = queryKey(sql)
   const cost = costs.get(key) ?? { count: 0, wallMs: 0, rows: 0 }
-  cost.count++
-  cost.wallMs += wallMs
-  cost.rows += rows
+  addCost(cost, wallMs, rows, readBytes)
   costs.set(key, cost)
   const total = totals.get(key) ?? { count: 0, wallMs: 0, rows: 0 }
-  total.count++
-  total.wallMs += wallMs
-  total.rows += rows
+  addCost(total, wallMs, rows, readBytes)
   totals.set(key, total)
+  // A slow execution arms read sampling for the statement's later executions
+  // (see sampleStatementRead): the first walk is only timed, every later one is
+  // also measured.
+  if (wallMs >= READ_SAMPLE_ARM_MS && armed.size < ARMED_CAP) armed.add(sql)
+  if (readBytes !== undefined && readBytes >= HEAVY_READ_BYTES && heavyReads.length < HEAVY_CAP) {
+    heavyReads.push({ key, readBytes, wallMs, rows })
+  }
   // The `sql` cost bucket (§6.1). Declared NESTED in the minute record, because
   // every statement here ran inside a region some other bucket is already
   // timing — an rpc handler, a timer callback, a socket frame — so a coverage
@@ -158,6 +198,17 @@ export function recordQuery(sql: string, wallMs: number, rows: number, issueStac
   // explained than any seam actually explains.
   attribute('sql', wallMs)
   if (STACKS) recordCallerStack(key, issueStack)
+}
+
+function addCost(cost: QueryCost, wallMs: number, rows: number, readBytes?: number): void {
+  cost.count++
+  cost.wallMs += wallMs
+  cost.rows += rows
+  if (cost.maxMs === undefined || wallMs > cost.maxMs) cost.maxMs = wallMs
+  if (readBytes !== undefined) {
+    cost.readBytes = (cost.readBytes ?? 0) + readBytes
+    cost.readSamples = (cost.readSamples ?? 0) + 1
+  }
 }
 
 /**
@@ -288,8 +339,30 @@ export function formatTopQueries(
   return [...source]
     .sort((a, b) => b[1].wallMs - a[1].wallMs || a[0].localeCompare(b[0]))
     .slice(0, limit)
-    .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+    .map(([key, c]) => formatQueryCost(key, c))
     .join(' | ')
+}
+
+/**
+ * One statement's cost as a stall line prints it: `count x / ms / rows`, the
+ * bytes it read when a sampled execution measured them, then its definition
+ * name in brackets when one is known, then the key.
+ */
+export function formatQueryCost(
+  key: string,
+  c: QueryCost,
+  nameOf: (key: string) => string | undefined = queryDefinitionName,
+): string {
+  const read = c.readBytes === undefined ? '' : `/${formatBytes(c.readBytes)}read`
+  const name = nameOf(key)
+  return `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows${read} ${name ? `[${name}] ` : ''}${key}`
+}
+
+/** Bytes as the largest unit that keeps one decimal readable. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`
+  return `${bytes}B`
 }
 
 /** Drop the window. The reset cadence is owned by the caller that reports stalls. */
@@ -300,4 +373,242 @@ export function resetQueryAttribution(): void {
 /** Snapshot of the current window, for tests and for callers that format their own. */
 export function queryAttributionSnapshot(): ReadonlyMap<string, QueryCost> {
   return new Map(costs)
+}
+
+// ---------------------------------------------------------------------------
+// Bytes read per statement [POD-7037]
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY BYTES AND NOT ROWS EXAMINED. The incident behind this (POD-7027 finding 1)
+ * returned 0 rows per call while walking 24k rows, about 130 MB, and a stall line
+ * that only says "0rows" hides exactly that. SQLite counts what a statement
+ * examined (`sqlite3_stmt_status` VM_STEP / FULLSCAN_STEP), but Bun exposes none
+ * of it: no statement-status call, no `sqlite_stmt` table (Bun 1.4.4's SQLite
+ * 3.53.4 is built without SQLITE_ENABLE_STMTVTAB), and no exported `sqlite3_*`
+ * symbols to reach through FFI.
+ *
+ * What IS measurable is what the statement made SQLite read. The store sets no
+ * `mmap_size` and keeps SQLite's default 2 MB page cache, so every page a walk
+ * touches beyond that cache arrives through `pread(2)` on the calling thread,
+ * and `/proc/thread-self/io` `rchar` counts those bytes whether the OS served
+ * them from its page cache or from disk. A statement runs synchronously on one
+ * thread, so the difference across it is that statement's reads and nothing
+ * else's. Measured on Bun 1.4.4 (vega): the incident's shape over 24k rows of
+ * 5.6 KB read 50 MB in 12.2k preads for 0 rows; a point read reads 12 KB.
+ *
+ * WHY ONLY SOME EXECUTIONS. One sample of the counter costs about 2.5 µs and a
+ * point read about 8 µs, so measuring every statement would add more than half
+ * to the cheapest ones. A statement is sampled only once one of its executions
+ * took {@link READ_SAMPLE_ARM_MS} or more: the walks that matter are slow, and
+ * every other statement pays one set lookup.
+ */
+export const READ_SAMPLE_ARM_MS = 20
+
+/**
+ * One execution reading this much is a walk, not a lookup: about 10k rows of
+ * 1 KB, or 2,560 pages. Reported through {@link drainHeavyStatementReads}.
+ */
+export const HEAVY_READ_BYTES = 10 * 1024 * 1024
+
+/** Statement texts with a slow execution. Bounded: a text past it is never sampled. */
+const armed = new Set<string>()
+const ARMED_CAP = 4096
+
+/** A measured execution that read at least {@link HEAVY_READ_BYTES}. */
+export interface HeavyStatementRead {
+  readonly key: string
+  readonly readBytes: number
+  readonly wallMs: number
+  readonly rows: number
+}
+
+const heavyReads: HeavyStatementRead[] = []
+/** The queue drains every second; this bounds a second that walks without end. */
+const HEAVY_CAP = 64
+
+/** The heavy executions since the last drain, oldest first. Empties the queue. */
+export function drainHeavyStatementReads(): HeavyStatementRead[] {
+  return heavyReads.splice(0)
+}
+
+/** The calling thread's cumulative bytes read through read(2)-family calls. */
+export type ThreadReadMeter = () => number | undefined
+
+/** `undefined` until first asked; `false` once known to be unavailable. */
+let meter: ThreadReadMeter | false | undefined
+
+/**
+ * Replace the meter (tests), or pass `undefined` to resolve the platform's again.
+ * Also forgets which statements were armed, so a test starts unarmed.
+ */
+export function setThreadReadMeter(next: ThreadReadMeter | undefined): void {
+  meter = next
+  armed.clear()
+  heavyReads.length = 0
+}
+
+function resolvedMeter(): ThreadReadMeter | undefined {
+  if (meter === undefined) meter = procThreadReadMeter() ?? false
+  return meter === false ? undefined : meter
+}
+
+/**
+ * `rchar` of `/proc/thread-self/io`, read through one descriptor held open.
+ *
+ * The descriptor names the thread that OPENED it, which is the thread this
+ * module instance runs on: a worker gets its own instance and its own
+ * descriptor. Parsed off the bytes because `rchar` is the first line, and a
+ * string decode would cost more than the read.
+ */
+function procThreadReadMeter(): ThreadReadMeter | undefined {
+  if (process.platform !== 'linux') return undefined
+  let fd: number
+  try {
+    fd = openSync('/proc/thread-self/io', 'r')
+  } catch {
+    return undefined
+  }
+  const buf = Buffer.alloc(256)
+  const read: ThreadReadMeter = () => {
+    try {
+      const n = readSync(fd, buf, 0, buf.length, 0)
+      return parseRchar(buf, n)
+    } catch {
+      return undefined
+    }
+  }
+  return read() === undefined ? undefined : read
+}
+
+/** The `rchar: <n>` value at the start of a proc io record, or undefined. */
+export function parseRchar(buf: Uint8Array, length: number): number | undefined {
+  const prefix = 'rchar: '
+  if (length <= prefix.length) return undefined
+  for (let i = 0; i < prefix.length; i++) {
+    if (buf[i] !== prefix.charCodeAt(i)) return undefined
+  }
+  let value = 0
+  let i = prefix.length
+  for (; i < length; i++) {
+    const c = buf[i]!
+    if (c < 48 || c > 57) break
+    value = value * 10 + (c - 48)
+  }
+  return i === prefix.length ? undefined : value
+}
+
+/**
+ * The thread's read counter before a statement, when this execution is to be
+ * measured; `undefined` otherwise. A seam calls it right before the SQLite call
+ * and passes the result to {@link readBytesSince} right after it.
+ *
+ * Inside a claim the outer seam measures, so the wrapper underneath does not.
+ */
+export function sampleStatementRead(sql: string): number | undefined {
+  if (claimDepth > 0 || armed.size === 0 || !armed.has(sql)) return undefined
+  return resolvedMeter()?.()
+}
+
+/** Like {@link sampleStatementRead}, for a batch: sampled when any member is. */
+export function sampleBatchRead(sqls: readonly string[]): number | undefined {
+  if (claimDepth > 0 || armed.size === 0 || !sqls.some((sql) => armed.has(sql))) return undefined
+  return resolvedMeter()?.()
+}
+
+/** Bytes read since `before`, or undefined when there was no sample. */
+export function readBytesSince(before: number | undefined): number | undefined {
+  if (before === undefined) return undefined
+  const after = resolvedMeter()?.()
+  return after === undefined ? undefined : Math.max(0, after - before)
+}
+
+// ---------------------------------------------------------------------------
+// Definition names [POD-7037]
+// ---------------------------------------------------------------------------
+
+/**
+ * A key names a statement by its SQL; an operator reading a digest needs the
+ * DEFINITION, the file and line that made it. Each `prepared(...)` or
+ * `preparedFamily(...)` definition already keeps the stack of where it was made
+ * (`packages/sync/src/adapters/sqlite/prepared.ts`), so when it builds a
+ * statement it hands that stack here with the SQL text.
+ *
+ * WHY AT BUILD AND NOT AT BOOT. A family's SQL depends on its key (an IN-list
+ * size, a set of optional filters), so the texts a boot could compute are only
+ * the ones a census of keys lists. A build is when the text exists, it happens
+ * once per shape per connection, and it covers exactly the statements that can
+ * run. The stack is only turned into a name when a log line asks for it.
+ */
+interface DefinitionSite {
+  readonly site: Error
+  readonly shape?: string
+  name?: string | null
+}
+
+const definitionSites = new Map<string, DefinitionSite>()
+const DEFINITION_SITE_CAP = 20_000
+
+/**
+ * Whether builds record their definition. On exactly when the profiler is, so
+ * an install that is not profiling keeps no map; a test states it instead.
+ */
+let naming = ENABLED
+
+/** Read by `prepared.ts` on each build. */
+export function queryDefinitionNamingEnabled(): boolean {
+  return naming
+}
+
+/** Turn definition naming on or off regardless of the profile level (tests). */
+export function setQueryDefinitionNaming(enabled: boolean): void {
+  naming = enabled
+}
+
+/** Remember which definition built `sql`. The first definition of a text wins. */
+export function nameQueryDefinition(sql: string, site: Error, shape?: string | number): void {
+  if (definitionSites.size >= DEFINITION_SITE_CAP) return
+  const key = queryKey(sql)
+  if (definitionSites.has(key)) return
+  definitionSites.set(key, shape === undefined ? { site } : { site, shape: String(shape) })
+}
+
+/** `file:line [shape]` of the definition behind `key`, when one was recorded. */
+export function queryDefinitionName(key: string): string | undefined {
+  const entry = definitionSites.get(key)
+  if (entry === undefined) return undefined
+  if (entry.name === undefined) {
+    const at = definitionSiteName(entry.site.stack ?? '')
+    entry.name = at === undefined ? null : entry.shape === undefined ? at : `${at} ${entry.shape}`
+  }
+  return entry.name ?? undefined
+}
+
+/** Forget every recorded definition (tests). */
+export function clearQueryDefinitionNames(): void {
+  definitionSites.clear()
+}
+
+/**
+ * The definition's position in a stack captured inside `prepared.ts`: the first
+ * frame that is neither that module nor its registering functions.
+ *
+ * Matched by function name as well as by file because a packaged server is one
+ * bundle without a source map, where every frame names the same file; there the
+ * name is the bundle position, still a stable pointer for one build. With a
+ * map (dev builds embed one) or from source it is the repository path.
+ */
+export function definitionSiteName(stack: string): string | undefined {
+  for (const line of stack.split('\n').slice(1)) {
+    const frame = line.trim()
+    if (/^at (?:register|prepared|preparedFamily) /.test(frame)) continue
+    if (frame.includes('adapters/sqlite/prepared.')) continue
+    const match = /\(?((?:file:\/\/)?[^\s()]+):(\d+):\d+\)?$/.exec(frame)
+    if (!match) continue
+    const path = match[1]!.replace(/^file:\/\//, '')
+    const repo = /(?:^|\/)((?:apps|packages)\/.+)$/.exec(path)
+    const file = repo ? repo[1]! : path.slice(path.lastIndexOf('/') + 1)
+    return `${file}:${match[2]}`
+  }
+  return undefined
 }

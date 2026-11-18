@@ -29,10 +29,13 @@ import { useMachineProcesses } from './use-machine-processes'
 
 import { useReclaimInventory } from './use-reclaim-inventory'
 
+/** Paused (hibernated) sessions the device holds: memory pressure pauses
+ * sessions idle for minutes, so they are recent and on the device. No walk
+ * over every session (POD-7088). */
 const readParkedCount = (pool: MobxPool): number =>
-  pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
+  pool.queries.ids({ kind: 'pausedSessions' }).reduce((count, id) => {
     if (pool.queries.collapsed(id)) return count
-    const row = omitGone(pool.row('session', id, 'summary-fields'))
+    const row = omitGone(pool.row('session', id))
     return (
       count +
       (row && typeof row !== 'symbol' && (row as { status?: string }).status === 'hibernated'

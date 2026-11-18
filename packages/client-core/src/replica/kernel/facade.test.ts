@@ -14,7 +14,8 @@ import { createSideCache, eraseLegacyTranscriptKeys, OutboxNotDurableError } fro
 class FakeCache implements KernelCacheRead {
   records: EntityRecord[] = []
   cursor: { seq: number; feedId?: string; epoch?: string } | null = null
-  completeAt: Cursor | null = null
+  /** A load still under way unless a test says it finished (null). */
+  loadingSince: number | null = 0
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'durable'
   throwOnRead = false
   /** How many times the facade materialised the WHOLE store. The scaling guard
@@ -24,8 +25,8 @@ class FakeCache implements KernelCacheRead {
   readCursor() {
     return this.cursor
   }
-  readPersonalRowsCompleteAt() {
-    return this.completeAt
+  readLoadingSince() {
+    return this.loadingSince
   }
   readEntities(): readonly EntityRecord[] {
     this.readEntitiesCalls += 1
@@ -90,7 +91,8 @@ it('counts keyed membership through eviction, readmission and replacement withou
 
 it('publishes only the addresses affected by a kind reload', () => {
   const cache = new FakeCache()
-  cache.cursor = cache.completeAt = { feedId: 'f', epoch: 'e', seq: 1 }
+  cache.cursor = { feedId: 'f', epoch: 'e', seq: 1 }
+  cache.loadingSince = null
   cache.put('session', 's1', session('s1'))
   cache.put('issueProjection', 'old', issue('old'))
   const { replica } = build(cache)
@@ -449,7 +451,7 @@ describe('kind mapping', () => {
     const certified = new FakeCache()
     certified.records = records
     certified.cursor = cursor
-    certified.completeAt = cursor
+    certified.loadingSince = null
     const warm = build(certified).replica
     const delivery = vi.fn()
     warm.subscribeAddressedBatch!(delivery)
@@ -466,20 +468,16 @@ describe('kind mapping', () => {
     const faulty = new FakeCache()
     faulty.records = records.filter((row) => row.entityId !== 'alice-read')
     faulty.cursor = cursor
-    faulty.completeAt = cursor
+    faulty.loadingSince = null
     const incomplete = build(faulty).replica
     expect(() => expect(views(incomplete)).toEqual(expected)).toThrow()
     expect(views(incomplete).find((row) => row.sessionId === 'read')?.unread).toBe(true)
   })
 
-  it.each([
-    { feedId: 'other', epoch: 'epoch', seq: 10 },
-    { feedId: 'feed', epoch: 'other', seq: 10 },
-    { feedId: 'feed', epoch: 'epoch', seq: 11 },
-  ])('an unmatched completeness triple remains unknown: %j', (marker) => {
+  it('a load still under way leaves personal rows unknown', () => {
     const cache = new FakeCache()
     cache.cursor = { feedId: 'feed', epoch: 'epoch', seq: 10 }
-    cache.completeAt = marker
+    cache.loadingSince = 10
     expect(build(cache).replica.sessionUserStatesLoaded?.()).toBe(false)
   })
 

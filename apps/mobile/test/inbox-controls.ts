@@ -7,7 +7,7 @@ import { hostname } from 'node:os'
 
 if (hostname() !== 'flatblock') throw new Error('Controls belong on flatblock')
 const views = 'packages/client-graph/src/mobile-inbox-views.ts',
-  hooks = 'apps/mobile/src/client/use-inbox-data.ts',
+  hooks = 'apps/mobile/src/client/use-pool-links.ts',
   source = 'packages/client-graph/src/mobile-inbox-source.ts',
   links = 'apps/mobile/src/lib/podium-link.ts'
 const controls = [
@@ -126,7 +126,7 @@ for (const control of controls.slice(from)) {
         'run',
         'test:file',
         '--',
-        control[4] ?? 'apps/mobile/src/client/use-inbox-data.pool.test.tsx',
+        control[4] ?? 'apps/mobile/src/client/use-pool-links.pool.test.tsx',
         '-t',
         name,
       ],

@@ -1,12 +1,16 @@
 /** Foreground production app comparison. One implementation per invocation. */
 import { spawn, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, statfsSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, renameSync, statfsSync, existsSync } from 'node:fs'
 import { hostname, cpus, loadavg } from 'node:os'
 import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { chromium, devices } from '@playwright/test'
 import { paintOf } from './browser-paint.ts'
+import { startHeapTimeline, writeHeapTimeline } from './heap-timeline.mjs'
+// POD-7094: only a client that names its type is served by policy. The base
+// arm's model predates the collections, so the module loads only where it can.
+const policyRows = await import('./policy-rows.ts').then(m => m.policyRows, () => undefined)
 import * as model from '@podium/model'
 import { FeedChange, ServerMessage } from '@podium/protocol'
 import { readSyncStream } from '@podium/client-core/sync-stream'
@@ -43,7 +47,13 @@ let activeQuery = query
 const controlOnly=process.argv.includes('--control-only')
 const backgroundOnly=process.argv.includes('--background-only')
 const startupOnly=true
-if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
+// POD-7099: the measurement host and its lock are arguments. The agent VMs all
+// report hostname `agents`, so --host names the machine (its ssh alias) and
+// --lease names the host lock the caller holds for the capture window
+// (remote-lane's test:<host> lock; flatblock used bench:/meter:flatblock).
+const hostLabel = arg('host', hostname())
+const leaseName = arg('lease', mode === 'timing' ? `bench:${hostLabel}` : `meter:${hostLabel}`)
+if (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease')) throw Error('A caller-owned host lock is required (--external-lease or --lease-confirmed)')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || (cell && !/^h\d+a[124]$/.test(cell)) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${corpusKey}-r${round}`))
 if (existsSync(resolve(out,'run.json'))) throw Error('Capture output already exists; use a fresh round')
@@ -86,7 +96,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   diagnostic:existsSync('apps/web/dist/ablation-provenance.json'),
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
-  startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
+  startedAt:new Date().toISOString(), host:hostLabel, hostname:hostname(), cpu:cpus()[0].model, cores:cpus().length,
   loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[{role:'collector',pid:process.pid}], bootstraps:[], status:'running' }
 let evidenceWriteFailure
 const save = () => {
@@ -111,7 +121,7 @@ for(const stream of [server.stdout,server.stderr])stream.on('data',data=>{
     appendFileSync(resolve(out,'server.log'),retained);serverLogBytes+=retained.length
   } catch(error) { evidenceWriteFailure=error }
 })
-let browser, fixture
+let browser, fixture, timeline
 const cpuTicks = () => readFileSync('/proc/stat','utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number)
 const pause = ms => new Promise(done => setTimeout(done, ms))
 const rpc = async (path, input) => {
@@ -143,17 +153,40 @@ const outputEpochs = new Map()
 let outputSeq = 0
 const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
-let extraChanges, observedReplay
+let extraRows, observedReplay
+const extrasByPolicy=new Map()
+let wholeCache
+// Every corpus row whole, in chunks of 64 (the base client's bootstrap).
+function wholeChanges() {
+  if(!wholeCache){wholeCache=[];for(let offset=0;offset<extraRows.length;offset+=64)wholeCache.push(JSON.stringify(extraRows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert'}))))}
+  return wholeCache
+}
 function prepareExtras() {
-  const rows=synthetic.map(row=>{
+  extraRows=synthetic.map(row=>{
     const value={...row.value}
     if(['issueUserState','sessionUserState'].includes(row.entity))value.userId=memberId
     return {...row,value,entityId:row.entity==='issueUserState'?model.issueUserStateRowId(memberId,value.entityId):row.entity==='sessionUserState'?model.sessionUserStateRowId(memberId,value.sessionId):row.entityId}
   })
-  extraChanges=[]
-  for(let offset=0;offset<rows.length;offset+=64)extraChanges.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert'}))))
 }
-function bootstrapBody(records) {
+// POD-7094: the synthetic corpus as the server's first download serves it,
+// for the policy the canonical answer carries: the policy's collections and
+// what they come with whole, every other issue as a stub (`policy-rows.ts`).
+function extrasFor(policy) {
+  const key=JSON.stringify(policy)
+  let extras=extrasByPolicy.get(key)
+  if(!extras) {
+    if(!policyRows)throw Error('This checkout has no collection declarations, yet its client asked by policy')
+    const split=policyRows(extraRows,policy,corpus.fixedNow)
+    const chunk=(rows,stub)=>{const out=[];for(let offset=0;offset<rows.length;offset+=64)out.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert',...(stub?{part:'stub'}:{})}))));return out}
+    extras={whole:chunk(split.whole,false),stubs:chunk(split.stubs,true),count:split.whole.length+split.stubs.length,counts:split.counts}
+    extrasByPolicy.set(key,extras)
+    result.policyRows={clientType:policy.clientType,recentDays:policy.recentDays,...split.counts,whole:split.whole.length};save()
+  }
+  return extras
+}
+// `byPolicy`: the client named its type (`Podium-Client-Type`, POD-7085), so
+// its first download goes by the server's policy. The base client never sends it.
+function bootstrapBody(records, byPolicy) {
     const first=records[0], complete=records.at(-1)
     if(first.type!=='syncMeta' || first.mode!=='snapshot')return null
     const chunks=records.filter(x=>x.type==='feedBootstrap')
@@ -164,25 +197,55 @@ function bootstrapBody(records) {
     const comparisonSession=id=>controls?.some(control=>control.session.sessionId===id || control.secondSession?.sessionId===id)
     for(const change of changes) if(change.entity==='session' && comparisonSession(change.entityId)) change.value.transcriptAvailable=true
     if(first.seq<64 || !chunks.length)throw Error('Canonical bootstrap cannot admit prevalidated fixture chunks')
-    const count=changes.length+synthetic.length
-    const original=chunks.map(x=>{const chunk={...x,last:false,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)})
-    const extra=extraChanges.map((rows,index)=>{
-      const template={...chunks[0],last:index===extraChanges.length-1,totalRows:count,changes:null};delete template.countsByEntity
-      return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+    if(!byPolicy) {
+      // The client before POD-7085 (the base arm): every corpus row whole, as
+      // POD-7099 served it. Unchanged.
+      const count=changes.length+synthetic.length
+      const original=chunks.map(x=>{const chunk={...x,last:false,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)})
+      const whole=wholeChanges()
+      const extra=whole.map((rows,index)=>{
+        const template={...chunks[0],last:index===whole.length-1,totalRows:count,changes:null};delete template.countsByEntity
+        return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+      })
+      if(!extra.length)original[original.length-1]=JSON.stringify({...chunks.at(-1),last:true,totalRows:count})
+      const all=[...original,...extra]
+      const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
+      return {body,first,chunks,count,changes}
+    }
+    if(!first.policy)throw Error('A client that names its type got a bootstrap with no policy')
+    const extras=extrasFor(first.policy)
+    const count=changes.length+extras.count
+    // Every canonical line stays, in its order: whole records, stubs and the
+    // collections' markers. The corpus goes in before the first marker.
+    const original=records.slice(1,-1).map(x=>{
+      if(x.type!=='feedBootstrap')return JSON.stringify(x)
+      // Each canonical chunk keeps its own `last`: the snapshot ends on it.
+      const chunk={...x,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)
     })
-    if(!extra.length)original[original.length-1]=JSON.stringify({...chunks.at(-1),last:true,totalRows:count})
-    const all=[...original,...extra]
+    const range={feedId:chunks[0].feedId,epoch:chunks[0].epoch,fromSeq:chunks[0].fromSeq,seq:chunks[0].seq,minAvailableSeq:chunks[0].minAvailableSeq}
+    const extra=[
+      ...extras.whole.map(rows=>{
+        const template={...chunks[0],last:false,totalRows:count,changes:null};delete template.countsByEntity
+        return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
+      }),
+      ...extras.stubs.map(rows=>JSON.stringify({type:'feedStubs',...range,changes:null}).replace('"changes":null','"changes":'+rows)),
+    ]
+    const marker=records.slice(1,-1).findIndex(x=>x.type==='collectionComplete')
+    const at=marker<0?original.length:marker
+    const all=[...original.slice(0,at),...extra,...original.slice(at)]
     const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
     return {body,first,chunks,count,changes}
 }
 async function bindContext(context) {
   await context.route('**/sync/bootstrap*',async route=>{
     const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
-    const prepared=bootstrapBody(records)
+    const byPolicy=Boolean((await route.request().allHeaders())['podium-client-type'])
+    const prepared=bootstrapBody(records,byPolicy)
     if(!prepared){await route.fulfill({response});return}
+    result.bootstrapRoutes=[...(result.bootstrapRoutes??[]),{byPolicy,at:new Date().toISOString()}]
     const {body,first,chunks,count,changes}=prepared
     meta={...chunks[0]}; seq=meta.seq
-    result.bootstraps.push({totalRows:count,rows:synthetic.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
+    result.bootstraps.push({totalRows:count,rows:synthetic.length,sentRows:count-changes.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
     seeded=true
     const headers={...response.headers(),'content-type':'application/x-ndjson'}
     for(const key of ['content-length','content-encoding','transfer-encoding']) delete headers[key]
@@ -314,7 +377,57 @@ async function population(page) {
     return counts
   })
   result.population=counts;save()
-  if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length))throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
+  // POD-7094: every issue is on the device (whole or as a stub); the sessions
+  // are those the policy holds.
+  const heldSessions=result.policyRows?.sessions??corpus.sessions.length
+  if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<heldSessions))throw Error('The corpus the policy holds did not reach durable client storage: '+JSON.stringify(counts))
+}
+// POD-7099: client memory after one cold start, once the complete corpus is in
+// durable storage. V8 heap of the page (before and after a forced GC) and the
+// resident set of every Chromium process this collector started, from /proc.
+function processTree(root) {
+  const parents=new Map()
+  for(const name of readdirSync('/proc')) {
+    if(!/^\d+$/.test(name))continue
+    try{parents.set(Number(name),Number(readFileSync(`/proc/${name}/stat`,'utf8').split(') ').at(-1).split(' ')[1]))}catch{}
+  }
+  const tree=new Set([root])
+  for(let grew=true;grew;) {grew=false;for(const [pid,parent] of parents)if(tree.has(parent)&&!tree.has(pid)){tree.add(pid);grew=true}}
+  return [...tree]
+}
+function processMemory(pid) {
+  try {
+    const status=readFileSync(`/proc/${pid}/status`,'utf8'), kib=key=>Number(status.match(new RegExp(`^${key}:\\s+(\\d+) kB`,'m'))?.[1]??0)
+    const rollup=existsSync(`/proc/${pid}/smaps_rollup`)?readFileSync(`/proc/${pid}/smaps_rollup`,'utf8'):''
+    // Chromium rewrites its child process titles: their cmdline is one
+    // space-separated string, not NUL-separated arguments.
+    const argv=readFileSync(`/proc/${pid}/cmdline`,'utf8').split(/[\0 ]/)
+    if(!/chrom/i.test(argv[0]??''))return null
+    const type=argv.find(x=>x.startsWith('--type='))?.slice(7)??'browser'
+    return {pid,type,rssKiB:kib('VmRSS'),hwmKiB:kib('VmHWM'),pssKiB:Number(rollup.match(/^Pss:\s+(\d+) kB/m)?.[1]??0)}
+  } catch { return null }
+}
+async function memoryAfterColdStart(fixture,timeline) {
+  await pause(2000)
+  const before=await metrics(fixture.cdp)
+  const usageBefore=await fixture.cdp.send('Runtime.getHeapUsage')
+  await timeline?.mark('gc')
+  await fixture.cdp.send('HeapProfiler.collectGarbage');await pause(150);await fixture.cdp.send('HeapProfiler.collectGarbage')
+  const usageAfter=await fixture.cdp.send('Runtime.getHeapUsage'), after=await metrics(fixture.cdp)
+  // Playwright starts Chromium as a child of this collector; the harness
+  // server's Bun processes are in the same tree and are filtered out by name.
+  const processes=processTree(process.pid).map(processMemory).filter(Boolean)
+  const renderers=processes.filter(x=>x.type==='renderer').sort((a,b)=>b.rssKiB-a.rssKiB)
+  const memory={measuredAt:new Date().toISOString(),
+    heapUsedBeforeGcBytes:usageBefore.usedSize,heapTotalBeforeGcBytes:usageBefore.totalSize,
+    heapUsedAfterGcBytes:usageAfter.usedSize,heapTotalAfterGcBytes:usageAfter.totalSize,
+    jsHeapUsedSizeBeforeGc:before.JSHeapUsedSize,jsHeapUsedSizeAfterGc:after.JSHeapUsedSize,
+    documents:after.Documents,nodes:after.Nodes,
+    appRendererRssKiB:renderers[0]?.rssKiB??null,appRendererPssKiB:renderers[0]?.pssKiB??null,appRendererHwmKiB:renderers[0]?.hwmKiB??null,
+    browserTreeRssKiB:processes.reduce((sum,x)=>sum+x.rssKiB,0),browserTreePssKiB:processes.reduce((sum,x)=>sum+x.pssKiB,0),
+    processes}
+  console.log(`memory: heap ${(memory.heapUsedAfterGcBytes/1048576).toFixed(1)} MiB after GC, renderer RSS ${((memory.appRendererRssKiB??0)/1024).toFixed(1)} MiB`)
+  return memory
 }
 let recordIndex=0
 async function startup(fixture,name,profile=false) {
@@ -385,13 +498,28 @@ try {
     if(attempt===119)throw Error('Comparison sessions did not become live in canonical sync')
     await pause(250)
   }
-  const preflight=bootstrapBody(canonical)
+  // Validation only: the stream shape the arm's own server answers with.
+  const preflight=bootstrapBody(canonical,canonical[0]?.policy!==undefined)
   if(!preflight)throw Error('No canonical preflight snapshot')
   result.preflightSessions=preflight.changes.filter(row=>row.entity==='session').map(row=>({entityId:row.entityId,sessionId:row.value.sessionId,title:row.value.title,name:row.value.name,transcriptAvailable:row.value.transcriptAvailable,driverFamily:row.value.driverFamily,status:row.value.status}))
   async function* preflightLines(){yield* preflight.body.trim().split('\n')}
   for await(const record of readSyncStream(preflightLines())){/* complete production decoder */}
   result.preflightRows=preflight.count;save()
-  browser=await chromium.launch({headless:true,executablePath:`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,env:{...process.env,LD_LIBRARY_PATH:resolve('.toolchain/lib')},args:['--no-sandbox','--disable-dev-shm-usage']})
+  // Full Chromium in new headless mode: flatblock's pinned build when present,
+  // PODIUM_CHROMIUM when set, otherwise Playwright's installed Chromium.
+  const pinnedChrome=`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`
+  const executablePath=process.env.PODIUM_CHROMIUM || (existsSync(pinnedChrome)?pinnedChrome:undefined)
+  // flatblock's checkout toolchain supplies Chromium's libasound. The agent VMs'
+  // lane toolchain lib targets a newer glibc than the VM, so there Chromium
+  // uses the system libraries, plus the user-space packages that
+  // data-on-device-baseline.py unpacks on a VM without them (vega).
+  const toolchainLib=resolve('.toolchain/lib'), browserEnv={...process.env}
+  const userLib=`${process.env.HOME}/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu`
+  if(existsSync(toolchainLib))browserEnv.LD_LIBRARY_PATH=toolchainLib
+  else if(existsSync(userLib))browserEnv.LD_LIBRARY_PATH=userLib
+  else delete browserEnv.LD_LIBRARY_PATH
+  result.browserLibraryPath=browserEnv.LD_LIBRARY_PATH??null
+  browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{channel:'chromium'}),env:browserEnv,args:['--no-sandbox','--disable-dev-shm-usage','--enable-precise-memory-info']})
   result.browser=browser.version()
   const disk=statfsSync(out)
   result.diskCaptureStart={availableBytes:disk.bavail*disk.bsize}
@@ -401,8 +529,7 @@ try {
     const file=resolve(out,'lease.json')
     while(!existsSync(file))await pause(100)
     result.lease=JSON.parse(readFileSync(file,'utf8'))
-    const expected=mode==='timing'?'bench:flatblock':'meter:flatblock'
-    if(result.lease.name!==expected || result.lease.host!=='ludovico')throw Error('Wrong capture lease')
+    if(result.lease.name!==leaseName)throw Error(`Wrong capture lease: expected ${leaseName}, got ${result.lease.name}`)
   }
   result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
   let f=fixture=await makePage()
@@ -432,9 +559,24 @@ try {
       if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))
     }
   }
-  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}
+  else {
+    // POD-7115: a heap and RSS timeline with one allocation profile per phase.
+    if(mode==='memory' && process.argv.includes('--heap-timeline'))timeline=await startHeapTimeline({cdp:f.cdp,page:f.page,context:f.context,
+      rendererMemory:()=>processTree(process.pid).map(processMemory).filter(x=>x?.type==='renderer')})
+    await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page,mode==='memory'?{firstRow:true}:{})
+  }
   if(!startupOnly)await inspect(f.page,'startup')
+  await timeline?.mark('population')
   await population(f.page)
+  await timeline?.mark('settle')
+  if(mode==='memory')result.memory=await memoryAfterColdStart(f,timeline)
+  if(timeline){
+    const data=await timeline.stop()
+    try{result.heapTimeline=writeHeapTimeline(out,data,surface==='phone'?['apps/mobile/dist','apps/web/dist']:['apps/web/dist'])}
+    catch(error){result.heapTimelineError=String(error?.stack??error);writeFileSync(resolve(out,'heap-timeline-raw.json'),JSON.stringify(data))}
+    save()
+    console.log('heap timeline: '+JSON.stringify(result.heapTimeline))
+  }
   result.status='complete'
 } catch(error) {
   result.status='failed';result.failure=String(error);console.error(error)

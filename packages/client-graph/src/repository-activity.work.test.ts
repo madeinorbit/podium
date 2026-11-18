@@ -3,8 +3,6 @@ import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { residentIds } from './enumerate'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
@@ -24,20 +22,16 @@ const session = (id: string, patch: object = {}): RowRecord => ({
 })
 
 function fixture(rows: RowRecord[]) {
-  const source = createColdIndex(SCHEMA)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
     worklist: 'demand',
   })
   pool.apply({ type: 'replace', rows })
   const publish = (event: RowSourceEvent) => {
-    source.apply(event)
     pool.apply(event)
   }
-  return { pool, source, publish }
+  return { pool, source: pool.deviceIndex(), publish }
 }
 
 /** The 44809b1850 activity algorithm: exclude the resident union from the
@@ -58,7 +52,7 @@ function residentScan(
   for (const id of residents) {
     counts.residentVisits++
     if (excluded.has(id) || f.pool.queries.collapsed(id)) continue
-    const row = omitGone(f.pool.row('session', id, 'summary-fields')) as
+    const row = omitGone(f.pool.row('session', id)) as
       | { cwd: string; lastActiveAt?: string; agentKind?: string }
       | undefined
     if (!row || (question.agentsOnly && row.agentKind === 'shell')) continue
@@ -166,31 +160,6 @@ describe('warmed repository activity work', () => {
       expect(values[0]!.at(-1)).toBe(0)
     } finally {
       for (const stop of stops) stop()
-      f.pool.dispose()
-    }
-  })
-
-  it('replaces stale source maxima by address and restores source activity on resident eviction', () => {
-    const latest = session('latest', { lastActiveAt: '2029-01-01T00:00:00Z' })
-    const runner = session('runner', { lastActiveAt: '2028-01-01T00:00:00Z' })
-    const f = fixture([latest, runner])
-    const question: SessionActivityQuestion = { kind: 'commandRootActivity', roots: ['/repo'] }
-    const values: number[] = []
-    const stop = autorun(() => values.push(f.pool.queries.activity(question)))
-    try {
-      // A pending resident write lowers the old maximum; the source is still ahead.
-      f.pool.apply({ type: 'update', rows: [session('latest', { lastActiveAt: stamp })] })
-      expect(values.at(-1)).toBe(Date.parse('2028-01-01T00:00:00Z'))
-      expect(f.pool.queries.activity({ ...question, excluded: new Set(['runner']) })).toBe(Date.parse(stamp))
-      f.pool.apply({ type: 'update', rows: [session('runner', { cwd: '/elsewhere' })] })
-      expect(values.at(-1)).toBe(Date.parse(stamp))
-      runInAction(() => f.pool.tables.session.delete('latest'))
-      expect(values.at(-1)).toBe(Date.parse('2029-01-01T00:00:00Z'))
-      f.publish({ type: 'replace', rows: [session('replacement', { lastActiveAt: '2030-01-01T00:00:00Z' })] })
-      expect(values.at(-1)).toBe(Date.parse('2030-01-01T00:00:00Z'))
-      expect(f.pool.queries.activity({ ...question, roots: ['/elsewhere'] })).toBe(0)
-    } finally {
-      stop()
       f.pool.dispose()
     }
   })

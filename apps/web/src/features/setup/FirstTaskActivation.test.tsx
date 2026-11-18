@@ -8,6 +8,7 @@ import { FirstTaskActivation } from './FirstTaskActivation'
 
 const login = vi.fn()
 const useOnMyMachines = vi.fn()
+const finishRequest = vi.fn()
 /** What `accounts.list` reports: no detected account unless a test says so. */
 let accounts: unknown[] = []
 const telemetryState = vi.fn()
@@ -101,6 +102,13 @@ vi.mock('@/app/SetupLoginTerminalDialog', () => ({
 }))
 
 beforeEach(() => {
+  finishRequest.mockReset()
+  finishRequest.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ setupFinished: true }),
+  })
+  vi.stubGlobal('fetch', finishRequest)
   telemetryState.mockReset()
   telemetryState.mockResolvedValue({
     usage: 'absent',
@@ -113,6 +121,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   uiValues.clear()
   login.mockReset()
   useOnMyMachines.mockReset()
@@ -176,8 +185,36 @@ describe('FirstTaskActivation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+    expect(finishRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/admin/setup/finish'),
+      expect.objectContaining({ method: 'POST' }),
+    )
     expect(telemetryState).not.toHaveBeenCalled()
     expect(telemetrySet).not.toHaveBeenCalled()
+  })
+
+  it('keeps setup open until completion is saved and lets a failed save retry', async () => {
+    const onComplete = vi.fn()
+    let release!: (value: unknown) => void
+    finishRequest.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    render(
+      <FirstTaskActivation route="first-task" onRouteChange={vi.fn()} onComplete={onComplete} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Finishing setup…' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    release({ ok: false, status: 503, json: async () => ({ error: 'Could not save setup' }) })
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not save setup')
+    expect(onComplete).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+    expect(finishRequest).toHaveBeenCalledTimes(2)
   })
 
   // POD-6301 (D11): onboarding shows the box, unticked, for each detected account.

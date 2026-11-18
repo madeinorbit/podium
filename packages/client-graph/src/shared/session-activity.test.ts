@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createColdIndex } from './cold-index'
+import { createDeviceIndex } from './device-index'
 import { SCHEMA } from './schema'
 import type { SessionActivityQuestion } from './session-activity'
 import type { RowRecord } from './source'
@@ -12,7 +12,7 @@ const session = (id: string, cwd: string, at: string, extra: object = {}): RowRe
 })
 
 function fixture(rows: RowRecord[]) {
-  const index = createColdIndex(SCHEMA)
+  const index = createDeviceIndex(SCHEMA)
   index.apply({ type: 'replace', rows })
   const expected = (question: SessionActivityQuestion) =>
     Math.max(

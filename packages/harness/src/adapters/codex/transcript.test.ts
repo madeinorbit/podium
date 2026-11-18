@@ -496,7 +496,7 @@ describe('codexRecordToItems', () => {
         output: 'total 0\n',
       }),
     )
-    expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_1', toolResult: 'total 0' })
+    expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_1', toolResult: 'total 0\n' })
   })
 
   it('skips reasoning, session_meta, turn_context, and other event_msg', () => {

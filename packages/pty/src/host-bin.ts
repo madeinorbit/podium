@@ -88,11 +88,35 @@ export function hostBinFeatures(bin: string): number {
 // ---- the source checkout's build ---------------------------------------------
 
 /**
+ * The account's home directory from a passwd-format file, or undefined when the
+ * file has no entry for `uid` or cannot be read.
+ */
+export function passwdHome(
+  uid: number | undefined,
+  passwdFile = '/etc/passwd',
+): string | undefined {
+  if (uid === undefined) return undefined
+  try {
+    for (const line of readFileSync(passwdFile, 'utf8').split('\n')) {
+      const fields = line.split(':')
+      if (fields.length >= 7 && fields[2] === String(uid) && fields[5]) return fields[5]
+    }
+  } catch {
+    // An unreadable file has no answer; the caller falls back.
+  }
+  return undefined
+}
+
+/**
  * The home the build runs under. Read from the passwd entry, not `$HOME`: tests
  * run daemons under a temporary HOME, and neither the build cache nor cargo's
- * registry and toolchains should move with it.
+ * registry and toolchains should move with it. `os.userInfo()` is not enough on
+ * its own: under Bun its `homedir` is `$HOME`, so a test daemon looked for the
+ * cache in its temporary home and rebuilt there, where rustup finds no toolchain.
  */
 function buildHome(): string | undefined {
+  const fromPasswd = process.platform === 'win32' ? undefined : passwdHome(process.getuid?.())
+  if (fromPasswd) return fromPasswd
   try {
     return userInfo().homedir || process.env.HOME
   } catch {

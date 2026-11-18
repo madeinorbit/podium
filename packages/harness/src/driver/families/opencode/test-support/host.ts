@@ -13,7 +13,7 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { testHarnessContext } from '../../../testing/harness-context.js'
+import { testEngineTerms, testHarnessContext } from '../../../testing/harness-context.js'
 import type { OpencodeRuntimeHost, OpencodeServerEndpoint } from '../runtime.js'
 import { type FakeOpencodeServer, startFakeOpencodeServer } from './fake-server.js'
 
@@ -46,6 +46,7 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
   let seq = 0
 
   return {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     serverFor: (sessionId) => bySession.get(sessionId),
 

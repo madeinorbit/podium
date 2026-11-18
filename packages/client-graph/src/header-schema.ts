@@ -64,27 +64,3 @@ export const HEADER_RELATIONS = [
 export function isHeaderEntity(entity: string): entity is HeaderEntity {
   return Object.hasOwn(HEADER_SCHEMA, entity)
 }
-
-/** Declared summaries for unloaded rows used by reclaim counts and the rail. */
-export const HEADER_ISSUE_SUMMARY_FIELDS = [
-  'worktreePath',
-  'closedAt',
-  'closedReason',
-  'machineId',
-  'repoId',
-  'seq',
-] as const
-export const HEADER_SESSION_SUMMARY_FIELDS = [
-  'sessionId',
-  'cwd',
-  'machineId',
-  'archived',
-  'status',
-  'lastActiveAt',
-  'agentState',
-  'title',
-  'name',
-  'displayRef',
-  'agentKind',
-  'resumable',
-] as const

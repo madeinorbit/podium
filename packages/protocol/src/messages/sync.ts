@@ -1,46 +1,19 @@
 import {
-  AgentProfileWire,
-  AutomationRunWire,
-  AutomationWire,
-  CheckoutWire,
-  ConversationRecordWire,
-  EffectRecordWire,
   GlobalChangeOpField,
-  InstancePreferencesWire,
-  IssueBriefWire,
   IssueDepProjection,
-  IssueDescriptionWire,
   IssueEventWire,
   IssueGitStateProjection,
-  IssuePanelArtifactWire,
-  IssuePanelDeferredWire,
-  IssuePanelStateWire,
-  IssuePanelTodoWire,
   IssueProjection,
   IssueUserStateWire,
-  LayoutWire,
-  MachineAccessWire,
   MachineProjection,
-  MessageRecordWire,
-  PinWire,
-  ReadPositionWire,
+  RECORD_KINDS,
+  RECORDS,
   RepoProjection,
-  SessionMeta,
   SessionUserStateWire,
-  SlimIssueProjection,
-  SubscriptionWire,
-  SuperagentThreadWire,
-  TabOrderWire,
-  UserPreferencesWire,
-  WorkflowBindingWire,
-  WorkflowRevisionWire,
-  WorkflowRunRecord,
-  WorkflowWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
-import { PendingInteractionWire } from './runtime-interactions'
 
 /**
  * Re-exported from `@podium/model` [POD-796, POD-822].
@@ -155,215 +128,38 @@ const FeedIdShape = {
   minAvailableSeq: z.number().int().positive().optional(),
 } as const
 
-export const MetadataChange = z.discriminatedUnion('entity', [
-  metadataChangeArm(z.literal('session'), SessionMeta),
+/** The arm {@link metadataChangeArm} builds for one declared record type. */
+type MetadataChangeArmOf<D extends (typeof RECORDS)[number]> = ReturnType<
+  typeof metadataChangeArm<z.ZodLiteral<D['kind']>, D['schema']>
+>
+type MetadataChangeArms<T extends readonly (typeof RECORDS)[number][]> = {
+  -readonly [I in keyof T]: T[I] extends infer D extends (typeof RECORDS)[number]
+    ? MetadataChangeArmOf<D>
+    : never
+}
 
-  /** The issue record without its body fields (`brief`, `panel`,
-   *  `description`, `activityNotes`): the brief and description are the
-   *  `issueBrief` and `issueDescription` records below, the panel and notes
-   *  the panel records (POD-6921). */
-  metadataChangeArm(z.literal('issueProjection'), SlimIssueProjection),
-  /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
-   *  first-class entities, keyed by their own primary key (`issueDepId`).
-   *
-   *  The relation the feed never carried. `IssueProjection` cannot hold `deps`
-   *  without re-acquiring the cross-entity coupling it exists to shed (an edge
-   *  belongs to two issues; see model's `fields/issue-dep.ts`), so the edge is
-   *  its own kind and the replica joins it. That is what makes `depAdd` cost
-   *  O(1) server-side and still move `blocked` on both endpoints.
-   *
-   *  Same additive contract as issueProjection: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('issueDep'), IssueDepProjection),
-  /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
-   *  for `displayRef`.
-   *
-   *  `prefix` is a function of the REPO, so materializing it onto every issue
-   *  would make a prefix change rewrite every issue in the repo on the write
-   *  path (D7.2). One repo row instead; the replica joins `issue.repoId →
-   *  repo.prefix` and every `POD-13` in the repo moves at once. Same additive
-   *  contract as the two kinds above. */
-  metadataChangeArm(z.literal('repo'), RepoProjection),
-  metadataChangeArm(z.literal('shipOrder'), ShipOrderProjection),
-  /** One delivery lane's queue in the scheduler's order (POD-4974 O2, ADR 4
-   *  D7.4), keyed by `shipLaneId(repoId, canonical destination)`. The server
-   *  recomputes it only for the lanes a shipping commit touches, so a ship order
-   *  no longer needs every order ever stored to know its rank. Same additive
-   *  contract as the kinds above: an older build parses these rows as
-   *  {@link UnknownMetadataChange}, ignores them and advances its cursor.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('shipLane'), ShipLaneProjection),
-  metadataChangeArm(z.literal('conversation'), ConversationRecordWire),
-  metadataChangeArm(z.literal('automation'), AutomationWire),
-  metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
-  /** Per-user sidebar/tab layout row (POD-1350) — keyed `(userId, key)` on the
-   *  change id via `layoutRowId`. Visibility class `per-user-state`: only the
-   *  owning human's principals see the row (ADR 9 D3 rule 4). Additive on the
-   *  wire (same contract as issueProjection): older clients ignore via
-   *  UnknownMetadataChange and advance the cursor. */
-  metadataChangeArm(z.literal('userLayout'), LayoutWire),
-  /** Per-user event-stream read position (POD-1380) — keyed `(userId, feedId)` on
-   *  the change id via `readPositionRowId`. Visibility class `per-user-state`, the
-   *  same as `userLayout` and for a sharper reason: a read cursor delivered to
-   *  the wrong principal is a privacy defect that looks exactly like a working
-   *  cursor. Additive on the wire; older clients ignore it via
-   *  UnknownMetadataChange and advance the cursor. */
-  metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
-  /** One curated issue event (POD-1772) — `podium_events` rows as first-class
-   *  entities, keyed by `issueEventRowId(eventId, subject)`.
-   *
-   *  The chat feed's content, moved off a 15 s RPC timer and onto the one data
-   *  path the rest of the app uses. Visibility class `personal`, decided by the
-   *  SUBJECT issue: an event is readable by whoever may read the issue it is
-   *  about, which is why the subject rides the row id.
-   *
-   *  The log is unbounded and the replica is not, so the publisher holds a
-   *  bounded WINDOW: an event entering the window is an upsert, an event leaving
-   *  it is a `delete`. Bootstrap therefore carries a capped tail, not the whole
-   *  history of the installation.
-   *
-   *  Same additive contract as the kinds above: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('issueEvent'), IssueEventWire),
-  /** One blocking ask (POD-2020, spec §4) — the PendingInteraction aggregate on
-   *  the feed, so "answering from any surface resolves it everywhere" is a
-   *  property of the data path rather than of four clients agreeing.
-   *
-   *  Keyed by `interactionRowId(sessionId, id)`: the SUBJECT SESSION rides the
-   *  change id, the same device `issueEvent` uses and for the same two reasons —
-   *  `mayRead` answers from the id alone (no read of a row that a `delete` has
-   *  already removed), and a bootstrap prefetches every subject session in one
-   *  batched read instead of one `SELECT` per ask.
-   *
-   *  Its wire type is the ONE arm here that does not come from `@podium/model`:
-   *  `PendingInteractionWire` is the agent-runtime contract's `PendingInteraction`
-   *  plus the server aggregate's lifecycle, and it lives beside the contract type
-   *  it extends rather than being half-restated up here. See `./runtime.ts`.
-   *
-   *  Same additive contract as the kinds above: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('pendingInteraction'), PendingInteractionWire),
-  /** A chat message a person sent into a session (POD-4764) — its record and
-   *  delivery status, so every device shows the same status by id and the chat
-   *  matches it to the agent's history by the entry id the machine named,
-   *  never by text.
-   *
-   *  Keyed by `messageRecordRowId(sessionId, senderUserId, id)`: both people who
-   *  may read it ride the change id, the same device `pendingInteraction` uses,
-   *  so `mayRead` answers from the id alone and a bootstrap prefetches every
-   *  subject session in one batched read.
-   *
-   *  The feed carries messages on their way, failed or lost-track ones until the
-   *  sender dismisses them, and a bounded window of recently confirmed ones;
-   *  the transcript is the history. Same additive contract as the kinds above:
-   *  an older build parses these rows as {@link UnknownMetadataChange}, ignores
-   *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('message'), MessageRecordWire),
-  metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
-  metadataChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
-  metadataChangeArm(z.literal('machine'), MachineProjection),
-  metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
-  /** A one-shot effect and its standard status (ADR 12 D5 E2, POD-6357): merge,
-   *  file write, scans, clone, interrupt. Visibility class `personal`: readable by
-   *  whoever created it and by the readers of its target. Additive: an older
-   *  build parses these rows as {@link UnknownMetadataChange} and advances. */
-  metadataChangeArm(z.literal('effect'), EffectRecordWire),
-  /** Per-user records (POD-6673, ADR 12 D1): a pin (keyed `pinRowId`), a
-   *  worktree's tab order (`tabOrderRowId`) and one person's personal
-   *  preferences (`userPreferencesRowId`). Visibility class `per-user-state`:
-   *  the owner's principals only. Additive: an older build parses these rows as
-   *  {@link UnknownMetadataChange} and advances. */
-  metadataChangeArm(z.literal('pin'), PinWire),
-  metadataChangeArm(z.literal('tabOrder'), TabOrderWire),
-  metadataChangeArm(z.literal('userPreferences'), UserPreferencesWire),
-  /** A superagent thread (POD-6675, ADR 12 D1), keyed `superagentThreadRowId`.
-   *  Visibility class `per-user-state`: its owner's principals only. Additive:
-   *  an older build parses these rows as {@link UnknownMetadataChange}. */
-  metadataChangeArm(z.literal('superagentThread'), SuperagentThreadWire),
-  /** Agent profiles, workflows and automation trigger subscriptions
-   *  (POD-6676, ADR 12 D1; design POD-5620 §1.9-1.11). A profile is instance
-   *  substrate (every member); a workflow, its revisions, a binding and a run
-   *  follow their owner; a subscription its subscriber (row id
-   *  `subscriptionRowId`). A binding is keyed `workflowBindingRowId`. Additive:
-   *  an older build parses these rows as {@link UnknownMetadataChange} and
-   *  advances. */
-  metadataChangeArm(z.literal('agentProfile'), AgentProfileWire),
-  metadataChangeArm(z.literal('workflow'), WorkflowWire),
-  metadataChangeArm(z.literal('workflowRevision'), WorkflowRevisionWire),
-  metadataChangeArm(z.literal('workflowBinding'), WorkflowBindingWire),
-  metadataChangeArm(z.literal('workflowRun'), WorkflowRunRecord),
-  metadataChangeArm(z.literal('subscription'), SubscriptionWire),
-  /** The instance preferences (POD-6677, ADR 12 D1): one record per instance,
-   *  keyed `INSTANCE_PREFERENCES_ROW_ID`, whose fields are the instance tier's
-   *  leaf paths. Visibility class `deployment-substrate`: every member reads it.
-   *  Never a secret. Additive: an older build parses these rows as
-   *  {@link UnknownMetadataChange} and advances. */
-  metadataChangeArm(z.literal('instancePreferences'), InstancePreferencesWire),
-  /** A machine's synced records beside `machine` (POD-6644, design POD-5620
-   *  §1.12): one member's access row for one machine (`machineAccessRowId`,
-   *  class `per-user-state`), and one checkout on one machine (`checkoutRowId`:
-   *  a registered root is readable with `manage` or `use` on the machine, a
-   *  worktree only with `use`). Additive: an older build parses
-   *  these rows as {@link UnknownMetadataChange} and advances. */
-  metadataChangeArm(z.literal('machineAccess'), MachineAccessWire),
-  metadataChangeArm(z.literal('checkout'), CheckoutWire),
-  /** An issue's brief and description (POD-6921, design POD-6253 §2), each
-   *  keyed by the issue id and holding the whole text; absent when the field
-   *  has none. Readable by the issue's readers. */
-  metadataChangeArm(z.literal('issueBrief'), IssueBriefWire),
-  metadataChangeArm(z.literal('issueDescription'), IssueDescriptionWire),
-  metadataChangeArm(z.literal('issuePanelTodo'), IssuePanelTodoWire),
-  metadataChangeArm(z.literal('issuePanelArtifact'), IssuePanelArtifactWire),
-  metadataChangeArm(z.literal('issuePanelDeferred'), IssuePanelDeferredWire),
-  metadataChangeArm(z.literal('issuePanelState'), IssuePanelStateWire),
-])
+/**
+ * One change row of each synced record type, GENERATED from the record
+ * declarations in `@podium/model` (`records/declarations.ts`, POD-7084): one
+ * arm per declared type, in declaration order, its value the type's wire
+ * schema. Until POD-7084 this list was written out here by hand, beside a
+ * second hand-written list of the kind names; `record-list.test.ts` holds the
+ * generated list to that last hand-written one.
+ *
+ * Every kind is additive on the wire: a build whose list predates a kind
+ * parses its rows as {@link UnknownMetadataChange}, ignores them and advances
+ * its cursor (ADR 2 D4). Why each kind exists, and how its rows are keyed, is
+ * written on its declaration.
+ */
+export const MetadataChange = z.discriminatedUnion(
+  'entity',
+  RECORDS.map((record) =>
+    metadataChangeArm(z.literal(record.kind), record.schema),
+  ) as unknown as MetadataChangeArms<typeof RECORDS>,
+)
 export type MetadataChange = z.infer<typeof MetadataChange>
-export const MetadataEntityKind = z.enum([
-  'session',
-  'issueProjection',
-  'issueDep',
-  'repo',
-  'shipOrder',
-  'shipLane',
-  'conversation',
-  'automation',
-  'automationRun',
-  'userLayout',
-  'userReadPosition',
-  'issueEvent',
-  'pendingInteraction',
-  'message',
-  'issueUserState',
-  'sessionUserState',
-  'machine',
-  'issueGitState',
-  'effect',
-  'pin',
-  'tabOrder',
-  'userPreferences',
-  'superagentThread',
-  'agentProfile',
-  'workflow',
-  'workflowRevision',
-  'workflowBinding',
-  'workflowRun',
-  'subscription',
-  'instancePreferences',
-  'machineAccess',
-  'checkout',
-  'issueBrief',
-  'issueDescription',
-  'issuePanelTodo',
-  'issuePanelArtifact',
-  'issuePanelDeferred',
-  'issuePanelState',
-])
+/** The synced record kinds, in declaration order: generated, like {@link MetadataChange}. */
+export const MetadataEntityKind = z.enum(RECORD_KINDS)
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
 // ---- Kind-tolerant (lenient) consumer parsing ([spec:SP-3fe2] #258) ----

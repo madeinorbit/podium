@@ -5,8 +5,8 @@ Task POD-7025, for the design's section 2.6 ("Measured duration"). Measured on 2
 ## Result
 
 An existing install upgrading to the workspace data model runs the workspace column migration
-(M1, `20261117050304_workspace-column`) and the keys migration (M2,
-`20261117104939_workspace-keys`) in one boot, with the three migrations between them
+(M1, `20261118101144_workspace-column`) and the keys migration (M2,
+`20261118101338_workspace-keys`) in one boot, with the three migrations between them
 (`workspace-meta-split`, `artifact-uploads`, `pending-uploads`). On a synthetic database the
 size of the reference database, that whole upgrade took **21.7 to 25.6 seconds**, of which the
 pre-migration backup took **6.6 to 6.7 seconds**.

@@ -65,7 +65,7 @@ it('records first click and revisit once at 1x and 4x', () => {
     })
     const firstMs = performance.now() - start
     const summaries = (kind: string) =>
-      read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === 'summary').length
+      read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === undefined).length
     const first = { issue: summaries('issue'), session: summaries('session') }
     stop()
     read.mockClear()
@@ -105,7 +105,7 @@ it('bounds click summary reads by the visible rows at 1x and 4x', () => {
     try {
       for (const kind of ['issue', 'session'])
         expect(
-          read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === 'summary')
+          read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === undefined)
             .length,
           `${kind} summaries at ${scale}x`,
         ).toBeLessThanOrEqual(VISIBLE * 4)

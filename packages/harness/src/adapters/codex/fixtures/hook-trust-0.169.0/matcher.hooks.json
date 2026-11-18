@@ -1,0 +1,82 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo mine",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=$(cat); sid=\"$PODIUM_SESSION_ID\"; s=\"$PODIUM_CODEX_HOOK_SOCKET\"; u=\"$PODIUM_CODEX_HOOK_URL\"; if [ -n \"$s\" ] && [ -n \"$sid\" ]; then printf %s \"$p\" | curl -fsS -m 2 --unix-socket \"$s\" -X POST -H \"content-type: application/json\" --data-binary @- \"http://localhost/hooks/$sid\" >/dev/null 2>&1 || true; elif [ -n \"$u\" ]; then printf %s \"$p\" | curl -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"$u\" >/dev/null 2>&1 || true; fi'",
+            "commandWindows": "if defined PODIUM_CODEX_HOOK_URL (curl.exe -fsS -m 2 -X POST -H \"content-type: application/json\" --data-binary @- \"%PODIUM_CODEX_HOOK_URL%\" >NUL 2>&1) else (more >NUL) & exit /b 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

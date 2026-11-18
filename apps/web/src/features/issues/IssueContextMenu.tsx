@@ -190,11 +190,14 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
+  const [targetQuery, setTargetQuery] = useState('')
   const choiceViews = useIssueViews(sub?.kind === 'labels' || sub?.kind === 'duplicate')
   const readChoices = useCallback(
     (pool: import('@podium/client-graph').MobxPool) =>
-      choiceViews ? readIssueMenuChoices(pool, sub?.kind, choiceViews) : undefined,
-    [sub?.kind, choiceViews],
+      choiceViews
+        ? readIssueMenuChoices(pool, sub?.kind, choiceViews, targetQuery, issues[0]?.repoPath)
+        : undefined,
+    [sub?.kind, choiceViews, targetQuery, issues],
   )
   const choices = useWorklistPoolProjection(readChoices, undefined)
   const needsCloseGuard = useIssueCloseGuard()
@@ -704,6 +707,18 @@ export const IssueContextMenu = observer(function IssueContextMenu({
           className={`absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto ${MENU_PANEL}`}
           style={flyoutStyle}
         >
+          {sub.kind === 'duplicate' && (
+            <input
+              aria-label="Search duplicate targets"
+              placeholder="Search tasks…"
+              value={targetQuery}
+              className="mx-1 mb-1 h-7 rounded border border-border bg-background px-2 text-xs"
+              onChange={(event) => setTargetQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') event.stopPropagation()
+              }}
+            />
+          )}
           {submenuItems.get(sub.kind)}
         </div>
       )}

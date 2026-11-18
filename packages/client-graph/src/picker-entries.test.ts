@@ -47,6 +47,9 @@ function spyReads(pool: MobxPool) {
   const many = vi.spyOn(pool.relations, 'many')
   const size = vi.spyOn(pool.relations, 'size')
   const subset = vi.spyOn(pool.relations, 'subset')
+  // POD-7088: an issue's child counts are their own question (from the stubs
+  // or the device index), no longer the tree-children relation.
+  const children = vi.spyOn(pool.queries, 'issueChildCounts')
   return {
     /** Entries whose descendants (children or member seats) were resolved. */
     descendants(): Set<string> {
@@ -55,12 +58,13 @@ function spyReads(pool: MobxPool) {
         for (const [from, id, relation] of spy.mock.calls)
           if (from === 'issue' && ['treeChildren', 'pageSessions', 'missionSessions', 'sessions'].includes(relation))
             out.add(id)
+      for (const [id] of children.mock.calls) out.add(id)
       return out
     },
     rowIds(kind: string): Set<string> {
       return new Set(rows.mock.calls.filter(([entity]) => entity === kind).map(([, id]) => id))
     },
-    restore() { for (const spy of [rows, graph, many, size, subset]) spy.mockRestore() },
+    restore() { for (const spy of [rows, graph, many, size, subset, children]) spy.mockRestore() },
   }
 }
 

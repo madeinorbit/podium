@@ -7,7 +7,6 @@ import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixt
 import { requireHere } from '@podium/client-graph/lookup'
 
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -119,7 +118,6 @@ function fixture(scale: number) {
     ...[subject, ...hidden].map((row) => [`session:${row.sessionId}`, row] as const),
   ])
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    summaries: MISSION_VIEW_SUMMARIES,
     load: (kind, id) => payloads.get(`${kind}:${id}`),
     schedule: () => () => {},
   })

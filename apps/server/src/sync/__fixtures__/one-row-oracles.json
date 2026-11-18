@@ -1,0 +1,1541 @@
+{
+  "sourceCommit": "1d8ba77d9fe9a1c446c1736236d82218691f2dfd",
+  "now": 1794571200000,
+  "effectKinds": ["machine.scan"],
+  "generations": [
+    {
+      "kind": "agentProfile",
+      "generation": 1
+    },
+    {
+      "kind": "automation",
+      "generation": 1
+    },
+    {
+      "kind": "automationRun",
+      "generation": 1
+    },
+    {
+      "kind": "checkout",
+      "generation": 1
+    },
+    {
+      "kind": "conversation",
+      "generation": 1
+    },
+    {
+      "kind": "effect",
+      "generation": 1
+    },
+    {
+      "kind": "instancePreferences",
+      "generation": 1
+    },
+    {
+      "kind": "issueBodies",
+      "generation": 1
+    },
+    {
+      "kind": "issueDep",
+      "generation": 1
+    },
+    {
+      "kind": "issueEvent",
+      "generation": 1
+    },
+    {
+      "kind": "issueGitState",
+      "generation": 1
+    },
+    {
+      "kind": "issuePanelArtifact",
+      "generation": 1
+    },
+    {
+      "kind": "issuePanelDeferred",
+      "generation": 1
+    },
+    {
+      "kind": "issuePanelState",
+      "generation": 1
+    },
+    {
+      "kind": "issuePanelTodo",
+      "generation": 1
+    },
+    {
+      "kind": "issueProjection",
+      "generation": 1
+    },
+    {
+      "kind": "issueUserState",
+      "generation": 1
+    },
+    {
+      "kind": "machine",
+      "generation": 1
+    },
+    {
+      "kind": "machineAccess",
+      "generation": 1
+    },
+    {
+      "kind": "message",
+      "generation": 3
+    },
+    {
+      "kind": "pendingInteraction",
+      "generation": 1
+    },
+    {
+      "kind": "pin",
+      "generation": 1
+    },
+    {
+      "kind": "repo",
+      "generation": 1
+    },
+    {
+      "kind": "session",
+      "generation": 3
+    },
+    {
+      "kind": "sessionUserState",
+      "generation": 3
+    },
+    {
+      "kind": "shipLane",
+      "generation": 1
+    },
+    {
+      "kind": "shipOrder",
+      "generation": 1
+    },
+    {
+      "kind": "subscription",
+      "generation": 1
+    },
+    {
+      "kind": "superagentThread",
+      "generation": 1
+    },
+    {
+      "kind": "tabOrder",
+      "generation": 1
+    },
+    {
+      "kind": "userLayout",
+      "generation": 1
+    },
+    {
+      "kind": "userPreferences",
+      "generation": 1
+    },
+    {
+      "kind": "userReadPosition",
+      "generation": 1
+    },
+    {
+      "kind": "workflow",
+      "generation": 1
+    },
+    {
+      "kind": "workflowBinding",
+      "generation": 1
+    },
+    {
+      "kind": "workflowRevision",
+      "generation": 1
+    },
+    {
+      "kind": "workflowRun",
+      "generation": 1
+    }
+  ],
+  "tables": {
+    "issues": [
+      {
+        "id": "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "visibility": "personal",
+        "created_by_actor": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_by_on_behalf_of": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "repo_path": "/repo",
+        "repo_id": "repo_5b85be5a5c2539d1",
+        "seq": 1,
+        "title": "Issue 0",
+        "description": "A description",
+        "brief": "A brief",
+        "stage": "backlog",
+        "worktree_path": null,
+        "branch": null,
+        "parent_branch": "main",
+        "default_agent": "auto",
+        "default_model": "auto",
+        "default_effort": "auto",
+        "machine_id": null,
+        "linear_id": null,
+        "linear_identifier": null,
+        "linear_url": null,
+        "suggested_stage": null,
+        "suggested_reason": null,
+        "blocked_by": "[]",
+        "dependency_note": null,
+        "pr_url": null,
+        "priority": 2,
+        "type": "task",
+        "assignee": null,
+        "parent_id": null,
+        "acceptance": null,
+        "due_at": null,
+        "defer_until": null,
+        "closed_reason": null,
+        "closed_at": null,
+        "landed_at": null,
+        "landed_sha": null,
+        "superseded_by": null,
+        "duplicate_of": null,
+        "sort_key": "i",
+        "estimate_min": null,
+        "needs_human": 0,
+        "human_question": null,
+        "human_question_options": null,
+        "human_question_asked_by": null,
+        "human_question_asked_at": null,
+        "human_question_attribution": null,
+        "created_at": "2026-11-17T20:31:49.289Z",
+        "actor": null,
+        "on_behalf_of": null,
+        "updated_at": "2026-11-17T20:31:49.351Z",
+        "archived": 0,
+        "origin": "human",
+        "draft": 0,
+        "audience": "human",
+        "deleted_at": null,
+        "revision": 2,
+        "coordinator_session_id": null,
+        "started_by_session": null,
+        "agent_profile_id": null,
+        "closed_by_user_id": null
+      },
+      {
+        "id": "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "visibility": "personal",
+        "created_by_actor": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_by_on_behalf_of": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "repo_path": "/repo",
+        "repo_id": "repo_5b85be5a5c2539d1",
+        "seq": 2,
+        "title": "Issue 1",
+        "description": "",
+        "brief": null,
+        "stage": "backlog",
+        "worktree_path": null,
+        "branch": null,
+        "parent_branch": "main",
+        "default_agent": "auto",
+        "default_model": "auto",
+        "default_effort": "auto",
+        "machine_id": null,
+        "linear_id": null,
+        "linear_identifier": null,
+        "linear_url": null,
+        "suggested_stage": null,
+        "suggested_reason": null,
+        "blocked_by": "[]",
+        "dependency_note": null,
+        "pr_url": null,
+        "priority": 2,
+        "type": "task",
+        "assignee": null,
+        "parent_id": null,
+        "acceptance": null,
+        "due_at": null,
+        "defer_until": null,
+        "closed_reason": null,
+        "closed_at": null,
+        "landed_at": null,
+        "landed_sha": null,
+        "superseded_by": null,
+        "duplicate_of": null,
+        "sort_key": "9",
+        "estimate_min": null,
+        "needs_human": 0,
+        "human_question": null,
+        "human_question_options": null,
+        "human_question_asked_by": null,
+        "human_question_asked_at": null,
+        "human_question_attribution": null,
+        "created_at": "2026-11-17T20:31:49.326Z",
+        "actor": null,
+        "on_behalf_of": null,
+        "updated_at": "2026-11-17T20:31:49.362Z",
+        "archived": 0,
+        "origin": "human",
+        "draft": 0,
+        "audience": "human",
+        "deleted_at": null,
+        "revision": 2,
+        "coordinator_session_id": null,
+        "started_by_session": null,
+        "agent_profile_id": null,
+        "closed_by_user_id": null
+      },
+      {
+        "id": "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "visibility": "personal",
+        "created_by_actor": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_by_on_behalf_of": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "repo_path": "/repo",
+        "repo_id": "repo_5b85be5a5c2539d1",
+        "seq": 3,
+        "title": "Issue 2",
+        "description": "",
+        "brief": null,
+        "stage": "backlog",
+        "worktree_path": null,
+        "branch": null,
+        "parent_branch": "main",
+        "default_agent": "auto",
+        "default_model": "auto",
+        "default_effort": "auto",
+        "machine_id": null,
+        "linear_id": null,
+        "linear_identifier": null,
+        "linear_url": null,
+        "suggested_stage": null,
+        "suggested_reason": null,
+        "blocked_by": "[]",
+        "dependency_note": null,
+        "pr_url": null,
+        "priority": 2,
+        "type": "task",
+        "assignee": null,
+        "parent_id": null,
+        "acceptance": null,
+        "due_at": null,
+        "defer_until": null,
+        "closed_reason": null,
+        "closed_at": null,
+        "landed_at": null,
+        "landed_sha": null,
+        "superseded_by": null,
+        "duplicate_of": null,
+        "sort_key": "4",
+        "estimate_min": null,
+        "needs_human": 0,
+        "human_question": null,
+        "human_question_options": null,
+        "human_question_asked_by": null,
+        "human_question_asked_at": null,
+        "human_question_attribution": null,
+        "created_at": "2026-11-17T20:31:49.338Z",
+        "actor": null,
+        "on_behalf_of": null,
+        "updated_at": "2026-11-17T20:31:49.338Z",
+        "archived": 0,
+        "origin": "human",
+        "draft": 0,
+        "audience": "human",
+        "deleted_at": null,
+        "revision": 1,
+        "coordinator_session_id": null,
+        "started_by_session": null,
+        "agent_profile_id": null,
+        "closed_by_user_id": null
+      }
+    ],
+    "issue_deps": [
+      {
+        "from_id": "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "to_id": "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "type": "blocked-by"
+      }
+    ],
+    "issue_user_state": [
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "issue_id": "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "read_at": null,
+        "tucked_at": null,
+        "joined_at": "2026-11-17T20:31:49.319Z",
+        "joined_via": "start",
+        "assigned_at": null,
+        "assigned_by": null
+      },
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "issue_id": "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "read_at": null,
+        "tucked_at": null,
+        "joined_at": "2026-11-17T20:31:49.335Z",
+        "joined_via": "start",
+        "assigned_at": null,
+        "assigned_by": null
+      },
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "issue_id": "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74",
+        "read_at": "2026-11-17T20:31:49.372Z",
+        "tucked_at": null,
+        "joined_at": "2026-11-17T20:31:49.346Z",
+        "joined_via": "start",
+        "assigned_at": null,
+        "assigned_by": null
+      }
+    ],
+    "subscriptions": [
+      {
+        "id": "sub-row-1",
+        "subscriber_kind": "issue",
+        "subscriber_id": "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "event": "issue.closed",
+        "source_kind": "issue",
+        "source_ref": "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "deliver_nudge": 1,
+        "deliver_notify": 0,
+        "origin": "custom",
+        "enabled": 1,
+        "created_at": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "automations": [
+      {
+        "id": "aut_7f619be5-6039-4293-b364-0f1347c3e823",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_by_actor": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_by_on_behalf_of": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "name": "Nightly sweep",
+        "enabled": 0,
+        "repo_path": "/repo",
+        "schedule_kind": "cron",
+        "cron": "0 3 * * *",
+        "run_at": null,
+        "target_session_id": null,
+        "agent_kind": "claude-code",
+        "model": "auto",
+        "effort": "auto",
+        "prompt": "sweep",
+        "next_run_at": null,
+        "last_run_at": null,
+        "created_at": "2026-11-17T20:31:49.546Z",
+        "session_mode": "fresh",
+        "deleted_at": null
+      }
+    ],
+    "automation_runs": [
+      {
+        "id": "run-row-1",
+        "actor": "system:automation-migration",
+        "on_behalf_of": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "automation_id": "aut_7f619be5-6039-4293-b364-0f1347c3e823",
+        "fired_at": "2026-11-13T12:00:00.000Z",
+        "session_id": "2f10530a-5df6-4899-bf6b-df85b9c11258",
+        "outcome": "spawned",
+        "detail": null,
+        "deleted_at": null
+      }
+    ],
+    "user_layout": [
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "key": "dockTab",
+        "value": "\"chat\"",
+        "updated_at": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "user_read_position": [
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "stream_id": "issueEvents",
+        "last_event_id": 3,
+        "seen_at": "2026-11-13T12:00:00.000Z",
+        "updated_at": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "pins": [
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "kind": "issue",
+        "id": "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "pinned_at": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "tab_order": [
+      {
+        "user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "worktree": "/other/w1",
+        "ids": "[\"2f10530a-5df6-4899-bf6b-df85b9c11258\"]",
+        "updated_at": "2026-11-17T20:31:49.564Z"
+      }
+    ],
+    "superagent_threads": [
+      {
+        "id": "global",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "kind": "global",
+        "origin_session_id": null,
+        "title": null,
+        "watermark_item_id": null,
+        "watermark_ts": null,
+        "created_at": "2026-11-17T20:16:14.864Z",
+        "updated_at": "2026-11-17T20:16:14.864Z",
+        "archived": 0,
+        "repo_path": null,
+        "agent_kind": null,
+        "podium_session_id": null,
+        "harness_session_id": null,
+        "terminal_session_id": null,
+        "model": null,
+        "effort": null,
+        "turn_running": 0,
+        "last_turn_failure_at": null,
+        "last_turn_failure_message": null,
+        "last_turn_failure_user_text": null
+      }
+    ],
+    "agent_profiles": [
+      {
+        "id": "agp_seed_research",
+        "name": "research",
+        "description": "Finds things out and reports them; changes no product code.",
+        "candidates_json": "[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}]",
+        "machine_id": null,
+        "instructions": "You are on a research task.\n\n- Answer the question the issue asks; do not change product code.\n- Cite what you rely on: file:line for code, links for outside sources.\n- Separate what you observed from what you infer.\n- End with a short written summary attached to the issue.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_seed_design",
+        "name": "design",
+        "description": "Shapes a feature or interface before it is built.",
+        "candidates_json": "[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}]",
+        "machine_id": null,
+        "instructions": "You are on a design task.\n\n- Produce the design itself (a document, mockup or prototype) and attach it to the issue.\n- For each real decision, give the options, their tradeoffs and your recommendation.\n- Ask your coordinator before choosing between options that change scope.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_seed_build",
+        "name": "build",
+        "description": "Implements a scoped change with focused tests.",
+        "candidates_json": "[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}]",
+        "machine_id": null,
+        "instructions": "You are on a build task.\n\n- Implement what the issue scopes, following the repository's own instructions.\n- Run the focused tests for what you touched, not the full suite.\n- Commit in small steps and move the issue to review when it is done.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_seed_review",
+        "name": "review",
+        "description": "Reviews a change for correctness before it lands.",
+        "candidates_json": "[{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}]",
+        "machine_id": null,
+        "instructions": "You are on a review task.\n\n- Check correctness first, then tests, then clarity.\n- Verify every finding before you report it: name the input that breaks and what happens.\n- Report findings; do not rewrite the change yourself unless asked.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_seed_qa",
+        "name": "qa",
+        "description": "Exercises a change as a user would and pins failures with tests.",
+        "candidates_json": "[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"medium\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"medium\"}]",
+        "machine_id": null,
+        "instructions": "You are on a QA task.\n\n- Exercise the change the way a user would, including edge cases.\n- For each failure, write reproducible steps and the expected and actual result.\n- Add a regression test where one is practical.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_seed_security",
+        "name": "security",
+        "description": "Audits code for vulnerabilities and rates them.",
+        "candidates_json": "[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}]",
+        "machine_id": null,
+        "instructions": "You are on a security task.\n\n- Look for vulnerabilities in the scoped code and rate each by severity and reach.\n- Never run destructive or outward-facing actions to prove a finding.\n- Report findings with a fix suggestion; change code only when asked.",
+        "created_by": "system:seed",
+        "updated_by": "system:seed",
+        "created_at": "2026-10-14T00:00:00.000Z",
+        "updated_at": "2026-10-14T00:00:00.000Z"
+      },
+      {
+        "id": "agp_6920",
+        "name": "reviewer",
+        "description": "",
+        "candidates_json": "[{\"harness\":\"codex\",\"model\":\"gpt-5.6\",\"effort\":\"medium\"}]",
+        "machine_id": null,
+        "instructions": "",
+        "created_by": "operator",
+        "updated_by": "operator",
+        "created_at": "2026-11-13T12:00:00.000Z",
+        "updated_at": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "workflows": [
+      {
+        "id": "wf-6920",
+        "name": "Ship it",
+        "description": "a workflow",
+        "scope": "global",
+        "scope_ref": null,
+        "latest_revision_id": null,
+        "archived_at": null,
+        "created_by_kind": "operator",
+        "created_by_id": null,
+        "created_at": "2026-11-13T12:00:00.000Z",
+        "updated_at": "2026-11-13T12:00:00.000Z",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw"
+      }
+    ],
+    "workflow_revisions": [
+      {
+        "id": "rev-row-1",
+        "workflow_id": "wf-6920",
+        "version": 1,
+        "instructions": "Review",
+        "steps_json": "[{\"id\":\"review\",\"title\":\"Review\"}]",
+        "created_by_kind": "operator",
+        "created_by_id": null,
+        "created_at": "2026-11-13T12:00:00.000Z",
+        "published_at": null
+      }
+    ],
+    "workflow_bindings": [
+      {
+        "target_kind": "global",
+        "target_id": "default",
+        "revision_id": "rev-row-1",
+        "updated_by_kind": "operator",
+        "updated_by_id": null,
+        "updated_at": "2026-11-13T12:00:00.000Z",
+        "owner_user_id": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw"
+      }
+    ],
+    "meta": [
+      {
+        "key": "settings",
+        "value": "{\"deployment\":{},\"transcripts\":{}}"
+      }
+    ],
+    "effects": [
+      {
+        "id": "eff_person_scan",
+        "kind": "machine.scan",
+        "target_kind": "machine",
+        "target_id": "f932f63f-5303-4a4f-8676-4da373997ecc",
+        "input_json": "{\"deep\":false}",
+        "result_json": "{\"repos\":[]}",
+        "cancel_requested": 0,
+        "status": "succeeded",
+        "error_code": null,
+        "error_message": null,
+        "deadline_at": null,
+        "attempts": 1,
+        "stage": null,
+        "started_at": null,
+        "finished_at": null,
+        "created_by": "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+        "created_at": 1,
+        "updated_at": 2,
+        "revision": 1,
+        "deleted_at": null,
+        "actor": null,
+        "decision": null,
+        "deciders": null
+      },
+      {
+        "id": "eff_system_scan",
+        "kind": "machine.scan",
+        "target_kind": "machine",
+        "target_id": "f932f63f-5303-4a4f-8676-4da373997ecc",
+        "input_json": "{\"deep\":false}",
+        "result_json": "{\"repos\":[]}",
+        "cancel_requested": 0,
+        "status": "succeeded",
+        "error_code": null,
+        "error_message": null,
+        "deadline_at": null,
+        "attempts": 1,
+        "stage": null,
+        "started_at": null,
+        "finished_at": null,
+        "created_by": null,
+        "created_at": 1,
+        "updated_at": 2,
+        "revision": 1,
+        "deleted_at": null,
+        "actor": null,
+        "decision": null,
+        "deciders": null
+      }
+    ],
+    "checkouts": [
+      {
+        "machine_id": "f932f63f-5303-4a4f-8676-4da373997ecc",
+        "path": "/row-checkout",
+        "root": "/row-checkout",
+        "kind": "repository",
+        "repo_id": null,
+        "branch": "main",
+        "origin_url": null,
+        "locked": 0,
+        "prunable": 0,
+        "updated_at": "2026-11-13T12:00:00.000Z",
+        "removed_at": null
+      }
+    ]
+  },
+  "records": {
+    "issueBrief": {
+      "streamBytes": "[{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"text\":\"A brief\"}}]",
+      "ids": [
+        "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "no-such-record",
+        "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+      ],
+      "buildBytes": "[{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"text\":\"A brief\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "issueDescription": {
+      "streamBytes": "[{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"text\":\"A description\"}}]",
+      "ids": [
+        "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "no-such-record",
+        "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+      ],
+      "buildBytes": "[{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"id\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"text\":\"A description\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "issueDep": {
+      "streamBytes": "[{\"id\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by\",\"value\":{\"id\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by\",\"fromId\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"toId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"type\":\"blocked-by\"}}]",
+      "ids": [
+        "iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by",
+        "no-such-record",
+        "iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by"
+      ],
+      "buildBytes": "[{\"id\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by\",\"value\":{\"id\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by\",\"fromId\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"toId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"type\":\"blocked-by\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "issueUserState": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"readAt\":null,\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.319Z\",\"joinedVia\":\"start\"}},{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"readAt\":null,\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.335Z\",\"joinedVia\":\"start\"}},{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_3a054a24-765e-4a2c-94fc-06c9f371fe74\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_3a054a24-765e-4a2c-94fc-06c9f371fe74\",\"readAt\":\"2026-11-17T20:31:49.372Z\",\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.346Z\",\"joinedVia\":\"start\"}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_3a054a24-765e-4a2c-94fc-06c9f371fe74",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_3a054a24-765e-4a2c-94fc-06c9f371fe74\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_3a054a24-765e-4a2c-94fc-06c9f371fe74\",\"readAt\":\"2026-11-17T20:31:49.372Z\",\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.346Z\",\"joinedVia\":\"start\"}},{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"readAt\":null,\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.335Z\",\"joinedVia\":\"start\"}},{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"readAt\":null,\"tuckedAt\":null,\"joinedAt\":\"2026-11-17T20:31:49.319Z\",\"joinedVia\":\"start\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "subscription": {
+      "streamBytes": "[{\"id\":\"issue\\niss_c0ee70de-9991-4785-9096-a8be55be92a4\\nsub-row-1\",\"value\":{\"id\":\"sub-row-1\",\"subscriberKind\":\"issue\",\"subscriberId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"event\":\"issue.closed\",\"sourceKind\":\"issue\",\"sourceRef\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"deliverNudge\":true,\"deliverNotify\":false,\"origin\":\"custom\",\"enabled\":true,\"createdAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "ids": [
+        "issue\niss_c0ee70de-9991-4785-9096-a8be55be92a4\nsub-row-1",
+        "no-such-record",
+        "issue\niss_c0ee70de-9991-4785-9096-a8be55be92a4\nsub-row-1"
+      ],
+      "buildBytes": "[{\"id\":\"issue\\niss_c0ee70de-9991-4785-9096-a8be55be92a4\\nsub-row-1\",\"value\":{\"id\":\"sub-row-1\",\"subscriberKind\":\"issue\",\"subscriberId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"event\":\"issue.closed\",\"sourceKind\":\"issue\",\"sourceRef\":\"iss_30bbf29e-a657-461a-a7b3-d18b124c700c\",\"deliverNudge\":true,\"deliverNotify\":false,\"origin\":\"custom\",\"enabled\":true,\"createdAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "automation": {
+      "streamBytes": "[{\"id\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"value\":{\"id\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"name\":\"Nightly sweep\",\"enabled\":false,\"repoPath\":\"/repo\",\"scheduleKind\":\"cron\",\"cron\":\"0 3 * * *\",\"runAt\":null,\"targetSessionId\":null,\"agentKind\":\"claude-code\",\"model\":\"auto\",\"effort\":\"auto\",\"prompt\":\"sweep\",\"sessionMode\":\"fresh\",\"nextRunAt\":null,\"lastRunAt\":null,\"createdAt\":\"2026-11-17T20:31:49.546Z\",\"ownerUserId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdByActor\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdByOnBehalfOf\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\"}}]",
+      "ids": [
+        "aut_7f619be5-6039-4293-b364-0f1347c3e823",
+        "no-such-record",
+        "aut_7f619be5-6039-4293-b364-0f1347c3e823"
+      ],
+      "buildBytes": "[{\"id\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"value\":{\"id\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"name\":\"Nightly sweep\",\"enabled\":false,\"repoPath\":\"/repo\",\"scheduleKind\":\"cron\",\"cron\":\"0 3 * * *\",\"runAt\":null,\"targetSessionId\":null,\"agentKind\":\"claude-code\",\"model\":\"auto\",\"effort\":\"auto\",\"prompt\":\"sweep\",\"sessionMode\":\"fresh\",\"nextRunAt\":null,\"lastRunAt\":null,\"createdAt\":\"2026-11-17T20:31:49.546Z\",\"ownerUserId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdByActor\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdByOnBehalfOf\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "automationRun": {
+      "streamBytes": "[{\"id\":\"run-row-1\",\"value\":{\"id\":\"run-row-1\",\"automationId\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"firedAt\":\"2026-11-13T12:00:00.000Z\",\"sessionId\":\"2f10530a-5df6-4899-bf6b-df85b9c11258\",\"outcome\":\"spawned\",\"detail\":null,\"actor\":\"system:automation-migration\",\"onBehalfOf\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\"}}]",
+      "ids": ["run-row-1", "no-such-record", "run-row-1"],
+      "buildBytes": "[{\"id\":\"run-row-1\",\"value\":{\"id\":\"run-row-1\",\"automationId\":\"aut_7f619be5-6039-4293-b364-0f1347c3e823\",\"firedAt\":\"2026-11-13T12:00:00.000Z\",\"sessionId\":\"2f10530a-5df6-4899-bf6b-df85b9c11258\",\"outcome\":\"spawned\",\"detail\":null,\"actor\":\"system:automation-migration\",\"onBehalfOf\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "userLayout": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\ndockTab\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"key\":\"dockTab\",\"value\":\"chat\"}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\ndockTab",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\ndockTab"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\ndockTab\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"key\":\"dockTab\",\"value\":\"chat\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "userReadPosition": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nissueEvents\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"streamId\":\"issueEvents\",\"lastEventId\":3,\"seenAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissueEvents",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissueEvents"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nissueEvents\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"streamId\":\"issueEvents\",\"lastEventId\":3,\"seenAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "pin": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nissue\\niss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"kind\":\"issue\",\"entityId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"pinnedAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissue\niss_c0ee70de-9991-4785-9096-a8be55be92a4",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissue\niss_c0ee70de-9991-4785-9096-a8be55be92a4"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nissue\\niss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"kind\":\"issue\",\"entityId\":\"iss_c0ee70de-9991-4785-9096-a8be55be92a4\",\"pinnedAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "tabOrder": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\n/other/w1\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"/other/w1\",\"sessionIds\":[\"2f10530a-5df6-4899-bf6b-df85b9c11258\"]}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\n/other/w1",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\n/other/w1"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\n/other/w1\",\"value\":{\"userId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"entityId\":\"/other/w1\",\"sessionIds\":[\"2f10530a-5df6-4899-bf6b-df85b9c11258\"]}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "superagentThread": {
+      "streamBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nglobal\",\"value\":{\"threadId\":\"global\",\"ownerUserId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"kind\":\"global\",\"archived\":false,\"resumable\":false,\"turnRunning\":false,\"lastTurnFailure\":null,\"createdAt\":\"2026-11-17T20:16:14.864Z\",\"updatedAt\":\"2026-11-17T20:16:14.864Z\"}}]",
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nglobal",
+        "no-such-record",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nglobal"
+      ],
+      "buildBytes": "[{\"id\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\\nglobal\",\"value\":{\"threadId\":\"global\",\"ownerUserId\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"kind\":\"global\",\"archived\":false,\"resumable\":false,\"turnRunning\":false,\"lastTurnFailure\":null,\"createdAt\":\"2026-11-17T20:16:14.864Z\",\"updatedAt\":\"2026-11-17T20:16:14.864Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "agentProfile": {
+      "streamBytes": "[{\"id\":\"agp_seed_build\",\"value\":{\"id\":\"agp_seed_build\",\"name\":\"build\",\"description\":\"Implements a scoped change with focused tests.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a build task.\\n\\n- Implement what the issue scopes, following the repository's own instructions.\\n- Run the focused tests for what you touched, not the full suite.\\n- Commit in small steps and move the issue to review when it is done.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_design\",\"value\":{\"id\":\"agp_seed_design\",\"name\":\"design\",\"description\":\"Shapes a feature or interface before it is built.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a design task.\\n\\n- Produce the design itself (a document, mockup or prototype) and attach it to the issue.\\n- For each real decision, give the options, their tradeoffs and your recommendation.\\n- Ask your coordinator before choosing between options that change scope.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_qa\",\"value\":{\"id\":\"agp_seed_qa\",\"name\":\"qa\",\"description\":\"Exercises a change as a user would and pins failures with tests.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"medium\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"medium\"}],\"machineId\":null,\"instructions\":\"You are on a QA task.\\n\\n- Exercise the change the way a user would, including edge cases.\\n- For each failure, write reproducible steps and the expected and actual result.\\n- Add a regression test where one is practical.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_research\",\"value\":{\"id\":\"agp_seed_research\",\"name\":\"research\",\"description\":\"Finds things out and reports them; changes no product code.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a research task.\\n\\n- Answer the question the issue asks; do not change product code.\\n- Cite what you rely on: file:line for code, links for outside sources.\\n- Separate what you observed from what you infer.\\n- End with a short written summary attached to the issue.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_review\",\"value\":{\"id\":\"agp_seed_review\",\"name\":\"review\",\"description\":\"Reviews a change for correctness before it lands.\",\"candidates\":[{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a review task.\\n\\n- Check correctness first, then tests, then clarity.\\n- Verify every finding before you report it: name the input that breaks and what happens.\\n- Report findings; do not rewrite the change yourself unless asked.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_6920\",\"value\":{\"id\":\"agp_6920\",\"name\":\"reviewer\",\"description\":\"\",\"candidates\":[{\"harness\":\"codex\",\"model\":\"gpt-5.6\",\"effort\":\"medium\"}],\"machineId\":null,\"instructions\":\"\",\"createdAt\":\"2026-11-13T12:00:00.000Z\",\"updatedAt\":\"2026-11-13T12:00:00.000Z\"}},{\"id\":\"agp_seed_security\",\"value\":{\"id\":\"agp_seed_security\",\"name\":\"security\",\"description\":\"Audits code for vulnerabilities and rates them.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a security task.\\n\\n- Look for vulnerabilities in the scoped code and rate each by severity and reach.\\n- Never run destructive or outward-facing actions to prove a finding.\\n- Report findings with a fix suggestion; change code only when asked.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}}]",
+      "ids": [
+        "agp_seed_security",
+        "agp_6920",
+        "agp_seed_review",
+        "agp_seed_research",
+        "agp_seed_qa",
+        "agp_seed_design",
+        "agp_seed_build",
+        "no-such-record",
+        "agp_seed_build"
+      ],
+      "buildBytes": "[{\"id\":\"agp_seed_security\",\"value\":{\"id\":\"agp_seed_security\",\"name\":\"security\",\"description\":\"Audits code for vulnerabilities and rates them.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a security task.\\n\\n- Look for vulnerabilities in the scoped code and rate each by severity and reach.\\n- Never run destructive or outward-facing actions to prove a finding.\\n- Report findings with a fix suggestion; change code only when asked.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_6920\",\"value\":{\"id\":\"agp_6920\",\"name\":\"reviewer\",\"description\":\"\",\"candidates\":[{\"harness\":\"codex\",\"model\":\"gpt-5.6\",\"effort\":\"medium\"}],\"machineId\":null,\"instructions\":\"\",\"createdAt\":\"2026-11-13T12:00:00.000Z\",\"updatedAt\":\"2026-11-13T12:00:00.000Z\"}},{\"id\":\"agp_seed_review\",\"value\":{\"id\":\"agp_seed_review\",\"name\":\"review\",\"description\":\"Reviews a change for correctness before it lands.\",\"candidates\":[{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a review task.\\n\\n- Check correctness first, then tests, then clarity.\\n- Verify every finding before you report it: name the input that breaks and what happens.\\n- Report findings; do not rewrite the change yourself unless asked.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_research\",\"value\":{\"id\":\"agp_seed_research\",\"name\":\"research\",\"description\":\"Finds things out and reports them; changes no product code.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a research task.\\n\\n- Answer the question the issue asks; do not change product code.\\n- Cite what you rely on: file:line for code, links for outside sources.\\n- Separate what you observed from what you infer.\\n- End with a short written summary attached to the issue.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_qa\",\"value\":{\"id\":\"agp_seed_qa\",\"name\":\"qa\",\"description\":\"Exercises a change as a user would and pins failures with tests.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"medium\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"medium\"}],\"machineId\":null,\"instructions\":\"You are on a QA task.\\n\\n- Exercise the change the way a user would, including edge cases.\\n- For each failure, write reproducible steps and the expected and actual result.\\n- Add a regression test where one is practical.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_design\",\"value\":{\"id\":\"agp_seed_design\",\"name\":\"design\",\"description\":\"Shapes a feature or interface before it is built.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a design task.\\n\\n- Produce the design itself (a document, mockup or prototype) and attach it to the issue.\\n- For each real decision, give the options, their tradeoffs and your recommendation.\\n- Ask your coordinator before choosing between options that change scope.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}},{\"id\":\"agp_seed_build\",\"value\":{\"id\":\"agp_seed_build\",\"name\":\"build\",\"description\":\"Implements a scoped change with focused tests.\",\"candidates\":[{\"harness\":\"claude-code\",\"model\":\"auto\",\"effort\":\"high\"},{\"harness\":\"codex\",\"model\":\"auto\",\"effort\":\"high\"}],\"machineId\":null,\"instructions\":\"You are on a build task.\\n\\n- Implement what the issue scopes, following the repository's own instructions.\\n- Run the focused tests for what you touched, not the full suite.\\n- Commit in small steps and move the issue to review when it is done.\",\"createdAt\":\"2026-10-14T00:00:00.000Z\",\"updatedAt\":\"2026-10-14T00:00:00.000Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "workflowRevision": {
+      "streamBytes": "[{\"id\":\"rev-row-1\",\"value\":{\"id\":\"rev-row-1\",\"workflowId\":\"wf-6920\",\"version\":1,\"instructions\":\"Review\",\"steps\":[{\"id\":\"review\",\"title\":\"Review\",\"instructions\":\"\",\"completionGuidance\":\"\"}],\"createdAt\":\"2026-11-13T12:00:00.000Z\",\"publishedAt\":null}}]",
+      "ids": ["rev-row-1", "no-such-record", "rev-row-1"],
+      "buildBytes": "[{\"id\":\"rev-row-1\",\"value\":{\"id\":\"rev-row-1\",\"workflowId\":\"wf-6920\",\"version\":1,\"instructions\":\"Review\",\"steps\":[{\"id\":\"review\",\"title\":\"Review\",\"instructions\":\"\",\"completionGuidance\":\"\"}],\"createdAt\":\"2026-11-13T12:00:00.000Z\",\"publishedAt\":null}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "workflowBinding": {
+      "streamBytes": "[{\"id\":\"global:default\",\"value\":{\"targetKind\":\"global\",\"targetId\":\"default\",\"revisionId\":\"rev-row-1\",\"updatedAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "ids": ["global:default", "no-such-record", "global:default"],
+      "buildBytes": "[{\"id\":\"global:default\",\"value\":{\"targetKind\":\"global\",\"targetId\":\"default\",\"revisionId\":\"rev-row-1\",\"updatedAt\":\"2026-11-13T12:00:00.000Z\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "instancePreferences": {
+      "streamBytes": "[{\"id\":\"instance\",\"value\":{\"hibernation.enabled\":true,\"hibernation.memoryPct\":80,\"hibernation.loadPerCore\":1.5,\"hibernation.maxIdleSessions\":8,\"hibernation.idleMinutes\":30,\"hibernation.idleShellMinutes\":60,\"hibernation.backstopMinutes\":2880,\"gitWorkflow.defaultParentBranch\":\"\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{},\"worktreeGc.mode\":\"propose\",\"worktreeGc.afterDays\":14}}]",
+      "ids": ["instance", "no-such-record", "instance"],
+      "buildBytes": "[{\"id\":\"instance\",\"value\":{\"hibernation.enabled\":true,\"hibernation.memoryPct\":80,\"hibernation.loadPerCore\":1.5,\"hibernation.maxIdleSessions\":8,\"hibernation.idleMinutes\":30,\"hibernation.idleShellMinutes\":60,\"hibernation.backstopMinutes\":2880,\"gitWorkflow.defaultParentBranch\":\"\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{},\"worktreeGc.mode\":\"propose\",\"worktreeGc.afterDays\":14}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "effect": {
+      "streamBytes": "[{\"id\":\"eff_person_scan\",\"value\":{\"id\":\"eff_person_scan\",\"kind\":\"machine.scan\",\"target\":{\"kind\":\"machine\",\"id\":\"f932f63f-5303-4a4f-8676-4da373997ecc\"},\"input\":{\"deep\":false},\"result\":{\"repos\":[]},\"cancelRequested\":false,\"effect\":{\"status\":\"succeeded\",\"attempts\":1},\"createdBy\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdAt\":\"1970-01-01T00:00:00.001Z\",\"updatedAt\":\"1970-01-01T00:00:00.002Z\",\"revision\":1}}]",
+      "ids": ["eff_person_scan", "no-such-record", "eff_person_scan"],
+      "buildBytes": "[{\"id\":\"eff_person_scan\",\"value\":{\"id\":\"eff_person_scan\",\"kind\":\"machine.scan\",\"target\":{\"kind\":\"machine\",\"id\":\"f932f63f-5303-4a4f-8676-4da373997ecc\"},\"input\":{\"deep\":false},\"result\":{\"repos\":[]},\"cancelRequested\":false,\"effect\":{\"status\":\"succeeded\",\"attempts\":1},\"createdBy\":\"mem_3MFW0lbUsWexuTz6k650VDSk0Xw\",\"createdAt\":\"1970-01-01T00:00:00.001Z\",\"updatedAt\":\"1970-01-01T00:00:00.002Z\",\"revision\":1}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    },
+    "checkout": {
+      "streamBytes": "[{\"id\":\"f932f63f-5303-4a4f-8676-4da373997ecc\\n/row-checkout\",\"value\":{\"machineId\":\"f932f63f-5303-4a4f-8676-4da373997ecc\",\"path\":\"/row-checkout\",\"root\":\"/row-checkout\",\"kind\":\"repository\",\"branch\":\"main\"}}]",
+      "ids": [
+        "f932f63f-5303-4a4f-8676-4da373997ecc\n/row-checkout",
+        "no-such-record",
+        "f932f63f-5303-4a4f-8676-4da373997ecc\n/row-checkout"
+      ],
+      "buildBytes": "[{\"id\":\"f932f63f-5303-4a4f-8676-4da373997ecc\\n/row-checkout\",\"value\":{\"machineId\":\"f932f63f-5303-4a4f-8676-4da373997ecc\",\"path\":\"/row-checkout\",\"root\":\"/row-checkout\",\"kind\":\"repository\",\"branch\":\"main\"}}]",
+      "emptyBytes": "[]",
+      "missingBytes": "[]"
+    }
+  },
+  "captures": {
+    "issueBrief": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["iss_30bbf29e-a657-461a-a7b3-d18b124c700c"]
+        },
+        {
+          "op": "u",
+          "old": ["iss_30bbf29e-a657-461a-a7b3-d18b124c700c"],
+          "new": ["iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"]
+        },
+        {
+          "op": "d",
+          "old": ["iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"],
+          "new": null
+        }
+      ],
+      "ids": [
+        "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"
+      ]
+    },
+    "issueDescription": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["iss_30bbf29e-a657-461a-a7b3-d18b124c700c"]
+        },
+        {
+          "op": "u",
+          "old": ["iss_30bbf29e-a657-461a-a7b3-d18b124c700c"],
+          "new": ["iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"]
+        },
+        {
+          "op": "d",
+          "old": ["iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"],
+          "new": null
+        }
+      ],
+      "ids": [
+        "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"
+      ]
+    },
+    "issueDep": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": [
+            "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+            "blocked-by"
+          ]
+        },
+        {
+          "op": "u",
+          "old": [
+            "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+            "blocked-by"
+          ],
+          "new": [
+            "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+            "blocked-by"
+          ]
+        },
+        {
+          "op": "d",
+          "old": [
+            "iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4",
+            "blocked-by"
+          ],
+          "new": null
+        }
+      ],
+      "ids": [
+        "iss_30bbf29e-a657-461a-a7b3-d18b124c700c|iss_c0ee70de-9991-4785-9096-a8be55be92a4|blocked-by"
+      ]
+    },
+    "issueUserState": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "iss_30bbf29e-a657-461a-a7b3-d18b124c700c"]
+        },
+        {
+          "op": "u",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "iss_30bbf29e-a657-461a-a7b3-d18b124c700c"],
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"]
+        },
+        {
+          "op": "d",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"],
+          "new": null
+        }
+      ],
+      "ids": [
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_30bbf29e-a657-461a-a7b3-d18b124c700c",
+        "mem_3MFW0lbUsWexuTz6k650VDSk0Xw:issue:iss_3a054a24-765e-4a2c-94fc-06c9f371fe74"
+      ]
+    },
+    "subscription": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["issue", "iss_c0ee70de-9991-4785-9096-a8be55be92a4", "sub-row-1"]
+        },
+        {
+          "op": "u",
+          "old": ["issue", "iss_c0ee70de-9991-4785-9096-a8be55be92a4", "sub-row-1"],
+          "new": ["issue", "iss_c0ee70de-9991-4785-9096-a8be55be92a4", "sub-row-1"]
+        },
+        {
+          "op": "d",
+          "old": ["issue", "iss_c0ee70de-9991-4785-9096-a8be55be92a4", "sub-row-1"],
+          "new": null
+        }
+      ],
+      "ids": ["issue\niss_c0ee70de-9991-4785-9096-a8be55be92a4\nsub-row-1"]
+    },
+    "automation": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["aut_7f619be5-6039-4293-b364-0f1347c3e823"]
+        },
+        {
+          "op": "u",
+          "old": ["aut_7f619be5-6039-4293-b364-0f1347c3e823"],
+          "new": ["aut_7f619be5-6039-4293-b364-0f1347c3e823"]
+        },
+        {
+          "op": "d",
+          "old": ["aut_7f619be5-6039-4293-b364-0f1347c3e823"],
+          "new": null
+        }
+      ],
+      "ids": ["aut_7f619be5-6039-4293-b364-0f1347c3e823"]
+    },
+    "automationRun": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["run-row-1"]
+        },
+        {
+          "op": "u",
+          "old": ["run-row-1"],
+          "new": ["run-row-1"]
+        },
+        {
+          "op": "d",
+          "old": ["run-row-1"],
+          "new": null
+        }
+      ],
+      "ids": ["run-row-1"]
+    },
+    "userLayout": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "dockTab"]
+        },
+        {
+          "op": "u",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "dockTab"],
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "dockTab"]
+        },
+        {
+          "op": "d",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "dockTab"],
+          "new": null
+        }
+      ],
+      "ids": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw\ndockTab"]
+    },
+    "userReadPosition": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "issueEvents"]
+        },
+        {
+          "op": "u",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "issueEvents"],
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "issueEvents"]
+        },
+        {
+          "op": "d",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "issueEvents"],
+          "new": null
+        }
+      ],
+      "ids": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissueEvents"]
+    },
+    "pin": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": [
+            "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+            "issue",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+          ]
+        },
+        {
+          "op": "u",
+          "old": [
+            "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+            "issue",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+          ],
+          "new": [
+            "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+            "issue",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+          ]
+        },
+        {
+          "op": "d",
+          "old": [
+            "mem_3MFW0lbUsWexuTz6k650VDSk0Xw",
+            "issue",
+            "iss_c0ee70de-9991-4785-9096-a8be55be92a4"
+          ],
+          "new": null
+        }
+      ],
+      "ids": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nissue\niss_c0ee70de-9991-4785-9096-a8be55be92a4"]
+    },
+    "tabOrder": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "/other/w1"]
+        },
+        {
+          "op": "u",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "/other/w1"],
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "/other/w1"]
+        },
+        {
+          "op": "d",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "/other/w1"],
+          "new": null
+        }
+      ],
+      "ids": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw\n/other/w1"]
+    },
+    "superagentThread": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "global"]
+        },
+        {
+          "op": "u",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "global"],
+          "new": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "global"]
+        },
+        {
+          "op": "d",
+          "old": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw", "global"],
+          "new": null
+        }
+      ],
+      "ids": ["mem_3MFW0lbUsWexuTz6k650VDSk0Xw\nglobal"]
+    },
+    "agentProfile": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["agp_6920"]
+        },
+        {
+          "op": "u",
+          "old": ["agp_6920"],
+          "new": ["agp_seed_build"]
+        },
+        {
+          "op": "d",
+          "old": ["agp_seed_build"],
+          "new": null
+        }
+      ],
+      "ids": ["agp_6920", "agp_seed_build"]
+    },
+    "workflowRevision": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["rev-row-1"]
+        },
+        {
+          "op": "u",
+          "old": ["rev-row-1"],
+          "new": ["rev-row-1"]
+        },
+        {
+          "op": "d",
+          "old": ["rev-row-1"],
+          "new": null
+        }
+      ],
+      "ids": ["rev-row-1"]
+    },
+    "workflowBinding": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["global", "default"]
+        },
+        {
+          "op": "u",
+          "old": ["global", "default"],
+          "new": ["global", "default"]
+        },
+        {
+          "op": "d",
+          "old": ["global", "default"],
+          "new": null
+        }
+      ],
+      "ids": ["global:default"]
+    },
+    "instancePreferences": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["data_migration:session-birth-refs-v1"]
+        },
+        {
+          "op": "u",
+          "old": ["data_migration:session-birth-refs-v1"],
+          "new": ["data_migration:session-issue-membership-v1"]
+        },
+        {
+          "op": "d",
+          "old": ["data_migration:session-issue-membership-v1"],
+          "new": null
+        }
+      ],
+      "ids": ["instance"]
+    },
+    "effect": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["eff_person_scan"]
+        },
+        {
+          "op": "u",
+          "old": ["eff_person_scan"],
+          "new": ["eff_system_scan"]
+        },
+        {
+          "op": "d",
+          "old": ["eff_system_scan"],
+          "new": null
+        }
+      ],
+      "ids": ["eff_person_scan", "eff_system_scan"]
+    },
+    "checkout": {
+      "changes": [
+        {
+          "op": "i",
+          "old": null,
+          "new": ["f932f63f-5303-4a4f-8676-4da373997ecc", "/row-checkout"]
+        },
+        {
+          "op": "u",
+          "old": ["f932f63f-5303-4a4f-8676-4da373997ecc", "/row-checkout"],
+          "new": ["f932f63f-5303-4a4f-8676-4da373997ecc", "/row-checkout"]
+        },
+        {
+          "op": "d",
+          "old": ["f932f63f-5303-4a4f-8676-4da373997ecc", "/row-checkout"],
+          "new": null
+        }
+      ],
+      "ids": ["f932f63f-5303-4a4f-8676-4da373997ecc\n/row-checkout"]
+    }
+  },
+  "triggers": [
+    "CREATE TRIGGER \"sync_capture__conversation__0__i\" AFTER INSERT ON \"conversations\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__conversation__0__u\" AFTER UPDATE ON \"conversations\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"agent_kind\" IS NOT NEW.\"agent_kind\" OR OLD.\"provider_id\" IS NOT NEW.\"provider_id\" OR OLD.\"title\" IS NOT NEW.\"title\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"summary\" IS NOT NEW.\"summary\" OR OLD.\"project_path\" IS NOT NEW.\"project_path\" OR OLD.\"resume_kind\" IS NOT NEW.\"resume_kind\" OR OLD.\"resume_value\" IS NOT NEW.\"resume_value\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"parent_conversation_id\" IS NOT NEW.\"parent_conversation_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__conversation__0__d\" AFTER DELETE ON \"conversations\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__conversation__1__i\" AFTER INSERT ON \"conversation_segments\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 1, 'i', NULL, json_array(NEW.\"machine_id\", NEW.\"native_id\")); END",
+    "CREATE TRIGGER \"sync_capture__conversation__1__u\" AFTER UPDATE ON \"conversation_segments\" FOR EACH ROW WHEN (OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"native_id\" IS NOT NEW.\"native_id\" OR OLD.\"podium_id\" IS NOT NEW.\"podium_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 1, 'u', json_array(OLD.\"machine_id\", OLD.\"native_id\"), json_array(NEW.\"machine_id\", NEW.\"native_id\")); END",
+    "CREATE TRIGGER \"sync_capture__conversation__1__d\" AFTER DELETE ON \"conversation_segments\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('conversation', 1, 'd', json_array(OLD.\"machine_id\", OLD.\"native_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueGitState__0__i\" AFTER INSERT ON \"issue_git_states\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueGitState', 0, 'i', NULL, json_array(NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueGitState__0__u\" AFTER UPDATE ON \"issue_git_states\" FOR EACH ROW WHEN (OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"facts_json\" IS NOT NEW.\"facts_json\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueGitState', 0, 'u', json_array(OLD.\"issue_id\"), json_array(NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueGitState__0__d\" AFTER DELETE ON \"issue_git_states\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueGitState', 0, 'd', json_array(OLD.\"issue_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueGitState__1__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueGitState', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__0__i\" AFTER INSERT ON \"machines\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__0__u\" AFTER UPDATE ON \"machines\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"app_version\" IS NOT NEW.\"app_version\" OR OLD.\"update_channel_override\" IS NOT NEW.\"update_channel_override\" OR OLD.\"install_kind\" IS NOT NEW.\"install_kind\" OR (CASE WHEN json_valid(OLD.inventory_json) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each(OLD.inventory_json, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE '[]' END) IS NOT (CASE WHEN json_valid(NEW.inventory_json) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each(NEW.inventory_json, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE '[]' END)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__0__d\" AFTER DELETE ON \"machines\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machine__1__i\" AFTER INSERT ON \"grants\" FOR EACH ROW WHEN (NEW.resource_kind = 'machine' AND NEW.verb = 'manage' AND NEW.custody = 1) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 1, 'i', NULL, json_array(NEW.\"resource_kind\", NEW.\"resource_id\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__1__u\" AFTER UPDATE ON \"grants\" FOR EACH ROW WHEN ((OLD.resource_kind = 'machine' AND OLD.verb = 'manage' AND OLD.custody = 1) OR (NEW.resource_kind = 'machine' AND NEW.verb = 'manage' AND NEW.custody = 1)) AND (OLD.\"resource_kind\" IS NOT NEW.\"resource_kind\" OR OLD.\"resource_id\" IS NOT NEW.\"resource_id\" OR OLD.\"grantee\" IS NOT NEW.\"grantee\" OR OLD.\"verb\" IS NOT NEW.\"verb\" OR OLD.\"custody\" IS NOT NEW.\"custody\" OR OLD.\"owner\" IS NOT NEW.\"owner\" OR OLD.\"visibility\" IS NOT NEW.\"visibility\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"actor_kind\" IS NOT NEW.\"actor_kind\" OR OLD.\"actor_id\" IS NOT NEW.\"actor_id\" OR OLD.\"on_behalf_of\" IS NOT NEW.\"on_behalf_of\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 1, 'u', json_array(OLD.\"resource_kind\", OLD.\"resource_id\"), json_array(NEW.\"resource_kind\", NEW.\"resource_id\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__1__d\" AFTER DELETE ON \"grants\" FOR EACH ROW WHEN (OLD.resource_kind = 'machine' AND OLD.verb = 'manage' AND OLD.custody = 1) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 1, 'd', json_array(OLD.\"resource_kind\", OLD.\"resource_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machine__2__i\" AFTER INSERT ON \"meta\" FOR EACH ROW WHEN (NEW.key = 'machines.fleet-channel.v1' OR (NEW.key = 'updates.execution.v1' AND (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END) IS NOT NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 2, 'i', NULL, json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__2__u\" AFTER UPDATE ON \"meta\" FOR EACH ROW WHEN ((OLD.key = 'machines.fleet-channel.v1' OR (OLD.key = 'updates.execution.v1' AND (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT NULL)) OR (NEW.key = 'machines.fleet-channel.v1' OR (NEW.key = 'updates.execution.v1' AND (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END) IS NOT NULL))) AND (OLD.\"key\" IS NOT NEW.\"key\" OR (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 2, 'u', json_array(OLD.\"key\"), json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__machine__2__d\" AFTER DELETE ON \"meta\" FOR EACH ROW WHEN (OLD.key = 'machines.fleet-channel.v1' OR (OLD.key = 'updates.execution.v1' AND (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machine', 2, 'd', json_array(OLD.\"key\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__0__i\" AFTER INSERT ON \"machines\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__0__u\" AFTER UPDATE ON \"machines\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"revoked_at\" IS NOT NEW.\"revoked_at\" OR OLD.\"superseded_by\" IS NOT NEW.\"superseded_by\" OR OLD.\"hostname\" IS NOT NEW.\"hostname\" OR OLD.\"inventory_json\" IS NOT NEW.\"inventory_json\" OR OLD.\"podium_managed\" IS NOT NEW.\"podium_managed\" OR OLD.\"wire_schema_digest\" IS NOT NEW.\"wire_schema_digest\" OR OLD.\"delivery_caps_json\" IS NOT NEW.\"delivery_caps_json\" OR OLD.\"service_assignment_json\" IS NOT NEW.\"service_assignment_json\" OR OLD.\"components_json\" IS NOT NEW.\"components_json\" OR (CASE WHEN json_valid(OLD.service_report_json) THEN json_remove(OLD.service_report_json, '$.server.observedAt', '$.agentExecution.observedAt') ELSE OLD.service_report_json END) IS NOT (CASE WHEN json_valid(NEW.service_report_json) THEN json_remove(NEW.service_report_json, '$.server.observedAt', '$.agentExecution.observedAt') ELSE NEW.service_report_json END) OR (CASE WHEN json_valid(OLD.harness_versions_json) THEN (SELECT json_group_array(json_remove(report.value, '$.lastSeen')) FROM json_each(OLD.harness_versions_json) AS report) ELSE OLD.harness_versions_json END) IS NOT (CASE WHEN json_valid(NEW.harness_versions_json) THEN (SELECT json_group_array(json_remove(report.value, '$.lastSeen')) FROM json_each(NEW.harness_versions_json) AS report) ELSE NEW.harness_versions_json END)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__0__d\" AFTER DELETE ON \"machines\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__1__i\" AFTER INSERT ON \"grants\" FOR EACH ROW WHEN (NEW.resource_kind = 'machine') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 1, 'i', NULL, json_array(NEW.\"resource_kind\", NEW.\"resource_id\", NEW.\"grantee\", NEW.\"custody\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__1__u\" AFTER UPDATE ON \"grants\" FOR EACH ROW WHEN ((OLD.resource_kind = 'machine') OR (NEW.resource_kind = 'machine')) AND (OLD.\"resource_kind\" IS NOT NEW.\"resource_kind\" OR OLD.\"resource_id\" IS NOT NEW.\"resource_id\" OR OLD.\"grantee\" IS NOT NEW.\"grantee\" OR OLD.\"custody\" IS NOT NEW.\"custody\" OR OLD.\"verb\" IS NOT NEW.\"verb\" OR OLD.\"owner\" IS NOT NEW.\"owner\" OR OLD.\"visibility\" IS NOT NEW.\"visibility\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"actor_kind\" IS NOT NEW.\"actor_kind\" OR OLD.\"actor_id\" IS NOT NEW.\"actor_id\" OR OLD.\"on_behalf_of\" IS NOT NEW.\"on_behalf_of\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 1, 'u', json_array(OLD.\"resource_kind\", OLD.\"resource_id\", OLD.\"grantee\", OLD.\"custody\"), json_array(NEW.\"resource_kind\", NEW.\"resource_id\", NEW.\"grantee\", NEW.\"custody\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__1__d\" AFTER DELETE ON \"grants\" FOR EACH ROW WHEN (OLD.resource_kind = 'machine') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 1, 'd', json_array(OLD.\"resource_kind\", OLD.\"resource_id\", OLD.\"grantee\", OLD.\"custody\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__2__i\" AFTER INSERT ON \"users\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 2, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__2__u\" AFTER UPDATE ON \"users\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"role\" IS NOT NEW.\"role\" OR OLD.\"disabled_at\" IS NOT NEW.\"disabled_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 2, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__2__d\" AFTER DELETE ON \"users\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 2, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__3__i\" AFTER INSERT ON \"meta\" FOR EACH ROW WHEN (NEW.key = 'machines.fleet-channel.v1' OR (NEW.key = 'updates.execution.v1' AND (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END) IS NOT NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 3, 'i', NULL, json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__3__u\" AFTER UPDATE ON \"meta\" FOR EACH ROW WHEN ((OLD.key = 'machines.fleet-channel.v1' OR (OLD.key = 'updates.execution.v1' AND (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT NULL)) OR (NEW.key = 'machines.fleet-channel.v1' OR (NEW.key = 'updates.execution.v1' AND (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END) IS NOT NULL))) AND (OLD.\"key\" IS NOT NEW.\"key\" OR (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT (CASE WHEN NEW.key = 'updates.execution.v1' AND json_valid(NEW.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(NEW.value, '$.targets') AS target) ELSE NEW.value END)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 3, 'u', json_array(OLD.\"key\"), json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__machineAccess__3__d\" AFTER DELETE ON \"meta\" FOR EACH ROW WHEN (OLD.key = 'machines.fleet-channel.v1' OR (OLD.key = 'updates.execution.v1' AND (CASE WHEN OLD.key = 'updates.execution.v1' AND json_valid(OLD.value) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each(OLD.value, '$.targets') AS target) ELSE OLD.value END) IS NOT NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('machineAccess', 3, 'd', json_array(OLD.\"key\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__repo__0__i\" AFTER INSERT ON \"repos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 0, 'i', NULL, json_array(NEW.\"repo_id\")); END",
+    "CREATE TRIGGER \"sync_capture__repo__0__u\" AFTER UPDATE ON \"repos\" FOR EACH ROW WHEN (OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"path\" IS NOT NEW.\"path\" OR OLD.\"origin_url\" IS NOT NEW.\"origin_url\" OR OLD.\"repo_name\" IS NOT NEW.\"repo_name\" OR OLD.\"added_at\" IS NOT NEW.\"added_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 0, 'u', json_array(OLD.\"repo_id\"), json_array(NEW.\"repo_id\")); END",
+    "CREATE TRIGGER \"sync_capture__repo__0__d\" AFTER DELETE ON \"repos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 0, 'd', json_array(OLD.\"repo_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__repo__1__i\" AFTER INSERT ON \"repo_prefixes\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 1, 'i', NULL, json_array(NEW.\"repo_id\")); END",
+    "CREATE TRIGGER \"sync_capture__repo__1__u\" AFTER UPDATE ON \"repo_prefixes\" FOR EACH ROW WHEN (OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"prefix\" IS NOT NEW.\"prefix\" OR OLD.\"default_parent_branch\" IS NOT NEW.\"default_parent_branch\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 1, 'u', json_array(OLD.\"repo_id\"), json_array(NEW.\"repo_id\")); END",
+    "CREATE TRIGGER \"sync_capture__repo__1__d\" AFTER DELETE ON \"repo_prefixes\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('repo', 1, 'd', json_array(OLD.\"repo_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__0__i\" AFTER INSERT ON \"issues\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__0__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\" OR OLD.\"visibility\" IS NOT NEW.\"visibility\" OR OLD.\"created_by_actor\" IS NOT NEW.\"created_by_actor\" OR OLD.\"created_by_on_behalf_of\" IS NOT NEW.\"created_by_on_behalf_of\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"seq\" IS NOT NEW.\"seq\" OR OLD.\"title\" IS NOT NEW.\"title\" OR OLD.\"description\" IS NOT NEW.\"description\" OR OLD.\"brief\" IS NOT NEW.\"brief\" OR OLD.\"stage\" IS NOT NEW.\"stage\" OR OLD.\"worktree_path\" IS NOT NEW.\"worktree_path\" OR OLD.\"branch\" IS NOT NEW.\"branch\" OR OLD.\"parent_branch\" IS NOT NEW.\"parent_branch\" OR OLD.\"default_agent\" IS NOT NEW.\"default_agent\" OR OLD.\"default_model\" IS NOT NEW.\"default_model\" OR OLD.\"default_effort\" IS NOT NEW.\"default_effort\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"agent_profile_id\" IS NOT NEW.\"agent_profile_id\" OR OLD.\"linear_id\" IS NOT NEW.\"linear_id\" OR OLD.\"linear_identifier\" IS NOT NEW.\"linear_identifier\" OR OLD.\"linear_url\" IS NOT NEW.\"linear_url\" OR OLD.\"suggested_stage\" IS NOT NEW.\"suggested_stage\" OR OLD.\"suggested_reason\" IS NOT NEW.\"suggested_reason\" OR OLD.\"blocked_by\" IS NOT NEW.\"blocked_by\" OR OLD.\"dependency_note\" IS NOT NEW.\"dependency_note\" OR OLD.\"pr_url\" IS NOT NEW.\"pr_url\" OR OLD.\"priority\" IS NOT NEW.\"priority\" OR OLD.\"type\" IS NOT NEW.\"type\" OR OLD.\"assignee\" IS NOT NEW.\"assignee\" OR OLD.\"parent_id\" IS NOT NEW.\"parent_id\" OR OLD.\"acceptance\" IS NOT NEW.\"acceptance\" OR OLD.\"due_at\" IS NOT NEW.\"due_at\" OR OLD.\"defer_until\" IS NOT NEW.\"defer_until\" OR OLD.\"closed_reason\" IS NOT NEW.\"closed_reason\" OR OLD.\"closed_at\" IS NOT NEW.\"closed_at\" OR OLD.\"closed_by_user_id\" IS NOT NEW.\"closed_by_user_id\" OR OLD.\"landed_at\" IS NOT NEW.\"landed_at\" OR OLD.\"landed_sha\" IS NOT NEW.\"landed_sha\" OR OLD.\"superseded_by\" IS NOT NEW.\"superseded_by\" OR OLD.\"duplicate_of\" IS NOT NEW.\"duplicate_of\" OR OLD.\"sort_key\" IS NOT NEW.\"sort_key\" OR OLD.\"estimate_min\" IS NOT NEW.\"estimate_min\" OR OLD.\"needs_human\" IS NOT NEW.\"needs_human\" OR OLD.\"human_question\" IS NOT NEW.\"human_question\" OR OLD.\"human_question_options\" IS NOT NEW.\"human_question_options\" OR OLD.\"human_question_asked_by\" IS NOT NEW.\"human_question_asked_by\" OR OLD.\"human_question_asked_at\" IS NOT NEW.\"human_question_asked_at\" OR OLD.\"human_question_attribution\" IS NOT NEW.\"human_question_attribution\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"actor\" IS NOT NEW.\"actor\" OR OLD.\"on_behalf_of\" IS NOT NEW.\"on_behalf_of\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"archived\" IS NOT NEW.\"archived\" OR OLD.\"origin\" IS NOT NEW.\"origin\" OR OLD.\"draft\" IS NOT NEW.\"draft\" OR OLD.\"audience\" IS NOT NEW.\"audience\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\" OR OLD.\"revision\" IS NOT NEW.\"revision\" OR OLD.\"coordinator_session_id\" IS NOT NEW.\"coordinator_session_id\" OR OLD.\"started_by_session\" IS NOT NEW.\"started_by_session\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__0__d\" AFTER DELETE ON \"issues\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__1__i\" AFTER INSERT ON \"issue_labels\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 1, 'i', NULL, json_array(NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__1__u\" AFTER UPDATE ON \"issue_labels\" FOR EACH ROW WHEN (OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"label_id\" IS NOT NEW.\"label_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 1, 'u', json_array(OLD.\"issue_id\"), json_array(NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__1__d\" AFTER DELETE ON \"issue_labels\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 1, 'd', json_array(OLD.\"issue_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueProjection__2__u\" AFTER UPDATE ON \"labels\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"name\" IS NOT NEW.\"name\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueProjection', 2, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueBrief__0__i\" AFTER INSERT ON \"issues\" FOR EACH ROW WHEN (coalesce(NEW.brief, '') <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueBrief', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueBrief__0__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN ((coalesce(OLD.brief, '') <> '') OR (coalesce(NEW.brief, '') <> '')) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"brief\" IS NOT NEW.\"brief\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueBrief', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueBrief__0__d\" AFTER DELETE ON \"issues\" FOR EACH ROW WHEN (coalesce(OLD.brief, '') <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueBrief', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueDescription__0__i\" AFTER INSERT ON \"issues\" FOR EACH ROW WHEN (coalesce(NEW.description, '') <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDescription', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueDescription__0__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN ((coalesce(OLD.description, '') <> '') OR (coalesce(NEW.description, '') <> '')) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"description\" IS NOT NEW.\"description\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDescription', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueDescription__0__d\" AFTER DELETE ON \"issues\" FOR EACH ROW WHEN (coalesce(OLD.description, '') <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDescription', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelTodo__0__i\" AFTER INSERT ON \"issue_panel_todos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelTodo', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelTodo__0__u\" AFTER UPDATE ON \"issue_panel_todos\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"position\" IS NOT NEW.\"position\" OR OLD.\"text\" IS NOT NEW.\"text\" OR OLD.\"done\" IS NOT NEW.\"done\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelTodo', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelTodo__0__d\" AFTER DELETE ON \"issue_panel_todos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelTodo', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelTodo__1__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelTodo', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelArtifact__0__i\" AFTER INSERT ON \"issue_panel_artifacts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelArtifact', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelArtifact__0__u\" AFTER UPDATE ON \"issue_panel_artifacts\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"position\" IS NOT NEW.\"position\" OR OLD.\"path\" IS NOT NEW.\"path\" OR OLD.\"value\" IS NOT NEW.\"value\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelArtifact', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelArtifact__0__d\" AFTER DELETE ON \"issue_panel_artifacts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelArtifact', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelArtifact__1__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelArtifact', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelDeferred__0__i\" AFTER INSERT ON \"issue_panel_deferred\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelDeferred', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelDeferred__0__u\" AFTER UPDATE ON \"issue_panel_deferred\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"position\" IS NOT NEW.\"position\" OR OLD.\"text\" IS NOT NEW.\"text\" OR OLD.\"added_at\" IS NOT NEW.\"added_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelDeferred', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelDeferred__0__d\" AFTER DELETE ON \"issue_panel_deferred\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelDeferred', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelDeferred__1__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelDeferred', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelState__0__i\" AFTER INSERT ON \"issue_panel_states\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelState', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelState__0__u\" AFTER UPDATE ON \"issue_panel_states\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"text\" IS NOT NEW.\"text\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelState', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelState__0__d\" AFTER DELETE ON \"issue_panel_states\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelState', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issuePanelState__1__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issuePanelState', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueDep__0__i\" AFTER INSERT ON \"issue_deps\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDep', 0, 'i', NULL, json_array(NEW.\"from_id\", NEW.\"to_id\", NEW.\"type\")); END",
+    "CREATE TRIGGER \"sync_capture__issueDep__0__u\" AFTER UPDATE ON \"issue_deps\" FOR EACH ROW WHEN (OLD.\"from_id\" IS NOT NEW.\"from_id\" OR OLD.\"to_id\" IS NOT NEW.\"to_id\" OR OLD.\"type\" IS NOT NEW.\"type\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDep', 0, 'u', json_array(OLD.\"from_id\", OLD.\"to_id\", OLD.\"type\"), json_array(NEW.\"from_id\", NEW.\"to_id\", NEW.\"type\")); END",
+    "CREATE TRIGGER \"sync_capture__issueDep__0__d\" AFTER DELETE ON \"issue_deps\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueDep', 0, 'd', json_array(OLD.\"from_id\", OLD.\"to_id\", OLD.\"type\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueUserState__0__i\" AFTER INSERT ON \"issue_user_state\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueUserState', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueUserState__0__u\" AFTER UPDATE ON \"issue_user_state\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"read_at\" IS NOT NEW.\"read_at\" OR OLD.\"tucked_at\" IS NOT NEW.\"tucked_at\" OR OLD.\"joined_at\" IS NOT NEW.\"joined_at\" OR OLD.\"joined_via\" IS NOT NEW.\"joined_via\" OR OLD.\"assigned_at\" IS NOT NEW.\"assigned_at\" OR OLD.\"assigned_by\" IS NOT NEW.\"assigned_by\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueUserState', 0, 'u', json_array(OLD.\"user_id\", OLD.\"issue_id\"), json_array(NEW.\"user_id\", NEW.\"issue_id\")); END",
+    "CREATE TRIGGER \"sync_capture__issueUserState__0__d\" AFTER DELETE ON \"issue_user_state\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueUserState', 0, 'd', json_array(OLD.\"user_id\", OLD.\"issue_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__subscription__0__i\" AFTER INSERT ON \"subscriptions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('subscription', 0, 'i', NULL, json_array(NEW.\"subscriber_kind\", NEW.\"subscriber_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__subscription__0__u\" AFTER UPDATE ON \"subscriptions\" FOR EACH ROW WHEN (OLD.\"subscriber_kind\" IS NOT NEW.\"subscriber_kind\" OR OLD.\"subscriber_id\" IS NOT NEW.\"subscriber_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"event\" IS NOT NEW.\"event\" OR OLD.\"source_kind\" IS NOT NEW.\"source_kind\" OR OLD.\"source_ref\" IS NOT NEW.\"source_ref\" OR OLD.\"deliver_nudge\" IS NOT NEW.\"deliver_nudge\" OR OLD.\"deliver_notify\" IS NOT NEW.\"deliver_notify\" OR OLD.\"origin\" IS NOT NEW.\"origin\" OR OLD.\"enabled\" IS NOT NEW.\"enabled\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('subscription', 0, 'u', json_array(OLD.\"subscriber_kind\", OLD.\"subscriber_id\", OLD.\"id\"), json_array(NEW.\"subscriber_kind\", NEW.\"subscriber_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__subscription__0__d\" AFTER DELETE ON \"subscriptions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('subscription', 0, 'd', json_array(OLD.\"subscriber_kind\", OLD.\"subscriber_id\", OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__0__i\" AFTER INSERT ON \"ship_orders\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__0__u\" AFTER UPDATE ON \"ship_orders\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"target_branch\" IS NOT NEW.\"target_branch\" OR OLD.\"destination\" IS NOT NEW.\"destination\" OR OLD.\"approved_base_sha\" IS NOT NEW.\"approved_base_sha\" OR OLD.\"approved_head_sha\" IS NOT NEW.\"approved_head_sha\" OR OLD.\"descendant_manifest\" IS NOT NEW.\"descendant_manifest\" OR OLD.\"delivery_depends_on\" IS NOT NEW.\"delivery_depends_on\" OR OLD.\"evidence_manifest_ref\" IS NOT NEW.\"evidence_manifest_ref\" OR OLD.\"current_integration_receipt\" IS NOT NEW.\"current_integration_receipt\" OR OLD.\"provider_ref\" IS NOT NEW.\"provider_ref\" OR OLD.\"requested_by_actor_kind\" IS NOT NEW.\"requested_by_actor_kind\" OR OLD.\"requested_by_actor_id\" IS NOT NEW.\"requested_by_actor_id\" OR OLD.\"requested_by_on_behalf_of\" IS NOT NEW.\"requested_by_on_behalf_of\" OR OLD.\"requested_at\" IS NOT NEW.\"requested_at\" OR OLD.\"policy_id\" IS NOT NEW.\"policy_id\" OR OLD.\"validation_profile\" IS NOT NEW.\"validation_profile\" OR OLD.\"validation_profile_digest\" IS NOT NEW.\"validation_profile_digest\" OR OLD.\"close_mode\" IS NOT NEW.\"close_mode\" OR OLD.\"state\" IS NOT NEW.\"state\" OR OLD.\"state_changed_at\" IS NOT NEW.\"state_changed_at\" OR OLD.\"hold_code\" IS NOT NEW.\"hold_code\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__0__d\" AFTER DELETE ON \"ship_orders\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__1__i\" AFTER INSERT ON \"ship_holds\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 1, 'i', NULL, json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__1__u\" AFTER UPDATE ON \"ship_holds\" FOR EACH ROW WHEN (OLD.\"order_id\" IS NOT NEW.\"order_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"generation\" IS NOT NEW.\"generation\" OR OLD.\"reason_code\" IS NOT NEW.\"reason_code\" OR OLD.\"headline\" IS NOT NEW.\"headline\" OR OLD.\"detail\" IS NOT NEW.\"detail\" OR OLD.\"evidence_refs\" IS NOT NEW.\"evidence_refs\" OR OLD.\"actions\" IS NOT NEW.\"actions\" OR OLD.\"raised_at\" IS NOT NEW.\"raised_at\" OR OLD.\"resolved_at\" IS NOT NEW.\"resolved_at\" OR OLD.\"resolution\" IS NOT NEW.\"resolution\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 1, 'u', json_array(OLD.\"order_id\"), json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__1__d\" AFTER DELETE ON \"ship_holds\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 1, 'd', json_array(OLD.\"order_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__2__i\" AFTER INSERT ON \"delivery_receipts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 2, 'i', NULL, json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__2__u\" AFTER UPDATE ON \"delivery_receipts\" FOR EACH ROW WHEN (OLD.\"order_id\" IS NOT NEW.\"order_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"approved_base_sha\" IS NOT NEW.\"approved_base_sha\" OR OLD.\"approved_head_sha\" IS NOT NEW.\"approved_head_sha\" OR OLD.\"result_commit_sha\" IS NOT NEW.\"result_commit_sha\" OR OLD.\"tested_integration_sha\" IS NOT NEW.\"tested_integration_sha\" OR OLD.\"landed_ref_sha\" IS NOT NEW.\"landed_ref_sha\" OR OLD.\"destination_sha\" IS NOT NEW.\"destination_sha\" OR OLD.\"validation_profile_id\" IS NOT NEW.\"validation_profile_id\" OR OLD.\"validation_result\" IS NOT NEW.\"validation_result\" OR OLD.\"destination\" IS NOT NEW.\"destination\" OR OLD.\"completed_at\" IS NOT NEW.\"completed_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 2, 'u', json_array(OLD.\"order_id\"), json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipOrder__2__d\" AFTER DELETE ON \"delivery_receipts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipOrder', 2, 'd', json_array(OLD.\"order_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__0__i\" AFTER INSERT ON \"ship_orders\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 0, 'i', NULL, json_array(NEW.\"id\", NEW.\"repo_id\", NEW.\"destination\", NEW.\"target_branch\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__0__u\" AFTER UPDATE ON \"ship_orders\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"destination\" IS NOT NEW.\"destination\" OR OLD.\"target_branch\" IS NOT NEW.\"target_branch\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"approved_base_sha\" IS NOT NEW.\"approved_base_sha\" OR OLD.\"approved_head_sha\" IS NOT NEW.\"approved_head_sha\" OR OLD.\"descendant_manifest\" IS NOT NEW.\"descendant_manifest\" OR OLD.\"delivery_depends_on\" IS NOT NEW.\"delivery_depends_on\" OR OLD.\"evidence_manifest_ref\" IS NOT NEW.\"evidence_manifest_ref\" OR OLD.\"current_integration_receipt\" IS NOT NEW.\"current_integration_receipt\" OR OLD.\"provider_ref\" IS NOT NEW.\"provider_ref\" OR OLD.\"requested_by_actor_kind\" IS NOT NEW.\"requested_by_actor_kind\" OR OLD.\"requested_by_actor_id\" IS NOT NEW.\"requested_by_actor_id\" OR OLD.\"requested_by_on_behalf_of\" IS NOT NEW.\"requested_by_on_behalf_of\" OR OLD.\"requested_at\" IS NOT NEW.\"requested_at\" OR OLD.\"policy_id\" IS NOT NEW.\"policy_id\" OR OLD.\"validation_profile\" IS NOT NEW.\"validation_profile\" OR OLD.\"validation_profile_digest\" IS NOT NEW.\"validation_profile_digest\" OR OLD.\"close_mode\" IS NOT NEW.\"close_mode\" OR OLD.\"state\" IS NOT NEW.\"state\" OR OLD.\"state_changed_at\" IS NOT NEW.\"state_changed_at\" OR OLD.\"hold_code\" IS NOT NEW.\"hold_code\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 0, 'u', json_array(OLD.\"id\", OLD.\"repo_id\", OLD.\"destination\", OLD.\"target_branch\"), json_array(NEW.\"id\", NEW.\"repo_id\", NEW.\"destination\", NEW.\"target_branch\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__0__d\" AFTER DELETE ON \"ship_orders\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 0, 'd', json_array(OLD.\"id\", OLD.\"repo_id\", OLD.\"destination\", OLD.\"target_branch\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__1__i\" AFTER INSERT ON \"ship_order_stack_edges\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 1, 'i', NULL, json_array(NEW.\"upper_order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__1__u\" AFTER UPDATE ON \"ship_order_stack_edges\" FOR EACH ROW WHEN (OLD.\"upper_order_id\" IS NOT NEW.\"upper_order_id\" OR OLD.\"lower_order_id\" IS NOT NEW.\"lower_order_id\" OR OLD.\"upper_approved_head_sha\" IS NOT NEW.\"upper_approved_head_sha\" OR OLD.\"lower_approved_head_sha\" IS NOT NEW.\"lower_approved_head_sha\" OR OLD.\"recorded_at\" IS NOT NEW.\"recorded_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 1, 'u', json_array(OLD.\"upper_order_id\"), json_array(NEW.\"upper_order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__1__d\" AFTER DELETE ON \"ship_order_stack_edges\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 1, 'd', json_array(OLD.\"upper_order_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__2__i\" AFTER INSERT ON \"ship_holds\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 2, 'i', NULL, json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__2__u\" AFTER UPDATE ON \"ship_holds\" FOR EACH ROW WHEN (OLD.\"order_id\" IS NOT NEW.\"order_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"generation\" IS NOT NEW.\"generation\" OR OLD.\"reason_code\" IS NOT NEW.\"reason_code\" OR OLD.\"headline\" IS NOT NEW.\"headline\" OR OLD.\"detail\" IS NOT NEW.\"detail\" OR OLD.\"evidence_refs\" IS NOT NEW.\"evidence_refs\" OR OLD.\"actions\" IS NOT NEW.\"actions\" OR OLD.\"raised_at\" IS NOT NEW.\"raised_at\" OR OLD.\"resolved_at\" IS NOT NEW.\"resolved_at\" OR OLD.\"resolution\" IS NOT NEW.\"resolution\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 2, 'u', json_array(OLD.\"order_id\"), json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__2__d\" AFTER DELETE ON \"ship_holds\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 2, 'd', json_array(OLD.\"order_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__3__i\" AFTER INSERT ON \"delivery_receipts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 3, 'i', NULL, json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__3__u\" AFTER UPDATE ON \"delivery_receipts\" FOR EACH ROW WHEN (OLD.\"order_id\" IS NOT NEW.\"order_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"approved_base_sha\" IS NOT NEW.\"approved_base_sha\" OR OLD.\"approved_head_sha\" IS NOT NEW.\"approved_head_sha\" OR OLD.\"result_commit_sha\" IS NOT NEW.\"result_commit_sha\" OR OLD.\"tested_integration_sha\" IS NOT NEW.\"tested_integration_sha\" OR OLD.\"landed_ref_sha\" IS NOT NEW.\"landed_ref_sha\" OR OLD.\"destination_sha\" IS NOT NEW.\"destination_sha\" OR OLD.\"validation_profile_id\" IS NOT NEW.\"validation_profile_id\" OR OLD.\"validation_result\" IS NOT NEW.\"validation_result\" OR OLD.\"destination\" IS NOT NEW.\"destination\" OR OLD.\"completed_at\" IS NOT NEW.\"completed_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 3, 'u', json_array(OLD.\"order_id\"), json_array(NEW.\"order_id\")); END",
+    "CREATE TRIGGER \"sync_capture__shipLane__3__d\" AFTER DELETE ON \"delivery_receipts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('shipLane', 3, 'd', json_array(OLD.\"order_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__automationRun__0__i\" AFTER INSERT ON \"automation_runs\" FOR EACH ROW WHEN (NEW.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automationRun', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__automationRun__0__u\" AFTER UPDATE ON \"automation_runs\" FOR EACH ROW WHEN ((OLD.deleted_at IS NULL) OR (NEW.deleted_at IS NULL)) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"actor\" IS NOT NEW.\"actor\" OR OLD.\"on_behalf_of\" IS NOT NEW.\"on_behalf_of\" OR OLD.\"automation_id\" IS NOT NEW.\"automation_id\" OR OLD.\"fired_at\" IS NOT NEW.\"fired_at\" OR OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"outcome\" IS NOT NEW.\"outcome\" OR OLD.\"detail\" IS NOT NEW.\"detail\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automationRun', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__automationRun__0__d\" AFTER DELETE ON \"automation_runs\" FOR EACH ROW WHEN (OLD.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automationRun', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__automation__0__i\" AFTER INSERT ON \"automations\" FOR EACH ROW WHEN (NEW.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automation', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__automation__0__u\" AFTER UPDATE ON \"automations\" FOR EACH ROW WHEN ((OLD.deleted_at IS NULL) OR (NEW.deleted_at IS NULL)) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\" OR OLD.\"created_by_actor\" IS NOT NEW.\"created_by_actor\" OR OLD.\"created_by_on_behalf_of\" IS NOT NEW.\"created_by_on_behalf_of\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"enabled\" IS NOT NEW.\"enabled\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"schedule_kind\" IS NOT NEW.\"schedule_kind\" OR OLD.\"cron\" IS NOT NEW.\"cron\" OR OLD.\"run_at\" IS NOT NEW.\"run_at\" OR OLD.\"target_session_id\" IS NOT NEW.\"target_session_id\" OR OLD.\"agent_kind\" IS NOT NEW.\"agent_kind\" OR OLD.\"model\" IS NOT NEW.\"model\" OR OLD.\"effort\" IS NOT NEW.\"effort\" OR OLD.\"prompt\" IS NOT NEW.\"prompt\" OR OLD.\"next_run_at\" IS NOT NEW.\"next_run_at\" OR OLD.\"last_run_at\" IS NOT NEW.\"last_run_at\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"session_mode\" IS NOT NEW.\"session_mode\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automation', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__automation__0__d\" AFTER DELETE ON \"automations\" FOR EACH ROW WHEN (OLD.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('automation', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__userLayout__0__i\" AFTER INSERT ON \"user_layout\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userLayout', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__userLayout__0__u\" AFTER UPDATE ON \"user_layout\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"key\" IS NOT NEW.\"key\" OR OLD.\"value\" IS NOT NEW.\"value\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userLayout', 0, 'u', json_array(OLD.\"user_id\", OLD.\"key\"), json_array(NEW.\"user_id\", NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__userLayout__0__d\" AFTER DELETE ON \"user_layout\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userLayout', 0, 'd', json_array(OLD.\"user_id\", OLD.\"key\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__userReadPosition__0__i\" AFTER INSERT ON \"user_read_position\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userReadPosition', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"stream_id\")); END",
+    "CREATE TRIGGER \"sync_capture__userReadPosition__0__u\" AFTER UPDATE ON \"user_read_position\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"stream_id\" IS NOT NEW.\"stream_id\" OR OLD.\"last_event_id\" IS NOT NEW.\"last_event_id\" OR OLD.\"seen_at\" IS NOT NEW.\"seen_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userReadPosition', 0, 'u', json_array(OLD.\"user_id\", OLD.\"stream_id\"), json_array(NEW.\"user_id\", NEW.\"stream_id\")); END",
+    "CREATE TRIGGER \"sync_capture__userReadPosition__0__d\" AFTER DELETE ON \"user_read_position\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userReadPosition', 0, 'd', json_array(OLD.\"user_id\", OLD.\"stream_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__pin__0__i\" AFTER INSERT ON \"pins\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pin', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"kind\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__pin__0__u\" AFTER UPDATE ON \"pins\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"pinned_at\" IS NOT NEW.\"pinned_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pin', 0, 'u', json_array(OLD.\"user_id\", OLD.\"kind\", OLD.\"id\"), json_array(NEW.\"user_id\", NEW.\"kind\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__pin__0__d\" AFTER DELETE ON \"pins\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pin', 0, 'd', json_array(OLD.\"user_id\", OLD.\"kind\", OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__tabOrder__0__i\" AFTER INSERT ON \"tab_order\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('tabOrder', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"worktree\")); END",
+    "CREATE TRIGGER \"sync_capture__tabOrder__0__u\" AFTER UPDATE ON \"tab_order\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"worktree\" IS NOT NEW.\"worktree\" OR OLD.\"ids\" IS NOT NEW.\"ids\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('tabOrder', 0, 'u', json_array(OLD.\"user_id\", OLD.\"worktree\"), json_array(NEW.\"user_id\", NEW.\"worktree\")); END",
+    "CREATE TRIGGER \"sync_capture__tabOrder__0__d\" AFTER DELETE ON \"tab_order\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('tabOrder', 0, 'd', json_array(OLD.\"user_id\", OLD.\"worktree\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__userPreferences__0__i\" AFTER INSERT ON \"user_preferences\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userPreferences', 0, 'i', NULL, json_array(NEW.\"user_id\")); END",
+    "CREATE TRIGGER \"sync_capture__userPreferences__0__u\" AFTER UPDATE ON \"user_preferences\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"key\" IS NOT NEW.\"key\" OR OLD.\"value\" IS NOT NEW.\"value\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userPreferences', 0, 'u', json_array(OLD.\"user_id\"), json_array(NEW.\"user_id\")); END",
+    "CREATE TRIGGER \"sync_capture__userPreferences__0__d\" AFTER DELETE ON \"user_preferences\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('userPreferences', 0, 'd', json_array(OLD.\"user_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__0__i\" AFTER INSERT ON \"session_user_state\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 0, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__0__u\" AFTER UPDATE ON \"session_user_state\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"read_at\" IS NOT NEW.\"read_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 0, 'u', json_array(OLD.\"user_id\", OLD.\"session_id\"), json_array(NEW.\"user_id\", NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__0__d\" AFTER DELETE ON \"session_user_state\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 0, 'd', json_array(OLD.\"user_id\", OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__1__i\" AFTER INSERT ON \"snoozes\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 1, 'i', NULL, json_array(NEW.\"user_id\", NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__1__u\" AFTER UPDATE ON \"snoozes\" FOR EACH ROW WHEN (OLD.\"user_id\" IS NOT NEW.\"user_id\" OR OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"snoozed_until\" IS NOT NEW.\"snoozed_until\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 1, 'u', json_array(OLD.\"user_id\", OLD.\"session_id\"), json_array(NEW.\"user_id\", NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__1__d\" AFTER DELETE ON \"snoozes\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 1, 'd', json_array(OLD.\"user_id\", OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__2__i\" AFTER INSERT ON \"users\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 2, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__2__u\" AFTER UPDATE ON \"users\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"disabled_at\" IS NOT NEW.\"disabled_at\" OR OLD.\"role\" IS NOT NEW.\"role\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 2, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__2__d\" AFTER DELETE ON \"users\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 2, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__3__i\" AFTER INSERT ON \"sessions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 3, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__3__u\" AFTER UPDATE ON \"sessions\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 3, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__sessionUserState__3__d\" AFTER DELETE ON \"sessions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('sessionUserState', 3, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__superagentThread__0__i\" AFTER INSERT ON \"superagent_threads\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('superagentThread', 0, 'i', NULL, json_array(NEW.\"owner_user_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__superagentThread__0__u\" AFTER UPDATE ON \"superagent_threads\" FOR EACH ROW WHEN (OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"origin_session_id\" IS NOT NEW.\"origin_session_id\" OR OLD.\"title\" IS NOT NEW.\"title\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"archived\" IS NOT NEW.\"archived\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"agent_kind\" IS NOT NEW.\"agent_kind\" OR OLD.\"podium_session_id\" IS NOT NEW.\"podium_session_id\" OR OLD.\"model\" IS NOT NEW.\"model\" OR OLD.\"effort\" IS NOT NEW.\"effort\" OR OLD.\"turn_running\" IS NOT NEW.\"turn_running\" OR OLD.\"last_turn_failure_at\" IS NOT NEW.\"last_turn_failure_at\" OR OLD.\"last_turn_failure_message\" IS NOT NEW.\"last_turn_failure_message\" OR OLD.\"last_turn_failure_user_text\" IS NOT NEW.\"last_turn_failure_user_text\" OR (OLD.harness_session_id IS NOT NULL) IS NOT (NEW.harness_session_id IS NOT NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('superagentThread', 0, 'u', json_array(OLD.\"owner_user_id\", OLD.\"id\"), json_array(NEW.\"owner_user_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__superagentThread__0__d\" AFTER DELETE ON \"superagent_threads\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('superagentThread', 0, 'd', json_array(OLD.\"owner_user_id\", OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__agentProfile__0__i\" AFTER INSERT ON \"agent_profiles\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('agentProfile', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__agentProfile__0__u\" AFTER UPDATE ON \"agent_profiles\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"description\" IS NOT NEW.\"description\" OR OLD.\"candidates_json\" IS NOT NEW.\"candidates_json\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"instructions\" IS NOT NEW.\"instructions\" OR OLD.\"created_by\" IS NOT NEW.\"created_by\" OR OLD.\"updated_by\" IS NOT NEW.\"updated_by\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('agentProfile', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__agentProfile__0__d\" AFTER DELETE ON \"agent_profiles\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('agentProfile', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflow__0__i\" AFTER INSERT ON \"workflows\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflow__0__u\" AFTER UPDATE ON \"workflows\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"description\" IS NOT NEW.\"description\" OR OLD.\"scope\" IS NOT NEW.\"scope\" OR OLD.\"scope_ref\" IS NOT NEW.\"scope_ref\" OR OLD.\"latest_revision_id\" IS NOT NEW.\"latest_revision_id\" OR OLD.\"archived_at\" IS NOT NEW.\"archived_at\" OR OLD.\"created_by_kind\" IS NOT NEW.\"created_by_kind\" OR OLD.\"created_by_id\" IS NOT NEW.\"created_by_id\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflow__0__d\" AFTER DELETE ON \"workflows\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflow__1__i\" AFTER INSERT ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 1, 'i', NULL, json_array(NEW.\"workflow_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflow__1__u\" AFTER UPDATE ON \"workflow_revisions\" FOR EACH ROW WHEN (OLD.\"workflow_id\" IS NOT NEW.\"workflow_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"version\" IS NOT NEW.\"version\" OR OLD.\"instructions\" IS NOT NEW.\"instructions\" OR OLD.\"steps_json\" IS NOT NEW.\"steps_json\" OR OLD.\"created_by_kind\" IS NOT NEW.\"created_by_kind\" OR OLD.\"created_by_id\" IS NOT NEW.\"created_by_id\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"published_at\" IS NOT NEW.\"published_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 1, 'u', json_array(OLD.\"workflow_id\"), json_array(NEW.\"workflow_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflow__1__d\" AFTER DELETE ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflow', 1, 'd', json_array(OLD.\"workflow_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflowRevision__0__i\" AFTER INSERT ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRevision', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRevision__0__u\" AFTER UPDATE ON \"workflow_revisions\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"workflow_id\" IS NOT NEW.\"workflow_id\" OR OLD.\"version\" IS NOT NEW.\"version\" OR OLD.\"instructions\" IS NOT NEW.\"instructions\" OR OLD.\"steps_json\" IS NOT NEW.\"steps_json\" OR OLD.\"created_by_kind\" IS NOT NEW.\"created_by_kind\" OR OLD.\"created_by_id\" IS NOT NEW.\"created_by_id\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"published_at\" IS NOT NEW.\"published_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRevision', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRevision__0__d\" AFTER DELETE ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRevision', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflowBinding__0__i\" AFTER INSERT ON \"workflow_bindings\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowBinding', 0, 'i', NULL, json_array(NEW.\"target_kind\", NEW.\"target_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowBinding__0__u\" AFTER UPDATE ON \"workflow_bindings\" FOR EACH ROW WHEN (OLD.\"target_kind\" IS NOT NEW.\"target_kind\" OR OLD.\"target_id\" IS NOT NEW.\"target_id\" OR OLD.\"revision_id\" IS NOT NEW.\"revision_id\" OR OLD.\"updated_by_kind\" IS NOT NEW.\"updated_by_kind\" OR OLD.\"updated_by_id\" IS NOT NEW.\"updated_by_id\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowBinding', 0, 'u', json_array(OLD.\"target_kind\", OLD.\"target_id\"), json_array(NEW.\"target_kind\", NEW.\"target_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowBinding__0__d\" AFTER DELETE ON \"workflow_bindings\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowBinding', 0, 'd', json_array(OLD.\"target_kind\", OLD.\"target_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__0__i\" AFTER INSERT ON \"workflow_runs\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__0__u\" AFTER UPDATE ON \"workflow_runs\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"subject_kind\" IS NOT NEW.\"subject_kind\" OR OLD.\"subject_id\" IS NOT NEW.\"subject_id\" OR OLD.\"coordinator_session_id\" IS NOT NEW.\"coordinator_session_id\" OR OLD.\"revision_id\" IS NOT NEW.\"revision_id\" OR OLD.\"status\" IS NOT NEW.\"status\" OR OLD.\"supersedes_run_id\" IS NOT NEW.\"supersedes_run_id\" OR OLD.\"started_at\" IS NOT NEW.\"started_at\" OR OLD.\"completed_at\" IS NOT NEW.\"completed_at\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__0__d\" AFTER DELETE ON \"workflow_runs\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__1__i\" AFTER INSERT ON \"workflow_run_steps\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 1, 'i', NULL, json_array(NEW.\"run_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__1__u\" AFTER UPDATE ON \"workflow_run_steps\" FOR EACH ROW WHEN (OLD.\"run_id\" IS NOT NEW.\"run_id\" OR OLD.\"step_id\" IS NOT NEW.\"step_id\" OR OLD.\"position\" IS NOT NEW.\"position\" OR OLD.\"title\" IS NOT NEW.\"title\" OR OLD.\"instructions\" IS NOT NEW.\"instructions\" OR OLD.\"completion_guidance\" IS NOT NEW.\"completion_guidance\" OR OLD.\"agent_profile_id\" IS NOT NEW.\"agent_profile_id\" OR OLD.\"agent_profile_json\" IS NOT NEW.\"agent_profile_json\" OR OLD.\"status\" IS NOT NEW.\"status\" OR OLD.\"assigned_session_id\" IS NOT NEW.\"assigned_session_id\" OR OLD.\"attempt\" IS NOT NEW.\"attempt\" OR OLD.\"summary\" IS NOT NEW.\"summary\" OR OLD.\"evidence_json\" IS NOT NEW.\"evidence_json\" OR OLD.\"observation_json\" IS NOT NEW.\"observation_json\" OR OLD.\"warnings_json\" IS NOT NEW.\"warnings_json\" OR OLD.\"started_at\" IS NOT NEW.\"started_at\" OR OLD.\"completed_at\" IS NOT NEW.\"completed_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 1, 'u', json_array(OLD.\"run_id\"), json_array(NEW.\"run_id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__1__d\" AFTER DELETE ON \"workflow_run_steps\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 1, 'd', json_array(OLD.\"run_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__2__i\" AFTER INSERT ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 2, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__2__u\" AFTER UPDATE ON \"workflow_revisions\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"workflow_id\" IS NOT NEW.\"workflow_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 2, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__workflowRun__2__d\" AFTER DELETE ON \"workflow_revisions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('workflowRun', 2, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__instancePreferences__0__i\" AFTER INSERT ON \"meta\" FOR EACH ROW WHEN (NEW.key = 'settings') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('instancePreferences', 0, 'i', NULL, json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__instancePreferences__0__u\" AFTER UPDATE ON \"meta\" FOR EACH ROW WHEN ((OLD.key = 'settings') OR (NEW.key = 'settings')) AND (OLD.\"key\" IS NOT NEW.\"key\" OR OLD.\"value\" IS NOT NEW.\"value\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('instancePreferences', 0, 'u', json_array(OLD.\"key\"), json_array(NEW.\"key\")); END",
+    "CREATE TRIGGER \"sync_capture__instancePreferences__0__d\" AFTER DELETE ON \"meta\" FOR EACH ROW WHEN (OLD.key = 'settings') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('instancePreferences', 0, 'd', json_array(OLD.\"key\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__effect__0__i\" AFTER INSERT ON \"effects\" FOR EACH ROW WHEN (NEW.deleted_at IS NULL AND (NEW.created_by IS NOT NULL OR NEW.kind NOT IN ('machine.scan'))) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('effect', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__effect__0__u\" AFTER UPDATE ON \"effects\" FOR EACH ROW WHEN ((OLD.deleted_at IS NULL AND (OLD.created_by IS NOT NULL OR OLD.kind NOT IN ('machine.scan'))) OR (NEW.deleted_at IS NULL AND (NEW.created_by IS NOT NULL OR NEW.kind NOT IN ('machine.scan')))) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"target_kind\" IS NOT NEW.\"target_kind\" OR OLD.\"target_id\" IS NOT NEW.\"target_id\" OR OLD.\"input_json\" IS NOT NEW.\"input_json\" OR OLD.\"result_json\" IS NOT NEW.\"result_json\" OR OLD.\"cancel_requested\" IS NOT NEW.\"cancel_requested\" OR OLD.\"status\" IS NOT NEW.\"status\" OR OLD.\"error_code\" IS NOT NEW.\"error_code\" OR OLD.\"error_message\" IS NOT NEW.\"error_message\" OR OLD.\"deadline_at\" IS NOT NEW.\"deadline_at\" OR OLD.\"attempts\" IS NOT NEW.\"attempts\" OR OLD.\"stage\" IS NOT NEW.\"stage\" OR OLD.\"decision\" IS NOT NEW.\"decision\" OR OLD.\"deciders\" IS NOT NEW.\"deciders\" OR OLD.\"started_at\" IS NOT NEW.\"started_at\" OR OLD.\"finished_at\" IS NOT NEW.\"finished_at\" OR OLD.\"created_by\" IS NOT NEW.\"created_by\" OR OLD.\"actor\" IS NOT NEW.\"actor\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"revision\" IS NOT NEW.\"revision\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('effect', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__effect__0__d\" AFTER DELETE ON \"effects\" FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND (OLD.created_by IS NOT NULL OR OLD.kind NOT IN ('machine.scan'))) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('effect', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__checkout__0__i\" AFTER INSERT ON \"checkouts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('checkout', 0, 'i', NULL, json_array(NEW.\"machine_id\", NEW.\"path\")); END",
+    "CREATE TRIGGER \"sync_capture__checkout__0__u\" AFTER UPDATE ON \"checkouts\" FOR EACH ROW WHEN (OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"path\" IS NOT NEW.\"path\" OR OLD.\"root\" IS NOT NEW.\"root\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"branch\" IS NOT NEW.\"branch\" OR OLD.\"origin_url\" IS NOT NEW.\"origin_url\" OR OLD.\"locked\" IS NOT NEW.\"locked\" OR OLD.\"prunable\" IS NOT NEW.\"prunable\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"removed_at\" IS NOT NEW.\"removed_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('checkout', 0, 'u', json_array(OLD.\"machine_id\", OLD.\"path\"), json_array(NEW.\"machine_id\", NEW.\"path\")); END",
+    "CREATE TRIGGER \"sync_capture__checkout__0__d\" AFTER DELETE ON \"checkouts\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('checkout', 0, 'd', json_array(OLD.\"machine_id\", OLD.\"path\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__issueEvent__0__i\" AFTER INSERT ON \"podium_events\" FOR EACH ROW WHEN (NEW.kind IN ('issue.created', 'issue.started', 'issue.stage_changed', 'issue.closed', 'issue.reopened', 'issue.needs_human', 'issue.needs_human_cleared', 'issue.session_attached') AND NEW.subject <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueEvent', 0, 'i', NULL, json_array(NEW.\"id\", NEW.\"kind\", NEW.\"subject\")); END",
+    "CREATE TRIGGER \"sync_capture__issueEvent__0__u\" AFTER UPDATE ON \"podium_events\" FOR EACH ROW WHEN ((OLD.kind IN ('issue.created', 'issue.started', 'issue.stage_changed', 'issue.closed', 'issue.reopened', 'issue.needs_human', 'issue.needs_human_cleared', 'issue.session_attached') AND OLD.subject <> '') OR (NEW.kind IN ('issue.created', 'issue.started', 'issue.stage_changed', 'issue.closed', 'issue.reopened', 'issue.needs_human', 'issue.needs_human_cleared', 'issue.session_attached') AND NEW.subject <> '')) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"subject\" IS NOT NEW.\"subject\" OR OLD.\"ts\" IS NOT NEW.\"ts\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"payload\" IS NOT NEW.\"payload\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueEvent', 0, 'u', json_array(OLD.\"id\", OLD.\"kind\", OLD.\"subject\"), json_array(NEW.\"id\", NEW.\"kind\", NEW.\"subject\")); END",
+    "CREATE TRIGGER \"sync_capture__issueEvent__0__d\" AFTER DELETE ON \"podium_events\" FOR EACH ROW WHEN (OLD.kind IN ('issue.created', 'issue.started', 'issue.stage_changed', 'issue.closed', 'issue.reopened', 'issue.needs_human', 'issue.needs_human_cleared', 'issue.session_attached') AND OLD.subject <> '') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('issueEvent', 0, 'd', json_array(OLD.\"id\", OLD.\"kind\", OLD.\"subject\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__pendingInteraction__0__i\" AFTER INSERT ON \"pending_interactions\" FOR EACH ROW WHEN (NEW.status = 'asked') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pendingInteraction', 0, 'i', NULL, json_array(NEW.\"session_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__pendingInteraction__0__u\" AFTER UPDATE ON \"pending_interactions\" FOR EACH ROW WHEN ((OLD.status = 'asked') OR (NEW.status = 'asked')) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"payload_json\" IS NOT NEW.\"payload_json\" OR OLD.\"source\" IS NOT NEW.\"source\" OR OLD.\"answerable\" IS NOT NEW.\"answerable\" OR OLD.\"fingerprint\" IS NOT NEW.\"fingerprint\" OR OLD.\"status\" IS NOT NEW.\"status\" OR OLD.\"policy_verdict\" IS NOT NEW.\"policy_verdict\" OR OLD.\"asked_at\" IS NOT NEW.\"asked_at\" OR OLD.\"expires_at\" IS NOT NEW.\"expires_at\" OR OLD.\"answered_at\" IS NOT NEW.\"answered_at\" OR OLD.\"answered_by\" IS NOT NEW.\"answered_by\" OR OLD.\"answer_json\" IS NOT NEW.\"answer_json\" OR OLD.\"delivered_via\" IS NOT NEW.\"delivered_via\" OR OLD.\"expired_at\" IS NOT NEW.\"expired_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pendingInteraction', 0, 'u', json_array(OLD.\"session_id\", OLD.\"id\"), json_array(NEW.\"session_id\", NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__pendingInteraction__0__d\" AFTER DELETE ON \"pending_interactions\" FOR EACH ROW WHEN (OLD.status = 'asked') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('pendingInteraction', 0, 'd', json_array(OLD.\"session_id\", OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__message__0__i\" AFTER INSERT ON \"messages\" FOR EACH ROW WHEN (NEW.from_kind = 'operator' AND NEW.to_kind = 'session') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 0, 'i', NULL, json_array(NEW.\"id\", NEW.\"to_id\", NEW.\"actor_kind\", NEW.\"actor_id\", NEW.\"on_behalf_of\", NEW.\"delivery_status\", NEW.\"created_at\")); END",
+    "CREATE TRIGGER \"sync_capture__message__0__u\" AFTER UPDATE ON \"messages\" FOR EACH ROW WHEN ((OLD.from_kind = 'operator' AND OLD.to_kind = 'session') OR (NEW.from_kind = 'operator' AND NEW.to_kind = 'session')) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"to_id\" IS NOT NEW.\"to_id\" OR OLD.\"actor_kind\" IS NOT NEW.\"actor_kind\" OR OLD.\"actor_id\" IS NOT NEW.\"actor_id\" OR OLD.\"on_behalf_of\" IS NOT NEW.\"on_behalf_of\" OR OLD.\"delivery_status\" IS NOT NEW.\"delivery_status\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"thread_id\" IS NOT NEW.\"thread_id\" OR OLD.\"in_reply_to\" IS NOT NEW.\"in_reply_to\" OR OLD.\"from_kind\" IS NOT NEW.\"from_kind\" OR OLD.\"from_session\" IS NOT NEW.\"from_session\" OR OLD.\"from_issue\" IS NOT NEW.\"from_issue\" OR OLD.\"delegation_ref\" IS NOT NEW.\"delegation_ref\" OR OLD.\"to_kind\" IS NOT NEW.\"to_kind\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"urgency\" IS NOT NEW.\"urgency\" OR OLD.\"lifecycle\" IS NOT NEW.\"lifecycle\" OR OLD.\"body\" IS NOT NEW.\"body\" OR OLD.\"attachments_json\" IS NOT NEW.\"attachments_json\" OR OLD.\"expires_at\" IS NOT NEW.\"expires_at\" OR OLD.\"delivery_held\" IS NOT NEW.\"delivery_held\" OR OLD.\"acked_by\" IS NOT NEW.\"acked_by\" OR OLD.\"clamped_from\" IS NOT NEW.\"clamped_from\" OR OLD.\"reminded_at\" IS NOT NEW.\"reminded_at\" OR OLD.\"from_name\" IS NOT NEW.\"from_name\" OR OLD.\"read_at\" IS NOT NEW.\"read_at\" OR OLD.\"delivery_deferred_at\" IS NOT NEW.\"delivery_deferred_at\" OR OLD.\"delivery_deferred_reason\" IS NOT NEW.\"delivery_deferred_reason\" OR OLD.\"dead_lettered_at\" IS NOT NEW.\"dead_lettered_at\" OR OLD.\"expects_response\" IS NOT NEW.\"expects_response\" OR OLD.\"fact_key\" IS NOT NEW.\"fact_key\" OR OLD.\"fact_target\" IS NOT NEW.\"fact_target\" OR OLD.\"transcript_item_id\" IS NOT NEW.\"transcript_item_id\" OR OLD.\"transcript_item_cursor\" IS NOT NEW.\"transcript_item_cursor\" OR OLD.\"harness_ref_json\" IS NOT NEW.\"harness_ref_json\" OR OLD.\"notice_dismissed_at\" IS NOT NEW.\"notice_dismissed_at\" OR OLD.\"retract_requested_at\" IS NOT NEW.\"retract_requested_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 0, 'u', json_array(OLD.\"id\", OLD.\"to_id\", OLD.\"actor_kind\", OLD.\"actor_id\", OLD.\"on_behalf_of\", OLD.\"delivery_status\", OLD.\"created_at\"), json_array(NEW.\"id\", NEW.\"to_id\", NEW.\"actor_kind\", NEW.\"actor_id\", NEW.\"on_behalf_of\", NEW.\"delivery_status\", NEW.\"created_at\")); END",
+    "CREATE TRIGGER \"sync_capture__message__0__d\" AFTER DELETE ON \"messages\" FOR EACH ROW WHEN (OLD.from_kind = 'operator' AND OLD.to_kind = 'session') BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 0, 'd', json_array(OLD.\"id\", OLD.\"to_id\", OLD.\"actor_kind\", OLD.\"actor_id\", OLD.\"on_behalf_of\", OLD.\"delivery_status\", OLD.\"created_at\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__message__1__i\" AFTER INSERT ON \"sessions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 1, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__message__1__u\" AFTER UPDATE ON \"sessions\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR ((coalesce(OLD.status, '') <> 'exited' AND coalesce(OLD.archived, 0) = 0 AND OLD.deleted_at IS NULL)) IS NOT ((coalesce(NEW.status, '') <> 'exited' AND coalesce(NEW.archived, 0) = 0 AND NEW.deleted_at IS NULL))) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 1, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__message__1__d\" AFTER DELETE ON \"sessions\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('message', 1, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__0__i\" AFTER INSERT ON \"sessions\" FOR EACH ROW WHEN (NEW.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 0, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__0__u\" AFTER UPDATE ON \"sessions\" FOR EACH ROW WHEN ((OLD.deleted_at IS NULL) OR (NEW.deleted_at IS NULL)) AND (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"owner_user_id\" IS NOT NEW.\"owner_user_id\" OR OLD.\"agent_kind\" IS NOT NEW.\"agent_kind\" OR OLD.\"model\" IS NOT NEW.\"model\" OR OLD.\"effort\" IS NOT NEW.\"effort\" OR OLD.\"requested_model\" IS NOT NEW.\"requested_model\" OR OLD.\"requested_effort\" IS NOT NEW.\"requested_effort\" OR OLD.\"account_id\" IS NOT NEW.\"account_id\" OR OLD.\"login_harness\" IS NOT NEW.\"login_harness\" OR OLD.\"cwd\" IS NOT NEW.\"cwd\" OR OLD.\"title\" IS NOT NEW.\"title\" OR OLD.\"origin_kind\" IS NOT NEW.\"origin_kind\" OR OLD.\"conversation_id\" IS NOT NEW.\"conversation_id\" OR OLD.\"resume_kind\" IS NOT NEW.\"resume_kind\" OR OLD.\"resume_value\" IS NOT NEW.\"resume_value\" OR OLD.\"selected_driver_id\" IS NOT NEW.\"selected_driver_id\" OR OLD.\"requested_driver_id\" IS NOT NEW.\"requested_driver_id\" OR OLD.\"bound_driver_id\" IS NOT NEW.\"bound_driver_id\" OR OLD.\"bound_driver_capabilities\" IS NOT NEW.\"bound_driver_capabilities\" OR OLD.\"draft_sync_engine\" IS NOT NEW.\"draft_sync_engine\" OR OLD.\"agent_color\" IS NOT NEW.\"agent_color\" OR OLD.\"agent_state_json\" IS NOT NEW.\"agent_state_json\" OR OLD.\"observed_model\" IS NOT NEW.\"observed_model\" OR OLD.\"observed_effort\" IS NOT NEW.\"observed_effort\" OR OLD.\"observed_mode\" IS NOT NEW.\"observed_mode\" OR OLD.\"launch_posture_json\" IS NOT NEW.\"launch_posture_json\" OR OLD.\"handoff_target_machine_id\" IS NOT NEW.\"handoff_target_machine_id\" OR OLD.\"status\" IS NOT NEW.\"status\" OR OLD.\"exit_code\" IS NOT NEW.\"exit_code\" OR OLD.\"spawn_failure\" IS NOT NEW.\"spawn_failure\" OR OLD.\"durable_label\" IS NOT NEW.\"durable_label\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\" OR OLD.\"published_last_active_at\" IS NOT NEW.\"published_last_active_at\" OR OLD.\"name\" IS NOT NEW.\"name\" OR OLD.\"archived\" IS NOT NEW.\"archived\" OR OLD.\"work_state\" IS NOT NEW.\"work_state\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"last_resumed_at\" IS NOT NEW.\"last_resumed_at\" OR OLD.\"spawned_by\" IS NOT NEW.\"spawned_by\" OR OLD.\"headless\" IS NOT NEW.\"headless\" OR OLD.\"issue_id\" IS NOT NEW.\"issue_id\" OR OLD.\"stopped_at\" IS NOT NEW.\"stopped_at\" OR OLD.\"stop_reason\" IS NOT NEW.\"stop_reason\" OR OLD.\"oom_killed_at\" IS NOT NEW.\"oom_killed_at\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\" OR OLD.\"deleted_by_issue_id\" IS NOT NEW.\"deleted_by_issue_id\" OR OLD.\"deletion_source\" IS NOT NEW.\"deletion_source\" OR OLD.\"workflow_run_id\" IS NOT NEW.\"workflow_run_id\" OR OLD.\"workflow_step_id\" IS NOT NEW.\"workflow_step_id\" OR OLD.\"agent_profile_id\" IS NOT NEW.\"agent_profile_id\" OR OLD.\"name_source\" IS NOT NEW.\"name_source\" OR OLD.\"ref_issue_id\" IS NOT NEW.\"ref_issue_id\" OR OLD.\"ref_letter\" IS NOT NEW.\"ref_letter\" OR OLD.\"ref_draft\" IS NOT NEW.\"ref_draft\" OR OLD.\"delegation\" IS NOT NEW.\"delegation\" OR OLD.\"created_by_actor_kind\" IS NOT NEW.\"created_by_actor_kind\" OR OLD.\"created_by_actor_id\" IS NOT NEW.\"created_by_actor_id\" OR OLD.\"created_by_on_behalf_of\" IS NOT NEW.\"created_by_on_behalf_of\" OR OLD.\"desired\" IS NOT NEW.\"desired\" OR OLD.\"desired_force\" IS NOT NEW.\"desired_force\" OR OLD.\"revision\" IS NOT NEW.\"revision\" OR OLD.\"observed_revision\" IS NOT NEW.\"observed_revision\" OR OLD.\"lifecycle_failure\" IS NOT NEW.\"lifecycle_failure\" OR OLD.\"desired_by_user\" IS NOT NEW.\"desired_by_user\" OR OLD.\"desired_by_agent\" IS NOT NEW.\"desired_by_agent\" OR (OLD.conversation_binding IS 'never') IS NOT (NEW.conversation_binding IS 'never')) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 0, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__0__d\" AFTER DELETE ON \"sessions\" FOR EACH ROW WHEN (OLD.deleted_at IS NULL) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 0, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__1__i\" AFTER INSERT ON \"offers\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 1, 'i', NULL, json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__1__u\" AFTER UPDATE ON \"offers\" FOR EACH ROW WHEN ((EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) OR (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL))) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"message\" IS NOT NEW.\"message\" OR OLD.\"actions\" IS NOT NEW.\"actions\" OR OLD.\"artifacts\" IS NOT NEW.\"artifacts\" OR OLD.\"created_at\" IS NOT NEW.\"created_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 1, 'u', json_array(OLD.\"session_id\"), json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__1__d\" AFTER DELETE ON \"offers\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 1, 'd', json_array(OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__2__i\" AFTER INSERT ON \"session_drafts\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 2, 'i', NULL, json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__2__u\" AFTER UPDATE ON \"session_drafts\" FOR EACH ROW WHEN ((EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) OR (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL))) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"text\" IS NOT NEW.\"text\" OR OLD.\"updated_at\" IS NOT NEW.\"updated_at\" OR OLD.\"rev\" IS NOT NEW.\"rev\" OR OLD.\"origin\" IS NOT NEW.\"origin\" OR OLD.\"history\" IS NOT NEW.\"history\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 2, 'u', json_array(OLD.\"session_id\"), json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__2__d\" AFTER DELETE ON \"session_drafts\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 2, 'd', json_array(OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__3__i\" AFTER INSERT ON \"session_observation_checkpoints\" FOR EACH ROW WHEN (NEW.checkpoint_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 3, 'i', NULL, json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__3__u\" AFTER UPDATE ON \"session_observation_checkpoints\" FOR EACH ROW WHEN ((OLD.checkpoint_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) OR (NEW.checkpoint_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL))) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"provider\" IS NOT NEW.\"provider\" OR (CASE WHEN json_valid(OLD.checkpoint_json) THEN json_extract(OLD.checkpoint_json, '$.turnState') END) IS NOT (CASE WHEN json_valid(NEW.checkpoint_json) THEN json_extract(NEW.checkpoint_json, '$.turnState') END) OR (CASE WHEN json_valid(OLD.checkpoint_json) THEN json_extract(OLD.checkpoint_json, '$.providerSessionId') IS NOT NULL END) IS NOT (CASE WHEN json_valid(NEW.checkpoint_json) THEN json_extract(NEW.checkpoint_json, '$.providerSessionId') IS NOT NULL END)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 3, 'u', json_array(OLD.\"session_id\"), json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__3__d\" AFTER DELETE ON \"session_observation_checkpoints\" FOR EACH ROW WHEN (OLD.checkpoint_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 3, 'd', json_array(OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__4__i\" AFTER INSERT ON \"runtime_event_checkpoints\" FOR EACH ROW WHEN (NEW.turn_state_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 4, 'i', NULL, json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__4__u\" AFTER UPDATE ON \"runtime_event_checkpoints\" FOR EACH ROW WHEN ((OLD.turn_state_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) OR (NEW.turn_state_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL))) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\" OR OLD.\"turn_state_json\" IS NOT NEW.\"turn_state_json\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 4, 'u', json_array(OLD.\"session_id\"), json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__4__d\" AFTER DELETE ON \"runtime_event_checkpoints\" FOR EACH ROW WHEN (OLD.turn_state_json IS NOT NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 4, 'd', json_array(OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__5__i\" AFTER INSERT ON \"podium_events\" FOR EACH ROW WHEN (NEW.kind = 'session.runtime' AND json_extract(NEW.payload, '$.t') IN ('transcript-reset', 'item') AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.subject AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 5, 'i', NULL, json_array(NEW.\"subject\")); END",
+    "CREATE TRIGGER \"sync_capture__session__5__u\" AFTER UPDATE ON \"podium_events\" FOR EACH ROW WHEN ((OLD.kind = 'session.runtime' AND json_extract(OLD.payload, '$.t') IN ('transcript-reset', 'item') AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.subject AND deleted_at IS NULL)) OR (NEW.kind = 'session.runtime' AND json_extract(NEW.payload, '$.t') IN ('transcript-reset', 'item') AND EXISTS (SELECT 1 FROM sessions WHERE id = NEW.subject AND deleted_at IS NULL))) AND (OLD.\"subject\" IS NOT NEW.\"subject\" OR OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"ts\" IS NOT NEW.\"ts\" OR OLD.\"kind\" IS NOT NEW.\"kind\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"payload\" IS NOT NEW.\"payload\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 5, 'u', json_array(OLD.\"subject\"), json_array(NEW.\"subject\")); END",
+    "CREATE TRIGGER \"sync_capture__session__5__d\" AFTER DELETE ON \"podium_events\" FOR EACH ROW WHEN (OLD.kind = 'session.runtime' AND json_extract(OLD.payload, '$.t') IN ('transcript-reset', 'item') AND EXISTS (SELECT 1 FROM sessions WHERE id = OLD.subject AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 5, 'd', json_array(OLD.\"subject\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__6__i\" AFTER INSERT ON \"queued_messages\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 6, 'i', NULL, json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__6__u\" AFTER UPDATE ON \"queued_messages\" FOR EACH ROW WHEN ((EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) OR (EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id AND deleted_at IS NULL))) AND (OLD.\"session_id\" IS NOT NEW.\"session_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 6, 'u', json_array(OLD.\"session_id\"), json_array(NEW.\"session_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__6__d\" AFTER DELETE ON \"queued_messages\" FOR EACH ROW WHEN (EXISTS (SELECT 1 FROM sessions WHERE id = OLD.session_id AND deleted_at IS NULL)) BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 6, 'd', json_array(OLD.\"session_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__7__i\" AFTER INSERT ON \"conversation_segments\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 7, 'i', NULL, json_array(NEW.\"machine_id\", NEW.\"native_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__7__u\" AFTER UPDATE ON \"conversation_segments\" FOR EACH ROW WHEN (OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"native_id\" IS NOT NEW.\"native_id\" OR OLD.\"podium_id\" IS NOT NEW.\"podium_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 7, 'u', json_array(OLD.\"machine_id\", OLD.\"native_id\"), json_array(NEW.\"machine_id\", NEW.\"native_id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__7__d\" AFTER DELETE ON \"conversation_segments\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 7, 'd', json_array(OLD.\"machine_id\", OLD.\"native_id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__8__i\" AFTER INSERT ON \"issues\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 8, 'i', NULL, json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__8__u\" AFTER UPDATE ON \"issues\" FOR EACH ROW WHEN (OLD.\"id\" IS NOT NEW.\"id\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\" OR OLD.\"repo_path\" IS NOT NEW.\"repo_path\" OR OLD.\"seq\" IS NOT NEW.\"seq\" OR OLD.\"deleted_at\" IS NOT NEW.\"deleted_at\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 8, 'u', json_array(OLD.\"id\"), json_array(NEW.\"id\")); END",
+    "CREATE TRIGGER \"sync_capture__session__8__d\" AFTER DELETE ON \"issues\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 8, 'd', json_array(OLD.\"id\"), NULL); END",
+    "CREATE TRIGGER \"sync_capture__session__9__i\" AFTER INSERT ON \"repos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 9, 'i', NULL, json_array(NEW.\"path\")); END",
+    "CREATE TRIGGER \"sync_capture__session__9__u\" AFTER UPDATE ON \"repos\" FOR EACH ROW WHEN (OLD.\"path\" IS NOT NEW.\"path\" OR OLD.\"machine_id\" IS NOT NEW.\"machine_id\" OR OLD.\"origin_url\" IS NOT NEW.\"origin_url\" OR OLD.\"repo_name\" IS NOT NEW.\"repo_name\" OR OLD.\"added_at\" IS NOT NEW.\"added_at\" OR OLD.\"repo_id\" IS NOT NEW.\"repo_id\") BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 9, 'u', json_array(OLD.\"path\"), json_array(NEW.\"path\")); END",
+    "CREATE TRIGGER \"sync_capture__session__9__d\" AFTER DELETE ON \"repos\" FOR EACH ROW BEGIN INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES ('session', 9, 'd', json_array(OLD.\"path\"), NULL); END"
+  ],
+  "tokens": {
+    "conversation": "c26470f92365af87:1",
+    "issueGitState": "3e0193ab6b70d4c9:1",
+    "machine": "ef741fe2f7204764:1",
+    "machineAccess": "7feffd010f2ef2e7:1",
+    "repo": "8ff17f6430d8be9e:1",
+    "issueProjection": "95280f46beabf59c:1",
+    "issueBrief": "b3536d1061f1f28e:0",
+    "issueDescription": "b3536d1061f1f28e:0",
+    "issuePanelTodo": "9ce3e15a387f9a1c:1",
+    "issuePanelArtifact": "0264b184ba64e33e:1",
+    "issuePanelDeferred": "227012dad8e6756c:1",
+    "issuePanelState": "e71388983857bd92:1",
+    "issueDep": "9a333de6cd4b0a84:1",
+    "issueUserState": "1043eec074e31e5e:1",
+    "subscription": "16d0aceac0a80bf8:1",
+    "shipOrder": "28cb328d998d5c03:1",
+    "shipLane": "514d59f99e603553:1",
+    "automation": "7a036483f3ddb199:1",
+    "automationRun": "b7bd989d86f5a867:1",
+    "userLayout": "321332db10565e05:1",
+    "userReadPosition": "bb99081df8029987:1",
+    "pin": "73cb5a9b482e8a09:1",
+    "tabOrder": "7745da3a85176e90:1",
+    "userPreferences": "c59041ebc7031fd9:1",
+    "sessionUserState": "50a2505f12a2e2c9:3",
+    "superagentThread": "c5f2870acbb9608c:1",
+    "agentProfile": "dfad7c11f0e1488f:1",
+    "workflow": "0bd8aa7487fe3686:1",
+    "workflowRevision": "753ac57e68456e14:1",
+    "workflowBinding": "5ff4a5d10a49d2bf:1",
+    "workflowRun": "798914f30a527b69:1",
+    "instancePreferences": "e5490518ef7fb9f6:1",
+    "effect": "04713e89a415f503:1",
+    "checkout": "6b09174bc774c0e1:1",
+    "issueEvent": "7a2de829b94c8787:1",
+    "pendingInteraction": "3e09a56d2236d123:1",
+    "message": "1b295bcd7358d837:3",
+    "session": "5e3bc9858d4aabcf:3"
+  }
+}

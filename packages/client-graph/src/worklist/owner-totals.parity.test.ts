@@ -75,65 +75,6 @@ describe('shared session facts equal the old verdict on identical records', () =
     })
 })
 
-it('cold and unknown verdicts load, then omit gone sessions without warming timer facts', () => {
-  const load = vi.fn(() => undefined)
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load,
-    schedule: () => () => {},
-    exitKind: (entity, id) => (entity === 'session' && id === 'removed' ? 'removed' : undefined),
-  })
-  const old = '2026-01-01T00:00:00Z'
-  const cold = session('cold', {
-    issueId: 'cold-owner',
-    archived: true,
-    status: 'exited',
-    lastActiveAt: old,
-  })
-  pool.apply({
-    type: 'replace',
-    rows: [
-      {
-        kind: 'issue',
-        id: 'cold-owner',
-        value: {
-          id: 'cold-owner',
-          seq: 1,
-          title: 'Cold owner',
-          repoPath: '/synthetic',
-          stage: 'done',
-          closedAt: old,
-          updatedAt: old,
-          createdAt: old,
-        },
-      },
-      { kind: 'session', id: 'cold', value: cold as never },
-    ],
-  })
-  const models = ['cold', 'unknown', 'removed'].map((id) => pool.sessionObject(id))
-  const fields = models.map((model) => vi.spyOn(model, 'storedField'))
-  try {
-    const view = worklistView(pool)
-    const verdict = (id: string) => view.session(pool.sessionObject(id)).verdict
-    expect(pool.resident('session', 'cold')).toBe('loading')
-    expect(verdict('cold')).toBe(LOADING)
-    expect(verdict('unknown')).toBe(LOADING)
-    expect(verdict('removed')).toBeUndefined()
-    expect(load).not.toHaveBeenCalled()
-    for (const field of fields) expect(field).not.toHaveBeenCalled()
-
-    // Unknown is pending until the shared loader confirms it is unavailable.
-    expect(pool.hydrate()).toBe(0)
-    expect(load).toHaveBeenCalledTimes(2)
-    for (const model of models) expect(verdict(model.id)).toBeUndefined()
-    expect(pool.hydrate()).toBe(0)
-    expect(load).toHaveBeenCalledTimes(2)
-    for (const field of fields) expect(field).not.toHaveBeenCalled()
-  } finally {
-    for (const field of fields) field.mockRestore()
-    pool.dispose()
-  }
-})
-
 // Frozen old answers stay callable after the production companion forwards
 // to the shared model. In particular, finished rows suppress only offer asks.
 it('finished and unfinished issue verdicts preserve attention and timestamps', () => {

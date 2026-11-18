@@ -21,7 +21,6 @@ import {
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { liveFixture } from '@podium/client-graph/live-fixture'
-import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueUserStateRowId, pinRowId, spreadSortKeys } from '@podium/model'
@@ -596,8 +595,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     if (['archived-parent', 'deleted-parent', 'archived-grandparent'].includes(scenario)) {
       const grandparent = scenario === 'archived-grandparent'
       const ancestorId = grandparent ? 'synthetic-0' : 'synthetic-1'
-      expect(pool!.tables.issue.has(ancestorId)).toBe(false)
-      expect(pool!.row('issue', ancestorId, 'summary')).toMatchObject(
+      expect(pool!.row('issue', ancestorId)).toMatchObject(
         scenario === 'deleted-parent'
           ? { deletedAt: new Date(NOW - 1000).toISOString() }
           : { archived: true },
@@ -683,85 +681,6 @@ describe('pool navigation uses the existing gesture semantics', () => {
     expect(beginSwitch).not.toHaveBeenCalled()
     work.selectPanelForIssue('synthetic-3', file)
     expect(beginSwitch).not.toHaveBeenCalled()
-  })
-
-  it('waits without a mutation for unloaded rows and loads repeated clicks in one batch', async () => {
-    await mount()
-    const owner = pool!
-    const residency = owner.residency!
-    const ids = ['synthetic-9', TARGET]
-    const rows = ids.map((id) => owner.row('issue', id) as SliceIssue)
-    const coldRule = residency.coldRule.bind(residency)
-    const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, id) =>
-      entity === 'issue' && ids.includes(id) ? true : coldRule(entity, id)
-    residency.hidden = (entity, id) =>
-      entity === 'issue' && ids.includes(id) ? false : hidden(entity, id)
-    try {
-      act(() => {
-        ids.forEach((id, index) => {
-          owner.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
-          owner.apply({
-            type: 'update',
-            rows: [{ kind: 'issue', id, value: rows[index] }],
-          })
-        })
-      })
-      const fetch = vi.spyOn(runtime.replica, 'row')
-      act(() => {
-        for (const id of [...ids, ...ids]) actions.selectIssue(id)
-        expect(ids.map((id) => sidebarView(owner).row(id))).toEqual([LOADING, LOADING])
-        expect(requests).toHaveLength(0)
-        expect(referenceState(runtime).selectedIssueId).toBeNull()
-        expect(focused).toBeNull()
-        expect(fetch).not.toHaveBeenCalled()
-        expect(owner.hydrate()).toBe(2)
-      })
-      fetch.mockRestore()
-      expect(ids.map((id) => sidebarView(owner).row(id))).not.toContain(LOADING)
-    } finally {
-      residency.coldRule = coldRule
-      residency.hidden = hidden
-    }
-    await settle()
-  })
-
-  it('waits for a loading mission ancestor before navigating or mutating a loaded child', async () => {
-    await mount((fixture) => fixture.patchIssue(TARGET, { parentId: asIssueId('synthetic-3') }))
-    const owner = pool!
-    const residency = owner.residency!
-    const ancestor = owner.row('issue', 'synthetic-3') as SliceIssue
-    const coldRule = residency.coldRule.bind(residency)
-    const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, id) =>
-      entity === 'issue' && id === 'synthetic-3' ? true : coldRule(entity, id)
-    residency.hidden = (entity, id) =>
-      entity === 'issue' && id === 'synthetic-3' ? false : hidden(entity, id)
-    try {
-      act(() => {
-        owner.apply({
-          type: 'update',
-          rows: [{ kind: 'issue', id: 'synthetic-3', value: undefined }],
-        })
-        owner.apply({
-          type: 'update',
-          rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }],
-        })
-        for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
-        expect(sidebarView(owner).row('synthetic-3')).toBe(LOADING)
-        expect(requests).toHaveLength(0)
-        expect(referenceState(runtime).selectedIssueId).toBeNull()
-        expect(focused).toBeNull()
-        expect(owner.hydrate()).toBe(1)
-      })
-      await act(async () => actions.selectIssue(TARGET))
-      expect(referenceState(runtime).selectedIssueId).toBe('synthetic-1')
-      expect(focused).toBe(TARGET)
-    } finally {
-      residency.coldRule = coldRule
-      residency.hidden = hidden
-    }
-    await settle()
   })
 })
 
@@ -1410,7 +1329,6 @@ describe('real pool row mutations and receipts', () => {
       patchIssue(fixture, 'synthetic-9', { parentId: 'synthetic-7' })
     })
     // Cold payloads still have formal links and declared archive summaries.
-    expect(pool!.tables.issue.has('synthetic-6')).toBe(false)
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
@@ -1437,10 +1355,9 @@ describe('real pool row mutations and receipts', () => {
         .filter(isRestore)
         .map((entry) => entry.input),
     ).toEqual(ids.map((id) => ({ kind: 'issueProjection', id, patch: { archived: false } })))
-    for (const id of ids)
-      expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
-    expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
-    expect(pool!.row('issue', 'synthetic-9', 'summary-fields')).toMatchObject({ archived: false })
+    for (const id of ids) expect(pool!.row('issue', id)).toMatchObject({ archived: false })
+    expect(pool!.row('issue', 'synthetic-7')).toMatchObject({ archived: true })
+    expect(pool!.row('issue', 'synthetic-9')).toMatchObject({ archived: false })
   })
 
   it('does not delay an Undo past a newer archive of a promoted child', async () => {
@@ -1468,7 +1385,7 @@ describe('real pool row mutations and receipts', () => {
     await accept(parentArchive)
     await accept(await request('issues.update', 'synthetic-6'))
     expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
-    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
+    expect(pool!.row('issue', 'synthetic-6')).toMatchObject({ archived: true })
   })
 
   it('does not restore descendants when a pending parent archive is refused', async () => {
@@ -1478,7 +1395,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await refuse(await request('issues.update', 'synthetic-5'))
     expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
-    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
+    expect(pool!.row('issue', 'synthetic-6')).toMatchObject({ archived: false })
   })
 
   it('does not archive a partial batch while a descendant summary is loading', async () => {
@@ -1488,7 +1405,7 @@ describe('real pool row mutations and receipts', () => {
     const lookup = vi
       .spyOn(pool!, 'row')
       .mockImplementation((entity, id, mode) =>
-        entity === 'issue' && id === 'synthetic-6' && mode === 'summary-fields'
+        entity === 'issue' && id === 'synthetic-6' && mode === undefined
           ? LOADING
           : read(entity, id, mode),
       )

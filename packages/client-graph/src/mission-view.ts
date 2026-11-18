@@ -885,14 +885,22 @@ export class MissionDeckIssueModel implements FlightDeckRow {
 
 const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
   settled(() => {
+    // Progress counts the closed members too: on its way until the tree is
+    // held whole, never a smaller number from the open members (POD-7088).
+    if (!deck.treeHeld) return LOADING
     const { view } = deck,
       members = requireLoaded(deck.members)
     let pending = false
-    // Progress is also read without the pane's topology. Request every member's
-    // visibility together so cold siblings do not load one per scalar read.
+    // Progress is also read without the pane's topology. Visibility answers
+    // from the declared cold fields, so a hidden member loads nothing; the leaf
+    // walk reads a shown member's payload (`type`), so request every shown
+    // member's together and cold siblings do not load one per window.
     for (const id of members) {
-      const visible = settled(() => view.facts(id).visible)
-      if (visible === LOADING) pending = true
+      const shown = settled(() => {
+        const facts = view.facts(id)
+        return facts.visible && facts.type
+      })
+      if (shown === LOADING) pending = true
     }
     if (pending) return LOADING
     const leaves = leafTasks(deck.id, {
@@ -967,8 +975,20 @@ export class MissionDeckModel {
   @lazy get archivedCount() {
     return this.view.readArchiveCount(this)
   }
+  /**
+   * The deck shows a tree (POD-7088, design "Where each question gets its
+   * answer": flight deck): reading its members asks for the tree whole, at
+   * the front of the queue. The members the device holds (the open ones are
+   * in the sidebar collection) paint at once; the closed ones arrive with
+   * the tree. `treeHeld` says when they all have.
+   */
   @lazy get members() {
+    void this.treeHeld
     return missions(this.view.pool).members(this.id)
+  }
+  /** Whether the device holds every member of the deck's tree whole. */
+  @lazy get treeHeld(): boolean {
+    return this.view.pool.collections.treeHeld(this.id)
   }
   @lazy get topology() {
     return topology(this)
@@ -1185,6 +1205,9 @@ export class MissionViewReader {
   readMenuIssue(id: string): Loaded<IssueNavigationModel> {
     const row = this.menuCatalogIssue(id)
     if (!row || row === LOADING) return row
+    // Over all history from the stubs: LOADING until they answer (POD-7088).
+    const children = this.pool.queries.issueChildCounts(id)
+    if (children === LOADING) return LOADING
     const readAt = this.pool.readCursor(id) ?? null,
       readTime = Date.parse(readAt ?? '')
     return menuIssueOverlay(
@@ -1197,7 +1220,7 @@ export class MissionViewReader {
           (!Number.isFinite(readTime) ||
             Date.parse(row.updatedAt) > readTime ||
             (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
-        ...this.pool.queries.issueChildCounts(id),
+        ...children,
         sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
       },
       MENU_OMISSIONS,
@@ -1211,9 +1234,7 @@ export class MissionViewReader {
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = omitGone(
-      this.pool.row('issue', id, 'summary-fields'),
-    ) as Loaded<IssueNavigationModel>
+    const row = omitGone(this.pool.row('issue', id)) as Loaded<IssueNavigationModel>
     if (!row || row === LOADING) return row
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId
@@ -1467,7 +1488,8 @@ export class MissionViewReader {
     const members = this.issueMembers(id)
     let pending = members === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
-    const { childDoneCount } = this.pool.queries.issueChildCounts(id)
+    const children = this.pool.queries.issueChildCounts(id)
+    if (children === LOADING) pending = true
     // One declared inverse yields source IDs. Reading each source's declared
     // edge list preserves custom types, duplicate edges and per-source order.
     const dependents: IssueNavigationModel['dependents'] = []
@@ -1500,8 +1522,9 @@ export class MissionViewReader {
       readAt,
       memberSessionIds: members.ids,
       childIds: [...childIds].sort().map(asIssueId),
-      childCount: childIds.length,
-      childDoneCount,
+      // Over all history from the stubs; the child ids are the device's.
+      childCount: children === LOADING ? 0 : children.childCount,
+      childDoneCount: children === LOADING ? 0 : children.childDoneCount,
       deferred,
       ready: !row.blocked && !deferred && !this.facts(id).finished,
       dependents,
@@ -1527,7 +1550,7 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const currentId = id
-      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{
+      const facts = omitGone(this.pool.row('issue', id)) as Loaded<{
         archived?: boolean
         deletedAt?: string
       }>

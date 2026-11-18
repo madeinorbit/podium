@@ -247,10 +247,6 @@ it('preserves mention ties, pending question order, saved drafts, held sends and
   expect(chatReferenceSessions(corpus.pool).sessions.map((row) => row.sessionId)).toEqual(
     corpus.sessions.map((row) => row.sessionId),
   )
-  expect(corpus.pool.tables.session.has(corpus.sessions[1]!.sessionId)).toBe(false)
-  expect(
-    omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary')),
-  ).not.toHaveProperty('privateBody')
   expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toMatchObject({
     sends: [{ mutationId: 'held-failed' }, { mutationId: 'held-live' }],
   })
@@ -520,24 +516,6 @@ it('updates addressed records, question membership and outbox without re-reading
   ).not.toMatchObject({
     messages: expect.arrayContaining(['notice-message-0']),
   })
-})
-
-it('reports missing cold summaries pending and batches their hydration', async () => {
-  const corpus = f.fixture!
-  await corpus.load()
-  const summary = corpus.pool.residency!.summary.bind(corpus.pool.residency!)
-  const missing = vi
-    .spyOn(corpus.pool.residency!, 'summary')
-    .mockImplementation((entity, id) =>
-      entity === 'session' && id === corpus.sessions[1]!.sessionId
-        ? undefined
-        : summary(entity, id),
-    )
-  expect(chatReferenceSessions(corpus.pool).pending).toBe(1)
-  expect(chatReferenceSessions(corpus.pool).pending).toBe(1)
-  missing.mockRestore()
-  expect(corpus.pool.hydrate()).toBe(1)
-  expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
 })
 
 it('clears rescope inputs and releases all borrowed subscriptions on disposal', async () => {

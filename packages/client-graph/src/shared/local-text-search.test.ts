@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ISSUE_BOARD_SUMMARIES } from '../issue-board-schema'
 import { createIssueBoardSource } from '../issue-board-source'
 import { MobxPool } from '../pool'
 import type { RowRecord } from './source'
@@ -182,7 +181,6 @@ function setupBoard(rows: ReturnType<typeof boardRow>[]) {
   const load = vi.fn((_entity: string, id: string) => rows.find((row) => row.id === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: ISSUE_BOARD_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({

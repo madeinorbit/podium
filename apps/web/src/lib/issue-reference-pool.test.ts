@@ -6,6 +6,7 @@ import { IssueReferences } from '@podium/client-graph/issue-reference'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId } from '@podium/model/browser'
 import { describe, expect, it, vi } from 'vitest'
+import { historyLoader } from '../../../../tests/worklist/shared/src/history-loader'
 
 function reaction<T>(
   read: () => T,
@@ -150,34 +151,32 @@ describe('per-issue pool references', () => {
     f.dispose()
   })
 
-  it('finds a cold identity directly and loads its missing label fields by id', () => {
-    const cold = issue(1, { archived: true })
-    const load = vi.fn(() => cold)
-    let run: (() => void) | undefined
+  it('finds an issue held only as a stub directly and loads its label fields by id', () => {
+    const archived = issue(1, { archived: true })
+    const history = historyLoader(
+      [{ kind: 'issue', id: archived.id, value: archived as never }],
+      [archived],
+    )
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
-      load,
-      schedule: (callback) => {
-        run = callback
-        return () => {}
-      },
+      loader: () => history.port,
+      schedule: () => () => {},
     })
-    pool.apply({ type: 'replace', rows: [repo, { kind: 'issue', id: cold.id, value: cold as never }] })
+    pool.apply({ type: 'replace', rows: [repo] })
     const queue = vi.fn(),
       refs = new IssueReferences(pool, queue),
       paint = vi.fn()
-    expect(pool.tables.issue.has(cold.id)).toBe(false)
     const stop = reaction(() => refs.read('POD-01'), paint, { fireImmediately: true })
+    // The stub names the issue at once; only its label fields are on their way.
+    expect(refs.id('POD-1')).toBe(archived.id)
     expect(refs.read('POD-1')).toBe(LOADING)
     expect(queue).not.toHaveBeenCalled()
-    expect(load).not.toHaveBeenCalled()
-    expect(refs.read('POD-1')).toBe(LOADING)
-    expect(load).not.toHaveBeenCalled()
-    run?.()
-    expect(load).toHaveBeenCalledTimes(1)
+    expect(history.asked).toEqual([['issue', archived.id]])
+    expect(history.answer(pool)).toBe(1)
     expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({
       availability: 'archived',
       title: 'Task 1',
     })
+    expect(history.asked).toHaveLength(1)
     stop()
     refs.dispose()
     pool.dispose()

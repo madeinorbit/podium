@@ -335,8 +335,7 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
   const pool = enabled.seen.findLast((pool) => pool !== null) as MobxPool
-  const roster = vi.spyOn(settingsView(pool), 'sessions'),
-    count = vi.spyOn(settingsView(pool), 'sessionCount')
+  const count = vi.spyOn(settingsView(pool), 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)
     enabled.data.publishMachines()
@@ -351,7 +350,6 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     })
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
-  expect(roster).not.toHaveBeenCalled()
   expect(count).not.toHaveBeenCalled()
   expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
   expect(enabled.errors).toEqual([])

@@ -25,6 +25,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { type PreparedDefinition, preparedDefinitions } from '@podium/sync/adapters/sqlite/prepared'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import type { SessionStore } from '../store'
+import { auditedCollectionShapes } from '../store/collections'
 import { shapeOf } from '../store/executor/sync-drizzle'
 import { type IssueListingShape, listingKey } from '../store/issue-listings'
 import { LEGACY_WORKTREE_MIGRATION } from '../store/issues'
@@ -47,7 +48,7 @@ import {
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
 
-const SIZES = [1, 4] as const
+export const SIZES = [1, 4] as const
 
 /**
  * The shapes each family is audited at, keyed `file:name`. A family's key
@@ -107,6 +108,8 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   string,
   readonly (string | number)[]
 >([
+  // The collection fetch (POD-7085): every shape the record declarations can ask.
+  ['apps/server/src/store/collections.ts:collectionRows', auditedCollectionShapes()],
   [
     'apps/server/src/store/settings-audit.ts:securityEventsNewestFirst',
     ['all', 'people', 'machines', 'credentials', 'comments'].flatMap((kind) =>
@@ -201,6 +204,9 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/sessions.ts:offersOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:draftTimesOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:checkpointedLeasesOfIds', SIZES],
+  ['apps/server/src/store/observation-checkpoints.ts:leasesOfIds', SIZES],
+  ['apps/server/src/store/observation-checkpoints.ts:terminalCandidatesOfIds', SIZES],
+  ['apps/server/src/store/messages.ts:pendingForSessionsProof', SIZES],
   ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
   ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
   ['apps/server/src/store/conversations/index.ts:curatedConversationsOf', SIZES],
@@ -650,7 +656,11 @@ export interface BuiltDefinitionStatement {
  * records instead of running, and collect every statement (once per key and
  * SQL text), with what could not be built.
  */
-export function builtStatements(keyed: readonly KeyedDefinition[]): {
+export function builtStatements(
+  keyed: readonly KeyedDefinition[],
+  shapesOf: (key: string) => readonly (string | number)[] | undefined = (key) =>
+    FAMILY_SHAPES.get(key),
+): {
   built: BuiltDefinitionStatement[]
   fragments: string[]
   missingShapes: string[]
@@ -663,9 +673,9 @@ export function builtStatements(keyed: readonly KeyedDefinition[]): {
   const buildErrors: string[] = []
   const seen = new Set<string>()
   for (const { key, definition } of keyed) {
-    if (definition.kind === 'family' && !FAMILY_SHAPES.has(key)) missingShapes.add(key)
+    if (definition.kind === 'family' && shapesOf(key) === undefined) missingShapes.add(key)
     const shapes: readonly (string | number | undefined)[] =
-      definition.kind === 'family' ? (FAMILY_SHAPES.get(key) ?? []) : [undefined]
+      definition.kind === 'family' ? (shapesOf(key) ?? []) : [undefined]
     for (const shape of shapes) {
       let result: unknown
       let statements: BuiltStatement[]

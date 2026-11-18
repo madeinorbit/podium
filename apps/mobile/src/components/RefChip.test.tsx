@@ -9,7 +9,7 @@ import { STAGE_COLOR, STAGE_UNKNOWN } from '../theme/stage'
 import { color } from '../theme/theme'
 
 let issues: IssueViewModel[] = []
-vi.mock('../client/use-inbox-data', () => ({
+vi.mock('../client/use-pool-links', () => ({
   usePoolRefChip: (token: string, kind: 'issue' | 'session', prefix: string) => {
     const fixture = poolRouteFixture({ issues, sessions: [] })
     try {

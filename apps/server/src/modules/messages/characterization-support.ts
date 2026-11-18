@@ -277,6 +277,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     readSessionFacts: factReads.readSessionFacts,
     readSessionFactsById: factReads.readSessionFactsById,
     readSessionFactsByIssue: factReads.readSessionFactsByIssue,
+    readSessionFactsByIssues: factReads.readSessionFactsByIssues,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     listSessionsForIssue: async (worktreePath, issueId) =>
       sessionsForIssue(worktreePath, sessions, issueId),

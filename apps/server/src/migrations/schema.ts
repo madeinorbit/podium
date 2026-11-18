@@ -259,6 +259,16 @@ export const sessions = sqliteTable(
     agentStateJson: text('agent_state_json'),
     observedModel: text('observed_model'),
     observedEffort: text('observed_effort'),
+    /**
+     * THE LAUNCH'S TERMS AS THE DAEMON REPORTED THEM (POD-6858 Task 11): the
+     * permission mode the harness itself last reported (`observed_mode`), and
+     * the mode Podium asked for at launch with each requirement the launch
+     * could not meet (`launch_posture_json`, a `LaunchPostureReport`). Each
+     * describes the session until it launches again. NULL = not reported, or a
+     * row from before these columns.
+     */
+    observedMode: text('observed_mode'),
+    launchPostureJson: text('launch_posture_json'),
     handoffTargetMachineId: text('handoff_target_machine_id').$type<MachineId>(),
     /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
@@ -368,6 +378,20 @@ export const sessions = sqliteTable(
      *  re-checks that writer's machine `use` before it STARTS anything. */
     desiredByUser: text('desired_by_user').$type<UserId>(),
     desiredByAgent: text('desired_by_agent').$type<SessionId>(),
+    /**
+     * WHETHER THE SESSION WAITS FOR THE USER (POD-7104), derived and never
+     * written by the application: 1 when the session is neither archived nor
+     * deleted and the agent state its record carries asks (a phase of
+     * `needs_user` or `errored`, or `idle` on a question or an approval), or
+     * it holds an offer no later input made stale. The agent state is the
+     * runtime turn state over the observation checkpoint over
+     * `agent_state_json`. The view `session_asks_user` computes it, and the
+     * triggers of migration `20261117220206_session-asks-user` write it in the
+     * same statement as every write of an input: this row's agent state, last
+     * input, archived and deleted columns, its offer, and both checkpoints.
+     * `session.asking` seeks it (`collection-sql.ts`).
+     */
+    asksUser: integer('asks_user', { mode: 'boolean' }).default(sql`0`).notNull(),
     ...workspaceColumn(),
   },
   (table) => [
@@ -384,7 +408,14 @@ export const sessions = sqliteTable(
     index('idx_sessions_lifecycle_pending')
       .on(table.workspaceId, table.machineId)
       .where(sql`${table.revision} > ${table.observedRevision} AND ${table.deletedAt} IS NULL`),
-    index('idx_sessions_deleted_at').on(table.workspaceId, table.deletedAt),
+    // TOMBSTONES ONLY [POD-7034]. Partial, so `deleted_at IS NULL` can never
+    // seek it: ANALYZE counts each NULL as its own value, so a full index read
+    // as four sessions per key and live-session reads walked every live row
+    // through it. The tombstone reads (`deleted_at < ?`, `IS NOT NULL`) imply
+    // the predicate and still seek it.
+    index('idx_sessions_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`${table.deletedAt} IS NOT NULL`),
     // The second half of POD-1858's per-file resolution: segment identity to the
     // session that owns it. Also the join `conversation_segments` has always
     // implied and never had an index for.
@@ -436,11 +467,20 @@ export const sessions = sqliteTable(
     // Sessions by status (POD-6160): the running ones a boot restores, the
     // not-exited ones the concierge digest reports.
     index('idx_sessions_status').on(table.workspaceId, table.status),
+    // The collection fetch (POD-7085): recent sessions by the activity time the
+    // record carries, and sessions with no issue that are not archived.
+    index('idx_sessions_published_active').on(table.workspaceId, table.publishedLastActiveAt),
+    index('idx_sessions_issue_archived').on(table.workspaceId, table.issueId, table.archived),
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
     index('idx_sessions_headless')
       .on(table.workspaceId, table.headless)
       .where(sql`${table.headless} = 1`),
+    // The sessions that wait for the user (POD-7104): what the first download's
+    // "asking" reads. Partial, so it holds the work that asks, never history.
+    index('idx_sessions_asking')
+      .on(table.workspaceId, table.asksUser)
+      .where(sql`${table.asksUser} = 1`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -1009,6 +1049,14 @@ export const conversations = sqliteTable(
     primaryKey({ columns: [table.workspaceId, table.id], name: 'conversations_pk' }),
     index('idx_conversations_project_path').on(table.workspaceId, table.projectPath),
     index('idx_conversations_updated_at').on(table.workspaceId, table.updatedAt),
+    // Recent conversations by their creation time, and their history pages
+    // newest first (POD-7085). The time may be missing: the collection fetch
+    // reads it as the empty text, and this index is on that same expression.
+    index('idx_conversations_created_at').on(
+      table.workspaceId,
+      sql`coalesce(${table.createdAt}, '')`,
+      table.id,
+    ),
     // The recent top-level conversations, one keyset page at a time, newest
     // first, when memory search has no term (POD-6209).
     index('idx_conversations_top_level_updated')
@@ -2278,7 +2326,11 @@ export const issues = sqliteTable(
       columns: [table.workspaceId, table.duplicateOf],
       foreignColumns: [table.workspaceId, table.id],
     }),
-    index('idx_issues_deleted_at').on(table.workspaceId, table.deletedAt),
+    // TOMBSTONES ONLY [POD-7034]: partial, so a live-issue read never walks
+    // every live issue through it (see `idx_sessions_tombstones`).
+    index('idx_issues_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`${table.deletedAt} IS NOT NULL`),
     // COVERS the finished-work projection [POD-1931]. It used to read four
     // narrow columns off EVERY issue; since POD-6155 `closedIssueIdsAmong()`
     // reads them for the asked ids only, and leading with `id` this index
@@ -2301,12 +2353,27 @@ export const issues = sqliteTable(
       table.deletedAt,
     ),
     uniqueIndex('idx_issues_repo_id_seq').on(table.workspaceId, table.repoId, table.seq),
-    index('idx_issues_parent').on(table.workspaceId, table.parentId),
+    // CHILDREN ONLY [POD-7034]: partial, so a top-level read (`parent_id IS
+    // NULL`, most issues) never walks it; a lookup of a parent's children
+    // (`parent_id = ?`, `IN (...)`) implies the predicate and seeks it.
+    index('idx_issues_children')
+      .on(table.workspaceId, table.parentId)
+      .where(sql`${table.parentId} IS NOT NULL`),
     // A bare `#N` reference names every repository's issue N (POD-6158); with
     // the repository path and id after it, the matches come back in the order
     // they are reported without a sort.
     index('idx_issues_seq').on(table.workspaceId, table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.workspaceId, table.repoPath),
+    // The collection fetch (POD-7085): the open stages of the sidebar, and one
+    // stage's page newest first with the id breaking ties, both off one index;
+    // and issues changed in the last N days.
+    index('idx_issues_stage_updated').on(
+      table.workspaceId,
+      table.stage,
+      desc(table.updatedAt),
+      table.id,
+    ),
+    index('idx_issues_updated').on(table.workspaceId, table.updatedAt),
     // WHICH LIVE ISSUE OWNS THIS FOLDER (POD-6148): the lookup that replaces the
     // world index's in-memory folder scan (POD-6140). Only live issues with a
     // worktree are in it; a reader must say `worktree_path = ? AND deleted_at
@@ -3464,6 +3531,20 @@ export const maintenanceCommands = sqliteTable(
       columns: [table.workspaceId, table.jobKind, table.runKey],
       name: 'maintenance_commands_pk',
     }),
+    /**
+     * THE RECEIPT PRUNE'S ORDER (POD-7035). `pruneOldestCommands` deletes the
+     * oldest receipts by `(applied_at, job_kind, run_key)`, and the janitor's
+     * planner finds and counts them by `applied_at`. Without this index each was
+     * a scan of the whole ledger plus a temp B-tree: 216k rows, 627 ms a call, on
+     * every janitor tick. With it the prune reads its batch off the front of the
+     * index and stops.
+     */
+    index('idx_maintenance_commands_applied_at').on(
+      table.workspaceId,
+      table.appliedAt,
+      table.jobKind,
+      table.runKey,
+    ),
   ],
 )
 
@@ -3975,6 +4056,8 @@ export const automationRuns = sqliteTable(
       table.automationId,
       table.firedAt,
     ),
+    // Recent runs by their firing time (POD-7085).
+    index('idx_automation_runs_fired').on(table.workspaceId, table.firedAt, table.id),
     check(
       'automation_runs_check_20',
       sql`outcome IN ('spawned','missed','skipped_overlap','error')`,
@@ -4087,7 +4170,11 @@ export const effects = sqliteTable(
     // The sweep: pending by deadline, running, finished rows by age, tombstones.
     index('idx_effects_status_deadline').on(table.workspaceId, table.status, table.deadlineAt),
     index('idx_effects_status_finished').on(table.workspaceId, table.status, table.finishedAt),
-    index('idx_effects_deleted').on(table.workspaceId, table.deletedAt),
+    // Tombstones only [POD-7034]: partial, so a live-record read never walks
+    // every live record through it (see `idx_sessions_tombstones`).
+    index('idx_effects_tombstones')
+      .on(table.workspaceId, table.deletedAt)
+      .where(sql`${table.deletedAt} IS NOT NULL`),
     // An issue's, a session's or a machine's effects.
     index('idx_effects_target').on(
       table.workspaceId,

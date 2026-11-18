@@ -20,14 +20,18 @@
  */
 
 import type { OwnedSyncSpan, SyncSpan } from '../span'
+import type { StubTableReader } from './stub-table'
 import type {
   BootstrapChunk,
   BootstrapRequired,
+  CachePolicy,
   ChangeEnvelope,
   ChangeProvenance,
   Cursor,
   DeltaFrame,
   EntityRecord,
+  InstanceRecord,
+  InstanceRequest,
   KindTokens,
 } from './types'
 
@@ -64,11 +68,47 @@ export type CacheOperation =
       readonly value: unknown
       readonly revision?: number
       readonly provenance: ChangeProvenance & { readonly seq: number }
+      /** The row is an issue held at stub level only (design POD-7059 "Parts"). */
+      readonly part?: 'stub'
+      /**
+       * The feed number this value is current as of. When set, the operation
+       * applies only if it is NEWER than the row it replaces (`rowAsOf`), the
+       * per-record ordering of fetch against feed; when absent it applies
+       * unconditionally (a trim's downgrade, a test's hand-built batch).
+       */
+      readonly asOf?: number
+      /** Write even over a row current as of the same number (a trim's downgrade keeps `asOf`). */
+      readonly force?: true
     }
   /** Tombstone (`op: 'remove'`) — the entity is gone, globally. */
-  | { readonly kind: 'remove'; readonly entity: string; readonly entityId: string }
+  | {
+      readonly kind: 'remove'
+      readonly entity: string
+      readonly entityId: string
+      readonly asOf?: number
+    }
   /** Visibility exit (`op: 'evict'`) — gone from THIS principal's view only. */
-  | { readonly kind: 'evict'; readonly entity: string; readonly entityId: string }
+  | {
+      readonly kind: 'evict'
+      readonly entity: string
+      readonly entityId: string
+      readonly asOf?: number
+    }
+
+/**
+ * One change to the device's MARKERS (POD-7086), in order, in the same
+ * transaction as the rows they describe: an instance's marker is written
+ * after its records, so a marker never claims a record the store lacks.
+ */
+export type InstanceOperation =
+  /** Write (or replace) the marker of one instance. */
+  | { readonly kind: 'mark'; readonly instance: InstanceRecord }
+  /** Drop the marker of one instance (trimmed, or its holder left). */
+  | { readonly kind: 'drop'; readonly key: string }
+  /** Drop every marker: a feed gap that cannot be bridged, or the rights changed. */
+  | { readonly kind: 'dropAll' }
+  /** Note when a view released the instance; the trim drops the oldest release first. */
+  | { readonly kind: 'release'; readonly key: string; readonly at: number }
 
 /**
  * Why the Replica's frame commit is multi-region at all, and why retirement
@@ -86,35 +126,60 @@ export interface CacheMutation {
   readonly operations: readonly CacheOperation[]
   /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
   readonly cursor?: Cursor
+  /** Shape tokens bound to `cursor`; absent keeps the stored tokens on the same feed. */
+  readonly kindTokens?: KindTokens
+  /** Marker changes, applied after `operations`. */
+  readonly instances?: readonly InstanceOperation[]
+  /** The server's policy for this client (`syncMeta.policy`); null forgets it. */
+  readonly policy?: CachePolicy | null
   /**
-   * Certify sparse personal rows at this batch's cursor (ADR 6 Amendment 1).
-   * Non-null requires an identical `cursor` in this batch. Null clears the claim.
-   * Changing rows/cursor without certification clears it too; an empty batch
-   * with neither field preserves it. There is no independent marker setter.
+   * A load that replaces what the device held is under way at this feed
+   * number (the first download, or a reload after a gap the feed cannot
+   * bridge): rows current only as of an earlier number were not confirmed by
+   * it yet. Null when the load has finished and swept them.
    */
-  readonly personalRowsCompleteAt?: Cursor | null
+  readonly loadingSince?: number | null
 }
 
 export interface SnapshotVersions {
-  /** Omit kinds for a full replacement. */
-  readonly kinds?: ReadonlySet<string>
   readonly kindTokens?: KindTokens
 }
 
 /**
- * The replica CACHE: entities + cursor + personal-row completeness.
+ * The replica CACHE: entities + cursor + collection markers.
  * Everything on this port has a home at the authority and is re-derivable at will.
+ *
+ * Reads are SYNCHRONOUS and from memory (design POD-7059 "Memory, cache and
+ * leaving"): everything on the device is also in memory. A later disk-only
+ * source belongs behind the loader, not on this port.
  */
 export interface ReplicaCacheStore {
   readCursor(): Cursor | null
   readKindTokens(): KindTokens | undefined
+  /** Every stored marker, by instance key (`instanceKey`). */
+  readInstances(): ReadonlyMap<string, InstanceRecord>
+  /** The policy of the last first download; null before one started. */
+  readPolicy(): CachePolicy | null
+  /** The feed number of a load still under way; null when none is. */
+  readLoadingSince(): number | null
   /**
-   * Optional certification after adapter scope-fingerprint validation (Amendment 1 D10).
-   * Consumers still require an exact installed-cursor match; private metadata stays hidden.
+   * Records with their main part. An issue held only as its stub is NOT here,
+   * so a reader written for whole records never sees a row without a title;
+   * stubs are read through {@link readStubs} and {@link readRow}.
    */
-  readPersonalRowsCompleteAt(): Cursor | null
   readEntities(): readonly EntityRecord[]
+  /** A record with its main part; `undefined` for a stub or an absent record. */
   read(entity: string, entityId: string): EntityRecord | undefined
+  /** The one row of a record, whatever its part: a stub or the record. */
+  readRow(entity: string, entityId: string): EntityRecord | undefined
+  /** Every row held only as a stub. */
+  readStubs(): readonly EntityRecord[]
+  /**
+   * The stubs of `entity`, whole records and stubs alike, kept current with
+   * every published write (POD-7115): the one copy of the stubs in memory.
+   * `undefined` for a record type without a stub.
+   */
+  readStubTable(entity: string): StubTableReader | undefined
   /**
    * Open a span over the physical store this port is a view of (D10 clause 1).
    *
@@ -140,11 +205,12 @@ export interface ReplicaCacheStore {
    */
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void
   /**
-   * Atomic install of a bootstrap (ADR 2 D6.4 / Amendment 1 D15.3): swap staging
-   * into place, apply buffered deltas in order, commit the cursor — one
-   * transaction, including personal-row completeness at the final buffered cursor;
-   * no half-installed replica, no window holding a mixture of two
-   * principals' slices.
+   * Atomic replacement of every row (ADR 2 D6.4 / Amendment 1 D15.3): swap
+   * staging into place, apply buffered deltas in order, commit the cursor — one
+   * transaction; no window holding a mixture of two principals' slices. The
+   * markers and policy are dropped with the rows they described. The Replica
+   * installs collections in chunks through `applyAtomic` instead (POD-7086);
+   * this stays the adapter's whole-store primitive.
    *
    * Takes a `span` for the same reason `applyAtomic` does: a bootstrap install that
    * includes buffered frames of my own commands must retire those commands in the
@@ -157,7 +223,7 @@ export interface ReplicaCacheStore {
     span?: SyncSpan,
     versions?: SnapshotVersions,
   ): void
-  /** Discard entities, cursor and personal-row completeness. Cannot reach the outbox. */
+  /** Discard entities, cursor, markers and policy. Cannot reach the outbox. */
   discardCache(): void
   /** ADR 6 D4 — surfaced, never silent. */
   durability(): 'durable' | 'degraded-memory' | 'unavailable'
@@ -211,14 +277,24 @@ export interface AuthorityReadPort {
     cursor: Cursor,
     signal?: AbortSignal,
     onTarget?: (target: Cursor, kindTokens: KindTokens) => void,
-    options?: { readonly to: number; readonly omitKinds: readonly string[] },
   ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /**
    * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
    * Pacing lives on the authority side of this port (D6: "the bootstrap must
    * never own the loop"); the Replica just consumes chunks as they arrive.
    */
-  bootstrap(signal?: AbortSignal, kinds?: readonly string[]): AsyncIterable<BootstrapChunk>
+  bootstrap(signal?: AbortSignal, view?: readonly InstanceRequest[]): AsyncIterable<BootstrapChunk>
+  /**
+   * POD-7085's one fetch route: the named instances, answered as of one feed
+   * number, records and stubs in chunks and a marker per instance. The last
+   * chunk carries `last: true` once the answer is complete. Optional so a
+   * source that serves only the feed still satisfies the port; the Replica
+   * then never resumes or fetches what a record comes with.
+   */
+  collections?(
+    instances: readonly InstanceRequest[],
+    signal?: AbortSignal,
+  ): AsyncIterable<BootstrapChunk>
 }
 
 /**

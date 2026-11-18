@@ -19,7 +19,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -35,9 +35,9 @@ import type { ControlSend } from './gateway/daemon-ports'
 import type { FeedServing } from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import type { PgDriverOptions } from './store/executor/pg-driver'
 import { probeRoundTrips, probeStatements } from './store/executor/statement-probe'
 import { GrantsRepository } from './store/grants'
-import type { PgDriverOptions } from './store/executor/pg-driver'
 import { SessionsRepository } from './store/sessions'
 import { produceBootstrap } from './sync-worker/producer'
 import type { SyncJob } from './sync-worker/types'
@@ -124,6 +124,13 @@ async function world(size: number, delta = false): Promise<World> {
     issues.push(created.id)
     await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/other/w${i}` })
   }
+  await settle(reg)
+  // The registered repository's checkout at every size, written as a
+  // registration change writes it: the host daemon's inventory writes it only
+  // when it runs, which a short setup can finish before. The first download
+  // holds every checkout (POD-7085), so the load must not see one at one size
+  // and none at the other.
+  await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachineId))
   await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
@@ -264,7 +271,12 @@ async function countWorkerTrips(run: () => unknown): Promise<{ result: unknown }
 /** Drain a worker job and return its records. */
 async function records(w: World, job: SyncJob): Promise<{ type: string; changes?: unknown[] }[]> {
   let text = ''
-  for await (const chunk of produceBootstrap(w.store.database.location, job, new AbortController().signal, () => {})) {
+  for await (const chunk of produceBootstrap(
+    w.store.database.location,
+    job,
+    new AbortController().signal,
+    () => {},
+  )) {
     text += new TextDecoder().decode(chunk)
   }
   return text
@@ -387,12 +399,15 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // counted (its daemon answers the attach scan). 64 counted an empty checkout kind only
   // because the unanswered scan wrote that row 10 s later; the row's sharing reads
   // (admin users, checkout paths, grants) are the three, once per page.
+  // POD-7104 answers the asking sessions from an index on a derived column, so
+  // the first download no longer reads offers and checkpoints for it: 80 on dev/mw,
+  // and with POD-7061's three, 83 (merged in POD-7118).
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 67)
+    await expectConstantStatements(bootstrap, 83)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 67, plantPerSessionRead)
+    await expectArmed(bootstrap, 83, plantPerSessionRead)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
@@ -401,21 +416,6 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   it('a bootstrap for the owner: round trips', async () => {
     await expectConstantRoundTrips(bootstrap, 68, (_w, go) => countWorkerTrips(go))
   }, 60_000)
-
-  it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
-    const filtered = pin(
-      'filtered worker bootstrap',
-      (size) => world(size),
-      async (w) => await records(w, job(w, { kinds: ['issueProjection'] })),
-      (result, _w, size) => {
-        const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedBootstrap')
-        expect(rows).toHaveLength(size)
-        expect(rows).toEqual(rows.map(() => expect.objectContaining({ entity: 'issueProjection' })))
-      },
-      true,
-    )
-    await expectConstantStatements(filtered, 5)
-  })
 
   const delta = pin(
     'worker delta',

@@ -49,6 +49,8 @@ export const IssueRelations = observer(function IssueRelations({
   addRelType,
   onAddRelTypeChange,
   onOptionsOpenChange,
+  searchQuery,
+  onSearchQueryChange,
   onNavigate,
 }: {
   issue: IssueViewModel
@@ -59,6 +61,8 @@ export const IssueRelations = observer(function IssueRelations({
   addRelType: StoredIssueDepType
   onAddRelTypeChange: (type: StoredIssueDepType) => void
   onOptionsOpenChange?: (open: boolean) => void
+  searchQuery?: string
+  onSearchQueryChange?: (query: string) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
@@ -132,6 +136,8 @@ export const IssueRelations = observer(function IssueRelations({
           <PropertyMenu
             options={mateOptions}
             onOpenChange={onOptionsOpenChange}
+            query={searchQuery}
+            onQueryChange={onSearchQueryChange}
             placeholder="Add relation…"
             onSelect={(v) => commands.addRelation(addRelType, v)}
             trigger={

@@ -125,6 +125,12 @@ async function startWorld(prefix: string) {
       if (current?.spawnFailure) throw new Error(`spawn refused: ${current.spawnFailure}`)
       return current
     },
+    /** The durable queue's count for the session: the session holds no mirror
+     *  of it (POD-6155). */
+    queued: async (sessionId: string): Promise<number> =>
+      (await srv.registry.sessionStore.sync.queuedMessageCounts(sessionId as never)).get(
+        sessionId as never,
+      ) ?? 0,
     typed: (): string => (existsSync(record) ? readFileSync(record, 'utf8') : ''),
     clearTyped: (): void => writeFileSync(record, ''),
     transcriptTurn: (prompt: string, answer: string): void => {
@@ -144,12 +150,16 @@ async function startWorld(prefix: string) {
 }
 
 /** The durable row that carried `text` was typed, and the server admitted its
- *  delivery outcome — the row only leaves the queue on that admission. */
+ *  delivery outcome — the row only leaves the queue on that admission. What
+ *  proves the delivery is Claude's own history (POD-4819): the prompt recorded
+ *  in its transcript, written here as Claude writes it on submit. The hook only
+ *  lends its prompt id. */
 async function expectTypedAndCleared(world: World, sessionId: string, text: string, what: string) {
   await waitFor(() => world.typed().includes(text), 40_000, what)
+  world.transcriptTurn(text, 'ok')
   await world.postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: text })
   await waitFor(
-    async () => (await world.row(sessionId))?.queuedMessageCount === 0,
+    async () => (await world.queued(sessionId)) === 0,
     20_000,
     'the queued row to clear on the server',
   )
@@ -166,7 +176,7 @@ describe('e2e: a send to an ended claude-code session', () => {
       // One ordinary turn, so the session is idle with a resume ref — the state
       // the tester ended it from.
       const firstText = 'first turn before the end'
-      const first = sessions.receiptSend('now', { sessionId, text: firstText })
+      const first = sessions.receiptSend('now', { writer: sessions.serverWriter, sessionId, text: firstText })
       await waitFor(() => typed().includes(firstText), 20_000, 'first turn typed')
       await postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: firstText })
       world.transcriptTurn(firstText, 'ok')
@@ -192,14 +202,16 @@ describe('e2e: a send to an ended claude-code session', () => {
 
       // ---- the phone send wakes it ------------------------------------------
       const phoneText = 'phone message after the end'
-      const sent = sessions.receiptSend('wake', { sessionId, text: phoneText })
-      // It is held as a durable row first — the count the last step waits to clear.
+      const sent = sessions.receiptSend('wake', { writer: sessions.serverWriter, sessionId, text: phoneText })
+      // It is held as a durable row first — the count the last step waits to
+      // clear. Typing does not clear it: only the transcript's record of the
+      // prompt does (POD-4819), and the resumed CLI may well have been typed
+      // into already, so the row is what this step reads.
       await waitFor(
-        async () => ((await row(sessionId))?.queuedMessageCount ?? 0) > 0 || typed().includes(phoneText),
+        async () => (await world.queued(sessionId)) > 0,
         20_000,
         'the wake send to be queued',
       )
-      expect(typed()).not.toContain(phoneText)
       await waitFor(async () => (await row(sessionId))?.status === 'live', 20_000, 'resumed live')
       // NO hook here, and that is the case under test: Claude Code posts nothing
       // at interactive boot, `--resume` included — its first hook is the
@@ -226,7 +238,7 @@ describe('e2e: a send to an ended claude-code session', () => {
       const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: world.tmp })
       await waitFor(async () => (await row(sessionId))?.status === 'live', 15_000, 'fresh launch live')
       const text = 'first message into a fresh session'
-      const sent = sessions.receiptSend('queue', { sessionId, text })
+      const sent = sessions.receiptSend('queue', { writer: sessions.serverWriter, sessionId, text })
       await expectTypedAndCleared(world, sessionId, text, 'the first message typed into the fresh CLI')
       await sent
     } finally {

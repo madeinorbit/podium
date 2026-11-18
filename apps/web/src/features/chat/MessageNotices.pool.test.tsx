@@ -91,7 +91,7 @@ beforeEach(() => {
       messages: { dismissNotice: { mutate: mock.dismiss } },
       interactions: { answer: { mutate: mock.answer } },
     },
-    openSessionTab: mock.open,
+    navigateToSession: mock.open,
     recoverOutbox: { discard: mock.discard, retry: mock.retry, edit: mock.edit },
   }
   for (const fn of [

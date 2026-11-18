@@ -53,9 +53,21 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
+import {
+  codexEngineHookTrustArgs,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+} from '../../../adapters/codex/instrumentation.js'
 import { codexTranscript } from '../../../adapters/codex/transcript.js'
 import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
+import {
+  agentLaunchTerms,
+  agentTermsFor,
+  type LaunchFolders,
+  launchPosture,
+} from '../../../launch-terms.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import {
   CODEX_VERSION_POLICY,
   gateHarnessVersion,
@@ -146,11 +158,14 @@ export function evaluateCodexVersionProbe(output: string, ok: boolean): CodexPro
  * present. The app-server's current default routes approval requests through
  * server→client JSON-RPC, which is the behaviour this driver consumes; pinning
  * a retired policy both duplicates the harness default and kills every session
- * before that protocol can open.
+ * before that protocol can open. An autonomous session's posture adds only
+ * `approvals_reviewer="auto_review"`, which sends those requests to Codex's
+ * reviewer instead.
  *
- * `sandbox_mode=workspace-write` matches what a Podium session is for — an agent
- * that may edit the worktree it was pointed at — and keeps the network closed
- * unless the MCP mount opens it below.
+ * THE SANDBOX IS THE POSTURE SECTION'S (adapters/codex/posture.ts, POD-6858):
+ * `sandbox_mode="workspace-write"`, loopback open in it in every mode, folder
+ * trust and the approval reviewer are added by the adapter's `engine` terms
+ * when the command is bound, so the engine and the terminal state them once.
  */
 export function codexAppServerConfigArgs(input: {
   /** The session's MCP declaration, forwarded by the driver from `SessionSpec`. */
@@ -179,14 +194,6 @@ export function codexAppServerConfigArgs(input: {
   const mcp = config ? codexMcpArgs(config, 'app-server') : { args: [], env: {} }
   return {
     args: [
-      '-c',
-      'sandbox_mode="workspace-write"',
-      ...(mcp.args.length > 0
-        ? // The terminal launch already does this for the loopback CLI; an MCP
-          // server Podium hosts on loopback is unreachable from a sandbox with
-          // no network, so mounting one without this is mounting nothing.
-          ['-c', 'sandbox_workspace_write.network_access=true']
-        : []),
       ...mcp.args,
       // The terminal adapter's own override, so a session's instructions reach
       // Codex the same way whichever driver runs it (POD-5814).
@@ -197,6 +204,9 @@ export function codexAppServerConfigArgs(input: {
     env: mcp.env,
   }
 }
+
+/** The hook wiring a Codex terminal gets and an engine never may. */
+const ENGINE_HOOK_ENV = [PODIUM_CODEX_HOOK_URL_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV] as const
 
 // ---------------------------------------------------------------------------
 // The host
@@ -276,6 +286,12 @@ export interface CodexEngineHostDeps {
   /** The context a session runs under when a launch has no spec in hand
    *  (adopt, wake): see `CodexRuntimeHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `CodexRuntimeHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
+  /** The session's launch folders (POD-6858): its runtime folder for
+   *  generated config and, for a worktree, the main checkout. */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** How long a SIGTERM stop waits for the rollout's last flush. Shared with
    *  the reap that has to outlast it — the one declaration carries both
    *  numbers, so it arrives as a value rather than living here twice. */
@@ -619,6 +635,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
 
     async launch(input) {
       const verdict = await deps.checkVersion(input.harnessContext.installation)
@@ -647,10 +664,33 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         },
       })
       // argv[0] is the session's pinned installation (POD-6546), never the
-      // adapter's bare command name.
-      const command = harnessCommand(input.harnessContext, {
-        args: [...deps.facts.serverArgs, ...config.args],
+      // adapter's bare command name. The engine runs on the harness's `engine`
+      // terms (POD-6858); what they add to the env is wiring.
+      const terms = agentTermsFor(
+        deps.facts.harnessKind,
+        launchPosture(
+          {
+            posture: input.posture,
+            grants: input.grants,
+            workdir: input.workdir,
+            context: input.harnessContext,
+          },
+          await deps.launchFoldersFor(input.sessionId, input.workdir),
+        ),
+      )
+      // Per-launch trust for Podium's own hooks (POD-7028): the engine decides
+      // hook review for every `resume --remote` client that joins it, and a
+      // client facing untrusted hooks opens "Hooks need review" over its
+      // first message. Read from the home's hooks.json, never written.
+      const hookTrust = await codexEngineHookTrustArgs({
+        hooksRoot: input.harnessContext.roots.hooks ?? input.harnessContext.roots.state,
+        version: input.harnessContext.installation.version,
       })
+      const command = harnessCommand(
+        input.harnessContext,
+        { args: [...deps.facts.serverArgs, ...config.args, ...hookTrust] },
+        agentLaunchTerms(terms.manifest, 'engine', terms.posture),
+      )
 
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
@@ -659,8 +699,14 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
-        harnessEnv: config.env,
+        harnessEnv: { ...config.env, ...command.env },
       })
+      // CHANNEL EXCLUSIVITY (./session.ts): the trust above makes Podium's
+      // handlers run in the engine, where they stay inert only while the hook
+      // env is absent. A daemon started inside a Podium Codex terminal would
+      // otherwise hand its own down, and the engine would report every turn
+      // twice. Removed here and at the spawn boundary.
+      for (const key of ENGINE_HOOK_ENV) delete env[key]
 
       /**
        * THE ENGINE, UNDER THE HOST. The session owner starts `codex app-server`
@@ -683,7 +729,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           listen: { argv: (address) => ['--listen', address] },
           cwd: input.workdir,
           env,
-          stripEnv: deps.facts.stripEnv,
+          stripEnv: [...deps.facts.stripEnv, ...ENGINE_HOOK_ENV],
         })
         clientAddress = started.address
         held = await claimEngine(input.sessionId, label, started.attachment)

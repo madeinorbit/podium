@@ -303,6 +303,7 @@ describe('MobileSearchSections', () => {
   ])
   const pool = () =>
     ({
+      collections: { online: false, available: false },
       queries: {
         localTextIds: (needle: string) =>
           new Set([...titles].filter(([, title]) => title.includes(needle)).map(([id]) => id)),
@@ -370,6 +371,7 @@ describe('MobileSearchSections', () => {
       for (const id of closed) titles.set(id, `closed routine ${id}`)
       const calls = { textPasses: 0, issueRows: 0 }
       const graph = {
+        collections: { online: false, available: false },
         clock: { current: 0, reached: () => {} },
         selection: {
           keys: (): IterableIterator<string> => [][Symbol.iterator](),

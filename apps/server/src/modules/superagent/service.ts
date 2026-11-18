@@ -54,6 +54,7 @@ import type {
 } from '../../store'
 import { selectHarnessAccountId } from '../sessions/harness-account'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
+import { sessionPostureFor } from '../sessions/session-posture'
 import { afterCommitOrNow } from './after-commit'
 import { buildBtwDelta, buildBtwSeed, buildHandoffSeed, transcriptDelta } from './btw'
 import {
@@ -79,7 +80,7 @@ import { SuperagentRefusal } from './refusal'
 import {
   type Args,
   buildSuperagentTools,
-  harnessAllowedTools,
+  legacyHarnessAllowedTools,
   MCP_SERVER_NAME,
   MCP_THREAD_HEADER,
   MCP_TOKEN_HEADER,
@@ -1188,7 +1189,8 @@ export class SuperagentService {
         prompt: text,
         ...(preamble ? { contextPrompt: preamble } : {}),
         systemPrompt,
-        permissionMode: 'auto',
+        // The superagent picks no mode: it runs on the default posture.
+        posture: sessionPostureFor({}),
         timeoutMs: SUPERAGENT_HARNESS_TIMEOUT_MS,
         ...(thread.harnessSessionId ? { resumeValue: thread.harnessSessionId } : {}),
         ...(sessionUuid ? { sessionUuid } : {}),
@@ -1268,6 +1270,9 @@ export class SuperagentService {
         sessionId: pending.podiumSessionId,
         threadId: pending.threadId,
         ...pending.payload,
+        // A row an older server persisted carries `permissionMode: 'auto'`
+        // and no posture: the superagent's 'auto' was always the default.
+        posture: pending.payload.posture ?? sessionPostureFor({}),
         agent: agent.data,
         ...(harnessSupportsMcp(agent.data) && this.mcpEndpoint
           ? await this.harnessMcp(pending.threadId)
@@ -2312,7 +2317,7 @@ export class SuperagentService {
    *  its MCP endpoint yet. */
   private async harnessMcp(
     threadId: ThreadId,
-  ): Promise<{ mcpConfig?: string; allowedTools?: string[] }> {
+  ): Promise<{ mcpConfig?: string; legacyAllowedTools?: string[] }> {
     if (!this.mcpEndpoint) return {}
     return {
       mcpConfig: JSON.stringify({
@@ -2329,7 +2334,8 @@ export class SuperagentService {
           },
         },
       }),
-      allowedTools: harnessAllowedTools(
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+      legacyAllowedTools: legacyHarnessAllowedTools(
         this.mcpEndpoint.allToolNames,
         (await this.mcpToolSpecs()).map((t) => t.name),
       ),

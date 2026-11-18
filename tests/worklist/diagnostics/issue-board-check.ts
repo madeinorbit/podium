@@ -78,8 +78,8 @@ export function boardSnapshot(data: BoardSnapshotData) {
   )
   return {
     active: view.active.map((row) => row.id),
-    assignees: view.assignees,
-    labels: view.labels,
+    // POD-7088: the filter menu reads labels from the server and no screen
+    // reads assignees; the board's own answer is the projects.
     projectPaths: data.projectPaths,
     chips: view.chips,
     layout: view.layout,
@@ -145,7 +145,7 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
     issues: [...models.values()], sessions: [], projectPaths: catalog.projectPaths,
     view: {
       nonArchived: [], scope: [], active: layout.activeIds.map(id => ({ id } as IssueViewModel)),
-      assignees: catalog.assignees, labels: catalog.labels, chips: layout.view.chips, layout: layout.view.layout,
+      assignees: [], labels: [], chips: layout.view.chips, layout: layout.view.layout,
       boardIssues: layout.rootIds.map(id => models.get(id)!), stageCounts, epicProgress: progress,
       orderedByStage: layout.view.orderedByStage.map(column => ({ stage: column.stage, issues: column.ids.map(id => models.get(id)!) })),
       rowGroups, listIds: layout.view.listIds, nav: layout.view.nav, presentIds: layout.view.presentIds,

@@ -36,10 +36,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return rows
     },
     issue(id) {
-      let row = omitGone(pool.row('issue', id, 'summary')) as
-        | SliceIssue
-        | typeof LOADING
-        | undefined
+      let row = omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
       if (
         row &&
         row !== LOADING &&
@@ -67,12 +64,12 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       const token = id.trim()
       const key = parseSessionRef(token) ? pool.queries.sessionReferenceId(token) : id
       // No publication means the reference index cannot establish absence yet.
-      if (!key) return pool.coldIndex().version === 0 ? NAVIGATION_LOADING : undefined
+      if (!key) return pool.deviceIndex().version === 0 ? NAVIGATION_LOADING : undefined
       const row = omitGone(pool.row('session', key))
       return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },
     sessionMembership(id) {
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       return row === LOADING
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
@@ -111,7 +108,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     firstWorktree: () => pool.queries.firstWorktreePath(),
     hasWorktreeSession: (path) => pool.queries.hasSessionWithin(path),
     worktreeSession(id) {
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       return row === LOADING
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>)

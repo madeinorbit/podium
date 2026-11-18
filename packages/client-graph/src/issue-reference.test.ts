@@ -4,9 +4,6 @@ import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
-import { SHELL_SUMMARIES } from './shell-schema'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
 
@@ -23,18 +20,16 @@ function fixture(scale: 1 | 4, resident: boolean) {
     ...Array.from({ length: 128 * scale }, (_, n) => repo(`foreign-repo-${n}`, `F${n}`)),
     ...Array.from({ length: 128 * scale }, (_, n) => issue(`foreign-${n}`, n + 10, { repoId: `foreign-repo-${n}` })),
   ]
-  const source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const load = vi.fn(() => undefined), authority = vi.fn(() => undefined)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
-    cold: () => source, summaries: SHELL_SUMMARIES, worklist: 'demand', load, issueIdByRef: authority, schedule: () => () => {},
+    worklist: 'demand', load, issueIdByRef: authority, schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
   if (resident) runInAction(() => {
     for (const row of rows) if (row.kind === 'issue') pool.tables.issue.set(row.id, row.value as never)
   })
   return { pool, load, authority,
-    publish(event: RowSourceEvent) { source.apply(event); pool.apply(event) },
+    publish(event: RowSourceEvent) { pool.apply(event) },
   }
 }
 
@@ -68,7 +63,7 @@ it('keeps facade creation, first chip and named updates flat with cold and resid
         expect(view.getSnapshot()).toMatchObject({ issueId: 'target', ref: 'POD-1', availability: 'archived' })
         stop = view.subscribe(paint)
       })
-      expect(row.mock.calls).toEqual([['issue', 'target', 'summary-fields'], ['repo', 'target-repo']])
+      expect(row.mock.calls).toEqual([['issue', 'target'], ['repo', 'target-repo']])
       const repeat = await measure('reference repeat chip', () => { expect(view.getSnapshot()).toMatchObject({ title: 'target' }) })
       const unrelated = await measure('reference unrelated issue', () => f.publish({ type: 'update', rows: [issue('foreign-0', 10, { repoId: 'foreign-repo-0', title: 'Renamed' })] }))
       expect(paint).not.toHaveBeenCalled()

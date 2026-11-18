@@ -14,6 +14,8 @@ function capture(name: string): string[] {
 }
 
 const TRUST_SCREEN = capture('trust-prompt.txt')
+/** The same prompt as codex-cli 0.167 draws it: new question, new accept row. */
+const TRUST_SCREEN_0_167 = capture('trust-prompt-0.167.txt')
 const USAGE_LIMIT_SCREEN = capture('usage-limit.txt')
 const LIMIT_RESET = 'Sep 24th, 2026 8:42 PM'
 
@@ -37,6 +39,29 @@ describe('Codex terminal screen classifier (POD-4650)', () => {
     ])
   })
 
+  it('reports the 0.167 wording of the trust prompt the same way', () => {
+    const observation = classifyCodexScreen(TRUST_SCREEN_0_167)
+
+    expect(observation.interactionVisible).toBe(true)
+    expect(observation.events).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'question',
+        summary: CODEX_TRUST_SUMMARY,
+        source: 'classifier',
+        confidence: 0.3,
+      },
+    ])
+  })
+
+  it('does not report a transcript that quotes the 0.167 trust wording', () => {
+    const observation = classifyCodexScreen([
+      '• Codex asked "Trust this folder?" and I picked 1. Trust and continue',
+    ])
+    expect(observation.interactionVisible).toBe(false)
+    expect(observation.events).toEqual([])
+  })
+
   it('reports the usage-limit model-switch menu as a blocking question WITH its text and options', () => {
     const observation = classifyCodexScreen(USAGE_LIMIT_SCREEN)
 
@@ -54,9 +79,17 @@ describe('Codex terminal screen classifier (POD-4650)', () => {
     // choices must reach Chat, on web and phone — not just the summary.
     // The question carries the reset time Codex printed, so the card says
     // what is waiting without opening the terminal.
-    const interview = (event as { interview?: { questions?: Array<{ question?: string; options?: Array<{ label?: string }> }> } }).interview
+    const interview = (
+      event as {
+        interview?: {
+          questions?: Array<{ question?: string; options?: Array<{ label?: string }> }>
+        }
+      }
+    ).interview
     expect(interview?.questions).toHaveLength(1)
-    expect(interview?.questions?.[0]?.question).toContain('Switch to gpt-5.6-luna for lower credit usage?')
+    expect(interview?.questions?.[0]?.question).toContain(
+      'Switch to gpt-5.6-luna for lower credit usage?',
+    )
     expect(interview?.questions?.[0]?.question).toContain(LIMIT_RESET)
     expect(interview?.questions?.[0]?.options?.map((o) => o.label)).toEqual([
       'Switch to gpt-5.6-luna',

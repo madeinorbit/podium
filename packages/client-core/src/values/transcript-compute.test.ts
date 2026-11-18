@@ -129,20 +129,23 @@ describe('computeTranscript', () => {
 describe('computeTranscript: mail the agent sent', () => {
   const send = `podium issue mail send POD-2128 --body 'Ready for review'`
   const shapes: Array<[string, Partial<TranscriptItem>]> = [
-    // Claude Bash keeps the full command as a shell-command payload.
+    // Adapter-normalized input retains the full command independently of its preview.
     [
       'Claude Bash',
       {
         toolName: 'Bash',
         toolInput: send,
-        toolInputJson: JSON.stringify({ kind: 'shell-command', command: send }),
+        toolExecution: {
+          kind: 'commands',
+          inputs: [{ kind: 'command', toolName: 'Bash', text: send, capture: 'complete' }],
+        },
       },
     ],
     // A Codex exec wrapping one exec_command renders as that call.
     ['Codex single call', { toolName: 'Bash', toolInput: send }],
   ]
   for (const [name, call] of shapes) {
-    it(`a ${name} send leaves the work run as its own row`, () => {
+    it(`a ${name} send remains visible in its quiet stretch`, () => {
       const { rows } = computeTranscript({
         items: [
           item({ id: 'r', role: 'tool', toolName: 'Read', toolInput: 'a.ts', toolUseId: 'r' }),
@@ -164,7 +167,7 @@ describe('computeTranscript: mail the agent sent', () => {
       // The row's presentation rides on the block as plain data, so it
       // survives the worker's structured clone.
       const [row] = structuredClone(rows)
-      expect(row?.kind === 'block' && row.block.mail).toEqual({
+      expect(row?.kind === 'tools' && row.blocks.find((block) => block.mail)?.mail).toEqual({
         op: 'note',
         to: 'issue:POD-2128',
         id: 'msg_1',
@@ -181,13 +184,15 @@ describe('computeTranscript: mail the agent sent', () => {
           role: 'tool',
           toolName: 'Script',
           toolTitle: '2 commands',
-          toolInputJson: JSON.stringify({
-            kind: 'script-calls',
-            calls: [
-              { tool: 'Bash', input: 'git status' },
-              { tool: 'Bash', input: send },
-            ],
-          }),
+          toolExecution: {
+            kind: 'commands',
+            inputs: ['git status', send].map((text) => ({
+              kind: 'command',
+              toolName: 'Bash',
+              text,
+              capture: 'complete',
+            })),
+          },
           toolUseId: 'x',
         }),
         item({
@@ -217,13 +222,15 @@ describe('computeTranscript: mail the agent sent', () => {
         id: 'x',
         role: 'tool',
         toolName: 'Script',
-        toolInputJson: JSON.stringify({
-          kind: 'script-calls',
-          calls: [
-            { tool: 'Bash', input: send },
-            { tool: 'Bash', input: again },
-          ],
-        }),
+        toolExecution: {
+          kind: 'commands',
+          inputs: [send, again].map((text) => ({
+            kind: 'command',
+            toolName: 'Bash',
+            text,
+            capture: 'complete',
+          })),
+        },
       }),
       result: 'Script completed\nOutput:\nmail DELIVERED to POD-2128 (msg_2) — confirmed',
     })
@@ -249,7 +256,7 @@ describe('computeTranscript: mail the agent sent', () => {
       cursor: 0,
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0]?.kind === 'block' && rows[0].block.mail).toBeUndefined()
+    expect(rows[0]?.kind === 'tools' ? rows[0].blocks[0]?.mail : 'wrong row kind').toBeUndefined()
   })
 
   it('an echo of a send is an ordinary command', () => {

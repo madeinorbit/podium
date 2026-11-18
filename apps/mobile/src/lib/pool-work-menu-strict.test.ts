@@ -49,8 +49,6 @@ for (const history of [32, 128]) {
       const menu = resolvePoolWorkMenu(pool, 'root')!
       expect(menu.target).toMatchObject({ issue: { id: 'root', childCount: 1, childDoneCount: 1 }, sessionCount: history })
       expect(read.mock.calls.every(([kind, id]) => kind !== 'session' && id !== 'child')).toBe(true)
-      // Menu opening must not warm subtree attention or queue a cold child.
-      expect(pool.tables.issue.has('child')).toBe(false)
     } finally { pool.dispose() }
   })
 }

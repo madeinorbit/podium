@@ -11,6 +11,8 @@ import {
   commandIssueReference,
   commandIssueSearchRef,
 } from '@podium/client-graph/command-launch-views'
+import { issueSearch } from '@podium/client-graph/issue-search'
+import { here } from '@podium/client-graph/lookup'
 import { IssueModel } from '@podium/client-graph/models'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
@@ -99,63 +101,13 @@ import {
   rightPanelAllowed,
 } from './shell-state'
 import type { IssueViewModel, MainView } from './store'
+import { useWorklistPool } from './store-worklist-pool'
 
 type PaletteIssue = Pick<
   IssueViewModel,
   'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'parentId'
 > &
   Partial<Pick<IssueViewModel, 'archived' | 'deletedAt' | 'isDraftVessel'>>
-
-const SEARCH_DEBOUNCE_MS = 150
-const SEARCH_MIN_QUERY_LEN = 2
-
-/**
- * Debounced, race-guarded issue search over `trpc.issues.searchNormalized` — merged into
- * the local task results once the query is ≥2 chars. Failures degrade silently
- * to local-only.
- *
- * `pending` is the palette's one licensed piece of perpetual motion: the field
- * runs the braille spinner while — and only while — a search is genuinely in
- * flight, which is the same predicate the agent-state grammar gates on.
- */
-function useIssueSearch(
-  query: string,
-  enabled: boolean,
-): { hits: PaletteIssue[]; pending: boolean } {
-  const { trpc } = useCommandLaunchActions()
-  const [hits, setHits] = useState<PaletteIssue[]>([])
-  const [pending, setPending] = useState(false)
-  const seq = useRef(0)
-  useEffect(() => {
-    const text = query.trim()
-    const mySeq = ++seq.current
-    if (!enabled || text.length < SEARCH_MIN_QUERY_LEN) {
-      setPending(false)
-      setHits((h) => (h.length === 0 ? h : []))
-      return
-    }
-    const t = setTimeout(() => {
-      setPending(true)
-      trpc.issues.searchNormalized
-        .query({ text })
-        .then((rows) => {
-          if (seq.current === mySeq) {
-            setHits(rows)
-            setPending(false)
-          }
-        })
-        .catch(() => {
-          // Silent degrade: local task results still render.
-          if (seq.current === mySeq) {
-            setPending(false)
-            setHits((h) => (h.length === 0 ? h : []))
-          }
-        })
-    }, SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-  }, [trpc, query, enabled])
-  return { hits, pending }
-}
 
 /**
  * App-wide Cmd/Ctrl+K command palette. Mounted once at shell level; the store's
@@ -349,7 +301,14 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   // The user's persisted default agent — same source the sidebar button reads.
   const agentSetting = useMyCodingHarness()
 
-  const { hits: serverIssueHits, pending: searching } = useIssueSearch(query, true)
+  const pool = useWorklistPool()
+  const search = pool ? issueSearch(pool).read(query, []) : undefined
+  const searching = search?.pending ?? false
+  const serverIssueHits =
+    search?.serverIds.flatMap((id) => {
+      const issue = pool && here(pool.model('issue', id))
+      return issue ? [issue as unknown as PaletteIssue] : []
+    }) ?? []
   const resting = isResting(query)
 
   // Spawn targets for "New agent": the currently selected worktree AND the
@@ -473,18 +432,23 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     }
 
     // ── Tasks (local replica + server search hits, deduped) ───────────────
-    const localIds = new Set<string>()
-    for (const i of issues) {
-      localIds.add(i.id)
-      out.push(issueCommand(i, 'task'))
-    }
-    for (const i of serverIssueHits) {
-      const local = localIds.has(i.id) ? issues.find((issue) => issue.id === i.id) : undefined
-      const candidate = issueCommand(i, 'task')
-      out.push({
-        ...candidate,
-        eligible: () => !local || Boolean(local.archived || local.deletedAt || local.isDraftVessel),
-      })
+    const serverIds = new Set(serverIssueHits.map((issue) => issue.id))
+    const taskIssues = new Map([...issues, ...serverIssueHits].map((issue) => [issue.id, issue]))
+    for (const issue of taskIssues.values()) {
+      const candidate = issueCommand(issue, 'task')
+      out.push(
+        serverIds.has(issue.id)
+          ? {
+              ...candidate,
+              // Server search reaches archived tasks outside the local catalog.
+              eligible: () => !issue.deletedAt && !issue.isDraftVessel,
+              search: () => ({
+                ...candidate.search(),
+                keywords: [...(candidate.search().keywords ?? []), query],
+              }),
+            }
+          : candidate,
+      )
     }
 
     // ── Agents ────────────────────────────────────────────────────────────

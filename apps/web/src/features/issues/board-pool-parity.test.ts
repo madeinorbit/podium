@@ -13,7 +13,6 @@ import {
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,
-  ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
@@ -80,7 +79,7 @@ it('matches legacy columns, values, nested positions, facets, progress on the no
     ui: { get: () => null, subscribe: () => () => {} },
   })
   // This frozen-value fixture only reads server truth; it owns no mutations.
-  const handle = createReadOnlyRuntimePool(runtime as never, ISSUE_BOARD_SUMMARIES)
+  const handle = createReadOnlyRuntimePool(runtime as never)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )

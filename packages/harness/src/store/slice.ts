@@ -633,7 +633,13 @@ function estimateSliceBytes(items: TranscriptItem[]): number {
       (it.text?.length ?? 0) +
       (it.toolResult?.length ?? 0) +
       (it.toolInput?.length ?? 0) +
-      (it.toolInputJson?.length ?? 0)
+      (it.toolInputJson?.length ?? 0) +
+      (it.toolExecution?.output?.note?.length ?? 0) +
+      (it.toolExecution?.inputs?.reduce(
+        (sum, input) =>
+          sum + input.text.length + (input.description?.length ?? 0) + input.toolName.length,
+        0,
+      ) ?? 0)
   }
   return bytes
 }

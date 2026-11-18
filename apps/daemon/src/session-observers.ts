@@ -1413,6 +1413,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
           onContextUsage: (percent, at) =>
             send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
+          // The mode the harness reports it is in (POD-6858 Task 11).
+          onMode: (mode, at) =>
+            send({
+              type: 'agentMode',
+              sessionId,
+              mode,
+              source: 'transcript',
+              ...(at ? { at } : {}),
+            }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,

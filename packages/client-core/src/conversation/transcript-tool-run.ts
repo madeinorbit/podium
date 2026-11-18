@@ -12,6 +12,7 @@ import {
   toolSubject,
   toolVerdict,
 } from '../values/chat'
+import { toolExecutionSections } from '../values/tool-execution'
 
 class Category {
   readonly ids = observable.array<string>([], { deep: false })
@@ -29,6 +30,8 @@ interface Membership {
   subject: string | undefined
   count: number
   call: boolean
+  execution: boolean
+  batch: string | undefined
 }
 
 /** The run owns category/subject membership; collapsed readers demand a title. */
@@ -41,6 +44,14 @@ export class TranscriptActivityRun {
   @observable private accessor failedCount = 0
   private readonly durations = new Map<string, number>()
   @observable accessor durationMs = 0
+  @observable accessor executionCount = 0
+  private readonly batches = observable.map<string, number>(undefined, { deep: false })
+  @lazy get batchCount(): number {
+    return this.batches.size
+  }
+  @lazy({ equals: compareShallow }) get executionSections() {
+    return toolExecutionSections(this.blocks)
+  }
   /** Each call's harness summary (POD-6258), when its harness wrote one. */
   private readonly summaries = observable.map<string, NonNullable<ChatBlock['harnessSummary']>>(
     undefined,
@@ -110,7 +121,7 @@ export class TranscriptActivityRun {
   }
   /** Count-only face for the folded row; see `toolBatchTitles`. */
   @lazy get summary(): string {
-    return toolBatchTitleFromClauses(this.summaryClauses)
+    return toolBatchTitleFromClauses(this.summaryClauses, true)
   }
   elapsed(now?: number): number | undefined {
     const first = this.firstBlock,
@@ -119,11 +130,15 @@ export class TranscriptActivityRun {
   }
 
   @action update(id: string, block: ChatBlock): void {
-    const duration = block.item.durationMs ?? 0
+    const duration = block.item.toolExecution?.durationMs ?? block.item.durationMs ?? 0
     this.durationMs += duration - (this.durations.get(id) ?? 0)
     this.durations.set(id, duration)
     const failure =
-      toolVerdict(block.result ?? block.item.toolResult, block.item.toolEffects) === 'err'
+      toolVerdict(
+        block.result ?? block.item.toolResult,
+        block.item.toolEffects,
+        block.item.toolExecution,
+      ) === 'err'
     const failed = this.failed.has(id)
     if (failure !== failed) {
       if (failure) this.failed.add(id)
@@ -142,6 +157,15 @@ export class TranscriptActivityRun {
     const count = toolActivityCount(block.item)
     const previous = this.entries.get(id)
     const call = block.item.role === 'tool'
+    const execution = block.execution !== undefined
+    this.executionCount += Number(execution) - Number(previous?.execution ?? false)
+    const batch = block.item.toolBatch
+      ? `${block.item.toolBatch.kind}:${block.item.toolBatch.id}`
+      : undefined
+    if (batch !== previous?.batch) {
+      if (previous?.batch) this.changeBatch(previous.batch, -1)
+      if (batch) this.changeBatch(batch, 1)
+    }
     if (call !== (previous?.call ?? false)) {
       const at = this.insertion(this.calls, id)
       if (call) this.calls.splice(at, 0, id)
@@ -151,7 +175,9 @@ export class TranscriptActivityRun {
       previous?.category === key &&
       previous.subject === subject &&
       previous.count === count &&
-      previous.call === call
+      previous.call === call &&
+      previous.execution === execution &&
+      previous.batch === batch
     )
       return
     if (previous) this.removeMembership(id, previous)
@@ -173,7 +199,7 @@ export class TranscriptActivityRun {
           members.splice(this.insertion(members, id), 0, id)
         })
     })
-    this.entries.set(id, { category: key, subject, count, call })
+    this.entries.set(id, { category: key, subject, count, call, execution, batch })
   }
 
   @action remove(id: string): void {
@@ -182,12 +208,20 @@ export class TranscriptActivityRun {
     this.durations.delete(id)
     const previous = this.entries.get(id)
     if (previous) this.removeMembership(id, previous)
+    if (previous?.execution) this.executionCount--
+    if (previous?.batch) this.changeBatch(previous.batch, -1)
     if (previous?.call) {
       const at = this.insertion(this.calls, id)
       if (this.calls[at] === id) this.calls.splice(at, 1)
     }
     this.entries.delete(id)
     if (this.failed.delete(id)) this.failedCount--
+  }
+
+  private changeBatch(key: string, delta: number): void {
+    const count = (this.batches.get(key) ?? 0) + delta
+    if (count > 0) this.batches.set(key, count)
+    else this.batches.delete(key)
   }
 
   private *clauses(named = true): Generator<ToolTitleClause> {

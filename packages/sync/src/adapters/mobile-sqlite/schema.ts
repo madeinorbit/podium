@@ -11,7 +11,7 @@
  * This is that shape:
  *
  *   `entities`        PK (principal, entity, entity_id)   one row per cached entity
- *   `meta`            PK (principal, key)                 cursor and optional completeness
+ *   `meta`            PK (principal, key)                 cursor, markers, policy, load state
  *   `outbox`          PK (principal, mutation_id)         the user's unsent writes
  *   `schema_version`  singleton row                       D5.1's adapter-local version
  *
@@ -58,7 +58,7 @@ export const REPLICA_DB_NAME = 'podium-replica.db'
  * in `open()` is where its migration goes, and the D6 posture stays as the fallback
  * for anything the migration cannot carry.
  */
-export const REPLICA_SCHEMA_VERSION = 1
+export const REPLICA_SCHEMA_VERSION = 2
 
 export const ENTITY_TABLE = 'entities'
 export const META_TABLE = 'meta'
@@ -73,10 +73,12 @@ export const ALL_TABLES: readonly string[] = [
   SCHEMA_VERSION_TABLE,
 ]
 
-/** Metadata keys are namespaced per principal by the compound key. */
-export const CURSOR_KEY = 'cursor'
-/** Additive key: existing version-1 caches need no schema migration. */
-export const PERSONAL_ROWS_COMPLETE_AT_KEY = 'personal-rows-complete-at'
+/**
+ * Metadata keys are namespaced per principal by the compound key. The cursor,
+ * the markers (one row per instance), the policy and the load state are
+ * spelled once for every adapter in `replica/cache-state.ts`.
+ */
+export { CURSOR_META_KEY as CURSOR_KEY } from '../../replica/cache-state'
 
 /** A cached entity row, as it is stored. */
 export interface StoredEntity {
@@ -86,6 +88,10 @@ export interface StoredEntity {
   readonly value: unknown
   readonly revision?: number
   readonly provenance?: unknown
+  /** `'stub'` for an issue held at stub level only; absent for a whole record. */
+  readonly part?: 'stub'
+  /** The feed number the row is current as of; absent means its provenance seq. */
+  readonly asOf?: number
 }
 
 /**
@@ -130,6 +136,10 @@ export function applySchema(db: SqlDatabaseLike): void {
       -- the in-package typecheck caught here and which no test in this directory
       -- could see. revision stays nullable because it genuinely is optional.
       provenance TEXT NOT NULL,
+      -- Version 2 (POD-7086): 'stub' for an issue held at stub level only, and
+      -- the feed number the row is current as of (null: its provenance seq).
+      part TEXT,
+      as_of INTEGER,
       PRIMARY KEY (principal, entity, entity_id)
     );
     CREATE TABLE IF NOT EXISTS ${META_TABLE} (
@@ -150,6 +160,25 @@ export function applySchema(db: SqlDatabaseLike): void {
       version INTEGER NOT NULL
     );
   `)
+  db.prepare(
+    `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
+     ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,
+  ).run(REPLICA_SCHEMA_VERSION)
+}
+
+/**
+ * Bring an older layout forward in place, inside the open handshake. Version 1
+ * had no row part and no per-row feed number; both columns are added empty, so
+ * every existing row reads as a whole record current as of its provenance seq,
+ * and the outbox is untouched.
+ */
+export function migrateSchema(db: SqlDatabaseLike, from: number): void {
+  if (from < 2) {
+    db.exec(`
+      ALTER TABLE ${ENTITY_TABLE} ADD COLUMN part TEXT;
+      ALTER TABLE ${ENTITY_TABLE} ADD COLUMN as_of INTEGER;
+    `)
+  }
   db.prepare(
     `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
      ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,

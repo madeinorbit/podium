@@ -4,11 +4,11 @@ import { firstAdminMemberId, type SessionMeta } from '@podium/model'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import { sessionViews } from '../../../../packages/client-core/src/session-values'
 import type { SessionRegistry } from '../relay'
-import { workerSnapshot } from './bootstrap-snapshot'
+import { worldSnapshot } from './bootstrap-snapshot'
 
 export async function clientSessionViews(registry: SessionRegistry, rows?: SessionMeta[]) {
   const userId = await firstAdminMemberId(registry.sessionStore)
-  const snapshot = await workerSnapshot(
+  const snapshot = await worldSnapshot(
     registry,
     {
       kind: 'user',

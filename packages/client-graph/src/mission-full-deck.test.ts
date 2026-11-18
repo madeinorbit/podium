@@ -5,7 +5,6 @@ import type { FullDeck } from './mission-full-deck'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { settled } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MobxPool, type PoolLazyOptions } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { LOADING, unitsBelowPartOf } from './worklist/rollup'
@@ -641,54 +640,6 @@ describe('dependencies', () => {
   })
 })
 
-describe('loading', () => {
-  it('stays unready while a cold row loads, then settles', async () => {
-    const fixture = mission()
-    const input = new Map<string, object>([
-      ...fixture.issues.map((row) => [`issue:${row['id'] as string}`, row] as const),
-      ...fixture.sessions.map((row) => [`session:${row['sessionId'] as string}`, row] as const),
-    ])
-    const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_VIEW_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pools.push(pool)
-    attachMissionTestPreferences(pool)
-    // Closed rows arrive as declared summaries only, as a long mission's history does.
-    pool.apply({
-      type: 'replace',
-      rows: [
-        ...fixture.issues.map((value) => ({
-          kind: 'issue' as const,
-          id: value['id'] as string,
-          value: value as never,
-        })),
-        ...fixture.sessions.map((value) => ({
-          kind: 'session' as const,
-          id: value['sessionId'] as string,
-          value: value as never,
-        })),
-      ],
-    })
-    const screen = new MissionScreen(pool, 'root')
-    screens.push(screen)
-    const full = screen.full
-    expect(tracked(() => full.ready)).toBe(false)
-    let rounds = 0
-    while (!tracked(() => full.ready) && rounds++ < 10) pool.hydrate()
-    expect(tracked(() => full.ready)).toBe(true)
-    expect(tracked(() => full.counts)).toEqual({
-      all: 10,
-      'needs-you': 2,
-      active: 3,
-      'up-next': 5,
-      done: 2,
-    })
-  })
-})
-
 describe('legacy modes', () => {
   /** What Waterfall, Timeline and the phone read from the same opening. */
   const legacy = (screen: MissionScreen) =>
@@ -917,14 +868,14 @@ it('keeps shared launch defaults while Full uses only each member’s private ro
         }),
       ],
     },
-    { load: aliceLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} },
+    { load: aliceLoad, schedule: () => () => {} },
   )
   const bob = await open(
     {
       issues: [shared],
       sessions: [session('bob-run', 'root', 'working', { ownerUserId: 'mem-bob' })],
     },
-    { load: bobLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} },
+    { load: bobLoad, schedule: () => () => {} },
   )
 
   for (const member of [alice, bob]) {

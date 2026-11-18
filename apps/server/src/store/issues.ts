@@ -1,6 +1,7 @@
 // workspace-scoped (POD-6959)
 import type { WriteScope } from '@podium/sync'
 import { CommittedRows } from './committed-rows'
+import { throughIndex } from './index-hints'
 /**
  * Issues aggregate — owns the `issues` table and its child tables:
  * `issue_labels`, `issue_deps`, `issue_comments` and `issue_messages`
@@ -754,10 +755,14 @@ const labelsOf = prepared((db, t) =>
 )
 
 /** The issues carrying these labels (POD-6920: a label's rename reaches them). */
+// Through `idx_issue_labels_label_id` by name on SQLite (POD-7034): from 16
+// labels the statistics (a label's issues averaged over the labels in use) price
+// the seeks above a walk of every issue's labels.
 const issuesOfLabels = preparedFamily((db, t, size: number) =>
   db
-    .selectDistinct({ issueId: t.issueLabels.issueId })
-    .from(t.issueLabels)
+    // Selected by name: drizzle refuses a table column over a raw FROM.
+    .selectDistinct({ issueId: sql<string>`${sql.identifier('issue_id')}` })
+    .from(throughIndex(db, t.issueLabels, 'idx_issue_labels_label_id'))
     .where(inWorkspace(t.issueLabels, inListOf(t.issueLabels.labelId, size, 'ids')))
     .prepare(),
 )

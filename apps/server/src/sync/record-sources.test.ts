@@ -27,16 +27,25 @@ import {
   asThreadId,
   firstAdminMemberId,
   type IssueId,
+  primeFirstAdminMember,
+  RECORDS,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
+import type { SyncRepository } from '@podium/sync'
+import {
+  collectRecords,
+  type RecordBuilder,
+  RecordBuilderRegistry,
+} from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableColumns, getTableName, is, sql } from 'drizzle-orm'
 import { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import * as schema from '../migrations/schema'
+import { effectPublication } from '../modules/effects/published-input'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import type { DriverSession } from '../store/executor/driver'
@@ -49,14 +58,18 @@ import { testStoreEngine } from '../test-support/pg-test-database'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
-import { installChangeCapture } from './capture-triggers'
+import frozen from './__fixtures__/one-row-oracles.json'
+import { captureTriggerStatements, installChangeCapture } from './capture-triggers'
+import { readKindTokens } from './kind-tokens'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
 import {
   RECORD_SOURCES,
   type RecordSources,
+  type SourceChange,
   sourceTableName,
   touchedRecords,
 } from './record-sources'
+import { ROW_RECORDS } from './row-records'
 
 // ---------------------------------------------------------------------------
 // The corpus
@@ -234,6 +247,16 @@ async function buildCorpus(): Promise<Corpus> {
   // own connect scan, which no device receives and the log never carries.
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
   await seedRows(store, async () => {
+    await db.run(sql`INSERT INTO automation_runs (id, on_behalf_of, automation_id, fired_at, session_id, outcome, detail)
+      SELECT 'run-row-1', ${owner}, id, ${AT}, ${sessionId}, 'spawned', NULL FROM automations LIMIT 1`)
+    await db.run(sql`INSERT INTO workflow_revisions (id, workflow_id, version, instructions, steps_json, created_by_kind, created_at)
+      VALUES ('rev-row-1', 'wf-6920', 1, 'Review', '[{"id":"review","title":"Review"}]', 'operator', ${AT})`)
+    await db.run(sql`INSERT INTO workflow_bindings (target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
+      VALUES ('global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
+    await db.run(sql`INSERT INTO checkouts (machine_id, path, root, kind, branch, updated_at)
+      VALUES (${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
+    await db.run(sql`INSERT INTO subscriptions (id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
+      VALUES ('sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, 1, 0, 'custom', 1, ${AT})`)
     for (const [id, createdBy] of [
       ['eff_person_scan', owner],
       ['eff_system_scan', null],
@@ -506,6 +529,149 @@ describe('record sources (POD-6920)', () => {
   }, 60_000)
   afterAll(async () => {
     await corpus?.store.close()
+  })
+
+  describe('one-row generation (POD-7091)', () => {
+    const after = serverRecordBuilders()
+    const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
+    const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+    let replay: Corpus
+
+    beforeAll(async () => {
+      const store = await openTestStore(':memory:')
+      // openTestStore primes the ambient admin; the outer live corpus still
+      // belongs to its original store. These row readers need no principal.
+      primeFirstAdminMember(await firstAdminMemberId(corpus.store))
+      try {
+        const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+        const tables = Object.entries(frozen.tables) as [
+          string,
+          Record<string, string | number | null>[],
+        ][]
+        await seedRows(store, async () => {
+          // The captured inputs are in parent-first order. Deferral also
+          // allows self-referencing rows to be replayed in their stored order.
+          await db.run(sql`PRAGMA defer_foreign_keys = ON`)
+          for (const [table] of [...tables].reverse())
+            await db.run(sql`DELETE FROM ${sql.identifier(table)}`)
+          for (const [table, rows] of tables) {
+            for (const row of rows) {
+              const columns = Object.entries(row)
+              await db.run(
+                sql`INSERT INTO ${sql.identifier(table)} (${sql.join(
+                  columns.map(([name]) => sql.identifier(name)),
+                  sql`, `,
+                )}) VALUES (${sql.join(
+                  columns.map(([, value]) => sql`${value}`),
+                  sql`, `,
+                )})`,
+              )
+            }
+          }
+        })
+        expect(await db.all(sql`PRAGMA foreign_key_check`)).toEqual([])
+        replay = {
+          store,
+          reads: {
+            store,
+            effectExecutors: effectPublication(frozen.effectKinds),
+            now: () => frozen.now,
+          },
+        }
+      } catch (error) {
+        await store.close()
+        throw error
+      }
+    })
+    afterAll(async () => {
+      await replay?.store.close()
+    })
+
+    it('generates every row declaration and keeps genuinely joined kinds explicit', () => {
+      const rowKinds = RECORDS.filter((record) => record.builderShape === 'row').map(
+        (record) => record.kind,
+      )
+      expect(Object.keys(ROW_RECORDS).sort()).toEqual([...rowKinds].sort())
+      expect([...kinds].sort()).toEqual([...rowKinds].sort())
+      for (const binding of Object.values(ROW_RECORDS)) {
+        expect(after.get(binding.declaration.kind)).toBe(binding.builder)
+        expect(RECORD_SOURCES[binding.declaration.kind]).toBe(binding.sources)
+      }
+      for (const kind of [
+        'workflow',
+        'issuePanelTodo',
+        'issuePanelArtifact',
+        'issuePanelDeferred',
+        'issuePanelState',
+      ] as const)
+        expect(after.get(kind).shape, kind).toBe('row-and-reads')
+    })
+
+    it('produces byte-equal builds and streams for every converted kind on SQLite', async () => {
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
+        expect(
+          JSON.parse(expected.streamBytes).length,
+          `${kind}: frozen records must be nonempty`,
+        ).toBeGreaterThan(0)
+        expect(
+          bytes(await collectRecords(after.streamAll(replay.reads, kind))),
+          `${kind}: stream`,
+        ).toBe(expected.streamBytes)
+        expect(bytes(await after.build(replay.reads, kind, expected.ids)), `${kind}: build`).toBe(
+          expected.buildBytes,
+        )
+        expect(bytes(await after.build(replay.reads, kind, [])), `${kind}: no ids`).toBe(
+          expected.emptyBytes,
+        )
+        expect(
+          bytes(await after.build(replay.reads, kind, ['no-such-record'])),
+          `${kind}: missing`,
+        ).toBe(expected.missingBytes)
+      }
+    })
+
+    it('the byte comparison fails for a wrong generated answer', async () => {
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
+        const original = after.get(kind)
+        const wrong: RecordBuilder<RecordReads> = {
+          ...original,
+          build: async (reads, ids) =>
+            (await original.build(reads, ids)).map((row) => ({
+              ...row,
+              value: { ...(row.value as object), wrong: true },
+            })),
+        }
+        const mutated = new RecordBuilderRegistry([wrong])
+        const wrongBytes = bytes(await mutated.build(replay.reads, kind, expected.ids))
+        expect(() => expect(wrongBytes, kind).toBe(expected.buildBytes), kind).toThrow()
+      }
+    })
+
+    it('keeps every generated capture trigger textually equal to before', () => {
+      expect(captureTriggerStatements()).toEqual(frozen.triggers)
+    })
+
+    it('keeps captured record identities for inserts, moves and deletes', async () => {
+      for (const kind of kinds) {
+        const source = ROW_RECORDS[kind].sources[0]
+        if (!source) throw new Error(`${kind}: missing capture source`)
+        const expected = frozen.captures[kind]
+        expect(
+          [...(await source.ids(expected.changes as SourceChange[], replay.reads))],
+          kind,
+        ).toEqual(expected.ids)
+      }
+    })
+
+    it('keeps all shape tokens unchanged', async () => {
+      const sync = { readKindGenerations: async () => frozen.generations } as Pick<
+        SyncRepository,
+        'readKindGenerations'
+      > as SyncRepository
+      expect(await readKindTokens(sync, frozen.effectKinds)).toEqual(frozen.tokens)
+    })
   })
 
   it('declares every kind the server builds, with at least one source', () => {

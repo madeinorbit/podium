@@ -42,46 +42,28 @@
 import {
   asMachineId,
   canonicalShippingDestination,
-  checkoutRowId,
   FEED_EVENT_KINDS,
-  INSTANCE_PREFERENCES_ROW_ID,
   ISSUE_PANEL_KINDS,
   type IssueId,
   interactionRowId,
   isFeedEventKind,
-  issueDepId,
   issueEventRowId,
-  issueUserStateRowId,
-  layoutRowId,
-  type MachineId,
   machineAccessRowId,
   messageRecordRowId,
-  pinRowId,
-  readPositionRowId,
   type SessionId,
   sessionUserStateRowId,
   shipLaneId,
-  subscriptionRowId,
-  superagentThreadRowId,
-  tabOrderRowId,
   type UserId,
   userPreferencesRowId,
-  workflowBindingRowId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { CapturedRow } from '@podium/sync'
 import { type Column, getTableColumns, getTableName, type Table } from 'drizzle-orm'
 import {
-  agentProfiles,
-  automationRuns,
-  automations,
-  checkouts,
   conversationSegments,
   conversations,
   deliveryReceipts,
-  effects,
   grants,
-  issueDeps,
   issueGitStates,
   issueLabels,
   issuePanelArtifacts,
@@ -89,14 +71,12 @@ import {
   issuePanelStates,
   issuePanelTodos,
   issues,
-  issueUserState,
   labels,
   machines,
   messages,
   meta,
   offers,
   pendingInteractions,
-  pins,
   podiumEvents,
   queuedMessages,
   repoPrefixes,
@@ -110,25 +90,20 @@ import {
   shipOrderStackEdges,
   shipOrders,
   snoozes,
-  subscriptions,
-  superagentThreads,
-  tabOrder,
-  userLayout,
   userPreferences,
-  userReadPosition,
   users,
-  workflowBindings,
   workflowRevisions,
   workflowRunSteps,
   workflowRuns,
   workflows,
-  workspaceMeta,
 } from '../migrations/schema'
-import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
+
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/runtime-event-kind'
 import type { RecordReads } from './record-builders'
+import { ROW_RECORDS } from './row-records'
+import { source, WORKSPACE_COLUMN } from './workspace-capture'
 
 // ---------------------------------------------------------------------------
 // The declaration
@@ -214,65 +189,6 @@ const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)]
 /** The first key column of every captured key, once each. */
 function firstKeys(changes: readonly SourceChange[]): string[] {
   return unique(keysOf(changes).flatMap((key) => (key[0] == null ? [] : [str(key[0])])))
-}
-
-/** The column every workspace table carries (POD-7012). */
-const WORKSPACE_COLUMN = 'workspace_id'
-
-/** The `workspace_id` column of a workspace table; undefined for an install table. */
-function workspaceColumnOf(table: Table): Column | undefined {
-  const column = (getTableColumns(table) as Record<string, Column | undefined>).workspaceId
-  return column?.name === WORKSPACE_COLUMN ? column : undefined
-}
-
-/**
- * The declared keys of a source on `table`: its `workspace_id` first on a
- * workspace table, so the capture carries the row's workspace (contract C9).
- */
-function capturedKeys(table: Table, keys: readonly Column[]): readonly Column[] {
-  const workspace = workspaceColumnOf(table)
-  return workspace === undefined ? keys : [workspace, ...keys]
-}
-
-/**
- * These changes with the workspace taken off each key: what a mapping reads.
- *
- * An update that moves a row to another workspace leaves one workspace's reads
- * and enters the other's, so it reaches the mapping as a delete of the old key
- * and an insert of the new one. Without the workspace the two keys look alike,
- * and a mapping that compares them (the issue-event window) would see no move.
- */
-function withoutWorkspace(changes: readonly SourceChange[]): SourceChange[] {
-  return changes.flatMap((change): SourceChange[] => {
-    const old = change.old === null ? null : change.old.slice(1)
-    const now = change.new === null ? null : change.new.slice(1)
-    if (change.old !== null && change.new !== null && change.old[0] !== change.new[0]) {
-      return [
-        { op: 'd', old, new: null },
-        { op: 'i', old: null, new: now },
-      ]
-    }
-    return [{ op: change.op, old, new: now }]
-  })
-}
-
-/**
- * A source's declaration with its keys led by the workspace, and its mapping
- * handed the keys it names (`keys`, in order) without it.
- */
-function source(
-  table: Table,
-  keys: readonly Column[],
-  ids: RecordSource['ids'],
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'ops' | 'pg'>>,
-): RecordSource {
-  const scoped = workspaceColumnOf(table) !== undefined
-  return {
-    table,
-    keys: capturedKeys(table, keys),
-    ...more,
-    ids: scoped ? (changes, reads) => ids(withoutWorkspace(changes), reads) : ids,
-  }
 }
 
 /** A table whose row IS the record: the record id is a function of the key. */
@@ -685,11 +601,32 @@ const MACHINE_LOGGED_OUT_PG = `CASE WHEN json_typeof({row}.${machines.inventoryJ
 const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
 
 /**
- * An effect the server started for no one stays off the feed (`effectOnFeed`,
- * POD-6941): the connect scan's records reach no device, so their four moves
- * a scan are not captured. `created_by` and `kind` never change on a row.
+ * WHAT A SESSION RECORD READS OF ITS OBSERVATION CHECKPOINT
+ * (`applyObservationCheckpointTo`): the turn state, and whether the checkpoint
+ * names a provider thread (which binds the conversation). Its `providerAt`
+ * moves only the record's activity time, which the record does not carry (it
+ * carries the published one). Every accepted observation refresh rewrites the
+ * checkpoint with new cursors and times and the same turn state; capturing the
+ * whole text rebuilt the session's record, a read of every satellite, once per
+ * daemon frame, and in a burst of frames that was hundreds of single-session
+ * builds that changed nothing (POD-6970). An unreadable checkpoint reads as
+ * none on the record, and as NULL here.
  */
-const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${effects.kind.name} NOT IN (${SYSTEM_EFFECT_KINDS_OFF_FEED.map((kind) => `'${kind}'`).join(', ')}))`
+const CHECKPOINT_JSON = `{row}.${sessionObservationCheckpoints.checkpointJson.name}`
+const CHECKPOINT_ON_RECORD: readonly string[] = [
+  `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.turnState') END`,
+  `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.providerSessionId') IS NOT NULL END`,
+]
+/**
+ * {@link CHECKPOINT_ON_RECORD} on Postgres, where `checkpoint_json` is `json`,
+ * always valid. The turn state comes off through `jsonb`, so it compares
+ * semantically (as the machine documents do); a JSON `null` thread id reads as
+ * none, as `json_extract` reads it on SQLite.
+ */
+const CHECKPOINT_ON_RECORD_PG: readonly string[] = [
+  `CASE WHEN json_typeof(${CHECKPOINT_JSON}) = 'object' THEN (${CHECKPOINT_JSON}::jsonb -> 'turnState')::text END`,
+  `CASE WHEN json_typeof(${CHECKPOINT_JSON}) = 'object' THEN coalesce(json_typeof(${CHECKPOINT_JSON} -> 'providerSessionId'), 'null') <> 'null' END`,
+]
 
 /**
  * A row of a session's satellite table can change only the record of a
@@ -886,36 +823,12 @@ export const RECORD_SOURCES: RecordSources = {
   // An empty brief or description is no record (`issueBriefOf`,
   // `issueDescriptionOf`): a row whose body is empty before and after the
   // write (every new issue without one) reaches none.
-  issueBrief: [
-    byId(issues, issues.id, {
-      reads: [issues.brief],
-      rows: `coalesce({row}.${issues.brief.name}, '') <> ''`,
-    }),
-  ],
-  issueDescription: [
-    byId(issues, issues.id, {
-      reads: [issues.description],
-      rows: `coalesce({row}.${issues.description.name}, '') <> ''`,
-    }),
-  ],
+  issueBrief: ROW_RECORDS.issueBrief.sources,
+  issueDescription: ROW_RECORDS.issueDescription.sources,
   ...panelSources,
-  issueDep: [
-    own(issueDeps, [issueDeps.fromId, issueDeps.toId, issueDeps.type], (key) =>
-      issueDepId(str(key[0]), str(key[1]), str(key[2])),
-    ),
-  ],
-  issueUserState: [
-    own(issueUserState, [issueUserState.userId, issueUserState.issueId], (key) =>
-      issueUserStateRowId(key[0] as UserId, key[1] as IssueId),
-    ),
-  ],
-  subscription: [
-    own(
-      subscriptions,
-      [subscriptions.subscriberKind, subscriptions.subscriberId, subscriptions.id],
-      (key) => subscriptionRowId(key[0] as never, str(key[1]), str(key[2])),
-    ),
-  ],
+  issueDep: ROW_RECORDS.issueDep.sources,
+  issueUserState: ROW_RECORDS.issueUserState.sources,
+  subscription: ROW_RECORDS.subscription.sources,
   shipOrder: [
     byId(shipOrders, shipOrders.id),
     own(shipHolds, [shipHolds.orderId], (key) => str(key[0])),
@@ -935,39 +848,12 @@ export const RECORD_SOURCES: RecordSources = {
   ],
   // A run before its automation: a fire's commit finalizes the run, then
   // re-arms the automation, and one commit's rows come out in this order.
-  automationRun: [
-    byId(automationRuns, automationRuns.id, { rows: notTombstoned(automationRuns.deletedAt) }),
-  ],
-  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
-  userLayout: [
-    own(
-      userLayout,
-      [userLayout.userId, userLayout.key],
-      (key) => layoutRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userLayout.updatedAt] } },
-    ),
-  ],
-  userReadPosition: [
-    own(
-      userReadPosition,
-      [userReadPosition.userId, userReadPosition.streamId],
-      (key) => readPositionRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userReadPosition.updatedAt] } },
-    ),
-  ],
-  pin: [
-    own(pins, [pins.userId, pins.kind, pins.id], (key) =>
-      pinRowId(key[0] as UserId, key[1] as never, str(key[2])),
-    ),
-  ],
-  tabOrder: [
-    own(
-      tabOrder,
-      [tabOrder.userId, tabOrder.worktree],
-      (key) => tabOrderRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [tabOrder.updatedAt] } },
-    ),
-  ],
+  automationRun: ROW_RECORDS.automationRun.sources,
+  automation: ROW_RECORDS.automation.sources,
+  userLayout: ROW_RECORDS.userLayout.sources,
+  userReadPosition: ROW_RECORDS.userReadPosition.sources,
+  pin: ROW_RECORDS.pin.sources,
+  tabOrder: ROW_RECORDS.tabOrder.sources,
   // One record per person, folding all of the person's leaves.
   userPreferences: [
     own(userPreferences, [userPreferences.userId], (key) => userPreferencesRowId(key[0] as UserId)),
@@ -995,27 +881,8 @@ export const RECORD_SOURCES: RecordSources = {
         await reads.store.sessions.sessionUserStateIdsOf({ sessionIds: firstKeys(changes) }),
     ),
   ],
-  superagentThread: [
-    // Never on the record: the watermarks, the harness's own session id (the
-    // record says only whether there is one) and the terminal lock.
-    own(
-      superagentThreads,
-      [superagentThreads.ownerUserId, superagentThreads.id],
-      (key) => superagentThreadRowId(key[0] as UserId, str(key[1])),
-      {
-        reads: {
-          allBut: [
-            superagentThreads.watermarkItemId,
-            superagentThreads.watermarkTs,
-            superagentThreads.harnessSessionId,
-            superagentThreads.terminalSessionId,
-          ],
-        },
-        derived: [`{row}.${superagentThreads.harnessSessionId.name} IS NOT NULL`],
-      },
-    ),
-  ],
-  agentProfile: [byId(agentProfiles, agentProfiles.id)],
+  superagentThread: ROW_RECORDS.superagentThread.sources,
+  agentProfile: ROW_RECORDS.agentProfile.sources,
   workflow: [
     byId(workflows, workflows.id),
     // The workflow's record reads its revisions (its latest one).
@@ -1023,12 +890,8 @@ export const RECORD_SOURCES: RecordSources = {
       key[0] == null ? null : str(key[0]),
     ),
   ],
-  workflowRevision: [byId(workflowRevisions, workflowRevisions.id)],
-  workflowBinding: [
-    own(workflowBindings, [workflowBindings.targetKind, workflowBindings.targetId], (key) =>
-      workflowBindingRowId(key[0] as never, str(key[1])),
-    ),
-  ],
+  workflowRevision: ROW_RECORDS.workflowRevision.sources,
+  workflowBinding: ROW_RECORDS.workflowBinding.sources,
   workflowRun: [
     byId(workflowRuns, workflowRuns.id),
     own(workflowRunSteps, [workflowRunSteps.runId], (key) => str(key[0])),
@@ -1039,23 +902,9 @@ export const RECORD_SOURCES: RecordSources = {
       async (changes, reads) => await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
     ),
   ],
-  // The settings blob is a workspace key: it moved from `meta` to `workspace_meta`
-  // with the meta split (POD-7013), and the fleet keys above stayed in `meta`.
-  instancePreferences: [
-    own(workspaceMeta, [workspaceMeta.key], () => INSTANCE_PREFERENCES_ROW_ID, {
-      rows: `{row}.${workspaceMeta.key.name} = 'settings'`,
-    }),
-  ],
-  effect: [
-    byId(effects, effects.id, {
-      rows: `${notTombstoned(effects.deletedAt)} AND ${EFFECT_ON_FEED}`,
-    }),
-  ],
-  checkout: [
-    own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
-      checkoutRowId(key[0] as MachineId, str(key[1])),
-    ),
-  ],
+  instancePreferences: ROW_RECORDS.instancePreferences.sources,
+  effect: ROW_RECORDS.effect.sources,
+  checkout: ROW_RECORDS.checkout.sources,
   issueEvent: [
     via(
       podiumEvents,
@@ -1102,9 +951,12 @@ export const RECORD_SOURCES: RecordSources = {
     // Not the activity and terminal counters and times, the unpublished
     // activity time or the terminal size: the record carries the published
     // activity time, and these are live topics, not record fields (POD-6764).
+    // Nor `asks_user`, which the record does not carry: its triggers derive it
+    // from the agent state, the offer and the checkpoints (POD-7104).
     byId(sessions, sessions.id, {
       reads: {
         allBut: [
+          sessions.asksUser,
           sessions.lastActiveAt,
           sessions.lastActivePublishAfter,
           sessions.terminalCols,
@@ -1133,17 +985,18 @@ export const RECORD_SOURCES: RecordSources = {
       rows: ofLiveSession(sessionDrafts.sessionId),
     }),
     // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
-    // opened or fenced with no checkpoint changes nothing.
+    // opened or fenced with no checkpoint changes nothing. Of the checkpoint
+    // it reads what `CHECKPOINT_ON_RECORD` names, not the cursors and times
+    // every accepted refresh moves.
     own(
       sessionObservationCheckpoints,
       [sessionObservationCheckpoints.sessionId],
       (key) => str(key[0]),
       {
-        reads: [
-          sessionObservationCheckpoints.checkpointJson,
-          sessionObservationCheckpoints.provider,
-        ],
+        reads: [sessionObservationCheckpoints.provider],
+        derived: CHECKPOINT_ON_RECORD,
         rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL AND ${ofLiveSession(sessionObservationCheckpoints.sessionId)}`,
+        pg: { derived: CHECKPOINT_ON_RECORD_PG },
       },
     ),
     own(runtimeEventCheckpoints, [runtimeEventCheckpoints.sessionId], (key) => str(key[0]), {

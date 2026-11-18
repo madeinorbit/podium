@@ -28,7 +28,6 @@ import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
-  SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
@@ -268,7 +267,6 @@ beforeEach(() => {
   // legacy consumer in a proxy without changing the current UI owner.
   paneUiSnapshot = state
   f.pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
-    summaries: SESSION_PANE_SUMMARIES,
     load: (entity, id) =>
       (entity === 'session'
         ? sessions.find((row) => row.sessionId === id)

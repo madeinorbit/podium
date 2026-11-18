@@ -44,6 +44,14 @@ describe('per-harness runtime readers', () => {
     expect(observed).toEqual({ model: 'claude-opus-4-8', effort: 'medium' })
   })
 
+  it('reads the mode Claude reports it is in from its permission-mode record (POD-6858)', () => {
+    expect(
+      claudeRuntime({ type: 'permission-mode', permissionMode: 'default', sessionId: 'abc' }),
+    ).toEqual({ mode: 'default' })
+    expect(claudeRuntime({ type: 'permission-mode', permissionMode: '' })).toEqual({})
+    expect(claudeRuntime({ type: 'user', permissionMode: 'auto' })).toEqual({})
+  })
+
   it('reads the Grok model id from the prompt chunk in updates.jsonl', () => {
     const line = (update: object) => ({ method: 'session/update', params: { update } })
     expect(

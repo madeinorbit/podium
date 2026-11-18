@@ -19,7 +19,16 @@
  */
 
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
-import type { HostMetricsWire } from '@podium/model'
+import {
+  type HostMetricsWire,
+  type LiveTopicOf,
+  type LiveValueOf,
+  livePartsOf,
+  RECORDS,
+  type RecordDeclaration,
+  type RecordLiveTopicKind,
+  type RecordLiveTopicOf,
+} from '@podium/model'
 import type {
   AccountQuotaPayload,
   AccountUsagePayload,
@@ -28,7 +37,7 @@ import type {
   SessionConditionPayload,
   SessionTerminalStatePayload,
 } from '@podium/protocol'
-import { action, observable, observableRef, runInAction } from 'mobx'
+import { action, type ObservableMap, observable, observableRef, runInAction } from 'mobx'
 import type { OutboxDeadLetterEntry } from '../outbox'
 
 /** A condition's reading (ADR 7 Amendment 2 D20). */
@@ -84,43 +93,122 @@ export type SessionCondition = SessionConditionPayload
 /** Who controls one session's terminal, its size and its exit. */
 export type SessionTerminalState = SessionTerminalStatePayload
 /** The session topics the store holds, each only while a reader watches it. */
-export type SessionLiveTopicKind = 'session.terminalState' | 'session.condition'
+export type SessionLiveTopicKind = RecordLiveTopicOf<'session'>
 
 /** What a live reading's topic kind names (the subset the LiveStore holds). */
-export type LiveTopicKind =
-  | 'machine.condition'
-  | 'machine.metrics'
-  | 'account.quota'
-  | 'account.usage'
-  | SessionLiveTopicKind
+export type LiveTopicKind = RecordLiveTopicKind | 'account.quota' | 'account.usage'
 
 export interface LiveStoreOptions {
   readonly now?: () => number
-  /**
-   * Demand for a machine's metrics: called when a reader starts watching
-   * `metricsOf(id)` and when the last one stops. The live feed holds the
-   * `machine.metrics` topic only in between, so a daemon samples only while
-   * somebody looks (ADR 7 Amendment 2 D21).
-   */
-  readonly onMetricsDemand?: (machineId: string, watched: boolean) => void
-  /**
-   * Demand for this account's token usage: a reader started or stopped
-   * watching {@link LiveStore.usage}. The live feed holds `account.usage`
-   * only in between, so the server harvests transcripts only then.
-   */
+  /** First/last watcher of any declared record live part. An imperative read adds no demand. */
+  readonly onRecordDemand?: (kind: RecordLiveTopicKind, id: string, watched: boolean) => void
+  /** Demand for this account's usage remains separate: it belongs to no record. */
   readonly onUsageDemand?: (watched: boolean) => void
-  /**
-   * Demand for one session's live readings (POD-6764): a reader started or
-   * stopped watching {@link LiveStore.sessionConditionOf} or
-   * {@link LiveStore.sessionTerminalStateOf}. The live feed holds that
-   * session's topic only in between, so the keys a connection holds follow
-   * what is on screen, not how many sessions exist.
-   */
-  readonly onSessionDemand?: (
-    kind: SessionLiveTopicKind,
-    sessionId: string,
-    watched: boolean,
-  ) => void
+}
+
+/** Keep a previous value when a fresh subscribe's pending reading carries none. */
+const carry = <T>(held: Reading<T> | undefined, next: Reading<T>): Reading<T> =>
+  !next.known && next.last === undefined && lastValue(held) !== undefined
+    ? unknownReading(next.since, lastValue(held))
+    : next
+
+/**
+ * One map and one demand atom family per declared live part. Adding a part or
+ * a payload field changes only the declaration, never this storage machinery.
+ * No value here enters the durable replica.
+ */
+export class RecordLiveStore<const R extends readonly RecordDeclaration[]> {
+  private readonly parts = new Map<
+    string,
+    {
+      readonly readings: ObservableMap<string, Reading<unknown>>
+      readonly demand: ReturnType<typeof createDemandAtoms<string>>
+    }
+  >()
+  protected disposed = false
+
+  constructor(records: R, onDemand?: (kind: LiveTopicOf<R>, id: string, watched: boolean) => void) {
+    for (const { topic } of livePartsOf(records)) {
+      this.parts.set(topic, {
+        readings: observable.map<string, Reading<unknown>>(
+          {},
+          { deep: false, name: `LiveStore.${topic}` },
+        ),
+        demand: createDemandAtoms<string>((id) => `LiveStore.${topic}:${id}`, {
+          onObserved: (id) => {
+            if (!this.disposed) onDemand?.(topic, id, true)
+          },
+          onUnobserved: (id) => {
+            if (!this.disposed) onDemand?.(topic, id, false)
+          },
+        }),
+      })
+    }
+  }
+
+  /** The map itself adds no demand; lifetime holders and indexes may inspect it. */
+  readingsOf<K extends LiveTopicOf<R>>(kind: K): ObservableMap<string, Reading<LiveValueOf<R, K>>> {
+    const part = this.parts.get(kind)
+    if (!part) throw new Error(`undeclared live topic ${kind}`)
+    return part.readings as ObservableMap<string, Reading<LiveValueOf<R, K>>>
+  }
+
+  /** A tracked read holds this topic until the last watcher leaves. */
+  recordReading<K extends LiveTopicOf<R>>(
+    kind: K,
+    id: string,
+  ): Reading<LiveValueOf<R, K>> | undefined {
+    if (this.disposed) return undefined
+    this.parts.get(kind)?.demand.observe(id)
+    return this.readingsOf(kind).get(id)
+  }
+
+  watchedRecords(): ReadonlyArray<{ readonly kind: LiveTopicOf<R>; readonly id: string }> {
+    return [...this.parts].flatMap(([kind, part]) =>
+      [...part.demand.keys()].map((id) => ({ kind: kind as LiveTopicOf<R>, id })),
+    )
+  }
+
+  watchedIds(kind: LiveTopicOf<R>): readonly string[] {
+    return [...(this.parts.get(kind)?.demand.keys() ?? [])]
+  }
+
+  /** The feed's generic dispatch. Unknown kinds belong to non-record readings. */
+  @action protected applyRecordTopic(
+    kind: string,
+    id: string,
+    reading: Reading<unknown> | undefined,
+  ): boolean {
+    const part = this.parts.get(kind)
+    if (!part) return false
+    if (!this.disposed) {
+      if (reading) part.readings.set(id, carry(part.readings.get(id), reading))
+      else part.readings.delete(id)
+    }
+    return true
+  }
+
+  @action applyTopic<K extends LiveTopicOf<R>>(
+    kind: K,
+    id: string,
+    reading: Reading<LiveValueOf<R, K>> | undefined,
+  ): void {
+    this.applyRecordTopic(kind, id, reading)
+  }
+
+  /** Sign-out: clear demand without reporting releases to a service already stopped. */
+  @action dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    for (const part of this.parts.values()) {
+      part.demand.clear()
+      part.readings.clear()
+    }
+  }
+
+  get isDisposed(): boolean {
+    return this.disposed
+  }
 }
 
 const NOT_BORN_CONNECTION: ConnectionCondition = Object.freeze({ state: 'connecting', since: 0 })
@@ -128,43 +216,32 @@ const NOT_BORN_READING: Reading<never> = Object.freeze({ known: false, since: 0 
 
 const EMPTY_OUTBOX: OutboxCondition = Object.freeze({ pending: 0, deadLetters: Object.freeze([]) })
 
-export class LiveStore {
+export class LiveStore extends RecordLiveStore<typeof RECORDS> {
   // Placeholders until the constructor stamps the runtime's birth time.
   @observableRef accessor connection: ConnectionCondition = NOT_BORN_CONNECTION
   @observableRef accessor quota: Reading<AccountQuotaPayload> = NOT_BORN_READING
   /** Read through {@link usage}, which is what asks for it. */
   @observableRef private accessor usageReading: Reading<AccountUsagePayload> = NOT_BORN_READING
   @observableRef accessor outbox: OutboxCondition = EMPTY_OUTBOX
-  /** Machine online and since when, held for every machine for the app's lifetime. */
-  readonly machineConditions = observable.map<string, Reading<MachineCondition>>(
-    {},
-    { deep: false, name: 'LiveStore.machineConditions' },
-  )
-  /** Host metrics, held only for machines somebody is watching. */
-  readonly machineMetrics = observable.map<string, Reading<HostMetricsWire>>(
-    {},
-    { deep: false, name: 'LiveStore.machineMetrics' },
-  )
-
-  /** Busy, gated requests, last input and context use, for sessions somebody watches. */
-  readonly sessionConditions = observable.map<string, Reading<SessionCondition>>(
-    {},
-    { deep: false, name: 'LiveStore.sessionConditions' },
-  )
-  /** Terminal controller, size and exit, for sessions somebody watches. */
-  readonly sessionTerminalStates = observable.map<string, Reading<SessionTerminalState>>(
-    {},
-    { deep: false, name: 'LiveStore.sessionTerminalStates' },
-  )
+  // Named model-facing readers share the declared maps; these allocate no storage.
+  get machineConditions() {
+    return this.readingsOf('machine.condition')
+  }
+  get machineMetrics() {
+    return this.readingsOf('machine.metrics')
+  }
+  get sessionConditions() {
+    return this.readingsOf('session.condition')
+  }
+  get sessionTerminalStates() {
+    return this.readingsOf('session.terminalState')
+  }
 
   private readonly now: () => number
-  private readonly metricsDemand
   private readonly usageDemand
-  private readonly sessionConditionDemand
-  private readonly sessionTerminalDemand
-  private disposed = false
 
   constructor(options: LiveStoreOptions = {}) {
+    super(RECORDS, options.onRecordDemand)
     this.now = options.now ?? Date.now
     const born = this.now()
     // The first readings: unknown from the moment the runtime is born.
@@ -173,25 +250,6 @@ export class LiveStore {
       this.quota = unknownReading(born)
       this.usageReading = unknownReading(born)
     })
-    this.metricsDemand = createDemandAtoms<string>((id) => `LiveStore.metrics:${id}`, {
-      onObserved: (id) => {
-        if (!this.disposed) options.onMetricsDemand?.(id, true)
-      },
-      onUnobserved: (id) => {
-        if (!this.disposed) options.onMetricsDemand?.(id, false)
-      },
-    })
-    const sessionDemand = (kind: SessionLiveTopicKind) =>
-      createDemandAtoms<string>((id) => `LiveStore.${kind}:${id}`, {
-        onObserved: (id) => {
-          if (!this.disposed) options.onSessionDemand?.(kind, id, true)
-        },
-        onUnobserved: (id) => {
-          if (!this.disposed) options.onSessionDemand?.(kind, id, false)
-        },
-      })
-    this.sessionConditionDemand = sessionDemand('session.condition')
-    this.sessionTerminalDemand = sessionDemand('session.terminalState')
     this.usageDemand = createDemandAtoms<'usage'>(() => 'LiveStore.usage', {
       onObserved: () => {
         if (!this.disposed) options.onUsageDemand?.(true)
@@ -226,8 +284,7 @@ export class LiveStore {
    * last watcher goes. An untracked read (a handler) neither holds nor releases.
    */
   metricsOf(machineId: string): Reading<HostMetricsWire> | undefined {
-    this.metricsDemand.observe(machineId)
-    return this.machineMetrics.get(machineId)
+    return this.recordReading('machine.metrics', machineId)
   }
 
   /**
@@ -238,8 +295,7 @@ export class LiveStore {
    * from its stored row.
    */
   sessionConditionOf(sessionId: string): Reading<SessionCondition> | undefined {
-    this.sessionConditionDemand.observe(sessionId)
-    return this.sessionConditions.get(sessionId)
+    return this.recordReading('session.condition', sessionId)
   }
 
   /**
@@ -248,18 +304,12 @@ export class LiveStore {
    * known while the session's daemon is offline.
    */
   sessionTerminalStateOf(sessionId: string): Reading<SessionTerminalState> | undefined {
-    this.sessionTerminalDemand.observe(sessionId)
-    return this.sessionTerminalStates.get(sessionId)
+    return this.recordReading('session.terminalState', sessionId)
   }
 
   /** The sessions somebody is watching a live reading of (the live feed's demand). */
   watchedSessions(kind: SessionLiveTopicKind): readonly string[] {
-    return [
-      ...(kind === 'session.condition'
-        ? this.sessionConditionDemand
-        : this.sessionTerminalDemand
-      ).keys(),
-    ]
+    return this.watchedIds(kind)
   }
 
   /**
@@ -278,7 +328,7 @@ export class LiveStore {
 
   /** The machines somebody is watching the metrics of (the live feed's demand). */
   get watchedMetrics(): readonly string[] {
-    return [...this.metricsDemand.keys()]
+    return this.watchedIds('machine.metrics')
   }
 
   /** "Used up until": the latest reset among windows at 100%, per agent of each machine. */
@@ -303,42 +353,14 @@ export class LiveStore {
   // ---------------------------------------------------------------------------
 
   /** One topic reading (the live feed, once per frame). Undefined forgets the key. */
-  @action applyTopic(kind: LiveTopicKind, id: string, reading: Reading<unknown> | undefined): void {
+  @action override applyTopic(
+    kind: LiveTopicKind,
+    id: string,
+    reading: Reading<unknown> | undefined,
+  ): void {
     if (this.disposed) return
-    // An unknown reading without its own last value (a fresh subscribe's
-    // `pending`) keeps the one already held, for "last seen".
-    const carry = <T>(held: Reading<T> | undefined, next: Reading<T>): Reading<T> =>
-      !next.known && next.last === undefined && lastValue(held) !== undefined
-        ? unknownReading(next.since, lastValue(held))
-        : next
+    if (this.applyRecordTopic(kind, id, reading)) return
     switch (kind) {
-      case 'machine.condition': {
-        const held = this.machineConditions.get(id)
-        if (reading)
-          this.machineConditions.set(id, carry(held, reading as Reading<MachineCondition>))
-        else this.machineConditions.delete(id)
-        return
-      }
-      case 'machine.metrics': {
-        const held = this.machineMetrics.get(id)
-        if (reading) this.machineMetrics.set(id, carry(held, reading as Reading<HostMetricsWire>))
-        else this.machineMetrics.delete(id)
-        return
-      }
-      case 'session.condition': {
-        const held = this.sessionConditions.get(id)
-        if (reading)
-          this.sessionConditions.set(id, carry(held, reading as Reading<SessionCondition>))
-        else this.sessionConditions.delete(id)
-        return
-      }
-      case 'session.terminalState': {
-        const held = this.sessionTerminalStates.get(id)
-        if (reading)
-          this.sessionTerminalStates.set(id, carry(held, reading as Reading<SessionTerminalState>))
-        else this.sessionTerminalStates.delete(id)
-        return
-      }
       case 'account.quota':
         this.quota = carry(
           this.quota,
@@ -366,23 +388,12 @@ export class LiveStore {
   }
 
   /** Sign-out: forget every reading and stop reporting demand. */
-  @action dispose(): void {
+  @action override dispose(): void {
     if (this.disposed) return
-    this.disposed = true
-    this.metricsDemand.clear()
+    super.dispose()
     this.usageDemand.clear()
-    this.sessionConditionDemand.clear()
-    this.sessionTerminalDemand.clear()
-    this.machineConditions.clear()
-    this.machineMetrics.clear()
-    this.sessionConditions.clear()
-    this.sessionTerminalStates.clear()
     this.quota = unknownReading(this.now())
     this.usageReading = unknownReading(this.now())
     this.outbox = EMPTY_OUTBOX
-  }
-
-  get isDisposed(): boolean {
-    return this.disposed
   }
 }

@@ -30,6 +30,7 @@ import type {
   IssueArchiveRow,
   JanitorReads,
   MachineRow,
+  QueuedExpiryRow,
   SessionArchiveRow,
   WorktreeGcRow,
 } from '@podium/janitor'
@@ -197,15 +198,39 @@ const explicitExpiryAfter = prepared((db, t) =>
 // ---------------------------------------------------------------------------
 // Event-log retention: the row-count cap and the prunable head.
 
-/** The id `maxRows` rows below the newest: everything at or below it is over the cap. */
-const eventCapOf = prepared((db, t) =>
+/**
+ * THE ROW CAP AS A SEEK (POD-7035), as the server computes it
+ * (`EventsRepository.eventCapThroughId`). The cut is the id of the newest event beyond
+ * the newest `maxRows`. Ids are AUTOINCREMENT, so it is never above `max(id) - maxRows`
+ * (the guess), and below it only by the ids missing above: count the workspace's events
+ * above the guess, then step down from the guess past exactly the missing number. The
+ * count reads the narrowest index (named on SQLite) and never a table page, where an
+ * `OFFSET maxRows` walked `maxRows` rows, payloads and all.
+ */
+const eventsAboveGuessOf = prepared((db, t) =>
+  db
+    .select({ n: count() })
+    .from(fromIndexed(db, t.podiumEvents, 'idx_podium_events_kind'))
+    .where(
+      inWorkspace(t.podiumEvents, sql`${t.podiumEvents.id} > ${param(t.podiumEvents.id, 'guess')}`),
+    )
+    .prepare(),
+)
+
+/** The id `missing` rows below the guess, at or below it. */
+const eventCutOf = prepared((db, t) =>
   db
     .select({ id: t.podiumEvents.id })
     .from(t.podiumEvents)
-    .where(inWorkspace(t.podiumEvents))
+    .where(
+      inWorkspace(
+        t.podiumEvents,
+        sql`${t.podiumEvents.id} <= ${param(t.podiumEvents.id, 'guess')}`,
+      ),
+    )
     .orderBy(desc(t.podiumEvents.id))
     .limit(1)
-    .offset(sql.placeholder('maxRows'))
+    .offset(sql.placeholder('missing'))
     .prepare(),
 )
 
@@ -292,6 +317,66 @@ const commandPruneHeadOf = prepared((db, t) =>
 /** How many receipts were applied before the cutoff. */
 const commandPruneCountOf = prepared((db, t) =>
   db.select({ n: count() }).from(t.maintenanceCommands).where(prunableCommands(t)).prepare(),
+)
+
+// ---------------------------------------------------------------------------
+// Mutation-receipt retention and queued-input expiry (POD-7035).
+
+/** Receipts applied before the cutoff (epoch ms), off `idx_applied_mutations_applied_at`. */
+const prunableReceipts = (t: StoreTables) =>
+  inWorkspace(
+    t.appliedMutations,
+    sql`${t.appliedMutations.appliedAt} < ${param(t.appliedMutations.appliedAt, 'cutoffAppliedAt')}`,
+  )
+
+/** The oldest prunable receipt's time: the batches' plan position. */
+const receiptPruneHeadOf = prepared((db, t) =>
+  db
+    .select({ head: sql<number | null>`MIN(${t.appliedMutations.appliedAt})`.mapWith(asNumber) })
+    .from(t.appliedMutations)
+    .where(prunableReceipts(t))
+    .prepare(),
+)
+
+/** How many receipts are prunable. */
+const receiptPruneCountOf = prepared((db, t) =>
+  db.select({ n: count() }).from(t.appliedMutations).where(prunableReceipts(t)).prepare(),
+)
+
+/** Rows queued at or before the horizon (epoch ms). */
+const expiredQueued = (t: StoreTables) =>
+  inWorkspace(
+    t.queuedMessages,
+    sql`${t.queuedMessages.queuedAt} <= ${param(t.queuedMessages.queuedAt, 'through')}`,
+  )
+
+/**
+ * The sessions holding input queued past the horizon, oldest first, one row each. SQLite
+ * walks the session index (named), so the rows group in session order; the table is a
+ * queue. Whether a session is running, and drains its own queue, is the server's to say.
+ */
+const queuedExpiryPageOf = prepared((db, t) =>
+  db
+    .select({
+      sessionId: bare(t.queuedMessages.sessionId),
+      through: sql<number>`MAX(${sql.identifier('queued_at')})`.mapWith(Number),
+      rows: count(),
+    })
+    .from(fromIndexed(db, t.queuedMessages, 'queued_messages_session'))
+    .where(expiredQueued(t))
+    .groupBy(sql`${sql.identifier('session_id')}`)
+    .orderBy(sql`MIN(${sql.identifier('queued_at')}) ASC`, sql`${sql.identifier('session_id')} ASC`)
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+/** How many rows of every session are queued past the horizon. */
+const queuedExpiryCountOf = prepared((db, t) =>
+  db
+    .select({ n: count() })
+    .from(fromIndexed(db, t.queuedMessages, 'queued_messages_session'))
+    .where(expiredQueued(t))
+    .prepare(),
 )
 
 // ---------------------------------------------------------------------------
@@ -574,7 +659,11 @@ export class JanitorReadsRepository implements JanitorReads {
   }
 
   async eventCapThroughId(maxRows: number): Promise<number | undefined> {
-    return (await eventCapOf(this.db).get({ maxRows }))?.id
+    const guess = (await this.maxEventId()) - maxRows
+    if (guess <= 0) return undefined
+    const above = (await eventsAboveGuessOf(this.db).get({ guess }))?.n ?? 0
+    const missing = Math.max(0, maxRows - above)
+    return (await eventCutOf(this.db).get({ guess, missing }))?.id
   }
 
   async eventPruneHead(input: { cutoff: string; capThroughId: number }): Promise<number | null> {
@@ -595,6 +684,22 @@ export class JanitorReadsRepository implements JanitorReads {
 
   async commandPruneCount(cutoffAppliedAt: string): Promise<number> {
     return (await commandPruneCountOf(this.db).get({ cutoffAppliedAt }))?.n ?? 0
+  }
+
+  async receiptPruneHead(cutoffAppliedAt: number): Promise<number | null> {
+    return (await receiptPruneHeadOf(this.db).get({ cutoffAppliedAt }))?.head ?? null
+  }
+
+  async receiptPruneCount(cutoffAppliedAt: number): Promise<number> {
+    return (await receiptPruneCountOf(this.db).get({ cutoffAppliedAt }))?.n ?? 0
+  }
+
+  async queuedExpiryPage(input: { through: number; limit: number }): Promise<QueuedExpiryRow[]> {
+    return await queuedExpiryPageOf(this.db).all(input)
+  }
+
+  async queuedExpiryCount(through: number): Promise<number> {
+    return (await queuedExpiryCountOf(this.db).get({ through }))?.n ?? 0
   }
 
   async sessionArchivePage(input: {

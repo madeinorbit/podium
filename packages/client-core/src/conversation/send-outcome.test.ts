@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertSendAccepted } from './sends'
+import { assertSendAccepted } from './send-outcome'
 
 describe('assertSendAccepted', () => {
   it('passes through undefined / bare success / ok:true', () => {

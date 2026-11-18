@@ -10,6 +10,7 @@ import { MODEL_CLASSES, type ModelHost } from './models'
 import { worklistView } from './worklist/view-model'
 import { headerModel } from './header-companion'
 import { displayRefOf } from './views'
+import { sessionModeReadout } from '@podium/client-core/values'
 import { aggregatePartOf, LOADING, ownAttentionPartOf, unitOwnPartOf, unitsBelowPartOf } from './worklist/rollup'
 
 /**
@@ -95,27 +96,6 @@ it('keeps Acceptance readers isolated from title and description edits while fol
     ] }))
     expect(seen).toEqual(['Original acceptance.', 'Revised acceptance.', undefined])
   } finally { stop(); pool.dispose() }
-})
-
-it.each([true, false])('a cold reference uses only declared identity (%s) without requesting its payload', declared => {
-  const schedule = vi.fn(() => () => {})
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load: () => undefined, schedule, summaries: { issue: declared ? ['seq', 'repoPath'] : [] },
-  })
-  pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: '/synthetic', value: { id: '/synthetic', path: '/synthetic', prefix: 'POD' } as never },
-    { kind: 'issue', id: 'cold-ref', value: issueRow('cold-ref', {
-      seq: 0, repoId: '/synthetic', stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
-    }) as never },
-  ] })
-  try {
-    const stored = omitGone(pool.row('issue', 'cold-ref', 'summary-fields'))
-    expect(stored && stored !== LOADING ? Reflect.get(stored, 'seq') : undefined).toBe(declared ? 0 : undefined)
-    expect(pool.issueObject('cold-ref').displayRef).toBe(declared ? displayRefOf(0, 'POD') : '')
-    expect(pool.tables.issue.has('cold-ref')).toBe(false)
-    expect(schedule).not.toHaveBeenCalled()
-    expect(pool.issueObject('missing-ref').displayRef).toBe('')
-  } finally { pool.dispose() }
 })
 
 // A present parent is always placed (POD-2167: any audience at the top
@@ -335,4 +315,43 @@ it('all demanded attention and progress fields equal the eager parts, including 
     expect(pool.worklistRow('root')!.unitsBelow.members).toBe(2)
   }
   finally { stop(); pool.dispose() }
+})
+
+it('a session model answers what the model and mode chips read, and follows a change (POD-7002)', () => {
+  // The chat view hands its chips the shared session model, not the row. A
+  // field the model has no getter for reads as undefined, so the live web drew
+  // neither chip for a session whose row held all of these.
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const launchPosture = {
+    requestedMode: 'auto',
+    unmet: [{ requirement: 'workspace-trust', reason: 'no flag on this version' }],
+  }
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'session', id: 'seat', value: sessionRow({
+      agentKind: 'claude-code',
+      observedModel: 'claude-opus-5-5', observedEffort: 'high',
+      requestedModel: 'claude-sonnet-5-5', requestedEffort: 'low',
+      configureFields: ['model', 'effort'],
+      observedMode: 'auto', launchPosture,
+    }) as never },
+  ] })
+  const seat = requireHere(pool.model('session', 'seat'))!
+  expect({
+    observedModel: seat.observedModel, observedEffort: seat.observedEffort,
+    requestedModel: seat.requestedModel, requestedEffort: seat.requestedEffort,
+    configureFields: seat.configureFields, observedMode: seat.observedMode,
+    launchPosture: seat.launchPosture,
+  }).toEqual({
+    observedModel: 'claude-opus-5-5', observedEffort: 'high',
+    requestedModel: 'claude-sonnet-5-5', requestedEffort: 'low',
+    configureFields: ['model', 'effort'], observedMode: 'auto', launchPosture,
+  })
+  const seen: Array<string | undefined> = []
+  const stop = autorun(() => { seen.push(sessionModeReadout(seat)?.mode) })
+  try {
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'seat', value: sessionRow({ agentKind: 'claude-code', observedMode: 'default', launchPosture }) as never },
+    ] }))
+    expect(seen).toEqual(['auto', 'default'])
+  } finally { stop(); pool.dispose() }
 })

@@ -3,8 +3,11 @@ import type { WorkspaceId } from '@podium/model'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { CollectionsRepository } from '../store/collections'
 import type { QueryClient } from '../store/executor/driver'
 import type { RootStoreExecutor } from '../store/executor/executor'
+import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
 
@@ -54,6 +57,11 @@ export function bootstrapVisibility(
       anchors: visibility.anchors,
       sync,
       records,
+      // The collection fetch's reads (POD-7085), on the same snapshot and in
+      // the job's workspace.
+      collections: new CollectionsRepository(
+        legacyWorkspaceQueries(executor.queries, options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID),
+      ),
     }
   })()
   return {

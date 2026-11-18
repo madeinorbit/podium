@@ -10,7 +10,8 @@ import {
   stripSessionLegacy,
 } from '../../../../tests/worklist/harness/src/fixture/session-homes'
 import { poolRouteFixture } from '../../test/pool-routes'
-import { useSession, useSessions } from './hooks'
+import { useSession } from './hooks'
+import { useSessions } from '../../test/roster-hooks'
 import { renderWithMobileStore } from './test-support'
 
 afterEach(cleanup)

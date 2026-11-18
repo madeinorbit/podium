@@ -2,15 +2,23 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type HarnessContext,
   harnessChildEnv,
   harnessContext,
   type LoginProbeExec,
   type ProbeExec,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
+import { testLaunchPosture } from '@podium/harness/driver/testing'
 import { describe, expect, it } from 'vitest'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
+
+/** A launch's posture without its context (POD-6858). */
+function postureOf(context: HarnessContext) {
+  const { context: _context, ...posture } = testLaunchPosture(context)
+  return posture
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -66,7 +74,7 @@ describe('DaemonHarnessRuntime', () => {
     const snapshot = testHarnessSnapshot({ codex: '/home/user/.brew/bin/codex' }, 4)
     const runtime = new DaemonHarnessRuntime({ buildSnapshot: async () => snapshot })
     const context = harnessContext(await runtime.current(), 'codex', '/home/user')
-    const launch = await runtime.launch(context, { cwd: '/repo' })
+    const launch = await runtime.launch(context, { cwd: '/repo', posture: postureOf(context) })
     expect(launch.cmd).toBe('/home/user/.brew/bin/codex')
     // The launch spec carries only the adapter's own env (POD-6535: the binder
     // no longer folds the command env in); the child's PATH is the recipe's,
@@ -91,7 +99,7 @@ describe('DaemonHarnessRuntime', () => {
     })
     const context = harnessContext(await runtime.current(), 'codex', '/home/user')
     await runtime.refresh()
-    const launch = await runtime.launch(context, { cwd: '/repo' })
+    const launch = await runtime.launch(context, { cwd: '/repo', posture: postureOf(context) })
     expect(launch.cmd).toBe('/opt/homebrew/bin/codex')
     // The env comes from the context too, not the refreshed inventory: the
     // recipe's base layer is the context's env (POD-6535), and the launch spec

@@ -30,23 +30,3 @@ it('serves the applied row object itself, the same on every read', () => {
   } finally { pool.dispose() }
 })
 
-it('merges only the declared cold summary on demand, then the hydrated row', () => {
-  const row = { id: 'cold', seq: 1, repoPath: '/synthetic', createdAt: '2020-01-01T00:00:00Z',
-    stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
-    title: 'pending', description: 'cold payload' }
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined,
-    { load: () => row, summaries: { issue: ['title'] }, schedule: () => () => {} })
-  try {
-    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
-    expect(omitGone(pool.row('issue', row.id, 'mark'))).toBe(LOADING)
-    const summary = omitGone(pool.row('issue', row.id, 'summary-fields'))
-    expect(summary).toMatchObject({ title: 'pending' })
-    expect(summary).not.toHaveProperty('description')
-    expect(omitGone(pool.row('issue', row.id, 'summary-fields'))).toBe(summary)
-    expect(pool.tables.issue.has(row.id)).toBe(false)
-    expect(omitGone(pool.row('issue', row.id))).toBe(LOADING)
-    expect(pool.hydrate()).toBe(1)
-    expect(omitGone(pool.row('issue', row.id))).toMatchObject({ title: 'pending', description: 'cold payload' })
-    expect(omitGone(pool.row('issue', row.id))).not.toBe(summary)
-  } finally { pool.dispose() }
-})

@@ -221,6 +221,14 @@ export class SessionFactsReader {
     return (await this.required().issueMembers(worktreePath, issueId, 'facts.byIssue')).map(subjectFacts)
   }
 
+  /** {@link readByIssue} for a set of issues, read together (POD-7036). */
+  async readByIssues(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+  ): Promise<Map<IssueId, SessionFacts[]>> {
+    const members = await this.required().issueMembersMany(issues, 'facts.byIssues')
+    return new Map([...members].map(([issueId, subjects]) => [issueId, subjects.map(subjectFacts)]))
+  }
+
   async readByWorktree(worktreePath: string | null): Promise<SessionFacts[]> {
     return (await this.required().underPath(worktreePath, 'facts.byWorktree')).map(subjectFacts)
   }

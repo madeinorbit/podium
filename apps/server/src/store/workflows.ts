@@ -57,6 +57,7 @@ import {
   sameWorkspace,
   WORKSPACE,
 } from './executor/sync-drizzle'
+import { bareColumns, throughIndex } from './index-hints'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -846,10 +847,13 @@ const runIdsOfRevisions = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
+// Through the primary key by name on SQLite (POD-7034): from about 128 runs the
+// statistics (a run's steps averaged over every run) price the seeks above a scan
+// of every run's steps.
 const stepsOfRuns = preparedFamily((db, t, size: number) =>
   db
-    .select()
-    .from(t.workflowRunSteps)
+    .select(bareColumns(t.workflowRunSteps))
+    .from(throughIndex(db, t.workflowRunSteps, 'sqlite_autoindex_workflow_run_steps_1'))
     .where(inWorkspace(t.workflowRunSteps, inListOf(t.workflowRunSteps.runId, size, 'ids')))
     .prepare(),
 )

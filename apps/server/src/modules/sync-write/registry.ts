@@ -22,6 +22,7 @@
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { AuthTarget, MutationId } from '@podium/model'
 import type { SyncSubmitRefusal } from '@podium/protocol'
+import type { ReceiptCompaction } from '@podium/sync'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { SyncCommandWriter } from '../../write-contexts'
@@ -129,12 +130,19 @@ type MaybePromise<T> = T | Promise<T>
  */
 type RolledBack<In> = (ctx: SyncTargetContext, input: In, error: unknown) => Promise<void>
 
+/**
+ * How one call's large answer is stored in its receipt and rebuilt on replay
+ * (POD-7035, `RECEIPT_RESULT_INLINE_MAX`); `undefined` stores it whole.
+ */
+type Compaction<In> = (ctx: SyncWriteContext, input: In) => ReceiptCompaction | undefined
+
 /** A registration over an ADR 3 `CommandContract`. */
 export interface ContractRegistration<C extends AnyCommandContract, Out> {
   readonly contract: C
   target(input: z.infer<C['input']>, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: z.infer<C['input']>): Promise<Out>
   readonly rolledBack?: RolledBack<z.infer<C['input']>>
+  readonly compaction?: Compaction<z.infer<C['input']>>
 }
 
 /** A registration over a `defineCommands` entry, which carries no name of its own. */
@@ -154,6 +162,7 @@ export interface SyncCommand extends FrontDoorCommand {
   target(input: unknown, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: unknown): Promise<unknown>
   rolledBack?(ctx: SyncTargetContext, input: unknown, error: unknown): Promise<void>
+  compaction?(ctx: SyncWriteContext, input: unknown): ReceiptCompaction | undefined
 }
 
 export class SyncWriteRegistry {
@@ -202,6 +211,7 @@ function normalise(
         }
   if ('contract' in registration) {
     const { contract } = registration
+    const compact = registration.compaction as Compaction<unknown> | undefined
     return {
       ...contractFrontDoor(contract),
       name: contract.name,
@@ -210,6 +220,7 @@ function normalise(
       target,
       handle,
       ...rolledBack,
+      ...(compact === undefined ? {} : { compaction: compact }),
     }
   }
   const { def, name } = registration

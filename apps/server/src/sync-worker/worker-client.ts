@@ -12,6 +12,7 @@ import { Worker } from 'node:worker_threads'
 import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker-embed'
 import {
   type BootstrapJob,
+  type CollectionsJob,
   type DeltaJob,
   type FromWorker,
   jobWorkspaceId,
@@ -224,6 +225,9 @@ export class SyncWorkerClient {
     return this.start(input, signal)
   }
   delta(input: DeltaJob, signal?: AbortSignal) {
+    return this.start(input, signal)
+  }
+  collections(input: CollectionsJob, signal?: AbortSignal) {
     return this.start(input, signal)
   }
   private start(

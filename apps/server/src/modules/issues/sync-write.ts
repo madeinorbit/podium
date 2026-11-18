@@ -40,6 +40,7 @@ import { trpcErrorRefusal } from '../sync-write/family'
 import {
   NO_TARGET,
   refuseTarget,
+  type SyncWriteContext,
   type SyncWriteRegistry,
   type SyncWriteTarget,
 } from '../sync-write/registry'
@@ -131,18 +132,7 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
               principal,
             }),
       handle: async (ctx, input) => {
-        const principal = ctx.principal
-        // The entry point never lets a system principal through; the narrowing
-        // is for the capability the dispatcher reads.
-        if (principal.kind === 'system')
-          throw new Error('issue write reached its handler as system')
-        const caller: IssueCaller = {
-          capability: principal.capability,
-          principal,
-          // The command's own writer (ADR 12 D9): every issue write it makes.
-          writer: ctx.ledger,
-          ...(ctx.confirmed ? { overrideScope: true } : {}),
-        }
+        const caller = callerOf(ctx)
         const refused = unwritable(key, input)
         if (refused !== undefined) throw new SyncWriteRefused({ kind: 'invalid', message: refused })
         try {
@@ -153,7 +143,42 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
           throw new SyncWriteRefused(refusal, { cause: error })
         }
       },
+      // A large answer is stored as a digest and rebuilt on replay (POD-7035). A
+      // replay that fails as the handler would is the same refusal.
+      compaction: (ctx, input) => {
+        const compaction = deps
+          .modules()
+          .issueCommands.withoutDedup()
+          .receiptCompaction(callerOf(ctx), key, input)
+        return {
+          digest: compaction.digest,
+          replay: async (digest) => {
+            try {
+              return await compaction.replay(digest)
+            } catch (error) {
+              const refusal = issueRefusalOf(error)
+              if (refusal === undefined) throw error
+              throw new SyncWriteRefused(refusal, { cause: error })
+            }
+          },
+        }
+      },
     })
+  }
+}
+
+/** The issue caller of one entry-point call. */
+function callerOf(ctx: SyncWriteContext): IssueCaller {
+  const principal = ctx.principal
+  // The entry point never lets a system principal through; the narrowing
+  // is for the capability the dispatcher reads.
+  if (principal.kind === 'system') throw new Error('issue write reached its handler as system')
+  return {
+    capability: principal.capability,
+    principal,
+    // The command's own writer (ADR 12 D9): every issue write it makes.
+    writer: ctx.ledger,
+    ...(ctx.confirmed ? { overrideScope: true } : {}),
   }
 }
 

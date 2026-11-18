@@ -1,6 +1,12 @@
 /** Kernel-backed client replica. Wire-v1 writer methods refuse; the kernel owns entity writes. */
 
-import type { Cursor, EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
+import type {
+  CollectionLoader,
+  DeviceCollectionReads,
+  EntityRecord,
+  ExitKind,
+  ReplicaEvent,
+} from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
 import type { StoreTranscriptCache } from '../../transcript-store/cache'
 import type {
@@ -25,9 +31,13 @@ import type { SideCache } from './side-cache'
  */
 export interface KernelCacheRead {
   readCursor(): { readonly seq: number; readonly feedId?: string; readonly epoch?: string } | null
-  /** Older read-only consumers can omit metadata and retain first-live fallback.
-   * The writable ReplicaCacheStore port requires this method on every adapter. */
-  readPersonalRowsCompleteAt?(): Cursor | null
+  /**
+   * The feed number of a load still under way (POD-7086); null once the
+   * device's collections are complete. Older read-only consumers can omit it
+   * and retain the first-live fallback. The writable ReplicaCacheStore port
+   * requires it on every adapter.
+   */
+  readLoadingSince?(): number | null
   readEntities(): readonly EntityRecord[]
   /**
    * One row, by the kernel's own identity. `ReplicaCacheStore` has carried this
@@ -69,6 +79,14 @@ export interface KernelReplicaInit {
   readonly exits?: (entity: string, entityId: string) => ExitKind | undefined
   /** This user's transcript database (POD-5801); absent when it could not open. */
   readonly transcripts?: StoreTranscriptCache
+  /**
+   * The kernel Replica's collection reads (POD-7086), closed over for the same
+   * reason as `exits`: the roots construct the facade first. Absent, every
+   * instance reads as not complete and no stub is held.
+   */
+  readonly collections?: () => DeviceCollectionReads | undefined
+  /** The one loader (POD-7087), closed over for the same reason. */
+  readonly loader?: () => CollectionLoader | undefined
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -84,6 +102,10 @@ export interface KernelBackedReplica extends Replica {
    * root owns the fan-out; this is one of its outputs.
    */
   onKernelEvent(event: ReplicaEvent): void
+  /** Markers and stubs on the device (POD-7086), for the readers POD-7088 moves. */
+  readonly collections: DeviceCollectionReads
+  /** The one loader (POD-7087): what a lookup or a view asks for goes through it. */
+  loader(): CollectionLoader | undefined
 }
 
 /** The kinds a single event touches. `bootstrap-installed` and the cache-wide
@@ -200,20 +222,18 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   /** Kinds touched since the outermost batch opened. */
   const pending = new Set<ReplicaKind>()
   let batchDepth = 0
-  // Restore completeness BEFORE any pool attaches. Legacy caches keep the
-  // first-live fallback; a seq alone cannot certify another feed or epoch.
+  // Restore completeness BEFORE any pool attaches: a device whose load has
+  // finished holds every personal row of what it holds, and the feed keeps
+  // them complete. A load still under way, or an older cache, keeps the
+  // first-live fallback.
   let sessionMarkersLoaded = cachedPersonalRowsComplete()
 
   function cachedPersonalRowsComplete(): boolean {
     try {
-      const cursor = cache.readCursor()
-      const marker = cache.readPersonalRowsCompleteAt?.() ?? null
       return (
-        cursor !== null &&
-        marker !== null &&
-        cursor.feedId === marker.feedId &&
-        cursor.epoch === marker.epoch &&
-        cursor.seq === marker.seq
+        cache.readCursor() !== null &&
+        cache.readLoadingSince !== undefined &&
+        cache.readLoadingSince() === null
       )
     } catch {
       return false
@@ -586,6 +606,14 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
 
     ...(init.transcripts ? { transcripts: init.transcripts } : {}),
 
+    collections: {
+      isComplete: (spec) => init.collections?.()?.isComplete(spec),
+      stubOf: (entity, entityId) => init.collections?.()?.stubOf(entity, entityId),
+      stubsByParent: (parentId) => init.collections?.()?.stubsByParent(parentId) ?? EMPTY,
+      stubRows: (entity) => init.collections?.()?.stubRows(entity) ?? EMPTY,
+    },
+    loader: () => init.loader?.(),
+
     rowCount(kind): number {
       if (!projected.has(kind)) buildMissingProjections()
       const state = projected.get(kind)!
@@ -706,7 +734,10 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           return
         }
         case 'removed':
-        case 'evicted': {
+        case 'evicted':
+        // The device let the record go (trim, end of a load): absent here too,
+        // and NOT an exit — a lookup answers "on its way", never "gone".
+        case 'released': {
           // Both leave this slice, and `rows()` renders both as gone, so THIS
           // projection does not branch — a row that has left the view is absent
           // either way.

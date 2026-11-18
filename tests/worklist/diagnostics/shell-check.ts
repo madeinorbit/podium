@@ -126,7 +126,6 @@ export function legacyShellSnapshot(
         fields: {
           repoCount: repos.length,
           worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
-          sessionCount: sessions.length,
           missionRootId: missionRoot?.id ?? null,
           missionExpanded: missionExpanded(missionRoot),
         },
@@ -156,20 +155,6 @@ export function legacyShellSnapshot(
         key: 'machines',
         fields: {},
         rows: state.machines.map((value) => row(value.id, machineFields(value))),
-      },
-      {
-        key: 'sessions',
-        fields: {},
-        rows: sessions.map((value) => row(value.sessionId, fields(value, SHELL_SUMMARIES.session))),
-      },
-      {
-        key: 'issues',
-        fields: {},
-        rows: [...issues]
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .map((value) =>
-            row(value.id, fields(value, [...SHELL_SUMMARIES.issue, 'prefix', 'displayRef'])),
-          ),
       },
     ],
   }
@@ -202,8 +187,9 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     chrome = views.chrome(),
     dock = dockSnapshot(views),
     shipping = dock === LOADING ? LOADING : dock.shipping,
-    sessions = views.sessions(),
-    issues = views.issues(),
+    // POD-7088: the shell no longer lists every session or issue; the
+    // shipping fields read the issues the pool holds.
+    issues = [...pool.tables.issue.values()] as unknown as IssueViewModel[],
     lanes = views.lanes(),
     shipOrders = headerIds(pool, 'shipOrder').flatMap((id) => {
       const order = here(pool.row('shipOrder', id)) as Store['shipOrders'][number] | undefined
@@ -217,8 +203,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     chrome === LOADING ||
     dock === LOADING ||
     shipping === LOADING ||
-    sessions === LOADING ||
-    issues === LOADING ||
     lanes === LOADING
   )
     return { pending: 1, sections: [] }
@@ -238,7 +222,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
           ? {
               repoCount: chrome.repoCount,
               worktreeCount: chrome.worktreeCount,
-              sessionCount: chrome.sessionCount,
               missionRootId: chrome.missionRoot?.id ?? null,
               missionExpanded: missionExpanded(chrome.missionRoot),
             }
@@ -277,22 +260,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
         key: 'machines',
         fields: {},
         rows: views.machines().map((value) => row(value.id, machineFields(value))),
-      },
-      {
-        key: 'sessions',
-        fields: {},
-        rows: (sessions ?? []).map((value) =>
-          row(value.sessionId, fields(value, SHELL_SUMMARIES.session)),
-        ),
-      },
-      {
-        key: 'issues',
-        fields: {},
-        rows: [...(issues ?? [])]
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .map((value) =>
-            row(value.id, fields(value, [...SHELL_SUMMARIES.issue, 'prefix', 'displayRef'])),
-          ),
       },
     ],
   }

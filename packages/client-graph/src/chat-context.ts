@@ -1,3 +1,4 @@
+import { issueSearch } from './issue-search'
 import { machineFacts } from './machine-facts'
 import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
@@ -42,7 +43,7 @@ export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
   )
 }
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
+  const row = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
@@ -271,7 +272,7 @@ class ReferenceSessionSummary {
   ) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     if (this.counts) this.counts.referenceSessionReads++
-    const row = omitGone(this.pool.row('session', this.model.id, 'summary-fields')) as Loaded<SessionView>
+    const row = omitGone(this.pool.row('session', this.model.id)) as Loaded<SessionView>
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.
@@ -330,19 +331,45 @@ export function createChatContextReader(pool: MobxPool) {
 /** The open mention menu. A search asks the source for a bounded window of
  * identities; each shown entry reads its own row by id. */
 export class ReferencePicker {
-  @observableRef accessor issueIds: string[] = []
-  @observable accessor pending = 0
+  @observableRef private accessor localIds: string[] = []
+  @observable private accessor query: string | null = null
+  @observable private accessor limit = 5
   private stopLoading: (() => void) | undefined
   constructor(private readonly pool: MobxPool) {}
-  @action close() { this.stopLoading?.(); this.stopLoading = undefined }
+  @lazy get results() {
+    return this.query === null ? undefined : issueSearch(this.pool).read(this.query, this.localIds)
+  }
+  @lazy get issueIds(): string[] {
+    const ids: string[] = []
+    for (const id of this.results?.ids ?? []) {
+      if (ids.length >= this.limit) break
+      const issue = this.issue(id)
+      if (issue && !loading(issue) && !issue.deletedAt && !issue.archived) ids.push(id)
+    }
+    return ids
+  }
+  @lazy get pending(): number {
+    return Number(this.results?.pending ?? false)
+  }
+  @action close() {
+    this.stopLoading?.()
+    this.stopLoading = undefined
+    this.query = null
+  }
   @action search(query: string, limit = 5) {
     this.close()
+    this.query = query
+    this.limit = limit
     const result = chatMentionMatches(this.pool, query, limit)
-    this.issueIds = result.issues.map(issue => issue.id)
-    this.pending = result.pending
-    if (this.pending) this.stopLoading = when(() => chatMentionMatches(this.pool, query, limit).pending === 0,
-      () => this.search(query, limit))
+    this.localIds = result.issues.map((issue) => issue.id)
+    if (result.pending)
+      this.stopLoading = when(
+        () => chatMentionMatches(this.pool, query, limit).pending === 0,
+        () => this.search(query, limit),
+      )
   }
-  issue(id: string) { return chatIssue(this.pool, id) }
+  issue(id: string) {
+    return chatIssue(this.pool, id)
+  }
 }
 export const createReferencePicker = (pool: MobxPool) => new ReferencePicker(pool)

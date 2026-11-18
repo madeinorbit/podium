@@ -4,12 +4,14 @@ import {
   activityRowSingletonDisplay,
   activitySingletonDisplay,
   formatClock,
+  isToolPending,
   resolveToolEdit,
   type ToolEditView,
   toolBatchTitles,
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
+  toolExecutionSections,
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import {
@@ -25,6 +27,7 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
+import { CommandExecutionGroup } from './CommandExecutionGroup'
 import {
   type ActivityStretchRow,
   type ChatBlock,
@@ -324,12 +327,12 @@ export const ToolBatchView = observer(function ToolBatchView({
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
   const firstItem = first.item
-  const singleCommand = count === 1 && firstItem.toolName === 'Bash'
+  const singleCommand = count === 1 && first.execution !== undefined
   const summary =
     count > 1
       ? (run?.summary ?? row.summary ?? toolBatchTitles(row.blocks).summary)
       : singleCommand
-        ? (toolSubject(firstItem, Infinity) ?? title)
+        ? (first.execution?.label ?? toolSubject(firstItem, Infinity) ?? title)
         : title
   const settling = useSettleFlash(ownsLiveStatus)
   const pushing = usePushFlash(count)
@@ -354,6 +357,14 @@ export const ToolBatchView = observer(function ToolBatchView({
       >
         {phrase}
       </span>
+      {(run?.executionCount ?? row.blocks.filter((block) => block.execution).length) > 1 && (
+        <span className="execution-stretch-metrics">
+          {run?.executionCount ?? row.blocks.filter((block) => block.execution).length} runs
+          {run && run.batchCount > 0
+            ? ` · ${run.batchCount} ${run.batchCount === 1 ? 'batch' : 'batches'}`
+            : ''}
+        </span>
+      )}
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
       {multiple && (
         <ChevronRight className="work-line-chev" size={12} strokeWidth={1.5} aria-hidden="true" />
@@ -418,21 +429,29 @@ export const ToolBatchView = observer(function ToolBatchView({
                 singleMember ? 'work-line-members' : 'work-line-list work-line-list--timed'
               }
             >
-              {blocks.map((b) => (
-                <StretchMember
-                  key={b.item.id}
-                  block={b}
-                  timed
-                  forceOpen={forceOpen}
-                  onOpenChange={onMemberOpenChange}
-                  onBodyClick={onBodyClick}
-                  sessionId={sessionId}
-                  cwd={cwd}
-                  openFile={openFile}
-                  onOpenDiff={setDiffPath}
-                  diffPath={pathByBlock.get(b.item.id)}
-                />
-              ))}
+              {(run?.executionSections ?? toolExecutionSections(blocks)).map((section) => {
+                const members = section.blocks.map((b) => (
+                  <StretchMember
+                    key={b.item.id}
+                    block={b}
+                    timed
+                    live={live && b.item.id === lastItem.id && isToolPending(b)}
+                    forceOpen={forceOpen}
+                    onOpenChange={onMemberOpenChange}
+                    onBodyClick={onBodyClick}
+                    sessionId={sessionId}
+                    cwd={cwd}
+                    openFile={openFile}
+                    onOpenDiff={setDiffPath}
+                    diffPath={pathByBlock.get(b.item.id)}
+                  />
+                ))
+                return (
+                  <CommandExecutionGroup key={section.blocks[0]!.item.id} section={section}>
+                    {members}
+                  </CommandExecutionGroup>
+                )
+              })}
             </div>
           )}
         </div>

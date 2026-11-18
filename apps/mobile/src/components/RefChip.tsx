@@ -1,7 +1,7 @@
 import type { IssueReferenceModel } from '@podium/client-core/values'
 
 import { StyleSheet, Text } from 'react-native'
-import { usePoolRefChip } from '../client/use-inbox-data'
+import { usePoolRefChip } from '../client/use-pool-links'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, mono } from '../theme/theme'

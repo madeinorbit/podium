@@ -1,6 +1,8 @@
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  AppliedMutationsPruneObservation,
+  appliedMutationsPruneRunKey,
   ChangeLogPruneObservation,
   changeLogPruneRunKey,
   eventLogPruneRunKey,
@@ -13,6 +15,8 @@ import {
   MaintenanceHandshake,
   MaintenanceHandshakeReply,
   messageExpiryRunKey,
+  QueuedMessagesExpiryObservation,
+  queuedMessagesExpiryRunKey,
   sessionAutoArchiveRunKey,
   WorktreeGcObservation,
   worktreeGcRunKey,
@@ -46,13 +50,47 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     changeKeepRows: 20_000,
     changeMaxAgeMs: 1,
     maintenanceCommandMaxAgeMs: 1,
+    appliedMutationMaxAgeMs: 1,
+    queuedMessageMaxAgeMs: 1,
     worktreeGcMode: 'propose' as const,
     worktreeGcAfterDays: 14,
   }
 
-  it('gates tenant-specific retention commands and feed schema', () => {
-    expect(MAINTENANCE_PROTOCOL_VERSION).toBe(6)
-    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v6')
+  it('gates the receipt prune and queue expiry kinds behind v7', () => {
+    expect(MAINTENANCE_PROTOCOL_VERSION).toBe(7)
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v7')
+  })
+
+  it('keys a receipt prune batch by its cutoff, place and head, and a queue expiry by its newest row', () => {
+    const batch = {
+      maxAgeMs: 1_000,
+      cutoffAppliedAt: 3_600_000,
+      batchSize: 100,
+      fromAppliedAt: 12,
+      batch: 2,
+    }
+    expect(appliedMutationsPruneRunKey(AppliedMutationsPruneObservation.parse(batch))).toBe(
+      'applied-mutations-prune/3600000/100/12/2',
+    )
+    const expiry = QueuedMessagesExpiryObservation.parse({
+      sessionId: 'ses/1',
+      maxAgeMs: 1_000,
+      throughQueuedAt: 99,
+      rows: 3,
+    })
+    // The row count is not in the key: a row queued earlier than `through`
+    // after the read is the same occurrence, and the server deletes it too.
+    expect(queuedMessagesExpiryRunKey(expiry)).toBe('queued-messages-expiry/ses%2F1/99')
+    expect(
+      MaintenanceCommand.safeParse({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'queued-messages-expiry',
+        runKey: 'k',
+        fencingToken: 1,
+        observed: { ...expiry, rows: 0 },
+      }).success,
+    ).toBe(false)
   })
 
   it('requires a tenant and includes it in retention replay keys', () => {

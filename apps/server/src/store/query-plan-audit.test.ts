@@ -39,6 +39,7 @@ import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 import type { SessionStore } from '../store'
 import {
   builtStatements,
+  FAMILY_SHAPES,
   type KeyedDefinition,
   keyedDefinitions,
   RAW_SQL_EXEMPT,
@@ -48,10 +49,15 @@ import {
   rawKey,
   rawSqlCensus,
   reachMethodDefinitions,
+  SIZES,
   type SourceTree,
   trackedSources,
 } from '../test-support/definition-census'
 import { openTestStore } from '../test-support/open-test-store'
+import {
+  OPERATOR_PLANNER_STATISTICS,
+  OPERATOR_STATISTICS_CAPTURED_AT,
+} from '../test-support/operator-planner-statistics'
 import { type RawSqlSite, rawSqlSites } from '../test-support/prepared-census'
 import {
   type BuiltStatement,
@@ -120,7 +126,6 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['accounts', 'Provider accounts the operator configures by hand.'],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
-  ['maintenance_commands', 'The maintenance ledger, held to a fixed size by pruneOldestCommands.'],
   ['repos', 'One row per repository checkout per machine.'],
   ['repo_prefixes', 'One row per repository.'],
   ['server_secrets', 'A fixed set of server keys.'],
@@ -175,6 +180,14 @@ const MIN_MAX_SEEK =
   'reads the one entry at that end of the workspace (measured on a million rows: 4 µs a call, ' +
   'against 43 ms for a read of the whole workspace). The plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/sessions.ts:anySession',
+    'One-row existence probe for setup: LIMIT 1 stops at the first stored session of the workspace, including tombstones. Reads at most one row regardless of history.',
+  ],
+  [
+    'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
+    "Sorts only the active effect records: the seek on idx_effects_status_deadline reads the pending and running ones, a few in the whole table, never a target's finished history (POD-7031).",
+  ],
   ['apps/server/src/store/events.ts:highestEventId', MIN_MAX_SEEK],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:advanceFloor', MIN_MAX_SEEK],
   [
@@ -311,8 +324,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "The feed-window events of the issues in the IN list (POD-6766): read from the window's oldest id up, so bounded by the window, and sorted by id.",
   ],
   [
-    'apps/server/src/store/events.ts:eventIdBeyondCap',
-    'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
+    'apps/server/src/store/events.ts:eventsAboveId',
+    "Counts the events above the row cap's guess through idx_podium_events_kind, named with INDEXED BY: a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035).",
   ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',
@@ -438,6 +451,18 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|automationRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|conversation.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|workflowRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
   [
     'apps/server/src/store/conversations/index.ts:recordPage',
     'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.',
@@ -810,8 +835,15 @@ afterAll(async () => {
   await store?.close()
 })
 
-/** Build each definition at each of its shapes and read every statement's plan. */
-function auditDefinitions(keyed: readonly KeyedDefinition[]): {
+/**
+ * Build each definition at each of its shapes and read every statement's plan.
+ * `shapesOf` gives a family's shapes; by default those of {@link FAMILY_SHAPES}.
+ */
+function auditDefinitions(
+  keyed: readonly KeyedDefinition[],
+  shapesOf: (key: string) => readonly (string | number)[] | undefined = (key) =>
+    FAMILY_SHAPES.get(key),
+): {
   audited: AuditedStatement[]
   fragments: string[]
   missingShapes: string[]
@@ -819,7 +851,7 @@ function auditDefinitions(keyed: readonly KeyedDefinition[]): {
   explainErrors: string[]
 } {
   const tables = tablesOf(database)
-  const { built, fragments, missingShapes, buildErrors } = builtStatements(keyed)
+  const { built, fragments, missingShapes, buildErrors } = builtStatements(keyed, shapesOf)
   const audited: AuditedStatement[] = []
   const explainErrors: string[] = []
   for (const { key, shape, statement } of built) {
@@ -1267,6 +1299,607 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
       const [inner, outer] = plans.get('runtimeTranscriptPayloads')!.split('SCAN recent')
       expect(`${picture}: ${inner}`).not.toMatch(/TEMP B-TREE|SCAN/)
       expect(`${picture}: ${outer}`).toMatch(/TEMP B-TREE FOR ORDER BY/)
+    }
+  })
+})
+
+/**
+ * THE EFFECTS SWEEP UNDER THE OPERATOR'S STATISTICS [POD-6970]. ANALYZE counts
+ * each NULL as its own value, so on a real database `idx_effects_deleted`
+ * reads as ten rows per key and `deleted_at IS NULL` looks selective, though
+ * nearly every record is live. These are the `effects` rows of `sqlite_stat1`
+ * on the operator's server (46k records, 41k of them live finished machine
+ * scans), where the sweep's unpinned reads walked every live record and sorted
+ * them, twice a minute, to return none. Each sweep statement must seek its own
+ * index under them, with no scan and no sort.
+ */
+describe('POD-6970 — the effects sweep under real statistics', () => {
+  const OPERATOR_EFFECTS_STATISTICS: readonly (readonly [string, string])[] = [
+    ['idx_effects_unpublished', '0 0'],
+    ['idx_effects_awaiting', '0 0 0'],
+    ['idx_effects_kind_target', '46241 334 251 6 1'],
+    ['idx_effects_target', '46241 1001 11 1'],
+    // Captured as `idx_effects_deleted` `46241 10`, a full index; POD-7034 made
+    // it partial over the tombstones (9236 of them, 2169 distinct times).
+    ['idx_effects_tombstones', '9236 5'],
+    ['idx_effects_status_finished', '46241 334 1'],
+    ['idx_effects_status_deadline', '46241 334 1'],
+    ['sqlite_autoindex_effects_1', '46241 1'],
+  ]
+
+  const useOperatorStatistics = () => {
+    modelLowSelectivity(database)
+    database.exec("DELETE FROM sqlite_stat1 WHERE tbl = 'effects'")
+    const insert = database.prepare(
+      "INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('effects', ?, ?)",
+    )
+    for (const [index, stat] of OPERATOR_EFFECTS_STATISTICS) insert.run(index, stat)
+    database.exec('ANALYZE sqlite_schema')
+  }
+
+  const effectPlans = (): Map<string, string> => {
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    return new Map(
+      auditDefinitions(keyed)
+        .audited.filter((entry) => entry.key.startsWith('apps/server/src/store/effects.ts:'))
+        .map((entry) => [
+          `${entry.key.split(':')[1]}${entry.shape === undefined ? '' : ` [${String(entry.shape)}]`}`,
+          entry.plan.join(' | '),
+        ]),
+    )
+  }
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('the unpinned status read can no longer walk the live records: the soft-delete index holds only tombstones (POD-7034)', () => {
+    // Before POD-7034 this read walked every live record through the full
+    // `idx_effects_deleted` and sorted them; the walk is armed in the POD-7034
+    // block below with a planted full index.
+    useOperatorStatistics()
+    const plan = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE status = ? AND deleted_at IS NULL AND (decision IS NULL OR decision <> 'awaiting') ORDER BY deadline_at LIMIT ?",
+        )
+        .all(null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(plan).not.toMatch(/\(deleted_at=\?\)/)
+    expect(plan).toMatch(/^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)/)
+  })
+
+  it('each sweep statement seeks its own index, with no scan and no sort', () => {
+    useOperatorStatistics()
+    const plans = effectPlans()
+    const expected: readonly (readonly [string, RegExp])[] = [
+      // Both statuses build one statement (the status is bound): the audit
+      // plans it once, under its first shape.
+      [
+        'effectsInStatus [pending]',
+        /^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)$/,
+      ],
+      [
+        'expireDueEffects',
+        /SEARCH effects USING INDEX idx_effects_status_deadline \(status=\? AND deadline_at>\? AND deadline_at<\?\)/,
+      ],
+      [
+        'pruneFinishedEffects',
+        /SEARCH effects USING INDEX idx_effects_status_finished \(status=\? AND finished_at<\?\)/,
+      ],
+      ['purgeTombstones', /SEARCH effects USING INDEX idx_effects_tombstones \(deleted_at<\?\)/],
+      [
+        'purgeOffFeedFinished',
+        /SEARCH candidate USING INDEX idx_effects_kind_target \(kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
+      ],
+      // A machine's last scan (POD-7031): the target's records newest first,
+      // where the first hit is nearly always the newest succeeded one.
+      [
+        'newestOnTargetIn [succeeded]',
+        /^SEARCH effects USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\?\)$/,
+      ],
+    ]
+    for (const [name, pattern] of expected) {
+      const plan = plans.get(name)
+      expect(plan, name).toBeDefined()
+      expect(plan, name).toMatch(pattern)
+      expect(`${name}: ${plan}`).not.toMatch(/SCAN (effects|candidate|newer)\b|TEMP B-TREE/)
+    }
+  })
+
+  it("the active lookup seeks the active statuses, not the target's history, and sorts only those", () => {
+    useOperatorStatistics()
+    const plan = effectPlans().get('newestOnTargetIn [active]')
+    expect(plan).toBe(
+      'SEARCH effects USING INDEX idx_effects_status_deadline (status=?) | USE TEMP B-TREE FOR ORDER BY',
+    )
+    // Armed: unpinned, the statistics send it through the target's history.
+    const unpinned = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE kind = ? AND target_kind = ? AND target_id = ? AND status IN ('pending', 'running') AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .all(null, null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(unpinned).toBe(
+      'SEARCH effects USING INDEX idx_effects_kind_target (kind=? AND target_kind=? AND target_id=?)',
+    )
+  })
+
+  /**
+   * THE ROWS THE ACTIVE LOOKUP READS [POD-7031]. A machine kept 24k finished
+   * scans, and the scan the connect path asks about ran through all of them,
+   * each fetched with its result, to find none: 3–16 s a minute on the
+   * operator's server. bun:sqlite exposes no statement counters, so the rows a
+   * SEARCH reads are counted as the entries in the index range its plan seeks:
+   * the plan's index, constrained by its seek columns.
+   */
+  it('reads only the active records, however long the target history', async () => {
+    const seeded = await openTestStore(':memory:')
+    try {
+      const db = (seeded as unknown as { db: SqlDatabase }).db
+      const insert = db.prepare(
+        `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+           finished_at, created_at, updated_at, revision)
+         VALUES (?, 'machine.scan', 'machine', ?, '{}', ?, ?, ?, ?, ?, 1)`,
+      )
+      const result = JSON.stringify({ repos: 'x'.repeat(5_000) })
+      const HISTORY = 2_000
+      db.exec('BEGIN')
+      for (let at = 0; at < HISTORY; at++) {
+        insert.run(`eff_old_${at}`, 'mch_busy', result, 'succeeded', at, at, at)
+      }
+      // Another machine's scan is running: the range holds it, the filter drops it.
+      insert.run('eff_elsewhere', 'mch_other', null, 'running', null, HISTORY, HISTORY)
+      db.exec('COMMIT')
+
+      const machine = { kind: 'machine', id: 'mch_busy' } as const
+      expect(await seeded.effects.newestOnTarget('machine.scan', machine, 'active')).toBeUndefined()
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'succeeded'))?.id).toBe(
+        `eff_old_${HISTORY - 1}`,
+      )
+
+      useOperatorStatistics()
+      const plan = effectPlans().get('newestOnTargetIn [active]') ?? ''
+      const seekIndex = /USING INDEX (\S+) \(status=\?\)/.exec(plan)?.[1] ?? ''
+      expect(seekIndex, plan).toBe('idx_effects_status_deadline')
+      const rangeRows = (from: string, where: string): number =>
+        (
+          db
+            .prepare(`SELECT count(*) AS n FROM effects INDEXED BY ${from} WHERE ${where}`)
+            .get() as {
+            n: number
+          }
+        ).n
+      const active = "status IN ('pending', 'running')"
+      expect(rangeRows(seekIndex, active)).toBe(1)
+      // Armed: the target seek the planner chose before reads the whole history.
+      expect(
+        rangeRows(
+          'idx_effects_kind_target',
+          "kind = 'machine.scan' AND target_kind = 'machine' AND target_id = 'mch_busy'",
+        ),
+      ).toBe(HISTORY)
+
+      // Two active scans on the machine: the newer one, among only the active records.
+      insert.run('eff_pending', 'mch_busy', null, 'pending', null, HISTORY + 1, HISTORY + 1)
+      insert.run('eff_running', 'mch_busy', null, 'running', null, HISTORY + 2, HISTORY + 2)
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'active'))?.id).toBe(
+        'eff_running',
+      )
+      expect(rangeRows(seekIndex, active)).toBe(3)
+    } finally {
+      await seeded.close()
+    }
+  })
+
+  it('no effects statement walks the live records through a soft-delete index', () => {
+    useOperatorStatistics()
+    const walks = [...effectPlans()]
+      .filter(([, plan]) => /\(deleted_at=\?\)|SCAN effects\b/.test(plan))
+      .map(([name, plan]) => `${name}: ${plan}`)
+    expect(walks).toEqual([])
+  })
+})
+
+/**
+ * EVERY STATEMENT UNDER THE OPERATOR'S STATISTICS, EVERY IN LIST AT EVERY SIZE
+ * IT CAN TAKE [POD-7034; POD-7027 findings 2 and 3, guard 1]. The audit above
+ * plans on a model of a large database; SQLite plans on `sqlite_stat1`, and the
+ * operator's says something no model did. ANALYZE counts each NULL as its own
+ * value, so `idx_sessions_deleted_at` read as four sessions per key and
+ * `deleted_at IS NULL` as a selective seek: 36 statements walked every live
+ * session or issue through a soft-delete or parent index, and an IN list
+ * multiplies its per-key estimate by its length, so at 16 ids or more the
+ * by-id families flipped to that walk too. Planning only sizes 1 and 4 never
+ * saw it.
+ *
+ * So every statement is planned again under a stored copy of the operator's
+ * statistics (`OPERATOR_PLANNER_STATISTICS`, refreshed at each release), each
+ * IN-list family at every padded size up to the largest its callers pass, and
+ * the audit fails on:
+ * - a seek that reads an `IS NULL` filter's rows through an index that holds
+ *   the NULLs (every column the seek constrains is filtered `IS NULL` and
+ *   compared to no value), under either picture; no list explains one;
+ * - a scan of a growing table, or a sort over one, that the lists above do not
+ *   explain.
+ */
+describe('POD-7034 — every statement under the operator statistics', () => {
+  /**
+   * The largest padded size an IN-list family's callers can pass, where it is
+   * not {@link CHUNK_SIZE}'s: a smaller fixed domain, or a larger chunk.
+   */
+  const LARGEST_IN_LIST: ReadonlyMap<string, number> = new Map<string, number>([
+    // Two arms of candidate keys, chunked at WORKTREE_OWNER_CHUNK (2048).
+    ['apps/server/src/store/issues.ts:worktreeOwnersOf', 2048],
+    // The four persisted session statuses.
+    ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', 4],
+    // The shipping destinations: at most three.
+    ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', 4],
+    ['apps/server/src/store/shipping.ts:activeOrdersOfLane', 4],
+    // The mail records route takes at most MAIL_RECORDS_MAX_IDS (100) items.
+    ['apps/server/src/store/messages.ts:attachmentMessagesOfItems', 128],
+    // PENDING_PAGES_MAX_TARGETS (256) targets a page.
+    ['apps/server/src/store/messages.ts:pendingPages', 256],
+    ['apps/server/src/store/messages.ts:pendingTargetsAmong', 256],
+    // The change log's insert chunk (100 rows).
+    ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', 128],
+  ])
+  /**
+   * The padded size of the 500-value chunk every batching caller cuts its list
+   * into. A family whose callers pass an unchunked list is planned up to it too:
+   * past the table's size a scan is the right plan, so no larger size tells
+   * the audit anything.
+   */
+  const CHUNK_SIZE = 512
+
+  const paddedSizes = (largest: number): number[] => {
+    const sizes = [1]
+    for (let size = 2; size < largest; size *= 2) sizes.push(size)
+    if (largest > 1) sizes.push(largest)
+    return sizes
+  }
+
+  /** Families whose key names an IN-list size beside other parts, at every padded size. */
+  const SIZED_KEY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
+    string,
+    readonly (string | number)[]
+  >([
+    [
+      'apps/server/src/store/messages.ts:openBoundTo',
+      paddedSizes(CHUNK_SIZE).flatMap((size) => [`${size}`, `${size}|issue`]),
+    ],
+    [
+      // CHAT_TAIL_MAX_SESSIONS (256) sessions a chunk.
+      'apps/server/src/store/messages.ts:confirmedChatTail',
+      paddedSizes(256).flatMap((size) => [`live|${size}`, `any|${size}`]),
+    ],
+    [
+      'apps/server/src/store/events.ts:matchingSubscriptions',
+      paddedSizes(CHUNK_SIZE).flatMap((size) => ['r', 'a', 'ra'].map((arms) => `${arms}|${size}`)),
+    ],
+    [
+      'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
+      ['all', 'one', ...paddedSizes(CHUNK_SIZE)],
+    ],
+  ])
+
+  /** A family's shapes for this picture: an IN-list family at every padded size. */
+  const operatorShapes = (key: string): readonly (string | number)[] | undefined => {
+    const shapes = FAMILY_SHAPES.get(key)
+    if (shapes === SIZES) return paddedSizes(LARGEST_IN_LIST.get(key) ?? CHUNK_SIZE)
+    return SIZED_KEY_SHAPES.get(key) ?? shapes
+  }
+
+  /** Replace the statistics with the operator's, each row whose table and index exist. */
+  const useOperatorStatistics = (): { applied: number; skipped: string[] } => {
+    database.exec('ANALYZE')
+    database.exec('DELETE FROM sqlite_stat1')
+    const names = new Set(
+      (
+        database
+          .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+          .all() as { name: string }[]
+      ).map((row) => row.name),
+    )
+    const insert = database.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
+    let applied = 0
+    const skipped: string[] = []
+    for (const [table, index, stat] of OPERATOR_PLANNER_STATISTICS) {
+      if (!names.has(table) || (index !== null && !names.has(index))) {
+        skipped.push(`${table}.${index}`)
+        continue
+      }
+      insert.run(table, index, stat)
+      applied++
+    }
+    database.exec('ANALYZE sqlite_schema')
+    return { applied, skipped }
+  }
+
+  /** A column reference in the SQL drizzle writes: optionally quoted, optionally qualified. */
+  const columnRef = (column: string): string =>
+    `(?:["\`]?\\w+["\`]?\\.)?["\`]?${column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`]?`
+
+  /** The statement filters `column IS NULL` and compares it to no value. */
+  const filteredNullOnly = (sqlText: string, column: string): boolean =>
+    new RegExp(`${columnRef(column)}\\s+is\\s+null\\b`, 'i').test(sqlText) &&
+    !new RegExp(`${columnRef(column)}\\s*(?:=|<|>|!=|\\bin\\b|\\bis\\s+\\?)`, 'i').test(sqlText)
+
+  /**
+   * The columns whose `IS NULL` selects a large share of the table, as
+   * `table.column`: every soft-delete `deleted_at` (nearly every row is live)
+   * and an issue's parent (a quarter of the operator's issues are top-level).
+   */
+  const mostlyNull = (): Set<string> => {
+    const out = new Set(['issues.parent_id'])
+    for (const table of tablesOf(database)) {
+      const columns = database.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all() as {
+        name: string
+      }[]
+      if (columns.some((column) => column.name === 'deleted_at')) out.add(`${table}.deleted_at`)
+    }
+    return out
+  }
+
+  let schemaTables: Set<string> | undefined
+
+  /**
+   * The seeks of a plan that read an `IS NULL` filter's rows through a
+   * soft-delete or parent index that holds the NULLs: SQLite prints `IS NULL`
+   * as `column=?`, so a seek all of whose terms are such equalities, on
+   * mostly-NULL columns the statement only filters `IS NULL`, walks every row
+   * the filter keeps.
+   */
+  const nullWalks = (
+    plan: readonly string[],
+    sqlText: string,
+    columns: ReadonlySet<string> = mostlyNull(),
+  ): string[] => {
+    const tables = (schemaTables ??= tablesOf(database))
+    return plan.filter((detail) => {
+      const search = /^SEARCH (\S+)(?: AS \S+)? USING (?:COVERING )?INDEX \S+ \(([^)]*)\)/.exec(
+        detail,
+      )
+      if (!search) return false
+      const table = tables.has(search[1]!)
+        ? search[1]!
+        : planFindings([`SCAN ${search[1]!}`], sqlText, tables)[0]?.table
+      const terms = search[2]!.split(' AND ').map((term) => /^(\w+)=\?$/.exec(term.trim())?.[1])
+      return terms.every(
+        (column) =>
+          column !== undefined &&
+          columns.has(`${table}.${column}`) &&
+          filteredNullOnly(sqlText, column),
+      )
+    })
+  }
+
+  /**
+   * Every statement planned in both pictures, once for the tests below: the
+   * modelled one at the audit's shapes, the operator's at every IN-list size.
+   */
+  let pictures: { modelled: AuditedStatement[]; operator: AuditedStatement[] } | undefined
+  const bothPictures = (): { modelled: AuditedStatement[]; operator: AuditedStatement[] } => {
+    if (pictures !== undefined) return pictures
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    modelLowSelectivity(database)
+    const modelled = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
+    useOperatorStatistics()
+    const operator = [
+      ...auditDefinitions(keyed, operatorShapes).audited,
+      ...auditRawSql(rawSqlCensus(SOURCE)),
+    ]
+    modelLowSelectivity(database)
+    pictures = { modelled, operator }
+    return pictures
+  }
+  /** Planning ~1,900 statements takes seconds on a loaded host. */
+  const PICTURES_TIMEOUT_MS = 180_000
+
+  const named = (entry: AuditedStatement): string => `${entry.key} [${String(entry.shape ?? '')}]`
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('applies the operator statistics to the schema', () => {
+    const { applied, skipped } = useOperatorStatistics()
+    console.log(
+      `operator statistics (${OPERATOR_STATISTICS_CAPTURED_AT}): ${applied} rows applied, ` +
+        `${skipped.length} name an index the schema no longer has: ${skipped.join(', ')}`,
+    )
+    // A fixture that applies nothing plans on the defaults and passes.
+    expect(applied).toBeGreaterThan(100)
+    expect(
+      (database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get() as { n: number }).n,
+    ).toBe(applied)
+  })
+
+  it(
+    'reads no IS NULL filter through an index that holds the NULLs, under either picture',
+    () => {
+      const columns = mostlyNull()
+      // A census that found no soft-delete column would find no walk.
+      expect([...columns]).toEqual(
+        expect.arrayContaining(['sessions.deleted_at', 'issues.deleted_at', 'effects.deleted_at']),
+      )
+      const walksOf = (audited: readonly AuditedStatement[]) =>
+        audited.flatMap((entry) =>
+          nullWalks(entry.plan, entry.statement.sql, columns).map(
+            (detail) => `${named(entry)}: ${detail}`,
+          ),
+        )
+      const { modelled, operator } = bothPictures()
+      const modelledWalks = walksOf(modelled)
+      const operatorWalks = walksOf(operator)
+      for (const walk of modelledWalks) console.log(`NULL WALK (modelled) ${walk}`)
+      for (const walk of operatorWalks) console.log(`NULL WALK (operator statistics) ${walk}`)
+      expect(modelledWalks).toEqual([])
+      expect(operatorWalks).toEqual([])
+    },
+    PICTURES_TIMEOUT_MS,
+  )
+
+  /** A finding as the lists decide it: a scan by the table it reads, any sort as one. */
+  const findingClass = (finding: PlanFinding): string =>
+    finding.kind === 'scan' ? `scan ${finding.table}` : 'sort'
+
+  /**
+   * Plans read under the operator statistics that no list above was written
+   * for, keyed `file:name [shape]` or `file:name`, with the reason. An entry on
+   * those lists explains only the findings its statement has in the modelled
+   * picture: a list entry written about a sort of a few rows does not accept a
+   * scan the same statement takes at 512 ids.
+   */
+  const OPERATOR_PLANS: ReadonlyMap<string, string> = new Map<string, string>([
+    [
+      'apps/server/src/store/sessions.ts:readAtOfUser',
+      "One person's read times of every session: on a server with one member every row is theirs, so the scan reads the rows the seek on the (user_id, session_id) key would; with more members the statistics give fewer rows a person and it seeks.",
+    ],
+    [
+      'apps/server/src/store/issue-panel.ts:statePage [start]',
+      "The first keyset page of the issue state panels walks their primary key in order and stops at the page size, probing each row's issue; the other panel pages walk the same way (a whole-table read, listed above).",
+    ],
+    [
+      'apps/server/src/store/sessions.ts:refBackfillCandidates',
+      "The boot ref backfill's third arm walks the partial index idx_sessions_refless_issue, which holds only the ref-less sessions with an issue (none on the operator's server), and sorts the few candidates it finds (POD-6222).",
+    ],
+  ])
+
+  /** The finding classes of each statement key in the modelled picture. */
+  const modelledFindings = (): Map<string, Set<string>> => {
+    const out = new Map<string, Set<string>>()
+    for (const entry of bothPictures().modelled) {
+      const classes = out.get(entry.key) ?? new Set<string>()
+      for (const finding of entry.findings) classes.add(findingClass(finding))
+      out.set(entry.key, classes)
+    }
+    return out
+  }
+
+  /** Each table the operator's statistics describe, by its row count there. */
+  const operatorRows = (): Map<string, number> => {
+    const rows = new Map<string, number>()
+    for (const [table, , stat] of OPERATOR_PLANNER_STATISTICS) {
+      rows.set(table, Math.max(rows.get(table) ?? 0, Number(stat.split(' ')[0])))
+    }
+    return rows
+  }
+
+  /** The IN-list size a shape names: its largest number, if any. */
+  const listSize = (shape: string | number | undefined): number | undefined => {
+    if (typeof shape === 'number') return shape
+    const sizes = (shape ?? '').match(/\d+/g)?.map(Number) ?? []
+    return sizes.length > 0 ? Math.max(...sizes) : undefined
+  }
+
+  /**
+   * Why a plan under the operator statistics is accepted, or undefined.
+   *
+   * - A table their statistics do not describe is below the analysis floor on
+   *   the operator's server (`PLANNER_STATISTICS_ROW_FLOOR`): the planner sizes
+   *   it as it is, here a few planted rows, so its scans are judged by the
+   *   modelled picture alone.
+   * - A list entry explains only the findings its statement has in the
+   *   modelled picture.
+   * - A scan at an IN-list size of at least a quarter of the table's rows reads
+   *   at most four rows for each asked: the planner's choice while the table is
+   *   that small, and it seeks again as the table grows. A per-key estimate
+   *   that only looks large (a few common values, or NULLs counted as values)
+   *   is not this: its list is a small share of the table, and the statement
+   *   names its index.
+   */
+  const operatorExplanation = (
+    entry: AuditedStatement,
+    modelled: ReadonlyMap<string, ReadonlySet<string>>,
+    rows: ReadonlyMap<string, number>,
+  ): string | undefined => {
+    const own = OPERATOR_PLANS.get(named(entry)) ?? OPERATOR_PLANS.get(entry.key)
+    if (own !== undefined) return own
+    const reason = explanation(entry)
+    const known = modelled.get(entry.key) ?? new Set<string>()
+    const size = listSize(entry.shape)
+    const accepted = (finding: PlanFinding): boolean => {
+      if (finding.kind === 'scan' && !rows.has(finding.table!)) return true
+      if (reason === 'small tables only') return true
+      if (reason !== undefined && known.has(findingClass(finding))) return true
+      return finding.kind === 'scan' && size !== undefined && size * 4 >= rows.get(finding.table!)!
+    }
+    return entry.findings.every(accepted) ? (reason ?? 'a list a quarter of the table') : undefined
+  }
+
+  it(
+    'finds no unexplained scan or sort under them, at every IN-list size',
+    () => {
+      const modelled = modelledFindings()
+      const rows = operatorRows()
+      const audited = bothPictures().operator
+      const flagged = audited.filter((entry) => entry.findings.length > 0)
+      const unexplained = flagged.filter(
+        (entry) => operatorExplanation(entry, modelled, rows) === undefined,
+      )
+      console.log(
+        `query-plan audit under the operator statistics: ${audited.length} statements, ` +
+          `${flagged.length} scan or sort, ${unexplained.length} unexplained`,
+      )
+      for (const entry of unexplained) {
+        console.log(`UNEXPLAINED (operator) ${describeEntry(entry)}`)
+      }
+      expect(unexplained.map(named)).toEqual([])
+      // No stale entry: each names a statement that scans or sorts under them.
+      const flaggedNames = new Set(flagged.flatMap((entry) => [entry.key, named(entry)]))
+      expect([...OPERATOR_PLANS.keys()].filter((key) => !flaggedNames.has(key))).toEqual([])
+      for (const reason of OPERATOR_PLANS.values()) {
+        expect(reason.trim().length).toBeGreaterThan(20)
+      }
+    },
+    PICTURES_TIMEOUT_MS,
+  )
+
+  it('is armed: an IN list flips to an IS NULL walk at 16 ids through an index that holds the NULLs', () => {
+    // `idx_sessions_deleted_by_issue` is still a full index over a mostly-NULL
+    // column (6941 rows, 17 a key): what the soft-delete indexes were. No
+    // statement filters it IS NULL; this one does, to show the flip.
+    useOperatorStatistics()
+    const planted = (size: number) =>
+      `SELECT * FROM sessions WHERE spawned_by IN (${Array.from({ length: size }, () => '?').join(', ')}) AND deleted_by_issue_id IS NULL`
+    const columns = new Set(['sessions.deleted_by_issue_id'])
+    const walks = (size: number) =>
+      nullWalks(explain(database, { sql: planted(size), params: size }), planted(size), columns)
+    expect(walks(1)).toEqual([])
+    expect(walks(16)).toEqual([
+      'SEARCH sessions USING INDEX idx_sessions_deleted_by_issue (deleted_by_issue_id=?)',
+    ])
+    // An equality on a value is a seek, not a walk; a range is never one.
+    expect(
+      nullWalks(
+        ['SEARCH sessions USING INDEX idx_sessions_spawned_by (spawned_by=?)'],
+        'SELECT * FROM sessions WHERE spawned_by IN (?) AND deleted_at IS NULL',
+      ),
+    ).toEqual([])
+    expect(
+      nullWalks(
+        ['SEARCH sessions USING INDEX idx_sessions_tombstones (deleted_at<?)'],
+        'SELECT id FROM sessions WHERE deleted_at < ?',
+      ),
+    ).toEqual([])
+    // A column the statement also compares to a value is a seek on that value.
+    expect(
+      nullWalks(
+        ['SEARCH issues USING INDEX idx_issues_children (parent_id=?)'],
+        'SELECT * FROM issues WHERE parent_id = ? AND deleted_at IS NULL',
+      ),
+    ).toEqual([])
+  })
+
+  it('plans each IN-list family at every padded size up to its largest', () => {
+    expect(paddedSizes(512)).toEqual([1, 2, 4, 8, 16, 32, 64, 128, 256, 512])
+    expect(paddedSizes(8)).toEqual([1, 2, 4, 8])
+    for (const key of LARGEST_IN_LIST.keys()) expect(FAMILY_SHAPES.get(key), key).toBe(SIZES)
+    // A sized key extends a family's audited shapes, so it covers them.
+    for (const [key, shapes] of SIZED_KEY_SHAPES) {
+      expect(shapes, key).toEqual(expect.arrayContaining([...(FAMILY_SHAPES.get(key) ?? [''])]))
     }
   })
 })

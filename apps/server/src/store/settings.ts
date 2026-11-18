@@ -325,6 +325,15 @@ export class SettingsRepository {
     await this.writeMeta(`setup_enrollment:${key}`, receipt)
   }
 
+  /** Instance-wide completion receipt, read afresh by every server process. */
+  async setupFinished(): Promise<boolean> {
+    return (await metaValue(this.db).get({ key: 'setup_finished' })) !== undefined
+  }
+
+  async finishSetup(): Promise<void> {
+    await this.writeMeta('setup_finished', '1')
+  }
+
   /** Receipt for a historical upgrade that must use the normal write funnel.
    * Row writes are idempotent and commit before this receipt; an interrupted
    * upgrade retries, while subsequent starts perform only this key lookup. */

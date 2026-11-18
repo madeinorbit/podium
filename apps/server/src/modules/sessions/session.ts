@@ -8,6 +8,7 @@ import type {
   Geometry,
   HarnessAgent,
   IssueId,
+  LaunchPostureReport,
   MachineId,
   ResumeRef,
   SessionId,
@@ -136,6 +137,9 @@ export interface SessionInit {
   agentColor?: string
   observedModel?: string
   observedEffort?: string
+  /** The harness-reported mode and the last launch's applied terms (POD-6858). */
+  observedMode?: string
+  launchPosture?: LaunchPostureReport
   handoffTargetMachineId?: MachineId
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
@@ -233,6 +237,8 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  observedMode: string | undefined
+  launchPosture: LaunchPostureReport | undefined
   requestedModel: string | undefined
   requestedEffort: string | undefined
   /** Whether the daemon runs the composer engine for this session, as its last
@@ -406,6 +412,13 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** The permission mode the HARNESS reports it is in (POD-6858 Task 11),
+   *  learned from its own records. Stored, like the observed model. */
+  observedMode: string | undefined
+  /** What the last launch asked for and could not meet, as the daemon reported
+   *  it before the process started (POD-6858 Task 11). Stored: it describes
+   *  the session until it launches again. */
+  launchPosture: LaunchPostureReport | undefined
   /** The model/effort this session was last ASKED for through `sessions.configure`
    *  (POD-3081). Undefined until someone changes it, and then the launch pair
    *  above is still the record of how it started — see `SessionLiveOverlay`. */
@@ -605,6 +618,8 @@ export class Session {
     this.agentColor = d.agentColor
     this.observedModel = d.observedModel
     this.observedEffort = d.observedEffort
+    this.observedMode = d.observedMode
+    this.launchPosture = d.launchPosture
     this.draftSyncEngine = d.draftSyncEngine
     this.handoffTargetMachineId = d.handoffTargetMachineId
     this.onUnreadRearm = init.onUnreadRearm
@@ -817,6 +832,36 @@ export class Session {
     return true
   }
 
+  /** Adopt the permission mode the harness reports it is in (POD-6858 Task 11).
+   *  Returns true when it actually changed. */
+  setObservedMode(mode: string, d: SessionDurableFields = this): boolean {
+    const next = mode.trim()
+    if (!next || next === d.observedMode) return false
+    d.observedMode = next
+    return true
+  }
+
+  /**
+   * Adopt a launch's applied terms (POD-6858 Task 11), or drop the previous
+   * launch's with `undefined` when a new launch decision is announced. A new
+   * launch also forgets the mode the old process reported. Returns true when
+   * anything changed.
+   */
+  setLaunchPosture(
+    report: LaunchPostureReport | undefined,
+    d: SessionDurableFields = this,
+  ): boolean {
+    if (report === undefined) {
+      if (d.launchPosture === undefined && d.observedMode === undefined) return false
+      d.launchPosture = undefined
+      d.observedMode = undefined
+      return true
+    }
+    if (JSON.stringify(report) === JSON.stringify(d.launchPosture)) return false
+    d.launchPosture = structuredClone(report)
+    return true
+  }
+
   /**
    * Record a sticky change the DRIVER GRANTED (POD-3081). Returns true when it
    * actually moved, so the caller can skip a redundant broadcast.
@@ -937,6 +982,8 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      observedMode: this.observedMode,
+      launchPosture: this.launchPosture ? structuredClone(this.launchPosture) : undefined,
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
       draftSyncEngine: this.draftSyncEngine,
@@ -1013,6 +1060,8 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.observedMode = state.observedMode
+    this.launchPosture = state.launchPosture ? structuredClone(state.launchPosture) : undefined
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
     this.draftSyncEngine = state.draftSyncEngine
@@ -1068,6 +1117,8 @@ export class Session {
       agentColor: d.agentColor ?? null,
       observedModel: d.observedModel ?? null,
       observedEffort: d.observedEffort ?? null,
+      observedMode: d.observedMode ?? null,
+      launchPosture: d.launchPosture ?? null,
       handoffTargetMachineId: d.handoffTargetMachineId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,

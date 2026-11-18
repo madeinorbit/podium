@@ -17,7 +17,6 @@ const stamp = '2026-10-04T12:00:00Z'
 installMobxWarnTrap({ errors: true })
 function fixture(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    header: true,
     worklist: 'demand',
     load: () => undefined,
     schedule: () => () => {},

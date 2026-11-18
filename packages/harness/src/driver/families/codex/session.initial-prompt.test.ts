@@ -19,6 +19,7 @@ import { manifestFor } from '../../../registry.js'
 import {
   createMemoryDriverSlots,
   serverFamilyLaunch,
+  testEngineTerms,
   testHarnessContext,
 } from '../../testing/index.js'
 import { codexEngineFacts } from './engine-facts.js'
@@ -44,6 +45,7 @@ describe('codex launch with an initial prompt', () => {
     const entries = new Map<string, unknown>()
     let seq = 0
     const host: CodexRuntimeHost = {
+      ...testEngineTerms(),
       harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
       stageAttachment: async ({ source }) => ({
         id: 'test-attachment',

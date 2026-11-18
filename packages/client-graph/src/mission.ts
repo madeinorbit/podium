@@ -26,7 +26,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
   // No reaction keeps a visited id's computed alive (review finding 2).
   const rootRow = (id: string) => {
     // The one reader overlays pending values on both rows and summaries.
-    let row = omitGone(pool.row('issue', id, 'summary'))
+    let row = omitGone(pool.row('issue', id))
     // stage is required on every full issue and on our declared summary.
     // Without it an empty/partial summary cannot answer optional parents.
     if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = omitGone(pool.row('issue', id))

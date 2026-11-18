@@ -59,10 +59,12 @@ import {
   needsAllocation,
 } from './driver/families/headless/invocation.js'
 import type { HeadlessTurnSpec } from './driver/families/headless/types.js'
+import { testLaunchPosture } from './driver/testing/harness-context.js'
 import { harnessChildEnv, harnessContext, harnessDriverContext } from './harness-context.js'
 import type { HarnessContext } from './harness-context-types.js'
 import { installTargetFor, runInstallTarget } from './inventory/install.js'
 import { agentLaunchCommand } from './launch.js'
+import { agentLaunchTerms } from './launch-terms.js'
 import {
   type AgentManifest,
   credentialFileReader,
@@ -70,6 +72,8 @@ import {
   type HarnessObserverHost,
   resolveCredentialFilePath,
 } from './manifest.js'
+import { noAgentTerms } from './posture.js'
+import type { LaunchMode, LaunchTerms } from './posture-types.js'
 import { AGENT_MANIFESTS, registerTestManifest, sectionStatusesOf } from './registry.js'
 import { transcriptSourceFromGrammar } from './store/store.js'
 
@@ -331,6 +335,12 @@ interface Harness {
   spawned: number
 }
 
+/** The terms an agent launch of this harness runs on, in launch mode `mode`
+ *  (POD-6858): its own posture section over a test launch posture. */
+function termsFor(h: Harness, mode: LaunchMode): LaunchTerms {
+  return agentLaunchTerms(h.manifest, mode, testLaunchPosture(h.context))
+}
+
 function harnessOn(world: World, kind: Kind): Harness {
   const manifest = manifestOf(kind)
   const selected = recordingBinary(world, kind, manifest.inventory.executable.names[0] ?? kind)
@@ -437,6 +447,7 @@ const CASES: Record<string, Case> = {
       runtimeDir,
       podiumSessionId: asSessionId(`poisoned-${h.kind}`),
       instructions: [{ source: 'issue', content: 'conformance' }],
+      posture: { ...testLaunchPosture(h.context, { runtimeDir }) },
     })
     if (!('cmd' in command)) throw new Error('launch produced no command')
     h.spawn(command as BoundCommand)
@@ -528,7 +539,7 @@ const CASES: Record<string, Case> = {
   exec: (h) => {
     const exec = declaredValue(h.manifest.exec)!
     const argv = exec({ prompt: 'conformance', systemPrompt: 'system' })
-    const { stdin, ...command } = harnessCommand(h.context, argv)
+    const { stdin, ...command } = harnessCommand(h.context, argv, termsFor(h, 'turn'))
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })
   },
   headless: (h) => {
@@ -540,6 +551,7 @@ const CASES: Record<string, Case> = {
       cwd: CWD,
       prompt: 'conformance',
       sessionUuid: RESUME,
+      launchPosture: testLaunchPosture(h.context),
     }
     // Cursor allocates its chat first (`create-chat`), then runs pinned to it.
     const allocated = needsAllocation(spec) ? RESUME : undefined
@@ -558,6 +570,7 @@ const CASES: Record<string, Case> = {
     const { stdin, ...command } = harnessCommand(
       h.context,
       buildExec({ prompt: 'conformance', sessionId: RESUME, resumeValue: RESUME }),
+      termsFor(h, 'turn'),
     )
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })
   },
@@ -666,11 +679,23 @@ const CASES: Record<string, Case> = {
   // --- inventory --------------------------------------------------------------
   'inventory.loginCommand': (h) => {
     const login = declaredValue(h.manifest.inventory.loginCommand)!
-    h.spawn(harnessCommand(h.context, { args: [...login.args] }))
+    h.spawn(
+      harnessCommand(
+        h.context,
+        { args: [...login.args] },
+        noAgentTerms('native login pane: runs no agent'),
+      ),
+    )
   },
   'inventory.loginCommandProbe': (h) => {
     const probe = declaredValue(h.manifest.inventory.loginCommandProbe)!
-    h.spawn(harnessCommand(h.context, { args: [...probe.args] }))
+    h.spawn(
+      harnessCommand(
+        h.context,
+        { args: [...probe.args] },
+        noAgentTerms('login probe: runs no agent'),
+      ),
+    )
   },
   'inventory.loginIdentity': (h) => {
     const identity = declaredValue(h.manifest.inventory.loginIdentity)!(
@@ -694,7 +719,13 @@ const CASES: Record<string, Case> = {
       server.driverId,
     )
     const args = server.spawn.slice(1).map((arg) => (arg === '<daemon-picked>' ? '0' : arg))
-    h.spawn(harnessCommand(context, { args }))
+    h.spawn(
+      harnessCommand(
+        context,
+        { args },
+        agentLaunchTerms(h.manifest, 'engine', testLaunchPosture(context)),
+      ),
+    )
   },
   'runtime.server.versionRange': PURE('a semver range string'),
   'runtime.server.clientTerminal': (h) => {
@@ -708,6 +739,7 @@ const CASES: Record<string, Case> = {
           endpoint: { address: 'http://127.0.0.1:9', username: 'u', secret: 's' },
           harnessContext: h.context,
         }),
+        termsFor(h, 'client'),
       ),
     )
   },

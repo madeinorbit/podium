@@ -83,7 +83,7 @@ const wallClock = (): number =>
 
 const round = (ms: number): number => Math.round(ms * 10) / 10
 
-export type SyncTransferMode = 'bootstrap' | 'delta'
+export type SyncTransferMode = 'bootstrap' | 'delta' | 'collections'
 
 /**
  * The transport-read boundary, marked by the NDJSON reader and summed here.
@@ -337,21 +337,21 @@ export function createSyncTransferTelemetry(
   const progressRecords = options.progressRecords ?? DEFAULT_PROGRESS_RECORDS
   const progressMs = options.progressMs ?? DEFAULT_PROGRESS_MS
   // Per mode, so a bootstrap id and a delta id never collide in a joined log.
-  const counters = { bootstrap: 0, delta: 0 }
+  const counters = { bootstrap: 0, delta: 0, collections: 0 }
   /**
    * The cause the Replica emitted for the walk that has not opened its request
    * yet. Kept per mode because rung 1 ('gap') leads to `changesRange` and every
    * other rung leads to `bootstrap`; one slot would have handed a bootstrap the
    * cause of the heal that preceded it.
    */
-  const pending: { bootstrap: string | null; delta: string | null } = { bootstrap: null, delta: null }
+  const pending: Record<SyncTransferMode, string | null> = { bootstrap: null, delta: null, collections: null }
   /** The bootstrap whose install is still outstanding; its stream has already ended. */
   let installing: { attemptId: string; transferId: string | null; startedAt: number; endedAt: number } | null = null
 
   return {
     begin(mode, url, headers) {
       counters[mode] += 1
-      const attemptId = `${mode === 'bootstrap' ? 'b' : 'd'}${counters[mode]}`
+      const attemptId = `${mode === 'bootstrap' ? 'b' : mode === 'delta' ? 'd' : 'c'}${counters[mode]}`
       const cause = pending[mode]
       pending[mode] = null
       const attempt = new TransferAttempt(log, now, progressRecords, progressMs, mode, attemptId)

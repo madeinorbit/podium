@@ -35,13 +35,26 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import { sameCursor } from './cache-completeness'
+import { RECORDS } from '@podium/model'
+import { instanceKey, rowAfter } from './cache-state'
+import {
+  comesWithOf,
+  HeldIndex,
+  type HeldRows,
+  planTrim,
+  policyArgs,
+  policyInstances,
+  resolveInstance,
+  stubFieldsOf,
+  stubOfValue,
+} from './holdings'
 import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
 import {
   type AuthorityReadPort,
   type CacheMutation,
   type CacheOperation,
+  type InstanceOperation,
   type KnownKindValidatorPort,
   type ReplicaParticipantStore,
   ReplicaStoreCorruptError,
@@ -49,20 +62,26 @@ import {
   type SyncUnitOfWork,
 } from './ports'
 import { transitionRow } from './transition-table'
-import type {
-  BootstrapChunk,
-  ChangeEnvelope,
-  Cursor,
-  DeltaFrame,
-  EntityRecord,
-  ExitKind,
-  HealRung,
-  KindTokens,
-  Posture,
-  RebootstrapCause,
-  ReplicaEvent,
-  ReplicaStats,
-  ServerFrame,
+import {
+  type BootstrapChunk,
+  type ChangeEnvelope,
+  type Cursor,
+  type DeltaFrame,
+  type DeviceCollectionReads,
+  type EntityRecord,
+  type ExitKind,
+  type HealRung,
+  type InstanceRecord,
+  type InstanceRequest,
+  type InstanceSpec,
+  type KindTokens,
+  type Posture,
+  type RebootstrapCause,
+  type ReplicaEvent,
+  type ReplicaStats,
+  rowAsOf,
+  type ServerFrame,
+  type StubRow,
 } from './types'
 
 export interface ReplicaOptions {
@@ -114,9 +133,30 @@ export interface ReplicaOptions {
    * along with the cursor advance it reports.
    */
   readonly batchEvents?: (emitAll: () => void) => void
-  /** ADR 2 D6.5 — a failed bootstrap RESTARTS (resumable bootstrap is deferred). */
+  /**
+   * ADR 2 D6.5 — a failed bootstrap RESTARTS. Since POD-7086 a restart keeps
+   * what it installed: each collection is written in chunks with its marker
+   * last, so the next attempt loads only the collections without a marker.
+   */
   readonly maxBootstrapAttempts?: number
+  /** The clock collection rules compare "newer than N days" against. */
+  readonly now?: () => number
+  /**
+   * What the visible view asks for when a full load starts (the loader's,
+   * POD-7087): the first download's second step, design "One loader, one
+   * route". Read once per attempt.
+   */
+  readonly view?: () => readonly InstanceRequest[]
+  /**
+   * Where the instances held records come with are asked for, outside a
+   * load: the loader's queue (POD-7087), so they share its window and its
+   * offline rule. Absent, the Replica batches them itself per microtask.
+   */
+  readonly request?: (specs: readonly InstanceSpec[]) => void
 }
+
+/** Most instances one fetch names; the route's own bound. */
+const FETCH_MAX_INSTANCES = 200
 
 /** What a single input did, including the transition-table row it took. */
 export interface TransitionOutcome {
@@ -128,8 +168,6 @@ export interface TransitionOutcome {
 
 const entityKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
-class PartialBootstrapUnavailable extends Error {}
-
 /** A retired kind requires a full replacement; missing local tokens reload their kinds. */
 function changedKinds(
   installed: KindTokens | undefined,
@@ -139,15 +177,6 @@ function changedKinds(
     return undefined
   return Object.keys(offered).filter(
     (kind) => !installed || !Object.hasOwn(installed, kind) || installed[kind] !== offered[kind],
-  )
-}
-
-function sameKinds(expected: ReadonlySet<string>, offered: readonly string[] | undefined): boolean {
-  return (
-    offered !== undefined &&
-    expected.size === offered.length &&
-    offered.every((kind) => expected.has(kind)) &&
-    new Set(offered).size === expected.size
   )
 }
 
@@ -175,7 +204,7 @@ export class SyncUnitOfWorkRequiredError extends Error {
   }
 }
 
-export class Replica {
+export class Replica implements DeviceCollectionReads {
   private readonly store: ReplicaParticipantStore
   private readonly authority: AuthorityReadPort
   private readonly overlayPort: OptimisticOverlayPort | undefined
@@ -217,6 +246,36 @@ export class Replica {
    */
   readonly transitions: { rowId: string; from: Posture; to: Posture }[] = []
 
+  private readonly now: () => number
+  /** Instances an open view holds, with how many holds each has (design "Two holders"). */
+  private readonly holds = new Map<string, { readonly spec: InstanceSpec; count: number }>()
+  /** Instances a fetch is answering now: they count as held, so the feed keeps their records. */
+  private readonly inFlight = new Map<string, InstanceSpec>()
+  private inFlightVersion = 0
+  /**
+   * The feed number of every change seen while a fetch is in flight, by record.
+   * An answer older than a change the device ignored or applied as a removal
+   * must not bring the old record back ("the newer one wins").
+   */
+  private seen: Map<string, number> | null = null
+  private fetchCount = 0
+  private fetchAbort = new AbortController()
+  private fetching: Promise<void> = Promise.resolve()
+  /** What held records come with, gathered for one batched fetch. */
+  private readonly needs = new Map<string, InstanceRequest>()
+  private needsScheduled = false
+  private trimScheduled = false
+  private heldIndexCache:
+    | {
+        readonly instances: ReadonlyMap<string, InstanceRecord>
+        readonly policy: unknown
+        readonly version: number
+        readonly index: HeldIndex
+      }
+    | undefined
+  private readonly viewRequests: (() => readonly InstanceRequest[]) | undefined
+  private readonly requestHook: ((specs: readonly InstanceSpec[]) => void) | undefined
+
   private counters = {
     heals: 0,
     bootstraps: 0,
@@ -234,9 +293,13 @@ export class Replica {
       throw new SyncUnitOfWorkRequiredError()
     }
     this.validator = options.validator
-    this.emit = options.onEvent ?? (() => {})
+    this.now = options.now ?? (() => Date.now())
+    const onEvent = options.onEvent ?? (() => {})
+    this.emit = onEvent
     this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
+    this.viewRequests = options.view
+    this.requestHook = options.request
     this.cursorValue = this.readCursorSafely()
     if (this.cursorValue !== null) this.state = 'stale'
   }
@@ -323,8 +386,10 @@ export class Replica {
     // A heal can start a bootstrap, which can start a heal. Drain until quiet.
     for (let i = 0; i < 50; i += 1) {
       const before = this.inflight
+      const fetching = this.fetching
       await before
-      if (this.inflight === before) return this.reportFailure()
+      await fetching
+      if (this.inflight === before && this.fetching === fetching) return this.reportFailure()
     }
     throw new Error('replica did not settle: the ladder is not resolving downward')
   }
@@ -569,6 +634,7 @@ export class Replica {
     // multi-region commit now resolves asynchronously, and the transition row must
     // still be available to the synchronous caller.
     const row = this.classify(changes)
+    let decision: FeedDecision | undefined
     const done = this.commitRegions(
       { matches: retirementsOf([changes]), through: nextCursor, install: false },
       (span) => {
@@ -579,17 +645,14 @@ export class Replica {
           prepare()
           span?.join({ prepare, publish() {} })
         }
-        const mutation = toMutation(changes, nextCursor)
-        const complete = sameCursor(this.store.readPersonalRowsCompleteAt(), this.cursorValue)
-        this.store.applyAtomic(
-          complete ? { ...mutation, personalRowsCompleteAt: nextCursor } : mutation,
-          span,
-        )
+        decision = this.feedMutation(changes, nextCursor)
+        this.store.applyAtomic(decision.mutation, span)
       },
       () => {
         this.cursorValue = nextCursor
         this.counters.pendingGap = false
-        this.emitApplied(changes, nextCursor)
+        this.emitApplied(changes, nextCursor, decision)
+        if (decision !== undefined) this.request(decision.needs)
       },
     )
     return { row, done }
@@ -705,7 +768,11 @@ export class Replica {
     return 'D7-0-APPLY'
   }
 
-  private emitApplied(changes: readonly ChangeEnvelope[], cursor: Cursor): string {
+  private emitApplied(
+    changes: readonly ChangeEnvelope[],
+    cursor: Cursor,
+    decision?: FeedDecision,
+  ): string {
     const row = this.classify(changes)
     let sawEvict = false
     let sawRemove = false
@@ -725,10 +792,20 @@ export class Replica {
     // only the truth about where the frame ENDED.
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
+      // Older than the record the device holds (a fetch answered ahead of the
+      // feed): nothing changed for it, so nothing is announced either.
+      if (decision?.skipped.has(change)) continue
       if (change.op === 'upsert') {
         const readmitted = this.exits.get(key) === 'evicted'
         sawReadmit ||= readmitted
         this.exits.delete(key)
+        // The feed-apply table decided what the device keeps (POD-7086): a
+        // change it ignored is not held, and a stub is not a whole record.
+        if (decision?.ignored.has(change)) continue
+        if (decision?.stubbed.has(change)) {
+          this.emit({ type: 'stub-upserted', record: { ...recordOf(change), part: 'stub' } })
+          continue
+        }
         this.emit({ type: 'upserted', record: recordOf(change), readmitted })
       } else if (change.op === 'remove') {
         sawRemove = true
@@ -863,21 +940,16 @@ export class Replica {
         }
       }
       if (generation !== this.walkGeneration) return
-      // Only normal range completion certifies an old cache. An interrupted
-      // range may have committed a prefix, but cannot upgrade completeness.
-      const head = this.cursorValue as Cursor
-      if (!sameCursor(this.store.readPersonalRowsCompleteAt(), head)) {
-        try {
-          this.store.applyAtomic({ operations: [], cursor: head, personalRowsCompleteAt: head })
-        } catch (error) {
-          this.setPosture('stale')
-          throw error
-        }
-      }
       this.counters.pendingGap = false
       this.note('D7-1-HEALED')
       this.setPosture('live')
       await this.drainBuffer()
+      if (generation !== this.walkGeneration || this.state !== 'live') return
+      // A first download or reload the app closed early resumes at the first
+      // collection without a marker (POD-7048); otherwise fetch what a held
+      // record comes with that an interrupted answer did not bring.
+      if (this.store.readLoadingSince() !== null) this.rebootstrap('resume')
+      else this.requestMissingComesWith()
     })
   }
 
@@ -955,14 +1027,21 @@ export class Replica {
    * event and a drop-the-outbox bug would be reachable by a colleague clicking
    * "share" (ADR 2 D7 + Amendment 1 D14.4).
    *
-   * The cache discard happens at the ATOMIC SWAP (`installSnapshot`), not up
-   * front: rungs 2-6 must never blank the UI before the replacement state is
-   * installed (D7 stale-visible + D6.4).
+   * Rows are never discarded up front: rungs 2-6 must never blank the UI. The
+   * load writes its collections in chunks over the old rows and sweeps what it
+   * did not confirm only once every policy collection has its marker (D7
+   * stale-visible; POD-7086). Only the markers go at once: what the feed kept
+   * complete is no longer known to be.
    */
   private rebootstrap(cause: RebootstrapCause, kinds?: ReadonlySet<string>): void {
+    // A changed record shape reloads only the collections of those kinds,
+    // through the collection fetch, while the feed keeps applying (POD-7086).
+    if (cause === 'kind-shape' && kinds !== undefined && this.reloadKinds(kinds)) return
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
+    this.fetchAbort.abort()
+    this.fetchAbort = new AbortController()
     this.walkAbort = new AbortController()
     this.walkGeneration += 1
     const generation = this.walkGeneration
@@ -982,15 +1061,18 @@ export class Replica {
     this.counters.bootstraps += 1
     this.counters.pendingGap = false
     this.setPosture('bootstrapping')
-    this.emit({ type: 'heal', rung: rungFor(cause), cause, ...(kinds && { partial: true }) })
+    this.emit({ type: 'heal', rung: rungFor(cause), cause })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
-      // After prior frame commits settle, before the new walk. Clearing eagerly
-      // while an older span is still staged would let its publication restore
-      // the old certification behind this recovery.
+      // After prior frame commits settle, before the new walk: the markers
+      // described what the feed kept complete, and a walk is under way because
+      // it could not. The old rows stay readable; only "complete" is withdrawn.
+      // Clearing eagerly while an older span is still staged would let its
+      // publication restore the old markers behind this recovery.
       try {
-        if (kinds === undefined && this.store.readPersonalRowsCompleteAt() !== null) {
-          this.store.applyAtomic({ operations: [], personalRowsCompleteAt: null })
+        if (cause !== 'resume' && this.store.readInstances().size > 0) {
+          this.store.applyAtomic({ operations: [], instances: [{ kind: 'dropAll' }] })
+          this.emit({ type: 'markers' })
         }
       } catch (error) {
         // An unreadable corruption walk must consume its bounded attempt budget,
@@ -998,29 +1080,21 @@ export class Replica {
         if (cause !== 'local-corruption' || !(error instanceof ReplicaStoreCorruptError))
           throw error
       }
-      await this.walk(cause, generation, kinds)
+      await this.walk(cause, generation)
     })
   }
 
-  private async walk(
-    cause: RebootstrapCause,
-    generation: number,
-    kinds?: ReadonlySet<string>,
-  ): Promise<void> {
+  private async walk(cause: RebootstrapCause, generation: number): Promise<void> {
     let lastError = 'unknown'
     for (let attempt = 1; attempt <= this.maxBootstrapAttempts; attempt += 1) {
-      if (generation !== this.walkGeneration) return // superseded; staging discarded
+      if (generation !== this.walkGeneration) return // superseded
       try {
-        const installed = await this.attemptWalk(cause, generation, kinds)
+        const installed = await this.attemptWalk(cause, generation)
         if (installed || generation !== this.walkGeneration) return
         lastError = 'stream ended before the last chunk'
         this.note('D6-RESTART')
       } catch (error) {
         if (generation !== this.walkGeneration) return
-        if (error instanceof PartialBootstrapUnavailable) {
-          this.rebootstrap('kind-shape')
-          return
-        }
         if (error instanceof ReplicaStoreCorruptError) {
           // Rung 5 discovered from INSIDE a walk. Escalating is correct exactly
           // once: a walk that is not already the corruption walk hands over to
@@ -1042,8 +1116,9 @@ export class Replica {
         lastError = error instanceof Error ? error.message : String(error)
         this.note('D6-RESTART')
       }
-      // D6-RESTART: staging is local to attemptWalk, so it is discarded by
-      // leaving it. Bootstrap is restartable, not resumable, in Phase 2.
+      // D6-RESTART: what the attempt installed stays, chunk by chunk, with a
+      // marker for every collection it finished; the next attempt resumes at
+      // the first collection without one (POD-7086).
     }
     if (generation !== this.walkGeneration) return
     this.emit({
@@ -1057,16 +1132,39 @@ export class Replica {
     this.setPosture(this.cursorValue === null ? 'cold' : 'stale')
   }
 
-  /** One attempt. Returns true iff the slice was installed. */
-  private async attemptWalk(
-    cause: RebootstrapCause,
-    generation: number,
-    kinds?: ReadonlySet<string>,
-  ): Promise<boolean> {
-    const staging = new Map<string, EntityRecord>()
+  /**
+   * One attempt. Returns true iff the load finished.
+   *
+   * CHUNKED AND RESUMABLE (POD-7086, design "One loader, one route"; replaces
+   * the single install POD-7048 lost on an early close). Each chunk commits as
+   * it arrives, an instance's marker with or after its records. A full load
+   * (the first download, or a reload after a gap the feed cannot bridge) moves
+   * the cursor to its snapshot with the first chunk and notes the load as
+   * under way; rows older than that number stay readable until the load ends
+   * and sweeps them. When a load is under way and the policy is known, the
+   * attempt asks the collection fetch for only the policy's collections
+   * without a marker.
+   */
+  private async attemptWalk(cause: RebootstrapCause, generation: number): Promise<boolean> {
     const signal = this.walkAbort.signal
+    const missing = this.resumeRequests()
+    if (missing !== undefined && missing.length === 0) {
+      await this.finishLoad(cause, undefined, generation, false, 0)
+      return true
+    }
+    const full = missing === undefined
+    const source =
+      missing === undefined
+        ? this.authority.bootstrap(signal, this.viewRequests?.())
+        : // A method of the authority: called on it, so a class source keeps its `this`.
+          (this.authority as Required<Pick<AuthorityReadPort, 'collections'>>).collections(
+            missing,
+            signal,
+          )
     let head: BootstrapChunk | undefined
-    for await (const chunk of this.authority.bootstrap(signal, kinds && [...kinds])) {
+    let first = true
+    let entityCount = 0
+    for await (const chunk of source) {
       if (generation !== this.walkGeneration) return false
       if (
         head &&
@@ -1077,154 +1175,241 @@ export class Replica {
         throw new Error('bootstrap chunks disagree about the snapshot point')
       }
       head = chunk
-      for (const change of chunk.changes) {
-        if (kinds && !kinds.has(change.entity))
-          throw new Error('filtered bootstrap carried an unrequested kind')
-        // D6 — a snapshot is POSITIVE STATE. A remove/evict inside it is not a
-        // smaller snapshot, it is a malformed one.
-        if (change.op !== 'upsert' || change.payload === undefined) {
-          throw new Error(`bootstrap chunk carried a non-upsert row: ${change.op}`)
-        }
-        if (change.seq > head.snapshotSeq) {
-          throw new Error('bootstrap chunk carried a row above the snapshot point')
-        }
-        // The third ingress route. A snapshot is the RECOVERY path, so a corrupt
-        // known-kind row here is the worst place to accept one: it installs as
-        // authoritative truth and the cursor advances over it. Unknown kinds stay
-        // lenient (D4) exactly as on the other two routes.
-        if (this.validator?.knows(change.entity) === true) {
-          const reason = this.validator.validate(change)
-          if (reason !== null) throw new Error(`bootstrap chunk failed validation: ${reason}`)
-        }
-        staging.set(entityKey(change.entity, change.entityId), {
-          entity: change.entity,
-          entityId: change.entityId,
-          value: change.payload,
-          revision: change.revision,
-          provenance: {
-            seq: change.seq,
-            originId: change.originId,
-            causationId: change.causationId,
-            mutationId: change.mutationId,
-          },
-        })
+      this.validateChunk(chunk)
+      if (!full) {
+        const cursor = this.cursorValue
+        if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
+          throw new Error('a resumed load answered for another feed')
       }
+      entityCount += this.installChunk(chunk, { start: full && first }).length
+      first = false
       if (chunk.last) break
     }
-
     if (!head?.last) return false
     if (generation !== this.walkGeneration) return false
-
-    let catchup: readonly ChangeEnvelope[] = []
-    if (kinds) {
-      if (!sameKinds(kinds, head.kinds))
-        throw new Error('filtered bootstrap did not certify the requested kinds')
-      const current = this.cursorValue
-      const snapshot = { feedId: head.feedId, epoch: head.epoch, seq: head.snapshotSeq }
-      if (
-        !current ||
-        current.feedId !== head.feedId ||
-        current.epoch !== head.epoch ||
-        current.seq > snapshot.seq ||
-        !sameKinds(kinds, changedKinds(this.store.readKindTokens(), head.kindTokens))
-      ) {
-        throw new PartialBootstrapUnavailable()
-      }
-      catchup = await this.catchUpOtherKinds(current, snapshot, kinds, head.kindTokens, signal)
-    } else if (head.kinds !== undefined) {
-      throw new Error('full bootstrap received a filtered snapshot')
-    }
-    if (generation !== this.walkGeneration) return false
-    await this.install(cause, head, staging, kinds, catchup, generation)
+    await this.finishLoad(cause, head, generation, full, entityCount)
     return true
   }
 
-  /** A filtered snapshot cannot certify the shared cursor for the other kinds. */
-  private async catchUpOtherKinds(
-    from: Cursor,
-    snapshot: Cursor,
-    kinds: ReadonlySet<string>,
-    tokens: KindTokens,
-    signal: AbortSignal,
-  ): Promise<readonly ChangeEnvelope[]> {
-    if (from.seq === snapshot.seq) return []
-    let sawTarget = false
-    const range = await this.authority.changesRange(
-      from,
-      signal,
-      (target, offered) => {
-        if (!sameCursor(snapshot, target) || changedKinds(tokens, offered)?.length !== 0)
-          throw new PartialBootstrapUnavailable()
-        sawTarget = true
-      },
-      { to: snapshot.seq, omitKinds: [...kinds] },
-    )
-    if ('kind' in range) throw new PartialBootstrapUnavailable()
-    let seq = from.seq
-    const changes: ChangeEnvelope[] = []
-    for await (const frame of range) {
-      if (signal.aborted) return []
-      if (
-        !sawTarget ||
-        frame.feedId !== from.feedId ||
-        frame.epoch !== from.epoch ||
-        frame.fromSeq !== seq ||
-        frame.seq > snapshot.seq ||
-        this.rejects(frame) !== null ||
-        frame.changes.some((change) => kinds.has(change.entity))
-      ) {
-        throw new PartialBootstrapUnavailable()
-      }
-      for (const change of frame.changes) changes.push(change)
-      seq = frame.seq
-    }
-    if (!sawTarget || seq !== snapshot.seq) throw new PartialBootstrapUnavailable()
-    return changes
+  /** The policy's instances a load under way still lacks; `undefined` when only a full load can help. */
+  private resumeRequests(): InstanceRequest[] | undefined {
+    if (this.authority.collections === undefined || this.cursorValue === null) return undefined
+    if (this.store.readLoadingSince() === null) return undefined
+    const policy = this.store.readPolicy()
+    if (policy === null) return undefined
+    return this.missingPolicyInstances()
   }
 
-  private async install(
-    cause: RebootstrapCause,
-    head: BootstrapChunk,
-    staging: Map<string, EntityRecord>,
-    kinds: ReadonlySet<string> | undefined,
-    catchup: readonly ChangeEnvelope[],
-    generation: number,
-  ): Promise<void> {
-    const snapshotCursor: Cursor = {
-      feedId: head.feedId,
-      epoch: head.epoch,
-      seq: head.snapshotSeq,
-    }
-    // A COPY, and `this.buffer` is NOT cleared here (POD-1161). Clearing before the
-    // commit meant an aborted install consumed the buffered frames and the walk's
-    // restart (D6.5) began empty, silently dropping the retirements those frames
-    // carried. The consumed prefix is removed inside the `adopt` closure below, which
-    // runs in `span.onCommit` — where POD-1158 put every other post-commit observation,
-    // for exactly the same reason. A copy rather than the live array because frames
-    // continue to arrive while this awaits, and folding must see a stable set.
-    const buffered = [...this.buffer]
+  private missingPolicyInstances(): InstanceSpec[] {
+    const instances = this.store.readInstances()
+    return policyInstances(this.store.readPolicy()).filter(
+      (spec) => !instances.has(instanceKey(spec)),
+    )
+  }
 
-    // Fold the buffered frames against the snapshot point. No truncation: a frame
-    // is either dropped (wholly covered by the snapshot) or applied whole from an
-    // exact chain, and anything else heals. Truncating a straddling frame would
-    // mean applying a fragment of a certified range, which is precisely the
-    // acceptance D13 forbids — and it would have to be re-validated to be safe,
-    // so the simple rule is also the cheap one.
-    const mutations: CacheMutation[] = []
-    const emissions: { changes: readonly ChangeEnvelope[]; cursor: Cursor }[] = []
-    if (catchup.length > 0) {
-      mutations.push(toMutation(catchup, snapshotCursor))
-      emissions.push({ changes: catchup, cursor: snapshotCursor })
+  /**
+   * D6's positive-state rules, chunk by chunk: a snapshot lists what exists and
+   * is visible, so a removal inside one is malformed, and a known kind that
+   * fails validation is refused before it lands.
+   */
+  private validateChunk(chunk: BootstrapChunk): void {
+    for (const change of chunk.changes) {
+      // D6 — a snapshot is POSITIVE STATE. A remove/evict inside it is not a
+      // smaller snapshot, it is a malformed one.
+      if (change.op !== 'upsert' || change.payload === undefined) {
+        throw new Error(`bootstrap chunk carried a non-upsert row: ${change.op}`)
+      }
+      if (change.seq > chunk.snapshotSeq) {
+        throw new Error('bootstrap chunk carried a row above the snapshot point')
+      }
+      // The third ingress route. A snapshot is the RECOVERY path, so a corrupt
+      // known-kind row here is the worst place to accept one: it installs as
+      // authoritative truth and the cursor advances over it. Unknown kinds stay
+      // lenient (D4) exactly as on the other two routes.
+      if (this.validator?.knows(change.entity) === true) {
+        const reason = this.validator.validate(change)
+        if (reason !== null) throw new Error(`bootstrap chunk failed validation: ${reason}`)
+      }
     }
-    let running = snapshotCursor
+    for (const change of chunk.stubs ?? []) {
+      if (change.op !== 'upsert' || change.payload === undefined)
+        throw new Error(`a stub chunk carried a non-upsert row: ${change.op}`)
+      if (change.seq > chunk.snapshotSeq)
+        throw new Error('a stub chunk carried a row above the snapshot point')
+      if (stubFieldsOf(change.entity).length === 0)
+        throw new Error(`a stub chunk carried ${change.entity}, which has no stub`)
+    }
+  }
+
+  /**
+   * The feed number a held row is current as of. Every held row receives
+   * every change the feed applies, so a row the device has confirmed is
+   * current through the cursor; a row a load under way has not confirmed yet
+   * is current only as of its own number.
+   */
+  private currencyOf(row: EntityRecord, loadingSince: number | null): number {
+    const asOf = rowAsOf(row)
+    if (loadingSince !== null && asOf < loadingSince) return asOf
+    return Math.max(asOf, this.cursorValue?.seq ?? -1)
+  }
+
+  /**
+   * Commit one chunk of an answer: its whole records, its stubs and its
+   * markers, in one transaction, the newer one winning per record. Returns the
+   * whole records written.
+   */
+  private installChunk(
+    chunk: BootstrapChunk,
+    options: {
+      readonly start?: boolean
+      readonly reload?: KindReload
+      readonly signal?: AbortSignal
+    },
+  ): EntityRecord[] {
+    if (options.signal?.aborted) return []
+    const start = options.start === true
+    const snapshot: Cursor = { feedId: chunk.feedId, epoch: chunk.epoch, seq: chunk.snapshotSeq }
+    const at = chunk.snapshotSeq
+    const loadingSince = start ? at : this.store.readLoadingSince()
+    const staged = new Map<string, EntityRecord | null>()
+    const rowOf = (entity: string, entityId: string): EntityRecord | undefined => {
+      const key = entityKey(entity, entityId)
+      return staged.has(key) ? (staged.get(key) ?? undefined) : this.store.readRow(entity, entityId)
+    }
+    const newer = (key: string): boolean => (this.seen?.get(key) ?? -1) > at
+    const operations: CacheOperation[] = []
+    const events: ReplicaEvent[] = []
+    const written: EntityRecord[] = []
+    for (const change of chunk.changes) {
+      const key = entityKey(change.entity, change.entityId)
+      if (newer(key)) continue
+      const existing = rowOf(change.entity, change.entityId)
+      // A whole record the device keeps current needs no older or equal answer.
+      // A stub is current only for its stub fields: the answer brings the main
+      // part unless the stub itself changed after the answer was read.
+      if (existing !== undefined) {
+        const stale =
+          existing.part === 'stub'
+            ? at < rowAsOf(existing)
+            : at <= this.currencyOf(existing, loadingSince)
+        if (stale) continue
+      }
+      const op = upsertOf(change, change.payload, at)
+      operations.push(op)
+      const row = recordFromOp(op)
+      staged.set(key, row)
+      events.push({ type: 'upserted', record: row, readmitted: false })
+      written.push(row)
+    }
+    for (const change of chunk.stubs ?? []) {
+      const key = entityKey(change.entity, change.entityId)
+      if (newer(key)) continue
+      const existing = rowOf(change.entity, change.entityId)
+      if (existing !== undefined && existing.part !== 'stub') {
+        // A whole record the feed keeps current needs no stub. Only a load
+        // that replaces what the device held takes an unconfirmed record back
+        // to the stub it delivered; a kind reload remembers it for its sweep.
+        if (options.reload?.kinds.has(change.entity) && rowAsOf(existing) < at) {
+          options.reload.stubs.set(key, { ...upsertOf(change, change.payload, at), part: 'stub' })
+          continue
+        }
+        if (loadingSince === null || rowAsOf(existing) >= loadingSince) continue
+        events.push({ type: 'released', entity: change.entity, entityId: change.entityId })
+      } else if (existing !== undefined && at <= this.currencyOf(existing, loadingSince)) continue
+      const op: CacheOperation = { ...upsertOf(change, change.payload, at), part: 'stub' }
+      operations.push(op)
+      const row = recordFromOp(op)
+      staged.set(key, row)
+      events.push({ type: 'stub-upserted', record: row })
+    }
+    const instances: InstanceOperation[] = []
+    if (start) instances.push({ kind: 'dropAll' })
+    for (const marker of chunk.complete ?? []) {
+      const key = instanceKey(marker)
+      instances.push({
+        kind: 'mark',
+        instance: {
+          key,
+          collection: marker.collection,
+          ...(marker.args === undefined || Object.keys(marker.args).length === 0
+            ? {}
+            : { args: marker.args }),
+          part: marker.part,
+          ...(marker.via === undefined ? {} : { via: marker.via }),
+          ...(marker.range === undefined ? {} : { range: marker.range }),
+          ...(marker.total === undefined ? {} : { total: marker.total }),
+          completeAt: snapshot,
+          ...(this.holds.has(key) ? {} : { releasedAt: this.now() }),
+        },
+      })
+    }
+    const mutation: CacheMutation = {
+      operations,
+      ...(instances.length === 0 ? {} : { instances }),
+      ...(start
+        ? {
+            cursor: snapshot,
+            kindTokens: chunk.kindTokens,
+            loadingSince: at,
+            policy: chunk.policy ?? null,
+          }
+        : chunk.policy === undefined
+          ? {}
+          : { policy: chunk.policy }),
+    }
+    if (operations.length === 0 && instances.length === 0 && !start && chunk.policy === undefined)
+      return written
+    // What `isComplete` answers moves with a marker written, or with markers
+    // a full load's first chunk drops.
+    const markersMoved =
+      (chunk.complete?.length ?? 0) > 0 || (start && this.store.readInstances().size > 0)
+    this.store.applyAtomic(mutation)
+    if (start) this.cursorValue = snapshot
+    this.batchEvents(() => {
+      for (const event of events) this.emit(event)
+      if (markersMoved) this.emit({ type: 'markers' })
+    })
+    return written
+  }
+
+  /**
+   * The end of a load: sweep what it did not confirm, apply the frames that
+   * arrived meanwhile, and go live — the old install's commit, now small.
+   *
+   * The sweep runs once every policy collection has its marker and what its
+   * records come with has arrived ("Sidebar, with what it comes with"): a row
+   * current only as of an earlier number than the load was not in any answer,
+   * so it is gone or no longer visible. Before that the rows stay readable.
+   */
+  private async finishLoad(
+    cause: RebootstrapCause,
+    head: BootstrapChunk | undefined,
+    generation: number,
+    full: boolean,
+    entityCount: number,
+  ): Promise<void> {
+    if (this.store.readLoadingSince() !== null && this.missingPolicyInstances().length === 0) {
+      await this.fetchComesWith(generation)
+      if (generation !== this.walkGeneration) return
+    }
+    const base = this.cursorValue as Cursor
+    const snapshotSeq = head?.snapshotSeq ?? base.seq
+    // A COPY, and `this.buffer` is NOT cleared here (POD-1161): the consumed prefix
+    // is removed inside the `adopt` closure below, in `span.onCommit`, so an aborted
+    // commit leaves the frames for the restart.
+    const buffered = [...this.buffer]
+    // Fold the buffered frames against the cursor: a frame wholly covered is
+    // dropped, an exact chain is applied whole, anything else heals.
+    const chained: { changes: readonly ChangeEnvelope[]; cursor: Cursor }[] = []
+    let running = base
     let gapAt = -1
-    // The first buffered frame of ANOTHER identity than the snapshot. It and what
-    // follows stay buffered, so the drain after the install holds it to rung 4
+    // The first buffered frame of ANOTHER identity than the cursor. It and what
+    // follows stay buffered, so the drain after the load holds it to rung 4
     // (POD-6838: a walk buffers frames whatever cursor they disagree with).
     let foreignAt = -1
     for (let i = 0; i < buffered.length; i += 1) {
       const frame = buffered[i] as DeltaFrame
-      if (frame.feedId !== head.feedId || frame.epoch !== head.epoch) {
+      if (frame.feedId !== base.feedId || frame.epoch !== base.epoch) {
         foreignAt = i
         break
       }
@@ -1237,45 +1422,26 @@ export class Replica {
         break
       }
       const next: Cursor = { ...running, seq: frame.seq }
-      mutations.push(toMutation(frame.changes, next))
-      emissions.push({ changes: frame.changes, cursor: next })
+      chained.push({ changes: frame.changes, cursor: next })
       running = next
     }
-
-    const rows = [...staging.values()]
-    const dropped =
-      kinds &&
-      this.store
-        .readEntities()
-        .filter(
-          ({ entity, entityId }) => kinds.has(entity) && !staging.has(entityKey(entity, entityId)),
-        )
-        .map(({ entity, entityId }) => ({ entity, entityId }))
-    // THE ATOMIC SWAP. This replaces the cache (that is the D7 "discard") and
-    // applies the buffered frames, the cursor AND the retirements the included
-    // frames owe, in the SAME transaction.
-    //
-    // The batch is aggregated across EVERY buffered frame this install actually
-    // included, and submitted once. Frames dropped as covered, frames left behind
-    // at the install gap and frames belonging to another epoch contribute NOTHING:
-    // retiring a command whose effect never landed would tell the user their write
-    // was accepted when it was not. `emissions` is exactly the included set, which
-    // is why the batch is derived from it rather than from `buffered`.
-    //
-    // The evidence certifies the final cursor. A full install also covers receipts
-    // from a previous epoch, such as after a restored backup (ADR 12).
-    //
-    // The ENTIRE post-commit tail lives in `adopt`, not merely part of it. Splitting
-    // it was a real bug while this was being written: `setPosture('live')` ran before
-    // the transaction committed, so `D6-INSTALL` was later recorded from a posture the
-    // table does not declare and the transition-table totality test caught it.
-    // Everything an observer can see about an install belongs on one side of
-    // durability.
+    const loadingSince = this.store.readLoadingSince()
+    const complete = this.store.readPolicy() === null || this.missingPolicyInstances().length === 0
+    const swept: EntityRecord[] =
+      complete && loadingSince !== null
+        ? [...this.store.readEntities(), ...this.store.readStubs()].filter(
+            (row) => rowAsOf(row) < loadingSince,
+          )
+        : []
+    const decisions: FeedDecision[] = []
+    // A load that replaced what the device held is a new truth, also when it
+    // was resumed after an early close: it covers receipts the old rows owed.
+    const replaces = full || loadingSince !== null
     await this.commitRegions(
       {
-        matches: retirementsOf(emissions.map((emission) => emission.changes)),
+        matches: retirementsOf(chained.map((entry) => entry.changes)),
         through: running,
-        install: kinds === undefined,
+        install: replaces,
       },
       (span) => {
         const prepare = (): void => {
@@ -1283,72 +1449,554 @@ export class Replica {
         }
         prepare()
         span?.join({ prepare, publish() {} })
-        this.store.installSnapshot(rows, snapshotCursor, mutations, span, {
-          kinds,
-          kindTokens: head.kindTokens,
-        })
+        const staged = new Map<string, EntityRecord | null>()
+        for (const row of swept) staged.set(entityKey(row.entity, row.entityId), null)
+        this.store.applyAtomic(
+          {
+            operations: swept.map((row) => ({
+              kind: 'remove' as const,
+              entity: row.entity,
+              entityId: row.entityId,
+            })),
+            cursor: base,
+            ...(complete ? { loadingSince: null } : {}),
+          },
+          span,
+        )
+        decisions.length = 0
+        for (const entry of chained) {
+          const decision = this.feedMutation(entry.changes, entry.cursor, staged)
+          decisions.push(decision)
+          this.store.applyAtomic(decision.mutation, span)
+        }
       },
       () => {
-        // Consume exactly the prefix this install included. Frames that arrived while
+        // Consume exactly the prefix this commit included. Frames that arrived while
         // the transaction was open are LATER in feed order and stay buffered for the
         // drain below — clearing outright would drop them.
         if (generation === this.walkGeneration)
           this.buffer = this.buffer.slice(foreignAt >= 0 ? foreignAt : buffered.length)
         this.note('D6-INSTALL')
         this.cursorValue = running
-        if (kinds === undefined) this.exits.clear()
-        else {
-          for (const key of this.exits.keys()) {
-            if (kinds.has(key.slice(0, key.indexOf('\u0000')))) this.exits.delete(key)
-          }
-        }
-
-        for (const row of rows) this.emit({ type: 'upserted', record: row, readmitted: false })
+        if (full) this.exits.clear()
+        for (const row of swept)
+          this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
         this.emit({
           type: 'bootstrap-installed',
           cause,
-          snapshotSeq: head.snapshotSeq,
-          entityCount: rows.length,
-          bufferedFramesApplied: mutations.length - (catchup.length > 0 ? 1 : 0),
-          ...(dropped && { dropped }),
+          snapshotSeq,
+          entityCount,
+          bufferedFramesApplied: chained.length,
+          ...(full ? {} : { dropped: swept.map(({ entity, entityId }) => ({ entity, entityId })) }),
         })
         // Same emission semantics as the live and heal paths — one function, so a
-        // change applied through a bootstrap is projected exactly as a change applied
-        // live is. Retirement was enrolled in the install transaction above.
-        for (const emission of emissions) {
-          this.emitApplied(emission.changes, emission.cursor)
-        }
+        // change applied after a load is projected exactly as a change applied live.
+        chained.forEach((entry, at) => {
+          this.emitApplied(entry.changes, entry.cursor, decisions[at])
+        })
+        for (const decision of decisions) this.request(decision.needs)
 
         if (generation !== this.walkGeneration) return
         this.setPosture('live')
         if (gapAt >= 0 || this.transportGap) {
           this.transportGap = false
-          // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
-          // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
-          // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->
-          // install -> the same frame, forever. D7 requires every failure to resolve
-          // strictly DOWNWARD and terminate, and a bootstrap has just delivered
-          // authoritative truth — a stale frame buffered around the walk is not
-          // something to hold the ladder open for. One heal catches up, resolved
-          // against the authority instead of against our own stale buffer.
-          // Recorded against 'bootstrapping': the install transaction has already
-          // committed (which is why the posture reads live), but this row describes
-          // what the WALK found in its leftover buffer.
+          // DISCARD the unchainable remainder rather than re-buffering it: the frame
+          // demands a fromSeq the fresh load cannot satisfy, so keeping it is an
+          // infinite ladder (D7 resolves strictly DOWNWARD). One heal catches up,
+          // resolved against the authority instead of against a stale buffer.
           this.note('D6-INSTALL-GAP', 'bootstrapping')
-          // Discarding here is deliberate and survives POD-1161: these frames are
-          // UNCHAINABLE against the fresh snapshot, so keeping them is the infinite
-          // ladder described above. The heal that follows resolves against the
-          // authority, which is where their content — and any provenance still owed —
-          // comes back from. That is not the aborted-transaction case: this arm runs
-          // only after the install COMMITTED.
           this.buffer = []
           this.counters.pendingGap = true
           this.startHeal()
         }
       },
-      kinds !== undefined,
+      replaces,
     )
-    if (this.state === 'live' && generation === this.walkGeneration) await this.drainBuffer()
+    if (this.state === 'live' && generation === this.walkGeneration) {
+      await this.drainBuffer()
+      if (this.state === 'live' && generation === this.walkGeneration) {
+        this.requestMissingComesWith()
+        this.scheduleTrim()
+      }
+    }
+  }
+
+  // ─── Collections the device holds (POD-7086) ──────────────────────────────
+
+  /**
+   * The feed-apply table (design POD-7059 "The feed"), one change at a time in
+   * feed order, against the rows as the earlier changes of the same batch
+   * leave them:
+   *
+   * | the device holds                          | the change                       |
+   * |-------------------------------------------|----------------------------------|
+   * | the record with its main part             | replaces it                      |
+   * | the issue as a stub, no held match        | updates the stub fields          |
+   * | a stub or nothing, a held match           | keeps the whole record, and asks for what it comes with |
+   * | nothing, no held match                    | ignored; an issue keeps its stub |
+   *
+   * A removal or an eviction applies as ever: the lookup answers "gone". A
+   * device that has no policy yet (it never ran a collection download) holds
+   * whatever the feed sends it.
+   */
+  private feedMutation(
+    changes: readonly ChangeEnvelope[],
+    cursor: Cursor,
+    staged: Map<string, EntityRecord | null> = new Map(),
+  ): FeedDecision {
+    const everything = this.store.readPolicy() === null
+    const index = everything ? undefined : this.heldIndex()
+    const rows: HeldRows = {
+      readRow: (entity, entityId) => {
+        const key = entityKey(entity, entityId)
+        return staged.has(key)
+          ? (staged.get(key) ?? undefined)
+          : this.store.readRow(entity, entityId)
+      },
+    }
+    const now = this.now()
+    const operations: CacheOperation[] = []
+    const ignored = new Set<ChangeEnvelope>()
+    const stubbed = new Set<ChangeEnvelope>()
+    const skipped = new Set<ChangeEnvelope>()
+    const needs: InstanceSpec[] = []
+    for (const change of changes) {
+      const key = entityKey(change.entity, change.entityId)
+      if (this.seen !== null) this.seen.set(key, Math.max(this.seen.get(key) ?? -1, change.seq))
+      const existing = rows.readRow(change.entity, change.entityId)
+      let op: CacheOperation | undefined
+      if (change.op !== 'upsert') {
+        op = { kind: change.op, entity: change.entity, entityId: change.entityId, asOf: change.seq }
+      } else if (index === undefined) {
+        op = upsertOf(change, change.payload, change.seq)
+      } else {
+        const memberOf = index.matching(change.entity, change.payload, rows, now)
+        if (memberOf.length > 0 || (existing !== undefined && existing.part !== 'stub')) {
+          op = upsertOf(change, change.payload, change.seq)
+          needs.push(...comesWithOf(change.entity, change.payload, memberOf, now))
+        } else if (stubFieldsOf(change.entity).length > 0) {
+          op = {
+            ...upsertOf(change, stubOfValue(change.entity, change.payload), change.seq),
+            part: 'stub',
+          }
+          stubbed.add(change)
+        }
+      }
+      if (op === undefined) {
+        ignored.add(change)
+        continue
+      }
+      const next = rowAfter(existing, op)
+      if (next === undefined) {
+        // The newer one wins, per record: the row is current as of this
+        // change or later already.
+        skipped.add(change)
+        continue
+      }
+      staged.set(key, next)
+      operations.push(op)
+    }
+    return { mutation: { operations, cursor }, ignored, stubbed, skipped, needs }
+  }
+
+  /** The instances the device holds, indexed; rebuilt only when the markers or fetches change. */
+  private heldIndex(): HeldIndex {
+    const instances = this.store.readInstances()
+    const policy = this.store.readPolicy()
+    const cached = this.heldIndexCache
+    if (
+      cached !== undefined &&
+      cached.instances === instances &&
+      cached.policy === policy &&
+      cached.version === this.inFlightVersion
+    )
+      return cached.index
+    const index = new HeldIndex(
+      [...instances.values(), ...this.inFlight.values()],
+      policyArgs(policy),
+    )
+    this.heldIndexCache = { instances, policy, version: this.inFlightVersion, index }
+    return index
+  }
+
+  /** Ask for instances held records come with, batched into one fetch per burst. */
+  private request(specs: readonly InstanceSpec[]): void {
+    if (specs.length === 0 || this.authority.collections === undefined) return
+    const marked = this.store.readInstances()
+    if (this.requestHook !== undefined) {
+      const fresh = specs.filter((spec) => {
+        const key = instanceKey(spec)
+        return !marked.has(key) && !this.inFlight.has(key)
+      })
+      if (fresh.length > 0) this.requestHook(fresh)
+      return
+    }
+    for (const spec of specs) {
+      const key = instanceKey(spec)
+      if (marked.has(key) || this.inFlight.has(key)) continue
+      this.needs.set(key, spec)
+    }
+    if (this.needs.size === 0 || this.needsScheduled) return
+    this.needsScheduled = true
+    queueMicrotask(() => {
+      this.needsScheduled = false
+      const batch = [...this.needs.values()]
+      this.needs.clear()
+      if (batch.length > 0 && this.state !== 'bootstrapping' && this.state !== 'cold')
+        void this.load(batch).catch(() => undefined)
+    })
+  }
+
+  /** What every held record comes with that the device holds no marker for. */
+  private requestMissingComesWith(): void {
+    this.request(this.missingComesWith(this.store.readEntities()))
+  }
+
+  /** What these whole records come with that the device holds no marker for, nor fetches. */
+  private missingComesWith(rows: readonly EntityRecord[]): InstanceSpec[] {
+    if (this.store.readPolicy() === null || this.authority.collections === undefined) return []
+    const index = this.heldIndex()
+    const now = this.now()
+    const marked = this.store.readInstances()
+    const specs = new Map<string, InstanceSpec>()
+    for (const row of rows) {
+      const memberOf = index.matching(row.entity, row.value, this.store, now)
+      for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
+        const key = instanceKey(spec)
+        if (!marked.has(key) && !this.inFlight.has(key)) specs.set(key, spec)
+      }
+    }
+    return [...specs.values()]
+  }
+
+  /**
+   * Inside a load: fetch what its records come with, and what those come
+   * with, before the load sweeps, so a reload never takes a companion row off
+   * the screen only to bring it back. Bounded by the declared links: a
+   * parent chain ends at a top-level issue.
+   */
+  private async fetchComesWith(generation: number): Promise<void> {
+    let rows: readonly EntityRecord[] = this.store.readEntities()
+    for (let round = 0; round < 64 && rows.length > 0; round += 1) {
+      if (generation !== this.walkGeneration) return
+      const specs = this.missingComesWith(rows)
+      if (specs.length === 0) return
+      // Direct, not queued: the load itself runs on the queue (`run`), so a
+      // step queued behind it would wait for the load that waits for it.
+      rows = await this.fetchInstances(specs, undefined, true)
+    }
+  }
+
+  /**
+   * Fetch instances through the collection route while the feed keeps
+   * applying (the loader's way in, POD-7087; what held records come with; a
+   * kind reload). Records install as they arrive, the newer one winning per
+   * record against the feed, and each instance's marker follows its records.
+   */
+  async load(requests: readonly InstanceRequest[]): Promise<void> {
+    await this.fetchInstances(requests)
+  }
+
+  private async fetchInstances(
+    requests: readonly InstanceRequest[],
+    reload?: KindReload,
+    insideLoad = false,
+  ): Promise<readonly EntityRecord[]> {
+    const authority = this.authority
+    if (authority.collections === undefined) return []
+    // Bound to the authority: a class source reads its own fields (`this`).
+    const collections = authority.collections.bind(authority)
+    const fresh = requests.filter((request) => !this.inFlight.has(instanceKey(request)))
+    if (fresh.length === 0) return []
+    for (const request of fresh) this.inFlight.set(instanceKey(request), request)
+    this.inFlightVersion += 1
+    this.seen ??= new Map()
+    this.fetchCount += 1
+    const signal = this.fetchAbort.signal
+    const written: EntityRecord[] = []
+    /** Every record the answer named, written or already current on the device. */
+    const named = new Map<string, { readonly entity: string; readonly entityId: string }>()
+    const task = (async () => {
+      try {
+        // The earliest answer of a reload: a row of its kinds current only as
+        // of an earlier number was in none of its answers.
+        let reloadedAt: BootstrapChunk | undefined
+        for (let at = 0; at < fresh.length; at += FETCH_MAX_INSTANCES) {
+          const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
+          for await (const chunk of collections(batch, signal)) {
+            if (signal.aborted) return
+            this.validateChunk(chunk)
+            const cursor = this.cursorValue
+            if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
+              throw new Error('a collection answer is for another feed')
+            if (reloadedAt === undefined || chunk.snapshotSeq < reloadedAt.snapshotSeq)
+              reloadedAt = chunk
+            if (!insideLoad)
+              for (const change of chunk.changes)
+                named.set(entityKey(change.entity, change.entityId), change)
+            const install = (): void => {
+              written.push(
+                ...this.installChunk(chunk, {
+                  signal,
+                  ...(reload === undefined ? {} : { reload }),
+                }),
+              )
+            }
+            if (insideLoad) install()
+            else await this.serial(install)
+            if (chunk.last) break
+          }
+        }
+        // Swept once, after every batch: sweeping after the first would take
+        // rows off the screen that a later batch is about to confirm.
+        if (reload !== undefined && reloadedAt !== undefined && !signal.aborted)
+          await this.serial(() => this.sweepKinds(reload, reloadedAt as BootstrapChunk))
+      } finally {
+        for (const request of fresh) this.inFlight.delete(instanceKey(request))
+        this.inFlightVersion += 1
+        this.fetchCount -= 1
+        if (this.fetchCount === 0) this.seen = null
+      }
+      if (signal.aborted) return
+      // What the records this answer brought come with (design "One loader"):
+      // outside a load, fetched in the next batch; inside one, by the load itself.
+      // Outside a load that is every record the answer named, not only those it
+      // wrote: a record the device already held current (the sidebar's root of a
+      // tree) has entered the fetched instance too, and comes with what that
+      // instance declares (POD-7087).
+      if (this.state !== 'bootstrapping') {
+        const entered: EntityRecord[] = []
+        for (const { entity, entityId } of named.values()) {
+          const row = this.store.readRow(entity, entityId)
+          if (row !== undefined && row.part !== 'stub') entered.push(row)
+        }
+        this.request(this.missingComesWith(insideLoad ? written : entered))
+      }
+      this.scheduleTrim()
+    })()
+    const tracked = task.catch((error) => {
+      if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
+      else if (this.failure === undefined && !signal.aborted) this.failure = error
+    })
+    this.fetching = Promise.all([this.fetching, tracked]).then(() => undefined)
+    await task
+    return written
+  }
+
+  /**
+   * A record shape changed (the kind tokens moved): reload the collections of
+   * those kinds through the fetch, the old rows readable meanwhile. Returns
+   * false when only a full load can do it (no policy, or no fetch route).
+   */
+  private reloadKinds(kinds: ReadonlySet<string>): boolean {
+    if (this.authority.collections === undefined || this.store.readPolicy() === null) return false
+    if (this.cursorValue === null || this.state === 'bootstrapping') return false
+    const args = policyArgs(this.store.readPolicy())
+    const marked = [...this.store.readInstances().values()].filter((instance) => {
+      const of = resolveInstance(instance, args)?.of
+      return of !== undefined && kinds.has(of)
+    })
+    const policy = policyInstances(this.store.readPolicy()).filter((spec) => {
+      const of = resolveInstance(spec, args)?.of
+      return of !== undefined && kinds.has(of)
+    })
+    const requests = new Map<string, InstanceRequest>()
+    for (const instance of [...policy, ...marked]) {
+      const { collection, part, args: instanceArgs, via } = instance
+      requests.set(instanceKey(instance), {
+        collection,
+        part,
+        ...(instanceArgs === undefined ? {} : { args: instanceArgs }),
+        ...(via === undefined ? {} : { via }),
+      })
+    }
+    this.emit({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
+    this.counters.bootstraps += 1
+    const reload: KindReload = { kinds, stubs: new Map() }
+    void this.serial(() => {
+      if (marked.length > 0) {
+        this.store.applyAtomic({
+          operations: [],
+          instances: marked.map((instance) => ({ kind: 'drop' as const, key: instance.key })),
+        })
+        this.emit({ type: 'markers' })
+      }
+    })
+      .then(() => this.fetchInstances([...requests.values()], reload))
+      .catch(() => undefined)
+    return true
+  }
+
+  /** After a kind reload: rows of those kinds its answer did not confirm leave; an issue keeps its stub. */
+  private sweepKinds(reload: KindReload, answer: BootstrapChunk): void {
+    const at = answer.snapshotSeq
+    const operations: CacheOperation[] = []
+    const events: ReplicaEvent[] = []
+    for (const row of [...this.store.readEntities(), ...this.store.readStubs()]) {
+      if (!reload.kinds.has(row.entity) || rowAsOf(row) >= at) continue
+      const key = entityKey(row.entity, row.entityId)
+      const stub = row.part === 'stub' ? undefined : reload.stubs.get(key)
+      if (stub !== undefined) {
+        operations.push({ ...stub, force: true })
+        events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
+        continue
+      }
+      operations.push({ kind: 'remove', entity: row.entity, entityId: row.entityId })
+      events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
+    }
+    const cursor = this.cursorValue
+    this.store.applyAtomic({
+      operations,
+      ...(cursor === null ? {} : { cursor, kindTokens: answer.kindTokens }),
+    })
+    this.batchEvents(() => {
+      for (const event of events) this.emit(event)
+    })
+  }
+
+  /**
+   * Hold an instance for an open view (design "Two holders of an instance").
+   * The trim never drops a held instance; releasing it makes it cache, the
+   * most recently released last to go. Returns the release.
+   */
+  hold(spec: InstanceSpec): () => void {
+    const key = instanceKey(spec)
+    const entry = this.holds.get(key) ?? { spec, count: 0 }
+    entry.count += 1
+    this.holds.set(key, entry)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      entry.count -= 1
+      if (entry.count > 0) return
+      this.holds.delete(key)
+      void this.serial(() => {
+        if (this.store.readInstances().has(key))
+          this.store.applyAtomic({
+            operations: [],
+            instances: [{ kind: 'release', key, at: this.now() }],
+          })
+      }).catch(() => undefined)
+      this.scheduleTrim()
+    }
+  }
+
+  /** The marker of an instance the device holds complete; `undefined` when it does not. */
+  isComplete(spec: InstanceSpec): InstanceRecord | undefined {
+    return this.store.readInstances().get(instanceKey(spec))
+  }
+
+  /** The stub part of a record the device holds, stub or whole; `undefined` when absent. */
+  stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined {
+    const table = this.store.readStubTable(entity)
+    if (table !== undefined) return table.stubOf(entityId)
+    const row = this.store.readRow(entity, entityId)
+    return row === undefined ? undefined : stubOfValue(entity, row.value)
+  }
+
+  /** The ids of the issues whose parent is `parentId`, over every issue on the device. */
+  stubsByParent(parentId: string): readonly string[] {
+    const out: string[] = []
+    for (const kind of STUB_KINDS) {
+      const children = this.store.readStubTable(kind)?.childrenOf(parentId)
+      if (children !== undefined) out.push(...children)
+    }
+    return out
+  }
+
+  /** The issue at a reference (repository and number), by the stubs; the lowest id when several. */
+  stubIdAt(entity: string, repoId: string, seq: number): string | undefined {
+    return this.store.readStubTable(entity)?.idAt(repoId, seq)
+  }
+
+  /**
+   * The stub part of every record of `entity` on the device, stubs and whole
+   * records alike: what counts over all history read (design "Counts"). One
+   * array per change of a stub, in no particular order. The store's table
+   * (POD-7115): the one copy of the stubs in memory, current with every write.
+   */
+  stubRows(entity: string): readonly StubRow[] {
+    return this.store.readStubTable(entity)?.rows() ?? []
+  }
+
+  /** Whether a load can start now: the device has a feed to answer against. */
+  get canFetch(): boolean {
+    return this.cursorValue !== null && this.authority.collections !== undefined
+  }
+
+  /** Trim the cache by instance now (design "Memory, cache and leaving"). */
+  async trim(): Promise<void> {
+    await this.serial(() => this.trimNow())
+  }
+
+  private scheduleTrim(): void {
+    if (this.trimScheduled || this.store.readPolicy() === null) return
+    this.trimScheduled = true
+    void this.serial(() => {
+      this.trimScheduled = false
+      this.trimNow()
+    }).catch(() => undefined)
+  }
+
+  private trimNow(): void {
+    const policy = this.store.readPolicy()
+    if (policy === null || this.state === 'bootstrapping') return
+    const held = new Set<string>([
+      ...policyInstances(policy).map((spec) => instanceKey(spec)),
+      ...this.holds.keys(),
+      ...this.inFlight.keys(),
+    ])
+    const plan = planTrim({
+      rows: this.store.readEntities(),
+      instances: this.store.readInstances(),
+      held,
+      policy,
+      cap: policy.cacheCap,
+      now: this.now(),
+      store: this.store,
+    })
+    if (plan.dropInstances.length === 0 && plan.toStub.length === 0 && plan.remove.length === 0)
+      return
+    const operations: CacheOperation[] = [
+      ...plan.toStub.map(
+        (row): CacheOperation => ({
+          kind: 'upsert',
+          entity: row.entity,
+          entityId: row.entityId,
+          value: stubOfValue(row.entity, row.value),
+          ...(row.revision === undefined ? {} : { revision: row.revision }),
+          provenance: row.provenance,
+          part: 'stub',
+          asOf: rowAsOf(row),
+          force: true,
+        }),
+      ),
+      ...plan.remove.map(
+        (row): CacheOperation => ({ kind: 'remove', entity: row.entity, entityId: row.entityId }),
+      ),
+    ]
+    this.store.applyAtomic({
+      operations,
+      instances: plan.dropInstances.map((key) => ({ kind: 'drop' as const, key })),
+    })
+    this.batchEvents(() => {
+      for (const row of [...plan.toStub, ...plan.remove])
+        this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
+      if (plan.dropInstances.length > 0) this.emit({ type: 'markers' })
+    })
+  }
+
+  /** Run a store step in order with the frame commits, and let the caller see its outcome. */
+  private serial(task: () => void): Promise<void> {
+    const step = this.inflight.then(task)
+    this.inflight = step.then(
+      () => undefined,
+      (error) => {
+        if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
+      },
+    )
+    return step
   }
 
   // ─── Rung 5 ───────────────────────────────────────────────────────────────
@@ -1559,30 +2207,64 @@ function recordOf(change: ChangeEnvelope): EntityRecord {
   }
 }
 
-function toMutation(changes: readonly ChangeEnvelope[], cursor: Cursor): CacheMutation {
-  // ONE ordered list. See CacheOperation in ports.ts for why three buckets was a
-  // bug rather than a style choice.
-  const operations: CacheOperation[] = changes.map((change) => {
-    if (change.op === 'upsert') {
-      return {
-        kind: 'upsert',
-        entity: change.entity,
-        entityId: change.entityId,
-        value: change.payload,
-        revision: change.revision,
-        // ADR 2 D8 — provenance rides BESIDE the value, never inside it.
-        provenance: {
-          seq: change.seq,
-          originId: change.originId,
-          causationId: change.causationId,
-          mutationId: change.mutationId,
-        },
-      }
-    }
-    return { kind: change.op, entity: change.entity, entityId: change.entityId }
-  })
-  return { operations, cursor }
+/** What the feed-apply table decided for one batch of changes. */
+interface FeedDecision {
+  readonly mutation: CacheMutation
+  /** Upserts the device does not keep. */
+  readonly ignored: ReadonlySet<ChangeEnvelope>
+  /** Upserts kept as the issue's stub only. */
+  readonly stubbed: ReadonlySet<ChangeEnvelope>
+  /** Changes older than the row they would replace: skipped, and not announced. */
+  readonly skipped: ReadonlySet<ChangeEnvelope>
+  /** What the records it keeps whole come with. */
+  readonly needs: readonly InstanceSpec[]
 }
+
+/** A kind reload in flight: its kinds, and the stubs its answer brought for whole records. */
+interface KindReload {
+  readonly kinds: ReadonlySet<string>
+  readonly stubs: Map<string, CacheOperation & { readonly kind: 'upsert' }>
+}
+
+/** An upsert of one change's record, current as of `asOf`. ADR 2 D8: provenance BESIDE the value. */
+function upsertOf(
+  change: ChangeEnvelope,
+  value: unknown,
+  asOf: number,
+): CacheOperation & { readonly kind: 'upsert' } {
+  return {
+    kind: 'upsert',
+    entity: change.entity,
+    entityId: change.entityId,
+    value,
+    revision: change.revision,
+    provenance: {
+      seq: change.seq,
+      originId: change.originId,
+      causationId: change.causationId,
+      mutationId: change.mutationId,
+    },
+    asOf,
+  }
+}
+
+/** The row an upsert writes. */
+function recordFromOp(op: CacheOperation & { readonly kind: 'upsert' }): EntityRecord {
+  return {
+    entity: op.entity,
+    entityId: op.entityId,
+    value: op.value,
+    revision: op.revision,
+    provenance: op.provenance,
+    ...(op.part === undefined ? {} : { part: op.part }),
+    ...(op.asOf === undefined ? {} : { asOf: op.asOf }),
+  }
+}
+
+/** The record types with a stub (POD-7115: their tables are the store's). */
+const STUB_KINDS: readonly string[] = RECORDS.filter((record) => record.stub.length > 0).map(
+  (record) => record.kind,
+)
 
 function rungFor(cause: RebootstrapCause): HealRung {
   switch (cause) {

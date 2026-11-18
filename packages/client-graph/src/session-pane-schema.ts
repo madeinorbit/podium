@@ -53,6 +53,8 @@ export const SESSION_PANE_SCHEMA = {
       'observedEffort',
       'requestedModel',
       'requestedEffort',
+      'observedMode',
+      'launchPosture',
       'model',
       'effort',
       'configureFields',

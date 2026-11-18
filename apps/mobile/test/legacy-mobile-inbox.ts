@@ -1,10 +1,7 @@
 import { omitGone } from '@podium/client-graph/lookup'
 // Frozen pre-migration answers for paired fixture comparisons. Never imported by product code.
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
 import { compareStructural, computed } from 'mobx'
-import { issuePages } from '@podium/client-graph/issue-page'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 
@@ -42,7 +39,7 @@ interface ScreeningEntry {
  * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
  * proposal change never re-reads this entry. */
 export function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
-  const row = omitGone(pool.row('issue', id, 'summary')) as Loaded<ScreeningSummary>
+  const row = omitGone(pool.row('issue', id)) as Loaded<ScreeningSummary>
   if (row === LOADING) return LOADING
   if (!row || !isScreenableRoot(row)) return undefined
   const seen = new Set<string>([row.id])
@@ -50,7 +47,7 @@ export function readScreeningEntry(pool: MobxPool, id: string): Loaded<Screening
     pending = false
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId)
-    const parent = omitGone(pool.row('issue', parentId, 'summary')) as Loaded<ScreeningSummary>
+    const parent = omitGone(pool.row('issue', parentId)) as Loaded<ScreeningSummary>
     if (parent === LOADING) {
       pending = true
       break
@@ -70,47 +67,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && pool.queries.count('session') === 0 && pool.queries.count('issue') === 0)
+      (!state.hasCursor && pool.queries.heldCount('session') === 0 && pool.queries.heldCount('issue') === 0)
     )
   }
-  const inbox = computed(
-    () => {
-      const sessions: SessionView[] = [],
-        issues: Record<string, IssueViewModel> = {}
-      let loading = booting()
-      for (const id of pool.queries.ids({ kind: 'inboxSessions' })) {
-        if (pool.queries.collapsed(id)) continue
-        const summary = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
-        if (summary === LOADING) {
-          loading = true
-          continue
-        }
-        if (!summary || summary.archived || summary.headless || summary.agentKind === 'shell')
-          continue
-        const session = omitGone(pool.row('session', id)) as Loaded<SessionView>
-        if (session === LOADING) {
-          loading = true
-          continue
-        }
-        if (!session) continue
-        sessions.push(session)
-        const issueId = session.issueId
-        if (issueId && !issues[issueId]) {
-          const issue = issuePages(pool).issue(issueId)
-          if (issue === LOADING) loading = true
-          else if (issue) issues[issueId] = issue
-        }
-      }
-      const window = omitGone(pool.row('window', 'window')) as { outboxSize: number } | undefined
-      return {
-        groups: groupSessions(withoutShells(sessions)),
-        issues,
-        booting: loading,
-        outboxSize: window?.outboxSize ?? 0,
-      }
-    },
-    { equals: compareStructural },
-  )
   const screening = computed(
     () => {
       // Incremental eligible root IDs and order: the shared keeper maintains
@@ -136,5 +95,5 @@ export function createMobileInboxViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  return { inbox: () => inbox.get(), screening: () => screening.get(), dispose() {} }
+  return { screening: () => screening.get(), dispose() {} }
 }

@@ -19,6 +19,7 @@ import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
 import { opencodeInstall } from './install.js'
 import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
+import { opencodePosture } from './posture.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodePromptTextMatches, opencodeTranscript } from './transcript.js'
 import { opencodeUsage } from './usage.js'
@@ -114,6 +115,7 @@ export const opencodeManifest: AgentManifest = {
   usage: opencodeUsage,
   install: opencodeInstall,
 
+  posture: opencodePosture,
   launch(opts) {
     const databasePath = opencodeDbPathForSession({
       homeDir: opts.harnessContext.home,
@@ -136,10 +138,9 @@ export const opencodeManifest: AgentManifest = {
       })
     }
     const base = {
+      // The permission mode (`--auto` or ask rules) is the posture section's
+      // (./posture.ts), chosen by the session's mode.
       args: [
-        // Headed TUI always runs in auto permissions mode: auto-approve
-        // permissions that are not explicitly denied (`opencode --help`).
-        '--auto',
         ...(opts.resume ? ['--session', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['-m', opts.model] : []),
         // The TUI submits this only after its model and composer are ready.

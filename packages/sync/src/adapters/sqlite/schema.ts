@@ -244,7 +244,8 @@ export const appliedMutations = sqliteTable(
     /**
      * The retention sweep's ONLY predicate (POD-1638), within its workspace.
      *
-     * `pruneAppliedMutations` deletes by `applied_at < cutoff`, and without this
+     * `pruneAppliedMutationsBatch` (the janitor's prune, POD-7035) deletes the
+     * oldest batch by `applied_at < cutoff`, and without this
      * index that is a full table scan — which is not a 7585-row scan but a scan
      * of every row's `result` payload (~21MB here, ~5000 pages), because a table
      * scan walks the rows themselves. Live attribution caught ONE such call

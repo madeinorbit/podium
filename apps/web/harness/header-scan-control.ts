@@ -15,7 +15,7 @@ const coldSessionIds = (pool: MobxPool) => knownSessionIds(pool).filter(id => !p
 export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
   const coldSummary = (id: string) => {
     if (omitGone(pool.row('session', id, 'mark')) !== LOADING) return undefined
-    const value = omitGone(pool.row('session', id, 'summary')) as SessionView | typeof LOADING | undefined
+    const value = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
     return value === LOADING ? undefined : value
   }
   return {

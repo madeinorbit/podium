@@ -712,3 +712,48 @@ describe('subscriptions store (Phase B)', () => {
     expect(await store.events.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
   })
 })
+
+/**
+ * READS THAT NAME THEIR INDEX (POD-7034). `liveChildrenOf` and
+ * `issueIdsOfLabels` read through `idx_issues_children` and
+ * `idx_issue_labels_label_id` with INDEXED BY and select their columns by bare
+ * name; they return the rows and values the table-object reads did.
+ */
+describe('reads through a named index (POD-7034)', () => {
+  it('liveChildrenOf returns the live children of the asked parents, mapped as before', async () => {
+    const store = await openIssueStore()
+    await seedIssues(store, 'iss_p', 'iss_q', 'iss_alone')
+    const child = (id: string, seq: number, parentId: string, over: Partial<IssueRow> = {}) =>
+      store.issues.upsertIssue(
+        fixtureWriteScope(),
+        baseRow({ id: asIssueId(id), seq, parentId: asIssueId(parentId), ...over }),
+      )
+    await child('iss_c2', 202, 'iss_p', { stage: 'done', closedReason: 'done' })
+    await child('iss_c1', 201, 'iss_p')
+    await child('iss_gone', 203, 'iss_p', { deletedAt: '2026-11-16T00:00:00.000Z' })
+    await child('iss_cq', 204, 'iss_q')
+    expect(await store.issues.liveChildrenOf(['iss_p', 'iss_alone'])).toEqual([
+      { id: 'iss_c1', parentId: 'iss_p', stage: 'backlog', closedReason: null, deletedAt: null },
+      { id: 'iss_c2', parentId: 'iss_p', stage: 'done', closedReason: 'done', deletedAt: null },
+    ])
+    // Padded to a larger bucket, the same rows.
+    expect(
+      (await store.issues.liveChildrenOf(['iss_q', 'iss_p', 'iss_alone'])).map((c) => c.id),
+    ).toEqual(['iss_c1', 'iss_c2', 'iss_cq'])
+    expect(await store.issues.liveChildrenOf(['iss_alone'])).toEqual([])
+  })
+
+  it('issueIdsOfLabels returns each issue carrying one of the labels once', async () => {
+    const store = await openIssueStore()
+    await seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
+    await store.issues.setIssueLabels(asIssueId('iss_a'), ['red', 'blue'])
+    await store.issues.setIssueLabels(asIssueId('iss_b'), ['blue'])
+    await store.issues.setIssueLabels(asIssueId('iss_c'), ['green'])
+    const ids = await store.issues.findLabels(['red', 'blue', 'green'])
+    const red = ids.get('red')!.id
+    const blue = ids.get('blue')!.id
+    expect((await store.issues.issueIdsOfLabels([red, blue])).sort()).toEqual(['iss_a', 'iss_b'])
+    expect(await store.issues.issueIdsOfLabels([ids.get('green')!.id])).toEqual(['iss_c'])
+    expect(await store.issues.issueIdsOfLabels([])).toEqual([])
+  })
+})

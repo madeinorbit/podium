@@ -16,6 +16,9 @@ import { LOADING, type Loaded } from './rollup'
 import type { SidebarProgress } from './sidebar-row'
 import { type Worklist, worklistView } from './view-model'
 
+/** The sidebar's collection: open issues that are not proposed (`@podium/model` declarations). */
+const SIDEBAR_COLLECTION = { collection: 'issueProjection.sidebar', part: 'main' } as const
+
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
   readonly projectSort?: UserPreferencesModel['sidebar']['repoSort']
@@ -137,7 +140,21 @@ export class SidebarIndex {
   }
   constructor(private readonly view: Worklist) {}
 
+  /**
+   * TRACKED (POD-7087, design "To settle during the build"): on an empty
+   * device whose sidebar collection has not arrived yet, the sidebar shows a
+   * loading state until it is complete, not rows from the top down: its order
+   * is bands, lanes and pins, not one sort a range marker could follow, and a
+   * row painted before its children and sessions arrive would show a wrong
+   * number. A reload after a gap keeps its old rows on screen.
+   */
+  get loading(): boolean {
+    const collections = this.pool.collections
+    return collections.firstDownload && !collections.complete(SIDEBAR_COLLECTION)
+  }
+
   row(id: string): WorklistIssue | typeof LOADING | undefined {
+    if (this.loading) return LOADING
     const model = here(this.pool.issue(id))
     if (model !== undefined) return sidebarIssueRow(model, this.pool)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined

@@ -6,7 +6,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
   spawnSync: childProcesses,
 }))
 
-import { testHarnessContext } from './driver/testing/harness-context.js'
+import { testHarnessContext, testLaunchPosture } from './driver/testing/harness-context.js'
 import { agentLaunchCommand } from './index.js'
 
 /**
@@ -21,7 +21,10 @@ describe('PTY launch command resolution', () => {
 
   it.each(['opencode', 'cursor'] as const)('binds %s to the context without a child', (kind) => {
     const harnessContext = testHarnessContext({ kind, executable: `/opt/test/${kind}` })
-    expect(agentLaunchCommand(kind, { cwd: '/work', harnessContext }).cmd).toBe(`/opt/test/${kind}`)
+    const { context: _context, ...posture } = testLaunchPosture(harnessContext)
+    expect(agentLaunchCommand(kind, { cwd: '/work', harnessContext, posture }).cmd).toBe(
+      `/opt/test/${kind}`,
+    )
     expect(childProcesses).not.toHaveBeenCalled()
   })
 })

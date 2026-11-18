@@ -8,10 +8,7 @@ import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { FollowService } from '../../client-core/src/runtime-root/services/follow-service'
 import { createPoolNavigationProvider } from './navigation-provider'
-import { NAVIGATION_SUMMARIES } from './navigation-schema'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
 const old = '2020-01-01T00:00:00Z'
@@ -48,15 +45,11 @@ const session = (id: string, cwd = '/old', patch: object = {}): RowRecord =>
     },
   }) as RowRecord
 function fixture(rows: RowRecord[]) {
-  let source = createColdIndex(SCHEMA, NAVIGATION_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: Date.parse('2026-10-05') },
     undefined,
     {
-      cold: () => source,
       load: () => undefined,
-      summaries: NAVIGATION_SUMMARIES,
       worklist: 'demand',
       schedule: () => () => {},
     },
@@ -66,12 +59,9 @@ function fixture(rows: RowRecord[]) {
     pool,
     provider: createPoolNavigationProvider(pool),
     publish(event: RowSourceEvent) {
-      source.apply(event)
       pool.apply(event)
     },
     rebuild(rows: RowRecord[]) {
-      source = createColdIndex(SCHEMA, NAVIGATION_SUMMARIES)
-      source.apply({ type: 'replace', rows })
       pool.apply({ type: 'update', rows })
     },
   }

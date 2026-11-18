@@ -52,7 +52,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
   })
   /** The issue's own stamp; undefined when the issue is unknown (its subtree is not read). */
   const own = cachedKey('NavigationActivity', 'own', (id): Loaded<{ at: string | undefined }> => {
-    let issue = omitGone(pool.row('issue', id, 'summary'))
+    let issue = omitGone(pool.row('issue', id))
     if (issue && issue !== LOADING && !Object.hasOwn(issue, 'updatedAt'))
       issue = omitGone(pool.row('issue', id))
     if (issue === LOADING || issue === undefined) return issue

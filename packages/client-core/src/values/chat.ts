@@ -14,6 +14,12 @@ import {
   parseEnvelopeBatch,
   principalShortName,
 } from './message-envelope'
+import {
+  isToolResultOnly,
+  type ToolExecutionView,
+  toolExecutionView,
+  withToolResult,
+} from './tool-execution'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -71,16 +77,22 @@ export interface ChatBlock {
   item: TranscriptItem
   /** Result text paired onto a tool-call block (toolUseId match). */
   result?: string
+  /** Shared execution facts, normalized by adapters and paired by this model. */
+  execution?: ToolExecutionView
   /** The agent's own mail this call sent or read (POD-2146), when it went
    *  through. Set by {@link presentToolBlock}; renderers only read it. */
   mail?: ToolMail
-  /** A Codex script's calls as its row lists them, a mail call that went
-   *  through named as its note. Set by {@link presentToolBlock}. */
+  /** Retained input labels for one execution. A confirmed mail receipt may
+   * name its matching input as a note. Set by {@link presentToolBlock}. */
   scriptCalls?: ScriptCallLine[]
   /** The harness's own summary of the batch this call belongs to (POD-6258),
    *  from a 'tool-summary' item naming its `toolUseId`. One summary covers
    *  several calls, so `id` (the summary item's) tells them apart. */
-  harnessSummary?: { readonly id: string; readonly text: string }
+  harnessSummary?: {
+    readonly id: string
+    readonly text: string
+    readonly toolUseIds?: readonly string[]
+  }
 }
 
 /** A harness's summary of a batch of calls: metadata for the run those calls
@@ -182,11 +194,12 @@ export function foldCompaction(note: TranscriptItem, part: TranscriptItem): Tran
  */
 export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
   const blocks: ChatBlock[] = []
-  const callByToolUseId = new Map<string, ChatBlock>()
-  const summaries = new Map<string, { id: string; text: string }>()
+  const callByToolUseId = new Map<string, { block: ChatBlock; source: TranscriptItem }>()
+  const summaries = new Map<string, NonNullable<ChatBlock['harnessSummary']>>()
   for (const item of items) {
     if (isToolSummaryItem(item)) {
-      for (const use of item.summarizes ?? []) summaries.set(use, { id: item.id, text: item.text })
+      for (const use of item.summarizes ?? [])
+        summaries.set(use, { id: item.id, text: item.text, toolUseIds: item.summarizes })
       continue
     }
     if (isUserMediaMarker(item)) {
@@ -214,11 +227,14 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
       prev.item = foldCompaction(prev.item, item)
       continue
     }
-    if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) {
-      const call = callByToolUseId.get(item.toolUseId)
-      if (call) {
+    if (isToolResultOnly(item) && item.toolUseId) {
+      const pairing = callByToolUseId.get(item.toolUseId)
+      if (pairing) {
+        const { block: call, source } = pairing
         call.result = item.toolResult
-        if (item.toolEffects) call.item = { ...call.item, toolEffects: item.toolEffects }
+        const effects = item.toolEffects ?? call.item.toolEffects
+        const paired = withToolResult(source, item)
+        call.item = effects ? { ...paired, toolEffects: effects } : paired
         continue
       }
       // Orphan result (call scrolled out of the buffer) — show it standalone.
@@ -226,11 +242,12 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
       continue
     }
     const block: ChatBlock = { item }
-    if (item.role === 'tool' && item.toolUseId) callByToolUseId.set(item.toolUseId, block)
+    if (item.role === 'tool' && item.toolUseId)
+      callByToolUseId.set(item.toolUseId, { block, source: item })
     blocks.push(block)
   }
   for (const [use, summary] of summaries) {
-    const call = callByToolUseId.get(use)
+    const call = callByToolUseId.get(use)?.block
     if (call) call.harnessSummary = summary
   }
   return blocks.map(presentToolBlock)
@@ -284,7 +301,7 @@ export interface TranscriptActivityFacts {
 
 type ActivityInputs = Pick<
   TranscriptItem,
-  'role' | 'text' | 'toolName' | 'toolInput' | 'toolInputJson'
+  'role' | 'text' | 'toolName' | 'toolInput' | 'toolInputJson' | 'toolExecution'
 >
 interface ActivityRevision extends ActivityInputs {
   readonly facts: TranscriptActivityFacts
@@ -303,7 +320,7 @@ const NO_ACTIVITY: TranscriptActivityFacts = {
 const TOOL_ACTIVITY: TranscriptActivityFacts = { ...NO_ACTIVITY, stretch: true }
 
 export function transcriptActivityFacts(item: TranscriptItem): TranscriptActivityFacts {
-  if (item.role !== 'user' && (item.role !== 'tool' || item.toolName !== 'Bash'))
+  if (item.role !== 'user' && (item.role !== 'tool' || !isShellCommandItem(item)))
     return item.role === 'tool' && !isInteractiveTool(item) ? TOOL_ACTIVITY : NO_ACTIVITY
   const held = activityRevisions.get(item)
   if (
@@ -312,7 +329,8 @@ export function transcriptActivityFacts(item: TranscriptItem): TranscriptActivit
     held.text === item.text &&
     held.toolName === item.toolName &&
     held.toolInput === item.toolInput &&
-    held.toolInputJson === item.toolInputJson
+    held.toolInputJson === item.toolInputJson &&
+    held.toolExecution === item.toolExecution
   )
     return held.facts
   const envelopes = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
@@ -335,6 +353,7 @@ export function transcriptActivityFacts(item: TranscriptItem): TranscriptActivit
     toolName: item.toolName,
     toolInput: item.toolInput,
     toolInputJson: item.toolInputJson,
+    toolExecution: item.toolExecution,
     facts,
   })
   return facts
@@ -377,9 +396,16 @@ export function toolMailCommand(item: TranscriptItem): MailCommand | null {
   return transcriptActivityFacts(item).mailCommand
 }
 
+function isShellCommandItem(item: TranscriptItem): boolean {
+  return (
+    item.toolName === 'Bash' ||
+    (item.toolExecution?.kind === 'commands' && item.toolExecution.inputs?.length === 1)
+  )
+}
+
 function readToolMailCommand(item: TranscriptItem): MailCommand | null {
-  if (item.role !== 'tool' || item.toolName !== 'Bash') return null
-  const text = item.toolInputJson ?? item.toolInput ?? ''
+  if (item.role !== 'tool' || !isShellCommandItem(item)) return null
+  const text = item.toolExecution?.inputs?.[0]?.text ?? item.toolInput ?? ''
   if (!text.includes('podium') || !text.includes('mail')) return null
   const command = shellCommand(item)
   return command === undefined ? null : classifyMailCommand(command)
@@ -391,47 +417,28 @@ function noteLine(mail: Exclude<MailCommand, { op: 'inbox' }>, to: string): stri
   return mail.preview ? `${name} · ${mail.preview}` : name
 }
 
-/** The calls a Codex script listed (`kind: 'script-calls'`), a mail call
- *  whose receipt the script's output unambiguously carries named as its note.
+/** A normalized execution's input labels, a mail call whose receipt the
+ * execution's output unambiguously carries named as its note.
  *  A failed script, or a call whose receipt it cannot place, keeps its shell
  *  line. */
 function scriptCallLines(
   item: TranscriptItem,
   result: string | undefined,
 ): ScriptCallLine[] | undefined {
-  if (!item.toolInputJson) return undefined
-  let calls: unknown
-  try {
-    const payload: unknown = JSON.parse(item.toolInputJson)
-    if (
-      !payload ||
-      typeof payload !== 'object' ||
-      !('kind' in payload) ||
-      payload.kind !== 'script-calls'
-    )
-      return undefined
-    calls = 'calls' in payload ? payload.calls : undefined
-  } catch {
-    return undefined
-  }
-  if (!Array.isArray(calls)) return []
-  const lines = calls.flatMap((call: unknown): ScriptCallLine[] => {
-    if (!call || typeof call !== 'object' || !('tool' in call) || typeof call.tool !== 'string')
-      return []
-    return [
-      {
-        tool: call.tool,
-        input: 'input' in call && typeof call.input === 'string' ? call.input : '',
-      },
-    ]
-  })
-  if (toolVerdict(result, item.toolEffects) === 'err' || !result) return lines
+  const inputs = item.toolExecution?.inputs
+  if (!inputs) return undefined
+  const lines = inputs.map((input) => ({ tool: input.toolName, input: input.text }))
+  if (toolVerdict(result, item.toolEffects, item.toolExecution) === 'err' || !result) return lines
   const receipts = mailReceipts(result)
   if (receipts.length === 0) return lines
   // Per-call output is merged, so a receipt is only that call's when nothing
   // else could own it: exactly one call and exactly one receipt with its kind
   // and recipient. Two sends to one recipient where one failed stay shell lines.
-  const mails = lines.map((line) => (line.tool === 'Bash' ? classifyMailCommand(line.input) : null))
+  const mails = lines.map((line, at) =>
+    line.tool === 'Bash' && inputs[at]?.capture === 'complete'
+      ? classifyMailCommand(line.input)
+      : null,
+  )
   const callKey = (mail: MailCommand | null): string | undefined =>
     mail?.op === 'send' ? `send\0${mail.to}` : mail?.op === 'reply' ? 'reply' : undefined
   const receiptKey = (r: MailReceipt): string | undefined =>
@@ -459,7 +466,7 @@ function scriptCallLines(
  *  mail: once there is output, a send must carry its receipt. */
 function toolMail(item: TranscriptItem, result: string | undefined): ToolMail | undefined {
   const mail = toolMailCommand(item)
-  if (!mail || toolVerdict(result, item.toolEffects) === 'err') return undefined
+  if (!mail || toolVerdict(result, item.toolEffects, item.toolExecution) === 'err') return undefined
   if (mail.op === 'inbox') {
     const notes = result ? countInboxNotes(result) : undefined
     return notes === undefined ? { op: 'inbox' } : { op: 'inbox', notes }
@@ -483,34 +490,21 @@ export function presentToolBlock(block: ChatBlock): ChatBlock {
   const { item } = block
   if (item.role !== 'tool') return block
   const result = block.result ?? item.toolResult
-  if (item.toolName === 'Script') {
-    const scriptCalls = scriptCallLines(item, result)
-    return scriptCalls ? { ...block, scriptCalls } : block
-  }
-  const mail = toolMail(item, result)
-  return mail ? { ...block, mail } : block
+  const script =
+    (item.toolExecution?.inputs?.length ?? 0) > 1 || item.toolExecution?.kind === 'actions'
+  const mail = script ? undefined : toolMail(item, result)
+  if (mail) return { ...block, mail }
+  const scriptCalls = script ? scriptCallLines(item, result) : undefined
+  const execution = toolExecutionView(block)
+  return { ...block, ...(scriptCalls ? { scriptCalls } : {}), ...(execution ? { execution } : {}) }
 }
 
-/** The full command a shell call ran: the retained `shell-command` payload, or
- *  the input preview older records and other harnesses keep it in. */
+/** Only complete retained command input can establish mail semantics. A
+ * preview from an older record remains an explicit conservative fallback. */
 function shellCommand(item: TranscriptItem): string | undefined {
-  if (item.toolInputJson) {
-    try {
-      const payload: unknown = JSON.parse(item.toolInputJson)
-      if (
-        payload &&
-        typeof payload === 'object' &&
-        'kind' in payload &&
-        payload.kind === 'shell-command' &&
-        'command' in payload &&
-        typeof payload.command === 'string'
-      )
-        // A truncated command may have lost what follows the send.
-        return 'truncated' in payload && payload.truncated ? undefined : payload.command
-    } catch {
-      // Fall back to the preview below.
-    }
-  }
+  const input = item.toolExecution?.inputs?.[0]
+  if (input)
+    return input.kind === 'command' && input.capture === 'complete' ? input.text : undefined
   return item.toolInput
 }
 
@@ -561,6 +555,10 @@ export type ChatRow = SingleRow | ActivityStretchRow
 
 /** One delivered transcript item can hold several notes. Count the notes. */
 export function toolActivityCount(item: TranscriptItem): number {
+  if (item.toolExecution?.kind && item.toolExecution.inputs?.length)
+    return item.toolExecution.kind === 'continuation'
+      ? 1
+      : item.toolExecution.inputs.length + (item.toolExecution.omittedInputs ?? 0)
   return transcriptActivityFacts(item).eventCount
 }
 
@@ -604,6 +602,9 @@ export function toolCategory(item: TranscriptItem): { verb: string; noun: string
   const mail = toolMailCommand(item)
   if (mail)
     return mail.op === 'inbox' ? { verb: 'Checked', noun: 'inbox' } : { verb: 'Sent', noun: 'note' }
+  if (item.toolExecution?.kind === 'commands') return { verb: 'Ran', noun: 'command' }
+  if (item.toolExecution?.kind === 'actions') return { verb: 'Ran', noun: 'action' }
+  if (item.toolExecution?.kind === 'continuation') return { verb: 'Continued', noun: 'command' }
   switch (item.toolName) {
     case 'Read':
     case 'NotebookRead':
@@ -802,7 +803,10 @@ export function toolBatchTitles(blocks: ChatBlock[]): { title: string; summary: 
     title:
       harnessSummaryLine(blocks.map((block) => block.harnessSummary)) ??
       toolBatchTitleFromClauses(clauses),
-    summary: toolBatchTitleFromClauses(clauses.map((clause) => ({ ...clause, subjects: [] }))),
+    summary: toolBatchTitleFromClauses(
+      clauses.map((clause) => ({ ...clause, subjects: [] })),
+      true,
+    ),
   }
 }
 
@@ -814,7 +818,10 @@ export interface ToolTitleClause {
 }
 
 /** Clauses may be demanded from a retained tally. Stop at the display budget. */
-export function toolBatchTitleFromClauses(clauses: Iterable<ToolTitleClause>): string {
+export function toolBatchTitleFromClauses(
+  clauses: Iterable<ToolTitleClause>,
+  neutralExecutions = false,
+): string {
   let phrase = ''
   for (const { verb, noun, subjects: shown, count } of clauses) {
     // The tail counts every CALL the clause covers, not the names dropped from
@@ -823,7 +830,9 @@ export function toolBatchTitleFromClauses(clauses: Iterable<ToolTitleClause>): s
     const rest = count - shown.length
     const clause =
       shown.length === 0
-        ? clauseFor(verb, noun, count)
+        ? neutralExecutions && verb === 'Ran' && (noun === 'command' || noun === 'action')
+          ? `${count} ${noun}${count === 1 ? '' : 's'}`
+          : clauseFor(verb, noun, count)
         : `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
     phrase += phrase ? `, ${lowerFirst(clause)}` : clause
     if (phrase.length > PHRASE_MAX) return shorten(phrase, PHRASE_MAX)
@@ -910,7 +919,9 @@ export function toolRunElapsedMs(blocks: ChatBlock[], nowMs?: number): number | 
  *  a failure hidden behind a disclosure is a failure the operator never sees. */
 export function toolRunFailures(blocks: ChatBlock[]): number {
   return blocks.filter(
-    (b) => toolVerdict(b.result ?? b.item.toolResult, b.item.toolEffects) === 'err',
+    (b) =>
+      toolVerdict(b.result ?? b.item.toolResult, b.item.toolEffects, b.item.toolExecution) ===
+      'err',
   ).length
 }
 
@@ -927,8 +938,12 @@ const TOOL_ERR_RE =
 export function toolVerdict(
   result: string | undefined,
   effects?: TranscriptItem['toolEffects'],
+  execution?: TranscriptItem['toolExecution'],
 ): ToolVerdict {
   if (effects?.some((effect) => effect.kind === 'termination')) return 'err'
+  if (execution?.status === 'failed' || execution?.status === 'interrupted') return 'err'
+  if (execution?.status === 'completed') return 'ok'
+  if (execution?.output) return 'none'
   if (result === undefined || result.trim() === '') return 'none'
   const firstLine = result.trimStart().split('\n', 1)[0] ?? ''
   return TOOL_ERR_RE.test(firstLine) ? 'err' : 'ok'

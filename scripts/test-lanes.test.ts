@@ -52,7 +52,6 @@ describe('test lanes', () => {
     ['tests/worklist/shared/src/overlay-row.test.ts', 'worklist'],
     ['tests/worklist/harness/src/heartbeat-ancestors.test.ts', 'worklist'],
     ['tests/worklist/harness/src/perf/header-work.test.ts', 'worklist'],
-    ['tests/worklist/harness/src/cold-structures.test.ts', 'worklist'],
     ['tests/worklist/harness/src/mission-screen-work.test.ts', 'worklist'],
     ['tests/worklist/product/mission-pane.work.test.ts', 'worklist'],
     ['scripts/loop-split-load.integration.test.ts', 'acceptance'],

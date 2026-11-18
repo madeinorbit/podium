@@ -76,7 +76,6 @@ const live = [
   ['useShellShipping', reads.useShellShipping],
   ['useShellWindow', reads.useShellWindow],
   ['useShellApprovals', reads.useShellApprovals],
-  ['useShellSessions', reads.useShellSessions],
   ['useShellClose', reads.useShellClose],
   ['useShellMachines', reads.useShellMachines],
   ['useShellChrome', reads.useShellChrome],

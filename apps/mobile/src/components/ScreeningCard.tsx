@@ -1,3 +1,4 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueWithBodies } from '@podium/client-core/replica'
@@ -217,7 +218,8 @@ export const ScreeningCard = observer(function ScreeningCard({
     opacity: interpolate(translateX.get(), [-COMMIT_PX, 0], [1, 0], Extrapolation.CLAMP),
   }))
   const blockers = issue.blockedByNotes.length
-  const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
+  const progress = childProgressOf(issue)
+  const openChildren = progress ? Math.max(0, progress.childCount - progress.childDoneCount) : 0
   const brief = issue.brief?.trim()
   const description = issue.description.trim()
   const agentKind = issueDefaultAgentKind(issue.defaultAgent, codingHarness)

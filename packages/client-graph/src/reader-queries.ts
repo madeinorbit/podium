@@ -7,7 +7,7 @@ import { residentIds } from './enumerate'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult, type QueryResultSpec } from './query-result'
-import type { ColdQueries } from './shared/cold-index'
+import type { DeviceQueries } from './shared/device-index'
 import type { IssueIdentities } from './shared/issue-identities'
 import type { IssueChildCounts, IssueQuestions } from './shared/issue-questions'
 import {
@@ -34,21 +34,20 @@ type SessionAtomKind =
 
 interface IdentityResult {
   question: ReaderQuestion
-  source: ColdQueries
+  source: DeviceQueries
   answer: ReturnType<typeof createKeyedAnswer<string>>
   nextOrder: number
 }
 interface WatchedQuestion {
   atom: IAtom
   version: number
-  revision(index: ColdQueries): number
-  routes(index: ColdQueries): readonly string[]
+  revision(index: DeviceQueries): number
+  routes(index: DeviceQueries): readonly string[]
   keys: readonly string[]
 }
 
-/** Query bridge, not a history index in the pool. Production questions go to
- * the row source's cold index; a directly-fed pool (fixtures, standalone
- * consumers) answers from its own (`MobxPool.coldIndex`). */
+/** Query bridge over the pool's device index (`MobxPool.deviceIndex`), which
+ * covers exactly the rows in memory (POD-7094). */
 export class ReaderQueries {
   private readonly sessionAtoms = new Map<string, IAtom>()
   private readonly issueScopeAtoms = new Map<string, { atom: IAtom; bits: number }>()
@@ -63,9 +62,9 @@ export class ReaderQueries {
   >()
   private readonly containingIssuePaths = new Map<string, Set<string>>()
   private effectiveIssues: IssueQuestions | undefined
-  private effectiveIssueSource: ColdQueries | undefined
+  private effectiveIssueSource: DeviceQueries | undefined
   private effectiveIssueIdentities: IssueIdentities | undefined
-  private effectiveIdentitySource: ColdQueries | undefined
+  private effectiveIdentitySource: DeviceQueries | undefined
   private readonly linkedIssueAtoms = new Map<
     string,
     { atom: IAtom; value: string | undefined; identifier: string; referenceOnly: boolean }
@@ -91,7 +90,7 @@ export class ReaderQueries {
   private readonly worktrees = createWorktreeQuestions()
   private readonly firstWorktreeAtom = createAtom('history.firstWorktree')
   private effectiveSessions: SessionQuestions | undefined
-  private effectiveSource: ColdQueries | undefined
+  private effectiveSource: DeviceQueries | undefined
   private readonly observed = new Map<string, WatchedQuestion>()
   private readonly queryRoutes = new Map<string, Set<string>>()
   private readonly dirtyQueries = new Map<string, Set<string>>()
@@ -104,12 +103,12 @@ export class ReaderQueries {
     }
   >()
   private publishing = false
-  private readerChangeSource: ColdQueries | undefined
+  private readerChangeSource: DeviceQueries | undefined
   private stopReaderChanges: (() => void) | undefined
   private stopResidentChanges: (() => void) | undefined
   private readonly listeners = new Set<(event: RowSourceEvent) => void>()
   private readonly memberListeners = new Map<string, Set<(id: string | undefined) => void>>()
-  private sourceSeen: ColdQueries | undefined
+  private sourceSeen: DeviceQueries | undefined
   private readonly identities = new Map<string, IdentityResult>()
   /** Resident edits shadow the source by address. Predicate membership is
    * maintained at ingestion, never discovered by walking resident history. */
@@ -143,7 +142,7 @@ export class ReaderQueries {
   constructor(
     private readonly pool: MobxPool,
     _schema: ModelSchema,
-    private readonly source: () => ColdQueries,
+    private readonly source: () => DeviceQueries,
   ) {
     for (const entity of ['issue', 'session'] as const)
       this.stopTables.push(
@@ -385,7 +384,25 @@ export class ReaderQueries {
       }
     }
     this.counts.scalarVisits++
-    return value
+    return value ?? this.stubIdentity(identities, identifier)
+  }
+  /**
+   * A reference to an issue the device holds only as a stub: the stub knows
+   * its repository and number, so a link or chip resolves at once (POD-7088,
+   * design "Search and references"). Tracked through the stubs; `#N` alone
+   * names no repository and stays unresolved.
+   */
+  private stubIdentity(identities: IssueIdentities, identifier: string): string | undefined {
+    if (!this.pool.collections.available) return undefined
+    for (const key of identities.aliasKeys(identifier)) {
+      if (key.startsWith('#')) continue
+      const [prefix, seq] = JSON.parse(key) as [string, string]
+      for (const repoId of identities.repoIds(prefix)) {
+        const id = this.pool.collections.stubIdAt(repoId, Number(seq))
+        if (id !== undefined) return id
+      }
+    }
+    return undefined
   }
   private publishLinkedIssue(question: string): void {
     const state = this.linkedIssueAtoms.get(question)
@@ -494,7 +511,11 @@ export class ReaderQueries {
         this.issuePrefixAtoms.set(key, { atom, value, prefix, includeDeleted })
     }
     this.counts.scalarVisits++
-    return value
+    if (value || !this.pool.collections.available) return value
+    // Issues the device holds only as stubs still count (POD-7088).
+    return this.issueIdentities()
+      .repoIds(prefix)
+      .some((repoId) => this.pool.collections.hasStubIn(repoId, includeDeleted))
   }
   private publishIssuePrefix(prefix: string): void {
     for (const includeDeleted of [false, true]) {
@@ -644,9 +665,20 @@ export class ReaderQueries {
     return value
   }
   private issueScopeValue(id: string): IssueScopeFacts | undefined {
-    return this.residentIssueIds.has(id)
-      ? this.residents.issueScope(id)
-      : this.index().issueScope(id)
+    if (this.residentIssueIds.has(id)) return this.residents.issueScope(id)
+    const indexed = this.index().issueScope(id)
+    if (indexed !== undefined || !this.pool.collections.available) return indexed
+    // The four bits are stub fields: an issue the device holds only as a
+    // stub still answers (POD-7088), an absent one stays undefined.
+    const stub = this.pool.collections.stubOf(id)
+    return stub === undefined
+      ? undefined
+      : {
+          draft: Boolean(stub.isDraftVessel),
+          deleted: Boolean(stub.deletedAt),
+          archived: Boolean(stub.archived),
+          agent: stub.audience === 'agent',
+        }
   }
   private scopeBits(value: IssueScopeFacts | undefined): number {
     return value === undefined
@@ -830,8 +862,12 @@ export class ReaderQueries {
     for (const key of keys) this.sessionAtoms.get(key)?.reportChanged()
   }
   /** Raw parent edges count archived/deleted children, with only stage=done
-   * contributing to the completed count, matching the issue close contract. */
-  issueChildCounts(id: string): IssueChildCounts {
+   * contributing to the completed count, matching the issue close contract.
+   * A pool that reads a device store answers from the stubs, for all history,
+   * and LOADING until they (or the parent's tree) are complete (POD-7088,
+   * design "Counts"); the rows in memory are not all history. */
+  issueChildCounts(id: string): IssueChildCounts | typeof LOADING {
+    if (this.pool.collections.available) return this.pool.collections.childCounts(id)
     const value = this.issueQuestions().childCounts(id),
       state = this.issueChildAtoms.get(id)
     if (state) state.atom.reportObserved()
@@ -937,12 +973,12 @@ export class ReaderQueries {
         : String(result.nextOrder++).padStart(16, '0')
     result.answer.set(id, order, id)
   }
-  private identityResult(question: ReaderQuestion, source: ColdQueries): IdentityResult {
+  private identityResult(question: ReaderQuestion, source: DeviceQueries): IdentityResult {
     const result = { question, source, answer: createKeyedAnswer<string>(), nextOrder: 0 }
     for (const id of this.initialIds(question, source)) this.addIdentity(result, id)
     return result
   }
-  private index(): ColdQueries {
+  private index(): DeviceQueries {
     return this.source()
   }
   private routeQuery(route: string, id: string): void {
@@ -963,7 +999,7 @@ export class ReaderQueries {
     }
     if (!this.queryRoutes.size) this.releaseReaderChanges()
   }
-  private refileQuery(key: string, state: WatchedQuestion, index: ColdQueries): void {
+  private refileQuery(key: string, state: WatchedQuestion, index: DeviceQueries): void {
     this.unrouteQuery(key, state)
     state.keys = [...new Set(state.routes(index))]
     this.registerRoutes(key, state.keys)
@@ -1031,7 +1067,7 @@ export class ReaderQueries {
     }
     this.dirtyQueries.clear()
   }
-  private questionRoutesFor(question: ReaderQuestion, index: ColdQueries): readonly string[] {
+  private questionRoutesFor(question: ReaderQuestion, index: DeviceQueries): readonly string[] {
     return [
       ...new Set([
         ...index.readerRevisionKeys(question),
@@ -1073,9 +1109,9 @@ export class ReaderQueries {
   }
   private watch(
     key: string,
-    revision: (index: ColdQueries) => number,
-    routes: (index: ColdQueries) => readonly string[],
-  ): ColdQueries {
+    revision: (index: DeviceQueries) => number,
+    routes: (index: DeviceQueries) => readonly string[],
+  ): DeviceQueries {
     const index = this.index()
     let state = this.observed.get(key)
     const created = state === undefined
@@ -1201,7 +1237,7 @@ export class ReaderQueries {
     }
     // Replacement counts were rebuilt from residents above. Observed identity
     // answers are rebuilt below from the new source catalog. Updating every
-    // cold member here would construct an answer that is immediately discarded.
+    // member here would construct an answer that is immediately discarded.
     for (const row of event.rows)
       if (row.kind === 'issue' || row.kind === 'session') {
         if (event.type !== 'replace' && !fresh) {
@@ -1328,7 +1364,7 @@ export class ReaderQueries {
     let result = this.identities.get(key)
     if (!result) {
       // watch() owns membership invalidation. Seeding must not leak a table
-      // membership dependency for every cold candidate into the caller.
+      // membership dependency for every candidate into the caller.
       // untracked-read: reader-identity-seed
       result = untracked(() => this.identityResult(question, index))
       if (this.observed.has(key)) this.identities.set(key, result)
@@ -1340,7 +1376,7 @@ export class ReaderQueries {
     // remains identities only, and is never re-derived for a payload change.
     return ids
   }
-  private initialIds(question: ReaderQuestion, index: ColdQueries): string[] {
+  private initialIds(question: ReaderQuestion, index: DeviceQueries): string[] {
     const entity = questionEntity(question)
     // These predicates are answered by the effective source feed, including
     // its pending overlays. Adding every resident identity would break the
@@ -1461,7 +1497,13 @@ export class ReaderQueries {
     this.counts.returnedIds += ids.length
     return ids
   }
-  count(entity: 'issue' | 'session'): number {
+  /**
+   * How many records of the kind the DEVICE holds whole: "is the device
+   * still empty" and diagnostics ("Sessions: N"). Never a count over all
+   * history: the device holds the policy's collections, not history
+   * (POD-7088). Counts over all history read `pool.collections`.
+   */
+  heldCount(entity: 'issue' | 'session'): number {
     const question: ReaderQuestion = {
       kind: entity === 'issue' ? 'commandIssues' : 'commandSessions',
     }
@@ -1542,7 +1584,7 @@ export class ReaderQueries {
     this.counts.scalarVisits += questions.visits - before
     return answer && { machineId: answer.machineId, createdAt: answer.createdAt }
   }
-  /** Setup uses effective source winners, including archived/cold sessions.
+  /** Setup uses effective source winners, including archived sessions.
    * These scalar answers never project the session catalog. */
   setupDefaultAgent(): string | undefined {
     this.watch(

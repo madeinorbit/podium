@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { canonicalHeadlessContractFacts } from '@podium/harness/driver'
 import { attachTestClient } from './test-support/client-transport'
 // Headless superagent turns (concierge unification, Phase B): threads are
 // persistent harness sessions — sendTurn acks before completion, progress fans
@@ -14,7 +16,7 @@ import {
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
 } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { DEFAULT_SESSION_POSTURE, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,6 +52,7 @@ type TurnReq = {
   contextPrompt?: string
   systemPrompt?: string
   permissionMode?: string
+  posture?: unknown
   resumeValue?: string
   sessionUuid?: string
   model?: string
@@ -61,6 +64,8 @@ type TurnReq = {
   agent?: string
   cwd?: string
   env?: Record<string, string>
+  /** The frame as sent, for the mixed-version digest check. */
+  frame?: Record<string, unknown>
 }
 type BindReq = Extract<ControlMessage, { type: 'reattach' }> & { resumeValue?: string }
 type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
@@ -117,6 +122,9 @@ async function harness() {
         ...(m.contextPrompt ? { contextPrompt: m.contextPrompt } : {}),
         ...(m.systemPrompt ? { systemPrompt: m.systemPrompt } : {}),
         ...(m.permissionMode ? { permissionMode: m.permissionMode } : {}),
+        ...((m as { posture?: unknown }).posture
+          ? { posture: (m as { posture?: unknown }).posture }
+          : {}),
         ...(m.resumeValue ? { resumeValue: m.resumeValue } : {}),
         ...(m.sessionUuid ? { sessionUuid: m.sessionUuid } : {}),
         ...(m.model ? { model: m.model } : {}),
@@ -127,6 +135,7 @@ async function harness() {
         ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
         ...(m.env ? { env: { ...m.env } } : {}),
         ...(info ? { agent: info.agent, cwd: info.cwd } : {}),
+        frame: { ...m } as Record<string, unknown>,
       })
       return
     }
@@ -1570,6 +1579,9 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.prompt).toBe('hello')
     expect(req.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
     expect(req.contextPrompt).toContain('/r')
+    // The launch terms in Podium's words (POD-6858 Task 9), and the old word
+    // beside them for a daemon that predates posture.
+    expect(req.posture).toEqual(DEFAULT_SESSION_POSTURE)
     expect(req.permissionMode).toBe('auto')
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn
@@ -1832,6 +1844,53 @@ describe('sendTurn (headless harness turns)', () => {
         text: 'x',
       }),
     ).rejects.toThrow(/unknown thread/)
+  })
+
+  it('mints the digest an older daemon recomputes after it strips posture (POD-6858)', async () => {
+    // A daemon that predates posture parses the frame without it and
+    // recomputes the digest over the fields it knows, the old
+    // permissionMode and allowedTools among them.
+    const h = await harness()
+    await h.sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', ['issue_list'])
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'hi',
+    })
+    const { posture, ...old } = h.turnReqs[0]!.frame as Record<string, unknown> & {
+      text: string
+      turnId: string
+      sessionId: string
+      accountId: string
+      requestDigest: string
+    }
+    expect(posture).toEqual(DEFAULT_SESSION_POSTURE)
+    const pick = (key: string) => (old[key] !== undefined ? { [key]: old[key] } : {})
+    const recomputed = createHash('sha256')
+      .update(
+        canonicalHeadlessContractFacts({
+          prompt: old.text,
+          ...pick('model'),
+          ...pick('effort'),
+          ...pick('allowedTools'),
+          ...pick('permissionMode'),
+          ...pick('toolPolicy'),
+          ...pick('mcpConfig'),
+          ...pick('resumeValue'),
+          ...pick('sessionUuid'),
+          ...pick('structuredPermissions'),
+          ...pick('contextPrompt'),
+          ...pick('systemPrompt'),
+          ...pick('timeoutMs'),
+          turnId: old.turnId,
+          sessionId: old.sessionId,
+          accountId: old.accountId,
+        }),
+      )
+      .digest('hex')
+    expect(old.permissionMode).toBe('auto')
+    expect(old.allowedTools).toContain('mcp__podium__issue_list')
+    expect(recomputed).toBe(old.requestDigest)
   })
 
   it('mounts MCP config + allowedTools for MCP-capable agents when the endpoint is up', async () => {

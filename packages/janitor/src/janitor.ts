@@ -6,8 +6,11 @@ import { createLogger } from '@podium/logger'
 // here rather than re-validated. This is the one place these casts belong.
 import { asAutomationId, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
+  APPLIED_MUTATION_PRUNE_BATCH_ROWS,
+  type AppliedMutationsPruneObservation,
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationFireObservation,
+  appliedMutationsPruneRunKey,
   automationFireRunKey,
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -36,6 +39,8 @@ import {
   MessageExpiryObservation,
   maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  type QueuedMessagesExpiryObservation,
+  queuedMessagesExpiryRunKey,
   type SessionAutoArchiveObservation,
   type StewardPollObservation,
   sessionAutoArchiveRunKey,
@@ -43,12 +48,14 @@ import {
   type WorktreeGcObservation,
   worktreeGcRunKey,
 } from '@podium/protocol'
+import { RetentionBacklog } from '@podium/runtime/retention-backlog'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
 
 const log = createLogger('janitor')
 
 const CANDIDATE_LIMIT = 100
 const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
 const CANDIDATE_PAGE_SIZE = 25
 const LEASE_RENEW_AHEAD_MS = 30_000
 const DEFAULT_TICK_MS = 30_000
@@ -116,6 +123,17 @@ export interface JanitorReads {
   dueAutomations(input: { now: string; limit: number }): Promise<DueAutomationRow[]>
   /** The steward's stored cursor, as stored. */
   stewardCursor(): Promise<string | undefined>
+  /** The oldest receipt applied before `cutoffAppliedAt` (epoch ms), null with none (POD-7035). */
+  receiptPruneHead(cutoffAppliedAt: number): Promise<number | null>
+  /** How many receipts were applied before `cutoffAppliedAt` (epoch ms). */
+  receiptPruneCount(cutoffAppliedAt: number): Promise<number>
+  /**
+   * The sessions holding input queued at or before `through` (epoch ms), one row each:
+   * the newest such row's time and how many there are, oldest session first (POD-7035).
+   */
+  queuedExpiryPage(input: { through: number; limit: number }): Promise<QueuedExpiryRow[]>
+  /** How many rows of every session were queued at or before `through` (epoch ms). */
+  queuedExpiryCount(through: number): Promise<number>
   /** The newest event id, 0 with none. */
   maxEventId(): Promise<number>
   /** Every machine but `localMachineId`, newest handshake first. */
@@ -156,6 +174,13 @@ export interface WorktreeGcRow {
   stage: string
   closedReason: string | null
   closedAt: string
+}
+
+export interface QueuedExpiryRow {
+  sessionId: string
+  /** The newest queued time at or before the horizon. */
+  through: number
+  rows: number
 }
 
 export interface DueAutomationRow {
@@ -220,6 +245,43 @@ export interface MaintenanceCommandsPrunePlanInput {
   nowMs: number
 }
 
+export interface AppliedMutationsPrunePlanInput {
+  maxAgeMs: number
+  batchSize: number
+  nowMs: number
+}
+
+export interface QueuedMessagesExpiryReadInput {
+  maxAgeMs: number
+  nowMs: number
+  limit: number
+}
+
+/**
+ * The retention jobs, whose rows past their cutoff the janitor reads after each
+ * run (POD-7035 guard 4). The other jobs act on candidates, not on a horizon.
+ */
+export const RETENTION_JOBS = [
+  'event-log-prune',
+  'change-log-prune',
+  'maintenance-commands-prune',
+  'applied-mutations-prune',
+  'queued-messages-expiry',
+] as const
+export type RetentionJob = (typeof RETENTION_JOBS)[number]
+
+/** The lease's horizons a backlog read needs, and the time it reads at. */
+export type RetentionBacklogInput = Pick<
+  ReadyLease,
+  | 'eventRetentionMaxAgeDays'
+  | 'eventRetentionMaxRows'
+  | 'changeKeepRows'
+  | 'changeMaxAgeMs'
+  | 'maintenanceCommandMaxAgeMs'
+  | 'appliedMutationMaxAgeMs'
+  | 'queuedMessageMaxAgeMs'
+> & { nowMs: number }
+
 export interface AutoArchiveReadInput {
   cutoffReadAt: string
   limit: number
@@ -247,6 +309,10 @@ export interface JanitorCounters {
   lastProgressAt: string | null
   maxBatchDeleted: number
   jobAgeMs: Record<string, number>
+  /** Rows past each retention job's cutoff after its last run (POD-7035). */
+  retentionBacklog: Record<string, number>
+  /** The retention jobs whose backlog has not shrunk across three runs. */
+  retentionStalled: string[]
   queueDepth: number
   coalescedJobs: number
   supersededJobs: number
@@ -269,6 +335,17 @@ export interface JanitorDeps {
   planMaintenanceCommandsPrune?(
     input: MaintenanceCommandsPrunePlanInput,
   ): MaintenanceCommandsPruneObservation[] | Promise<MaintenanceCommandsPruneObservation[]>
+  planAppliedMutationsPrune?(
+    input: AppliedMutationsPrunePlanInput,
+  ): AppliedMutationsPruneObservation[] | Promise<AppliedMutationsPruneObservation[]>
+  readQueuedMessagesExpiry?(
+    input: QueuedMessagesExpiryReadInput,
+  ): QueuedMessagesExpiryObservation[] | Promise<QueuedMessagesExpiryObservation[]>
+  /**
+   * The rows still past `job`'s cutoff, read after the job ran (POD-7035 guard
+   * 4). Absent, no backlog is reported.
+   */
+  retentionBacklog?(job: RetentionJob, input: RetentionBacklogInput): number | Promise<number>
   readAutoArchiveCandidates?(
     input: AutoArchiveReadInput,
   ): IssueAutoArchiveObservation[] | Promise<IssueAutoArchiveObservation[]>
@@ -330,6 +407,8 @@ export class JanitorService {
     lastProgressAt: null,
     maxBatchDeleted: 0,
     jobAgeMs: {},
+    retentionBacklog: {},
+    retentionStalled: [],
     queueDepth: 0,
     coalescedJobs: 0,
     supersededJobs: 0,
@@ -338,10 +417,12 @@ export class JanitorService {
     maxUninterruptedSliceMs: 0,
   }
   private readonly jobStartedAt = new Map<string, number>()
+  private readonly backlog: RetentionBacklog
 
   constructor(private readonly deps: JanitorDeps) {
     this.generationId = deps.generationId ?? `janitor_${randomUUID()}`
     this.now = deps.now ?? Date.now
+    this.backlog = new RetentionBacklog(log, this.now)
   }
 
   /** POD-851 surface: queue-ish counters for acceptance probes. */
@@ -349,6 +430,8 @@ export class JanitorService {
     return {
       ...this.counters,
       jobAgeMs: { ...this.counters.jobAgeMs },
+      retentionBacklog: this.backlog.snapshot(),
+      retentionStalled: RETENTION_JOBS.filter((job) => this.backlog.stalled(job)),
     }
   }
 
@@ -451,6 +534,8 @@ export class JanitorService {
       await this.runEventLogPrune(lease, nowMs)
       await this.runChangeLogPrune(lease, nowMs)
       await this.runMaintenanceCommandsPrune(lease, nowMs)
+      await this.runAppliedMutationsPrune(lease, nowMs)
+      await this.runQueuedMessagesExpiry(lease, nowMs)
       await this.runAutoArchive(lease, nowMs)
       await this.runSessionAutoArchive(lease, nowMs)
       await this.runWorktreeGc(lease, nowMs)
@@ -510,6 +595,7 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('event-log-prune')
+    await this.reportBacklog('event-log-prune', lease, nowMs)
   }
 
   private async runChangeLogPrune(lease: ReadyLease, nowMs: number): Promise<void> {
@@ -533,6 +619,7 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('change-log-prune')
+    await this.reportBacklog('change-log-prune', lease, nowMs)
   }
 
   private async runMaintenanceCommandsPrune(lease: ReadyLease, nowMs: number): Promise<void> {
@@ -555,6 +642,80 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('maintenance-commands-prune')
+    await this.reportBacklog('maintenance-commands-prune', lease, nowMs)
+  }
+
+  /** The mutation receipts past their horizon, in batches (POD-7035). */
+  private async runAppliedMutationsPrune(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.planAppliedMutationsPrune) return
+    this.markJobStart('applied-mutations-prune', nowMs)
+    const batches = await this.deps.planAppliedMutationsPrune({
+      maxAgeMs: lease.appliedMutationMaxAgeMs,
+      batchSize: APPLIED_MUTATION_PRUNE_BATCH_ROWS,
+      nowMs,
+    })
+    for (const observed of batches) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'applied-mutations-prune',
+        runKey: appliedMutationsPruneRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('applied-mutations-prune')
+    await this.reportBacklog('applied-mutations-prune', lease, nowMs)
+  }
+
+  /** Parked sessions' input queued past its horizon, one session per command (POD-7035). */
+  private async runQueuedMessagesExpiry(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.readQueuedMessagesExpiry) return
+    this.markJobStart('queued-messages-expiry', nowMs)
+    const candidates = await this.deps.readQueuedMessagesExpiry({
+      maxAgeMs: lease.queuedMessageMaxAgeMs,
+      nowMs,
+      limit: CANDIDATE_LIMIT,
+    })
+    for (const observed of candidates) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'queued-messages-expiry',
+        runKey: queuedMessagesExpiryRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('queued-messages-expiry')
+    await this.reportBacklog('queued-messages-expiry', lease, nowMs)
+  }
+
+  /**
+   * Read and report the rows still past `job`'s cutoff (POD-7035 guard 4). A
+   * failed read is logged and skipped: the gauge must never stop a tick.
+   */
+  private async reportBacklog(job: RetentionJob, lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.retentionBacklog) return
+    let pastCutoff: number
+    try {
+      pastCutoff = await this.deps.retentionBacklog(job, {
+        eventRetentionMaxAgeDays: lease.eventRetentionMaxAgeDays,
+        eventRetentionMaxRows: lease.eventRetentionMaxRows,
+        changeKeepRows: lease.changeKeepRows,
+        changeMaxAgeMs: lease.changeMaxAgeMs,
+        maintenanceCommandMaxAgeMs: lease.maintenanceCommandMaxAgeMs,
+        appliedMutationMaxAgeMs: lease.appliedMutationMaxAgeMs,
+        queuedMessageMaxAgeMs: lease.queuedMessageMaxAgeMs,
+        nowMs,
+      })
+    } catch (error) {
+      log.warn('retention backlog read failed', { job, err: error })
+      return
+    }
+    this.backlog.report(job, pastCutoff)
   }
 
   private async runAutoArchive(lease: ReadyLease, nowMs: number): Promise<void> {
@@ -799,6 +960,15 @@ export class MessageExpiryReader {
 export class EventLogPrunePlanner {
   constructor(private readonly source: JanitorReadSource) {}
 
+  /** Events past either limit now: older than the age cutoff or beyond the row cap. */
+  async backlog(input: { maxAgeDays: number; maxRows: number; nowMs: number }): Promise<number> {
+    const cutoff = new Date(input.nowMs - input.maxAgeDays * DAY_MS).toISOString()
+    return await this.source.scan(async (reads) => {
+      const capThroughId = (await reads.eventCapThroughId(input.maxRows)) ?? 0
+      return await reads.eventPruneCount({ cutoff, capThroughId })
+    })
+  }
+
   async plan(input: EventLogPrunePlanInput): Promise<EventLogPruneObservation[]> {
     const cutoff = new Date(input.nowMs - input.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
     // One snapshot, the same three reads as ever: the cap, the head, and the
@@ -841,6 +1011,16 @@ export class ChangeLogPrunePlanner {
     private readonly workspaceId: string,
   ) {}
 
+  /** Change rows of the workspace's feed past the keep count or the age cutoff. */
+  async backlog(input: { keepRows: number; maxAgeMs: number; nowMs: number }): Promise<number> {
+    const feed = await this.source.scan(
+      async (reads) => await reads.changeFeed(input.nowMs - input.maxAgeMs),
+    )
+    if (feed === undefined) return 0
+    const thresholdSeq = Math.max(feed.headSeq - input.keepRows, feed.agedSeq ?? 0)
+    return Math.max(0, thresholdSeq - feed.floorSeq + 1)
+  }
+
   async plan(input: ChangeLogPrunePlanInput): Promise<ChangeLogPruneObservation[]> {
     // The feed's bounds and age threshold come from one snapshot.
     const feed = await this.source.scan(
@@ -875,6 +1055,13 @@ export class ChangeLogPrunePlanner {
 export class MaintenanceCommandsPrunePlanner {
   constructor(private readonly source: JanitorReadSource) {}
 
+  /** Receipts applied before the cutoff, counted through
+   *  `idx_maintenance_commands_applied_at` (POD-7035). */
+  async backlog(input: { maxAgeMs: number; nowMs: number }): Promise<number> {
+    const cutoffAppliedAt = new Date(input.nowMs - input.maxAgeMs).toISOString()
+    return await this.source.scan(async (reads) => await reads.commandPruneCount(cutoffAppliedAt))
+  }
+
   async plan(
     input: MaintenanceCommandsPrunePlanInput,
   ): Promise<MaintenanceCommandsPruneObservation[]> {
@@ -900,6 +1087,86 @@ export class MaintenanceCommandsPrunePlanner {
       return batches.length >= limit ? 'done' : 'continue'
     })
     return batches
+  }
+}
+
+/**
+ * THE MUTATION RECEIPTS PAST THEIR HORIZON (POD-7035), in batches.
+ *
+ * The cutoff is rounded down to the hour. The run key carries it, so a cutoff
+ * that moved with every 30-second tick would mint a new key, and a receipt in
+ * `maintenance_commands`, for each tick that found a row or two newly aged; at
+ * the hour a tick finds a whole hour's rows, in as few batches as they fill. The
+ * server refuses a cutoff later than its own horizon, never an earlier one.
+ *
+ * Every read here seeks `idx_applied_mutations_applied_at`: the receipts' result
+ * payloads are never touched.
+ */
+export class AppliedMutationsPrunePlanner {
+  constructor(private readonly source: JanitorReadSource) {}
+
+  private cutoff(input: { maxAgeMs: number; nowMs: number }): number {
+    return Math.max(0, Math.floor((input.nowMs - input.maxAgeMs) / HOUR_MS) * HOUR_MS)
+  }
+
+  /** Receipts applied before the cutoff the prune runs at. */
+  async backlog(input: { maxAgeMs: number; nowMs: number }): Promise<number> {
+    const cutoff = this.cutoff(input)
+    return await this.source.scan(async (reads) => await reads.receiptPruneCount(cutoff))
+  }
+
+  async plan(input: AppliedMutationsPrunePlanInput): Promise<AppliedMutationsPruneObservation[]> {
+    const cutoffAppliedAt = this.cutoff(input)
+    // One snapshot: the head, and the count only when there is a head.
+    const facts = await this.source.scan(async (reads) => {
+      const head = await reads.receiptPruneHead(cutoffAppliedAt)
+      if (head == null) return undefined
+      return { head, eligible: await reads.receiptPruneCount(cutoffAppliedAt) }
+    })
+    if (facts === undefined || facts.eligible <= 0) return []
+    const { head, eligible } = facts
+    const limit = Math.min(Math.ceil(eligible / input.batchSize), CANDIDATE_LIMIT)
+    const batches: AppliedMutationsPruneObservation[] = []
+    await runTimeBudgetedJob(() => {
+      if (batches.length >= limit) return 'done'
+      batches.push({
+        maxAgeMs: input.maxAgeMs,
+        cutoffAppliedAt,
+        batchSize: input.batchSize,
+        fromAppliedAt: head,
+        batch: batches.length,
+      })
+      return batches.length >= limit ? 'done' : 'continue'
+    })
+    return batches
+  }
+}
+
+/**
+ * Sessions holding input queued past its horizon (POD-7035): one candidate per
+ * session, oldest first, naming the newest such row it holds. Whether the
+ * session is running, and so drains its own queue, is the server's to decide.
+ */
+export class QueuedMessagesExpiryReader {
+  constructor(private readonly source: JanitorReadSource) {}
+
+  /** Queued rows past the horizon, of every session, running ones included. */
+  async backlog(input: { maxAgeMs: number; nowMs: number }): Promise<number> {
+    const through = input.nowMs - input.maxAgeMs
+    return await this.source.scan(async (reads) => await reads.queuedExpiryCount(through))
+  }
+
+  async read(input: QueuedMessagesExpiryReadInput): Promise<QueuedMessagesExpiryObservation[]> {
+    const rows = await this.source.scan(
+      async (reads) =>
+        await reads.queuedExpiryPage({ through: input.nowMs - input.maxAgeMs, limit: input.limit }),
+    )
+    return rows.map((row) => ({
+      sessionId: asSessionId(row.sessionId),
+      maxAgeMs: input.maxAgeMs,
+      throughQueuedAt: row.through,
+      rows: row.rows,
+    }))
   }
 }
 
@@ -1261,6 +1528,8 @@ export async function startJanitor(options: {
   const eventPlanner = new EventLogPrunePlanner(workspace)
   const changePlanner = new ChangeLogPrunePlanner(workspace, workspace.id)
   const commandPlanner = new MaintenanceCommandsPrunePlanner(workspace)
+  const receiptPlanner = new AppliedMutationsPrunePlanner(workspace)
+  const queuedReader = new QueuedMessagesExpiryReader(workspace)
   const archiveReader = new IssueAutoArchiveReader(workspace)
   const sessionArchiveReader = new SessionAutoArchiveReader(workspace)
   const worktreeGcReader = new WorktreeGcReader(workspace)
@@ -1274,6 +1543,39 @@ export async function startJanitor(options: {
     planEventLogPrune: (input) => eventPlanner.plan(input),
     planChangeLogPrune: (input) => changePlanner.plan(input),
     planMaintenanceCommandsPrune: (input) => commandPlanner.plan(input),
+    planAppliedMutationsPrune: (input) => receiptPlanner.plan(input),
+    readQueuedMessagesExpiry: (input) => queuedReader.read(input),
+    retentionBacklog: (job, input) => {
+      switch (job) {
+        case 'event-log-prune':
+          return eventPlanner.backlog({
+            maxAgeDays: input.eventRetentionMaxAgeDays,
+            maxRows: input.eventRetentionMaxRows,
+            nowMs: input.nowMs,
+          })
+        case 'change-log-prune':
+          return changePlanner.backlog({
+            keepRows: input.changeKeepRows,
+            maxAgeMs: input.changeMaxAgeMs,
+            nowMs: input.nowMs,
+          })
+        case 'maintenance-commands-prune':
+          return commandPlanner.backlog({
+            maxAgeMs: input.maintenanceCommandMaxAgeMs,
+            nowMs: input.nowMs,
+          })
+        case 'applied-mutations-prune':
+          return receiptPlanner.backlog({
+            maxAgeMs: input.appliedMutationMaxAgeMs,
+            nowMs: input.nowMs,
+          })
+        case 'queued-messages-expiry':
+          return queuedReader.backlog({
+            maxAgeMs: input.queuedMessageMaxAgeMs,
+            nowMs: input.nowMs,
+          })
+      }
+    },
     readAutoArchiveCandidates: (input) => archiveReader.read(input),
     readSessionAutoArchiveCandidates: (input) => sessionArchiveReader.read(input),
     readWorktreeGcCandidates: (input) => worktreeGcReader.read(input),

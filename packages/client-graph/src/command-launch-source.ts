@@ -340,7 +340,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     if (entity === 'commandWindow') return this.window as Loaded<PoolSourceRows[K]>
 
     if (entity === 'commandIssue')
-      return omitGone(this.pool.row('issue', id, 'summary')) as Loaded<PoolSourceRows[K]>
+      return omitGone(this.pool.row('issue', id)) as Loaded<PoolSourceRows[K]>
     this.startCatalog()
     return (
       entity === 'commandCatalog' && id === 'catalog'

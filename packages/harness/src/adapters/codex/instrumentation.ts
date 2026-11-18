@@ -12,6 +12,7 @@
  * Adapter — the same reader-takes-grammar shape as the transcript Store
  * (POD-4471).
  */
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -24,6 +25,7 @@ import type {
   InstrumentationDestination,
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
+import { codexLaunchHookTrustSupported, tomlString } from './posture.js'
 import { codexRootsFor } from './roots.js'
 import { classifyCodexVerdict } from './state.js'
 
@@ -316,6 +318,10 @@ export function checkPodiumHookTrust(input: {
   hooksJsonPath: string
   doc: Record<string, unknown>
   configText: string | undefined
+  /** The launch passes trust for Podium's handlers itself (POD-6999). Only a
+   *  handler the user turned off (`enabled = false`) stays untrusted: the
+   *  launch's table merges with the persisted one, so that line still holds. */
+  launchTrusted?: boolean
 }): { trusted: boolean; untrusted: string[] } {
   const positions = podiumHookPositions(input.doc)
   if (positions.length === 0) return { trusted: true, untrusted: [] }
@@ -324,9 +330,144 @@ export function checkPodiumHookTrust(input: {
   for (const position of positions) {
     const key = `${input.hooksJsonPath}:${position.snake}:${position.group}:${position.handler}`
     const entry = entries.get(key)
-    if (!entry?.trustedHash || entry.enabled === false) untrusted.push(position.event)
+    const hasTrust = input.launchTrusted === true || Boolean(entry?.trustedHash)
+    if (!hasTrust || entry?.enabled === false) untrusted.push(position.event)
   }
   return { trusted: untrusted.length === 0, untrusted }
+}
+
+/** JSON with every object's keys sorted, compact: serde_json's output for a sorted map. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (isRecord(value)) {
+    const keys = Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/**
+ * Codex's `trusted_hash` for one handler: SHA-256 over the canonical JSON of
+ * `{event_name, matcher?, hooks: [{async, command, timeout, type}]}`.
+ *
+ * UNDOCUMENTED. Codex documents hook review but not this format; it was
+ * reproduced byte for byte from the hashes Codex 0.169.0 itself wrote
+ * (fixtures/hook-trust-0.169.0), and it does not depend on the file's path.
+ * `commandWindows` is not part of it on Linux; Windows is unmeasured, so the
+ * install passes nothing there. If Codex changes the format the entries stop
+ * matching and Codex asks again: it fails safe, never trusting more.
+ */
+export function codexHookTrustedHash(input: {
+  snake: string
+  matcher: string | undefined
+  handler: Record<string, unknown>
+}): string {
+  const handler = input.handler
+  const identity = {
+    event_name: input.snake,
+    ...(input.matcher !== undefined ? { matcher: input.matcher } : {}),
+    hooks: [
+      {
+        async: handler.async ?? false,
+        command: handler.command,
+        timeout: handler.timeout,
+        type: handler.type,
+      },
+    ],
+  }
+  return `sha256:${createHash('sha256').update(canonicalJson(identity), 'utf8').digest('hex')}`
+}
+
+/** Exactly the handler `upsertHooksJson` writes today: a marker match with any
+ *  other command, timeout or `async` is not one Podium vouches for. */
+function isCurrentPodiumHandler(h: HookHandler): boolean {
+  return (
+    h.type === 'command' &&
+    h.command === PODIUM_CODEX_HOOK_COMMAND &&
+    h.timeout === PODIUM_CODEX_HOOK_TIMEOUT_SEC &&
+    (h.async === undefined || h.async === false)
+  )
+}
+
+/**
+ * The `-c` value that trusts Podium's own handlers in `doc` for one launch, or
+ * undefined when the doc holds none. Only the handlers `podiumHookPositions`
+ * finds AND that are exactly the handler Podium writes today get an entry; a
+ * user's handler, even beside Podium's in one group, is left to Codex's own
+ * review, and so is an older or look-alike handler carrying Podium's marker.
+ * After the terminal's install every Podium position is current, so the
+ * filter only bites on a file read as it is (the engine, POD-7028). The
+ * inline-table form is the one that works: a session-layer table merges with
+ * the user's persisted `[hooks.state]`, so hooks the user already trusted stay
+ * trusted (measured, 0.169.0).
+ */
+export function codexLaunchHookTrustOverride(input: {
+  hooksJsonPath: string
+  doc: Record<string, unknown>
+}): string | undefined {
+  const hooks = (isRecord(input.doc.hooks) ? input.doc.hooks : {}) as Record<string, unknown>
+  const handlerAt = (position: PodiumHookPosition): HookHandler => {
+    const groups = hooks[position.event] as HookGroup[]
+    const group = groups[position.group] as HookGroup
+    return (group.hooks as HookHandler[])[position.handler] as HookHandler
+  }
+  const current = podiumHookPositions(input.doc).filter((position) =>
+    isCurrentPodiumHandler(handlerAt(position)),
+  )
+  const entries = current.map((position) => {
+    const group = (hooks[position.event] as HookGroup[])[position.group] as HookGroup
+    const handler = handlerAt(position)
+    const key = `${input.hooksJsonPath}:${position.snake}:${position.group}:${position.handler}`
+    const hash = codexHookTrustedHash({
+      snake: position.snake,
+      matcher: typeof group.matcher === 'string' ? group.matcher : undefined,
+      handler,
+    })
+    return `${tomlString(key)}={trusted_hash=${tomlString(hash)}}`
+  })
+  return entries.length > 0 ? `hooks.state={${entries.join(',')}}` : undefined
+}
+
+/**
+ * The app-server's per-launch trust for Podium's own hooks (POD-7028): the
+ * `-c` pair for `codex app-server`, or none.
+ *
+ * Hook review is the ENGINE's. Measured on 0.169.0: a `resume --remote` client
+ * (the chat view's terminal) draws "Hooks need review" for Podium's handlers,
+ * and swallows the prompt it was started with, unless the app-server it joins
+ * was started with this override; the same `-c` on the client is ignored. With
+ * it there is no modal, the prompt is answered and nothing is written. An
+ * engine without it runs none of the hooks and says nothing over JSON-RPC.
+ *
+ * READ, NEVER WRITTEN. The engine does not install hooks: its state channel is
+ * JSON-RPC, and the handlers are inert there because the hook env never
+ * reaches it (engine-host strips it). So this reads the hooks.json the home
+ * holds as it is and trusts only the handlers that are exactly Podium's
+ * current one. Same conditions as the terminal: from 0.147.0, never on an
+ * unknown version, never on Windows (the hash input there is unmeasured).
+ * Anything unreadable passes nothing, and Codex asks as before.
+ */
+export async function codexEngineHookTrustArgs(input: {
+  /** The harness context's hooks folder: where Codex reads `hooks.json`. */
+  hooksRoot: string
+  /** The installation's version, as the inventory read it. */
+  version: string
+  platform?: NodeJS.Platform
+}): Promise<string[]> {
+  if ((input.platform ?? process.platform) === 'win32') return []
+  if (!codexLaunchHookTrustSupported(input.version)) return []
+  const hooksJsonPath = join(input.hooksRoot, 'hooks.json')
+  let doc: unknown
+  try {
+    doc = JSON.parse(await readFile(hooksJsonPath, 'utf8'))
+  } catch {
+    return []
+  }
+  if (!isRecord(doc)) return []
+  const override = codexLaunchHookTrustOverride({ hooksJsonPath, doc })
+  return override ? ['-c', override] : []
 }
 
 /**
@@ -342,6 +483,9 @@ export async function ensurePodiumCodexHooks(opts: {
   versionProbe?: CodexVersionProbe
   verifiedVersion?: string
   onDegraded?: (diagnostic: CodexHookDiagnostic) => void
+  /** Return a per-launch override that trusts Podium's own handlers
+   *  (`codexLaunchHookTrustOverride`) instead of relying on persisted trust. */
+  launchTrust?: boolean
 }): Promise<{
   installed: boolean
   changed: boolean
@@ -349,6 +493,8 @@ export async function ensurePodiumCodexHooks(opts: {
   reason?: string
   trusted?: boolean
   untrustedEvents?: string[]
+  /** The `-c` value for this launch, when `launchTrust` was asked for. */
+  launchTrustOverride?: string
 }> {
   const roots = codexRootsFor(opts.homeDir, opts.codexHome)
   const codexHome = roots.state
@@ -416,10 +562,14 @@ export async function ensurePodiumCodexHooks(opts: {
   } catch {
     configText = undefined
   }
+  const launchTrustOverride = opts.launchTrust
+    ? codexLaunchHookTrustOverride({ hooksJsonPath, doc: upserted.doc })
+    : undefined
   const trust = checkPodiumHookTrust({
     hooksJsonPath,
     doc: upserted.doc,
     configText,
+    launchTrusted: launchTrustOverride !== undefined,
   })
   if (!trust.trusted) {
     const missing = trust.untrusted.join(', ')
@@ -446,10 +596,17 @@ export async function ensurePodiumCodexHooks(opts: {
       reason: `Codex hooks are installed but Codex has not trusted them (missing trust for: ${missing}); approve them in Codex's /hooks flow. Sessions run poll-only until then.`,
       trusted: false,
       untrustedEvents: trust.untrusted,
+      ...(launchTrustOverride ? { launchTrustOverride } : {}),
     }
   }
 
-  return { installed: true, changed: upserted.changed, trusted: true, untrustedEvents: [] }
+  return {
+    installed: true,
+    changed: upserted.changed,
+    trusted: true,
+    untrustedEvents: [],
+    ...(launchTrustOverride ? { launchTrustOverride } : {}),
+  }
 }
 
 type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
@@ -720,6 +877,13 @@ async function installCodexInstrumentation(
       ...(destination.socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: destination.socketPath } : {}),
     },
   }
+  // Per-launch trust for Podium's own handlers (POD-6999): without it Codex
+  // opens a "Hooks need review" modal that swallows the first message. Below
+  // the measured minimum, with an unknown version, or on Windows (whose hash
+  // input is unmeasured) nothing is passed and untrusted hooks degrade the
+  // session as before; the posture section reports quiet-start unmet.
+  const launchTrust =
+    process.platform !== 'win32' && codexLaunchHookTrustSupported(context.installation.version)
   // A throwing global install degrades like a refused one: the per-session
   // wiring above is still returned, so the session starts poll-only with the
   // reason reported instead of being refused.
@@ -730,6 +894,7 @@ async function installCodexInstrumentation(
       // The version the inventory read off the executable this session
       // launches; '' (the CLI printed none) degrades as a missing version.
       ...(context.installation.version ? { verifiedVersion: context.installation.version } : {}),
+      launchTrust,
     })
     const degradedReason = !result.installed
       ? (result.reason ?? 'hook installation failed')
@@ -738,6 +903,10 @@ async function installCodexInstrumentation(
         : undefined
     return {
       ...wiring,
+      args: [
+        ...wiring.args,
+        ...(result.launchTrustOverride ? ['-c', result.launchTrustOverride] : []),
+      ],
       ...(degradedReason
         ? {
             degradedReason,

@@ -51,6 +51,7 @@ import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
 import * as logs from '../messages/logs'
 import * as messageClass from '../messages/message-class'
+import * as posture from '../messages/posture'
 import * as runtime from '../messages/runtime'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
@@ -96,6 +97,8 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['maintenance', maintenance],
   ['message-class', messageClass],
   ['perf', perf],
+  // Session posture (POD-6858): wire data only until a frame carries it.
+  ['posture', posture],
   ['presence-rooms', presenceRooms],
   // The Agent Runtime contract's wire family (POD-1761 W1), registered by
   // POD-2021 — the item that folded its frames into the peer unions, which is

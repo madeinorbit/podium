@@ -12,6 +12,7 @@ import {
   classifyGrokProviderFailure,
   translateGrokUpdatePayload,
 } from '../../../adapters/grok/instrumentation.js'
+import { grokPromptEntryId, grokReplyItemId } from '../../../adapters/grok/transcript.js'
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
@@ -21,7 +22,12 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
@@ -59,7 +65,13 @@ import type {
   PermissionAnswer,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { type EngineSessionSpec, instructionsText, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type SessionSpec,
+  sessionPostureOf,
+} from '../../session-spec.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -122,6 +134,13 @@ export interface GrokAcpEndpoint {
    * while the engine is alive or when no host holds it.
    */
   engineExit?(): { code: number; signal: number } | undefined
+  /**
+   * The Grok mode the engine's launch terms asked for (POD-6858): `auto`,
+   * `default` or a native pick. `grok agent stdio` takes no mode flag, so the
+   * session's initial mode is set over ACP from this. Absent or null: the
+   * interactive `default`, as before the terms existed.
+   */
+  requestedMode?: string | null
 }
 
 export interface GrokAcpRuntimeHost {
@@ -135,6 +154,11 @@ export interface GrokAcpRuntimeHost {
     /** The session's pinned harness context (POD-6546): the engine runs its
      *  installation and starts from its environment. */
     harnessContext: HarnessContext
+    /** The session's posture (POD-6858); an adopted spec's is the default. */
+    posture: SessionPosture
+    /** Podium's grants: the spec's on create and resume, from
+     *  {@link podiumGrantsFor} on adopt. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
   }): Promise<GrokAcpEndpoint>
   /**
@@ -144,6 +168,9 @@ export interface GrokAcpRuntimeHost {
    * rebuilt from the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
   readArchive?(input: {
     sessionId: SessionId
     grokSessionId: string
@@ -243,15 +270,17 @@ interface BufferedToolResult {
 }
 
 /**
- * THE USER ENTRY'S ID IS THE PROMPT'S ID (POD-4837).
+ * AN ITEM IS NAMED AS THE STORE NAMES ITS RECORD (POD-7003).
  *
- * Grok records a prompt as a `user_message_chunk` with no id of its own that
- * any live frame repeats, and stamps every later update of the turn with the
- * turn's promptId — ours, when the prompt carried one. So the entry is keyed by
- * that promptId, live and in a `session/load` replay alike, and a message's
- * entry carries the message's own id.
+ * A chat-view session's latest page is the Store's read of Grok's
+ * `updates.jsonl` with this driver's complete items laid over it, joined by
+ * item id. So every item here carries the id that read gives the same record
+ * (`adapters/grok/transcript.ts`): a prompt entry and a reply are named by
+ * Grok's `_meta.eventId`, a tool item by Grok's call id. Named any other way,
+ * each was shown twice. The entry's receipt names that same id, with the
+ * prompt's id as its harness ref (POD-4837), so the message links to the entry
+ * the chat shows.
  */
-const grokUserItemId = (promptId: string): string => `grok-user-${promptId}`
 
 /** The promptId the prompt runs under: ours, or the one minted for a send
  *  with no id. Grok keeps it as the turn's id (POD-4841). */
@@ -320,13 +349,16 @@ interface DriverSession {
   nativeArchiveSyncRunning: boolean
   nativeArchiveRead: Promise<void>
   receiptWatches: Map<string, PromptDelivery>
-  recordedPromptIds: Set<string>
+  /** Prompts whose entry was read, by promptId: the entry's item id. */
+  recordedPromptIds: Map<string, string>
   toolCallIds: Set<string>
   toolResults: Map<string, BufferedToolResult>
-  /** A user record being read: its id is decided by the update that ends it
-   *  (see {@link flushUser}); `fallbackId` serves a build that stamps none. */
-  userBuffer: { fallbackId: string; text: string; at: string; promptIndex?: number } | undefined
-  assistantBuffer: { id: string; text: string; at: string } | undefined
+  /** A user record being read: named by its first chunk's record, bound to a
+   *  prompt by the update that ends it (see {@link flushUser}). */
+  userBuffer: { id: string; text: string; at: string; promptIndex?: number } | undefined
+  /** A reply being streamed. `id` keys its live preview (its first chunk);
+   *  `lastEventId` is the chunk Grok files the whole reply under. */
+  assistantBuffer: { id: string; text: string; at: string; lastEventId?: string } | undefined
   /** The prompt out to Grok and not yet finished (POD-4837). The session is
    *  `busy` from the write, before the ack opens its turn. */
   prompt: PromptDelivery | undefined
@@ -514,9 +546,8 @@ export function createGrokAcpRuntime(
    * Grok writes the prompt's `user_message_chunk` at the turn's start, before
    * the turn's first update stamped with its promptId; a `session/load` replays
    * it in that order (measured on grok 1.0.44, `__fixtures__/live-frames.jsonl`).
-   * The buffer is therefore named by the update that ends it: the item is
-   * `grok-user-<promptId>`, the same id the receipt names. A build that stamps
-   * no promptId falls back to the record's own event id.
+   * The buffer is therefore bound to its prompt by the update that ends it. The
+   * item keeps its record's name (POD-7003), and the receipt names that item.
    */
   function flushUser(
     session: DriverSession,
@@ -529,11 +560,11 @@ export function createGrokAcpRuntime(
     const text = buffer.text.trim()
     if (!text) return
     if (native?.promptId && session.recordedPromptIds.has(native.promptId)) return
-    const id = native?.promptId ? grokUserItemId(native.promptId) : buffer.fallbackId
+    const id = buffer.id
     addItem(session, { id, role: 'user', text, ts: buffer.at }, buffer.at, provenance, native)
     if (native?.promptId) {
-      session.recordedPromptIds.add(native.promptId)
-      markRecorded(session, native.promptId)
+      session.recordedPromptIds.set(native.promptId, id)
+      markRecorded(session, native.promptId, id)
     }
   }
 
@@ -574,7 +605,7 @@ export function createGrokAcpRuntime(
       if (session.userBuffer) session.userBuffer.text += text
       else
         session.userBuffer = {
-          fallbackId: `grok-user-${meta?.eventId ?? session.seq + 1}`,
+          id: meta?.eventId ? grokPromptEntryId(meta.eventId) : `grok-user-${session.seq + 1}`,
           text,
           at: iso(meta?.agentTimestampMs),
           ...(promptIndex !== undefined ? { promptIndex } : {}),
@@ -617,9 +648,18 @@ export function createGrokAcpRuntime(
     session.assistantBuffer = undefined
     const text = buffer.text.trim()
     if (!text) return
+    // Grok files the reply under its last chunk's eventId (POD-7003); the live
+    // preview was keyed by the first, and `streamId` keeps that join.
+    const id = buffer.lastEventId ? grokReplyItemId(buffer.lastEventId) : buffer.id
     addItem(
       session,
-      { id: buffer.id, role: 'assistant', text, ts: buffer.at },
+      {
+        id,
+        ...(id !== buffer.id ? { streamId: buffer.id } : {}),
+        role: 'assistant',
+        text,
+        ts: buffer.at,
+      },
       buffer.at,
       provenance,
       native,
@@ -703,12 +743,17 @@ export function createGrokAcpRuntime(
         const text = updateText(update)
         if (!text) return
         const current = session.assistantBuffer
-        if (current) current.text += text
-        else {
+        if (current) {
+          current.text += text
+          if (native.eventId) current.lastEventId = native.eventId
+        } else {
           session.assistantBuffer = {
-            id: `grok-assistant-${native.eventId ?? session.seq + 1}`,
+            id: native.eventId
+              ? grokReplyItemId(native.eventId)
+              : `grok-assistant-${session.seq + 1}`,
             text,
             at,
+            ...(native.eventId ? { lastEventId: native.eventId } : {}),
           }
         }
         const buffer = session.assistantBuffer
@@ -800,7 +845,8 @@ export function createGrokAcpRuntime(
         if (resultText === undefined) return
         session.toolResults.set(toolUseId, {
           item: {
-            id: `${toolUseId}:result`,
+            // The Store's name for the same result (POD-7003).
+            id: `${toolUseId}:out`,
             role: 'tool',
             text: '',
             ts: at,
@@ -866,7 +912,7 @@ export function createGrokAcpRuntime(
    * The history reader has added Grok's actual user entry. Name it once for
    * the held receipt, even if its turn already ended before the file was read.
    */
-  function markRecorded(session: DriverSession, promptId: string): void {
+  function markRecorded(session: DriverSession, promptId: string, id: string): void {
     const delivery =
       session.receiptWatches.get(promptId) ?? (session.prompt?.written ? session.prompt : undefined)
     if (!delivery || delivery.promptId !== promptId || delivery.recorded || delivery.unrecorded)
@@ -874,7 +920,6 @@ export function createGrokAcpRuntime(
     if (!delivery.acked) ackPrompt(session, promptId)
     delivery.recorded = true
     session.receiptWatches.delete(promptId)
-    const id = grokUserItemId(promptId)
     delivery.onTranscriptItem?.({ id }, grokPromptRef(promptId))
   }
 
@@ -1243,7 +1288,7 @@ export function createGrokAcpRuntime(
       nativeArchiveSyncRunning: false,
       nativeArchiveRead: Promise.resolve(),
       receiptWatches: new Map(),
-      recordedPromptIds: new Set(),
+      recordedPromptIds: new Map(),
       toolCallIds: new Set(),
       toolResults: new Map(),
       userBuffer: undefined,
@@ -1720,12 +1765,13 @@ export function createGrokAcpRuntime(
     emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
     foldState(session, { kind: 'turn_completed' }, at, 'live')
     void drainQueue(session)
+    const entry = session.recordedPromptIds.get(promptId)
     return {
       outcome: 'accepted',
       turnEpoch: epoch,
       deliveredAs,
       provenBy: 'transcript-echo',
-      transcriptItem: { id: grokUserItemId(promptId) },
+      ...(entry !== undefined ? { transcriptItem: { id: entry } } : {}),
       harnessRef: grokPromptRef(promptId),
       at,
     }
@@ -2386,13 +2432,27 @@ export function createGrokAcpRuntime(
     return connection
   }
 
-  async function setInteractivePermissionMode(session: DriverSession): Promise<void> {
+  /**
+   * THE SESSION'S INITIAL MODE, FROM ITS LAUNCH TERMS (POD-6858 §4.8).
+   *
+   * Grok's `auto` is the `_meta.autoMode` option of `session/new` and
+   * `session/load` (measured on `session/new`, 1.0.70: its classifier ran
+   * `podium --version` with no ask). Every other mode is set with
+   * `session/set_mode`; with no requested mode that is `default`, so a user's
+   * config that defaults to auto-approve cannot silently govern a session
+   * whose asks Podium routes to chat.
+   */
+  function autoModeMeta(endpoint: GrokAcpEndpoint): { autoMode?: true } {
+    return endpoint.requestedMode === 'auto' ? { autoMode: true } : {}
+  }
+
+  async function setInitialPermissionMode(session: DriverSession): Promise<void> {
+    const requested = session.endpoint.requestedMode
+    if (requested === 'auto') return
     try {
-      // A user's config may default to auto-approve. `default` makes the
-      // server→client permission channel authoritative for this session.
       await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
         sessionId: session.grokSessionId,
-        modeId: 'default',
+        modeId: requested ?? 'default',
       })
     } catch {
       // Older admitted builds may omit the optional mode switch. The ACP
@@ -2408,9 +2468,18 @@ export function createGrokAcpRuntime(
    * and `_meta.systemPrompt`/`_meta.instructions` reach nothing. `session/load`
    * sends the same field, so a reloaded session asks for its rules too.
    */
-  function sessionRules(spec: EngineSessionSpec): { _meta?: { rules: string } } {
+  function sessionRules(spec: EngineSessionSpec): { rules?: string } {
     const rules = instructionsText(spec)
-    return rules ? { _meta: { rules } } : {}
+    return rules ? { rules } : {}
+  }
+
+  /** The `_meta` of `session/new` and `session/load`: the rules and the mode. */
+  function sessionMeta(
+    spec: EngineSessionSpec,
+    endpoint: GrokAcpEndpoint,
+  ): { _meta?: { rules?: string; autoMode?: true } } {
+    const meta = { ...sessionRules(spec), ...autoModeMeta(endpoint) }
+    return Object.keys(meta).length > 0 ? { _meta: meta } : {}
   }
 
   async function createWithId(
@@ -2421,6 +2490,8 @@ export function createGrokAcpRuntime(
       sessionId,
       workdir: spec.workdir,
       harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, sessionId)
@@ -2428,7 +2499,7 @@ export function createGrokAcpRuntime(
       await connection.client.call(GROK_ACP_METHODS.sessionNew, {
         cwd: spec.workdir,
         mcpServers: [],
-        ...sessionRules(spec),
+        ...sessionMeta(spec, endpoint),
       }),
     )
     const handle = attachSession({
@@ -2441,7 +2512,7 @@ export function createGrokAcpRuntime(
       observerGeneration: 1,
     })
     const session = sessions.get(sessionId)
-    if (session) await setInteractivePermissionMode(session)
+    if (session) await setInitialPermissionMode(session)
     if (spec.initialPrompt) {
       await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
     }
@@ -2452,6 +2523,7 @@ export function createGrokAcpRuntime(
     sessionId: SessionId
     spec: EngineSessionSpec
     harnessContext: HarnessContext
+    grants: PodiumGrants
     grokSessionId: string
     bindingVersion: number
     observerGeneration: number
@@ -2459,11 +2531,13 @@ export function createGrokAcpRuntime(
     seq?: number
     turnEpoch?: number
   }): Promise<AgentSessionHandle> {
-    const { harnessContext, ...attach } = input
+    const { harnessContext, grants, ...attach } = input
     const endpoint = await host.launch({
       sessionId: input.sessionId,
       workdir: input.spec.workdir,
       harnessContext,
+      posture: sessionPostureOf(input.spec),
+      grants,
       ...(input.spec.env ? { env: input.spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, input.sessionId)
@@ -2480,10 +2554,10 @@ export function createGrokAcpRuntime(
         sessionId: input.grokSessionId,
         cwd: input.spec.workdir,
         mcpServers: [],
-        ...sessionRules(input.spec),
+        ...sessionMeta(input.spec, endpoint),
       })
       await session.ingestChain
-      await setInteractivePermissionMode(session)
+      await setInitialPermissionMode(session)
       return handle
     } catch (error) {
       /**
@@ -2513,6 +2587,8 @@ export function createGrokAcpRuntime(
     harness: 'grok',
     selection: { auth: 'subscription', platform: 'linux', available: [GROK_ACP_DRIVER_ID] },
     workdir,
+    // An adopted session's posture is not journalled: it runs on the default.
+    posture: DEFAULT_SESSION_POSTURE,
     model: {},
     instructions: { supported: false, reason: 'adopted session carries its own context' },
     mcpServers: { supported: false, reason: 'adopted session carries its own config' },
@@ -2529,6 +2605,7 @@ export function createGrokAcpRuntime(
         sessionId: host.mintSessionId(),
         spec,
         harnessContext: spec.harnessContext,
+        grants: spec.grants,
         grokSessionId: ref.value,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -2549,6 +2626,7 @@ export function createGrokAcpRuntime(
         sessionId: binding.sessionId,
         spec: adoptedSpec(entry.workdir),
         harnessContext: await host.harnessContextFor(binding.sessionId),
+        grants: await host.podiumGrantsFor(binding.sessionId),
         grokSessionId: entry.grokSessionId,
         bindingVersion: binding.bindingVersion + 1,
         observerGeneration: binding.bindingVersion + 1,

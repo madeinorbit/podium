@@ -4,7 +4,6 @@ import type {
   OutboxChatSend,
 } from '@podium/client-core/conversation'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MessageModel } from '@podium/client-graph/message-models'
@@ -18,8 +17,6 @@ import { useMobilePoolProjection } from './mobile-pool'
 
 type Reader = MobileSessionRows['mobileSessionReader']
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
-const EMPTY_SESSIONS: SessionView[] = []
-const EMPTY_ISSUES: IssueViewModel[] = []
 
 /** Each pool projection owns one memoized reader, including while attaching. */
 function useRead<T>(read: (reader: Reader) => T, empty: T): T {
@@ -109,15 +106,7 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
   )
   return useMobilePoolProjection(read, undefined)
 }
-const sessionsRead = (reader: Reader) => reader.sessions().sessions
-const issuesRead = (reader: Reader) => reader.issues().issues
 /** The live Agents roster and issue list. */
-export function useSessionContextSessions() {
-  return useRead(sessionsRead, EMPTY_SESSIONS)
-}
-export function useSessionContextIssues() {
-  return useRead(issuesRead, EMPTY_ISSUES)
-}
 
 export function useSessionContextMachine(id: string | undefined): MachineFacts | undefined {
   const read = useCallback((reader: Reader) => reader.machine(id), [id])

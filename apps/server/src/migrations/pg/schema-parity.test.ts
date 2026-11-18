@@ -62,6 +62,7 @@ import {
   PG_DDL_NOTES,
   PG_DEFAULT_OVERRIDES,
   PG_FOREIGN_KEY_RENAMES,
+  PG_INDEX_EXPRESSION_OVERRIDES,
   PG_INDEX_NULLS_FIRST,
   PG_INDEX_WHERE_OVERRIDES,
   PG_ONLY_INDEXES,
@@ -103,6 +104,10 @@ function pgTablesOf(module: Module, identityKeys: ReadonlySet<string>): Map<stri
 interface Overrides {
   readonly checks: Readonly<Record<string, PgOverride>>
   readonly indexWheres: Readonly<Record<string, PgOverride>>
+  /** Index key expressions written another way on Postgres, keyed `table.index`. */
+  readonly indexExpressions: Readonly<
+    Record<string, { readonly sqlite: string; readonly sql: string }>
+  >
   /** Index keys stored NULLS FIRST on Postgres, keyed `table.index`. */
   readonly nullsFirst: Readonly<Record<string, { readonly columns: readonly string[] }>>
   readonly defaults: Readonly<Record<string, PgOverride>>
@@ -116,6 +121,7 @@ interface Overrides {
 const REAL_OVERRIDES: Overrides = {
   checks: PG_CHECK_OVERRIDES,
   indexWheres: PG_INDEX_WHERE_OVERRIDES,
+  indexExpressions: PG_INDEX_EXPRESSION_OVERRIDES,
   nullsFirst: PG_INDEX_NULLS_FIRST,
   defaults: PG_DEFAULT_OVERRIDES,
   keptAsText: PG_TIMESTAMP_COLUMNS_KEPT_AS_TEXT,
@@ -289,7 +295,16 @@ function compareTable(
       find(`index ${config.name} is missing`)
       continue
     }
-    const sCols = config.columns.map((column) => part(column, sqliteSql)).join(',')
+    // A key expression the override names is compared in its Postgres form.
+    const expression = overrides.indexExpressions[`${table}.${config.name}`]
+    const sCols = config.columns
+      .map((column) => {
+        const rendered = part(column, sqliteSql)
+        if (expression === undefined || rendered !== `(${fold(expression.sqlite)})`) return rendered
+        parity.used.add(`expression ${table}.${config.name}`)
+        return `(${fold(expression.sql)})`
+      })
+      .join(',')
     const pCols = twin.columns.map((column) => part(column, pgSql)).join(',')
     if (sCols !== pCols) find(`index ${config.name} on (${sCols}) / (${pCols})`)
     if (Boolean(config.unique) !== Boolean(twin.unique))
@@ -505,6 +520,7 @@ describe('the class lists and the overrides', () => {
     const listed = [
       ...Object.keys(PG_CHECK_OVERRIDES).map((key) => `check ${key}`),
       ...Object.keys(PG_INDEX_WHERE_OVERRIDES).map((key) => `where ${key}`),
+      ...Object.keys(PG_INDEX_EXPRESSION_OVERRIDES).map((key) => `expression ${key}`),
       ...Object.keys(PG_INDEX_NULLS_FIRST).map((key) => `nulls first ${key}`),
       ...Object.keys(PG_DEFAULT_OVERRIDES).map((key) => `default ${key}`),
       ...Object.keys(PG_FOREIGN_KEY_RENAMES).map((key) => `foreign key ${key}`),

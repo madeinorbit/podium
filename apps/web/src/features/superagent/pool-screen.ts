@@ -3,12 +3,11 @@ import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
-  SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
 
 export const superagentPoolScreen: PoolScreen = {
   id: 'superagent',
-  options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
+  options: () => ({ header: true }),
   async attach(runtime, pool) {
     await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>
       createSuperagentSource({

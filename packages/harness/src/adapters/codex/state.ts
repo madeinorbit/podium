@@ -31,12 +31,14 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
 
 /** What a person reads for Codex's directory-trust prompt. */
 export const CODEX_TRUST_SUMMARY = 'Codex asks whether you trust this directory'
-/** The prompt's question (codex-cli 0.155.0). Matched with whitespace removed,
- *  because Codex wraps it at the terminal width, mid-word. */
-const TRUST_QUESTION = 'Do you trust the contents of this directory?'
-/** Its accept row. A menu row is a line of its own, which is what keeps a
- *  transcript that merely quotes the label from matching. */
-const TRUST_ACCEPT_ROW = /^(?:› )?1\. Yes, continue$/
+/** The prompt's question, in every wording Codex has drawn: 0.155.0 asked
+ *  "Do you trust the contents of this directory?", 0.167 asks "Trust this
+ *  folder?". Matched with whitespace removed, because Codex wraps it at the
+ *  terminal width, mid-word. */
+const TRUST_QUESTIONS = ['Do you trust the contents of this directory?', 'Trust this folder?']
+/** Its accept row, 0.155.0 then 0.167. A menu row is a line of its own, which
+ *  is what keeps a transcript that merely quotes the label from matching. */
+const TRUST_ACCEPT_ROW = /^(?:› )?1\. (?:Yes, continue|Trust and continue)$/
 
 /** The model-switch menu Codex opens beside a usage-limit error: its question
  *  (the model name varies, captured) and the row that declines it. */
@@ -64,7 +66,7 @@ function compact(text: string): string {
  */
 function trustPromptVisible(text: string, visibleLines: readonly string[]): boolean {
   return (
-    compact(text).includes(compact(TRUST_QUESTION)) &&
+    TRUST_QUESTIONS.some((question) => compact(text).includes(compact(question))) &&
     visibleLines.some((line) => TRUST_ACCEPT_ROW.test(line))
   )
 }
@@ -141,5 +143,8 @@ export function classifyCodexScreen(lines: readonly string[]): AgentScreenObserv
     : usageModel !== undefined
       ? [usageLimitInterview(usageModel, USAGE_LIMIT_REACHED.exec(text)?.[1])]
       : []
-  return { events: withStateChannel(events, 'classifier'), interactionVisible: trust || usageModel !== undefined }
+  return {
+    events: withStateChannel(events, 'classifier'),
+    interactionVisible: trust || usageModel !== undefined,
+  }
 }

@@ -145,7 +145,7 @@ export class MissionScreen {
       // A loading device preference must not briefly draw the default folds.
       // Keep display demand inside this opening until its mode and folds arrive.
       const deck = this.deck
-      const reads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, this.reader.issue(this.rootId), settled(() => deck.rowIds()), this.folds]
+      const reads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, this.reader.issue(this.rootId), settled(() => deck.rowIds()), this.folds, this.rootBodyHeld ? true : LOADING]
       return !reads.includes(LOADING)
     }) === true
   }
@@ -240,6 +240,17 @@ export class MissionScreen {
   private get rootIssue(): IssueNavigationModel { return requireLoaded(this.reader.issue(this.rootId))! }
   @lazy get rootDraftVessel(): boolean { return Boolean(this.rootIssue.isDraftVessel) }
   @lazy get rootLeadSessionId(): string | undefined { return this.rootRow?.crewIds[0] }
+  /**
+   * The header reads the root's description and panel state line, the
+   * issue's body part (POD-7084): the deck asks for them when it opens and
+   * is ready once they are held (POD-7088). Only the root's, never a member's.
+   */
+  @lazy private get rootBodyHeld(): boolean {
+    const held = (collection: string) =>
+      this.pool.collections.held({ collection, args: { issueId: this.rootId }, part: 'main' })
+    const description = held('issueDescription.ofIssue'), state = held('issuePanelState.ofIssue')
+    return description && state
+  }
   /** The root's bodies (POD-6921) come from its pool model, which reads their records. */
   private get rootModel() { return this.pool.issueObject(this.rootId) }
   @lazy get rootAuthoredBrief(): string {

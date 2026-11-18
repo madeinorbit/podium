@@ -113,7 +113,6 @@ export function useShellApprovals(): readonly EffectModel[] {
 }
 const EMPTY_APPROVALS: readonly EffectModel[] = []
 
-const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellView(pool) : null
@@ -129,6 +128,13 @@ export function useShellLinks() {
           const issue = views?.linkedIssue(identifier)
           return issue && issue !== LOADING ? issue : undefined
         }),
+      /**
+       * The issue a reference names, also when the device holds it only as a
+       * stub (design POD-7059 "Search and references"): the stub knows the
+       * reference at once; its row may still be on its way.
+       */
+      issueId: (identifier: string) =>
+        allowImperativeRead(() => (views ? pool?.queries.linkedIssueId(identifier) : undefined)),
       artifactIssue: (id: string) =>
         allowImperativeRead(() => {
           const row = views?.issue(id, true)
@@ -150,13 +156,6 @@ export function useShellSessionResolver() {
     [pool],
   )
 }
-export function useShellSessions() {
-  if (import.meta.env.DEV) assertReactiveRead('useShellSessions')
-  const pool = useWorklistPool(),
-    value = pool ? shellView(pool).sessions() : LOADING
-  return value && value !== LOADING ? value : EMPTY_SESSIONS
-}
-
 export function useShellClose() {
   if (import.meta.env.DEV) assertReactiveRead('useShellClose')
   const pool = useWorklistPool(),
@@ -177,7 +176,6 @@ const EMPTY_CHROME = {
   paletteOpen: false,
   repoCount: 0,
   worktreeCount: 0,
-  sessionCount: 0,
   selectedIssueId: null as ScreenState['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
   /** False while the snapshot loads: every field above is then a placeholder,

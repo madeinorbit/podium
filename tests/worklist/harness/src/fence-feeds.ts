@@ -95,14 +95,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     ...(raw.source.issueIdByRef
       ? { issueIdByRef: (ref: string) => outsideArm(() => raw.source.issueIdByRef!(ref)) }
       : {}),
-    // POD-5407: the feed's own cold index, as production hands it to the pool:
-    // the feed applies each publication to it before the arm hears it, so its
-    // upkeep is the feed's work, not the arm's.
-    ...(raw.source.cold
-      ? { cold: (summaries) => outsideArm(() => raw.source.cold!(summaries)) }
-      : {}),
-    // POD-6136: the feed's facts index covers cold history sessions; the
-    // pool's own index would count only the sessions it loaded.
+    // POD-6136: the feed's session facts index, as production hands it to the pool.
     ...(raw.source.issueSessionFact ? { issueSessionFact: raw.source.issueSessionFact } : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {

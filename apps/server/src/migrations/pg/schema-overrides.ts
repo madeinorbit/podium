@@ -75,9 +75,32 @@ const BOOLEAN_CONDITION =
 /** Partial-index conditions, keyed `table.index_name`. */
 export const PG_INDEX_WHERE_OVERRIDES: Readonly<Record<string, PgOverride>> = {
   'sessions.idx_sessions_headless': { sql: '"headless" = true', reason: BOOLEAN_CONDITION },
+  'sessions.idx_sessions_asking': { sql: '"asks_user" = true', reason: BOOLEAN_CONDITION },
   'grants.grants_machine_custodian': {
     sql: `"resource_kind" = 'machine' AND "custody" = true`,
     reason: BOOLEAN_CONDITION,
+  },
+}
+
+/** One key expression of an index written another way on Postgres, and why. */
+export interface PgIndexExpression {
+  /** The expression as the SQLite schema renders it. */
+  readonly sqlite: string
+  /** The Postgres SQL that replaces it, names quoted as the generator renders them. */
+  readonly sql: string
+  readonly reason: string
+}
+
+/** Index key expressions, keyed `table.index_name`. */
+export const PG_INDEX_EXPRESSION_OVERRIDES: Readonly<Record<string, PgIndexExpression>> = {
+  'conversations.idx_conversations_created_at': {
+    sqlite: `coalesce("created_at", '')`,
+    sql: `coalesce("created_at", '-infinity'::timestamptz)`,
+    reason:
+      'A missing creation time sorts as \'\', the "before every row" sentinel, which a ' +
+      "timestamptz refuses. '-infinity' sorts where '' does, and the driver reads it back as '' " +
+      '(design 2.3, rule 4; `sessions.published_last_active_at` keeps the same sentinel), so the ' +
+      "collection fetch's history order of conversations (POD-7085) reads off this index on both.",
   },
 }
 
@@ -165,7 +188,7 @@ const SET_NULL_COLUMN =
   'workspace_id too, which NOT NULL refuses; deleting an issue (or a run) must clear the ' +
   "references to it in its workspace, as the single-column key's SET NULL did. Drizzle has no " +
   'column list for SET NULL. SQLite has none either: its key takes no action and the keys ' +
-  'migration (20261117104939_workspace-keys) clears the references with a BEFORE DELETE trigger.'
+  'migration (20261118101338_workspace-keys) clears the references with a BEFORE DELETE trigger.'
 
 export const PG_DDL_NOTES: Readonly<Record<string, string>> = {
   ...Object.fromEntries(

@@ -27,7 +27,7 @@ import {
   createFakeTerminalDriver,
   resetFakeRuntime,
 } from '../fake-driver.js'
-import { testHarnessContext } from '../harness-context.js'
+import { testHarnessContext, testSessionTerms } from '../harness-context.js'
 import {
   assertAttachHonoursOneControlLease,
   assertInteractionDeliveryClaim,
@@ -41,6 +41,7 @@ import type { ConformanceControl } from './target.js'
 
 const spec = (): SessionSpec => ({
   harness: 'fake-harness',
+  ...testSessionTerms(),
   harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: { auth: 'api-key', platform: 'linux', available: ['fake'] },
   workdir: '/tmp/fake-workdir',

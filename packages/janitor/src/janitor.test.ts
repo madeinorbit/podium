@@ -20,6 +20,7 @@ const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AppliedMutationsPrunePlanner,
   ChangeLogPrunePlanner,
   ConnectScanReader,
   createMaintenanceHttpClient,
@@ -31,6 +32,8 @@ import {
   JanitorService,
   MaintenanceCompatibilityError,
   MessageExpiryReader,
+  QueuedMessagesExpiryReader,
+  type RetentionJob,
   WorktreeGcReader,
 } from './janitor'
 
@@ -81,6 +84,8 @@ const readyLease = (
   changeKeepRows: 500_000,
   changeMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
   maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+  appliedMutationMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
+  queuedMessageMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
   worktreeGcMode: over.worktreeGcMode ?? 'propose',
   worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
 })
@@ -514,6 +519,214 @@ describe('JanitorService [spec:SP-c29e]', () => {
  * server's SQL (`janitor-reads.test.ts`, both engines); this is what the janitor
  * makes of them.
  */
+describe('[POD-7035] retention jobs', () => {
+  const HOUR = 60 * 60 * 1000
+  const DAY = 24 * HOUR
+  const NOW = Date.parse('2026-07-18T00:30:00.000Z')
+
+  it('EventLogPrunePlanner finds the row cap by a seek that stays exact across missing ids', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE podium_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        repo_path TEXT,
+        payload TEXT
+      )`)
+      db.exec('CREATE INDEX idx_podium_events_kind ON podium_events (kind)')
+      const insert = db.prepare(
+        "INSERT INTO podium_events (ts, kind, subject, payload) VALUES ('2099-01-01T00:00:00.000Z', ?, 's', '{}')",
+      )
+      for (let i = 0; i < 120; i += 1) insert.run(i % 2 ? 'a' : 'b')
+      db.exec('DELETE FROM podium_events WHERE id IN (118, 110, 109, 100, 61, 60, 2)')
+      const planner = new EventLogPrunePlanner(db)
+      for (const maxRows of [0, 1, 5, 20, 50, 59, 60, 112, 113, 200]) {
+        const walked =
+          (
+            db
+              .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
+              .get(maxRows) as { id: number } | undefined
+          )?.id ?? 0
+        const batches = await planner.plan({ maxAgeDays: 14, maxRows, batchSize: 500, nowMs: NOW })
+        expect(batches[0]?.capThroughId ?? 0, `maxRows ${maxRows}`).toBe(walked)
+      }
+    } finally {
+      db.close()
+    }
+  })
+
+  it('AppliedMutationsPrunePlanner batches the receipts past an hour-rounded cutoff', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE applied_mutations (
+        mutation_id TEXT PRIMARY KEY, proc TEXT NOT NULL, result TEXT NOT NULL, applied_at INTEGER NOT NULL
+      )`)
+      db.exec('CREATE INDEX idx_applied_mutations_applied_at ON applied_mutations (applied_at)')
+      const maxAgeMs = 30 * DAY
+      const cutoff = Math.floor((NOW - maxAgeMs) / HOUR) * HOUR
+      const insert = db.prepare(
+        "INSERT INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, 'p', '\"r\"', ?)",
+      )
+      for (let i = 0; i < 5; i += 1) insert.run(`old-${i}`, cutoff - 1_000 - i)
+      // Past the true horizon but not the rounded cutoff: the next hour's batch.
+      insert.run('this-hour', cutoff + 1_000)
+      insert.run('young', NOW)
+      const planner = new AppliedMutationsPrunePlanner(db)
+      const batches = await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW })
+      expect(batches).toEqual(
+        [0, 1, 2].map((batch) => ({
+          maxAgeMs,
+          cutoffAppliedAt: cutoff,
+          batchSize: 2,
+          fromAppliedAt: cutoff - 1_004,
+          batch,
+        })),
+      )
+      // A tick later in the same hour plans the same occurrences.
+      expect(await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW + 60_000 })).toEqual(batches)
+      expect(planner.backlog({ maxAgeMs, nowMs: NOW })).toBe(5)
+      const plan = (
+        db
+          .prepare(
+            'EXPLAIN QUERY PLAN SELECT COUNT(*) AS n FROM applied_mutations WHERE applied_at < ?',
+          )
+          .all() as { detail: string }[]
+      ).map((row) => row.detail)
+      expect(plan.join(' | ')).toContain('idx_applied_mutations_applied_at')
+    } finally {
+      db.close()
+    }
+  })
+
+  it('QueuedMessagesExpiryReader names each session once, by its newest row past the horizon', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE queued_messages (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, text TEXT NOT NULL, queued_at INTEGER NOT NULL
+      )`)
+      db.exec('CREATE INDEX queued_messages_session ON queued_messages (session_id, queued_at)')
+      const maxAgeMs = 14 * DAY
+      const horizon = NOW - maxAgeMs
+      const insert = db.prepare(
+        'INSERT INTO queued_messages (id, session_id, text, queued_at) VALUES (?, ?, ?, ?)',
+      )
+      insert.run('a1', 'ses_a', 'x', horizon - 5_000)
+      insert.run('a2', 'ses_a', 'x', horizon - 1_000)
+      insert.run('a3', 'ses_a', 'x', horizon + 1_000)
+      insert.run('b1', 'ses_b', 'x', horizon - 9_000)
+      insert.run('c1', 'ses_c', 'x', horizon + 1)
+      const reader = new QueuedMessagesExpiryReader(db)
+      expect(await reader.read({ maxAgeMs, nowMs: NOW, limit: 100 })).toEqual([
+        { sessionId: asSessionId('ses_b'), maxAgeMs, throughQueuedAt: horizon - 9_000, rows: 1 },
+        { sessionId: asSessionId('ses_a'), maxAgeMs, throughQueuedAt: horizon - 1_000, rows: 2 },
+      ])
+      expect(reader.backlog({ maxAgeMs, nowMs: NOW })).toBe(3)
+    } finally {
+      db.close()
+    }
+  })
+
+  it("applies the receipt prune and queue expiry, and reports each job's backlog after it runs", async () => {
+    const applies: MaintenanceCommand[] = []
+    const backlogReads: RetentionJob[] = []
+    const service = new JanitorService({
+      generationId: 'gen_retention',
+      now: () => NOW,
+      handshake: async () => readyLease({ fencingToken: 2 }),
+      readExpiryCandidates: () => [],
+      planAppliedMutationsPrune: async (input) => [
+        {
+          maxAgeMs: input.maxAgeMs,
+          cutoffAppliedAt: 1,
+          batchSize: input.batchSize,
+          fromAppliedAt: 0,
+          batch: 0,
+        },
+      ],
+      readQueuedMessagesExpiry: async (input) => [
+        { sessionId: asSessionId('ses_a'), maxAgeMs: input.maxAgeMs, throughQueuedAt: 5, rows: 2 },
+      ],
+      retentionBacklog: (job) => {
+        backlogReads.push(job)
+        return job === 'applied-mutations-prune' ? 7 : 0
+      },
+      apply: async (request) => {
+        applies.push(request)
+        return { status: 'applied', jobKind: request.jobKind, runKey: request.runKey, deleted: 1 }
+      },
+    })
+    await service.tick()
+    expect(applies.map((command) => command.jobKind)).toEqual([
+      'applied-mutations-prune',
+      'queued-messages-expiry',
+    ])
+    expect(applies[0]).toMatchObject({
+      observed: { maxAgeMs: 30 * DAY, batchSize: 100 },
+      fencingToken: 2,
+    })
+    expect(applies[1]).toMatchObject({ observed: { maxAgeMs: 14 * DAY } })
+    expect(backlogReads).toEqual(['applied-mutations-prune', 'queued-messages-expiry'])
+    expect(service.snapshotCounters().retentionBacklog).toEqual({
+      'applied-mutations-prune': 7,
+      'queued-messages-expiry': 0,
+    })
+  })
+
+  it('marks a job stalled when its backlog has not shrunk across three runs', async () => {
+    const backlogs = [10, 9, 9, 9, 12, 0]
+    let run = 0
+    const service = new JanitorService({
+      generationId: 'gen_stall',
+      now: () => NOW,
+      handshake: async () => readyLease({ fencingToken: 1, expiresAt: '2099-01-01T00:00:00.000Z' }),
+      readExpiryCandidates: () => [],
+      planMaintenanceCommandsPrune: async () => [],
+      retentionBacklog: () => backlogs[run]!,
+      apply: async (request) => ({
+        status: 'applied',
+        jobKind: request.jobKind,
+        runKey: request.runKey,
+      }),
+    })
+    const stalledAfterEachRun: boolean[] = []
+    for (run = 0; run < backlogs.length; run += 1) {
+      await service.tick()
+      stalledAfterEachRun.push(
+        service.snapshotCounters().retentionStalled.includes('maintenance-commands-prune'),
+      )
+    }
+    // 10, 9: shrinking. 9, 9, 9: three runs without shrinking. 12: still not.
+    // 0: drained.
+    expect(stalledAfterEachRun).toEqual([false, false, false, true, true, false])
+  })
+
+  it('a failed backlog read is skipped and never stops the tick', async () => {
+    const applies: string[] = []
+    const service = new JanitorService({
+      generationId: 'gen_backlog_fail',
+      now: () => NOW,
+      handshake: async () => readyLease(),
+      readExpiryCandidates: () => [],
+      planAppliedMutationsPrune: async () => [],
+      readQueuedMessagesExpiry: async () => [
+        { sessionId: asSessionId('ses_a'), maxAgeMs: 14 * DAY, throughQueuedAt: 5, rows: 1 },
+      ],
+      retentionBacklog: () => {
+        throw new Error('database is locked')
+      },
+      apply: async (request) => {
+        applies.push(request.jobKind)
+        return { status: 'applied', jobKind: request.jobKind, runKey: request.runKey }
+      },
+    })
+    await service.tick()
+    expect(applies).toEqual(['queued-messages-expiry'])
+    expect(service.snapshotCounters().retentionBacklog).toEqual({})
+  })
+})
+
 describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
   const CLOSED = '2026-07-01T00:00:00.000Z'
 

@@ -52,6 +52,7 @@ import type {
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
+  SessionPosture,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
@@ -88,6 +89,7 @@ import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
+import { sessionPostureFor } from '../sessions/session-posture'
 import { mergeLatestTranscriptPage } from '../sessions/terminal'
 import type { ServerPlacement } from '../updates/service'
 
@@ -915,7 +917,11 @@ export class DaemonRpcService {
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly StagedAttachmentRef[]
+      /** The turn's launch terms in Podium's words (POD-6858). */
+      posture?: SessionPosture
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       allowedTools?: string[]
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       permissionMode?: string
       toolPolicy?: 'none'
       mcpConfig?: string
@@ -923,7 +929,6 @@ export class DaemonRpcService {
       sessionUuid?: string
       accountId?: string
       requestDigest?: string
-      structuredPermissions?: true
       contextPrompt?: string
       systemPrompt?: string
       timeoutMs?: number
@@ -959,7 +964,9 @@ export class DaemonRpcService {
         origin: input.origin,
         delivery: input.delivery,
         attachments: input.attachments ? [...input.attachments] : undefined,
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read these; removing it drops them
         ...(input.allowedTools ? { allowedTools: [...input.allowedTools] } : {}),
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
         ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
@@ -967,9 +974,6 @@ export class DaemonRpcService {
         ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
         ...(input.accountId ? { accountId: input.accountId } : {}),
         ...(input.requestDigest ? { requestDigest: input.requestDigest } : {}),
-        ...(input.structuredPermissions
-          ? { structuredPermissions: input.structuredPermissions }
-          : {}),
         ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
@@ -979,6 +983,8 @@ export class DaemonRpcService {
           ? { held: 'durable' as const }
           : {}),
         ...(input.env && Object.keys(input.env).length > 0 ? { env: { ...input.env } } : {}),
+        // Appended at the END, as the frame declares it (POD-6858).
+        ...(input.posture ? { posture: input.posture } : {}),
       }),
       machineId,
     )
@@ -1378,6 +1384,10 @@ export class DaemonRpcService {
     cwd?: string
     systemPrompt?: string
     mcpConfig?: string
+    /** The run's launch terms (POD-6858). Absent: the default posture. */
+    posture?: SessionPosture
+    /** The old Claude-worded allow list, for a daemon that predates posture. */
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     allowedTools?: string[]
     /** Kill budget for the CLI run, ms (daemon default 240s). The server-side
      *  wait adds 10s slack over it so the daemon's own timeout reports first. */
@@ -1397,8 +1407,10 @@ export class DaemonRpcService {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
         ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+        posture: input.posture ?? sessionPostureFor({}),
       }),
     )
   }

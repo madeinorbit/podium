@@ -139,7 +139,8 @@ describe('statement counts of effect records', () => {
     // POD-7068: 10 at 3d7eb8ad6c held five delivery reads of the setup's writes
     // by timing (grants, two effects-by-id, two issues). With the setup settled
     // the sweep is its own statements only: its delete, two updates, two effects
-    // reads and the change-capture drain of its three commits (8).
-    await expectConstantStatements(idleSweep, 8)
+    // reads and the change-capture drain of its three commits (8). The ninth is
+    // the purge of the server's own ended scans (POD-6970).
+    await expectConstantStatements(idleSweep, 9)
   })
 })

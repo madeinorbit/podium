@@ -177,30 +177,38 @@ describe('snapshot bootstrap producer', () => {
           }),
         )
         const rows = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
-        expect(rows).toEqual(expected.changes)
-        // The brief and description load at start as records of their own (POD-6921).
-        expect(rows.filter((r) => r.entity === 'issueBrief').map((r) => r.value)).toEqual([
-          { id: 'private', text: 'Issue brief' },
-        ])
-        expect(rows.filter((r) => r.entity === 'issueDescription').map((r) => r.value)).toEqual([
-          { id: 'private', text: 'Issue body' },
-        ])
-        // Built from the issue rows, each stamped with the head number.
-        if (user === 'owner') {
-          expect(rows.filter((r) => r.entity === 'issueProjection').map((r) => r.entityId)).toEqual(
-            // In issue id order, the order the table is paged in.
-            ['private', 'shared'],
-          )
-        }
-        expect(rows.every((r) => r.seq === output[0].seq)).toBe(true)
+        const stubs = output.filter((r) => r.type === 'feedStubs').flatMap((r) => r.changes)
+        // The first download is the policy's collections (POD-7085): the same
+        // issue records as the Authority's, and no body: the brief and the
+        // description load when the issue is opened.
+        const issues = (list: readonly { entity: string; entityId: string; value: unknown }[]) =>
+          list
+            .filter((r) => r.entity === 'issueProjection')
+            .map((r) => ({ entityId: r.entityId, value: r.value }))
+            .sort((x, y) => (x.entityId < y.entityId ? -1 : x.entityId > y.entityId ? 1 : 0))
+        expect(issues(rows)).toEqual(issues(expected.changes as never))
+        expect(rows.some((r) => r.entity === 'issueBrief' || r.entity === 'issueDescription')).toBe(
+          false,
+        )
+        // Every issue this viewer may see arrives, whole or as its stub
+        // (an issue the download already sent whole needs no stub).
+        expect(
+          [
+            ...new Set([...issues(rows).map((r) => r.entityId), ...stubs.map((r) => r.entityId)]),
+          ].sort(),
+        ).toEqual(issues(expected.changes as never).map((r) => r.entityId))
+        expect([...rows, ...stubs].every((r) => r.seq === output[0].seq)).toBe(true)
         expect(SyncMeta.safeParse(output[0]).success).toBe(true)
         expect(SyncComplete.safeParse(output.at(-1)).success).toBe(true)
-        expect(output.at(-1).records).toBe(output.filter((r) => r.type === 'feedBootstrap').length)
-        expect(output.at(-1).rows).toBe(rows.length)
+        // Every line between the header and the completion, and every row of them.
+        expect(output.at(-1).records).toBe(output.length - 2)
+        expect(output.at(-1).rows).toBe(rows.length + stubs.length)
         expect(output[0]).toEqual(meta)
         // One pass: the count is known only at the end, on the last chunk.
         expect(output[0].totalRows).toBeUndefined()
-        expect(output.filter((r) => r.type === 'feedBootstrap').at(-1).totalRows).toBe(rows.length)
+        const last = output.filter((r) => r.type === 'feedBootstrap').at(-1)
+        expect(last.last).toBe(true)
+        expect(last.totalRows).toBe(rows.length + stubs.length)
         expect(output.at(-1).seq).toBe(output[0].seq)
       }
     } finally {
@@ -215,12 +223,11 @@ describe('snapshot bootstrap producer', () => {
     const location = await testStoreLocation(path)
     const snapshots = snapshotProbe(store, path)
     try {
-      // A real record too large for one line: an issue's state paragraph.
-      await store.issues.upsertIssue(fixtureWriteScope(), issue('huge'))
-      await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
-        id: asIssueId('huge'),
-        text: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1),
-        updatedAt: T0,
+      // A real record too large for one line, in the part the first download
+      // carries (an open issue's main part; its body would load later).
+      await store.issues.upsertIssue(fixtureWriteScope(), {
+        ...issue('huge'),
+        acceptance: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1),
       })
       await store.sync.appendChanges(
         [{ entity: 'issueProjection', entityId: 'huge', op: 'upsert', payload: '{}' }],
@@ -238,12 +245,15 @@ describe('snapshot bootstrap producer', () => {
         new AbortController().signal,
         () => {},
       )
-      await oversized.next()
-      const error = await oversized.next()
-      expect(JSON.parse(new TextDecoder().decode(error.value!))).toMatchObject({
-        type: 'syncError',
-        reason: 'row-too-large',
-      })
+      // The policy's earlier steps answer first; the oversized issue's line is refused.
+      let error: unknown
+      for (let line = 0; line < 100 && error === undefined; line += 1) {
+        const next = await oversized.next()
+        if (next.done) break
+        const record = JSON.parse(new TextDecoder().decode(next.value))
+        if (record.type === 'syncError') error = record
+      }
+      expect(error).toMatchObject({ type: 'syncError', reason: 'row-too-large' })
       await expect(oversized.next()).rejects.toMatchObject({ reason: 'row-too-large' })
       expect(await snapshots.open()).toBe(0)
     } finally {

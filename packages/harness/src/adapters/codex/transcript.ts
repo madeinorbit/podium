@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import type { TranscriptItem } from '@podium/model'
+import type { TranscriptItem, TranscriptToolExecution } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
@@ -10,6 +10,7 @@ import {
   safeAskQuestionInputJson,
   toolInputPreview,
 } from '../claude-code/transcript.js'
+import { commandExecution, executionInputs } from '../shared/execution.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import {
@@ -18,6 +19,7 @@ import {
   parseCodexQuestionReplies,
 } from './interview.js'
 import { findCodexRolloutPath } from './state-provider.js'
+import { codexToolOutput } from './tool-output.js'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
@@ -193,12 +195,14 @@ function toolCallItem(payload: Record<string, unknown>, ts: string | undefined):
     ...(display.toolInput ? { toolInput: display.toolInput } : {}),
     ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
     ...(display.toolInputJson ? { toolInputJson: display.toolInputJson } : {}),
+    ...(display.toolExecution ? { toolExecution: display.toolExecution } : {}),
     ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
     ...(callId ? { toolUseId: callId } : {}),
   }
 }
 
 interface CodexToolDisplay {
+  toolExecution?: TranscriptToolExecution
   toolName: string
   toolInput?: string
   toolInputJson?: string
@@ -231,20 +235,41 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     const onlyCall = calls.length === 1 ? calls[0] : undefined
     if (onlyCall) return codexToolDisplay(onlyCall.name, onlyCall.input)
     if (calls.length > 1) {
-      const commands = calls.every(
-        (call) => call.name === 'exec_command' || call.name === 'write_stdin',
-      )
+      const commands = calls.every((call) => call.name === 'exec_command')
       const lines = calls.map((call) => {
         const display = codexToolDisplay(call.name, call.input)
-        return { tool: display.toolName, input: display.toolInput ?? display.toolTitle ?? '' }
+        return {
+          tool: display.toolName,
+          input: (display.toolInput ?? display.toolTitle ?? '').slice(0, 160),
+        }
+      })
+      const inputs = calls.flatMap((call) => {
+        const display = codexToolDisplay(call.name, call.input)
+        return (
+          display.toolExecution?.inputs ?? [
+            {
+              kind: 'tool' as const,
+              toolName: display.toolName,
+              capture: 'complete' as const,
+              text:
+                typeof call.input === 'string' ? call.input : (JSON.stringify(call.input) ?? ''),
+            },
+          ]
+        )
       })
       return {
         toolName: 'Script',
+        toolExecution: executionInputs(inputs),
         toolTitle: `${calls.length} ${commands ? 'commands' : 'actions'}`,
-        toolInputJson: JSON.stringify({ kind: 'script-calls', calls: lines }),
+        // LEGACY(remove-after: 2027-02): input previews for clients predating typed executions.
+        toolInputJson: JSON.stringify({ kind: 'script-calls', calls: lines.slice(0, 64) }),
       }
     }
-    return { toolName: 'Script', toolTitle: 'automation' }
+    return {
+      toolName: 'Script',
+      toolTitle: 'automation',
+      toolExecution: executionInputs([{ kind: 'tool', toolName: 'Script', text: rawInput }]),
+    }
   }
 
   const input = parseArgs(rawInput)
@@ -270,9 +295,11 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
       }
   }
   if (wireName === 'exec_command') {
+    const command = recordString(input, 'cmd')
     return {
+      ...(command !== undefined ? { toolExecution: commandExecution(command) } : {}),
       toolName: 'Bash',
-      toolInput: (recordString(input, 'cmd') ?? toolInputPreview(input)) || undefined,
+      toolInput: (command ?? toolInputPreview(input)).slice(0, 160) || undefined,
     }
   }
   if (wireName === 'apply_patch') {
@@ -292,6 +319,13 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
   if (wireName === 'write_stdin') {
     const sessionId = recordScalar(input, 'session_id')
     return {
+      toolExecution: executionInputs([
+        {
+          kind: 'continuation',
+          toolName: 'Bash',
+          text: sessionId === undefined ? 'running command' : `command session ${sessionId}`,
+        },
+      ]),
       toolName: 'Bash',
       toolInput: sessionId === undefined ? 'running command' : `command session ${sessionId}`,
     }
@@ -557,8 +591,6 @@ function questionReplyResults(
 }
 
 function toolResultItem(payload: Record<string, unknown>, ts: string | undefined): TranscriptItem {
-  const out = payload.output
-  const text = (typeof out === 'string' ? out : contentToText(out)).trim()
   const callId = stringField(payload, 'call_id') ?? stringField(payload, 'id')
   return {
     id: callId ? `${callId}:out` : SYNTHESIZED_ITEM_ID_PREFIX,
@@ -566,7 +598,7 @@ function toolResultItem(payload: Record<string, unknown>, ts: string | undefined
     ...(ts ? { ts } : {}),
     text: '',
     // Always set toolResult, even when empty — callers rely on the item being present.
-    toolResult: truncate(text, 2000),
+    ...codexToolOutput(payload.output),
     ...(callId ? { toolUseId: callId } : {}),
   }
 }
@@ -578,10 +610,6 @@ function parseArgs(value: unknown): unknown {
   } catch {
     return value
   }
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}...` : s
 }
 
 function finiteNumber(value: unknown): number | undefined {

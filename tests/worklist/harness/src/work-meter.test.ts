@@ -518,7 +518,7 @@ describe('pool reader windows', () => {
         async () => {
           insideReader('menu', () => {
             omitGone(pool.row('issue', 'i1'))
-            omitGone(pool.row('issue', 'i1', 'summary'))
+            omitGone(pool.row('issue', 'i1'))
             omitGone(pool.row('issue', 'missing'))
           })
           await insideReader('after-await', async () => {

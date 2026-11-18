@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import { readOpencodePromptHistory } from '../../../store/sources/sqlite.js'
 import evidence from './__fixtures__/receipt-proof-v1.json' with { type: 'json' }
@@ -56,6 +56,7 @@ async function fixture(waitMs = 10_000) {
   const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
   const spec: SessionSpec = {
     harness: 'opencode',
+    ...testSessionTerms(),
     harnessContext: testHarnessContext({ kind: 'opencode' }),
     selection: { auth: 'api-key', platform: 'linux', available: ['opencode-server'] },
     workdir: directory,

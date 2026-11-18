@@ -12,6 +12,7 @@ import { RuntimeEvent } from '@podium/protocol/daemon'
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -30,7 +31,7 @@ import {
 import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { runAtRoot } from './executor/context'
-import { dialectOf } from './executor/dialect-prepared'
+import { dialectOf, dialectPrepared } from './executor/dialect-prepared'
 import { afterCommit, spanOpen } from './executor/executor'
 import { withOwnOperation } from './executor/operation-scope'
 import type {
@@ -321,31 +322,34 @@ const runtimeTranscriptPayloads = prepared((db, t) => {
  * restored session (`transcriptAvailable`), asked for a set of durable records
  * without replaying their items. One statement per 500 ids.
  *
- * The newest reset and whether it carried items are one aggregate: its id
- * doubled, plus one when its `items` are not empty.
+ * The NEWEST reset-or-complete-item decides it: a complete item is newer than
+ * every reset, so there are items; a reset is available exactly when it carried
+ * items. Each session reads that one row newest-first through
+ * `idx_podium_events_kind_subject_id` and stops. It used to aggregate EVERY
+ * runtime event of the session, parsing each payload, and the session record
+ * build runs this on every transcript item the capture sees: a busy session
+ * paid for its whole history (11 MB, about 70 ms) on each new item.
  */
 const runtimeTranscriptSubjectsOfIds = preparedFamily((db, t, size: number) => {
   const f = payloadFieldsOf(db)
   const payload = sql`${t.podiumEvents.payload}`
   const type = f.type(payload)
-  const newestReset = sql`coalesce(max(CASE WHEN ${type} = 'transcript-reset'
-    THEN ${t.podiumEvents.id} * 2 + (CASE WHEN ${f.nonEmptyArray(payload, 'items')} THEN 1 ELSE 0 END) END), 0)`
+  const newestDecides = sql`(SELECT CASE
+      WHEN ${type} = 'item' THEN 1
+      WHEN ${f.nonEmptyArray(payload, 'items')} THEN 1
+      ELSE 0 END
+    FROM ${t.podiumEvents}
+    WHERE ${t.podiumEvents.workspaceId} = ${WORKSPACE}
+      AND ${t.podiumEvents.kind} = ${RUNTIME_EVENT_LOG_KIND}
+      AND ${t.podiumEvents.subject} = ${t.sessions.id}
+      AND (${type} = 'transcript-reset'
+        OR (${type} = 'item' AND ${f.text(payload, ['item', 'kind'])} = 'complete'))
+    ORDER BY ${t.podiumEvents.id} DESC
+    LIMIT 1)`
   return db
-    .select({ subject: t.podiumEvents.subject })
-    .from(t.podiumEvents)
-    .where(
-      inWorkspace(
-        t.podiumEvents,
-        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-        inListOf(t.podiumEvents.subject, size),
-      ),
-    )
-    .groupBy(t.podiumEvents.subject)
-    .having(
-      sql`max(CASE WHEN ${type} = 'item' AND ${f.text(payload, ['item', 'kind'])} = 'complete'
-          THEN ${t.podiumEvents.id} * 2 END) > ${newestReset}
-        OR ${newestReset} % 2 = 1`,
-    )
+    .select({ subject: t.sessions.id })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size), sql`${newestDecides} = 1`))
     .prepare()
 })
 
@@ -612,14 +616,45 @@ const highestEventId = prepared((db, t) =>
     .prepare(),
 )
 
-const eventIdBeyondCap = prepared((db, t) =>
+/**
+ * THE EVENT-LOG CAP AS A SEEK (POD-7035). The cap keeps the newest `maxRows`
+ * events; the cut is the id of the next one down. `ORDER BY id DESC OFFSET
+ * maxRows` found it by walking `maxRows` table rows, payloads and all: about
+ * 0.9 s per call on a 150 MB log, under the server's one event loop.
+ *
+ * Ids are AUTOINCREMENT, so the newest `maxRows` ids span at least `maxRows`
+ * values and the cut is never above `max(id) - maxRows`. It is below that only
+ * by the ids missing above it (an aged-out row the agent's clock dated old, a
+ * rolled-back insert). So: count the rows above the guess, then step down
+ * from the guess past exactly the missing number of rows.
+ *
+ * The count reads the narrowest index whole (a kind and a rowid per entry, about
+ * 1 MB at the 50k cap) and never a table page: a rowid range would walk the
+ * same leaf pages, payloads included, that the OFFSET did. The step-down walks
+ * only as many rows as ids are missing.
+ */
+const eventsAboveIdWhere = (t: StoreTables) =>
+  inWorkspace(t.podiumEvents, gt(t.podiumEvents.id, param(t.podiumEvents.id, 'guess')))
+/** SQLite is told the index; Postgres counts off `(workspace_id, id)` by its own plan. */
+const eventsAboveId = dialectPrepared<{ readonly guess: number }, { n: number }>()({
+  sqlite: (db, t) =>
+    db
+      .select({ n: count() })
+      .from(sql`${t.podiumEvents} INDEXED BY idx_podium_events_kind`)
+      .where(eventsAboveIdWhere(t))
+      .prepare(),
+  pg: (db, t) =>
+    db.select({ n: count() }).from(t.podiumEvents).where(eventsAboveIdWhere(t)).prepare(),
+})
+
+const eventIdAtOrBelow = prepared((db, t) =>
   db
     .select({ id: t.podiumEvents.id })
     .from(t.podiumEvents)
-    .where(inWorkspace(t.podiumEvents))
+    .where(inWorkspace(t.podiumEvents, lte(t.podiumEvents.id, param(t.podiumEvents.id, 'guess'))))
     .orderBy(desc(t.podiumEvents.id))
     .limit(1)
-    .offset(sql.placeholder('maxRows'))
+    .offset(sql.placeholder('missing'))
     .prepare(),
 )
 
@@ -905,9 +940,18 @@ const matchingSubscriptions = preparedFamily((db, t, shape: string) => {
         'session',
         inArray(
           t.subscriptions.subscriberId,
+          // Through `idx_sessions_issue` by name on SQLite (POD-7034): the list is
+          // padded to the largest of the poll's three lists, and at a few hundred
+          // anchors the planner prices the seeks above a scan of every session.
+          // Postgres has no INDEXED BY.
           db
-            .select({ id: t.sessions.id })
-            .from(t.sessions)
+            // Selected by name: drizzle refuses a table column over a raw FROM.
+            .select({ id: sql<string>`${sql.identifier('id')}` })
+            .from(
+              dialectOf(db) === 'pg'
+                ? sql`${t.sessions}`
+                : sql`${t.sessions} INDEXED BY idx_sessions_issue`,
+            )
             .where(
               inWorkspace(
                 t.sessions,
@@ -1523,8 +1567,21 @@ export class EventsRepository {
     // Compute the cap threshold once per job. Repeating this OFFSET scan before
     // every delete unit made a 50k-row retention pass itself monopolize the loop.
     // Rows appended after this snapshot are intentionally handled by the next pass.
-    const cap = await eventIdBeyondCap(this.db).get({ maxRows: opts.maxRows })
-    return { cutoff, capThroughId: cap?.id ?? 0 }
+    return { cutoff, capThroughId: await this.eventCapThroughId(opts.maxRows) }
+  }
+
+  /**
+   * The highest event id the row cap prunes: the id of the newest event beyond
+   * the newest `maxRows`, or 0 when the log holds no more than `maxRows`. Exact
+   * with gaps in the ids; see {@link eventsAboveId}.
+   */
+  async eventCapThroughId(maxRows: number): Promise<number> {
+    // `max(id)` alone, so SQLite reads it off the end of the primary key.
+    const guess = ((await highestEventId(this.db).get())?.m ?? 0) - maxRows
+    if (guess <= 0) return 0
+    const above = (await eventsAboveId(this.db).get({ guess }))?.n ?? 0
+    const missing = Math.max(0, maxRows - above)
+    return (await eventIdAtOrBelow(this.db).get({ guess, missing }))?.id ?? 0
   }
 
   /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */

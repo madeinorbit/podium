@@ -32,7 +32,14 @@ import type { OutboxRecord } from '../outbox/records'
 import { InMemoryOutboxStore, InMemoryUnitOfWork } from '../outbox/test-doubles'
 import { InMemoryReplicaStore, type StoreView } from '../replica/memory-store'
 import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../replica/ports'
-import type { Cursor, EntityRecord, KindTokens } from '../replica/types'
+import type { StubTableReader } from '../replica/stub-table'
+import type {
+  CachePolicy,
+  Cursor,
+  EntityRecord,
+  InstanceRecord,
+  KindTokens,
+} from '../replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../span'
 import type {
   ConformanceStorage,
@@ -70,8 +77,14 @@ class GatedCache implements ReplicaCacheStore {
   readKindTokens(): KindTokens | undefined {
     return this.inner.readKindTokens()
   }
-  readPersonalRowsCompleteAt(): Cursor | null {
-    return this.inner.readPersonalRowsCompleteAt()
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
+    return this.inner.readInstances()
+  }
+  readPolicy(): CachePolicy | null {
+    return this.inner.readPolicy()
+  }
+  readLoadingSince(): number | null {
+    return this.inner.readLoadingSince()
   }
   readEntities(): readonly EntityRecord[] {
     return this.inner.readEntities()
@@ -79,15 +92,26 @@ class GatedCache implements ReplicaCacheStore {
   read(entity: string, entityId: string): EntityRecord | undefined {
     return this.inner.read(entity, entityId)
   }
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
+    return this.inner.readRow(entity, entityId)
+  }
+  readStubs(): readonly EntityRecord[] {
+    return this.inner.readStubs()
+  }
+  readStubTable(entity: string): StubTableReader | undefined {
+    return this.inner.readStubTable(entity)
+  }
   beginSpan(): OwnedSyncSpan {
     return this.inner.beginSpan()
   }
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
-    // Invalidating optional metadata frees space, like discardCache.
+    // Dropping markers frees space, like discardCache.
     const invalidation =
       mutation.operations.length === 0 &&
       mutation.cursor === undefined &&
-      mutation.personalRowsCompleteAt === null
+      mutation.instances !== undefined &&
+      mutation.instances.length > 0 &&
+      mutation.instances.every((op) => op.kind === 'dropAll' || op.kind === 'drop')
     if (!invalidation) this.refuseIfDenied()
     // Observed AFTER the denial check and BEFORE the write, so a refused operation is
     // not recorded as one the store was handed — the record is of what the port

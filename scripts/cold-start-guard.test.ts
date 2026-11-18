@@ -67,7 +67,7 @@ describe('cold startup admission', () => {
       { paired: false }, { lease: { name: 'bench:flatblock', cohort: 'other-run' } },
       { harnessSha256: 'different-collector' }, { build: { sourceSha: '7654321', bundleVersion: 'stale' } },
       { actions: run(2_400).actions.map(row => ({ ...row, population: {} })) },
-      { startupBoundary: 'header-label' },
+      { startupBoundary: 'header-label' }, { host: 'other-host' }, { host: '' },
     ]) expect(compare(run(2_500), run(2_400, patch)).status).not.toBe(0)
   })
 
@@ -78,6 +78,13 @@ describe('cold startup admission', () => {
     expect(compare(run(2_500, phone), run(2_400, { ...phone, surface: 'web' })).status).not.toBe(0)
     expect(compare(run(2_500), run(2_400, { cell: 'h10a1' })).status).not.toBe(0)
     expect(compare(run(2_500, phone), run(2_400, { ...phone, startupBoundary: 'sidebar-issue-row' })).status).not.toBe(0)
+  })
+
+  it('admits an agent VM capture under its remote-lane lock, never mixed with another host (POD-7099)', () => {
+    const vm = { host: 'polaris-agents', lease: { name: 'test:polaris-agents', cohort: 'paired-fixture' } }
+    expect(compare(run(2_500, vm), run(2_400, vm)).status).toBe(0)
+    expect(compare(run(2_500, vm), run(2_400, { ...vm, host: 'vega-agents', lease: { name: 'test:vega-agents', cohort: 'paired-fixture' } })).status).not.toBe(0)
+    expect(compare(run(2_500, vm), run(2_400, { ...vm, lease: { name: 'meter:polaris-agents', cohort: 'paired-fixture' } })).status).not.toBe(0)
   })
 
   it('rejects application errors and cold RPC warnings while retaining explicit fixture noise', () => {

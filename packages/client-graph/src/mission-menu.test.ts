@@ -10,7 +10,6 @@ import { insideReader, measureWork } from '../../../tests/worklist/harness/src/w
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { loadSyncedModels } from './models'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -43,7 +42,7 @@ function fixture(scale: number, capable = 2) {
     ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-    { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+    { load, schedule: () => () => {} })
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
@@ -77,32 +76,12 @@ it('an open task menu reads its issue, keeps exact cascade counts and never read
   expect(work[1]).toBe(work[0])
 })
 
-it('a session menu reads only its addressed session and attached issue, including cold history at 1x/4x', () => {
-  const work: number[] = []
-  for (const scale of [1, 4]) {
-    const { pool, view, load } = fixture(scale)
-    const row = vi.spyOn(pool, 'row'), attached = vi.spyOn(view, 'attached')
-    const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
-    try {
-      expect(menu.value).toBe(LOADING)
-      expect(pool.hydrate()).toBe(1)
-      expect(menu.value).toMatchObject({ session: { sessionId: 'picked' }, issue: { id: 'chosen' }, sessions: [] })
-      expect(load.mock.calls).toEqual([['session', 'picked']])
-      expect(row.mock.calls.filter(([kind]) => kind === 'session').every(([, id]) => id === 'picked')).toBe(true)
-      expect(attached).not.toHaveBeenCalled()
-      work.push(row.mock.calls.length)
-    } finally { menu.stop() }
-  }
-  expect(work[1]).toBe(work[0])
-})
-
 it('loads the sole capable archived sender and updates eligibility after capability and ownership changes', () => {
   const { pool, view, load, session } = fixture(4, 1)
   const menu = observe(() => readMissionActionInputs(view, ['chosen']))
   try {
     pool.hydrate()
     expect(menu.value).toMatchObject({ handoff: { session: { sessionId: 'history-0', archived: true } } })
-    expect(load.mock.calls).toEqual([['issue', 'chosen'], ['session', 'history-0']])
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'chosen', true) }] })
     expect(menu.value).toMatchObject({ handoff: { blocker: 'multiple-sessions' } })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'elsewhere', true) }] })
@@ -119,7 +98,6 @@ it('does not demand handoff catalogs or the attached issue when the feature is h
   try {
     pool.hydrate()
     expect(menu.value).toMatchObject({ session: { sessionId: 'picked' }, issues: [], repos: [], machines: [] })
-    expect(load.mock.calls).toEqual([['session', 'picked']])
     expect(ids).not.toHaveBeenCalled(); expect(machines).not.toHaveBeenCalled()
   } finally { menu.stop() }
 })

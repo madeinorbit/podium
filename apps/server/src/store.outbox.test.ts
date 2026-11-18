@@ -43,7 +43,7 @@ describe('SessionStore applied_mutations', () => {
     const store = await openTestStore(':memory:')
     await store.sync.recordAppliedMutation(asMutationId('old'), 'p', '"a"', 1_000)
     await store.sync.recordAppliedMutation(asMutationId('young'), 'p', '"b"', 9_000)
-    await store.sync.pruneAppliedMutations({ maxAgeMs: 5_000, now: 10_000 })
+    expect(await store.sync.pruneAppliedMutationsBatch(10_000 - 5_000, 100)).toBe(1)
     expect(await store.sync.getAppliedMutation(asMutationId('old'))).toBeUndefined()
     expect(await store.sync.getAppliedMutation(asMutationId('young'))).toBe('"b"')
   })

@@ -334,8 +334,8 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   sessions: {
     timestamp:
       'created_at last_active_at published_last_active_at last_output_at last_input_at last_resumed_at stopped_at oom_killed_at deleted_at',
-    json: 'agent_state_json delegation',
-    text: 'id owner_user_id agent_kind model effort requested_model requested_effort account_id login_harness cwd title origin_kind conversation_id resume_kind resume_value selected_driver_id requested_driver_id bound_driver_id bound_driver_capabilities agent_color observed_model observed_effort handoff_target_machine_id conversation_binding status spawn_failure durable_label name work_state machine_id spawned_by issue_id stop_reason deleted_by_issue_id deletion_source workflow_run_id workflow_step_id agent_profile_id name_source ref_issue_id ref_letter created_by_actor_kind created_by_actor_id created_by_on_behalf_of desired lifecycle_failure desired_by_user desired_by_agent workspace_id',
+    json: 'agent_state_json delegation launch_posture_json',
+    text: 'id owner_user_id agent_kind model effort requested_model requested_effort account_id login_harness cwd title origin_kind conversation_id resume_kind resume_value selected_driver_id requested_driver_id bound_driver_id bound_driver_capabilities agent_color observed_model observed_effort observed_mode handoff_target_machine_id conversation_binding status spawn_failure durable_label name work_state machine_id spawned_by issue_id stop_reason deleted_by_issue_id deletion_source workflow_run_id workflow_step_id agent_profile_id name_source ref_issue_id ref_letter created_by_actor_kind created_by_actor_id created_by_on_behalf_of desired lifecycle_failure desired_by_user desired_by_agent workspace_id',
   },
   settings_audit_events: {
     timestamp: 'created_at',

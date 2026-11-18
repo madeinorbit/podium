@@ -41,16 +41,11 @@ import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
+import { instanceKey, instanceMetaKey } from '../../replica/cache-state'
+import type { InstanceOperation } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
-import {
-  CURSOR_KEY,
-  ENTITY_STORE,
-  META_STORE,
-  OUTBOX_STORE,
-  PERSONAL_ROWS_COMPLETE_AT_KEY,
-  REPLICA_DB_NAME,
-} from './schema'
+import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } from './schema'
 import { type DurabilityDegradation, type IndexedDbStoreView, IndexedDbSyncStore } from './store'
 import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
 
@@ -59,6 +54,14 @@ const M: MutationId = 'm-1' as MutationId
 
 const CURSOR_1: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
 const CURSOR_2: Cursor = { feedId: 'feed', epoch: 'e1', seq: 2 }
+
+/** The instance whose marker every case writes beside the rows it describes (POD-7086). */
+const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' as const }
+const SIDEBAR_KEY = instanceKey(SIDEBAR)
+const mark = (completeAt: Cursor): InstanceOperation => ({
+  kind: 'mark',
+  instance: { ...SIDEBAR, key: SIDEBAR_KEY, completeAt },
+})
 
 const record = (state: OutboxRecord['state']): OutboxRecord => ({
   mutationId: M,
@@ -90,7 +93,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       },
     })
 
-  it('commits a kind replacement and its tokens together, including rows another tab wrote', async () => {
+  it('commits replaced rows, their tokens and a marker together while keeping authored work', async () => {
     const first = await open()
     const view = first.viewFor(PRINCIPAL)
     const issue = {
@@ -114,39 +117,49 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       ).toEqual({ ok: true })
     })
     const newTokens = { ...oldTokens, issueProjection: 'new' }
+    // A kind reload's commit (POD-7086): the reloaded rows, the cursor with the
+    // new tokens and the reloaded instance's marker, in one transaction.
     const replace = (store: IndexedDbSyncStore) =>
       store.unitOfWork.transact(async (span) => {
-        store
-          .viewFor(PRINCIPAL)
-          .cache.installSnapshot(
-            [{ ...issue, entityId: 'new', value: { old: false } }],
-            CURSOR_2,
-            [],
-            span,
-            { kinds: new Set([issue.entity]), kindTokens: newTokens },
-          )
+        store.viewFor(PRINCIPAL).cache.applyAtomic(
+          {
+            operations: [
+              { kind: 'remove', entity: issue.entity, entityId: 'old' },
+              {
+                kind: 'upsert',
+                entity: issue.entity,
+                entityId: 'new',
+                value: { old: false },
+                provenance: { seq: 2 },
+              },
+            ],
+            cursor: CURSOR_2,
+            kindTokens: newTokens,
+            instances: [mark(CURSOR_2)],
+          },
+          span,
+        )
       })
     factory.denyWriteAt({ at: 2, error: new Error('power loss') })
     await expect(replace(first)).rejects.toThrow('power loss')
     expect(view.cache.readKindTokens()).toEqual(oldTokens)
+    expect(view.cache.readInstances().size).toBe(0)
     const other = await open()
     const otherView = other.viewFor(PRINCIPAL)
     expect(otherView.cache.readCursor()).toEqual(CURSOR_1)
     expect(otherView.cache.readKindTokens()).toEqual(oldTokens)
+    expect(otherView.cache.readInstances().size).toBe(0)
     expect(otherView.cache.read(issue.entity, 'old')).toEqual(issue)
-    otherView.cache.applyAtomic({
-      operations: [{ ...issue, entityId: 'other-tab', kind: 'upsert' }],
-    })
-    await other.settled()
+    other.close()
     await replace(first)
     first.close()
-    other.close()
 
     const reopened = await open()
     try {
       const saved = reopened.viewFor(PRINCIPAL)
       expect(saved.cache.readCursor()).toEqual(CURSOR_2)
       expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(saved.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
       expect(
         saved.cache
           .readEntities()
@@ -187,14 +200,13 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
             },
           ],
           cursor: CURSOR_1,
-          personalRowsCompleteAt: CURSOR_1,
+          instances: [mark(CURSOR_1)],
         },
         span,
       )
     })
     await store.settled()
     store.close()
-    preCertification = (await durableView()).personalRowsCompleteAt
     await expectPre()
   }
 
@@ -220,7 +232,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
             },
           ],
           cursor: CURSOR_2,
-          personalRowsCompleteAt: CURSOR_2,
+          instances: [mark(CURSOR_2)],
         },
         span,
       )
@@ -230,48 +242,41 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
   const durableView = async (): Promise<{
     entity: unknown
     cursor: unknown
-    personalRowsCompleteAt: unknown
+    /** The marker's `completeAt`; undefined when no marker row is durable. */
+    marker: unknown
     outbox: string[]
   }> => {
     const rows = await readDurable(factory as IdbFactoryLike)
     const entities = rows[ENTITY_STORE] as { entityId: string; value: unknown }[]
-    const meta = rows[META_STORE] as { key: string; value: Cursor }[]
+    const meta = rows[META_STORE] as { key: string; value: unknown }[]
     const outbox = rows[OUTBOX_STORE] as { mutationId: string }[]
+    const marker = meta.find((row) => row.key === instanceMetaKey(SIDEBAR_KEY))?.value as
+      | { completeAt: unknown }
+      | undefined
     return {
       entity: entities.find((row) => row.entityId === 'ADA-1')?.value,
       cursor: meta.find((row) => row.key === CURSOR_KEY)?.value,
-      personalRowsCompleteAt: meta.find((row) => row.key === PERSONAL_ROWS_COMPLETE_AT_KEY)?.value,
+      marker: marker?.completeAt,
       outbox: outbox.map((row) => row.mutationId),
     }
   }
 
-  let preCertification: unknown
-
-  /** All three regions and their scope binding at PRE. */
+  /** All three regions and the marker at PRE. */
   async function expectPre(): Promise<void> {
-    expect(preCertification).toMatchObject({
-      ...CURSOR_1,
-      scopeFingerprint: expect.stringMatching(/.+/),
-    })
     expect(await durableView()).toEqual({
       entity: { v: 0 },
-      cursor: preCertification,
-      personalRowsCompleteAt: preCertification,
+      cursor: CURSOR_1,
+      marker: CURSOR_1,
       outbox: [M],
     })
   }
 
-  /** All three regions at POST. */
+  /** All three regions and the marker at POST. */
   async function expectPost(): Promise<void> {
-    const post = await durableView()
-    expect(post.personalRowsCompleteAt).toMatchObject({
-      ...CURSOR_2,
-      scopeFingerprint: expect.stringMatching(/.+/),
-    })
-    expect(post).toEqual({
+    expect(await durableView()).toEqual({
       entity: { v: 1 },
-      cursor: post.personalRowsCompleteAt,
-      personalRowsCompleteAt: post.personalRowsCompleteAt,
+      cursor: CURSOR_2,
+      marker: CURSOR_2,
       outbox: [],
     })
   }
@@ -291,14 +296,14 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
    * `writes` is the number of write requests the transaction issues; it is
    * ASSERTED per case rather than assumed, so a change that makes the commit carry
    * fewer requests fails these cases instead of silently collapsing them onto the
-   * same instant. Three regions plus completeness ⇒ four requests: the outbox delete, the entity
-   * put the cursor put and completeness put.
+   * same instant. Three regions plus a marker ⇒ four requests: the outbox delete, the entity
+   * put, the cursor put and the marker put.
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
-    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and completeness marker' },
+    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and the instance marker' },
     { at: 3, mode: 'after' as const, what: 'after every write was issued and before the commit' },
   ]
 
@@ -332,7 +337,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       const view = reopened.viewFor(PRINCIPAL)
       expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR_1)
-      expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
+      expect(view.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_1)
       expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M])
       reopened.close()
     })
@@ -352,7 +357,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     const view = reopened.viewFor(PRINCIPAL)
     expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect(view.cache.readCursor()).toEqual(CURSOR_2)
-    expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_2)
+    expect(view.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
     expect(await view.outbox.read()).toEqual([])
     reopened.close()
   })
@@ -371,7 +376,8 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       const cursorSeq = (durable.cursor as Cursor).seq
       const entityIsNew = JSON.stringify(durable.entity) === JSON.stringify({ v: 1 })
       expect(cursorSeq === CURSOR_2.seq && !entityIsNew).toBe(false)
-      expect(durable.personalRowsCompleteAt).toEqual(durable.cursor)
+      // A marker never claims rows the store lacks: it moves with the cursor.
+      expect(durable.marker).toEqual(durable.cursor)
     }
   })
 

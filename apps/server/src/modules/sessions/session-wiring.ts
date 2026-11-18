@@ -97,7 +97,7 @@ import { SessionKill, type SessionKillPorts } from './session-kill'
 import { SessionMetaOps } from './session-meta-ops'
 import { isRunningStatus } from './session-record'
 import { SessionRevival } from './session-revival'
-import { APPLIED_MUTATIONS_MAX_AGE_MS, DEFAULT_GEOMETRY } from './session-shared'
+import { DEFAULT_GEOMETRY } from './session-shared'
 import { SessionStart } from './session-start'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import { SessionStateService } from './session-state/service'
@@ -153,8 +153,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
     pendingForProof: (sessionId, atIso) => store.messages.pendingForSessionProof(sessionId, atIso),
+    pendingForProofMany: (sessionIds, atIso) =>
+      store.messages.pendingForSessionsProof(sessionIds, atIso),
     queuedInputCount: async (sessionId) =>
       (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
+    queuedInputCounts: async (sessionIds) => await store.sync.queuedMessageCounts(sessionIds),
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })
@@ -184,6 +187,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         (s: SessionSubject) => !isRunningStatus(s.status),
       ),
     withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
+    acquireMany: (sessionIds, reason) => bag.residency.acquireMany(sessionIds, reason),
+    release: (sessionId) => bag.residency.release(sessionId),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     viewTiers: (sessionIds) => computePriorities([...bag.clients.values()], sessionIds),
     rebindHeadless: (session) => bag.rebindHeadless(session),
@@ -344,7 +349,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
     sessionLiveChanged: (sessionId) => bag.liveTopics.changed(sessionId),
     now: () => bag.now(),
-    appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     onRoutingChanged: (sessionId, previous) =>
       bag.bus.emit('session.routingChanged', { sessionId, previous }),
     records: bag.records,
@@ -356,6 +360,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     store,
     materialize: (row) => bag.repository.materializeStoredSession(row),
+    materializeMany: (rows) => bag.repository.materializeStoredSessions(rows),
     settled: (sessionId) => bag.repository.settled(sessionId),
     viewed: (sessionId) => {
       for (const client of bag.clients.values()) {

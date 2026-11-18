@@ -13,6 +13,7 @@ import {
   actorFromColumns,
   asSessionId,
   type IssueId,
+  LaunchPostureReport,
   type MachineId,
   machinePathSeparator,
   type PinWire,
@@ -72,6 +73,7 @@ import {
   WORKSPACE,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
+import { bareColumns } from './index-hints'
 import { prefixUpperBound } from './prefix-range'
 import type { RepoPlaces } from './repos'
 import type {
@@ -89,6 +91,16 @@ import { NO_LIFECYCLE } from './types'
 import { WrittenColumns } from './written-columns'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
+
+/** Setup needs existence, including archived/deleted work, never a session count. */
+const anySession = prepared((db, t) =>
+  db
+    .select({ id: t.sessions.id })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions))
+    .limit(1)
+    .prepare(),
+)
 
 export const SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS = 60_000
 const ACTIVITY_PUBLICATION_BATCH_SIZE = 256
@@ -221,6 +233,25 @@ function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined)
  */
 function sessionsMatching(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
   return db.select().from(t.sessions).where(inWorkspace(t.sessions, where)).prepare()
+}
+
+/**
+ * {@link sessionsMatching} through one named index [POD-7034]. For an IN list
+ * whose keys are sparse while a few common values hold many rows: the
+ * statistics give the average, and at a few hundred keys the planner prices
+ * the seeks above a scan of every session, though each asked key holds a few.
+ */
+function sessionsMatchingThrough(
+  db: StoreDrizzle,
+  t: StoreTables,
+  index: string,
+  where: SQL | undefined,
+) {
+  return db
+    .select(bareColumns(t.sessions))
+    .from(sql`${t.sessions} INDEXED BY ${sql.raw(index)}`)
+    .where(inWorkspace(t.sessions, where))
+    .prepare()
 }
 
 /**
@@ -379,10 +410,18 @@ const liveSessionsOfDraft = prepared((db, t) =>
   ),
 )
 
-/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
-const liveSessionsSpawnedBy = preparedFamily((db, t, size: number) =>
-  sessionsMatching(db, t, and(inListOf(t.sessions.spawnedBy, size), isNull(t.sessions.deletedAt))),
-)
+/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160).
+ *  Through `idx_sessions_spawned_by` by name on SQLite (POD-7034): the operator's
+ *  statistics average 15 sessions a value, a mean over one `user` value that
+ *  holds a third of all sessions and many parents with a few children; at a
+ *  few hundred parents they price the seeks above a scan of every session.
+ *  Postgres has no INDEXED BY; its planner reads the per-value statistics. */
+const liveSessionsSpawnedBy = preparedFamily((db, t, size: number) => {
+  const where = and(inListOf(t.sessions.spawnedBy, size), isNull(t.sessions.deletedAt))
+  return dialectOf(db) === 'pg'
+    ? sessionsMatching(db, t, where)
+    : sessionsMatchingThrough(db, t, 'idx_sessions_spawned_by', where)
+})
 
 /** The issues with this sequence number, in any repository: the issue half of
  *  a birth ref (`POD-13-A`), before its prefix is checked (POD-6160). */
@@ -681,6 +720,8 @@ function fullSessionUpsertSet(
     agentColor: value('agentColor'),
     observedModel: value('observedModel'),
     observedEffort: value('observedEffort'),
+    observedMode: value('observedMode'),
+    launchPostureJson: value('launchPostureJson'),
     handoffTargetMachineId: value('handoffTargetMachineId'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
@@ -871,6 +912,8 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
     agentColor: row.agentColor ?? null,
     observedModel: row.observedModel ?? null,
     observedEffort: row.observedEffort ?? null,
+    observedMode: row.observedMode ?? null,
+    launchPostureJson: row.launchPosture ? JSON.stringify(row.launchPosture) : null,
     handoffTargetMachineId: row.handoffTargetMachineId ?? null,
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
@@ -1731,6 +1774,10 @@ export class SessionsRepository {
 
   async loadSessions(): Promise<SessionRow[]> {
     return (await liveSessions(this.db).all()).map(mapSession)
+  }
+
+  async hasAnySession(): Promise<boolean> {
+    return (await anySession(this.db).get()) !== undefined
   }
 
   /** Up to `limit` live sessions with an id after `after` ('' = the first), in
@@ -2923,6 +2970,8 @@ function mapSession(r: SessionSelect): SessionRow {
     agentColor: r.agentColor ?? null,
     observedModel: r.observedModel ?? null,
     observedEffort: r.observedEffort ?? null,
+    observedMode: r.observedMode ?? null,
+    launchPosture: parseLaunchPosture(r.launchPostureJson),
     handoffTargetMachineId: r.handoffTargetMachineId ?? null,
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
@@ -3017,6 +3066,17 @@ function parseHistory(raw: string | null): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
+  }
+}
+
+/** A launch report that no longer parses is absent: the next launch reports again. */
+function parseLaunchPosture(value: string | null): SessionRow['launchPosture'] {
+  if (value === null) return null
+  try {
+    const parsed = LaunchPostureReport.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }
 

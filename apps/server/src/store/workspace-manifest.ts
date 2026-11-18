@@ -578,7 +578,7 @@ export const INSTALL_META_KEYS: readonly KeyPattern[] = [
 
 /**
  * THE WORKSPACE KEYS OF `meta`, now in `workspace_meta`. The migration
- * `20261117060140_workspace-meta-split` moved exactly these to the workspace `local`; its SQL
+ * `20261118101227_workspace-meta-split` moved exactly these to the workspace `local`; its SQL
  * spells the same list, and `migrations/workspace-meta-split.test.ts` ties the two together.
  */
 export const WORKSPACE_META_KEYS: readonly KeyPattern[] = [

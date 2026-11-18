@@ -65,6 +65,7 @@ import { OfferBar } from '@/features/chat/OfferBar'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { SessionModelChip } from '@/features/chat/SessionModelChip'
+import { SessionModeChip } from '@/features/chat/SessionPosture'
 import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
@@ -805,10 +806,12 @@ export const AgentPanel = observer(function AgentPanel({
               model · effort in its composer, where the next message is written;
               the CLI view has no composer, so the same chip sits here. It is a
               menu where the live driver can switch models mid-session, and a
-              readout naming why not everywhere else. */}
+              readout naming why not everywhere else. The mode the agent is in
+              sits beside it (POD-6858). */}
             {cliShowing && (
-              <span className="flex min-w-0 max-w-[16rem] flex-none">
+              <span className="flex min-w-0 max-w-[22rem] flex-none">
                 <SessionModelChip session={session} />
+                <SessionModeChip session={session} />
               </span>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment

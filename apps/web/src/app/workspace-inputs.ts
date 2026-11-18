@@ -25,10 +25,7 @@ export function workspaceSessions(
     const present = fullIds.has(id) ? omitGone(pool.row('session', id, 'mark')) : undefined
     if (fullIds.has(id) && !present) return []
     const detail = fullIds.has(id) ? omitGone(pool.row('session', id)) : undefined
-    const row =
-      detail && typeof detail !== 'symbol'
-        ? detail
-        : omitGone(pool.row('session', id, 'summary-fields'))
+    const row = detail && typeof detail !== 'symbol' ? detail : omitGone(pool.row('session', id))
     return row && typeof row !== 'symbol' ? [row as unknown as SessionView] : []
   })
 }

@@ -3609,10 +3609,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -3625,10 +3625,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -4064,10 +4064,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -4080,10 +4080,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -4566,10 +4566,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -4582,10 +4582,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -4999,10 +4999,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -5015,10 +5015,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -5431,10 +5431,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -5447,10 +5447,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -5933,10 +5933,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -5949,10 +5949,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -6388,10 +6388,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -6404,10 +6404,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -6868,10 +6868,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -6884,10 +6884,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -7312,10 +7312,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -7328,10 +7328,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -7767,10 +7767,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -7783,10 +7783,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -8269,10 +8269,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -8285,10 +8285,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -8702,10 +8702,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -8718,10 +8718,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -9134,10 +9134,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -9150,10 +9150,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -9636,10 +9636,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -9652,10 +9652,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -10091,10 +10091,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -10107,10 +10107,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },
@@ -10571,10 +10571,10 @@
                     "path": "/home/mgw/.local/bin/codex",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "66bbda3bef2e6a0f4f7acb54e5c337d9f22016942a33fd63594ef0272f576674",
-                        "email": "mike.wirth@gmail.com",
+                        "email": "person@example.com",
                         "providerAccountId": "b74664bc-0165-46b1-89b3-777d502e9fb1"
                       },
                       "freshness": 1791045470
@@ -10587,10 +10587,10 @@
                     "path": "/home/mgw/.local/bin/grok",
                     "login": {
                       "state": "in",
-                      "account": "Michael Wirth · mike.wirth@gmail.com",
+                      "account": "Example Person · person@example.com",
                       "identity": {
                         "fingerprint": "6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
-                        "email": "mike.wirth@gmail.com"
+                        "email": "person@example.com"
                       }
                     }
                   },

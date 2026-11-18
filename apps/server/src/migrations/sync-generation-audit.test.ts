@@ -73,16 +73,16 @@ const kindsByTable: Record<string, readonly string[]> = {
  * here with its own reason. A listed migration that does not exist fails the test.
  */
 const NO_RECORD_CHANGE: Readonly<Record<string, string>> = {
-  '20261117050304_workspace-column':
+  '20261118101144_workspace-column':
     "adds the workspace_id partition column and renames the sync tables' tenant_id; " +
     'the column is part of no record value or wire payload (POD-7012), and capture ' +
     'keys are held by their own manifest test (POD-7021)',
-  '20261117060140_workspace-meta-split':
+  '20261118101227_workspace-meta-split':
     'moves the workspace keys from meta to workspace_meta; the instance preferences ' +
     'blob is moved unchanged and the fleet keys the machine record reads stay in meta ' +
     '(workspace-meta-split.test.ts: "builds the same instance preferences record after ' +
     'the split as before it", and its install-key and other-table cases)',
-  '20261117104939_workspace-keys':
+  '20261118101338_workspace-keys':
     'rebuilds every workspace table with keys that lead with workspace_id, copying every row, ' +
     'its rowid and every column unchanged; no record value or wire payload carries the ' +
     'workspace (POD-6959 design 2.6, "no kind generation bump"). workspace-keys.test.ts holds ' +

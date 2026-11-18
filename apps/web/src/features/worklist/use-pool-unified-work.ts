@@ -36,10 +36,7 @@ export function poolMissionRoot(
     seen.add(current.id)
     const parentId = pool.graph.one('issue', current.id, 'treeParent')
     if (!parentId) break
-    const summary = omitGone(pool.row('issue', parentId, 'summary')) as
-      | SliceIssue
-      | typeof LOADING
-      | undefined
+    const summary = omitGone(pool.row('issue', parentId)) as SliceIssue | typeof LOADING | undefined
     if (summary === LOADING) return LOADING
     if (summary?.archived || summary?.deletedAt) break
     const parent = omitGone(pool.row('issue', parentId)) as SliceIssue | typeof LOADING | undefined
@@ -86,7 +83,7 @@ export function poolMissionContains(
       return false
     const starter = pool.graph.one('issue', member, 'startedBy')
     if (!starter) return false
-    const sender = omitGone(pool.row('session', starter, 'summary'))
+    const sender = omitGone(pool.row('session', starter))
     if (sender === LOADING) return LOADING
     const owner = (sender as { issueId?: string } | undefined)?.issueId
     return owner ? visit(owner) : false
@@ -147,7 +144,7 @@ function poolArchiveBatch(
       seen.add(id)
       // The relation index includes cold children. Their declared summaries
       // provide archive state without warming the entire subtree.
-      const row = omitGone(pool.row('issue', id, 'summary-fields'))
+      const row = omitGone(pool.row('issue', id))
       if (row === LOADING) return LOADING
       if (!row) throw new Error('Could not load all tasks to archive')
       // The server stops its cascade at an archived or deleted child too.

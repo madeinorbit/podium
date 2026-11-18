@@ -14,7 +14,6 @@ import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
-  SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
 import {
   FEED_EVENT_KINDS,
@@ -131,7 +130,6 @@ try {
         outbox: { deadLetters: () => [], subscribe: () => () => {} },
       }) as unknown as ClientRuntime
       const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined, {
-        summaries: SUPERAGENT_SUMMARIES,
         load: (_entity, id) => sessions.find((row) => row.sessionId === id) as never,
       })
       try {

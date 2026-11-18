@@ -83,7 +83,7 @@ was clean (`git status --porcelain` empty).
 
 Not a blocker, and no longer a gap: `podium machine list` reports flatblock with
 claude-code 2.1.223, codex-cli 0.147.0 and grok 0.2.118 all **ready** and signed
-in as mike.wirth@gmail.com. On 2026-08-04 codex and grok there were not logged
+in as person@example.com. On 2026-08-04 codex and grok there were not logged
 in; a human signed them in since.
 
 ## Loose ends worth a look

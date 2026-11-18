@@ -23,12 +23,15 @@ import {
   interactionRowId,
   issueEventRowId,
   messageRecordRowId,
+  RECORD_KINDS,
+  recordOf,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import {
   type BuiltRecord,
+  collectRecords,
   RecordBuilderRegistry,
   type RecordIdsByKind,
 } from '@podium/sync/record-builders'
@@ -49,6 +52,7 @@ import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
 import { DATABASE_ONLY_BUILDERS, type RecordReads, serverRecordBuilders } from './record-builders'
 import { atParity, type KindParity, kindParity, type PublishedRow } from './record-parity'
+import { RECORD_SOURCES } from './record-sources'
 
 /** Kinds this fixture writes, so their parity is not vacuous. */
 const POPULATED = [
@@ -187,6 +191,30 @@ describe('record builders (POD-6763)', () => {
     expect(
       () => new RecordBuilderRegistry([...DATABASE_ONLY_BUILDERS, DATABASE_ONLY_BUILDERS[0]!]),
     ).toThrow(/already registered/)
+  })
+
+  it('builds exactly the declared kinds, and reads tables for each (POD-7084)', () => {
+    expect([...serverRecordBuilders().kinds()].sort()).toEqual([...RECORD_KINDS].sort())
+    expect(Object.keys(RECORD_SOURCES).sort()).toEqual([...RECORD_KINDS].sort())
+    // A declared kind with no builder, and a builder with no declaration, are refused.
+    const withoutCheckout = DATABASE_ONLY_BUILDERS.filter((builder) => builder.kind !== 'checkout')
+    expect(() => new RecordBuilderRegistry(withoutCheckout, [], RECORD_KINDS)).toThrow(
+      /checkout is declared but has no builder/,
+    )
+    expect(
+      () =>
+        new RecordBuilderRegistry(
+          DATABASE_ONLY_BUILDERS,
+          [],
+          [...RECORD_KINDS.filter((kind) => kind !== 'repo')],
+        ),
+    ).toThrow(/repo has a builder but no declaration/)
+    // Every body part a declaration names is a built record of its own.
+    for (const kind of RECORD_KINDS) {
+      for (const bodyKind of Object.keys(recordOf(kind).body)) {
+        expect(serverRecordBuilders().has(bodyKind as MetadataEntityKind), bodyKind).toBe(true)
+      }
+    }
   })
 
   it('shares one issue read while preserving each kind’s requested ids and order', async () => {
@@ -352,6 +380,28 @@ describe('record builders (POD-6763)', () => {
         onWorkerConnection = await parityOf(store, reads, loaded)
       } finally {
         await session.close()
+      }
+
+      // The parts a record carries are the declared ones (POD-7084): a built
+      // record never carries a live field or a body field.
+      const recordReads = { store, effectExecutors: reg.modules.effects!.executors, now: Date.now }
+      for (const kind of ['session', 'issueProjection', 'machine'] as const) {
+        const declaration = recordOf(kind)
+        const notCarried = [
+          ...declaration.live,
+          ...Object.keys(declaration.liveReadings),
+          // `panel.todos` travels as its own records: the record has no `panel`.
+          ...Object.values(declaration.body)
+            .flat()
+            .map((field) => field.split('.')[0]!),
+        ]
+        const built = await collectRecords(serverRecordBuilders().streamAll(recordReads, kind))
+        expect(built.length, `${kind} records`).toBeGreaterThan(0)
+        for (const { value } of built) {
+          for (const field of notCarried) {
+            expect((value as Record<string, unknown>)[field], `${kind}.${field}`).toBeUndefined()
+          }
+        }
       }
 
       for (const results of [inProcess, onWorkerConnection]) {

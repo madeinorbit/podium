@@ -20,9 +20,10 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { constants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { flattenEngineSpawn, type TestEngineSpawn } from '../../testing/binding-records.js'
+import { testTurnPosture } from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -372,7 +373,7 @@ function deps(
 
 function runTurn(input: {
   owner: EngineProcessOwner
-  spec: Omit<HeadlessTurnSpec, 'accountId' | 'requestDigest' | 'durableLabel'>
+  spec: Omit<HeadlessTurnSpec, 'accountId' | 'requestDigest' | 'durableLabel' | 'launchPosture'>
   sessionId: SessionId
   turnId?: string
   digest?: string
@@ -385,6 +386,7 @@ function runTurn(input: {
   const handle = runHostedHeadlessTurn(deps(input.owner, input.env, input.now), {
     spec: {
       ...input.spec,
+      launchPosture: testTurnPosture(input.spec.agent as BuiltinHarnessKind),
       accountId: identity.accountId,
       requestDigest: identity.requestDigest,
       durableLabel: `podium-${input.sessionId}`,

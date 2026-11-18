@@ -21,6 +21,11 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
+import { issueSearch } from '@podium/client-graph/issue-search'
+import { issueTargets } from '@podium/client-graph/issue-targets'
+import { readIssueSearchChoiceIds } from '@podium/client-graph/issue-search-choices'
+import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -30,6 +35,22 @@ import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
+import { headerView } from '@podium/client-graph/header-views'
+import { screeningTotal } from '@podium/client-graph/mobile-triage'
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
+import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
+import {
+  hasStaleActivation,
+  isActivationEligible,
+  shouldStartBrowserAtProjectIntake,
+  shouldStartRemoteClientAtHandoff,
+} from '../../../../../apps/web/src/features/setup/activation-route'
+
+/** Viewer request answer and device checkpoints, separate from the partial record pool. */
+export type StartupSetupFacts = Omit<Parameters<typeof isActivationEligible>[0], 'repoCount'>
+
+/** Readers moved by POD-7087, POD-7088 and POD-7089: never wrong in any state. */
+export const MOVED_READERS = /^(first-screen:|counts:|board-archive:|closed-children:|search:)/
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
@@ -122,11 +143,43 @@ function plain(value: unknown, ancestors = new Set<object>()): unknown {
 const pendingOr = <T>(pending: number, value: T): T | typeof LOADING => (pending > 0 ? LOADING : value)
 
 /** The declared first-screen and history questions, over `targets`. */
-export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
+export function startupQuestions(
+  targets: StartupTargets,
+  setup?: () => StartupSetupFacts | typeof LOADING,
+): StartupQuestion[] {
   const questions: StartupQuestion[] = []
   const add = (group: StartupGroup, name: string, read: (pool: MobxPool) => unknown) =>
     questions.push({ group, name: `${group}:${name}`, read })
   const board = (pool: MobxPool) => createIssueBoardSource(pool)
+
+  if (setup) {
+    const facts = (pool: MobxPool) => {
+      const answer = setup()
+      return answer === LOADING
+        ? LOADING
+        : { ...answer, repoCount: headerView(pool).repositoryCount() }
+    }
+    add('first-screen', 'setup-eligible', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING ? LOADING : isActivationEligible(answer)
+    })
+    add('first-screen', 'setup-stale', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING ? LOADING : hasStaleActivation(answer)
+    })
+    add('first-screen', 'setup-browser-route', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING
+        ? LOADING
+        : shouldStartBrowserAtProjectIntake({ ...answer, nativeShell: false, route: 'welcome' })
+    })
+    add('first-screen', 'setup-desktop-route', (pool) => {
+      const answer = facts(pool)
+      return answer === LOADING
+        ? LOADING
+        : shouldStartRemoteClientAtHandoff({ ...answer, launchMode: 'client', route: 'welcome' })
+    })
+  }
 
   for (const id of targets.roots) add('first-screen', `sidebar-row:${id}`, (pool) => {
     const row = sidebarView(pool).row(id)
@@ -146,28 +199,80 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
     }
   })
 
-  add('counts', 'issues', (pool) => pool.queries.count('issue'))
-  add('counts', 'sessions', (pool) => pool.queries.count('session'))
+  // POD-7088: the device's own counts (`heldCount`) are no question of all
+  // history and are not asked; sessions have no stub and no screen counts
+  // them over history.
   add('counts', 'undeleted-issues', (pool) => pool.undeletedIssueCount)
-  add('counts', 'proposed', (pool) => pool.queries.ids({ kind: 'proposedIssues' }).length)
+  add('counts', 'first-task', (pool) => settingsHasFirstTask(pool))
+  add('counts', 'proposed', (pool) => screeningTotal(pool))
+  for (const stage of ISSUE_BOARD_STAGES)
+    for (const showAgentTasks of [false, true])
+      add('counts', `board-column:${stage}${showAgentTasks ? ':agents' : ''}`, (pool) =>
+        board(pool).columnCount({ filter: {}, ordering: 'updated', showAgentTasks, stage }))
+  // POD-7087: counts over all history read the stubs, once they are complete.
+  add('counts', 'stub-by-stage', (pool) => pool.collections.countBy('stage'))
+  add('counts', 'stub-by-repo', (pool) => pool.collections.countBy('repoId'))
 
-  add('search', 'command-issues', (pool) => pool.queries.ids({ kind: 'commandIssues' }))
+  const search = (pool: MobxPool, needle: string, deviceIds: Iterable<string>) => {
+    const found = issueSearch(pool).read(needle, deviceIds)
+    return found.complete ? found.ids : LOADING
+  }
+  const commandNeedle = targets.needles[0] ?? 'issue'
+  add('search', 'command-issues', (pool) =>
+    search(pool, commandNeedle, pool.queries.localTextIds(commandNeedle)),
+  )
   for (const needle of targets.needles) {
-    add('search', `local-text:${needle}`, (pool) => pool.queries.localTextIds(needle))
+    add('search', `local-text:${needle}`, (pool) => {
+      const ids = search(pool, needle, pool.queries.localTextIds(needle))
+      return ids === LOADING ? LOADING : new Set(ids)
+    })
     add('search', `mention:${needle}`, (pool) => {
       const found = chatMentionMatches(pool, needle, 8)
-      return pendingOr(found.pending, found.issues.map((issue) => issue.id))
+      const ids = search(
+        pool,
+        needle,
+        found.issues.map((issue) => issue.id),
+      )
+      return ids === LOADING ? LOADING : pendingOr(found.pending, ids.slice(0, 8))
     })
     add('search', `board:${needle}`, (pool) => {
+      if (!issueSearch(pool).read(needle, []).complete) return LOADING
       const found = board(pool).queryIds({ kind: 'board', filter: { text: needle } })
       return found === LOADING || found === undefined ? found : found.ids
     })
+    add('search', `phone-targets:${needle}`, (pool) => {
+      const id = targets.roots[0]
+      if (!id) return []
+      const issue = omitGone(pool.model('issue', id))
+      if (!issue || issue === LOADING) return LOADING
+      const result = issueTargets(pool, issue, needle, 8)
+      return issueSearch(pool).read(needle, [], issue.repoPath).complete ? result : LOADING
+    })
+    add('search', `web-targets:${needle}`, (pool) => {
+      const found = readIssueSearchChoiceIds(pool, needle)
+      return found.complete ? new Set(found.ids) : LOADING
+    })
+    add('search', `phone-work:${needle}`, (pool) => {
+      const phone = new PhoneWorklist(worklistView(pool))
+      phone.setQuery(needle)
+      return phone.searchResults.complete ? phone.searchIds : LOADING
+    })
   }
 
-  add('board-archive', 'archived', (pool) => pool.queries.ids({ kind: 'boardIssues', archived: true }))
+  // POD-7088: the closed tabs' counts, the archived ones shown too.
+  for (const stage of ['done', 'backlog'] as const)
+    add('board-archive', `archived:${stage}`, (pool) =>
+      board(pool).columnCount({ filter: { archived: true }, ordering: 'updated', showAgentTasks: false, stage }))
+  add('board-archive', 'closed-status', (pool) =>
+    board(pool).columnCount({ filter: { status: 'closed' }, ordering: 'updated', showAgentTasks: false, stage: 'done' }))
+
+
 
   for (const id of targets.parents) {
     add('closed-children', `child-counts:${id}`, (pool) => pool.queries.issueChildCounts(id))
+    // POD-7087: child counts and tree progress from the stubs, for all history.
+    add('closed-children', `stub-child-counts:${id}`, (pool) => pool.collections.childCounts(id))
+    add('closed-children', `stub-tree-progress:${id}`, (pool) => pool.collections.treeProgress(id))
     add('closed-children', `model:${id}`, (pool) => {
       const model = omitGone(pool.issue(id))
       if (model === LOADING || model === undefined) return model
@@ -181,7 +286,9 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
     })
     add('closed-children', `board-card:${id}`, (pool) => {
       const card = board(pool).issue(id)
-      return card === LOADING || card === undefined ? card : { progress: (card as { progress?: unknown }).progress }
+      return card === LOADING || card === undefined
+        ? card
+        : { childCount: card.childCount, childDoneCount: card.childDoneCount }
     })
   }
   return questions

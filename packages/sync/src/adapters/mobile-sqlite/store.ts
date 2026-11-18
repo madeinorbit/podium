@@ -89,16 +89,19 @@ import type {
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
 import {
-  certifyPersonalRowsCompleteAt,
+  type CacheMeta,
+  CURSOR_META_KEY,
   cursorTriple,
-  decodePersonalRowsCompleteAt,
-  nextCacheCompleteness,
-  nextPersonalRowsCompleteAt,
-  type PersonalRowsCompleteness,
+  decodeCacheMeta,
+  EMPTY_CACHE_META,
+  INSTANCE_META_END,
+  INSTANCE_META_PREFIX,
+  isMainRow,
+  type MetaWrite,
+  nextCacheMeta,
+  rowAfter,
   type ScopedCacheCursor,
-  snapshotCacheCursor,
-  trustedPersonalRowsCompleteAt,
-} from '../../replica/cache-completeness'
+} from '../../replica/cache-state'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -109,19 +112,26 @@ import type {
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
+import { RowMirror } from '../../replica/row-mirror'
+import type { StubTableReader } from '../../replica/stub-table'
+import type {
+  CachePolicy,
+  Cursor,
+  EntityRecord,
+  InstanceRecord,
+  KindTokens,
+} from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { ChangedKeyDraft } from '../changed-key-draft'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   ALL_TABLES,
   applySchema,
-  CURSOR_KEY,
   dropSchema,
   ENTITY_TABLE,
   META_TABLE,
+  migrateSchema,
   OUTBOX_TABLE,
-  PERSONAL_ROWS_COMPLETE_AT_KEY,
   REPLICA_SCHEMA_VERSION,
   readSchemaVersion,
   type StoredOutboxRecord,
@@ -200,9 +210,9 @@ interface SqlOp {
 /** The post-state one span has staged, per region, plus the statements that produce it. */
 interface SpanDraft {
   /** Principal → changed keys or snapshot replacement. Absent means untouched. */
-  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
-  readonly cursors: Map<string, ScopedCacheCursor | null>
-  readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord, RowMirror>>
+  /** Principal → the cursor, markers, policy and load state this draft leaves. */
+  readonly metas: Map<string, CacheMeta>
   readonly outbox: Map<string, StoredOutboxRecord[]>
   readonly ops: SqlOp[]
   /** Re-checked inside the native transaction against durable rows (D4.6). */
@@ -213,8 +223,7 @@ interface SpanDraft {
 
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
-  cursors: new Map(),
-  personalRowsCompleteAt: new Map(),
+  metas: new Map(),
   outbox: new Map(),
   ops: [],
   expectations: [],
@@ -296,9 +305,9 @@ export class SqliteSyncStore {
   private mode: DurabilityMode = 'durable'
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
-  private readonly entities = new Map<string, Map<string, EntityRecord>>()
-  private readonly cursors = new Map<string, ScopedCacheCursor | null>()
-  private readonly personalRowsCompleteAt = new Map<string, PersonalRowsCompleteness | null>()
+  // POD-7115: a stub is kept only in its record type's stub table.
+  private readonly entities = new Map<string, RowMirror>()
+  private readonly metas = new Map<string, CacheMeta>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, SqliteStoreView>()
   private readonly drafts = new Map<SqlSpan, SpanDraft>()
@@ -349,11 +358,14 @@ export class SqliteSyncStore {
       if (version === null) {
         // A brand-new file, or one this adapter has never written. Nothing to lose.
         store.initializeFresh()
+      } else if (version < REPLICA_SCHEMA_VERSION) {
+        // FORWARD-ONLY (D5.1): an older layout is migrated in place, so the
+        // user's unsent writes survive the upgrade.
+        migrateSchema(db, version)
       } else if (version !== REPLICA_SCHEMA_VERSION) {
-        // FORWARD-ONLY (D5.1). A higher version was written by a build that knew
-        // more than this one; a lower one has no upgrade arm at version 1. Both take
-        // D6's upgrade-or-rebootstrap posture rather than reading a layout they do
-        // not understand — and this is where a future version's migration goes.
+        // A higher version was written by a build that knew more than this one:
+        // D6's upgrade-or-rebootstrap posture rather than reading a layout it
+        // does not understand.
         throw new SchemaVersionMismatch(version)
       }
       store.hydrate()
@@ -425,9 +437,8 @@ export class SqliteSyncStore {
           params: [principal],
         },
       )
-      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(principal, null)
-      draft.personalRowsCompleteAt.set(principal, null)
+      draft.entities.set(principal, new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()))
+      draft.metas.set(principal, EMPTY_CACHE_META)
       draft.outbox.set(principal, [])
       draft.touchedCache = true
       draft.touchedOutbox = true
@@ -691,10 +702,10 @@ export class SqliteSyncStore {
     )
 
     const cursors = planSecretScrub(
-      [...this.cursors].map(([principal, value]) => ({
-        address: `meta[${principal}/${CURSOR_KEY}]`,
+      [...this.metas].map(([principal, meta]) => ({
+        address: `meta[${principal}/${CURSOR_META_KEY}]`,
         row: { principal },
-        value,
+        value: meta.cursor,
       })),
     )
 
@@ -732,7 +743,7 @@ export class SqliteSyncStore {
       for (const rewrite of cursors.rewrites) {
         this.db
           .prepare(`UPDATE ${META_TABLE} SET value = ? WHERE principal = ? AND key = ?`)
-          .run(JSON.stringify(rewrite.value), rewrite.row.principal, CURSOR_KEY)
+          .run(JSON.stringify(rewrite.value), rewrite.row.principal, CURSOR_META_KEY)
       }
       for (const rewrite of outbox.rewrites) {
         const { stored } = rewrite.row
@@ -757,7 +768,10 @@ export class SqliteSyncStore {
       this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
     }
     for (const rewrite of cursors.rewrites)
-      this.cursors.set(rewrite.row.principal, rewrite.value as ScopedCacheCursor | null)
+      this.metas.set(rewrite.row.principal, {
+        ...this.metaOf(rewrite.row.principal),
+        cursor: rewrite.value as ScopedCacheCursor | null,
+      })
     for (const rewrite of outbox.rewrites) {
       const { principal, index, stored } = rewrite.row
       const slice = this.outboxRows.get(principal)
@@ -770,9 +784,7 @@ export class SqliteSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities)
       this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
-    for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
-    for (const [principal, marker] of draft.personalRowsCompleteAt)
-      this.personalRowsCompleteAt.set(principal, marker)
+    for (const [principal, meta] of draft.metas) this.metas.set(principal, meta)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
   }
 
@@ -789,8 +801,7 @@ export class SqliteSyncStore {
   private initializeFresh(): void {
     applySchema(this.db)
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
   }
@@ -802,7 +813,7 @@ export class SqliteSyncStore {
   private hydrate(): void {
     const entities = this.db
       .prepare(
-        `SELECT principal, entity, entity_id, value, revision, provenance FROM ${ENTITY_TABLE}`,
+        `SELECT principal, entity, entity_id, value, revision, provenance, part, as_of FROM ${ENTITY_TABLE}`,
       )
       .all() as {
       principal: string
@@ -811,6 +822,8 @@ export class SqliteSyncStore {
       value: string
       revision: number | null
       provenance: string
+      part: string | null
+      as_of: number | null
     }[]
     const meta = this.db.prepare(`SELECT principal, key, value FROM ${META_TABLE}`).all() as {
       principal: string
@@ -820,8 +833,7 @@ export class SqliteSyncStore {
     const outbox = this.selectOutboxRows()
 
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
     const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
@@ -847,31 +859,32 @@ export class SqliteSyncStore {
       if (row.provenance === null) {
         throw new Error(`entity row ${row.entity}/${row.entity_id} has no provenance`)
       }
-      const slice = this.entities.get(row.principal) ?? new Map<string, EntityRecord>()
+      const slice = this.entities.get(row.principal) ?? new RowMirror()
       slice.set(rowKey(row.entity, row.entity_id), {
         entity: row.entity,
         entityId: row.entity_id,
         value: JSON.parse(row.value) as unknown,
         revision: row.revision ?? undefined,
         provenance: JSON.parse(row.provenance) as EntityRecord['provenance'],
+        ...(row.part === 'stub' ? { part: 'stub' as const } : {}),
+        ...(typeof row.as_of === 'number' ? { asOf: row.as_of } : {}),
       })
       this.entities.set(row.principal, slice)
     }
+    const metaRows = new Map<string, { key: string; value: unknown }[]>()
     for (const row of meta) {
-      if (row.key === CURSOR_KEY)
-        this.cursors.set(row.principal, JSON.parse(row.value) as ScopedCacheCursor)
-      if (row.key === PERSONAL_ROWS_COMPLETE_AT_KEY) {
-        // Optional certification cannot make an otherwise readable old cache poison.
-        try {
-          this.personalRowsCompleteAt.set(
-            row.principal,
-            decodePersonalRowsCompleteAt(JSON.parse(row.value)),
-          )
-        } catch {
-          this.personalRowsCompleteAt.set(row.principal, null)
-        }
+      let value: unknown
+      try {
+        value = JSON.parse(row.value)
+      } catch {
+        // An unreadable optional row is no marker, never a boot refusal.
+        continue
       }
+      const rows = metaRows.get(row.principal) ?? []
+      rows.push({ key: row.key, value })
+      metaRows.set(row.principal, rows)
     }
+    for (const [principal, rows] of metaRows) this.metas.set(principal, decodeCacheMeta(rows))
     this.adoptOutboxRows(outbox)
   }
 
@@ -924,8 +937,7 @@ export class SqliteSyncStore {
       throw error
     }
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
   }
@@ -936,19 +948,12 @@ export class SqliteSyncStore {
     if (this.corrupt) throw new ReplicaStoreCorruptError()
   }
 
-  entitiesOf(principal: string): Map<string, EntityRecord> {
-    return this.entities.get(principal) ?? new Map()
+  entitiesOf(principal: string): RowMirror {
+    return this.entities.get(principal) ?? new RowMirror()
   }
 
-  cursorOf(principal: string): ScopedCacheCursor | null {
-    return this.cursors.get(principal) ?? null
-  }
-
-  personalRowsCompleteAtOf(principal: string): PersonalRowsCompleteness | null {
-    return trustedPersonalRowsCompleteAt(
-      this.cursorOf(principal),
-      this.personalRowsCompleteAt.get(principal) ?? null,
-    )
+  metaOf(principal: string): CacheMeta {
+    return this.metas.get(principal) ?? EMPTY_CACHE_META
   }
 
   outboxOf(principal: string): readonly StoredOutboxRecord[] {
@@ -1006,27 +1011,52 @@ class SqliteCacheStore implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.store.guardReadable()
-    return cursorTriple(this.store.cursorOf(this.principal))
+    return cursorTriple(this.store.metaOf(this.principal).cursor)
   }
 
   readKindTokens(): KindTokens | undefined {
     this.store.guardReadable()
-    return this.store.cursorOf(this.principal)?.kindTokens
+    return this.store.metaOf(this.principal).cursor?.kindTokens
   }
 
-  readPersonalRowsCompleteAt(): Cursor | null {
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.store.guardReadable()
-    return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
+    return this.store.metaOf(this.principal).instances
+  }
+
+  readPolicy(): CachePolicy | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).policy
+  }
+
+  readLoadingSince(): number | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).loadingSince
   }
 
   readEntities(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()]
+    return this.store.entitiesOf(this.principal).mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
+    const row = this.readRow(entity, entityId)
+    return row === undefined || !isMainRow(row) ? undefined : row
+  }
+
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
     this.store.guardReadable()
     return this.store.entitiesOf(this.principal).get(rowKey(entity, entityId))
+  }
+
+  readStubs(): readonly EntityRecord[] {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -1055,46 +1085,33 @@ class SqliteCacheStore implements ReplicaCacheStore {
     versions: SnapshotVersions = {},
   ): void {
     this.store.guardReadable()
-    // Reject invalid buffered certification before staging any snapshot writes.
-    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     const install = (draft: SpanDraft): void => {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
-      let next: ChangedKeyDraft<EntityRecord>
-      if (versions.kinds) {
-        next = this.slice(draft)
-        for (const entity of versions.kinds) {
-          draft.ops.push({
-            sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ?`,
-            params: [this.principal, entity],
-          })
-        }
-        for (const row of next.values(this.store.entitiesOf(this.principal))) {
-          if (versions.kinds.has(row.entity)) next.delete(rowKey(row.entity, row.entityId))
-        }
-      } else {
-        draft.ops.push({
-          sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
-          params: [this.principal],
-        })
-        next = new ChangedKeyDraft(new Map<string, EntityRecord>())
-        draft.entities.set(this.principal, next)
-      }
+      draft.ops.push({
+        sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
+        params: [this.principal],
+      })
+      const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
+      draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
         if (!this.store.retainsEntity(row.entity)) continue
         next.set(rowKey(row.entity, row.entityId), row)
         draft.ops.push(upsertEntityOp(this.principal, row))
       }
-      let head = cursor
+      // The markers and policy described the rows this replaces.
+      this.resetMeta(draft)
+      this.stageMeta(draft, {
+        operations: [],
+        cursor,
+        ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+      })
       for (const mutation of buffered) {
         this.applyOperations(draft, next, mutation)
-        if (mutation.cursor !== undefined) head = mutation.cursor
+        this.stageMeta(draft, mutation)
       }
-      const completeAt = certifyPersonalRowsCompleteAt(head)
-      this.setCursor(draft, snapshotCacheCursor(completeAt, versions.kindTokens))
-      this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {
       install(this.store.draftFor(span))
@@ -1105,20 +1122,18 @@ class SqliteCacheStore implements ReplicaCacheStore {
 
   discardCache(): void {
     this.store.guardReadable()
-    // Reaches entities and the cursor. The `outbox` table is not named here, and
-    // there is no method on this port through which it could be.
+    // Reaches entities and the cache's metadata. The `outbox` table is not named
+    // here, and there is no method on this port through which it could be.
     this.store.autocommit((draft) => {
-      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(this.principal, null)
-      this.setPersonalRowsCompleteAt(draft, null)
+      draft.entities.set(
+        this.principal,
+        new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()),
+      )
       draft.ops.push({
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
         params: [this.principal],
       })
-      draft.ops.push({
-        sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`,
-        params: [this.principal, CURSOR_KEY],
-      })
+      this.resetMeta(draft)
       draft.touchedCache = true
     })
   }
@@ -1128,17 +1143,28 @@ class SqliteCacheStore implements ReplicaCacheStore {
   }
 
   private stage(draft: SpanDraft, mutation: CacheMutation): void {
-    const cursor = draft.cursors.has(this.principal)
-      ? (draft.cursors.get(this.principal) ?? null)
-      : this.store.cursorOf(this.principal)
-    const previous = draft.personalRowsCompleteAt.has(this.principal)
-      ? (draft.personalRowsCompleteAt.get(this.principal) ?? null)
-      : this.store.personalRowsCompleteAtOf(this.principal)
-    const completeness = nextCacheCompleteness(cursor, previous, mutation)
     if (mutation.operations.length > 0) this.applyOperations(draft, this.slice(draft), mutation)
-    if (mutation.cursor !== undefined && completeness.cursor !== null)
-      this.setCursor(draft, completeness.cursor)
-    this.setPersonalRowsCompleteAt(draft, completeness.marker)
+    this.stageMeta(draft, mutation)
+  }
+
+  /** Forget the cursor, markers, policy and load state: every metadata row of this principal. */
+  private resetMeta(draft: SpanDraft): void {
+    draft.ops.push({
+      sql: `DELETE FROM ${META_TABLE} WHERE principal = ?`,
+      params: [this.principal],
+    })
+    draft.metas.set(this.principal, EMPTY_CACHE_META)
+    draft.touchedCache = true
+  }
+
+  /** The cursor, markers, policy and load state a mutation leaves, staged with their writes. */
+  private stageMeta(draft: SpanDraft, mutation: CacheMutation): void {
+    const before = draft.metas.get(this.principal) ?? this.store.metaOf(this.principal)
+    const next = nextCacheMeta(before, mutation)
+    if (next.writes.length === 0) return
+    for (const write of next.writes) draft.ops.push(metaOp(this.principal, write))
+    draft.metas.set(this.principal, next.meta)
+    draft.touchedCache = true
   }
 
   /**
@@ -1149,21 +1175,18 @@ class SqliteCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: ChangedKeyDraft<EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord, RowMirror>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
+    const published = this.store.entitiesOf(this.principal)
     for (const op of mutation.operations) {
       if (!this.store.retainsEntity(op.entity)) continue
-      if (op.kind === 'upsert') {
-        const row: EntityRecord = {
-          entity: op.entity,
-          entityId: op.entityId,
-          value: op.value,
-          revision: op.revision,
-          provenance: op.provenance,
-        }
-        slice.set(rowKey(op.entity, op.entityId), row)
+      const key = rowKey(op.entity, op.entityId)
+      const row = rowAfter(op.asOf === undefined ? undefined : slice.get(key, published), op)
+      if (row === undefined) continue
+      if (row !== null) {
+        slice.set(key, row)
         draft.ops.push(upsertEntityOp(this.principal, row))
         continue
       }
@@ -1172,7 +1195,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
       // that is the whole difference, because an evict must not touch anybody else's
       // copy. Amendment 1 D14.5's distinction is preserved upstream in the envelope's
       // op and, for the port, by `cacheOperations()`.
-      slice.delete(rowKey(op.entity, op.entityId))
+      slice.delete(key)
       draft.ops.push({
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ? AND entity_id = ?`,
         params: [this.principal, op.entity, op.entityId],
@@ -1180,43 +1203,32 @@ class SqliteCacheStore implements ReplicaCacheStore {
     }
   }
 
-  private setCursor(draft: SpanDraft, cursor: ScopedCacheCursor): void {
-    draft.cursors.set(this.principal, cursor)
-    draft.touchedCache = true
-    draft.ops.push({
-      sql: `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
-            ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
-      params: [this.principal, CURSOR_KEY, JSON.stringify(cursor)],
-    })
-  }
-
-  private setPersonalRowsCompleteAt(
-    draft: SpanDraft,
-    marker: PersonalRowsCompleteness | null,
-  ): void {
-    draft.personalRowsCompleteAt.set(this.principal, marker)
-    draft.touchedCache = true
-    draft.ops.push(
-      marker === null
-        ? {
-            sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`,
-            params: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
-          }
-        : {
-            sql: `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
-                ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
-            params: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY, JSON.stringify(marker)],
-          },
-    )
-  }
-
   /** Stage only changed keys; published rows stay untouched until publish. */
-  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord, RowMirror> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const changes = new ChangedKeyDraft<EntityRecord>()
+    const changes = new ChangedKeyDraft<EntityRecord, RowMirror>()
     draft.entities.set(this.principal, changes)
     return changes
+  }
+}
+
+/** The statement of one metadata write. */
+function metaOp(principal: string, write: MetaWrite): SqlOp {
+  if (write.kind === 'put')
+    return {
+      sql: `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
+            ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
+      params: [principal, write.key, JSON.stringify(write.value)],
+    }
+  if (write.kind === 'delete')
+    return {
+      sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`,
+      params: [principal, write.key],
+    }
+  return {
+    sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key >= ? AND key < ?`,
+    params: [principal, INSTANCE_META_PREFIX, INSTANCE_META_END],
   }
 }
 
@@ -1336,10 +1348,11 @@ class SqliteOutboxStore implements OutboxStorePort {
 }
 
 const upsertEntityOp = (principal: string, row: EntityRecord): SqlOp => ({
-  sql: `INSERT INTO ${ENTITY_TABLE} (principal, entity, entity_id, value, revision, provenance)
-        VALUES (?, ?, ?, ?, ?, ?)
+  sql: `INSERT INTO ${ENTITY_TABLE} (principal, entity, entity_id, value, revision, provenance, part, as_of)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(principal, entity, entity_id) DO UPDATE SET
-          value = excluded.value, revision = excluded.revision, provenance = excluded.provenance`,
+          value = excluded.value, revision = excluded.revision, provenance = excluded.provenance,
+          part = excluded.part, as_of = excluded.as_of`,
   params: [
     principal,
     row.entity,
@@ -1347,6 +1360,8 @@ const upsertEntityOp = (principal: string, row: EntityRecord): SqlOp => ({
     JSON.stringify(row.value),
     row.revision ?? null,
     JSON.stringify(row.provenance),
+    row.part ?? null,
+    row.asOf ?? null,
   ],
 })
 

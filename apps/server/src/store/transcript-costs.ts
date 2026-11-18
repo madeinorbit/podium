@@ -33,6 +33,7 @@ import {
   sameWorkspace,
   WORKSPACE,
 } from './executor/sync-drizzle'
+import { bareColumns, throughIndex } from './index-hints'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -169,10 +170,14 @@ const recordCost = prepared((db, t) =>
     .prepare(),
 )
 
+// Through `idx_transcript_costs_issue` by name on SQLite (POD-7034): an issue has
+// one or two cost rows, but at a few hundred issues the planner prices the seeks
+// above a scan of every cost row, a table that grows with every costed session.
+// The caller passes an issue with all its descendants, unchunked.
 const costsOfIssues = preparedFamily((db, t, size: number) =>
   db
-    .select()
-    .from(t.transcriptCosts)
+    .select(bareColumns(t.transcriptCosts))
+    .from(throughIndex(db, t.transcriptCosts, 'idx_transcript_costs_issue'))
     .where(inWorkspace(t.transcriptCosts, inListOf(t.transcriptCosts.issueId, size)))
     .prepare(),
 )

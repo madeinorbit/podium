@@ -1,3 +1,5 @@
+import type { OpencodeExecutionBatches } from '../../../adapters/opencode/transcript.js'
+
 /**
  * opencode PROTOCOL → THE CONTRACT'S VOCABULARY (POD-1761 W5; plan §2 `map.ts`).
  *
@@ -27,13 +29,13 @@
  * added.
  */
 
-import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { TranscriptItem } from '@podium/model'
-import { encodeCursor } from '../../../store/index.js'
 import {
   type OpencodeMessagePartRow,
   opencodeFileId,
 } from '../../../adapters/opencode/transcript.js'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import { encodeCursor } from '../../../store/index.js'
 import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../host.js'
 import type {
@@ -60,6 +62,7 @@ export function partToItems(
   sessionId: string,
   messageInfo: OpencodeMessageInfo,
   part: OpencodePart,
+  batches?: OpencodeExecutionBatches,
 ): readonly TranscriptItem[] {
   const timeUpdated = part.time?.end ?? part.time?.start ?? messageInfo.time?.created ?? 0
   const row: OpencodeMessagePartRow = {
@@ -71,7 +74,7 @@ export function partToItems(
     messageData: JSON.stringify(messageInfo),
     partData: JSON.stringify(part),
   }
-  return stampOpencodeItems([row], sessionId)
+  return stampOpencodeItems([row], sessionId, batches)
 }
 
 /**

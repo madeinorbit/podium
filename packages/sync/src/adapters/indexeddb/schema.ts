@@ -8,7 +8,7 @@
  * shape:
  *
  *   `entities`  keyPath [principal, entity, entityId]  one row per cached entity
- *   `meta`      keyPath [principal, key]               cursor and optional completeness
+ *   `meta`      keyPath [principal, key]               cursor, markers, policy, load state
  *   `outbox`    keyPath [principal, mutationId]        the user's unsent writes
  *
  * THREE OBJECT STORES IN ONE DATABASE, and that is the D4.1 requirement rather
@@ -51,10 +51,13 @@ export const OUTBOX_STORE = 'outbox'
 /** Every store one transaction must be able to span. Order is irrelevant; completeness is not. */
 export const ALL_STORES: readonly string[] = [ENTITY_STORE, META_STORE, OUTBOX_STORE]
 
-/** Metadata keys are namespaced per principal by the compound key. */
-export const CURSOR_KEY = 'cursor'
-/** Additive key: existing version-1 caches need no schema migration. */
-export const PERSONAL_ROWS_COMPLETE_AT_KEY = 'personal-rows-complete-at'
+/**
+ * Metadata keys are namespaced per principal by the compound key. The cursor,
+ * the markers (one row per instance), the policy and the load state are
+ * spelled once for every adapter in `replica/cache-state.ts`. Additive keys:
+ * a version-1 store needs no migration, and a store without markers loads.
+ */
+export { CURSOR_META_KEY as CURSOR_KEY } from '../../replica/cache-state'
 
 /** A cached entity row, as it is stored. `value` rides through structured clone. */
 export interface StoredEntity {
@@ -64,6 +67,10 @@ export interface StoredEntity {
   readonly value: unknown
   readonly revision?: number
   readonly provenance?: unknown
+  /** `'stub'` for an issue held at stub level only; absent for a whole record. */
+  readonly part?: 'stub'
+  /** The feed number the row is current as of; absent means its provenance seq. */
+  readonly asOf?: number
 }
 
 /** A `meta` row. `value` is the cursor for {@link CURSOR_KEY}. */

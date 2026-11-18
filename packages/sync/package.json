@@ -65,6 +65,11 @@
       "@podium/source": "./src/record-builders.ts",
       "types": "./src/record-builders.ts",
       "import": "./src/record-builders.ts"
+    },
+    "./collections": {
+      "@podium/source": "./src/collections/rule-sql.ts",
+      "types": "./src/collections/rule-sql.ts",
+      "import": "./src/collections/rule-sql.ts"
     }
   },
   "scripts": {

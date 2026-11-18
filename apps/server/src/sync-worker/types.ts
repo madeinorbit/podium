@@ -1,7 +1,8 @@
 // workspace-scoped (POD-6959)
 import type { WorkspaceId } from '@podium/model'
 import type {
-  MetadataEntityKind,
+  ClientType,
+  CollectionInstance,
   Principal,
   SyncBootstrapRequiredReason,
   SyncMeta,
@@ -20,7 +21,10 @@ export interface BootstrapJob {
   feedId: string
   epoch: string
   encoding: 'identity' | 'gzip' | 'zstd'
-  kinds?: [MetadataEntityKind, ...MetadataEntityKind[]]
+  /** Whose policy orders the first download (POD-7085); absent is a browser's. */
+  clientType?: ClientType
+  /** What the visible view asked for: the first download's second step. */
+  view?: readonly CollectionInstance[]
   /** Absolute epoch milliseconds; omitted means ten minutes from admission. */
   deadlineMs?: number
   /**
@@ -31,14 +35,18 @@ export interface BootstrapJob {
    */
   workspaceId?: WorkspaceId
 }
-export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
+/** A fetch of named collection instances (`POST /sync/collections`, POD-7085). */
+export interface CollectionsJob extends Omit<BootstrapJob, 'mode' | 'view'> {
+  mode: 'collections'
+  instances: readonly CollectionInstance[]
+}
+export interface DeltaJob extends Omit<BootstrapJob, 'mode' | 'clientType' | 'view'> {
   mode: 'delta'
   from: number
   to?: number
   pageRows?: number
-  omitKinds?: readonly MetadataEntityKind[]
 }
-export type SyncJob = BootstrapJob | DeltaJob
+export type SyncJob = BootstrapJob | DeltaJob | CollectionsJob
 /** The workspace a job reads: its own, or the self-hosted install's when omitted. */
 export const jobWorkspaceId = (job: SyncJob): WorkspaceId =>
   job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID

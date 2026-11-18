@@ -6,7 +6,7 @@ import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { MobileInbox, screeningQueue } from './mobile-triage'
+import { screeningQueue } from './mobile-triage'
 import { readPageIssue } from './issue-page'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -20,10 +20,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && pool.queries.count('session') === 0 && pool.queries.count('issue') === 0)
+      (!state.hasCursor && pool.queries.heldCount('session') === 0 && pool.queries.heldCount('issue') === 0)
     )
   }
-  const inbox = new MobileInbox(pool)
   class ScreeningQueue {
     @lazy get queue() {
       const ids = screeningQueue(pool)
@@ -60,7 +59,7 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   function session(identifier: string): Loaded<SessionView> {
     const trimmed = identifier.trim()
-    const direct = omitGone(pool.row('session', trimmed, 'summary')) as Loaded<SessionView>
+    const direct = omitGone(pool.row('session', trimmed)) as Loaded<SessionView>
     if (direct && direct !== LOADING && !pool.queries.collapsed(trimmed)) return direct
     if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
     let pending = false
@@ -70,7 +69,7 @@ export function createMobileInboxViews(pool: MobxPool) {
       .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
     for (const id of ids) {
       if (pool.queries.collapsed(id)) continue
-      const row = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
+      const row = omitGone(pool.row('session', id)) as Loaded<SessionView>
       if (row === LOADING) pending = true
       else if (row?.displayRef === trimmed) return row
     }
@@ -87,7 +86,7 @@ export function createMobileInboxViews(pool: MobxPool) {
           ? `/session/${encodeURIComponent(row.sessionId)}`
           : null
     }
-    const direct = omitGone(pool.row('issue', target.issue.trim(), 'summary')) as Loaded<{
+    const direct = omitGone(pool.row('issue', target.issue.trim())) as Loaded<{
       id: string
     }>
     if (direct && direct !== LOADING) return `/issue/${encodeURIComponent(direct.id)}`
@@ -122,13 +121,12 @@ export function createMobileInboxViews(pool: MobxPool) {
     })
   }
   return {
-    inbox: () => inbox,
-    screening: () => screening,
     issue,
     chip,
     route,
     resolveRoute,
     booting,
+    screening: () => screening,
     session,
     dispose() {
       for (const cancel of [...waits]) cancel()

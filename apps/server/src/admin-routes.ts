@@ -8,9 +8,11 @@
  * - `GET /auth/admin/viewer`: which sections the caller may open. Any
  *   signed-in member asks; a member who is not an admin gets none, and the
  *   client draws no admin area from that answer. It also says whether the
- *   caller is the one who sets this server up (POD-6882), and answers the
- *   caller's other {@link ViewerCapabilities}, such as adding a machine of
- *   their own (POD-6883).
+ *   caller is the one who sets this server up (POD-6882), whether setup is
+ *   finished, and the caller's other {@link ViewerCapabilities}, such as
+ *   adding a machine of their own (POD-6883).
+ * - `POST /auth/admin/setup/finish`: the installer records wizard completion,
+ *   including a setup that finishes before any session is created.
  * - `GET /auth/admin/access`: admission facts from the shared memberships.
  *   The device sign-in routes live in sign-in-routes.ts.
  * - `GET /auth/admin/audit`: the security events, newest first, as actor,
@@ -27,6 +29,8 @@ import type { UserId, UserRole } from '@podium/model'
 import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
+import type { SessionsRepository } from './store/sessions'
+import type { SettingsRepository } from './store/settings'
 import {
   SECURITY_EVENT_KINDS,
   type SecurityEventRow,
@@ -177,6 +181,8 @@ export function registerAdminRoutes(
   app: Hono,
   options: {
     users: UsersRepository
+    settings: SettingsRepository
+    sessions: SessionsRepository
     identity: WorkspaceIdentity
     audit: SettingsAuditRepository
     /** Names of the machines an event names, in one read. */
@@ -227,7 +233,18 @@ export function registerAdminRoutes(
         addMachine: true,
         setUpServer: firstAdmin?.id === who.id,
       } satisfies ViewerCapabilities,
+      setupFinished:
+        (await options.settings.setupFinished()) || (await options.sessions.hasAnySession()),
     })
+  })
+
+  routes.post('/setup/finish', async (c) => {
+    const who = await caller(c)
+    if (!who) return c.json({ error: 'Sign in required' }, 401)
+    const firstAdmin = who.role === 'admin' ? await users.earliestAdmin() : undefined
+    if (firstAdmin?.id !== who.id) return adminRequired(c)
+    await options.settings.finishSetup()
+    return c.json({ setupFinished: true })
   })
 
   routes.get('/access', async (c) => {

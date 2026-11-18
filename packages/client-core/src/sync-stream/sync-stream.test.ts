@@ -37,18 +37,15 @@ function sources(reply: () => Response | Promise<Response>) {
   return { bootstrap: new HttpBootstrapSource(deps), delta: new HttpDeltaSource(deps), fetch, deps }
 }
 
-it('reloads a changed kind and catches up other kinds before advancing the shared cursor', async () => {
+it('a changed kind on a device with no policy reloads through the first download, never a kind-named one', async () => {
+  // Kind-named bootstraps are gone (POD-7086): with a policy a kind reload
+  // refetches that kind's collections (the conformance suite's case); without
+  // one, only the first download can replace what the device holds.
   const store = new InMemoryReplicaStore()
   const cache = store.cache
-  const unchanged = {
-    entity: 'other-kind',
-    entityId: 'keep',
-    value: { name: 'same object' },
-    provenance: { seq: 5 },
-  }
   cache.installSnapshot(
     [
-      unchanged,
+      { entity: 'other-kind', entityId: 'gone', value: { name: 'old' }, provenance: { seq: 5 } },
       { entity: row.entity, entityId: 'obsolete', value: { old: true }, provenance: { seq: 5 } },
     ],
     cursor,
@@ -57,159 +54,31 @@ it('reloads a changed kind and catches up other kinds before advancing the share
     { kindTokens: { [row.entity]: 'old', 'other-kind': 'unchanged' } },
   )
   const kindTokens = { [row.entity]: 'new', 'other-kind': 'unchanged' }
-  const caughtUp = {
-    ...row,
-    entity: 'other-kind',
-    entityId: 'new',
-    seq: 7,
-    value: { changed: true },
-  }
   const requests: string[] = []
-  const deps = {
-    origin: 'https://example.test',
-    streamingFetch: {
-      fetch: async (url: string) => {
-        const { pathname, searchParams } = new URL(url)
-        requests.push(pathname + new URL(url).search)
-        if (pathname === '/sync/bootstrap') {
-          return response([{ ...meta, kinds: [row.entity], kindTokens }, chunk, complete])
-        }
-        if (!searchParams.has('to')) {
-          // A newly deployed schema is advertised before any old delta payload.
-          return response([{ ...deltaMeta, kindTokens }])
-        }
-        expect(cache.readCursor()).toEqual(cursor)
-        expect(cache.read(row.entity, 'obsolete')?.value).toEqual({ old: true })
-        return response([{ ...deltaMeta, kindTokens }, { ...delta, changes: [caughtUp] }, complete])
-      },
-    },
-  }
-  const bootstraps = new HttpBootstrapSource(deps)
-  const deltas = new HttpDeltaSource(deps)
+  const source = sources(() => response([{ ...meta, kindTokens }, chunk, complete]))
+  source.fetch.mockImplementation(async (url: string) => {
+    const parsed = new URL(url)
+    requests.push(parsed.pathname + parsed.search)
+    return response([{ ...meta, kindTokens }, chunk, complete])
+  })
   const replica = new Replica({
     store: cache,
     unitOfWork: store.unitOfWork,
     authority: {
-      bootstrap: bootstraps.bootstrap.bind(bootstraps),
-      changesRange: deltas.changesRange.bind(deltas),
-    },
-  })
-  replica.connect()
-  await replica.settled()
-  expect(requests).toEqual([
-    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5',
-    '/sync/bootstrap?kinds=future-kind',
-    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5&to=10&omitKinds=future-kind',
-  ])
-  expect(cache.readCursor()).toEqual({ ...cursor, seq: 10 })
-  expect(cache.readKindTokens()).toEqual(kindTokens)
-  expect(cache.read(row.entity, 'obsolete')).toBeUndefined()
-  expect(cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
-  expect(cache.read('other-kind', 'keep')).toBe(unchanged)
-  expect(cache.read('other-kind', 'new')?.value).toEqual(caughtUp.value)
-  await replica.receive({
-    kind: 'delta', feedId: cursor.feedId, epoch: cursor.epoch,
-    fromSeq: 10, seq: 11, minAvailableSeq: 0, changes: [],
-  })
-  expect(cache.readCursor()?.seq).toBe(11)
-  expect(cache.readKindTokens()).toEqual(kindTokens)
-})
-
-it.each([undefined, { 'other-kind': 'unchanged' }])(
-  'reloads kinds with no stored token (%j)',
-  async (installedTokens) => {
-    const store = new InMemoryReplicaStore()
-    store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: installedTokens })
-    const kindTokens = installedTokens
-      ? { ...installedTokens, [row.entity]: 'new' }
-      : { [row.entity]: 'new' }
-    const source = sources(() =>
-      response([
-        { ...meta, seq: cursor.seq, kindTokens, kinds: [row.entity] },
-        { ...chunk, seq: cursor.seq },
-        { ...complete, seq: cursor.seq },
-      ]),
-    )
-    const replica = new Replica({
-      store: store.cache,
-      authority: {
-        bootstrap: source.bootstrap.bootstrap.bind(source.bootstrap),
-        changesRange: source.delta.changesRange.bind(source.delta),
-      },
-    })
-    new FeedSink({ replica }).kindTokens(kindTokens)
-    await replica.settled()
-    expect(source.fetch).toHaveBeenCalledTimes(1)
-    expect(source.fetch.mock.calls[0]?.[0]).toBe(
-      'https://example.test/sync/bootstrap?kinds=future-kind',
-    )
-    expect(store.cache.readKindTokens()).toEqual(kindTokens)
-    expect(store.cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
-  },
-)
-
-it('rejects a filtered response without its kind certificate without a full-reload fallback', async () => {
-  const store = new InMemoryReplicaStore()
-  store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: { [row.entity]: 'old' } })
-  const source = sources(() => response([meta, chunk, complete]))
-  const replica = new Replica({
-    store: store.cache,
-    authority: {
       bootstrap: source.bootstrap.bootstrap.bind(source.bootstrap),
       changesRange: source.delta.changesRange.bind(source.delta),
-    },
-    maxBootstrapAttempts: 1,
-  })
-  new FeedSink({ replica }).kindTokens({ [row.entity]: 'new' })
-  await replica.settled()
-  expect(source.fetch).toHaveBeenCalledTimes(1)
-  expect(source.fetch.mock.calls[0]?.[0]).toContain('/sync/bootstrap?kinds=future-kind')
-  expect(store.cache.readCursor()).toEqual(cursor)
-  expect(store.cache.readKindTokens()).toEqual({ [row.entity]: 'old' })
-})
-
-it('uses a full bootstrap when a filtered snapshot cannot catch up the other kinds', async () => {
-  const store = new InMemoryReplicaStore()
-  store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: { [row.entity]: 'old' } })
-  const kindTokens = { [row.entity]: 'new' }
-  const requests: string[] = []
-  const deps = {
-    origin: 'https://example.test',
-    streamingFetch: {
-      fetch: async (url: string) => {
-        const parsed = new URL(url)
-        requests.push(parsed.pathname + parsed.search)
-        return parsed.pathname === '/sync/bootstrap'
-          ? response([
-              { ...meta, kindTokens, ...(parsed.search && { kinds: [row.entity] }) },
-              chunk,
-              complete,
-            ])
-          : new Response(
-              JSON.stringify({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' }),
-              { status: 409 },
-            )
-      },
-    },
-  }
-  const bootstraps = new HttpBootstrapSource(deps)
-  const deltas = new HttpDeltaSource(deps)
-  const replica = new Replica({
-    store: store.cache,
-    authority: {
-      bootstrap: bootstraps.bootstrap.bind(bootstraps),
-      changesRange: deltas.changesRange.bind(deltas),
     },
   })
   new FeedSink({ replica }).kindTokens(kindTokens)
   await replica.settled()
-  expect(requests).toEqual([
-    '/sync/bootstrap?kinds=future-kind',
-    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5&to=10&omitKinds=future-kind',
-    '/sync/bootstrap',
-  ])
-  expect(replica.cursor).toEqual({ ...cursor, seq: 10 })
-  expect(store.cache.readKindTokens()).toEqual(kindTokens)
+  expect(requests).toEqual(['/sync/bootstrap'])
+  expect(cache.readCursor()).toEqual({ ...cursor, seq: 10 })
+  expect(cache.readKindTokens()).toEqual(kindTokens)
+  expect(cache.readLoadingSince()).toBeNull()
+  expect(cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
+  // What the finished load did not deliver is gone.
+  expect(cache.read(row.entity, 'obsolete')).toBeUndefined()
+  expect(cache.read('other-kind', 'gone')).toBeUndefined()
 })
 
 describe('NdjsonLineReader', () => {
@@ -321,7 +190,7 @@ describe('HTTP sources', () => {
     expect(stream.pull).toHaveBeenCalledTimes(4)
     expect(source.deps.onMeta).toHaveBeenCalledWith(1)
     expect(source.deps.onChunk).toHaveBeenCalledWith(1, encoder.encode(JSON.stringify(chunk)).length)
-    expect(source.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.objectContaining({ credentials: 'omit', headers: { Authorization: 'Bearer test' } }))
+    expect(source.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.objectContaining({ credentials: 'omit', headers: expect.objectContaining({ Authorization: 'Bearer test', 'Podium-Sync-Client': expect.any(String) }) }))
     await iterator.return(undefined)
   })
   it('does not install a truncated snapshot or one with trailing records', async () => {
