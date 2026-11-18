@@ -157,7 +157,7 @@ round 1.
 
 ## The AFTER run
 
-Final product `af8b3091e0` (POD-7119 feed apply and POD-7122 cold paint) against `17d01cd9c5`, same harness and corpus, three scheduled interleaved samples per arm/cell on one authorized VM. POD-7148 is outside this fixed tip. This replaces the earlier interim observations; they remain in [the interim appendix](POD-7095-cache-cap-and-phone-memory/interim-startup.md) and raw artifacts.
+Final product `af8b3091e0` (POD-7119 feed apply and POD-7122 cold paint) against `17d01cd9c5`, matched collector and corpus within each surface, three scheduled interleaved samples per arm/cell on one authorized VM. POD-7148 is outside this fixed tip. This replaces the earlier interim observations; they remain in [the interim appendix](POD-7095-cache-cap-and-phone-memory/interim-startup.md) and raw artifacts.
 
 | Surface | Population | Cold first paint s, before → after | Warm first paint s, before → after | Peak renderer RSS MiB, before → after |
 | --- | --- | --- | --- | --- |
