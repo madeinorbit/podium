@@ -1,8 +1,81 @@
 # Client cache caps and startup
 
-**Measurement in progress; no update-safety conclusion yet.** The user-facing comparison must lead with cold and warm first paint for phone and web at today's history and ten-times history, followed by peak renderer memory. Those final interleaved captures are pending. Do not treat an incomplete series or a single sample as a release result.
+**Draft: the phone startup series is complete; web, desktop renderer, deck, operator search and final validation remain open. The measured phone cold-start regression does not clear the live update.** Phone x1 cold paint rises from 6.16 to 17.70 s and peak renderer RSS from 537.3 to 576.4 MiB; warm paint improves from 5.35 to 4.35 s. Before phone x10 has only one admitted pair because two reconnect; its spread remains unresolved.
 
-The takeover recovered the stopped session’s stale host lease. The SQLite, feed and corrected cache series are complete and preserved. Application startup, peak memory, first deck opening, operator search and final validation remain open. This issue is not READY.
+## What a user will feel
+
+Values are median (minimum–maximum). Paint is in **seconds** and peak renderer RSS in **MiB**. Each cell schedules three interleaved cold/warm pairs per arm; the exact admitted/rejected counts are below.
+
+| Surface | History | Cold first paint, before → after | Warm first paint, before → after | Peak renderer memory, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | x1 | 6.16 (6.02–6.16) → 17.70 (15.08–17.72) | 5.35 (5.11–5.89) → 4.35 (4.34–4.70) | 537.3 (534.1–540.4) → 576.4 (571.4–583.1) |
+| Phone web proxy | x10 | 18.25 (one admitted sample) → 31.04 (30.64–34.27) | 13.94 (one admitted sample) → 4.94 (4.78–6.74) | 1112.6 (one admitted sample) → 624.2 (585.3–628.5) |
+| Web | x1 | Pending → Pending | Pending → Pending | Pending → Pending |
+| Web | x10 | Pending → Pending | Pending → Pending | Pending → Pending |
+
+The operator-sized population and empty-device desktop renderer use the same series:
+
+| Surface | Population | Cold first paint, before → after | Warm first paint, before → after | Peak renderer memory, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | Operator-sized | 8.10 (8.01–9.30) → 16.05 (15.94–16.52) | 7.41 (7.38–7.43) → 4.22 (4.15–4.25) | 745.7 (737.8–773.9) → 578.6 (575.2–579.6) |
+| Web | Operator-sized | Pending → Pending | Pending → Pending | Pending → Pending |
+| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending → Pending |
+| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending → Pending |
+| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending → Pending |
+
+A fresh browser context supplies empty application storage. Warm is a retained-data reload after the cold corpus is durable; request routing disables HTTP caching on both. The boundary is an actual Chromium Paint after the first visible issue row and the boot splash disappears. Peak RSS includes cold navigation, durability verification and settling through the memory sample. The IndexedDB population probe itself reads the rows in the page, so these comparable instrumented peaks are not native-device or uninstrumented browser limits. Retained V8 heap is sampled after settling and two forced collections.
+
+### Retained client memory
+
+| Surface | Population | Heap after GC MiB, before → after | Renderer RSS MiB, before → after | Admitted pairs, before / after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | x1 | 182.1 (182.0–182.2) → 131.5 (131.4–132.3) | 392.1 (391.2–394.7) → 392.4 (382.0–392.7) | 3/3 / 3/3 |
+| Phone web proxy | x10 | 542.1 (one admitted sample) → 137.0 (137.0–137.6) | 773.5 (one admitted sample) → 449.6 (433.5–451.2) | 1/3 / 3/3 |
+| Web | x1 | Pending → Pending | Pending → Pending | Pending / Pending |
+| Web | x10 | Pending → Pending | Pending → Pending | Pending / Pending |
+| Phone web proxy | Operator-sized | 284.1 (283.9–284.3) → 124.3 (124.3–124.4) | 518.0 (517.9–518.3) → 377.7 (376.5–378.2) | 3/3 / 3/3 |
+| Web | Operator-sized | Pending → Pending | Pending → Pending | Pending / Pending |
+| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending / Pending |
+| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending / Pending |
+| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending / Pending |
+
+### Where startup time goes
+
+These are renderer main-thread CPU time and completed collection resources that began before first paint. Fetch durations are summed across requests and overlap CPU and one another: **do not add the columns**. The route uses real local service answers augmented with the deterministic corpus; it does not time a production server sending that synthetic population. The second table records route augmentation overhead separately.
+
+| Surface | Population | Cold CPU s, before → after | Warm CPU s, before → after | After fetches before cold Paint | After summed fetch time s |
+| --- | --- | --- | --- | --- | --- |
+| Phone web proxy | x1 | 5.39 (5.25–5.49) → 9.65 (9.53–9.92) | 4.79 (4.51–5.25) → 3.72 (3.71–4.07) | 57 (45–60) | 7.30 (5.96–7.65) |
+| Phone web proxy | x10 | 15.44 (one admitted sample) → 15.05 (14.97–15.20) | 12.28 (one admitted sample) → 4.11 (4.02–4.12) | 130 (122–135) | 15.94 (15.71–16.87) |
+| Web | x1 | Pending → Pending | Pending → Pending | Pending | Pending |
+| Web | x10 | Pending → Pending | Pending → Pending | Pending | Pending |
+| Phone web proxy | Operator-sized | 7.18 (7.11–7.84) → 9.37 (9.11–9.49) | 6.55 (6.54–6.71) → 3.61 (3.50–3.63) | 60 (60–63) | 6.19 (6.03–6.89) |
+| Web | Operator-sized | Pending → Pending | Pending → Pending | Pending | Pending |
+| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending | Pending |
+| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending | Pending |
+| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending | Pending |
+
+| Surface | Population | Cold collection replies through reload | Sum of cold route elapsed s | Cold fixture augmentation s | Bootstrap fixture augmentation s |
+| --- | --- | --- | --- | --- | --- |
+| Phone web proxy | x1 | 118 (99–120) | 15.95 (13.58–16.80) | 1.78 (1.56–1.85) | 0.15 (0.14–0.17) |
+| Phone web proxy | x10 | 224 (207–226) | 31.55 (28.20–34.78) | 3.41 (3.15–3.42) | 0.39 (0.39–0.40) |
+| Web | x1 | Pending | Pending | Pending | Pending |
+| Web | x10 | Pending | Pending | Pending | Pending |
+| Phone web proxy | Operator-sized | 132 (129–135) | 15.93 (14.24–16.72) | 1.50 (1.46–1.69) | 0.16 (0.15–0.18) |
+| Web | Operator-sized | Pending | Pending | Pending | Pending |
+| Desktop renderer proxy | x1 | Pending | Pending | Pending | Pending |
+| Desktop renderer proxy | x10 | Pending | Pending | Pending | Pending |
+| Desktop renderer proxy | Operator-sized | Pending | Pending | Pending | Pending |
+
+Route replies are grouped by completion before the warm navigation, so a request straddling the reload belongs to the later interval. Complete per-resource timings, all raw samples and guard exclusions are retained in the issue artifacts. Both arms use the same collector and fixture bytes; only the controller changed to recover a saved complete pair after a teardown exit. Recovered pairs still pass the original admission guard.
+
+Startup round 22 measured checkout commits: `009fd9776635602975d5c166b9cda7eb278d9821`, `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`, `d182e3a9260b962eb2a71ee8eaeab595234b5337`. Product-tree digests: `8352ccf02e5c6ccb4b6d73dd1e5b9278a5263be2183d6f169853e0fe8adbb146`, `f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04`.
+
+Rejected timing pairs stay in the evidence and out of the medians:
+
+- `phone/h10a1/before` at 2026-11-18T10:24:36.612Z: cold 17.99 s, warm 13.97 s; unexpected browser errors invalidate startup evidence.
+- `phone/h10a1/before` at 2026-11-18T10:55:08.233Z: cold 19.37 s, warm 15.46 s; unexpected browser errors invalidate startup evidence.
+
 
 ## Scope and provenance
 
@@ -20,18 +93,6 @@ Seed 4443 produces `h1a1` (4,867 issues / 4,304 sessions / 21,958 wire rows) and
 
 Completed comparisons below use three interleaved samples per arm and cell, retaining every scheduled sample. Values are median (minimum–maximum), in milliseconds unless stated otherwise. The VM uses Chromium 148.0.7778.96. Interleaved means the schedule rotates/reverses arms on the same VM; it does not run them concurrently. Three samples describe the observed range, not a tail-latency guarantee.
 
-## What a user will feel
-
-| Surface | History | Cold first paint, before → after | Warm first paint, before → after | Peak renderer memory, before → after |
-| --- | --- | --- | --- | --- |
-| Phone proxy | x1 | Pending | Pending | Pending |
-| Phone proxy | x10 | Pending | Pending | Pending |
-| Web | x1 | Pending | Pending | Pending |
-| Web | x10 | Pending | Pending | Pending |
-
-The same cold/warm/peak captures are also required on the operator-sized set and for the desktop-renderer empty-device first paint. A fresh browser context provides empty application storage; bootstrap routing disables HTTP caching. Warm is a retained-data reload after durable storage settles. The boundary is an actual Chromium Paint after the first visible issue row. Peak is the app renderer's `/proc` high-water RSS through cold bootstrap; retained V8 heap is sampled separately after settling and two forced collections. Fixture preparation time and collection fetch count/time are recorded so synthetic routing overhead cannot be mistaken for client work.
-
-The old partial startup attempt is excluded: it did not finish the requested series and its deck probe watched a collapsed flight deck. The corrected collector expands the deck and preserves the server's collection/stage order. A separate deck series prevents a deck-selector failure from invalidating startup pairs. The controller can recover a complete, matching pair if it exits before indexing the saved capture. A request-context-disposed error after browser teardown is recorded in the ledger rather than discarding the pair; the unchanged admission guard still rejects reconnects and application errors. The collector and Paint boundary remain byte-identical across the resumed schedule.
 
 ## First feed and browser storage
 
