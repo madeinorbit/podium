@@ -1,92 +1,90 @@
 # Client cache caps and startup
 
-**Interim at product `726a06ad16`: cold-start and feed regressions do not clear the live update.** The corrected web cohort stopped at 12/18 pairs by coordinator direction, ahead of the separate product fixes. Original phone memory is limited observations after a fixture fault; request/CPU attribution is excluded. Deck, search and desktop follow, then one final phone/web startup series on the fixed integration tip. That series replaces the planned old-product phone x10 replacement.
+Phone/web startup and memory are complete. Deck, operator search, desktop and the single end validation remain; this issue is not READY. Final startup and memory compare product `af8b3091e0` with `17d01cd9c5`, three scheduled interleaved pairs per arm/cell on one authorized VM. POD-7119 and POD-7122 are included; POD-7148 is outside this fixed tip. Phone and desktop are renderer proxies.
 
 ## What a user will feel
 
-These are interim observations of the original product, not the forthcoming fixed tip. Values are median (minimum–maximum). Paint is in **seconds** and peak renderer RSS in **MiB**. Each cell schedules three interleaved cold/warm pairs per arm; the exact admitted/rejected counts are below.
+Values are median (minimum–maximum). Paint is seconds; memory is MiB.
 
-| Surface | History | Cold first paint, before → after | Warm first paint, before → after | Peak renderer memory, before → after |
+| Surface | Population | Cold first paint s, before → after | Warm first paint s, before → after | Peak renderer RSS MiB, before → after |
 | --- | --- | --- | --- | --- |
-| Phone web proxy (VM A) | x1 | 6.16 (6.02–6.16) → 17.70 (15.08–17.72) | 5.35 (5.11–5.89) → 4.35 (4.34–4.70) | 537.3 (534.1–540.4) → 576.4 (571.4–583.1)‡ |
-| Phone web proxy (VM A) | x10 | 18.25 (one admitted sample) → 31.04 (30.64–34.27) | 13.94 (one admitted sample) → 4.94 (4.78–6.74) | 1112.6 (one admitted sample) → 624.2 (585.3–628.5)‡ |
-| Web (VM B) | x1 | 5.71 (5.60–5.82) → 36.89 (35.21–38.57) | 4.78 (4.65–4.91) → 5.43 (5.25–5.62) | 581.2 (579.8–582.6) → 551.9 (437.7–666.0) |
-| Web (VM B) | x10 | 18.69 (18.26–19.11) → 57.44 (49.85–65.04) | 14.44 (13.97–14.91) → 5.87 (5.67–6.06) | 1123.3 (1084.3–1162.2) → 621.8 (564.2–679.4) |
+| Phone web proxy | 1x | 6.22 (6.18–6.42) → 5.22 (4.99–5.85) | 5.46 (5.45–5.53) → 4.55 (3.83–4.63) | 553.0 (549.8–553.1) → 508.1 (504.6–509.0) |
+| Phone web proxy | 10x | 18.86 (18.82–19.28) → 5.91 (5.83–6.05) | 14.85 (14.46–15.34) → 5.14 (4.77–5.44) | 1106.3 (1085.2–1118.2) → 556.3 (553.9–558.7) |
+| Phone web proxy | Operator-sized | 8.40 (8.25–8.52) → 4.90 (4.83–5.16) | 7.92 (7.35–7.95) → 4.50 (4.28–4.69) | 737.5 (702.8–747.1) → 510.5 (507.4–541.2) |
+| Web | 1x | 6.15 (6.00–6.19) → 7.00 (6.59–7.13) | 4.99 (4.69–5.03) → 5.64 (5.39–5.73) | 582.0 (581.4–588.4) → 599.8 (591.2–603.5) |
+| Web | 10x | 20.58 (19.15–21.59) → 7.95 (7.93–8.71) | 14.82 (14.37–15.25) → 6.19 (6.11–6.36) | 1093.0 (1073.2–1105.0) → 653.4 (623.2–786.5) |
+| Web | Operator-sized | 7.97 (7.78–8.95) → 6.49 (6.13–6.63) | 6.00 (5.64–6.20) → 5.11 (4.77–5.18) | 780.6 (639.4–791.0) → 594.2 (582.7–596.1) |
 
-The operator-sized population and empty-device desktop renderer use the same series:
-
-| Surface | Population | Cold first paint, before → after | Warm first paint, before → after | Peak renderer memory, before → after |
-| --- | --- | --- | --- | --- |
-| Phone web proxy (VM A) | Operator-sized | 8.10 (8.01–9.30) → 16.05 (15.94–16.52) | 7.41 (7.38–7.43) → 4.22 (4.15–4.25) | 745.7 (737.8–773.9) → 578.6 (575.2–579.6)‡ |
-| Web (VM B) | Operator-sized | 7.93 (7.83–8.03) → 33.41 (32.37–34.44) | 5.88 (5.81–5.94) → 4.98 (4.94–5.03) | 771.1 (768.0–774.2) → 621.0 (597.5–644.5) |
-| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending → Pending |
-| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending → Pending |
-| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending → Pending |
-
-A fresh browser context supplies empty application storage. Warm is a retained-data reload after the cold corpus is durable; request routing disables HTTP caching on both. The boundary is an actual Chromium Paint after the first visible issue row and the boot splash disappears. Peak RSS includes cold navigation, durability verification and settling through the memory sample. The IndexedDB population probe itself reads the rows in the page, so these comparable instrumented peaks are not native-device or uninstrumented browser limits. Retained V8 heap is sampled after settling and two forced collections. The forced collections occur between the cold capture and warm reload in both arms; compare these warm values with their new interleaved before controls, rather than directly with the older timing-only baseline.
+A new browser context supplies empty application storage; warm is a retained-data reload after cold data is durable. HTTP caching is disabled in both arms. The boundary is an actual Chromium Paint after an unobscured issue row and the boot splash disappearing. Three samples describe the observed range, not a tail guarantee.
 
 ### Retained client memory
 
-| Surface | Population | Heap after GC MiB, before → after | Renderer RSS MiB, before → after | Admitted pairs, before / after |
-| --- | --- | --- | --- | --- |
-| Phone web proxy (VM A) | x1 | 182.1 (182.0–182.2) → 131.5 (131.4–132.3)‡ | 392.1 (391.2–394.7) → 392.4 (382.0–392.7)‡ | 3/3 / 3/3 |
-| Phone web proxy (VM A) | x10 | 542.1 (one admitted sample) → 137.0 (137.0–137.6)‡ | 773.5 (one admitted sample) → 449.6 (433.5–451.2)‡ | 1/3 / 3/3 |
-| Web (VM B) | x1 | 203.6 (203.5–203.6) → 197.1 (197.0–197.3) | 437.7 (436.6–438.8) → 437.0 (435.5–438.4) | 2/2 / 2/2 |
-| Web (VM B) | x10 | 569.1 (568.9–569.4) → 202.4 (202.3–202.4) | 817.3 (816.3–818.2) → 443.0 (442.4–443.5) | 2/2 / 2/2 |
-| Phone web proxy (VM A) | Operator-sized | 284.1 (283.9–284.3) → 124.3 (124.3–124.4)‡ | 518.0 (517.9–518.3) → 377.7 (376.5–378.2)‡ | 3/3 / 3/3 |
-| Web (VM B) | Operator-sized | 292.3 (292.3–292.3) → 182.8 (182.7–182.8) | 545.3 (544.8–545.8) → 421.5 (419.0–424.0) | 2/2 / 2/2 |
-| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending / Pending |
-| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending / Pending |
-| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending / Pending |
+| Surface | Population | Heap after GC MiB, before → after | Renderer RSS MiB, before → after |
+| --- | --- | --- | --- |
+| Phone web proxy | 1x | 182.1 (182.1–182.3) → 127.1 (127.1–127.2) | 390.6 (390.2–391.3) → 332.7 (331.7–333.3) |
+| Phone web proxy | 10x | 542.2 (542.2–542.3) → 133.3 (133.3–133.3) | 775.6 (771.9–775.7) → 347.6 (346.9–348.9) |
+| Phone web proxy | Operator-sized | 284.1 (269.9–284.1) → 120.5 (120.5–120.5) | 516.5 (495.4–516.6) → 326.7 (326.0–330.9) |
+| Web | 1x | 203.6 (203.5–203.6) → 190.4 (190.4–190.4) | 437.3 (437.2–439.3) → 426.6 (425.9–427.8) |
+| Web | 10x | 569.4 (569.4–569.5) → 195.8 (195.7–196.4) | 816.6 (816.2–818.7) → 443.9 (442.7–445.4) |
+| Web | Operator-sized | 292.4 (292.4–294.1) → 176.8 (176.8–176.9) | 547.2 (543.9–547.3) → 410.8 (408.7–410.8) |
+
+Peak RSS covers cold navigation, durable-population verification and settling through the memory sample, before the warm reload. The population probe reads rows in the page, so these comparable instrumented peaks are not uninstrumented or native-device limits. Retained V8 heap follows settling and two forced collections, between cold and warm in both arms. Compare warm with its new before controls, not the older timing-only baseline.
 
 ### Where startup time goes
 
-These are renderer main-thread CPU time and completed collection resources that began before first paint. Fetch durations are summed across requests and overlap CPU and one another: **do not add the columns**. The route uses real local service answers augmented with the deterministic corpus; it does not time a production server sending that synthetic population. The second table records route augmentation overhead separately. Resources are sampled after the visible-row check: the filter is request start before Paint, so a duration can extend past Paint, and a request still unfinished at sampling is absent from that table.
-
-| Surface | Population | Cold CPU s, before → after | Warm CPU s, before → after | After fetches before cold Paint | After summed fetch time s |
+| Surface | Population | Cold CPU s, before → after | Warm CPU s, before → after | Collection resources begun before cold Paint, before → after | Summed fetch duration s, before → after |
 | --- | --- | --- | --- | --- | --- |
-| Phone web proxy (VM A) | x1 | 5.39 (5.25–5.49) → excluded† | 4.79 (4.51–5.25) → excluded† | excluded† | excluded† |
-| Phone web proxy (VM A) | x10 | 15.44 (one admitted sample) → excluded† | 12.28 (one admitted sample) → excluded† | excluded† | excluded† |
-| Web (VM B) | x1 | 5.23 (5.17–5.28) → 21.11 (20.91–21.31) | 4.30 (4.13–4.48) → 4.85 (4.68–5.02) | 1 (1–1) | 0.17 (0.14–0.20) |
-| Web (VM B) | x10 | 16.02 (15.68–16.36) → 26.32 (24.88–27.76) | 12.59 (12.04–13.14) → 5.12 (4.89–5.36) | 1 (1–1) | 0.17 (0.16–0.18) |
-| Phone web proxy (VM A) | Operator-sized | 7.18 (7.11–7.84) → excluded† | 6.55 (6.54–6.71) → excluded† | excluded† | excluded† |
-| Web (VM B) | Operator-sized | 7.15 (7.06–7.23) → 17.57 (17.36–17.78) | 5.30 (5.24–5.36) → 4.45 (4.38–4.52) | 1 (1–1) | 0.12 (0.12–0.13) |
-| Desktop renderer proxy | x1 | Pending → Pending | Pending → Pending | Pending | Pending |
-| Desktop renderer proxy | x10 | Pending → Pending | Pending → Pending | Pending | Pending |
-| Desktop renderer proxy | Operator-sized | Pending → Pending | Pending → Pending | Pending | Pending |
+| Phone web proxy | 1x | 5.53 (5.44–5.67) → 4.28 (4.15–4.90) | 4.84 (4.68–4.89) → 3.96 (3.26–3.98) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.07 (0.06–0.07) |
+| Phone web proxy | 10x | 16.16 (16.16–16.46) → 4.76 (4.75–4.97) | 12.87 (12.68–12.87) → 4.36 (4.03–4.57) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.09 (0.07–0.09) |
+| Phone web proxy | Operator-sized | 7.47 (7.35–7.54) → 4.04 (4.02–4.32) | 7.14 (6.55–7.19) → 3.86 (3.65–4.00) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.08 (0.07–0.09) |
+| Web | 1x | 5.68 (5.49–5.72) → 6.21 (5.92–6.37) | 4.57 (4.27–4.58) → 5.10 (4.77–5.18) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Web | 10x | 17.44 (16.65–18.40) → 6.94 (6.82–7.51) | 13.17 (12.57–13.21) → 5.57 (5.43–5.58) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Web | Operator-sized | 7.23 (6.93–8.20) → 5.73 (5.42–5.83) | 5.42 (5.04–5.57) → 4.55 (4.27–4.69) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
 
-| Surface | Population | Cold collection replies through reload | Sum of cold route elapsed s | Cold fixture augmentation s | Bootstrap fixture augmentation s |
-| --- | --- | --- | --- | --- | --- |
-| Phone web proxy (VM A) | x1 | excluded† | excluded† | excluded† | 0.15 (0.14–0.17) |
-| Phone web proxy (VM A) | x10 | excluded† | excluded† | excluded† | 0.39 (0.39–0.40) |
-| Web (VM B) | x1 | 2 (2–2) | 0.30 (0.27–0.32) | 0.02 (0.02–0.03) | 0.19 (0.19–0.19) |
-| Web (VM B) | x10 | 2 (2–2) | 0.28 (0.28–0.29) | 0.03 (0.03–0.03) | 0.38 (0.38–0.38) |
-| Phone web proxy (VM A) | Operator-sized | excluded† | excluded† | excluded† | 0.16 (0.15–0.18) |
-| Web (VM B) | Operator-sized | 2 (2–2) | 0.23 (0.21–0.25) | 0.02 (0.02–0.02) | 0.20 (0.19–0.21) |
-| Desktop renderer proxy | x1 | Pending | Pending | Pending | Pending |
-| Desktop renderer proxy | x10 | Pending | Pending | Pending | Pending |
-| Desktop renderer proxy | Operator-sized | Pending | Pending | Pending | Pending |
+| Surface | Population | Cold collection replies through reload, before → after | Summed cold route elapsed s, before → after | Fixture augmentation s, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | 1x | 0 (0–0) → 3 (3–3) | 0.00 (0.00–0.00) → 0.18 (0.17–0.20) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Phone web proxy | 10x | 0 (0–0) → 3 (3–3) | 0.00 (0.00–0.00) → 0.20 (0.19–0.20) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Phone web proxy | Operator-sized | 0 (0–0) → 4 (3–4) | 0.00 (0.00–0.00) → 0.23 (0.18–0.24) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Web | 1x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.11–0.16) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Web | 10x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.12–0.13) | 0.00 (0.00–0.00) → 0.01 (0.01–0.02) |
+| Web | Operator-sized | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.12–0.19) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
 
-Route replies are grouped by completion before the warm navigation, so a request straddling the reload belongs to the later interval. Complete per-resource timings, all raw samples and guard exclusions are retained in the issue artifacts. Both arms use the same collector and fixture bytes; only the controller changed to recover a saved complete pair after a teardown exit. Recovered pairs still pass the original admission guard.
+| Surface | Population | Durable marker observed after cold Paint s, before → after |
+| --- | --- | --- |
+| Phone web proxy | 1x | 12.81 (12.50–13.29) → 10.78 (9.58–11.75) |
+| Phone web proxy | 10x | 141.02 (134.30–164.14) → 21.13 (19.62–26.60) |
+| Phone web proxy | Operator-sized | 36.43 (35.90–36.91) → 10.33 (10.01–10.92) |
+| Web | 1x | 14.37 (13.99–15.19) → 23.98 (22.39–24.62) |
+| Web | 10x | 158.69 (156.54–159.83) → 37.77 (28.52–39.45) |
+| Web | Operator-sized | 38.32 (37.17–38.39) → 23.94 (17.93–24.13) |
 
-‡ Earlier phone memory is retained only as limited observations: its after arm includes the synthetic-reply retry loop. The coordinator directed retaining these observations without a corrected recapture on this old product. † Earlier phone-after CPU attribution and collection counts/totals are excluded as production evidence: a synthetic-only reply lacked its envelope and caused retries. POD-7122 repaired that fixture and found phone x1 Paint unchanged (17.44 versus 17.48 s), with 5 collection POSTs. Its diagnostic trace attributes the late paint to about 3.4 s installing chunks, about 10 s waiting for 346 IndexedDB transactions / 20,202 requests, then about 1.9 s publishing. This is one diagnostic capture, not a median/spread from this series. Corrected new cohorts use the repaired envelope in both arms.
+CPU and fetch durations overlap and must not be added. Completed resources begun before Paint are sampled after the visible-row check; a request may finish after Paint, and unfinished requests are absent. Route totals cover replies completed before warm navigation. The real local server answers are augmented with deterministic rows, so these are not production-server synthetic-population throughput measurements. Fixture augmentation is reported separately. The durable marker observation is sampled by the post-Paint polling probe, not an exact commit timestamp, and includes probe/collector delay. Sync and IndexedDB timelines remain in the raw artifacts.
 
-Startup rounds 22 and 24 measured checkout commits: `009fd9776635602975d5c166b9cda7eb278d9821`, `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`, `be20f115d09374bdb6d82998dba5c0fd373f542b`, `d182e3a9260b962eb2a71ee8eaeab595234b5337`. Product-tree digests: `8352ccf02e5c6ccb4b6d73dd1e5b9278a5263be2183d6f169853e0fe8adbb146`, `f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04`.
+### Admission and provenance
 
-Rejected timing pairs stay in the evidence and out of the medians:
+- phone/h1a1/before: 3 admitted / 0 rejected.
+- phone/h1a1/after: 3 admitted / 0 rejected.
+- phone/h10a1/before: 3 admitted / 0 rejected.
+- phone/h10a1/after: 3 admitted / 0 rejected.
+- phone/operator/before: 3 admitted / 0 rejected.
+- phone/operator/after: 3 admitted / 0 rejected.
+- web/h1a1/before: 3 admitted / 0 rejected.
+- web/h1a1/after: 3 admitted / 0 rejected.
+- web/h10a1/before: 3 admitted / 0 rejected.
+- web/h10a1/after: 3 admitted / 0 rejected.
+- web/operator/before: 3 admitted / 0 rejected.
+- web/operator/after: 3 admitted / 0 rejected.
 
-- `r22/web/h10a1/before` at 2026-11-18T12:11:24.838Z: cold 21.09 s, warm 14.00 s, observed renderer peak 1137.4 MiB; unexpected browser errors invalidate startup evidence.
-- `r22/phone/h10a1/before` at 2026-11-18T10:24:36.612Z: cold 17.99 s, warm 13.97 s, observed renderer peak 1108.0 MiB; unexpected browser errors invalidate startup evidence.
-- `r22/phone/h10a1/before` at 2026-11-18T10:55:08.233Z: cold 19.37 s, warm 15.46 s, observed renderer peak 1046.3 MiB; unexpected browser errors invalidate startup evidence.
+Measured checkout commits: `17d01cd9c530eb22d902b352837cbfc9eb5a15a3`, `4fbaace5268fcfb6abc6a1977e248f52513acfda`. Product-tree SHA-256: `55857f26155f3cdc1555b322eaa73024bb413156ede33e2997ca7ba952c1bcca`, `f84fc0ddd4b8afa27550335ea67831074569e229afdf2a69382b042082479d04`. The production tree equals the specified arm, and both arms share corpus, Chromium, collector and fixture bytes. The saved schedule is resumed only at completed-pair boundaries; each short run releases its host lock.
 
+No completed final phone/web startup capture was rejected by admission. Deck captures are pending.
+
+The old `726a06ad16` phone/web captures are [preserved separately](POD-7095-cache-cap-and-phone-memory/interim-startup.md). Phone memory there is limited observations after a retry-loop fixture fault; old phone CPU/request attribution is excluded. The final cohort uses the repaired synthetic-only envelope. Completed SQLite/feed/cache do not use that envelope.
 
 ## Scope and provenance
 
-POD-7122 found a malformed synthetic-only collection envelope in the earlier startup fixture. Its phone x1 check found cold paint unchanged after repair (17.44 versus 17.48 s), but the old collection request counts and summed route times were inflated by retries and are not production evidence. Future web and replacement captures use the repaired envelope from `50f205b54f`; the original raw captures stay retained. The completed SQLite, feed and full-companion cache series do not use that response envelope and are unaffected.
-
-Phone captures use the original measurement VM (VM A). The corrected web interim uses a second authorized VM (VM B), with both original product arms interleaved there. Its partial VM A cohort is retained but will not be pooled into VM B medians; the host move was directed for availability, not selected by latency. Operational SSH aliases and locks stay in private run configuration and artifacts.
-
-All builds and measurement workloads ran on an authorized, dedicated Linux agent VM under its shared host lock. None ran on the shared development host. Before is `17d01cd9c530eb22d902b352837cbfc9eb5a15a3` from `dev/mw`. After product is `726a06ad16f676c58fab051e477b0f1e18a92c7d`, the completed integration, now also landed on `dev/mw` by the operator. Later commits used by this issue change measurement harnesses and reports; the only server edit is a policy comment. No wire version or suggested optimization was changed.
+All builds and measurement workloads ran on an authorized, dedicated Linux agent VM under its shared host lock. None ran on the shared development host. Before is `17d01cd9c530eb22d902b352837cbfc9eb5a15a3` from `dev/mw`. The final startup, memory, deck and operator-search product is `af8b3091e06e254d25809b66da8507a7e11d5478`. The earlier SQLite, cache and first-feed series measured the earlier policy product at `726a06ad16`; they are preserved rather than repeated. POD-7119's independent interleaved fixed-feed series qualifies the old first-feed regression below. Later commits used by this issue change measurement harnesses and reports; the only server edit is a policy comment. No wire version or suggested optimization was changed.
 
 The phone proxy is the production phone web client in Chromium plus the real synchronous mobile SQLite adapter under `bun:sqlite`. The coordinator approved this because there is no native-device or simulator baseline for this phase. Desktop is the production web renderer using the desktop server policy, excluding Tauri startup. These results do not claim physical-phone, native SQLite bridge, disk-cold device or desktop-shell performance.
 
@@ -102,6 +100,25 @@ Completed comparisons below use three interleaved samples per arm and cell, reta
 
 
 ## First feed and browser storage
+
+POD-7119 subsequently fixed held-instance index rebuilds and repeated cutoff evaluation. Reuse of its independent three-arm series avoids repeating the completed feed series. All values below are milliseconds, median (minimum–maximum), three interleaved samples on the same VM per arm/client. Sources: before `17d01cd9c5`; before fix `726a06ad16`; fixed `13d8d5e881` (same feed product as landed `4aa12ffe1a`, plus measurement-only changes). Update-ID digest matches this issue's completed series.
+
+| History | Arm | Client | n | Receive (apply) | Parse | Durable wait | Storage submit | Checks | Cleanup | Main thread (all) |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1x | Before phase (`17d01cd9c5`) | all clients | 3 | 11.60 (10.80–22.10) | 1.30 (1.20–1.40) | 111.20 (22.00–125.30) | 7.90 (7.40–16.00) | 0.80 (0.60–0.90) | 0.80 (0.70–1.00) | 19.41 (18.00–33.14) |
+| 1x | Before fix (726a06ad16) | phone | 3 | 63.30 (61.00–79.20) | 1.20 (0.70–1.20) | 124.50 (66.30–131.80) | 3.90 (3.60–4.90) | 0.80 (0.70–0.90) | 1.00 (0.40–1.10) | 70.06 (61.42–84.71) |
+| 1x | Before fix (726a06ad16) | browser | 3 | 102.00 (92.40–119.00) | 1.40 (1.30–1.50) | 100.90 (91.20–131.20) | 4.60 (3.50–6.30) | 0.80 (0.50–2.20) | 1.00 (1.00–1.10) | 164.03 (107.91–217.30) |
+| 1x | After both fixes | phone | 3 | 22.80 (18.40–26.20) | 1.00 (0.70–1.00) | 164.80 (146.70–176.30) | 5.50 (5.00–8.60) | 0.50 (0.40–0.60) | 0.60 (0.60–0.70) | 31.21 (24.89–33.24) |
+| 1x | After both fixes | browser | 3 | 30.70 (26.00–36.60) | 1.10 (0.70–1.40) | 150.00 (8.60–165.00) | 5.60 (4.70–8.20) | 0.60 (0.50–0.70) | 0.50 (0.40–0.80) | 36.37 (31.44–44.83) |
+| 10x | Before phase (`17d01cd9c5`) | all clients | 3 | 14.10 (7.40–18.40) | 1.00 (0.90–1.30) | 322.20 (196.00–521.50) | 4.70 (4.60–9.40) | 1.40 (0.80–4.40) | 0.80 (0.40–1.10) | 23.45 (21.54–99.75) |
+| 10x | Before fix (726a06ad16) | phone | 3 | 89.20 (76.20–96.60) | 1.60 (1.40–1.70) | 88.90 (81.00–204.30) | 6.50 (4.90–6.80) | 0.50 (0.50–0.60) | 0.60 (0.60–0.70) | 98.76 (80.97–103.05) |
+| 10x | Before fix (726a06ad16) | browser | 3 | 115.50 (97.00–126.80) | 1.00 (0.70–1.90) | 233.40 (85.70–269.60) | 4.50 (3.50–4.60) | 1.30 (1.20–3.40) | 1.00 (1.00–2.10) | 123.50 (106.07–167.85) |
+| 10x | After both fixes | phone | 3 | 32.60 (17.60–34.30) | 1.10 (0.60–1.30) | 275.00 (239.00–394.70) | 5.60 (4.40–7.50) | 0.80 (0.30–0.90) | 0.90 (0.50–2.50) | 42.89 (40.72–121.68) |
+| 10x | After both fixes | browser | 3 | 25.40 (18.00–36.10) | 0.80 (0.60–1.20) | 236.70 (153.40–320.70) | 7.60 (6.20–8.70) | 0.70 (0.70–0.90) | 0.80 (0.70–0.90) | 31.97 (23.17–46.11) |
+
+The fixed phone apply is 22.80 / 32.60 ms at 1x/10x, against 11.60 / 14.10 ms before the phase. Main-thread windows are 31.21 / 42.89 ms; cleanup is about 1 ms and checks under 1.5 ms. This keeps worker investigation relevant, without attributing durability waits entirely to CPU. The original operator and desktop feed values below predate that fix.
+
+### Original first-feed series, before the separate feed fix
 
 The real IndexedDB adapter and replica receive the **same 100 sidebar issue updates** in every arm. The before engine has no per-client policy, so one full-history before arm is shared by the three policy candidates. The initial static policy projection is held fixed throughout this series; this is the first delta after that projection, not warmed steady-state feed throughput and not the cost of updating mounted UI models. Initial database population, model setup and settling are outside the timed region.
 
@@ -166,7 +183,16 @@ Round 28 measured sources: `53bed5e07bd1b67b148a0c80dbf8359e8ad9f21c`, `56ffd628
 
 ## First flight deck and search
 
-The pending first-opening series uses disjoint synthetic 12-issue and 970-issue trees on the operator-sized population, three interleaved cold pairs per arm/client. The tree starts unopened; sidebar/search preparation is outside the click-to-Paint region. No tree is preloaded. The measured click includes the actual loader fetch and completion of the visible deck boundary.
+Both fixture trees start unopened. Search/sidebar preparation is outside input-to-Paint. The collector observes an unobscured child belonging to the target tree, rejects any pre-input tree request and requires a tree request in the policy arm; it saves request specifications, resources and a screenshot. Phone measures the Mission details deck; web/desktop measure the expanded flight deck. These are flat, session-free trees, 12/970 total with 9/922 long-closed members. The 12 tree runs first; the 970 tree is unopened but shared module code may already be warm.
+
+| Surface | Tree size | First deck Paint ms, before → after | Main-thread window ms, before → after | Admitted captures, before / after |
+| --- | ---: | --- | --- | --- |
+| Phone web proxy | 12 | Pending | Pending | Pending |
+| Phone web proxy | 970 | Pending | Pending | Pending |
+| Web | 12 | Pending | Pending | Pending |
+| Web | 970 | Pending | Pending | Pending |
+| Desktop renderer proxy | 12 | Pending | Pending | Pending |
+| Desktop renderer proxy | 970 | Pending | Pending | Pending |
 
 The two-axis server search service is byte-identical between the before and after products. The coordinator approved reuse of [POD-7089's search evidence](issue-search-7089.md), source `33f4ab4f16`, which contains 11 warm samples per query. This is shared unchanged-service evidence, not newly interleaved before/after application traffic. Its reported spread is p95 (largest of 11), as recorded in that report.
 
@@ -178,36 +204,45 @@ The two-axis server search service is byte-identical between the before and afte
 | Unique brief | 30.3 / 31.0 | 160.2 / 164.8 |
 | Broad title | 894.5 / 931.4 | 7433.8 / 8091.1 |
 
-The broad query returns 3,253 / 18,426 hits; full normalization is included. The operator-sized before/after search series remains pending. No Postgres test, dependency or harness was added.
+The broad query returns 3,253 / 18,426 hits; full normalization is included. The service files are byte-identical from `17d01cd9c5` to `af8b3091e0`. This is reused unchanged-service evidence; no new two-axis search was run.
+
+### Operator-sized server search
+
+Three fresh SQLite stores per arm are interleaved. Each query is warmed once before timing, with title/description/brief fixtures and full normalization; the expected hit count is checked. This is service time, excluding transport and client display.
+
+| Query | Before ms, median (min–max) | After ms, median (min–max) | Hits before / after |
+| --- | ---: | ---: | ---: |
+| no-match | Pending | Pending | Pending |
+| specific-title | Pending | Pending | Pending |
+| description | Pending | Pending | Pending |
+| brief | Pending | Pending | Pending |
+| broad-title | Pending | Pending | Pending |
+
+Source product is `17d01cd9c5` versus `af8b3091e0`; harness checkout matches the final series. The operator search series is pending. SQLite only.
 
 ## Decisions requested by the design
 
-No optimization in this table is implemented by this issue. A pending conclusion is not a “no”.
+No optimization in this table is built by this issue. There is no agreed native-phone total-memory budget. The recommended 8 MiB incremental phone-cache allowance is justified by the retained-cache sweep, not a claim about physical-device limits.
 
-| Item | Current answer | Number and limit of the evidence |
+| Item | Answer | Measurement behind the recommendation |
 | --- | --- | --- |
-| Disk-only cache | Pending | The corrected cap sweep is complete (30 cases); final whole-page peak-memory selection is still pending. |
-| Sync engine in a worker | Yes, investigation warranted | Phone first-feed CPU 59.70 / 162.54 ms at x1/x10; synchronous SQLite startup still 113.57 / 339.19 ms. This does not prove a worker alone fixes mounted UI or bridge costs. |
-| Preload trees | Pending; none added | The 12/970 first-opening series is not captured yet. |
-| Remaining startup index work | Pending | Need startup phase CPU/collection timing, rather than attributing elapsed time from feed data alone. |
-| Re-run per-record memory work (POD-5157 / POD-5539 / POD-5952) | Pending | The full-companion sweep is complete; final app-memory selection is still pending. |
+| Disk-only cache | No, retain the current design | Phone cap 1,000 adds 2.88 MiB (2.83–2.90) of retained fixture heap, below the proposed 8 MiB increment. Final phone heap at 1x→10x is 127.1 (127.1–127.2) → 133.3 (133.3–133.3) MiB (1.05x), rather than tracking full history. Revisit with an on-device budget or oversized bodies. |
+| Sync engine in a worker | Yes, investigate | Fixed phone apply remains 22.80 / 32.60 ms at 1x/10x; main-thread windows 31.21 / 42.89 ms. SQLite startup still blocks 113.57 / 339.19 ms. A worker will not move screen models or indexes and must be measured on-device. |
+| Preload trees | Pending deck series | 8.40 (8.25–8.52) → 4.90 (4.83–5.16) s phone startup; use the first-deck table above to decide, with the flat-tree limitation. |
+| Remaining startup index work | Yes, profile the bounded startup work | Final 1x cold CPU is 5.53 (5.44–5.67) → 4.28 (4.15–4.90) s on phone and 5.68 (5.49–5.72) → 6.21 (5.92–6.37) s on web. The original all-history indexes are gone; these totals do not prove another index is the cause. |
+| Re-run per-record memory work (POD-5157 / POD-5539 / POD-5952) | Yes, re-measure the new bounded working set | Final phone heap is 542.2 (542.2–542.3) → 133.3 (133.3–133.3) MiB at 10x; the 1,000-record cache adds only 2.88 MiB in isolation. Re-profile remaining retained objects before choosing another ownership or representation change. |
 
-## Remaining runs and handoff
+## Rerun and validation
 
-The coordinator paused this session to free a phase lane slot on 2026-11-18. No READY or final validation result is claimed. All measurement and harness work is committed. Completed SQLite r21 (18 cases), first-feed r26 (36 cases) and companion-complete cache r28 (30 cases) stand and must not be repeated. Phone r22 (18 attempted pairs) and corrected web r24 (12 attempted pairs, stopped by direction) are **interim evidence of product `726a06ad16`**. Earlier partial web cohorts remain separate in the artifacts.
+Follow [startup-baseline.md](startup-baseline.md) for Paint and admission. Every build, measurement and validation goes through `remote-lane` on an authorized VM, from committed HEAD, one call at a time. Use a scratch worktree at collector `4fbaace526` to reproduce the fixed product; for a fresh candidate, record its product digest. Resolve private host aliases/lock mapping from the issue artifact; they are deliberately absent here.
 
-Still to run, on authorized agent VMs through `remote-lane`, one call queued/running at a time:
+```sh
+# Private host mapping is supplied by the coordinator.
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py prepare --host="$measurement_vm" --base=17d01cd9c5 --cells=h1a1,h10a1,operator
+remote-lane "$measurement_vm" 7095 run python3 apps/web/harness/data-on-device-baseline.py timing --host="$measurement_vm" --base=17d01cd9c5 --surface=phone --cells=h1a1,h10a1,operator --samples=3 --round="$fresh_round" --measure-memory --max-pairs=3
+# Repeat for web and desktop; resume only the unchanged saved schedule.
+# Deck: a separate fresh round, operator cell, --decks, each surface.
+# Search: device-cost-series.py search --host="$measurement_vm" --round="$fresh_round".
+```
 
-1. First deck opening at 12 and 970 issues, on the synthetic operator population, phone/web/desktop: three interleaved pairs per arm/surface. The committed collector now opens the phone Mission details deck, witnesses an unobscured child belonging to the target tree, rejects a tree fetched before the input, records request specifications and saves a screenshot after timing. No deck capture has run yet.
-2. Operator-sized server search: three interleaved samples per arm. The existing unchanged-service two-axis search evidence above is reused. No new operator search capture has run yet.
-3. Empty-device desktop renderer startup and memory, x1/x10/operator. No desktop capture has run yet.
-4. **One final user-facing phone/web series on the fixed integration tip supplied by the coordinator after POD-7119 and POD-7122 land.** Measure cold/warm Paint, heap after GC and peak renderer RSS, x1/x10 and operator-sized if it fits, against `17d01cd9c5`, interleaved, one host per series, with the repaired fixture. This replaces the planned old-product phone x10 replacement. Preserve earlier phone memory only as limited observations; do not recapture it on the old product.
-5. Replace the interim leading tables here and in [the phase AFTER section](POD-7059-data-on-device-baseline.md#the-after-run) with that final cohort, retain the intermediate observations separately, finish the five design decisions with measured numbers, attach the finished reports/raw evidence, and run the single end validation.
-
-Follow [startup-baseline.md](startup-baseline.md) for Paint and admission boundaries. Read **both** `podium issue mail inbox 7095 --json` and `podium mail inbox --json` before each remote call: coordinator thread replies can be session-addressed and absent from the issue-only inbox. Use the authorized VM choice and any additional host mapping provided privately; do not publish routing or machine inventories. Vega's host is shared with a separate full-test lane. The second VM is prioritized for POD-7119/POD-7122; use it only between their runs. Hold a short per-run lease and release it at each boundary.
-
-Start from a committed source and fresh round numbers. Run `data-on-device-baseline.py prepare --host="$measurement_vm" --base=17d01cd9c5 --cells=h1a1,h10a1,operator` after harness/source changes; this verifies the product tree before restamping unchanged bundles. Use `timing --surface=<surface> --samples=3 --cells=operator --decks --max-pairs=2` for short deck windows and `--resume` only for its unchanged saved schedule. The operator search entry is `device-cost-series.py search --host="$measurement_vm" --round=<fresh>`. Final startup uses `timing --surface=<surface> --samples=3 --cells=h1a1,h10a1,operator --measure-memory --max-pairs=6` on the new fixed tip. Do not resume the intentionally stopped old web cohort.
-
-After implementation is frozen and rebased onto the current `integrate/4286-data-on-device`, run the single authorized end validation through `remote-lane`, sequentially: `bun run test:file -- scripts/device-measurement.test.ts scripts/cold-start-guard.test.ts packages/sync/src/replica/holdings.test.ts tests/worklist/harness/src/startup/no-wrong-number.test.ts`; repeat that last file with `PODIUM_STARTUP_CELL` set to `h10a1`, `h1a4`, `h10a4`; then `bun run test`. One fix round and one focused rerun of exactly the failures are permitted. No end validation has run yet. The completed measurement series are not repeated for confidence.
-
-Rebase/land only on the integration branch, never `dev/mw`. The delegate does not merge or close. Once the final report is complete, set this issue to review and send **one READY** to POD-5910 with startup and peak-memory numbers first, then tip SHA, changes, checks, results and remaining limits. VM cleanup happens after landing. The private resume artifact contains raw locations, the short lock-poll relay shim, exact host configuration and a prepared sequential validation script.
+The final phone/web series is complete. Deck, operator search, desktop, the phase AFTER update and the single end validation remain. No READY or validation pass is claimed yet.
