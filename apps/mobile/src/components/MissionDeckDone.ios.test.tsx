@@ -12,6 +12,12 @@ type Modifier = { name: string; value: unknown }
 type Props = { children?: ReactNode; modifiers?: Modifier[]; header?: ReactNode }
 const value = (props: Props, name: string) => props.modifiers?.find((m) => m.name === name)?.value
 
+vi.mock('./list-row-press.ios', () => ({
+  contentVisibility: (onChange: (visible: boolean) => void) => ({
+    name: 'contentVisibility',
+    value: onChange,
+  }),
+}))
 vi.mock('@expo/ui', () => ({ Host: ({ children }: Props) => <div>{children}</div> }))
 vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: Props) => <div>{children}</div>

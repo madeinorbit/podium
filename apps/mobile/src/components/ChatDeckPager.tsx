@@ -1,5 +1,6 @@
 import { useImperativeHandle, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
+import { VisibleContent } from '../lib/visible-content'
 import type { ChatDeckPagerProps, PagerPage } from './chat-deck-pager.types'
 
 /**
@@ -26,14 +27,14 @@ export function ChatDeckPager({ ref, chat, deck, onPageChange, onPageSettle }: C
         aria-hidden={page !== 0}
         testID="pager-chat-page"
       >
-        {chat}
+        <VisibleContent visible={page === 0}>{chat}</VisibleContent>
       </View>
       <View
         style={[styles.page, page !== 1 && styles.hidden]}
         aria-hidden={page !== 1}
         testID="pager-deck-page"
       >
-        {deck}
+        <VisibleContent visible={page === 1}>{deck}</VisibleContent>
       </View>
     </View>
   )

@@ -1,6 +1,7 @@
-import { memo, useLayoutEffect, useRef } from 'react'
-import { tetra } from '@podium/working-mark/designs'
 import { mountWorkingMark } from '@podium/working-mark'
+import { tetra } from '@podium/working-mark/designs'
+import { memo, useLayoutEffect, useRef } from 'react'
+import { useContentActive } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import type { WorkingMarkProps } from './WorkingMark.shared'
 
@@ -10,14 +11,30 @@ export const WorkingMark = memo(function WorkingMark({
   tint = color.workingText,
 }: WorkingMarkProps) {
   const host = useRef<HTMLSpanElement>(null)
+  const active = useContentActive()
   const width = Math.round(size * 0.66)
   useLayoutEffect(() => {
     if (!host.current) return
-    const mark = mountWorkingMark(host.current, tetra, { size: width, color: tint, method: 'image' })
+    const mark = mountWorkingMark(host.current, tetra, {
+      size: width,
+      color: tint,
+      method: active ? 'image' : 'still',
+    })
     return () => mark.destroy()
-  }, [width, tint])
+  }, [width, tint, active])
   return (
-    <span ref={host} aria-hidden="true" data-testid="working-mark"
-      style={{ position: 'relative', display: 'inline-block', flex: 'none', verticalAlign: 'middle', width, height: size }} />
+    <span
+      ref={host}
+      aria-hidden="true"
+      data-testid="working-mark"
+      style={{
+        position: 'relative',
+        display: 'inline-block',
+        flex: 'none',
+        verticalAlign: 'middle',
+        width,
+        height: size,
+      }}
+    />
   )
 })

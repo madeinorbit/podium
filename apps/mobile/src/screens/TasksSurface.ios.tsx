@@ -65,6 +65,7 @@ import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
 import {
+  contentVisibility,
   listRowHairline,
   listRowPress,
   listSearchStartsHidden,
@@ -81,6 +82,7 @@ import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
+import { VisibleContent } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
@@ -398,6 +400,7 @@ const TaskSlot = observer(function TaskSlot({
   const [primed, unprime] = useRowPrime(prime)
   const shown = active || primed
   const [height, setHeight] = useState(44)
+  const [visible, setVisible] = useState(false)
   const { fontScale } = useWindowDimensions()
   return (
     <VStack
@@ -405,8 +408,12 @@ const TaskSlot = observer(function TaskSlot({
       modifiers={[
         // Fill the iOS 26 cell minimum so the overlay sits at the cell boundary.
         frame({ minHeight: 52, maxWidth: Infinity, alignment: 'leading' }),
-        onAppear(() => lane?.window.appear(id)),
+        contentVisibility(setVisible),
+        onAppear(() => {
+          lane?.window.appear(id)
+        }),
         onDisappear(() => {
+          setVisible(false)
           unprime()
           lane?.window.disappear(id)
         }),
@@ -421,20 +428,22 @@ const TaskSlot = observer(function TaskSlot({
       ]}
     >
       {shown ? (
-        <VStack
-          spacing={0}
-          modifiers={[
-            frame({ maxWidth: Infinity, alignment: 'leading' }),
-            // Cache the live content, before List adds row insets and its own
-            // minimum. Measuring the cell feeds that extra height back into
-            // placeholders when a long group recycles.
-            onGeometryChange((content) => {
-              if (content.height > 0) setHeight(content.height)
-            }),
-          ]}
-        >
-          {children}
-        </VStack>
+        <VisibleContent visible={visible}>
+          <VStack
+            spacing={0}
+            modifiers={[
+              frame({ maxWidth: Infinity, alignment: 'leading' }),
+              // Cache the live content, before List adds row insets and its own
+              // minimum. Measuring the cell feeds that extra height back into
+              // placeholders when a long group recycles.
+              onGeometryChange((content) => {
+                if (content.height > 0) setHeight(content.height)
+              }),
+            ]}
+          >
+            {children}
+          </VStack>
+        </VisibleContent>
       ) : (
         <Spacer modifiers={[frame({ height })]} />
       )}

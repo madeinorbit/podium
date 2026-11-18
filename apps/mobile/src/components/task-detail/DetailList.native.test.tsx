@@ -31,7 +31,10 @@ vi.mock('react-native', async (original) => {
     },
   }
 })
-vi.mock('../list-row-press.ios', () => ({ listRowPress: (rowPress: () => void) => ({ rowPress }) }))
+vi.mock('../list-row-press.ios', () => ({
+  listRowPress: (rowPress: () => void) => ({ rowPress }),
+  contentVisibility: (onChange: (visible: boolean) => void) => ({ onChange }),
+}))
 vi.mock('../working-word-glint.ios', () => ({ workingWordGlint: (glint: string) => ({ glint }) }))
 vi.mock('../StageGlyph', () => ({ StageGlyph: () => <span data-testid="stage-glyph" /> }))
 vi.mock('./DetailList', () => import('./DetailList.ios'))

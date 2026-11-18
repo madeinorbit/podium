@@ -1,9 +1,8 @@
-import { useFocusEffect } from 'expo-router'
-import { useIsFocused } from 'expo-router/react-navigation'
-import { memo, useCallback } from 'react'
+import { memo, useEffect } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import Animated, { Easing, useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { useContentVisible } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import { useLiveInk } from '../theme/use-live-ink'
 import { type WorkingWordProps, workingWordPhase } from './WorkingWord.shared'
@@ -30,15 +29,11 @@ export const WorkingWord = memo(function WorkingWord({
   glint = children,
 }: WorkingWordProps) {
   const reduced = useReduceMotion()
-  const focused = useIsFocused()
+  const focused = useContentVisible()
   const moving = active && focused && !reduced
   // Same stable phase as desktop; mounting another row never restarts the clock.
   const phase = workingWordPhase(seed)
-  useFocusEffect(
-    useCallback(() => {
-      if (active && !reduced) return subscribeWorkingWord()
-    }, [active, reduced]),
-  )
+  useEffect(() => (moving ? subscribeWorkingWord() : undefined), [moving])
   const textProps = { numberOfLines, maxFontSizeMultiplier }
   return (
     <View style={styles.word} testID={active ? 'working-word' : undefined} pointerEvents="none">

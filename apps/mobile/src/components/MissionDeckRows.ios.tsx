@@ -30,6 +30,7 @@ import { type IssueStatus, issueStatusOf } from '@podium/model'
 import { SESSION_WORD_LABEL, type SessionWord, TASK_WORD_LABEL } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
 import { useWindowDimensions } from 'react-native'
+import { useContentVisible } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import { ContextMenu } from './ContextMenu.ios'
 import { deckColor, deckWordColor } from './deck-colors'
@@ -533,11 +534,12 @@ function StateWord({
   label: string
   preserve?: boolean
 }) {
+  const visible = useContentVisible()
   return (
     <Text
       modifiers={[
         ...metaText(deckWordColor(word)),
-        ...(word === 'working' ? [workingWordGlint(seed)] : []),
+        ...(word === 'working' ? [workingWordGlint(seed, visible)] : []),
         // Seat metadata gives the state its natural width; the model takes the rest.
         ...(preserve ? [fixedSize({ horizontal: true, vertical: false }), layoutPriority(1)] : []),
       ]}

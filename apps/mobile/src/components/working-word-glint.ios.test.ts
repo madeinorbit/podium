@@ -24,16 +24,20 @@ describe('native Working glint', () => {
     expect(code).not.toMatch(/scenePhase/)
   })
 
-  it('runs from a system animation timeline, not an onAppear-gated subscription', () => {
+  it('runs the shared system timeline only for visible, focused, foreground words', () => {
     expect(code).toMatch(/TimelineView\(\.animation\(minimumInterval: 1\.0 \/ 30\)\)/)
-    expect(code).not.toMatch(/CADisplayLink|ObservableObject|\.onAppear|@State/)
+    expect(code).not.toMatch(/CADisplayLink|ObservableObject/)
+    expect(code).toContain('if active && visible && foreground && !reduceMotion {')
+    expect(code).toContain('.modifier(ContentVisibilityModifier { visible = $0 })')
+    expect(code).toContain('UIApplication.willResignActiveNotification')
+    expect(code).toContain('UIApplication.didBecomeActiveNotification')
     // The glint offset is derived from the timeline's own date.
     expect(code).toMatch(/glintOffset\(at: timeline\.date/)
   })
 
   it('draws nothing and runs no timeline under Reduce Motion', () => {
     expect(code).toMatch(/@Environment\(\\\.accessibilityReduceMotion\)/)
-    const gate = code.indexOf('if !reduceMotion {')
+    const gate = code.indexOf('if active && visible && foreground && !reduceMotion {')
     expect(gate).toBeGreaterThan(-1)
     expect(code.indexOf('TimelineView(')).toBeGreaterThan(gate)
   })

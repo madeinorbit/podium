@@ -2,6 +2,7 @@ import { type ReactNode, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { ContentActivity } from '../lib/visible-content'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
@@ -112,75 +113,77 @@ export function Screen({
         )
       : null)
   return (
-    <View style={[styles.root, grouped && styles.grouped]}>
-      <View
-        style={[
-          styles.inner,
-          noHeader ? { paddingTop: insets.top } : null,
-          safeBottom ? { paddingBottom: insets.bottom } : null,
-        ]}
-      >
-        {noHeader ? null : large ? (
-          <View style={[styles.largeHeader, { paddingTop: insets.top + space.md }]}>
-            <View style={styles.largeTitles}>
-              <Text style={styles.largeTitle} numberOfLines={1}>
-                {title}
-              </Text>
-              {subtitle ? (
-                <Text
-                  style={[styles.largeSubtitle, monoSubtitle && styles.monoSubtitle]}
-                  numberOfLines={1}
-                >
-                  {subtitle}
+    <ContentActivity>
+      <View style={[styles.root, grouped && styles.grouped]}>
+        <View
+          style={[
+            styles.inner,
+            noHeader ? { paddingTop: insets.top } : null,
+            safeBottom ? { paddingBottom: insets.bottom } : null,
+          ]}
+        >
+          {noHeader ? null : large ? (
+            <View style={[styles.largeHeader, { paddingTop: insets.top + space.md }]}>
+              <View style={styles.largeTitles}>
+                <Text style={styles.largeTitle} numberOfLines={1}>
+                  {title}
                 </Text>
-              ) : null}
+                {subtitle ? (
+                  <Text
+                    style={[styles.largeSubtitle, monoSubtitle && styles.monoSubtitle]}
+                    numberOfLines={1}
+                  >
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              {right ? <View style={styles.right}>{right}</View> : null}
             </View>
-            {right ? <View style={styles.right}>{right}</View> : null}
-          </View>
-        ) : (
-          <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-            {onBack ? (
-              backAs === 'text' ? (
+          ) : (
+            <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+              {onBack ? (
+                backAs === 'text' ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={backLabel ?? 'Cancel'}
+                    onPress={onBack}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.backText}>{backLabel ?? 'Cancel'}</Text>
+                  </PressableScale>
+                ) : (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={backLabel ?? 'Back'}
+                    onPress={onBack}
+                    style={[styles.back, bareBack && styles.backBare]}
+                    hitSlop={10}
+                  >
+                    <Icon as={ChevronLeft} size={17} color={color.textDim} />
+                  </PressableScale>
+                )
+              ) : null}
+              {leading}
+              {onTitlePress ? (
                 <PressableScale
                   accessibilityRole="button"
-                  accessibilityLabel={backLabel ?? 'Cancel'}
-                  onPress={onBack}
-                  hitSlop={10}
+                  accessibilityHint="Opens task details"
+                  haptic={false}
+                  onPress={onTitlePress}
+                  style={styles.titles}
                 >
-                  <Text style={styles.backText}>{backLabel ?? 'Cancel'}</Text>
+                  {compactTitles}
                 </PressableScale>
               ) : (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={backLabel ?? 'Back'}
-                  onPress={onBack}
-                  style={[styles.back, bareBack && styles.backBare]}
-                  hitSlop={10}
-                >
-                  <Icon as={ChevronLeft} size={17} color={color.textDim} />
-                </PressableScale>
-              )
-            ) : null}
-            {leading}
-            {onTitlePress ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityHint="Opens task details"
-                haptic={false}
-                onPress={onTitlePress}
-                style={styles.titles}
-              >
-                {compactTitles}
-              </PressableScale>
-            ) : (
-              <View style={styles.titles}>{compactTitles}</View>
-            )}
-            {right ? <View style={styles.right}>{right}</View> : null}
-          </View>
-        )}
-        <View style={styles.body}>{children}</View>
+                <View style={styles.titles}>{compactTitles}</View>
+              )}
+              {right ? <View style={styles.right}>{right}</View> : null}
+            </View>
+          )}
+          <View style={styles.body}>{children}</View>
+        </View>
       </View>
-    </View>
+    </ContentActivity>
   )
 }
 

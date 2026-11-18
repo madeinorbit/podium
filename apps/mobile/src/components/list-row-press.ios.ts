@@ -10,6 +10,12 @@ requireNativeModule('PodiumListRow')
 export const listRowPress = (onOpen: () => void) =>
   createModifierWithEventListener('podiumListRowPress', onOpen)
 
+/** Unlike cell appearance, this excludes SwiftUI's prefetched offscreen rows. */
+export const contentVisibility = (onChange: (visible: boolean) => void) =>
+  createModifierWithEventListener('podiumContentVisibility', ({ visible }: { visible: boolean }) =>
+    onChange(visible),
+  )
+
 /** Apply to a List under a ListSearchBar: on mount, the stacked search field
  * starts tucked under the large title (a deliberate pull reveals it). */
 export const listSearchStartsHidden = ({

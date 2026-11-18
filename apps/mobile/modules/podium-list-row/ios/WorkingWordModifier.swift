@@ -1,25 +1,28 @@
 import SwiftUI
+import UIKit
 
 /// Desktop's Working glint, applied to the native Text itself: its font, width and
 /// Dynamic Type metrics also define the glint mask. Recycling never measures or
 /// positions an RN view.
 ///
-/// The clock is `TimelineView(.animation)`. SwiftUI advances it only while this
-/// word is in a window that is drawing, so offscreen rows, covered screens and a
-/// backgrounded app do no frame work, and every word reads the same date, which
-/// keeps all rows on one shared 2.2s timeline with their own phase.
+/// All words read the system animation timeline's date. Native row appearance,
+/// navigator/page visibility and UIKit foreground state gate the timeline;
+/// keeping a page mounted must not keep its words drawing off screen.
 ///
 /// Never gate this on `@Environment(\.scenePhase)`: views hosted by @expo/ui's
 /// UIHostingController are outside a SwiftUI scene and read the default
 /// `.background` forever, which kept the glint static on every device.
 struct WorkingWordModifier: ViewModifier {
   let phase: Double
+  let active: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var visible = false
+  @State private var foreground = UIApplication.shared.applicationState == .active
 
   func body(content: Content) -> some View {
     content
       .overlay {
-        if !reduceMotion {
+        if active && visible && foreground && !reduceMotion {
           TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
             GeometryReader { geometry in
               Rectangle()
@@ -37,6 +40,9 @@ struct WorkingWordModifier: ViewModifier {
           .accessibilityHidden(true)
         }
       }
+      .modifier(ContentVisibilityModifier { visible = $0 })
+      .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in foreground = false }
+      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in foreground = true }
   }
 
   /// The window travels from -40% to 100% of the word over the first 66% of the

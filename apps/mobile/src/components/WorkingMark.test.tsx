@@ -3,6 +3,7 @@ import { type ComponentProps, Profiler } from 'react'
 import type { View as RNView } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReducedMotionContext } from '../hooks/useReduceMotion'
+import { VisibleContent } from '../lib/visible-content'
 import { workingMarkRest } from './working-mark-frames'
 
 const lifecycle = vi.hoisted(() => ({
@@ -29,10 +30,10 @@ vi.mock('react-native', async () => ({
     },
   },
 }))
-vi.mock('expo-router/react-navigation', async () => {
+vi.mock('../client/projection-focus', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
-    useIsFocused: () =>
+    useProjectionFocus: () =>
       useSyncExternalStore(
         (listener) => {
           lifecycle.focusListeners.add(listener)
@@ -42,16 +43,6 @@ vi.mock('expo-router/react-navigation', async () => {
         },
         () => lifecycle.focused,
       ),
-  }
-})
-vi.mock('expo-router', async () => {
-  const { useEffect } = await import('react')
-  const { useIsFocused } = await import('expo-router/react-navigation')
-  return {
-    useFocusEffect: (effect: () => undefined | (() => void)) => {
-      const focused = useIsFocused()
-      useEffect(() => (focused ? effect() : undefined), [effect, focused])
-    },
   }
 })
 vi.mock('react-native-reanimated', async () => {
@@ -181,15 +172,40 @@ describe('UI-thread working mark', () => {
     expect(motion.repeat).toHaveBeenCalledTimes(1)
   })
 
-  it('pauses in background and resumes without input, while inactive overlays keep moving', () => {
+  it('pauses whenever the app is not active and resumes without input', () => {
     render(<WorkingMark />)
     setAppState('inactive')
     expect(motion.repeat).toHaveBeenCalledTimes(1)
+    expect(motion.cancel).toHaveBeenCalledTimes(2)
     setAppState('background')
     expect(workingMarkProgress.get()).toBe(0)
     expect(motion.cancel).toHaveBeenCalledTimes(2)
     setAppState('active')
     expect(motion.repeat).toHaveBeenCalledTimes(2)
+  })
+
+  it('allocates no animation or per-dot mapper for hidden pages and offscreen rows', () => {
+    const { rerender } = render(
+      <VisibleContent visible={false}>
+        <WorkingMark />
+      </VisibleContent>,
+    )
+    expect(motion.repeat).not.toHaveBeenCalled()
+    expect(motion.updaters).toHaveLength(0)
+    expect(lifecycle.events.size).toBe(0)
+    rerender(
+      <VisibleContent visible>
+        <WorkingMark />
+      </VisibleContent>,
+    )
+    expect(motion.repeat).toHaveBeenCalledTimes(1)
+    rerender(
+      <VisibleContent visible={false}>
+        <WorkingMark />
+      </VisibleContent>,
+    )
+    expect(lifecycle.events.size).toBe(0)
+    expect(motion.cancel).toHaveBeenCalledTimes(2)
   })
 
   it('unsubscribes covered or reduced-motion marks, restoring the static shared tetra', () => {

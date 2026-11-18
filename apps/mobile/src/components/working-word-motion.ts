@@ -15,7 +15,7 @@ let running = false
 let subscription: { remove(): void } | undefined
 
 function reconcile() {
-  const active = users > 0 && AppState.currentState !== 'background'
+  const active = users > 0 && AppState.currentState === 'active'
   if (active === running) return
   running = active
   cancelAnimation(workingWordProgress)

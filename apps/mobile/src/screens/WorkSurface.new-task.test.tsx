@@ -26,6 +26,10 @@ vi.mock('../client/mobile-pool', () => ({
 }))
 vi.mock('../client/workspace-refresh', () => ({ useWorkspaceRefreshSubtitle: () => undefined }))
 vi.mock('../components/list-row-press.ios', () => ({
+  contentVisibility: (onChange: (visible: boolean) => void) => ({
+    name: 'contentVisibility',
+    value: onChange,
+  }),
   listRowHairline: (value: unknown) => ({ name: 'podiumRowHairline', value }),
   listRowPress: (onOpen: () => void) => ({ name: 'listRowPress', value: onOpen }),
   listSearchStartsHidden: () => ({ name: 'podiumSearchStartsHidden' }),

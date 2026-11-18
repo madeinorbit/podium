@@ -231,6 +231,10 @@ vi.mock('./MissionProposalSlot', () => import('./MissionProposalSlot.ios'))
 vi.mock('./MissionDeckList', () => import('./MissionDeckList.ios'))
 vi.mock('./MissionDeckRows', () => import('./MissionDeckRows.ios'))
 vi.mock('./list-row-press.ios', () => ({
+  contentVisibility: (onChange: (visible: boolean) => void) => ({
+    name: 'contentVisibility',
+    value: onChange,
+  }),
   listRowHairline: ({
     leading,
     trailing = 12,

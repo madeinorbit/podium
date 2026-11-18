@@ -12,11 +12,13 @@ import {
   listStyle,
   scrollContentBackground,
 } from '@expo/ui/swift-ui/modifiers'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { listOrderRevision } from '../lib/list-order-revision'
+import { VisibleContent } from '../lib/visible-content'
 import { color } from '../theme/theme'
+import { contentVisibility } from './list-row-press.ios'
 
 /** One native list owns scrolling and proposal swipe gestures. The deck reads FullDeck unchanged. */
 export function MissionDeckList({ children }: { children: ReactNode }) {
@@ -48,11 +50,12 @@ export function DeckContent({ children }: { children: ReactNode }) {
 
 /** Header content takes no SwiftUI header insets: the deck sets its own 4pt rhythm. */
 function Content({ children }: { children: ReactNode }) {
+  const [visible, setVisible] = useState(false)
   return (
-    <VStack modifiers={headerInsets}>
+    <VStack modifiers={[...headerInsets, contentVisibility(setVisible)]}>
       <RNHostView matchContents={{ vertical: true }}>
         <View collapsable={false} style={styles.content}>
-          {children}
+          <VisibleContent visible={visible}>{children}</VisibleContent>
         </View>
       </RNHostView>
     </VStack>

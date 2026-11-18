@@ -14,6 +14,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
+import { SheetActivity } from '../lib/visible-content'
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { alpha } from '../theme/mix'
 import { color, elevation, radius, space, spring } from '../theme/theme'
@@ -368,79 +369,84 @@ export function BottomSheet({
   )
 
   return (
-    <Modal transparent visible animationType="none" onRequestClose={() => settle('closed')}>
-      <Animated.View
-        testID={testID ? `${testID}-backdrop` : undefined}
-        style={[styles.backdrop, backdropStyle]}
-        pointerEvents="none"
-      />
-      <Pressable
-        accessibilityLabel="Close"
-        style={StyleSheet.absoluteFill}
-        onPress={() => settle('closed')}
-      />
-      <Animated.View
-        testID={testID}
-        accessibilityLabel={accessibilityLabel}
-        style={[
-          styles.sheet,
-          grouped && styles.grouped,
-          elevation.raised,
-          mode === 'detented'
-            ? { top, height: span, paddingBottom: keyboardHeight }
-            : {
-                bottom: keyboardHeight,
-                // Grouped forms carry their own final row spacing. Only the
-                // safe area belongs here, or prompt sheets pay that gap twice.
-                paddingBottom: (keyboardHeight > 0 ? 0 : insets.bottom) + (grouped ? 0 : space.md),
-              },
-          sheetStyle,
-        ]}
-        onLayout={
-          mode === 'fit'
-            ? (e) => {
-                const h = Math.round(e.nativeEvent.layout.height)
-                if (h > 0 && Math.abs(h - fitHeight) > 1) setFitHeight(h)
+    <SheetActivity visible>
+      <Modal transparent visible animationType="none" onRequestClose={() => settle('closed')}>
+        <Animated.View
+          testID={testID ? `${testID}-backdrop` : undefined}
+          style={[styles.backdrop, backdropStyle]}
+          pointerEvents="none"
+        />
+        <Pressable
+          accessibilityLabel="Close"
+          style={StyleSheet.absoluteFill}
+          onPress={() => settle('closed')}
+        />
+        <Animated.View
+          testID={testID}
+          accessibilityLabel={accessibilityLabel}
+          style={[
+            styles.sheet,
+            grouped && styles.grouped,
+            elevation.raised,
+            mode === 'detented'
+              ? { top, height: span, paddingBottom: keyboardHeight }
+              : {
+                  bottom: keyboardHeight,
+                  // Grouped forms carry their own final row spacing. Only the
+                  // safe area belongs here, or prompt sheets pay that gap twice.
+                  paddingBottom:
+                    (keyboardHeight > 0 ? 0 : insets.bottom) + (grouped ? 0 : space.md),
+                },
+            sheetStyle,
+          ]}
+          onLayout={
+            mode === 'fit'
+              ? (e) => {
+                  const h = Math.round(e.nativeEvent.layout.height)
+                  if (h > 0 && Math.abs(h - fitHeight) > 1) setFitHeight(h)
+                }
+              : undefined
+          }
+        >
+          <GestureDetector gesture={pan} touchAction="none" userSelect="none">
+            <View
+              {...(mode === 'detented' ? { accessibilityRole: 'adjustable' as const } : {})}
+              accessibilityLabel={
+                mode === 'detented'
+                  ? atLarge
+                    ? 'Collapse the sheet'
+                    : 'Expand the sheet'
+                  : undefined
               }
-            : undefined
-        }
-      >
-        <GestureDetector gesture={pan} touchAction="none" userSelect="none">
-          <View
-            {...(mode === 'detented' ? { accessibilityRole: 'adjustable' as const } : {})}
-            accessibilityLabel={
-              mode === 'detented'
-                ? atLarge
-                  ? 'Collapse the sheet'
-                  : 'Expand the sheet'
-                : undefined
-            }
-            accessibilityActions={
-              mode === 'detented'
-                ? [
-                    { name: 'increment', label: 'Expand' },
-                    { name: 'decrement', label: 'Collapse' },
-                  ]
-                : undefined
-            }
-            onAccessibilityAction={(event) => {
-              if (event.nativeEvent.actionName === 'increment') settle('large')
-              if (event.nativeEvent.actionName === 'decrement') settle('medium')
-            }}
-            style={styles.dragRegion}
-          >
-            <View style={styles.grabberBox}>
-              <View style={styles.grabber} />
+              accessibilityActions={
+                mode === 'detented'
+                  ? [
+                      { name: 'increment', label: 'Expand' },
+                      { name: 'decrement', label: 'Collapse' },
+                    ]
+                  : undefined
+              }
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'increment') settle('large')
+                if (event.nativeEvent.actionName === 'decrement') settle('medium')
+              }}
+              style={styles.dragRegion}
+            >
+              <View style={styles.grabberBox}>
+                <View style={styles.grabber} />
+              </View>
+              {head}
             </View>
-            {head}
-          </View>
-        </GestureDetector>
+          </GestureDetector>
 
-        {body}
+          {body}
 
-        {footer && atLarge ? <View style={footerRule ? styles.footer : null}>{footer}</View> : null}
-      </Animated.View>
-    </Modal>
+          {footer && atLarge ? (
+            <View style={footerRule ? styles.footer : null}>{footer}</View>
+          ) : null}
+        </Animated.View>
+      </Modal>
+    </SheetActivity>
   )
 }
 

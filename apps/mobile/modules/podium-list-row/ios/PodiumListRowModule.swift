@@ -6,6 +6,7 @@ private let rowHairlineModifier = "podiumRowHairline"
 private let rowPressModifier = "podiumListRowPress"
 private let searchStartsHiddenModifier = "podiumSearchStartsHidden"
 private let workingWordModifier = "podiumWorkingWordGlint"
+private let contentVisibilityModifier = "podiumContentVisibility"
 
 public final class PodiumListRowModule: Module {
   public func definition() -> ModuleDefinition {
@@ -21,7 +22,12 @@ public final class PodiumListRowModule: Module {
         )
       }
       ViewModifierRegistry.register(workingWordModifier) { params, _, _ in
-        WorkingWordModifier(phase: params["phase"] as? Double ?? 0)
+        WorkingWordModifier(phase: params["phase"] as? Double ?? 0, active: params["active"] as? Bool ?? true)
+      }
+      ViewModifierRegistry.register(contentVisibilityModifier) { _, _, dispatcher in
+        ContentVisibilityModifier { visible in
+          dispatcher([contentVisibilityModifier: ["visible": visible]])
+        }
       }
       ViewModifierRegistry.register(rowPressModifier) { _, _, dispatcher in
         ListRowPressModifier(dispatcher: dispatcher)
@@ -34,6 +40,7 @@ public final class PodiumListRowModule: Module {
     OnDestroy {
       ViewModifierRegistry.unregister(rowHairlineModifier)
       ViewModifierRegistry.unregister(workingWordModifier)
+      ViewModifierRegistry.unregister(contentVisibilityModifier)
       ViewModifierRegistry.unregister(rowPressModifier)
       ViewModifierRegistry.unregister(searchStartsHiddenModifier)
     }

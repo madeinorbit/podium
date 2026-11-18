@@ -10,7 +10,8 @@ import {
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
 import { useRowPrime } from '../lib/use-row-prime'
-import { listRowHairline } from './list-row-press.ios'
+import { VisibleContent } from '../lib/visible-content'
+import { contentVisibility, listRowHairline } from './list-row-press.ios'
 import type { MissionProposalSlotProps } from './mission-proposal-slot.types'
 
 /** The shared native row window bounds rich swipe/menu trees while cells keep their measured heights. */
@@ -26,14 +27,19 @@ export const MissionProposalSlot = observer(function MissionProposalSlot({
   const [owner] = useState(() => ({}))
   useEffect(() => () => window.disappear(id, owner), [window, id, owner])
   const [height, setHeight] = useState(44)
+  const [visible, setVisible] = useState(false)
   const shown = active || primed
   return (
     <VStack
       spacing={0}
       modifiers={[
         frame({ minHeight: 52, maxWidth: Infinity, alignment: 'leading' }),
-        onAppear(() => window.appear(id, owner)),
+        contentVisibility(setVisible),
+        onAppear(() => {
+          window.appear(id, owner)
+        }),
         onDisappear(() => {
+          setVisible(false)
           unprime()
           window.disappear(id, owner)
         }),
@@ -47,7 +53,11 @@ export const MissionProposalSlot = observer(function MissionProposalSlot({
         accessibilityIdentifier(`deck-proposal-slot-${id}`),
       ]}
     >
-      {shown ? children : <Spacer modifiers={[frame({ height })]} />}
+      {shown ? (
+        <VisibleContent visible={visible}>{children}</VisibleContent>
+      ) : (
+        <Spacer modifiers={[frame({ height })]} />
+      )}
     </VStack>
   )
 })

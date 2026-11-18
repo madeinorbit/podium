@@ -3,6 +3,7 @@ import { type ComponentProps, Profiler } from 'react'
 import type { LayoutChangeEvent, View } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ReducedMotionContext } from '../hooks/useReduceMotion'
+import { VisibleContent } from '../lib/visible-content'
 
 const lifecycle = vi.hoisted(() => ({
   state: 'active',
@@ -36,10 +37,10 @@ vi.mock('react-native', async (original) => {
     },
   }
 })
-vi.mock('expo-router/react-navigation', async () => {
+vi.mock('../client/projection-focus', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
-    useIsFocused: () =>
+    useProjectionFocus: () =>
       useSyncExternalStore(
         (listener) => {
           lifecycle.focus.add(listener)
@@ -49,16 +50,6 @@ vi.mock('expo-router/react-navigation', async () => {
         },
         () => lifecycle.focused,
       ),
-  }
-})
-vi.mock('expo-router', async () => {
-  const { useEffect } = await import('react')
-  const { useIsFocused } = await import('expo-router/react-navigation')
-  return {
-    useFocusEffect: (effect: () => undefined | (() => void)) => {
-      const focused = useIsFocused()
-      useEffect(() => (focused ? effect() : undefined), [focused, effect])
-    },
   }
 })
 vi.mock('react-native-reanimated', async () => {
@@ -223,4 +214,28 @@ it('keeps the clock running when another word unmounts', () => {
   )
   expect(motion.repeat).toHaveBeenCalledTimes(1)
   expect(lifecycle.events.size).toBe(1)
+})
+
+it('creates no animated styles or shared loop on hidden pager pages or offscreen rows', () => {
+  const { rerender } = render(
+    <VisibleContent visible={false}>
+      <WorkingWord seed="hidden">Working</WorkingWord>
+    </VisibleContent>,
+  )
+  expect(motion.repeat).not.toHaveBeenCalled()
+  expect(motion.styles).toHaveLength(0)
+  expect(screen.getByText('Working')).toBeTruthy()
+  rerender(
+    <VisibleContent visible>
+      <WorkingWord seed="hidden">Working</WorkingWord>
+    </VisibleContent>,
+  )
+  expect(motion.repeat).toHaveBeenCalledTimes(1)
+  rerender(
+    <VisibleContent visible={false}>
+      <WorkingWord seed="hidden">Working</WorkingWord>
+    </VisibleContent>,
+  )
+  expect(lifecycle.events.size).toBe(0)
+  expect(screen.queryByTestId('working-word-glint')).toBeNull()
 })

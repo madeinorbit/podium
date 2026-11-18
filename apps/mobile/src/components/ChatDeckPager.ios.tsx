@@ -1,6 +1,7 @@
 import { requireNativeView } from 'expo'
-import { type ReactNode, type Ref, useImperativeHandle, useRef } from 'react'
+import { type ReactNode, type Ref, useImperativeHandle, useRef, useState } from 'react'
 import { type NativeSyntheticEvent, StyleSheet, View, type ViewProps } from 'react-native'
+import { VisibleContent } from '../lib/visible-content'
 import type { ChatDeckPagerProps, PagerPage } from './chat-deck-pager.types'
 
 type PageEvent = NativeSyntheticEvent<{ page: number }>
@@ -28,6 +29,7 @@ const asPage = (event: PageEvent): PagerPage => (event.nativeEvent.page === 1 ? 
  */
 export function ChatDeckPager({ ref, chat, deck, onPageChange, onPageSettle }: ChatDeckPagerProps) {
   const native = useRef<NativePagerRef>(null)
+  const [page, setPage] = useState<PagerPage>(0)
   useImperativeHandle(
     ref,
     () => ({
@@ -41,14 +43,22 @@ export function ChatDeckPager({ ref, chat, deck, onPageChange, onPageSettle }: C
     <NativePager
       ref={native}
       style={styles.pager}
-      onPageChange={onPageChange ? (event) => onPageChange(asPage(event)) : undefined}
-      onPageSettle={onPageSettle ? (event) => onPageSettle(asPage(event)) : undefined}
+      onPageChange={(event) => {
+        const next = asPage(event)
+        setPage(next)
+        onPageChange?.(next)
+      }}
+      onPageSettle={(event) => {
+        const next = asPage(event)
+        setPage(next)
+        onPageSettle?.(next)
+      }}
     >
       <View collapsable={false} style={[styles.page, styles.first]}>
-        {chat}
+        <VisibleContent visible={page === 0}>{chat}</VisibleContent>
       </View>
       <View collapsable={false} style={[styles.page, styles.second]}>
-        {deck}
+        <VisibleContent visible={page === 1}>{deck}</VisibleContent>
       </View>
     </NativePager>
   )

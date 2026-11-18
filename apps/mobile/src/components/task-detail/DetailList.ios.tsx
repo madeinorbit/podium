@@ -17,9 +17,11 @@ import {
   scrollDismissesKeyboard,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useWindowDimensions, View } from 'react-native'
+import { VisibleContent } from '../../lib/visible-content'
 import { color } from '../../theme/theme'
+import { contentVisibility } from '../list-row-press.ios'
 import { detailRowInsets, useDetailSeparator } from './detail-row-geometry'
 
 /** SwiftUI owns row measurement, separators, scrolling and accessibility sizing. */
@@ -54,18 +56,20 @@ export function DetailContent({
   children: ReactNode
   bleed?: boolean
 }) {
+  const [visible, setVisible] = useState(false)
   return (
     <Section
       header={
         <VStack
           modifiers={[
             frame({ maxWidth: Infinity, alignment: 'leading' }),
+            contentVisibility(setVisible),
             ...(bleed ? [listRowInsets({ top: 10, bottom: 10, leading: 0, trailing: 0 })] : []),
           ]}
         >
           <RNHostView matchContents={{ vertical: true }}>
             <View collapsable={false} style={{ width: '100%', gap: 16 }}>
-              {children}
+              <VisibleContent visible={visible}>{children}</VisibleContent>
             </View>
           </RNHostView>
         </VStack>

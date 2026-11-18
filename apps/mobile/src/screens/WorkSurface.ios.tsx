@@ -72,6 +72,7 @@ import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
 import {
+  contentVisibility,
   listRowHairline,
   listRowPress,
   listSearchStartsHidden,
@@ -86,6 +87,7 @@ import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
 import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
+import { VisibleContent } from '../lib/visible-content'
 import { quietProjectsLabel, workLaneTitle, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
 import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
@@ -379,14 +381,19 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   const [owner] = useState(() => ({}))
   useEffect(() => () => section.window.disappear(id, owner), [section, id, owner])
   const [height, setHeight] = useState(36)
+  const [visible, setVisible] = useState(false)
   const shown = active || primed
   const { fontScale } = useWindowDimensions()
   return (
     <VStack
       spacing={0}
       modifiers={[
-        onAppear(() => section.window.appear(id, owner)),
+        contentVisibility(setVisible),
+        onAppear(() => {
+          section.window.appear(id, owner)
+        }),
         onDisappear(() => {
+          setVisible(false)
           unprime()
           section.window.disappear(id, owner)
         }),
@@ -399,7 +406,11 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
         listRowHairline({ leading: MARK_WIDTH * Math.max(1, fontScale) + MARK_GAP, top: 8, first }),
       ]}
     >
-      {shown ? children : <Spacer modifiers={[frame({ height })]} />}
+      {shown ? (
+        <VisibleContent visible={visible}>{children}</VisibleContent>
+      ) : (
+        <Spacer modifiers={[frame({ height })]} />
+      )}
     </VStack>
   )
 })

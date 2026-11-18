@@ -1,9 +1,8 @@
-import { useFocusEffect } from 'expo-router'
-import { useIsFocused } from 'expo-router/react-navigation'
-import { memo, useCallback } from 'react'
+import { memo, useEffect } from 'react'
 import Animated, { useAnimatedProps } from 'react-native-reanimated'
 import Svg, { Ellipse } from 'react-native-svg'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { useContentVisible } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import type { WorkingMarkProps } from './WorkingMark.shared'
 import { workingMarkDot, workingMarkRest } from './working-mark-frames'
@@ -18,12 +17,10 @@ export const WorkingMark = memo(function WorkingMark({
 }: WorkingMarkProps) {
   const reduceMotion = useReduceMotion()
   // Focus state also chooses static dots on covered screens, even if another screen keeps the clock alive.
-  const focused = useIsFocused()
-  useFocusEffect(
-    useCallback(() => {
-      const stop = reduceMotion ? undefined : subscribeWorkingMark()
-      return stop
-    }, [reduceMotion]),
+  const focused = useContentVisible()
+  useEffect(
+    () => (focused && !reduceMotion ? subscribeWorkingMark() : undefined),
+    [focused, reduceMotion],
   )
 
   return (

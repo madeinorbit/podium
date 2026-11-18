@@ -49,6 +49,10 @@ vi.mock('@podium/client-graph/react', async (original) => ({
 }))
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
 vi.mock('../components/list-row-press.ios', () => ({
+  contentVisibility: (onChange: (visible: boolean) => void) => ({
+    name: 'contentVisibility',
+    value: onChange,
+  }),
   listRowHairline: ({
     leading,
     trailing = 12,

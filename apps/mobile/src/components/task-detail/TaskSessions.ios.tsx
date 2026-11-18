@@ -21,6 +21,7 @@ import { SESSION_WORD_LABEL } from '@podium/model/browser'
 import { useWindowDimensions } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useMobilePool } from '../../client/mobile-pool'
+import { useContentVisible } from '../../lib/visible-content'
 import { color } from '../../theme/theme'
 import { deckWordColor } from '../deck-colors'
 import { listRowPress } from '../list-row-press.ios'
@@ -59,6 +60,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   onOpenSession: (id: SessionId) => void
 }) {
   const pool = useMobilePool()
+  const visible = useContentVisible()
   const { fontScale } = useWindowDimensions()
   const separator = useDetailSeparator()
   const session = here(pool?.model('session', sessionId))
@@ -111,7 +113,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
           <Text
             modifiers={[
               ...meta(deckWordColor(word)),
-              ...(word === 'working' ? [workingWordGlint(sessionId)] : []),
+              ...(word === 'working' ? [workingWordGlint(sessionId, visible)] : []),
               fixedSize({ horizontal: true, vertical: false }),
               layoutPriority(1),
             ]}

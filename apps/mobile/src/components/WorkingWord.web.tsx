@@ -1,6 +1,7 @@
 import { memo, useInsertionEffect } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { useContentActive } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import { type WorkingWordProps, workingWordPhase } from './WorkingWord.shared'
 
@@ -15,6 +16,7 @@ export const WorkingWord = memo(function WorkingWord({
   glint = children,
 }: WorkingWordProps) {
   const reduced = useReduceMotion()
+  const visible = useContentActive()
   useInsertionEffect(() => {
     if (document.getElementById('deck-working-word-style')) return
     const sheet = document.createElement('style')
@@ -38,7 +40,7 @@ export const WorkingWord = memo(function WorkingWord({
       <Text {...textProps} style={style}>
         {children}
       </Text>
-      {active && !reduced ? (
+      {active && visible && !reduced ? (
         <span
           className="deck-word-window"
           aria-hidden="true"
