@@ -1,10 +1,11 @@
-import { shipLaneId } from '@podium/model'
 import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
+import { shipLaneId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   formatShippingElapsed,
   shippingActivityLabel,
   shippingElapsed,
+  shippingElapsedNextChangeAt,
   shippingPanelModel,
 } from './shipping-panel'
 
@@ -227,5 +228,20 @@ describe('shipping display language', () => {
       duration: 'PT5M',
     })
     expect(shippingElapsed('2026-08-13T10:00:00.000Z', now).duration).toBe('PT1H35M')
+  })
+
+  it('changes the waiting label at its own minute boundaries, including after an hour', () => {
+    const since = 12_345,
+      stamp = new Date(since).toISOString()
+    for (const minutes of [1, 2, 59, 60, 61, 120]) {
+      const boundary = since + minutes * 60_000
+      expect(shippingElapsedNextChangeAt(since, boundary - 1000)).toBe(boundary)
+      expect(shippingElapsed(stamp, boundary - 1).label).not.toBe(
+        shippingElapsed(stamp, boundary).label,
+      )
+      expect(shippingElapsedNextChangeAt(since, boundary)).toBe(boundary + 60_000)
+    }
+    expect(shippingElapsedNextChangeAt(since, since - 60_000)).toBe(since + 60_000)
+    expect(shippingElapsedNextChangeAt(NaN, Date.now())).toBe(Infinity)
   })
 })
