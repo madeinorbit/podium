@@ -38,7 +38,7 @@ import {
   recordOf,
   type Where,
 } from '@podium/model'
-import { InstanceMap, instanceKey } from './cache-state'
+import { type InstanceMap, instanceKey } from './cache-state'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
 
 /** The rows a decision reads, synchronously, from the store in memory. */
@@ -264,7 +264,7 @@ function listed(spec: HeldSpec): boolean {
 const listedByBase = new WeakMap<ReadonlyMap<string, HeldSpec>, ReadonlyMap<string, HeldSpec>>()
 
 function listedIn(markers: ReadonlyMap<string, HeldSpec>): Map<string, HeldSpec> {
-  const layers = markers instanceof InstanceMap ? markers.layers() : undefined
+  const layers = layersOf(markers)
   const base = layers?.base ?? markers
   let inBase = listedByBase.get(base)
   if (inBase === undefined) {
@@ -346,7 +346,21 @@ export class HeldIndex {
         consider(this.fetching.get(at))
       }
     }
-    for (const spec of this.listed) consider(spec)
+    for (const spec of this.listed) {
+      // A keyed instance listed for its odd shape is still found by its key
+      // argument first, as the record's field gives it: one whose argument is
+      // another record's (or missing) is not asked, so its rule never runs
+      // without the argument it needs.
+      const collection = COLLECTIONS.get(spec.collection)
+      const shape = collection === undefined ? undefined : keyedShapeOf(collection)
+      if (
+        shape !== undefined &&
+        ((spec.args as Readonly<Record<string, unknown>> | undefined)?.[shape.param] ?? null) !==
+          (record[shape.field] ?? null)
+      )
+        continue
+      consider(spec)
+    }
     return out
   }
 
@@ -362,7 +376,18 @@ export class HeldIndex {
 
 const isSpecMap = (
   value: ReadonlyMap<string, HeldSpec> | Iterable<HeldSpec>,
-): value is ReadonlyMap<string, HeldSpec> => value instanceof Map || value instanceof InstanceMap
+): value is ReadonlyMap<string, HeldSpec> =>
+  // By shape, not class: a second copy of this module in a bundle has its own InstanceMap.
+  typeof (value as Partial<ReadonlyMap<string, HeldSpec>>).get === 'function' &&
+  typeof (value as Partial<ReadonlyMap<string, HeldSpec>>).has === 'function'
+
+/** The base and change layer of a layered marker map, by shape; `undefined` for a plain map. */
+const layersOf = (
+  markers: ReadonlyMap<string, HeldSpec>,
+): ReturnType<InstanceMap['layers']> | undefined =>
+  typeof (markers as Partial<InstanceMap>).layers === 'function'
+    ? (markers as InstanceMap).layers()
+    : undefined
 
 function matchContext(
   declaration: RecordDeclaration | undefined,
