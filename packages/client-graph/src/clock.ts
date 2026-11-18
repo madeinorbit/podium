@@ -3,6 +3,8 @@ export { DeadlineClock, deadlineClock, nextUp } from '@podium/mobx-helpers'
 /** Every production untracked()/peek call site has a unique untracked-read tag.
  * A peek avoids loading; it still tracks the addressed row/residency when read in a derivation. */
 export const UNTRACKED_READS: Readonly<Record<string, string>> = {
+  'clock-store-snapshot':
+    'Seed a React clock snapshot without subscribing its enclosing observer; the explicit store subscription owns later clock invalidation.',
   'preference-boot-seed':
     'Seed an installed preference once; the routed UI subscription and addressed preference atom maintain later changes.',
   'work-search-child-peek':

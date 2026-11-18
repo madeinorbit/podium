@@ -122,6 +122,7 @@ export function nowForAge(since: number | string, baseMs = 0, secondsUntil = HOU
 export function clockStore(read: () => number, enabled = true) {
   // Store creation can run inside an observer render. Only subscribe() may
   // own clock demand, including when that render creates a disabled store.
+  // untracked-read: clock-store-snapshot
   let value = untracked(read)
   return {
     getSnapshot: () => value,
