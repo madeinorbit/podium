@@ -30,7 +30,25 @@ import {
   type RowRecordReader,
 } from '@podium/sync/record-builders'
 import { type Column, getTableColumns, type Table } from 'drizzle-orm'
+import { effectOnFeed, effectRecordOf } from '../modules/effects/feed'
+import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import {
+  issueBriefOf,
+  issueDepToProjection,
+  issueDescriptionOf,
+  issueRowToProjection,
+} from '../modules/issues/projection'
+import { superagentThreadWireOf } from '../modules/superagent/thread-records'
+import { checkoutWireOf } from '../store/checkouts'
+import { bindingFor } from '../store/executor/binding'
+import type { RecordReads } from './record-builders'
+import type { RecordSource } from './record-sources'
+import { source as capturedSource } from './workspace-capture'
+
+/** The tables these declarations name, from the store's binding (POD-6959: no
+ *  table is imported from the schema module); names and columns are the same on
+ *  both engines. */
+const {
   agentProfiles,
   automationRuns,
   automations,
@@ -48,20 +66,7 @@ import {
   workflowBindings,
   workflowRevisions,
   workspaceMeta,
-} from '../migrations/schema'
-import { effectOnFeed, effectRecordOf } from '../modules/effects/feed'
-import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
-import {
-  issueBriefOf,
-  issueDepToProjection,
-  issueDescriptionOf,
-  issueRowToProjection,
-} from '../modules/issues/projection'
-import { superagentThreadWireOf } from '../modules/superagent/thread-records'
-import { checkoutWireOf } from '../store/checkouts'
-import type { RecordReads } from './record-builders'
-import type { RecordSource } from './record-sources'
-import { source as capturedSource } from './workspace-capture'
+} = bindingFor('sqlite')
 
 /** Ignore malformed composite record ids, as the old builders did. */
 function parsed<T>(ids: readonly string[], parse: (id: string) => T | null | undefined): T[] {

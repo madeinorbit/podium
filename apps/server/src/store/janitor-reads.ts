@@ -359,8 +359,8 @@ const queuedExpiryPageOf = prepared((db, t) =>
   db
     .select({
       sessionId: bare(t.queuedMessages.sessionId),
-      through: sql<number>`MAX(${sql.identifier('queued_at')})`.mapWith(Number),
-      rows: count(),
+      through: sql<number>`MAX(${sql.identifier('queued_at')})`.mapWith(Number).as('through'),
+      rows: count().as('n'),
     })
     .from(fromIndexed(db, t.queuedMessages, 'queued_messages_session'))
     .where(expiredQueued(t))

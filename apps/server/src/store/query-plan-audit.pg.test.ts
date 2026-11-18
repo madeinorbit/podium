@@ -193,8 +193,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
   ],
   [
-    'apps/server/src/store/janitor-reads.ts:eventCapOf',
-    'Walks podium_events newest first along the key to the retention cap (OFFSET maxRows): bounded by the cap, not by the log.',
+    'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf',
+    "Counts the workspace's events above the row cap's guess on the narrowest index (named on SQLite): a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035, as events.ts:eventsAboveId).",
   ],
   [
     'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',

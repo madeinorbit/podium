@@ -36,6 +36,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { messages } from '../migrations/schema'
 import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import {
   builtStatements,
@@ -426,8 +427,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
   ],
   [
-    'apps/server/src/store/janitor-reads.ts:eventCapOf',
-    'Walks podium_events newest first along the key to the retention cap (OFFSET maxRows): bounded by the cap, not by the log.',
+    'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf',
+    "Counts the workspace's events above the row cap's guess on the narrowest index (named on SQLite): a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035, as events.ts:eventsAboveId).",
   ],
   [
     'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
@@ -794,7 +795,10 @@ function defaultsAfterWorkspace(
 function writeStatistics(
   db: SqlDatabase,
   statOf: (table: string, columns: readonly string[], unique: boolean) => string | undefined,
-  { replace = true }: { replace?: boolean } = {},
+  {
+    replace = true,
+    only = () => true,
+  }: { replace?: boolean; only?: (index: string) => boolean } = {},
 ): void {
   if (replace) {
     db.exec('ANALYZE')
@@ -805,6 +809,7 @@ function writeStatistics(
     .all() as { name: string; tableName: string }[]
   const insert = db.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
   for (const { name, tableName } of indexes) {
+    if (!only(name)) continue
     const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as {
       name: string
     }[]
@@ -1304,6 +1309,24 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
 })
 
 /**
+ * A captured statistics row of an index that now leads with `workspace_id` (POD-7118):
+ * the operator's database is one workspace, so the workspace prefix holds every row,
+ * and the captured numbers describe the columns after it. A row captured with the
+ * workspace already in the index (the sync tables) is used as it is.
+ */
+function workspaceLedStat(db: SqlDatabase, index: string, stat: string): string {
+  const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(index)})`).all() as {
+    name: string
+  }[]
+  const parts = stat.split(' ')
+  if (columns[0]?.name !== 'workspace_id' || parts.length !== columns.length) return stat
+  return [parts[0], parts[0], ...parts.slice(1)].join(' ')
+}
+
+/** A plan's seek terms with the workspace's own term set aside (it holds every row). */
+const WORKSPACE_TERM = 'workspace_id=? AND '
+
+/**
  * THE EFFECTS SWEEP UNDER THE OPERATOR'S STATISTICS [POD-6970]. ANALYZE counts
  * each NULL as its own value, so on a real database `idx_effects_deleted`
  * reads as ten rows per key and `deleted_at IS NULL` looks selective, though
@@ -1333,7 +1356,8 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     const insert = database.prepare(
       "INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('effects', ?, ?)",
     )
-    for (const [index, stat] of OPERATOR_EFFECTS_STATISTICS) insert.run(index, stat)
+    for (const [index, stat] of OPERATOR_EFFECTS_STATISTICS)
+      insert.run(index, workspaceLedStat(database, index, stat))
     database.exec('ANALYZE sqlite_schema')
   }
 
@@ -1359,14 +1383,16 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     const plan = (
       database
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE status = ? AND deleted_at IS NULL AND (decision IS NULL OR decision <> 'awaiting') ORDER BY deadline_at LIMIT ?",
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE workspace_id = ? AND status = ? AND deleted_at IS NULL AND (decision IS NULL OR decision <> 'awaiting') ORDER BY deadline_at LIMIT ?",
         )
-        .all(null, null) as { detail: string }[]
+        .all(null, null, null) as { detail: string }[]
     )
       .map((row) => row.detail)
       .join(' | ')
-    expect(plan).not.toMatch(/\(deleted_at=\?\)/)
-    expect(plan).toMatch(/^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)/)
+    expect(plan).not.toMatch(/deleted_at=\?\)/)
+    expect(plan).toMatch(
+      /^SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\?\)/,
+    )
   })
 
   it('each sweep statement seeks its own index, with no scan and no sort', () => {
@@ -1377,26 +1403,29 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
       // plans it once, under its first shape.
       [
         'effectsInStatus [pending]',
-        /^SEARCH effects USING INDEX idx_effects_status_deadline \(status=\?\)$/,
+        /^SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\?\)$/,
       ],
       [
         'expireDueEffects',
-        /SEARCH effects USING INDEX idx_effects_status_deadline \(status=\? AND deadline_at>\? AND deadline_at<\?\)/,
+        /SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\? AND deadline_at>\? AND deadline_at<\?\)/,
       ],
       [
         'pruneFinishedEffects',
-        /SEARCH effects USING INDEX idx_effects_status_finished \(status=\? AND finished_at<\?\)/,
+        /SEARCH effects USING INDEX idx_effects_status_finished \(workspace_id=\? AND status=\? AND finished_at<\?\)/,
       ],
-      ['purgeTombstones', /SEARCH effects USING INDEX idx_effects_tombstones \(deleted_at<\?\)/],
+      [
+        'purgeTombstones',
+        /SEARCH effects USING INDEX idx_effects_tombstones \(workspace_id=\? AND deleted_at<\?\)/,
+      ],
       [
         'purgeOffFeedFinished',
-        /SEARCH candidate USING INDEX idx_effects_kind_target \(kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
+        /SEARCH candidate USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
       ],
       // A machine's last scan (POD-7031): the target's records newest first,
       // where the first hit is nearly always the newest succeeded one.
       [
         'newestOnTargetIn [succeeded]',
-        /^SEARCH effects USING INDEX idx_effects_kind_target \(kind=\? AND target_kind=\? AND target_id=\?\)$/,
+        /^SEARCH effects USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\? AND target_kind=\? AND target_id=\?\)$/,
       ],
     ]
     for (const [name, pattern] of expected) {
@@ -1411,20 +1440,20 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     useOperatorStatistics()
     const plan = effectPlans().get('newestOnTargetIn [active]')
     expect(plan).toBe(
-      'SEARCH effects USING INDEX idx_effects_status_deadline (status=?) | USE TEMP B-TREE FOR ORDER BY',
+      'SEARCH effects USING INDEX idx_effects_status_deadline (workspace_id=? AND status=?) | USE TEMP B-TREE FOR ORDER BY',
     )
     // Armed: unpinned, the statistics send it through the target's history.
     const unpinned = (
       database
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE kind = ? AND target_kind = ? AND target_id = ? AND status IN ('pending', 'running') AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE workspace_id = ? AND kind = ? AND target_kind = ? AND target_id = ? AND status IN ('pending', 'running') AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
         )
-        .all(null, null, null) as { detail: string }[]
+        .all(null, null, null, null) as { detail: string }[]
     )
       .map((row) => row.detail)
       .join(' | ')
     expect(unpinned).toBe(
-      'SEARCH effects USING INDEX idx_effects_kind_target (kind=? AND target_kind=? AND target_id=?)',
+      'SEARCH effects USING INDEX idx_effects_kind_target (workspace_id=? AND kind=? AND target_kind=? AND target_id=?)',
     )
   })
 
@@ -1441,9 +1470,9 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
     try {
       const db = (seeded as unknown as { db: SqlDatabase }).db
       const insert = db.prepare(
-        `INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status,
+        `INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status,
            finished_at, created_at, updated_at, revision)
-         VALUES (?, 'machine.scan', 'machine', ?, '{}', ?, ?, ?, ?, ?, 1)`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, 'machine.scan', 'machine', ?, '{}', ?, ?, ?, ?, ?, 1)`,
       )
       const result = JSON.stringify({ repos: 'x'.repeat(5_000) })
       const HISTORY = 2_000
@@ -1463,12 +1492,14 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
 
       useOperatorStatistics()
       const plan = effectPlans().get('newestOnTargetIn [active]') ?? ''
-      const seekIndex = /USING INDEX (\S+) \(status=\?\)/.exec(plan)?.[1] ?? ''
+      const seekIndex = /USING INDEX (\S+) \(workspace_id=\? AND status=\?\)/.exec(plan)?.[1] ?? ''
       expect(seekIndex, plan).toBe('idx_effects_status_deadline')
       const rangeRows = (from: string, where: string): number =>
         (
           db
-            .prepare(`SELECT count(*) AS n FROM effects INDEXED BY ${from} WHERE ${where}`)
+            .prepare(
+              `SELECT count(*) AS n FROM effects INDEXED BY ${from} WHERE workspace_id = '${SELF_HOSTED_WORKSPACE_ID}' AND ${where}`,
+            )
             .get() as {
             n: number
           }
@@ -1498,7 +1529,7 @@ describe('POD-6970 — the effects sweep under real statistics', () => {
   it('no effects statement walks the live records through a soft-delete index', () => {
     useOperatorStatistics()
     const walks = [...effectPlans()]
-      .filter(([, plan]) => /\(deleted_at=\?\)|SCAN effects\b/.test(plan))
+      .filter(([, plan]) => /\((?:workspace_id=\? AND )?deleted_at=\?\)|SCAN effects\b/.test(plan))
       .map(([name, plan]) => `${name}: ${plan}`)
     expect(walks).toEqual([])
   })
@@ -1594,7 +1625,7 @@ describe('POD-7034 — every statement under the operator statistics', () => {
   }
 
   /** Replace the statistics with the operator's, each row whose table and index exist. */
-  const useOperatorStatistics = (): { applied: number; skipped: string[] } => {
+  const useOperatorStatistics = (): { applied: number; completed: number; skipped: string[] } => {
     database.exec('ANALYZE')
     database.exec('DELETE FROM sqlite_stat1')
     const names = new Set(
@@ -1612,11 +1643,39 @@ describe('POD-7034 — every statement under the operator statistics', () => {
         skipped.push(`${table}.${index}`)
         continue
       }
-      insert.run(table, index, stat)
+      insert.run(table, index, index === null ? stat : workspaceLedStat(database, index, stat))
       applied++
     }
+    // An index the capture predates (dev/mw's of 2026-11-17) has no row; with its
+    // key led by the workspace, SQLite's guess would price that one-workspace prefix
+    // as ten rows. On the operator's database it holds the whole table: the table's
+    // captured row count, then SQLite's own guesses for the columns after it.
+    const described = new Set(
+      OPERATOR_PLANNER_STATISTICS.flatMap(([, index]) => (index === null ? [] : [index])),
+    )
+    const tableRows = new Map<string, number>()
+    for (const [table, , stat] of OPERATOR_PLANNER_STATISTICS) {
+      tableRows.set(table, Math.max(tableRows.get(table) ?? 0, Number(stat.split(' ')[0])))
+    }
+    writeStatistics(
+      database,
+      (table, columns, unique) => {
+        const rows = tableRows.get(table)
+        if (rows === undefined || columns[0] !== 'workspace_id') return undefined
+        const after = columns
+          .slice(1)
+          .map((_, at, rest) =>
+            unique && at === rest.length - 1 ? 1 : Math.min(rows, SQLITE_DEFAULT_ROWS[at] ?? 5),
+          )
+        return [rows, rows, ...after].join(' ')
+      },
+      { replace: false, only: (index) => !described.has(index) },
+    )
     database.exec('ANALYZE sqlite_schema')
-    return { applied, skipped }
+    const completed =
+      (database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get() as { n: number }).n -
+      applied
+    return { applied, completed, skipped }
   }
 
   /** A column reference in the SQL drizzle writes: optionally quoted, optionally qualified. */
@@ -1667,7 +1726,10 @@ describe('POD-7034 — every statement under the operator statistics', () => {
       const table = tables.has(search[1]!)
         ? search[1]!
         : planFindings([`SCAN ${search[1]!}`], sqlText, tables)[0]?.table
-      const terms = search[2]!.split(' AND ').map((term) => /^(\w+)=\?$/.exec(term.trim())?.[1])
+      const terms = search[2]!
+        .replace(WORKSPACE_TERM, '')
+        .split(' AND ')
+        .map((term) => /^(\w+)=\?$/.exec(term.trim())?.[1])
       return terms.every(
         (column) =>
           column !== undefined &&
@@ -1704,16 +1766,16 @@ describe('POD-7034 — every statement under the operator statistics', () => {
   afterEach(() => modelLowSelectivity(database))
 
   it('applies the operator statistics to the schema', () => {
-    const { applied, skipped } = useOperatorStatistics()
+    const { applied, completed, skipped } = useOperatorStatistics()
     console.log(
       `operator statistics (${OPERATOR_STATISTICS_CAPTURED_AT}): ${applied} rows applied, ` +
+        `${completed} completed for indexes the capture predates, ` +
         `${skipped.length} name an index the schema no longer has: ${skipped.join(', ')}`,
     )
     // A fixture that applies nothing plans on the defaults and passes.
     expect(applied).toBeGreaterThan(100)
-    expect(
-      (database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get() as { n: number }).n,
-    ).toBe(applied)
+    // Only the indexes dev/mw added after the capture are completed (POD-7118).
+    expect(completed).toBeLessThan(15)
   })
 
   it(
@@ -1760,6 +1822,14 @@ describe('POD-7034 — every statement under the operator statistics', () => {
     [
       'apps/server/src/store/issue-panel.ts:statePage [start]',
       "The first keyset page of the issue state panels walks their primary key in order and stops at the page size, probing each row's issue; the other panel pages walk the same way (a whole-table read, listed above).",
+    ],
+    [
+      'apps/server/src/store/issue-panel.ts:artifactPage [start]',
+      "POD-7118: with both keys led by the workspace, the first artifact page joins from the workspace's live issues (the covering projection index) and sorts the artifacts it finds, rather than walking the artifacts' key to the page size; it reads at most every live issue once, and the pages after it seek below their position.",
+    ],
+    [
+      'apps/server/src/store/sessions.ts:liveSessionsOfIssueIds [512]',
+      "POD-7118: at 512 issues the statistics' seven sessions an issue come to half the operator's sessions, so the planner reads the workspace's sessions in key order once instead of seeking 512 times; smaller lists seek idx_sessions_issue.",
     ],
     [
       'apps/server/src/store/sessions.ts:refBackfillCandidates',
@@ -1863,13 +1933,13 @@ describe('POD-7034 — every statement under the operator statistics', () => {
     // statement filters it IS NULL; this one does, to show the flip.
     useOperatorStatistics()
     const planted = (size: number) =>
-      `SELECT * FROM sessions WHERE spawned_by IN (${Array.from({ length: size }, () => '?').join(', ')}) AND deleted_by_issue_id IS NULL`
+      `SELECT * FROM sessions WHERE workspace_id = ? AND spawned_by IN (${Array.from({ length: size }, () => '?').join(', ')}) AND deleted_by_issue_id IS NULL`
     const columns = new Set(['sessions.deleted_by_issue_id'])
     const walks = (size: number) =>
-      nullWalks(explain(database, { sql: planted(size), params: size }), planted(size), columns)
+      nullWalks(explain(database, { sql: planted(size), params: size + 1 }), planted(size), columns)
     expect(walks(1)).toEqual([])
     expect(walks(16)).toEqual([
-      'SEARCH sessions USING INDEX idx_sessions_deleted_by_issue (deleted_by_issue_id=?)',
+      'SEARCH sessions USING INDEX idx_sessions_deleted_by_issue (workspace_id=? AND deleted_by_issue_id=?)',
     ])
     // An equality on a value is a seek, not a walk; a range is never one.
     expect(

@@ -76,7 +76,12 @@ import {
 } from '@podium/sync/collections'
 import { getTableName } from 'drizzle-orm'
 import { textColumnClass } from '../migrations/pg/schema-classes'
-import {
+import { bindingFor } from '../store/executor/binding'
+
+/** The tables these declarations name, from the store's binding (POD-6959: no
+ *  table is imported from the schema module); names and columns are the same on
+ *  both engines. */
+const {
   automationRuns,
   conversations,
   issueDeps,
@@ -94,7 +99,7 @@ import {
   sessionUserState,
   snoozes,
   workflowRuns,
-} from '../migrations/schema'
+} = bindingFor('sqlite')
 
 const ROW = 'r'
 const col = (column: { name: string }) => `${ROW}.${column.name}`
