@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router'
 import type { ComponentProps } from 'react'
 import { TabBar } from '../../src/components/TabBar'
 import { MOBILE_TABS } from '../../src/lib/navigation'
+import { noticeScreenLayout } from '../../src/navigation/notice-screen-layout'
 
 export const unstable_settings = { initialRouteName: 'work' }
 
@@ -13,6 +14,7 @@ export default function TabsLayout() {
       // Web keeps the custom floating bar. Blurred native screens freeze in
       // the platform layout; the web navigator leaves scenes mounted.
       screenOptions={{ headerShown: false, freezeOnBlur: true }}
+      screenLayout={noticeScreenLayout}
     >
       <Tabs.Screen name={MOBILE_TABS[0].name} options={{ title: MOBILE_TABS[0].title }} />
       <Tabs.Screen name={MOBILE_TABS[1].name} options={{ title: MOBILE_TABS[1].title }} />

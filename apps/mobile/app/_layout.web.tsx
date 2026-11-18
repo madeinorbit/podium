@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router/js-stack'
 import { Easing } from 'react-native'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
+import { noticeScreenLayout } from '../src/navigation/notice-screen-layout'
 import { color } from '../src/theme/theme'
 
 export const unstable_settings = { initialRouteName: '(tabs)' }
@@ -19,6 +20,7 @@ function WebNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
       initialRouteName="(tabs)"
+      screenLayout={noticeScreenLayout}
       screenOptions={{
         headerShown: false,
         animation: 'fade',

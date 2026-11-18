@@ -1,9 +1,82 @@
 import { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { type ReactElement, type ReactNode, StrictMode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { WorkingMark } from '../components/WorkingMark.native'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null, push: vi.fn() }))
+const activity = vi.hoisted(() => ({ users: 0, route: null as ReactElement | null }))
+vi.mock('expo-router/stack', () => ({
+  Stack: ({
+    screenLayout,
+  }: {
+    screenLayout: (props: { children: ReactElement }) => ReactElement
+  }) => screenLayout({ children: activity.route ?? <></> }),
+}))
+vi.mock('../components/working-mark-motion.native', () => ({
+  workingMarkProgress: { get: () => 0 },
+  subscribeWorkingMark: () => {
+    activity.users++
+    return () => {
+      activity.users--
+    }
+  },
+}))
+vi.mock('react-native-reanimated', async () => ({
+  default: { View: (await import('react-native')).View },
+  useAnimatedStyle: (read: () => object) => read(),
+}))
+vi.mock('../navigation/use-dismiss-on-root-leave', () => ({ useDismissOnRootLeave: () => {} }))
+vi.mock('../client/use-launch-inputs', () => ({ useLaunchRepositoryPaths: () => [] }))
+vi.mock('@expo/ui', () => ({ Host: ({ children }: { children: ReactNode }) => children }))
+vi.mock('@expo/ui/swift-ui', async () => {
+  const { useEffect } = await import('react')
+  const Box = ({ children }: { children?: ReactNode }) => <div>{children}</div>
+  return {
+    BottomSheet: ({
+      isPresented,
+      onDismiss,
+      children,
+    }: {
+      isPresented: boolean
+      onDismiss?(): void
+      children: ReactNode
+    }) => {
+      useEffect(() => {
+        if (!isPresented) onDismiss?.()
+      }, [isPresented, onDismiss])
+      return isPresented ? <div role="dialog">{children}</div> : null
+    },
+    Button: ({ label, onPress }: { label: string; onPress(): void }) => (
+      <button type="button" onClick={onPress}>
+        {label}
+      </button>
+    ),
+    Form: Box,
+    Group: Box,
+    NavigationStack: Box,
+    Picker: Box,
+    Section: Box,
+    Text: Box,
+    Toggle: () => null,
+    Toolbar: Object.assign(Box, { Content: Box }),
+    ToolbarItem: Box,
+  }
+})
+vi.mock('@expo/ui/swift-ui/modifiers', () =>
+  Object.fromEntries(
+    [
+      'disabled',
+      'navigationBarTitleDisplayMode',
+      'navigationTitle',
+      'pickerStyle',
+      'presentationDetents',
+      'presentationDragIndicator',
+      'tag',
+    ].map((name) => [name, () => ({})]),
+  ),
+)
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
 vi.mock('../client/hooks', () => ({ useBooting: () => false, useStoreActions: () => ({}) }))
@@ -16,23 +89,48 @@ vi.mock('../hooks/usePersistedUiState', () => ({
   usePersistedUiState: () => [{ ordering: 'updated', showAgentTasks: true }, () => {}],
 }))
 vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: () => null }))
-vi.mock('../components/TaskFiltersSheet', () => ({ TaskFiltersSheet: () => null }))
+vi.mock('../components/TaskFiltersSheet', () => import('../components/TaskFiltersSheet.ios'))
 vi.mock('./TasksSurface', () => ({
-  TasksSurface: ({ board, onOpen }: TasksSurfaceProps) => (
+  TasksSurface: ({ board, onOpen, onFilters }: TasksSurfaceProps) => (
     <>
+      <WorkingMark />
       <input aria-label="Task search" onChange={(event) => board?.search(event.target.value)} />
       <button type="button" onClick={() => onOpen('task')}>
         Open task
+      </button>
+      <button type="button" onClick={onFilters}>
+        Filters
       </button>
     </>
   ),
 }))
 const { IssuesScreen } = await import('./IssuesScreen')
+const { default: IssuesLayout } = await vi.importActual<{ default: () => ReactElement }>(
+  '../../app/(tabs)/issues/_layout.tsx',
+)
 afterEach(() => {
   cleanup()
+  expect(activity.users).toBe(0)
+  activity.route = null
   state.pool?.dispose()
   state.pool = null
   state.push.mockClear()
+})
+
+it('stops a real mark under the real Tasks route and sibling native filter sheet, then resumes on Done', () => {
+  activity.route = <IssuesScreen />
+  render(
+    <StrictMode>
+      <IssuesLayout />
+    </StrictMode>,
+  )
+  expect(activity.users).toBe(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  expect(activity.users).toBe(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(activity.users).toBe(1)
 })
 
 it.each([

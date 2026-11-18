@@ -5,7 +5,6 @@ import { memo, type ReactNode, use, useMemo, useState } from 'react'
 import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
-import { ContentActivity } from '../lib/visible-content'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
   headerSubtitleOptions,
@@ -143,104 +142,100 @@ export function Screen({
   const runsUnder = (!!underHeader || !!large) && !hasContext
   const bodyInset = runsUnder ? 0 : barInset
   return (
-    <ContentActivity>
+    <View
+      collapsable={false}
+      style={[
+        styles.root,
+        grouped && styles.grouped,
+        noHeader && { paddingTop: insets.top },
+        safeBottom && { paddingBottom: insets.bottom },
+      ]}
+    >
+      <Stack.Screen
+        options={{
+          title: title ?? '',
+          contentStyle: { backgroundColor: grouped ? color.groupedBg : color.bg },
+          headerShown: !noHeader,
+          headerLargeTitleEnabled: !!large,
+          headerLargeTitleShadowVisible: false,
+          headerShadowVisible: false,
+          headerTransparent: transparentBar,
+          headerBackButtonDisplayMode: backButtonDisplayMode,
+          // Always set: stack options merge, so an omitted key would keep a
+          // title set while the screen showed another page.
+          headerBackTitle: backTitle,
+          // Explicitly clear the override when paging back to the chat.
+          headerBackVisible: logicalBack || nativeDismiss ? false : undefined,
+          headerTitleStyle: { color: color.text },
+          headerLargeTitleStyle: { color: color.text },
+          ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
+          ...(titleButton
+            ? {
+                headerTitle: () => (
+                  <HeaderTitleButton
+                    title={title ?? ''}
+                    subtitle={subtitleText}
+                    onPress={onTitlePress}
+                  />
+                ),
+              }
+            : {}),
+          ...(right
+            ? { headerRight: () => <View style={styles.actions}>{right}</View> }
+            : androidActions
+              ? { headerRight: () => <AndroidHeaderActions actions={androidActions} /> }
+              : {}),
+          ...(onBack && backAs === 'text' && !nativeDismiss
+            ? {
+                headerLeft: () => (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={backLabel ?? 'Cancel'}
+                    haptic={false}
+                    onPress={onBack}
+                    style={styles.textBack}
+                  >
+                    <Text style={styles.textBackLabel}>{backLabel ?? 'Cancel'}</Text>
+                  </PressableScale>
+                ),
+              }
+            : {}),
+        }}
+      />
+      {nativeLeadingActions?.length && (nativeDismiss || !(onBack && backAs === 'text')) ? (
+        <ToolbarItems placement="left" actions={nativeLeadingActions} />
+      ) : null}
+      {actions?.length && !right && !androidActions ? (
+        <ToolbarItems placement="right" actions={actions} />
+      ) : null}
       <View
-        collapsable={false}
         style={[
-          styles.root,
-          grouped && styles.grouped,
-          noHeader && { paddingTop: insets.top },
-          safeBottom && { paddingBottom: insets.bottom },
+          styles.body,
+          (bodyInset > 0 || hasContext) && {
+            paddingTop: bodyInset + (hasContext ? contextHeight : 0),
+          },
         ]}
       >
-        <Stack.Screen
-          options={{
-            title: title ?? '',
-            contentStyle: { backgroundColor: grouped ? color.groupedBg : color.bg },
-            headerShown: !noHeader,
-            headerLargeTitleEnabled: !!large,
-            headerLargeTitleShadowVisible: false,
-            headerShadowVisible: false,
-            headerTransparent: transparentBar,
-            headerBackButtonDisplayMode: backButtonDisplayMode,
-            // Always set: stack options merge, so an omitted key would keep a
-            // title set while the screen showed another page.
-            headerBackTitle: backTitle,
-            // Explicitly clear the override when paging back to the chat.
-            headerBackVisible: logicalBack || nativeDismiss ? false : undefined,
-            headerTitleStyle: { color: color.text },
-            headerLargeTitleStyle: { color: color.text },
-            ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
-            ...(titleButton
-              ? {
-                  headerTitle: () => (
-                    <HeaderTitleButton
-                      title={title ?? ''}
-                      subtitle={subtitleText}
-                      onPress={onTitlePress}
-                    />
-                  ),
-                }
-              : {}),
-            ...(right
-              ? { headerRight: () => <View style={styles.actions}>{right}</View> }
-              : androidActions
-                ? { headerRight: () => <AndroidHeaderActions actions={androidActions} /> }
-                : {}),
-            ...(onBack && backAs === 'text' && !nativeDismiss
-              ? {
-                  headerLeft: () => (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel={backLabel ?? 'Cancel'}
-                      haptic={false}
-                      onPress={onBack}
-                      style={styles.textBack}
-                    >
-                      <Text style={styles.textBackLabel}>{backLabel ?? 'Cancel'}</Text>
-                    </PressableScale>
-                  ),
-                }
-              : {}),
-          }}
-        />
-        {nativeLeadingActions?.length && (nativeDismiss || !(onBack && backAs === 'text')) ? (
-          <ToolbarItems placement="left" actions={nativeLeadingActions} />
-        ) : null}
-        {actions?.length && !right && !androidActions ? (
-          <ToolbarItems placement="right" actions={actions} />
-        ) : null}
-        <View
-          style={[
-            styles.body,
-            (bodyInset > 0 || hasContext) && {
-              paddingTop: bodyInset + (hasContext ? contextHeight : 0),
-            },
-          ]}
-        >
-          <HeaderInsetContext value={runsUnder ? barInset : 0}>{children}</HeaderInsetContext>
-        </View>
-        {hasContext ? (
-          <View
-            style={[styles.context, barInset > 0 && { top: barInset }]}
-            onLayout={(event: LayoutChangeEvent) =>
-              setContextHeight(event.nativeEvent.layout.height)
-            }
-          >
-            {leading}
-            {stripSubtitle ? (
-              <Text
-                dynamicTypeRamp="caption1"
-                numberOfLines={2}
-                style={[styles.contextText, monoSubtitle && styles.monoContext]}
-              >
-                {stripSubtitle}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
+        <HeaderInsetContext value={runsUnder ? barInset : 0}>{children}</HeaderInsetContext>
       </View>
-    </ContentActivity>
+      {hasContext ? (
+        <View
+          style={[styles.context, barInset > 0 && { top: barInset }]}
+          onLayout={(event: LayoutChangeEvent) => setContextHeight(event.nativeEvent.layout.height)}
+        >
+          {leading}
+          {stripSubtitle ? (
+            <Text
+              dynamicTypeRamp="caption1"
+              numberOfLines={2}
+              style={[styles.contextText, monoSubtitle && styles.monoContext]}
+            >
+              {stripSubtitle}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
   )
 }
 

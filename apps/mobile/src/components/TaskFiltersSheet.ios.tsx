@@ -1,6 +1,5 @@
 import { Host } from '@expo/ui'
 import {
-  BottomSheet,
   Button,
   Form,
   Group,
@@ -25,6 +24,7 @@ import { useState } from 'react'
 import { StyleSheet } from 'react-native'
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color } from '../theme/theme'
+import { ActivitySheet as BottomSheet } from './ActivitySheet.ios'
 import {
   DISPLAY_FACETS,
   type Facet,

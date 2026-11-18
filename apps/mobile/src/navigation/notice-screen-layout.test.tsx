@@ -9,14 +9,11 @@ it.each([
   'session/[id]',
   'index',
 ])('keeps %s content free of floating delivery banners', (name) => {
-  const child = <div>Content</div>
+  const child = <div>{name} Content</div>
   const layout = noticeScreenLayout({
-    route: { name },
-    options: { headerTransparent: true },
     children: child,
   })
-  expect(layout).toBe(child)
   const view = render(layout)
-  expect(view.getByText('Content')).toBeTruthy()
+  expect(view.getByText(`${name} Content`)).toBeTruthy()
   expect(view.queryByRole('alert')).toBeNull()
 })
