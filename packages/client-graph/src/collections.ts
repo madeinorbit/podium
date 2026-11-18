@@ -191,14 +191,35 @@ export class PoolCollections {
   private readonly refIndexes = new WeakMap<object, Map<string, string>>()
   /** Per stub array: whether each repository has a live issue, or only deleted ones. */
   private readonly repoPresence = new WeakMap<object, Map<string, 'live' | 'deleted'>>()
-  /** What an open view reads, by its key: the instance, and its hold's release once taken. */
-  private readonly reads = new Map<string, { spec: LoaderInstance; release?: () => void }>()
   /**
-   * An instance an open view reads is held while the view reads it (design
-   * "Two holders of an instance": the policy and an open view) and is cache
-   * again once no view does. As cache, a tree or a page bigger than the cap
-   * was trimmed after every answer while its view still read it, and asked
-   * for again: the flight deck never settled (POD-7155).
+   * What an open view reads, by its key: the instance, its hold's release
+   * once taken, and for a "one record" instance the record it is for.
+   */
+  private readonly reads = new Map<
+    string,
+    { spec: LoaderInstance; release?: () => void; record?: { entity: LoaderEntity; id: string } }
+  >()
+  /**
+   * The records whose "one record" instance an open view holds now, by
+   * entity: a reader of such a record keeps the hold after the record
+   * arrived (`keepRecord`). Only held ones; a release forgets the id.
+   */
+  private readonly heldRecords: Record<LoaderEntity, Set<string>> = {
+    issue: new Set(),
+    session: new Set(),
+  }
+  /**
+   * HOLDING FOLLOWS READING (POD-7155, POD-7158; design POD-7157 "Layer 2:
+   * memory"). An instance an open view reads is held while the view reads
+   * it (design "Two holders of an instance": the policy and an open view)
+   * and is cache again once no view does, with no timer here (the warm
+   * set's grace is POD-7161's). Every read that needs an instance takes its
+   * hold here: `held`, `pageEnded`, `pageTotal`, `treeHeld`, a lookup
+   * (`absent`, then `keepRecord` while the record is read) and the records
+   * a request returned (`holdRecords`). There is no other way for a view to
+   * ask the loader for an instance: as cache, a tree or a page bigger than
+   * the cap was trimmed after every answer while its view still read it,
+   * and asked for again (the flight deck never settled, POD-7155).
    */
   private readonly readDemand = createDemandAtoms<string>((key) => `pool.collections.read:${key}`, {
     onObserved: (key) => {
@@ -317,31 +338,46 @@ export class PoolCollections {
     return 'here'
   }
 
-  /** TRACKED: whether the device holds a paged instance to its end (or whole). */
+  /**
+   * TRACKED: whether the device holds a paged instance to its end (or
+   * whole). The reader holds it, every page of it, while it reads it; a
+   * device that holds no page of it asks for the first.
+   */
   pageEnded(spec: LoaderInstance): boolean {
+    const loader = this.loader()
     this.observeMarker(spec)
     this.holdWhileRead(spec)
-    const marker = this.loader()?.isComplete(spec)
+    const marker = loader?.isComplete(spec)
+    if (marker === undefined) loader?.request([spec], 'visible')
     return marker !== undefined && (marker.range === undefined || marker.range.end)
   }
 
-  /** TRACKED: a paged instance's whole size for this viewer, from its first page. */
+  /**
+   * TRACKED: a paged instance's whole size for this viewer, from its first
+   * page. The reader holds the instance while it reads it, as `pageEnded`.
+   */
   pageTotal(spec: LoaderInstance): number | typeof LOADING {
+    const loader = this.loader()
     this.observeMarker(spec)
     this.holdWhileRead(spec)
-    return this.loader()?.isComplete(spec)?.total ?? LOADING
+    const marker = loader?.isComplete(spec)
+    if (marker === undefined) loader?.request([spec], 'visible')
+    return marker?.total ?? LOADING
   }
 
   /**
-   * A paged instance the device holds part of: ask for the page after the
-   * last one it holds, unless that was the end. A view calls it when its
-   * reader nears the end of what is held ("the next cards").
+   * A paged instance an open view reads (`pageEnded`, `pageTotal`, `held`)
+   * and the device holds part of: ask for the page after the last one it
+   * holds, unless that was the end. A view calls it when its reader nears
+   * the end of what is held ("the next cards"). The next page is part of
+   * the same instance, so the reader that holds the first page holds it
+   * too; an instance no view reads gets no next page.
    */
   nextPage(spec: LoaderInstance): void {
     const loader = this.loader()
-    const range = loader?.isComplete(spec)?.range
-    if (loader === undefined || range === undefined || range.end || range.through === undefined)
-      return
+    if (loader === undefined || !this.reads.has(readKey(spec))) return
+    const range = loader.isComplete(spec)?.range
+    if (range === undefined || range.end || range.through === undefined) return
     loader.request([{ ...spec, after: range.through as LoaderInstance['after'] }], 'visible')
   }
 
@@ -359,26 +395,16 @@ export class PoolCollections {
     return false
   }
 
-  /** An open view holds an instance; it loads first. Returns the release (the instance becomes cache). */
-  show(spec: LoaderInstance): () => void {
-    return this.loader()?.show(spec) ?? (() => {})
-  }
-
-  /** Ask for instances without holding them (cache). */
-  request(
-    specs: readonly LoaderInstance[],
-    priority: 'visible' | 'background' = 'background',
-  ): void {
-    this.loader()?.request(specs, priority)
-  }
-
   /**
-   * The records a request returned (server search hits): installed as "one
-   * record" instances, cache. The view keeps the ids and reads each through
-   * `pool.model`, so there is still one shared model per record.
+   * TRACKED: a view reads these records by id, the records a request
+   * returned (server search hits). Each one's "one record" instance is held
+   * while the view reads the ids, and loads first; once no view does, they
+   * are cache. The view reads each record through `pool.model`, so there is
+   * still one shared model per record.
    */
-  adopt(entity: LoaderEntity, ids: readonly string[]): void {
-    this.loader()?.requestRecords(LOADER_KIND[entity], ids)
+  holdRecords(entity: LoaderEntity, ids: readonly string[]): void {
+    if (this.loader() === undefined) return
+    for (const id of ids) this.holdRecord(entity, id)
   }
 
   // ------------------------------------------------------------ lookups
@@ -391,11 +417,23 @@ export class PoolCollections {
   absent(entity: LoaderEntity, id: string): typeof LOADING | Gone | undefined {
     const loader = this.loader()
     if (loader === undefined) return undefined
-    const spec = oneRecordOf(entity, id)
+    const spec = this.holdRecord(entity, id)
     this.observeMarker(spec)
     if (loader.isComplete(spec) !== undefined || loader.wasRefused(spec)) return NOT_VISIBLE
     loader.request([spec], 'visible')
     return LOADING
+  }
+
+  /**
+   * TRACKED: a reader reads a record the pool holds. When an open view holds
+   * the record's "one record" instance (it looked the record up, or a
+   * request returned it), this reader keeps that hold: the record stays
+   * while it is read, and is cache once nothing reads it. The pool calls it
+   * for every issue and session row it hands out; a record nobody looked up
+   * costs one set lookup.
+   */
+  keepRecord(entity: LoaderEntity, id: string): void {
+    if (this.heldRecords[entity].has(id)) this.holdWhileRead(oneRecordOf(entity, id))
   }
 
   /** TRACKED: the issue's stub as the device holds it (a stub, or picked from the whole record). */
@@ -633,19 +671,39 @@ export class PoolCollections {
     })
   }
 
-  /** TRACKED: an open view reads `spec`; it is held while that view observes it. */
-  private holdWhileRead(spec: LoaderInstance): void {
+  /**
+   * TRACKED: an open view reads `spec`; it is held while that view observes
+   * it. Returns the read's key while a view observes it, else undefined.
+   */
+  private holdWhileRead(spec: LoaderInstance): string | undefined {
     const key = readKey(spec)
     if (!this.reads.has(key)) {
       const { after: _position, ...instance } = spec
       this.reads.set(key, { spec: instance })
     }
-    if (!this.readDemand.observe(key) && !this.readDemand.has(key)) this.reads.delete(key)
+    if (!this.readDemand.observe(key) && !this.readDemand.has(key)) {
+      this.reads.delete(key)
+      return undefined
+    }
+    return key
+  }
+
+  /** TRACKED: an open view reads one record: its "one record" instance, held while observed. */
+  private holdRecord(entity: LoaderEntity, id: string): LoaderInstance {
+    const spec = oneRecordOf(entity, id)
+    const key = this.holdWhileRead(spec)
+    const read = key === undefined ? undefined : this.reads.get(key)
+    if (read !== undefined && read.record === undefined) {
+      read.record = { entity, id }
+      this.heldRecords[entity].add(id)
+    }
+    return spec
   }
 
   private releaseRead(key: string): void {
     const read = this.reads.get(key)
     this.reads.delete(key)
+    if (read?.record !== undefined) this.heldRecords[read.record.entity].delete(read.record.id)
     read?.release?.()
   }
 
@@ -683,6 +741,8 @@ export class PoolCollections {
     this.disposed = true
     for (const key of [...this.reads.keys()]) this.releaseRead(key)
     this.readDemand.clear()
+    this.heldRecords.issue.clear()
+    this.heldRecords.session.clear()
     this.markerReads.clear()
     this.markerSpecs.clear()
     this.stubReads.clear()

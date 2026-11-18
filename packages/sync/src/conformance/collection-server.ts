@@ -26,6 +26,7 @@ import type {
   Cursor,
   DeltaFrame,
   InstanceRequest,
+  InstanceScalar,
   InstanceSpec,
 } from '../replica/types'
 
@@ -124,6 +125,13 @@ export class CollectionServer implements AuthorityReadPort {
   answerComesWith = false
   /** Stop every answer after this many chunks, as a process that died does: it never resumes. */
   dieAfterChunks: number | undefined
+  /**
+   * Answer a paged collection a page of this many records at a time, as the
+   * server's fetch route does with the declared size: a range marker, the
+   * total with the first page, a later page below `after`. Unset, a paged
+   * collection is answered whole.
+   */
+  pageRows: number | undefined
   private chunksServed = 0
   private readonly rows = new Map<string, WorldRow>()
   /** The same rows by record type, then id: an answer reads one type. */
@@ -284,7 +292,9 @@ export class CollectionServer implements AuthorityReadPort {
     for (let next = 0; next < queue.length; next += 1) {
       const spec = queue[next]!
       const stub = spec.part === 'stub'
-      const rows = this.members(spec).filter((row) => row.seq <= at)
+      let rows = this.members(spec).filter((row) => row.seq <= at)
+      const paged = this.page(spec as InstanceRequest, rows)
+      if (paged !== undefined) rows = paged.rows
       if (this.answerComesWith && !stub) {
         const resolved = resolveInstance(spec, policyArgs(this.policy))
         for (const row of rows)
@@ -322,6 +332,8 @@ export class CollectionServer implements AuthorityReadPort {
         part: spec.part,
         ...(spec.args === undefined ? {} : { args: spec.args }),
         ...(spec.via === undefined ? {} : { via: spec.via }),
+        ...(paged === undefined ? {} : { range: paged.range }),
+        ...(paged?.total === undefined ? {} : { total: paged.total }),
       }
       if (envelopes.length === 0) chunks.push({ ...base, changes: [], complete: [marker] })
       for (let offset = 0; offset < envelopes.length; offset += this.chunkRows) {
@@ -350,6 +362,41 @@ export class CollectionServer implements AuthorityReadPort {
         yield chunk
       }
     })()
+  }
+
+  /** One page of a paged collection's members (`pageRows`), its range and, first, its total. */
+  private page(
+    spec: InstanceRequest,
+    rows: readonly WorldRow[],
+  ): { rows: WorldRow[]; range: NonNullable<CompleteMarker['range']>; total?: number } | undefined {
+    const page = COLLECTIONS.get(spec.collection)?.page
+    if (page === undefined || this.pageRows === undefined) return undefined
+    const position = (row: WorldRow): InstanceScalar[] =>
+      page.sort.map(({ field }) => (row.value[field] ?? null) as InstanceScalar)
+    const compare = (a: readonly InstanceScalar[], b: readonly InstanceScalar[]): number => {
+      for (let at = 0; at < page.sort.length; at += 1) {
+        const x = a[at] ?? null
+        const y = b[at] ?? null
+        if (x === y) continue
+        const order = x === null ? -1 : y === null ? 1 : x < y ? -1 : 1
+        return page.sort[at]!.direction === 'desc' ? -order : order
+      }
+      return 0
+    }
+    const sorted = [...rows].sort((a, b) => compare(position(a), position(b)))
+    const after = spec.after
+    const below =
+      after === undefined ? sorted : sorted.filter((row) => compare(position(row), after) > 0)
+    const taken = below.slice(0, this.pageRows)
+    const last = taken.at(-1)
+    return {
+      rows: taken,
+      range: {
+        ...(last === undefined ? {} : { through: position(last) }),
+        end: below.length <= this.pageRows,
+      },
+      ...(after === undefined ? { total: sorted.length } : {}),
+    }
   }
 
   /** Chunks served so far, across every answer. */

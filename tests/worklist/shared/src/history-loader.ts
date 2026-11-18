@@ -98,14 +98,10 @@ export function historyLoader(
         ask(ENTITY_OF_KIND[kind], spec.args?.id, keyOf(spec))
       }
     },
-    show: () => () => {},
-    requestRecords(kind, ids) {
-      for (const id of ids)
-        ask(
-          ENTITY_OF_KIND[kind],
-          id,
-          keyOf({ collection: `${kind}.one`, args: { id }, part: 'main' }),
-        )
+    // As the loader's: a view's hold loads its instance first (search hits, POD-7158).
+    show(spec) {
+      port.request([spec])
+      return () => {}
     },
     status: (spec) => (complete.has(keyOf(spec)) ? 'complete' : 'loading'),
     online: true,

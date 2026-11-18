@@ -779,6 +779,9 @@ export class MobxPool {
       }
       return residency.lookup(core, id, absent === 'load')
     }
+    // A record a view looked up keeps its hold while it is read (POD-7158).
+    if (absent === 'load' && (core === 'issue' || core === 'session'))
+      this.collections.keepRecord(core, id)
     if (
       (core === 'session' || core === 'issue') &&
       (core === 'session'

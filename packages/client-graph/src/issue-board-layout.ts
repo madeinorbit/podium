@@ -292,9 +292,10 @@ export function createBoardLayout(pool: MobxPool) {
   // each question gets its answer": board columns). Its count is exact
   // locally only when the device holds the whole column: the sidebar
   // collection holds every open stage that is not proposed, a stage page
-  // read to its end holds the rest. Otherwise the column asks for its page,
-  // and its count comes from the stubs when the filter reads only stub
-  // fields, with the page when it filters by priority, else LOADING.
+  // read to its end holds the rest. Otherwise the column reads its page,
+  // which asks for it and holds it while the column is read (POD-7158), and
+  // its count comes from the stubs when the filter reads only stub fields,
+  // with the page when it filters by priority, else LOADING.
   const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' } as const
   const pageOf = (options: BoardColumnOptions) =>
     options.filter.priority != null
@@ -308,7 +309,6 @@ export function createBoardLayout(pool: MobxPool) {
     if ((SIDEBAR_STAGES as readonly string[]).includes(options.stage) && pool.collections.complete(SIDEBAR))
       return true
     if (pool.collections.pageEnded(pageOf(options))) return true
-    pool.collections.request([pageOf(options)], 'visible')
     return false
   })
   /** The repositories at each filtered project path, by their own records. */

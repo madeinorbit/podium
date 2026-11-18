@@ -67,7 +67,6 @@ export interface LoaderMarker {
 export interface CollectionLoaderPort {
   request(requests: readonly LoaderInstance[], priority?: 'visible' | 'background'): void
   show(spec: LoaderInstance): () => void
-  requestRecords(kind: string, ids: readonly string[], priority?: 'visible' | 'background'): void
   status(spec: LoaderInstance): 'complete' | 'loading' | 'offline'
   readonly online: boolean
   /** The device started empty and its first download has not finished. */

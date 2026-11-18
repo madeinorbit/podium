@@ -43,7 +43,8 @@ function fixture(online = true) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   stops.push(() => pool.dispose())
   pool.apply({ type: 'replace', rows: [row('device')] as never })
-  const adopt = vi.fn((_kind: string, ids: readonly string[]) => {
+  // The server's answer: its records reach the device as the loader installs them.
+  const install = (ids: readonly string[]) => {
     const missing = ids.filter((id) => !pool.tables.issue.has(id))
     pool.apply({
       type: 'update',
@@ -56,16 +57,20 @@ function fixture(online = true) {
         }),
       ) as never,
     })
-  })
+  }
+  /** The hits a reader holds: each one's "one record" instance (POD-7158). */
+  const held = vi.fn((_id: string) => {})
   const port: CollectionLoaderPort = {
     online,
     firstDownload: false,
     isComplete: (spec) => (spec.collection === 'issueProjection.stubs' ? {} : undefined),
     wasRefused: () => false,
-    requestRecords: adopt,
     subscribe: () => () => {},
     request() {},
-    show: () => () => {},
+    show: (spec) => {
+      if (spec.collection === 'issueProjection.one') held(String(spec.args?.['id']))
+      return () => {}
+    },
     status: () => (online ? 'loading' : 'offline'),
     stubOf: (_entity, id) =>
       pool.tables.issue.get(id) as unknown as Readonly<Record<string, unknown>>,
@@ -77,12 +82,12 @@ function fixture(online = true) {
       })),
   }
   pool.collections.attach(() => port)
-  const query = vi.fn(async () => ({
-    hits: [{ id: 'remote' }, { id: 'device' }, { id: 'remote' }],
-    next: null,
-  }))
+  const query = vi.fn(async () => {
+    install(['remote', 'device'])
+    return { hits: [{ id: 'remote' }, { id: 'device' }, { id: 'remote' }], next: null }
+  })
   issueSearch(pool).bind(query)
-  return { pool, query, adopt }
+  return { pool, query, held }
 }
 
 const surfaces = {
@@ -116,7 +121,7 @@ const surfaces = {
 for (const [name, open] of Object.entries(surfaces))
   describe(name, () => {
     it('finds a body match absent from this device through shared identities', async () => {
-      const { pool, query, adopt } = fixture()
+      const { pool, query, held } = fixture()
       const read = open(pool)
       let ids: readonly string[] = []
       const stop = autorun(() => {
@@ -129,7 +134,8 @@ for (const [name, open] of Object.entries(surfaces))
       expect(query).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
       expect(query).toHaveBeenCalledTimes(1)
-      expect(adopt).toHaveBeenCalledWith('issueProjection', ['remote', 'device'])
+      expect(held).toHaveBeenCalledWith('remote')
+      expect(held).toHaveBeenCalledWith('device')
       expect(ids).toContain('remote')
       const identity = pool.issueObject('remote')
       pool.apply({
@@ -141,7 +147,7 @@ for (const [name, open] of Object.entries(surfaces))
     })
 
     it('keeps device matches usable offline without a failed request', async () => {
-      const { pool, query, adopt } = fixture(false)
+      const { pool, query, held } = fixture(false)
       // All surfaces can display this closed device row, including the phone's Closed lane.
       pool.apply({
         type: 'update',
@@ -157,12 +163,12 @@ for (const [name, open] of Object.entries(surfaces))
       await vi.advanceTimersByTimeAsync(500)
       expect(ids).toContain('device')
       expect(query).not.toHaveBeenCalled()
-      expect(adopt).not.toHaveBeenCalled()
+      expect(held).not.toHaveBeenCalled()
     })
   })
 
 it('merges device IDs first, deduplicates and ignores a superseded in-flight reply', async () => {
-  const { pool, adopt } = fixture()
+  const { pool, held } = fixture()
   const resolve = new Map<string, (page: IssueSearchPage) => void>()
   const query = vi.fn(
     ({ text }: { text: string }) => new Promise<IssueSearchPage>((done) => resolve.set(text, done)),
@@ -187,12 +193,12 @@ it('merges device IDs first, deduplicates and ignores a superseded in-flight rep
   resolve.get('first')!({ hits: [{ id: 'stale' }], next: null })
   await vi.advanceTimersByTimeAsync(0)
   expect(result?.ids).toEqual(['device', 'new'])
-  expect(adopt).not.toHaveBeenCalledWith('issueProjection', ['stale'])
+  expect(held).not.toHaveBeenCalledWith('stale')
   expect(pool.tables.issue.has('stale')).toBe(false)
 })
 
 it('fails silently to device matches and cancels a closed search before its debounce', async () => {
-  const { pool, adopt } = fixture()
+  const { pool, held } = fixture()
   const query = vi.fn(async () => {
     throw new Error('offline')
   })
@@ -203,7 +209,7 @@ it('fails silently to device matches and cancels a closed search before its debo
   })
   await vi.advanceTimersByTimeAsync(150)
   expect(result).toMatchObject({ ids: ['device'], pending: false, complete: false })
-  expect(adopt).not.toHaveBeenCalled()
+  expect(held).not.toHaveBeenCalled()
   stop()
   const abandoned = autorun(() => {
     issueSearch(pool).read('abandoned', [])
@@ -216,7 +222,7 @@ it('fails silently to device matches and cancels a closed search before its debo
 describe('paged server answers (POD-7108)', () => {
   const ids = (from: number, n: number) => Array.from({ length: n }, (_, i) => `hit-${from + i}`)
   function paged() {
-    const { pool, adopt } = fixture()
+    const { pool, held } = fixture()
     const pages: Record<string, IssueSearchPage> = {
       first: { hits: ids(0, ISSUE_SEARCH_PAGE).map((id) => ({ id })), next: 'after-first' },
       'after-first': { hits: ids(ISSUE_SEARCH_PAGE, 7).map((id) => ({ id })), next: null },
@@ -230,31 +236,30 @@ describe('paged server answers (POD-7108)', () => {
         result = issueSearch(pool).read('re', [], undefined, want.get())
       }),
     )
-    return { adopt, query, want, read: () => result }
+    return { held, query, want, read: () => result }
   }
 
-  it('installs only the first page until the view wants more', async () => {
-    const { adopt, query, read } = paged()
+  it('holds only the first page until the view wants more', async () => {
+    const { held, query, read } = paged()
     await vi.advanceTimersByTimeAsync(150)
     expect(query).toHaveBeenCalledTimes(1)
     expect(query).toHaveBeenCalledWith({ text: 're' })
-    expect(adopt).toHaveBeenCalledTimes(1)
-    expect(adopt).toHaveBeenCalledWith('issueProjection', ids(0, ISSUE_SEARCH_PAGE))
+    // Each hit of the page is held once, by the view that reads the ids (POD-7158).
+    expect(held.mock.calls.map(([id]) => id)).toEqual(ids(0, ISSUE_SEARCH_PAGE))
     expect(read()).toMatchObject({ more: true, pending: false })
     expect(read()?.serverIds).toEqual(ids(0, ISSUE_SEARCH_PAGE))
     await vi.advanceTimersByTimeAsync(1000)
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('asks for the next page when the view scrolls past the first, installing only that page', async () => {
-    const { adopt, query, want, read } = paged()
+  it('asks for the next page when the view scrolls past the first, holding only that page more', async () => {
+    const { held, query, want, read } = paged()
     await vi.advanceTimersByTimeAsync(150)
     runInAction(() => want.set(ISSUE_SEARCH_PAGE + 14))
     await vi.advanceTimersByTimeAsync(0)
     expect(query).toHaveBeenCalledTimes(2)
     expect(query).toHaveBeenLastCalledWith({ text: 're', cursor: 'after-first' })
-    expect(adopt).toHaveBeenCalledTimes(2)
-    expect(adopt).toHaveBeenLastCalledWith('issueProjection', ids(ISSUE_SEARCH_PAGE, 7))
+    expect(held.mock.calls.map(([id]) => id)).toEqual(ids(0, ISSUE_SEARCH_PAGE + 7))
     expect(read()?.serverIds).toEqual(ids(0, ISSUE_SEARCH_PAGE + 7))
     expect(read()?.more).toBe(false)
     // The answer is complete: wanting more asks nothing.
@@ -264,7 +269,7 @@ describe('paged server answers (POD-7108)', () => {
   })
 
   it('stops paging after a failed page instead of retrying on every read', async () => {
-    const { pool, adopt } = fixture()
+    const { pool, held } = fixture()
     const query = vi.fn(async (input: IssueSearchInput) => {
       if (input.cursor) throw new Error('offline')
       return { hits: [{ id: 'remote' }], next: 'after-first' }
@@ -282,6 +287,6 @@ describe('paged server answers (POD-7108)', () => {
     runInAction(() => want.set(3))
     await vi.advanceTimersByTimeAsync(1000)
     expect(query).toHaveBeenCalledTimes(2)
-    expect(adopt).toHaveBeenCalledTimes(1)
+    expect(held).toHaveBeenCalledTimes(1)
   })
 })

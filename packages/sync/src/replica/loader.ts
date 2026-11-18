@@ -159,7 +159,7 @@ export class CollectionLoader {
     let added = false
     for (const request of requests) {
       const key = instanceKey(request)
-      if (this.replica.isComplete(request) !== undefined) continue
+      if (this.held(request)) continue
       if (this.inFlight.has(key) || this.riding.has(key)) continue
       this.refusedKeys.delete(key)
       const queued = this.queue.get(key)
@@ -338,7 +338,7 @@ export class CollectionLoader {
     const batch = [...this.queue.values()]
       .sort((a, b) => rank(a.priority) - rank(b.priority))
       .map((queued) => queued.request)
-      .filter((request) => this.replica.isComplete(request) === undefined)
+      .filter((request) => !this.held(request))
     this.queue.clear()
     const sends: Promise<void>[] = []
     for (let at = 0; at < batch.length; at += MAX_INSTANCES)
@@ -385,6 +385,21 @@ export class CollectionLoader {
     this.notify('markers')
   }
 
+  /**
+   * Whether the device already holds what `request` asks for. An instance's
+   * key ignores a page's position, so a later page (`after`) of a paged
+   * instance the device holds part of is not held yet: its marker has a
+   * range short of the end, through exactly that position (POD-7158: next
+   * pages were dropped as complete and never loaded).
+   */
+  private held(request: InstanceRequest): boolean {
+    const marker = this.replica.isComplete(request)
+    if (marker === undefined) return false
+    if (request.after === undefined) return true
+    const range = marker.range
+    return range === undefined || range.end || !samePosition(range.through, request.after)
+  }
+
   /** Answered in full without a marker: the server will not say this one is complete. */
   private readonly refusedKeys = new Set<string>()
 
@@ -428,6 +443,16 @@ export class CollectionLoader {
 }
 
 const rank = (priority: LoadPriority): number => (priority === 'visible' ? 0 : 1)
+
+/** Two page positions, value by value. */
+const samePosition = (
+  a: readonly unknown[] | undefined,
+  b: readonly unknown[] | undefined,
+): boolean =>
+  a !== undefined &&
+  b !== undefined &&
+  a.length === b.length &&
+  a.every((value, at) => value === b[at])
 
 const hasStub = (kind: string): boolean => (recordOf(kind)?.stub.length ?? 0) > 0
 

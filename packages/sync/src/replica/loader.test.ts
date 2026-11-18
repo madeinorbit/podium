@@ -517,3 +517,74 @@ describe('a trim while an answer streams (POD-7155)', () => {
     release()
   })
 })
+
+describe('a paged instance, a page at a time (POD-7158)', () => {
+  const PAGE: InstanceRequest = {
+    collection: 'issueProjection.byStage',
+    args: { stage: 'done' },
+    part: 'main',
+  }
+
+  async function pagedDevice() {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 50
+    server.pageRows = 10
+    for (let i = 1; i <= 25; i += 1)
+      server.put(ISSUE, `P${i}`, issue(`P${i}`, { stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    d.loader.request([PAGE], 'visible')
+    await settle(d)
+    const resident = () =>
+      Array.from({ length: 25 }, (_, i) => `P${i + 1}`).filter(
+        (id) => d.replica.view(ISSUE, id) !== undefined,
+      ).length
+    return { server, d, resident }
+  }
+
+  it('a later page loads below the last position held; asked again, or past the end, nothing is sent', async () => {
+    const { server, d, resident } = await pagedDevice()
+    const first = d.replica.isComplete(PAGE)
+    expect(first?.range?.end).toBe(false)
+    expect(resident()).toBe(10)
+    expect(requestsNaming(server, PAGE)).toBe(1)
+
+    // The page after the first: its instance is complete, yet the page is not on the device.
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(2)
+    expect(resident()).toBe(20)
+    const second = d.replica.isComplete(PAGE)
+    expect(second?.range?.end).toBe(false)
+    expect(second?.range?.through).not.toEqual(first!.range!.through)
+
+    // The same page asked again: the device holds past it, nothing is sent.
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(2)
+
+    // The last page, then nothing more.
+    d.loader.request([{ ...PAGE, after: second!.range!.through! }], 'visible')
+    await settle(d)
+    expect(resident()).toBe(25)
+    const last = d.replica.isComplete(PAGE)
+    expect(last?.range?.end).toBe(true)
+    d.loader.request([{ ...PAGE, after: last!.range!.through! }], 'visible')
+    d.loader.request([PAGE], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(3)
+  })
+
+  it("a later page keeps the first page's total", async () => {
+    const { d } = await pagedDevice()
+    const first = d.replica.isComplete(PAGE)
+    expect(first?.total).toBe(25)
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    const second = d.replica.isComplete(PAGE)
+    expect(second?.range?.through).not.toEqual(first!.range!.through)
+    expect(second?.total).toBe(25)
+  })
+})

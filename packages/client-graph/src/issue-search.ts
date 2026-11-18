@@ -39,7 +39,8 @@ export const ISSUE_SEARCH_PAGE = 50
  *
  * A request holds the server pages it was asked for, in order. A view that
  * scrolls past them reads with a larger `want`, and only then is the next
- * page requested; each page's identities are adopted on their own. */
+ * page requested. The view holds every loaded page's hits while it reads
+ * them (POD-7158). */
 export class IssueSearch {
   private query: IssueSearchQuery | undefined
   private readonly requests = new Map<string, SearchRequest>()
@@ -79,6 +80,8 @@ export class IssueSearch {
       answer.want(want)
     }
     const serverIds = answer?.ids ?? EMPTY
+    // The hits the view reads are held while it reads them (POD-7158).
+    this.pool.collections.holdRecords('issue', serverIds)
     return {
       ids: [...new Set([...deviceIds, ...serverIds])],
       serverIds,
@@ -163,8 +166,6 @@ class SearchRequest {
         const held = new Set(this.ids)
         const added = [...new Set(page.hits.map((hit) => hit.id))].filter((id) => !held.has(id))
         this.ids = [...this.ids, ...added]
-        // Only this page's identities are installed.
-        if (added.length > 0) this.pool.collections.adopt('issue', added)
         this.next = page.next
         this.complete = true
         this.pending = false

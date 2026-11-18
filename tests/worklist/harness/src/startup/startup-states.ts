@@ -155,7 +155,6 @@ export function devicePort(feed: StartupFeed, state: DeviceState): CollectionLoa
   return {
     request: () => {},
     show: () => () => {},
-    requestRecords: () => {},
     status: (spec) => (complete(spec) ? 'complete' : 'loading'),
     online: true,
     firstDownload: state.firstDownload,

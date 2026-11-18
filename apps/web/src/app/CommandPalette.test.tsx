@@ -345,24 +345,26 @@ describe('palette device/server issue identities', () => {
       stage: 'done',
       closedReason: 'done',
     })
-    const query = vi.fn(async () => ({ hits: [{ id: remote.id }], next: null }))
-    issueSearch(pool).bind(query)
-    const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
+    // The server answers the hit; the device installs its record (the loader's part).
+    const query = vi.fn(async () => {
       pool.apply({
         type: 'update',
-        rows: ids.map((id) => ({ kind: 'issue' as const, id, value: remote })),
+        rows: [{ kind: 'issue' as const, id: remote.id, value: remote }],
       })
+      return { hits: [{ id: remote.id }], next: null }
     })
+    issueSearch(pool).bind(query)
+    const hold = vi.spyOn(pool.collections, 'holdRecords')
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'needle' } })
     expect(screen.getByText('Needle local')).toBeTruthy()
     expect(screen.queryByText('Historical task')).toBeNull()
     await waitFor(() => expect(screen.getByText('Historical task')).toBeTruthy())
     expect(query).toHaveBeenCalledWith({ text: 'needle' })
-    expect(adopt).toHaveBeenCalledWith('issue', [remote.id])
+    expect(hold).toHaveBeenCalledWith('issue', [remote.id])
     expect(pool.issueObject(remote.id).title).toBe('Historical task')
     fireEvent.click(screen.getByRole('option', { name: /Historical task/ }))
     expect(fixture.store.setOpenIssueId).toHaveBeenCalledWith(remote.id)
-    adopt.mockRestore()
+    hold.mockRestore()
   })
 
   it('shows device matches when the server is unavailable', async () => {

@@ -1489,6 +1489,12 @@ export class Replica implements DeviceCollectionReads {
     if (start) instances.push({ kind: 'dropAll' })
     for (const marker of chunk.complete ?? []) {
       const key = instanceKey(marker)
+      // A later page carries no total: the first page's stays (POD-7158).
+      const total =
+        marker.total ??
+        (start || marker.range === undefined
+          ? undefined
+          : this.store.readInstances().get(key)?.total)
       instances.push({
         kind: 'mark',
         instance: {
@@ -1500,7 +1506,7 @@ export class Replica implements DeviceCollectionReads {
           part: marker.part,
           ...(marker.via === undefined ? {} : { via: marker.via }),
           ...(marker.range === undefined ? {} : { range: marker.range }),
-          ...(marker.total === undefined ? {} : { total: marker.total }),
+          ...(total === undefined ? {} : { total }),
           completeAt: snapshot,
           ...(this.holds.has(key) ? {} : { releasedAt: this.now() }),
         },

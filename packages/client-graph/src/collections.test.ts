@@ -114,6 +114,19 @@ async function boot(
       loader === undefined ? facade.batch(emit) : loader.batch(() => facade.batch(emit)),
   })
   loader = new CollectionLoader({ replica, schedule: timer.schedule })
+  // The loader's holds, counted where the pool takes them (POD-7158).
+  let holds = 0
+  const show = loader.show.bind(loader)
+  loader.show = (spec) => {
+    holds += 1
+    const release = show(spec)
+    let released = false
+    return () => {
+      if (!released) holds -= 1
+      released = true
+      release()
+    }
+  }
   const rows = createRowSource({ principal: { userId: 'u-ada' } }, facade, {
     pending: { byRow: () => new Map() },
   })
@@ -142,7 +155,16 @@ async function boot(
   await settle()
   const naming = (spec: InstanceSpec) =>
     server.fetches.filter((batch) => batch.some((r) => instanceKey(r) === instanceKey(spec))).length
-  return { server, replica: kernel, loader: loader!, pool: handle.pool, settle, naming, rows }
+  return {
+    server,
+    replica: kernel,
+    loader: loader!,
+    pool: handle.pool,
+    settle,
+    naming,
+    rows,
+    holds: () => holds,
+  }
 }
 
 describe('a lookup through the one loader', () => {
@@ -243,7 +265,7 @@ it('a marker landing tells only the readers of its instance (POD-7165)', async (
   }
 })
 
-it('server search adopts hits as cached one-record instances through the real loader', async () => {
+it('server search holds its hits as one-record instances through the real loader', async () => {
   const { pool, replica, settle, naming } = await boot()
   const { issueSearch } = await import('./issue-search')
   const one = oneRecordOf('issue', 'OLD') as InstanceSpec
@@ -377,5 +399,267 @@ describe('an open view holds what it reads, over a small cache cap (POD-7155)', 
     await settle()
     await replica.trim()
     expect(replica.isComplete(page)).toBeUndefined()
+  })
+})
+
+describe('holding follows reading: every view read holds what it reads (POD-7158)', () => {
+  const closed = (id: string, fields: Record<string, unknown> = {}) =>
+    value(id, { stage: 'done', closedReason: 'completed', ...fields })
+  /** Lookups nobody reads (cache), more than the cap: the trim has to choose. */
+  const crowd = async (
+    pool: ReturnType<typeof createWorklistPool>['pool'],
+    settle: () => Promise<void>,
+  ) => {
+    for (let i = 1; i <= 30; i += 1) pool.row('issue', `C${i}`)
+    await settle()
+  }
+  const crowded = (server: CollectionServer) => {
+    for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `C${i}`, closed(`C${i}`))
+  }
+
+  it('the deck holds its tree, its root (a lookup) and the root body while open; closed, they are cache', async () => {
+    const { server, replica, pool, settle, holds } = await boot(
+      (server) => {
+        // A closed root: no policy collection holds it, the deck looks it up.
+        server.put(ISSUE, 'R', closed('R'))
+        for (let a = 1; a <= 3; a += 1) {
+          server.put(ISSUE, `A${a}`, closed(`A${a}`, { parentId: 'R' }))
+          for (let b = 1; b <= 4; b += 1)
+            server.put(ISSUE, `B${a}${b}`, closed(`B${a}${b}`, { parentId: `A${a}` }))
+        }
+        crowded(server)
+      },
+      { cacheCap: 10 },
+    )
+    attachMissionTestPreferences(pool)
+    const base = holds()
+    const tree: InstanceSpec = {
+      collection: 'issueProjection.tree',
+      args: { root: 'R' },
+      part: 'main',
+    }
+    const body: InstanceSpec = {
+      collection: 'issueDescription.ofIssue',
+      args: { issueId: 'R' },
+      part: 'main',
+    }
+    const root = oneRecordOf('issue', 'R') as InstanceSpec
+    const screen = new MissionScreen(pool, 'R', { sessionName: (s) => s.name ?? '' })
+    let rows = 0
+    let title = ''
+    const stop = autorun(() => {
+      title = screen.rootTitle
+      if (!screen.ready) return
+      rows = screen.rows.length
+    })
+    for (let round = 0; round < 6 && !screen.ready; round += 1) await settle()
+    expect(screen.ready).toBe(true)
+    expect(rows).toBe(16)
+    expect(title).toBe('Issue R')
+    await crowd(pool, settle)
+
+    // Open: a trim keeps all of it, and the deck asks for nothing more.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    expect(screen.ready).toBe(true)
+    expect(title).toBe('Issue R')
+    expect(replica.view(ISSUE, 'R')).toBeDefined()
+    for (const spec of [tree, body, root])
+      expect(replica.isComplete(spec)?.releasedAt).toBeUndefined()
+    expect(server.fetches.length).toBe(before)
+
+    // Closed: every hold is released at once, and the deck's instances are cache.
+    stop()
+    screen.close()
+    expect(holds()).toBe(base)
+    await settle()
+    await replica.trim()
+    expect(replica.isComplete(tree)).toBeUndefined()
+    for (const spec of [body, root]) {
+      const marker = replica.isComplete(spec)
+      if (marker !== undefined) expect(marker.releasedAt).toBeDefined()
+    }
+  })
+
+  it('a board column holds its page and the next page while open; closed, they are cache', async () => {
+    const { server, replica, pool, settle, holds } = await boot(
+      (server) => {
+        server.pageRows = 10
+        for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `D${i}`, closed(`D${i}`))
+      },
+      { cacheCap: 10 },
+    )
+    const base = holds()
+    const board = createBoardLayout(pool)
+    const column: BoardColumnOptions = {
+      filter: {},
+      ordering: 'priority',
+      showAgentTasks: false,
+      stage: 'done',
+    }
+    const page: InstanceSpec = {
+      collection: 'issueProjection.byStage',
+      args: { stage: 'done' },
+      part: 'main',
+    }
+    const resident = () =>
+      Array.from({ length: 30 }, (_, i) => `D${i + 1}`).filter(
+        (id) => replica.view(ISSUE, id) !== undefined,
+      )
+    let ended = true
+    let total: number | typeof LOADING = LOADING
+    const stop = autorun(() => {
+      ended = board.columnHeld(column)
+      total = pool.collections.pageTotal(page)
+    })
+    for (let round = 0; round < 6 && total === LOADING; round += 1) await settle()
+    expect(total).toBe(30)
+    expect(ended).toBe(false)
+    expect(replica.isComplete(page)?.range?.end).toBe(false)
+    expect(resident().length).toBeGreaterThanOrEqual(10)
+
+    // The next page, asked for under the column's reader, is held with the first.
+    pool.collections.nextPage(page)
+    await settle()
+    expect(resident().length).toBeGreaterThanOrEqual(20)
+    expect(total).toBe(30)
+    const held = resident()
+
+    // Open: a trim keeps both pages, and the column asks for nothing more.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    expect(resident()).toEqual(held)
+    expect(replica.isComplete(page)?.releasedAt).toBeUndefined()
+    expect(server.fetches.length).toBe(before)
+
+    // Closed: the hold is released at once, and over the cap the trim lets the pages go.
+    stop()
+    expect(holds()).toBe(base)
+    await settle()
+    await replica.trim()
+    expect(replica.isComplete(page)).toBeUndefined()
+  })
+
+  it('an issue opened by lookup is held while read; closed, it is cache', async () => {
+    const { server, replica, pool, settle, holds } = await boot(
+      (server) => {
+        server.put(ISSUE, 'OLD', closed('OLD'))
+        crowded(server)
+      },
+      { cacheCap: 10 },
+    )
+    const base = holds()
+    const one = oneRecordOf('issue', 'OLD') as InstanceSpec
+    let title: string | undefined
+    const stop = autorun(() => {
+      const row = pool.row('issue', 'OLD')
+      title = row === LOADING ? undefined : (row as { title?: string }).title
+    })
+    await settle()
+    expect(title).toBe('Issue OLD')
+    await crowd(pool, settle)
+
+    // Open: over the cap, the trim keeps the record, and nothing is asked again.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    expect(title).toBe('Issue OLD')
+    expect(replica.view(ISSUE, 'OLD')).toBeDefined()
+    expect(replica.isComplete(one)?.releasedAt).toBeUndefined()
+    expect(server.fetches.length).toBe(before)
+
+    // Closed: released at once; the record is cache.
+    stop()
+    expect(holds()).toBe(base)
+    await settle()
+    expect(replica.isComplete(one)?.releasedAt).toBeDefined()
+  })
+
+  it('a search result list holds its hits while it reads them; closed, they are cache', async () => {
+    const { server, replica, pool, settle, holds } = await boot(
+      (server) => {
+        for (let i = 1; i <= 12; i += 1) server.put(ISSUE, `H${i}`, closed(`H${i}`))
+        crowded(server)
+      },
+      { cacheCap: 10 },
+    )
+    const { issueSearch } = await import('./issue-search')
+    const hits = Array.from({ length: 12 }, (_, i) => `H${i + 1}`)
+    const ones = hits.map((id) => oneRecordOf('issue', id) as InstanceSpec)
+    const base = holds()
+    issueSearch(pool).bind(async () => ({ hits: hits.map((id) => ({ id })), next: null }))
+    let ids: readonly string[] = []
+    // The list reads the ids only; its rows render them later.
+    const stop = autorun(() => {
+      ids = issueSearch(pool).read('needle', []).serverIds
+    })
+    await new Promise((resolve) => setTimeout(resolve, 175))
+    await settle()
+    expect(ids).toEqual(hits)
+    for (const spec of ones) expect(replica.isComplete(spec)).toBeDefined()
+    await crowd(pool, settle)
+
+    // Open: more hits than the cap, all kept by a trim; nothing is asked again.
+    const before = server.fetches.length
+    await replica.trim()
+    await settle()
+    for (const id of hits) expect(replica.view(ISSUE, id)).toBeDefined()
+    for (const spec of ones) expect(replica.isComplete(spec)?.releasedAt).toBeUndefined()
+    expect(server.fetches.length).toBe(before)
+
+    // Closed: released at once; over the cap, the trim lets hits go.
+    stop()
+    expect(holds()).toBe(base)
+    await settle()
+    await replica.trim()
+    expect(ones.filter((spec) => replica.isComplete(spec) !== undefined).length).toBeLessThan(12)
+  })
+
+  it('opening and closing the same views 100 times leaves no hold behind', async () => {
+    const { server, pool, settle, holds } = await boot(
+      (server) => {
+        server.pageRows = 10
+        server.put(ISSUE, 'R', closed('R'))
+        for (let a = 1; a <= 3; a += 1)
+          server.put(ISSUE, `A${a}`, closed(`A${a}`, { parentId: 'R' }))
+        for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `D${i}`, closed(`D${i}`))
+      },
+      { cacheCap: 10 },
+    )
+    attachMissionTestPreferences(pool)
+    const { issueSearch } = await import('./issue-search')
+    issueSearch(pool).bind(async () => ({ hits: [{ id: 'D3' }, { id: 'D4' }], next: null }))
+    const board = createBoardLayout(pool)
+    const column: BoardColumnOptions = {
+      filter: {},
+      ordering: 'priority',
+      showAgentTasks: false,
+      stage: 'done',
+    }
+    const base = holds()
+    for (let round = 0; round < 100; round += 1) {
+      const screen = new MissionScreen(pool, 'R', { sessionName: (s) => s.name ?? '' })
+      const stop = autorun(() => {
+        void screen.ready
+        void screen.rootTitle
+        void board.columnHeld(column)
+        void pool.row('issue', 'D1')
+        void issueSearch(pool).read('needle', []).serverIds
+      })
+      expect(holds()).toBeGreaterThan(base)
+      // Every tenth opening lets the loads land, so holds are taken over held data too.
+      if (round % 10 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 175))
+        await settle()
+      }
+      stop()
+      screen.close()
+      expect(holds()).toBe(base)
+    }
+    await settle()
+    expect(holds()).toBe(base)
+    expect(server.fetches.length).toBeGreaterThan(0)
   })
 })

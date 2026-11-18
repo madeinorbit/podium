@@ -50,14 +50,13 @@ it('shares server matches across duplicate, parent/relation, header and compact 
   const device = makeIssue({ id: 'device', title: 'Needle device', repoPath: '/repo' })
   const remote = makeIssue({ id: 'remote', title: 'Historical body match', repoPath: '/repo' })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: device.id, value: device }] })
-  const query = vi.fn(async () => ({ hits: [{ id: remote.id }], next: null }))
-  issueSearch(pool).bind(query)
-  const adopt = vi.spyOn(pool.collections, 'adopt').mockImplementation((_entity, ids) => {
-    pool.apply({
-      type: 'update',
-      rows: ids.map((id) => ({ kind: 'issue' as const, id, value: remote })),
-    })
+  // The server answers the hit; the device installs its record (the loader's part).
+  const query = vi.fn(async () => {
+    pool.apply({ type: 'update', rows: [{ kind: 'issue' as const, id: remote.id, value: remote }] })
+    return { hits: [{ id: remote.id }], next: null }
   })
+  issueSearch(pool).bind(query)
+  const hold = vi.spyOn(pool.collections, 'holdRecords')
   const views = issuePages(pool)
   let duplicate: readonly string[] = [],
     choices: readonly string[] = []
@@ -75,10 +74,10 @@ it('shares server matches across duplicate, parent/relation, header and compact 
     await vi.waitFor(() => expect(choices).toEqual(['device', 'remote']))
     expect(duplicate).toEqual(choices)
     expect(query).toHaveBeenCalledTimes(1)
-    expect(adopt).toHaveBeenCalledWith('issue', ['remote'])
+    expect(hold).toHaveBeenCalledWith('issue', ['remote'])
   } finally {
     stop()
-    adopt.mockRestore()
+    hold.mockRestore()
     views.dispose()
     pool.dispose()
   }
