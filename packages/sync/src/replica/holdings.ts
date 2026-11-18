@@ -32,12 +32,13 @@ import {
   instanceParams,
   isParam,
   matchesWhere,
+  RECORD_KINDS,
   type RecordDeclaration,
   type RuleArgs,
   recordOf,
   type Where,
 } from '@podium/model'
-import { instanceKey } from './cache-state'
+import { InstanceMap, instanceKey } from './cache-state'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
 
 /** The rows a decision reads, synchronously, from the store in memory. */
@@ -168,55 +169,151 @@ function withinRange(
   return true
 }
 
+/** An instance as the index reads it: a marker (with its range) or a fetch in flight. */
+export type HeldSpec = InstanceSpec & { readonly range?: InstanceRecord['range'] }
+
+/** A keyed collection: the field its one argument equals, and every `via` an instance can name. */
+interface KeyedShape {
+  readonly collection: Collection
+  readonly field: string
+  readonly param: string
+  readonly vias: readonly (string | undefined)[]
+}
+
+/** The holders (record kinds and collections) whose comes-with name each collection. */
+let viasByCollection: Map<string, Set<string>> | undefined
+function viasOf(collection: string): ReadonlySet<string> {
+  if (viasByCollection === undefined) {
+    const out = new Map<string, Set<string>>()
+    const add = (via: string, entries: readonly ComesWith[] | undefined): void => {
+      for (const entry of entries ?? []) {
+        let set = out.get(entry.collection)
+        if (set === undefined) {
+          set = new Set()
+          out.set(entry.collection, set)
+        }
+        set.add(via)
+      }
+    }
+    for (const kind of RECORD_KINDS) add(kind, recordOf(kind)?.comesWith)
+    for (const held of COLLECTIONS.values()) add(held.id, held.comesWith)
+    viasByCollection = out
+  }
+  return viasByCollection.get(collection) ?? EMPTY_SET
+}
+const EMPTY_SET: ReadonlySet<string> = new Set()
+
+/** A collection's keyed shape; `undefined` for one found by listing its instances. */
+const keyedShapes = new Map<string, KeyedShape | null>()
+function keyedShapeOf(collection: Collection): KeyedShape | undefined {
+  let shape = keyedShapes.get(collection.id)
+  if (shape === undefined) {
+    const field = cachedKeyField(collection)
+    shape =
+      field === undefined
+        ? null
+        : {
+            collection,
+            field,
+            param: instanceParams(collection)[0] as string,
+            vias: [undefined, ...viasOf(collection.id)],
+          }
+    keyedShapes.set(collection.id, shape)
+  }
+  return shape ?? undefined
+}
+
+/** The keyed shapes of a record kind's collections, in declaration order. */
+const keyedByKind = new Map<string, readonly KeyedShape[]>()
+function keyedShapesOfKind(kind: string): readonly KeyedShape[] {
+  let shapes = keyedByKind.get(kind)
+  if (shapes === undefined) {
+    const out: KeyedShape[] = []
+    for (const collection of COLLECTIONS.values()) {
+      if (collection.of !== kind) continue
+      const shape = keyedShapeOf(collection)
+      if (shape !== undefined) out.push(shape)
+    }
+    shapes = out
+    keyedByKind.set(kind, shapes)
+  }
+  return shapes
+}
+
 /**
- * The instances a device holds, indexed so one change costs one lookup per
- * collection definition: keyed instances by their key value, the others
- * (no arguments, a tree, a stage page) evaluated in turn, which are few.
+ * Whether a held instance can be found only by listing: a collection without
+ * a key field, or a keyed one whose marker does not have the key a record's
+ * field gives it (its one argument missing, others besides it, a `via` this
+ * build does not declare). Such instances are few: the policy's, the trees
+ * and pages a view opened.
+ */
+function listed(spec: HeldSpec): boolean {
+  const collection = COLLECTIONS.get(spec.collection)
+  if (collection === undefined) return false
+  const shape = keyedShapeOf(collection)
+  if (shape === undefined) return true
+  if (spec.via !== undefined && spec.via !== '' && !viasOf(collection.id).has(spec.via)) return true
+  const args = spec.args as Readonly<Record<string, unknown>> | undefined
+  if (args === undefined || args[shape.param] === undefined || args[shape.param] === null)
+    return true
+  for (const name in args) if (name !== shape.param) return true
+  return false
+}
+
+/** The listed instances of one base of markers, found once per base. */
+const listedByBase = new WeakMap<ReadonlyMap<string, HeldSpec>, ReadonlyMap<string, HeldSpec>>()
+
+function listedIn(markers: ReadonlyMap<string, HeldSpec>): Map<string, HeldSpec> {
+  const layers = markers instanceof InstanceMap ? markers.layers() : undefined
+  const base = layers?.base ?? markers
+  let inBase = listedByBase.get(base)
+  if (inBase === undefined) {
+    const found = new Map<string, HeldSpec>()
+    for (const [key, spec] of base) if (listed(spec)) found.set(key, spec)
+    inBase = found
+    listedByBase.set(base, inBase)
+  }
+  const out = new Map(inBase)
+  for (const [key, spec] of layers?.changes ?? []) {
+    if (spec !== undefined && listed(spec)) out.set(key, spec)
+    else out.delete(key)
+  }
+  return out
+}
+
+/**
+ * The instances a device holds, as one change asks about them (POD-7119).
+ *
+ * A keyed instance ("the sessions of issue X") is found by its key: the
+ * record's field gives the argument, so each keyed collection of the record's
+ * type costs one lookup per declared `via`, in the markers as they are. The
+ * others (no arguments, a tree, a page of a stage) are listed and evaluated in
+ * turn. Nothing is built per marker: the index used to resolve every marker
+ * the device holds, which grows with history, on the first change after any
+ * marker changed.
  */
 export class HeldIndex {
-  /** kind → collection id|via|part → key field and instances by key value, or a list. */
-  private readonly byKind = new Map<
-    string,
-    Map<
-      string,
-      {
-        readonly field?: string
-        readonly byValue: Map<unknown, ResolvedInstance[]>
-        readonly all: ResolvedInstance[]
-      }
-    >
-  >()
-  readonly instances: ReadonlyMap<string, ResolvedInstance>
+  private readonly markers: ReadonlyMap<string, HeldSpec>
+  private readonly fetching: ReadonlyMap<string, HeldSpec>
+  /** The listed instances, markers then fetches. */
+  private readonly listed: readonly HeldSpec[]
+  private readonly resolved = new WeakMap<HeldSpec, ResolvedInstance | null>()
 
+  /**
+   * `instances` are the markers, as the store's map (read by key, never
+   * copied) or any list of specs; `fetching` the instances in flight, copied.
+   */
   constructor(
-    instances: Iterable<InstanceSpec & { readonly range?: InstanceRecord['range'] }>,
+    instances: ReadonlyMap<string, HeldSpec> | Iterable<HeldSpec>,
     readonly args: RuleArgs,
+    fetching: Iterable<HeldSpec> = [],
   ) {
-    const resolved = new Map<string, ResolvedInstance>()
-    for (const spec of instances) {
-      const instance = resolveInstance(spec, args)
-      if (instance === undefined) continue
-      resolved.set(instance.key, instance)
-      let groups = this.byKind.get(instance.of)
-      if (groups === undefined) {
-        groups = new Map()
-        this.byKind.set(instance.of, groups)
-      }
-      const groupKey = `${instance.collection.id}|${spec.via ?? ''}|${spec.part}`
-      let group = groups.get(groupKey)
-      if (group === undefined) {
-        const field = cachedKeyField(instance.collection)
-        group = { ...(field === undefined ? {} : { field }), byValue: new Map(), all: [] }
-        groups.set(groupKey, group)
-      }
-      if (group.field !== undefined) {
-        const value = spec.args?.[instanceParams(instance.collection)[0]!]
-        const list = group.byValue.get(value ?? null) ?? []
-        list.push(instance)
-        group.byValue.set(value ?? null, list)
-      } else group.all.push(instance)
-    }
-    this.instances = resolved
+    this.markers = isSpecMap(instances)
+      ? instances
+      : new Map([...instances].map((spec) => [instanceKey(spec), spec]))
+    this.fetching = new Map([...fetching].map((spec) => [instanceKey(spec), spec]))
+    const listedFetches = [...this.fetching.values()].filter(listed)
+    this.listed = [...listedIn(this.markers).values(), ...listedFetches]
   }
 
   /** Every held instance the record belongs to, at the given part. */
@@ -227,26 +324,45 @@ export class HeldIndex {
     now: number,
     part: 'stub' | 'main' = 'main',
   ): ResolvedInstance[] {
-    const groups = this.byKind.get(kind)
-    if (groups === undefined) return []
     const record = (value ?? {}) as Readonly<Record<string, unknown>>
-    const declaration = recordOf(kind)
-    const ctx = matchContext(declaration, rows, now)
+    const ctx = matchContext(recordOf(kind), rows, now)
     const out: ResolvedInstance[] = []
-    for (const group of groups.values()) {
-      const candidates =
-        group.field === undefined
-          ? group.all
-          : (group.byValue.get(record[group.field] ?? null) ?? [])
-      for (const instance of candidates) {
-        if (instance.spec.part !== part) continue
-        if (!belongs(instance, record, ctx)) continue
-        out.push(instance)
+    const found = new Set<string>()
+    const consider = (spec: HeldSpec | undefined): void => {
+      if (spec === undefined || spec.part !== part) return
+      const instance = this.resolve(spec)
+      if (instance === undefined || instance.of !== kind || found.has(instance.key)) return
+      if (!belongs(instance, record, ctx)) return
+      found.add(instance.key)
+      out.push(instance)
+    }
+    for (const shape of keyedShapesOfKind(kind)) {
+      const key = record[shape.field]
+      if (key === undefined || key === null) continue
+      const args = { [shape.param]: key } as InstanceSpec['args']
+      for (const via of shape.vias) {
+        const at = instanceKey({ collection: shape.collection.id, args, part, via })
+        consider(this.markers.get(at))
+        consider(this.fetching.get(at))
       }
     }
+    for (const spec of this.listed) consider(spec)
     return out
   }
+
+  private resolve(spec: HeldSpec): ResolvedInstance | undefined {
+    let instance = this.resolved.get(spec)
+    if (instance === undefined) {
+      instance = resolveInstance(spec, this.args) ?? null
+      this.resolved.set(spec, instance)
+    }
+    return instance ?? undefined
+  }
 }
+
+const isSpecMap = (
+  value: ReadonlyMap<string, HeldSpec> | Iterable<HeldSpec>,
+): value is ReadonlyMap<string, HeldSpec> => value instanceof Map || value instanceof InstanceMap
 
 function matchContext(
   declaration: RecordDeclaration | undefined,
@@ -293,6 +409,18 @@ function belongs(
 // ---------------------------------------------------------------------------
 // Comes with
 // ---------------------------------------------------------------------------
+
+/** Whether a record belongs to one resolved instance, exactly as {@link HeldIndex.matching} decides it. */
+export function holds(
+  instance: ResolvedInstance,
+  kind: string,
+  value: unknown,
+  rows: HeldRows,
+  now: number,
+): boolean {
+  const record = (value ?? {}) as Readonly<Record<string, unknown>>
+  return belongs(instance, record, matchContext(recordOf(kind), rows, now))
+}
 
 /** The keyed instance one comes-with entry names for one holder record, if any. */
 export function comesWithInstance(

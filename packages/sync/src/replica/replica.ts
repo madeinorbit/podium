@@ -1599,7 +1599,7 @@ export class Replica implements DeviceCollectionReads {
     return { mutation: { operations, cursor }, ignored, stubbed, skipped, needs }
   }
 
-  /** The instances the device holds, indexed; rebuilt only when the markers or fetches change. */
+  /** The instances the device holds, as a change asks about them; new only when the markers or fetches change. */
   private heldIndex(): HeldIndex {
     const instances = this.store.readInstances()
     const policy = this.store.readPolicy()
@@ -1611,10 +1611,7 @@ export class Replica implements DeviceCollectionReads {
       cached.version === this.inFlightVersion
     )
       return cached.index
-    const index = new HeldIndex(
-      [...instances.values(), ...this.inFlight.values()],
-      policyArgs(policy),
-    )
+    const index = new HeldIndex(instances, policyArgs(policy), this.inFlight.values())
     this.heldIndexCache = { instances, policy, version: this.inFlightVersion, index }
     return index
   }

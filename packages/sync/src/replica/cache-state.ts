@@ -116,6 +116,18 @@ export class InstanceMap implements ReadonlyMap<string, InstanceRecord> {
     return this.get(key) !== undefined
   }
 
+  /**
+   * The frozen base and the changes over it, for a reader that keeps what it
+   * derives from the base (POD-7119: the held index lists a few instances
+   * once per base, then follows the changes).
+   */
+  layers(): {
+    readonly base: ReadonlyMap<string, InstanceRecord>
+    readonly changes: ReadonlyMap<string, InstanceRecord | undefined>
+  } {
+    return { base: this.base, changes: this.changes }
+  }
+
   entries(): MapIterator<[string, InstanceRecord]> {
     return this.plain().entries()
   }
