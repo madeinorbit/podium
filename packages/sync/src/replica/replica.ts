@@ -158,6 +158,79 @@ export interface ReplicaOptions {
 /** Most instances one fetch names; the route's own bound. */
 const FETCH_MAX_INSTANCES = 200
 
+/**
+ * POD-7122 — the most rows (records, stubs and markers) a load installs in
+ * one store write. Chunks that arrive in a row are installed together, up to
+ * this, so the first download is a few native transactions instead of one per
+ * chunk; each transaction costs more than its rows (IndexedDB, and an fsync
+ * per SQLite commit on a phone). A load that closes early keeps every batch it
+ * installed.
+ */
+const INSTALL_BATCH_ROWS = 4096
+
+/** What `arrivedBy` answers for a step that has not arrived by the next task. */
+const NOT_YET: unique symbol = Symbol('not yet')
+
+/**
+ * The next task, after every microtask queued now: what is already buffered
+ * (a stream's chunk the reader holds) resolves before it, network I/O does not.
+ */
+const nextTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    // A message, not a timer: fake timers in tests leave it alone, and a
+    // browser does not clamp it.
+    if (typeof MessageChannel === 'function') {
+      const channel = new MessageChannel()
+      channel.port1.onmessage = () => {
+        channel.port1.close()
+        channel.port2.close()
+        resolve()
+      }
+      channel.port2.postMessage(undefined)
+    } else if (typeof setImmediate === 'function') setImmediate(resolve)
+    else setTimeout(resolve, 0)
+  })
+
+/** `step` if it has arrived by the next task, else `NOT_YET` (the step stays pending). */
+async function arrivedBy<T>(step: Promise<T>): Promise<T | typeof NOT_YET> {
+  return await Promise.race([step, nextTask().then((): typeof NOT_YET => NOT_YET)])
+}
+
+const rowsOfChunk = (chunk: BootstrapChunk): number =>
+  chunk.changes.length + (chunk.stubs?.length ?? 0) + (chunk.complete?.length ?? 0)
+
+/**
+ * The chunk completes an instance the load asked for itself (a policy
+ * collection or a view's), not one its records come with (`via`). A batch
+ * ends there: each such marker is installed as it arrives, in the answer's
+ * order (stub level, then full records, then the sidebar…, design POD-7059),
+ * and there are only a handful of them per load.
+ */
+const closesRequestedInstance = (chunk: BootstrapChunk): boolean =>
+  chunk.complete?.some((marker) => marker.via === undefined) === true
+
+/**
+ * Chunks of one answer as one: their records, stubs and markers in arrival
+ * order (each part after the same part of the chunks before it, so a marker
+ * still follows its records), the policy of the first that has one.
+ */
+function mergeChunks(chunks: readonly BootstrapChunk[]): BootstrapChunk {
+  if (chunks.length === 1) return chunks[0] as BootstrapChunk
+  const last = chunks[chunks.length - 1] as BootstrapChunk
+  const policy = chunks.find((chunk) => chunk.policy !== undefined)?.policy
+  return {
+    feedId: last.feedId,
+    epoch: last.epoch,
+    snapshotSeq: last.snapshotSeq,
+    kindTokens: last.kindTokens,
+    last: last.last,
+    changes: chunks.flatMap((chunk) => chunk.changes),
+    stubs: chunks.flatMap((chunk) => chunk.stubs ?? []),
+    complete: chunks.flatMap((chunk) => chunk.complete ?? []),
+    ...(policy === undefined ? {} : { policy }),
+  }
+}
+
 /** What a single input did, including the transition-table row it took. */
 export interface TransitionOutcome {
   readonly rowId: string
@@ -1164,27 +1237,76 @@ export class Replica implements DeviceCollectionReads {
     let head: BootstrapChunk | undefined
     let first = true
     let entityCount = 0
-    for await (const chunk of source) {
-      if (generation !== this.walkGeneration) return false
-      if (
-        head &&
-        (chunk.feedId !== head.feedId ||
-          chunk.epoch !== head.epoch ||
-          chunk.snapshotSeq !== head.snapshotSeq)
-      ) {
-        throw new Error('bootstrap chunks disagree about the snapshot point')
+    // POD-7122: chunks that have ARRIVED are installed together, up to
+    // INSTALL_BATCH_ROWS or the marker of an instance the load asked for; the
+    // walk never waits for more data to install what it has, so a stream that
+    // stalls or dies keeps every chunk it delivered.
+    const pending: BootstrapChunk[] = []
+    let pendingRows = 0
+    const install = (): void => {
+      if (pending.length === 0) return
+      if (generation !== this.walkGeneration) {
+        // A superseded walk installs nothing more.
+        pending.length = 0
+        pendingRows = 0
+        return
       }
-      head = chunk
-      this.validateChunk(chunk)
-      if (!full) {
-        const cursor = this.cursorValue
-        if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
-          throw new Error('a resumed load answered for another feed')
-      }
+      const chunk = mergeChunks(pending)
+      pending.length = 0
+      pendingRows = 0
       entityCount += this.installChunk(chunk, { start: full && first }).length
       first = false
-      if (chunk.last) break
     }
+    const chunks = source[Symbol.asyncIterator]()
+    let done = false
+    try {
+      for (;;) {
+        const next = chunks.next()
+        let step: IteratorResult<BootstrapChunk> | typeof NOT_YET =
+          pending.length === 0 ? await next : await arrivedBy(next)
+        if (step === NOT_YET) {
+          install()
+          step = await next
+        }
+        if (step.done === true) {
+          done = true
+          break
+        }
+        const chunk = step.value
+        if (generation !== this.walkGeneration) return false
+        if (
+          head &&
+          (chunk.feedId !== head.feedId ||
+            chunk.epoch !== head.epoch ||
+            chunk.snapshotSeq !== head.snapshotSeq)
+        ) {
+          throw new Error('bootstrap chunks disagree about the snapshot point')
+        }
+        head = chunk
+        this.validateChunk(chunk)
+        if (!full) {
+          const cursor = this.cursorValue
+          if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
+            throw new Error('a resumed load answered for another feed')
+        }
+        pending.push(chunk)
+        pendingRows += rowsOfChunk(chunk)
+        if (chunk.last) break
+        if (pendingRows >= INSTALL_BATCH_ROWS || closesRequestedInstance(chunk)) install()
+      }
+    } catch (error) {
+      // The answer broke off: the chunks that arrived whole stay (POD-7086).
+      done = true
+      if (generation === this.walkGeneration && !(error instanceof ReplicaStoreCorruptError))
+        install()
+      throw error
+    } finally {
+      // Leaving early (the last chunk, or a superseded walk) closes the
+      // answer, as a `for await` that breaks does.
+      if (!done) await chunks.return?.(undefined)
+    }
+    if (generation !== this.walkGeneration) return false
+    install()
     if (!head?.last) return false
     if (generation !== this.walkGeneration) return false
     await this.finishLoad(cause, head, generation, full, entityCount)
@@ -1394,6 +1516,14 @@ export class Replica implements DeviceCollectionReads {
     }
     const base = this.cursorValue as Cursor
     const snapshotSeq = head?.snapshotSeq ?? base.seq
+    // POD-7122: every policy collection, and what its records come with, is in
+    // the store now. The views open on it here; the durable commit below waits
+    // for every chunk's write, and only it moves the posture live.
+    if (
+      this.store.readLoadingSince() !== null &&
+      (this.store.readPolicy() === null || this.missingPolicyInstances().length === 0)
+    )
+      this.emit({ type: 'load-installed', cause, snapshotSeq })
     // A COPY, and `this.buffer` is NOT cleared here (POD-1161): the consumed prefix
     // is removed inside the `adopt` closure below, in `span.onCommit`, so an aborted
     // commit leaves the frames for the restart.
@@ -1599,7 +1729,7 @@ export class Replica implements DeviceCollectionReads {
     return { mutation: { operations, cursor }, ignored, stubbed, skipped, needs }
   }
 
-  /** The instances the device holds, indexed; rebuilt only when the markers or fetches change. */
+  /** The instances the device holds, as a change asks about them; new only when the markers or fetches change. */
   private heldIndex(): HeldIndex {
     const instances = this.store.readInstances()
     const policy = this.store.readPolicy()
@@ -1611,10 +1741,7 @@ export class Replica implements DeviceCollectionReads {
       cached.version === this.inFlightVersion
     )
       return cached.index
-    const index = new HeldIndex(
-      [...instances.values(), ...this.inFlight.values()],
-      policyArgs(policy),
-    )
+    const index = new HeldIndex(instances, policyArgs(policy), this.inFlight.values())
     this.heldIndexCache = { instances, policy, version: this.inFlightVersion, index }
     return index
   }

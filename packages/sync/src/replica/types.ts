@@ -408,6 +408,17 @@ export type ReplicaEvent =
       readonly cause: RebootstrapCause | 'gap'
       readonly partial?: true
     }
+  /**
+   * POD-7122 — a load's records and markers are all in the device store's
+   * memory: every policy collection, with what its records come with. Views
+   * may open on them now. Its durable commit follows as `bootstrap-installed`,
+   * which alone moves the posture live; a crash before it resumes the load.
+   */
+  | {
+      readonly type: 'load-installed'
+      readonly cause: RebootstrapCause
+      readonly snapshotSeq: number
+    }
   | {
       readonly type: 'bootstrap-installed'
       readonly cause: RebootstrapCause

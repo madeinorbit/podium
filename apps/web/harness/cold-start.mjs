@@ -10,7 +10,10 @@ import { paintOf } from './browser-paint.ts'
 import { startHeapTimeline, writeHeapTimeline } from './heap-timeline.mjs'
 // POD-7094: only a client that names its type is served by policy. The base
 // arm's model predates the collections, so the module loads only where it can.
-const policyRows = await import('./policy-rows.ts').then(m => m.policyRows, () => undefined)
+const augmentAnswer = await import('./staged-bootstrap.mjs').then(m => m.augmentAnswer, () => undefined)
+const collectionFixture = await import('./collection-fixture.ts').then(m => m.collectionFixture, () => undefined)
+// POD-7122 diagnosis; the base tree has no cache-state module (its route is unused there).
+const diagInstanceKey = await import('../../../packages/sync/src/replica/cache-state').then(m => m.instanceKey, () => undefined)
 import * as model from '@podium/model'
 import { FeedChange, ServerMessage } from '@podium/protocol'
 import { readSyncStream } from '@podium/client-core/sync-stream'
@@ -54,7 +57,7 @@ const startupOnly=true
 const hostLabel = arg('host', hostname())
 const leaseName = arg('lease', mode === 'timing' ? `bench:${hostLabel}` : `meter:${hostLabel}`)
 if (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease')) throw Error('A caller-owned host lock is required (--external-lease or --lease-confirmed)')
-if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || (cell && !/^h\d+a[124]$/.test(cell)) || !arm) throw Error('Invalid capture arguments')
+if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone', 'desktop'].includes(surface) || ![1,4].includes(scale) || (cell && cell !== 'operator' && !/^h\d+a[124]$/.test(cell)) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${corpusKey}-r${round}`))
 if (existsSync(resolve(out,'run.json'))) throw Error('Capture output already exists; use a fresh round')
 mkdirSync(out, { recursive: true })
@@ -84,10 +87,15 @@ const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-t
 const harnessBytes=readFileSync(new URL(import.meta.url))
 writeFileSync(resolve(out,'harness-source.mjs'),harnessBytes)
 writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./browser-paint.ts',import.meta.url)))
+const fixtureHash=createHash('sha256')
+for(const file of ['collection-fixture.ts','staged-bootstrap.mjs']) {
+  const bytes=readFileSync(new URL('./'+file,import.meta.url))
+  fixtureHash.update(file).update(bytes);writeFileSync(resolve(out,file),bytes)
+}
 const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, cell:cell||null, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
-  harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
+  harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),fixtureSha256:fixtureHash.digest('hex'),
   durationTimeDomain:'threadTicks',
-  startupBoundary:surface==='web'?'sidebar-issue-row':'phone-issue-row',
+  startupBoundary:surface==='phone'?'phone-issue-row':'sidebar-issue-row',
   httpCache:'disabled by bootstrap request routing',
   warmStartup:'Reload with retained durable data and preferences; cursor resume without augmented snapshot',
   sameOriginTracePriming:true,
@@ -153,8 +161,9 @@ const outputEpochs = new Map()
 let outputSeq = 0
 const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
-let extraRows, observedReplay
-const extrasByPolicy=new Map()
+let extraRows, observedReplay, currentPolicy
+const fixtureCollections=new Map()
+const fixtureFor=days=>fixtureCollections.get(days)
 let wholeCache
 // Every corpus row whole, in chunks of 64 (the base client's bootstrap).
 function wholeChanges() {
@@ -167,26 +176,11 @@ function prepareExtras() {
     if(['issueUserState','sessionUserState'].includes(row.entity))value.userId=memberId
     return {...row,value,entityId:row.entity==='issueUserState'?model.issueUserStateRowId(memberId,value.entityId):row.entity==='sessionUserState'?model.sessionUserStateRowId(memberId,value.sessionId):row.entityId}
   })
-}
-// POD-7094: the synthetic corpus as the server's first download serves it,
-// for the policy the canonical answer carries: the policy's collections and
-// what they come with whole, every other issue as a stub (`policy-rows.ts`).
-function extrasFor(policy) {
-  const key=JSON.stringify(policy)
-  let extras=extrasByPolicy.get(key)
-  if(!extras) {
-    if(!policyRows)throw Error('This checkout has no collection declarations, yet its client asked by policy')
-    const split=policyRows(extraRows,policy,corpus.fixedNow)
-    const chunk=(rows,stub)=>{const out=[];for(let offset=0;offset<rows.length;offset+=64)out.push(JSON.stringify(rows.slice(offset,offset+64).map((row,index)=>({...row,seq:index+1,op:'upsert',...(stub?{part:'stub'}:{})}))));return out}
-    extras={whole:chunk(split.whole,false),stubs:chunk(split.stubs,true),count:split.whole.length+split.stubs.length,counts:split.counts}
-    extrasByPolicy.set(key,extras)
-    result.policyRows={clientType:policy.clientType,recentDays:policy.recentDays,...split.counts,whole:split.whole.length};save()
-  }
-  return extras
+  if(collectionFixture)for(const days of [7,30])fixtureCollections.set(days,collectionFixture(extraRows,corpus.fixedNow,days))
 }
 // `byPolicy`: the client named its type (`Podium-Client-Type`, POD-7085), so
 // its first download goes by the server's policy. The base client never sends it.
-function bootstrapBody(records, byPolicy) {
+function bootstrapBody(records, byPolicy, requested=[]) {
     const first=records[0], complete=records.at(-1)
     if(first.type!=='syncMeta' || first.mode!=='snapshot')return null
     const chunks=records.filter(x=>x.type==='feedBootstrap')
@@ -213,36 +207,45 @@ function bootstrapBody(records, byPolicy) {
       return {body,first,chunks,count,changes}
     }
     if(!first.policy)throw Error('A client that names its type got a bootstrap with no policy')
-    const extras=extrasFor(first.policy)
-    const count=changes.length+extras.count
-    // Every canonical line stays, in its order: whole records, stubs and the
-    // collections' markers. The corpus goes in before the first marker.
-    const original=records.slice(1,-1).map(x=>{
-      if(x.type!=='feedBootstrap')return JSON.stringify(x)
-      // Each canonical chunk keeps its own `last`: the snapshot ends on it.
-      const chunk={...x,totalRows:count};delete chunk.countsByEntity;return JSON.stringify(chunk)
-    })
-    const range={feedId:chunks[0].feedId,epoch:chunks[0].epoch,fromSeq:chunks[0].fromSeq,seq:chunks[0].seq,minAvailableSeq:chunks[0].minAvailableSeq}
-    const extra=[
-      ...extras.whole.map(rows=>{
-        const template={...chunks[0],last:false,totalRows:count,changes:null};delete template.countsByEntity
-        return JSON.stringify(template).replace('"changes":null','"changes":'+rows)
-      }),
-      ...extras.stubs.map(rows=>JSON.stringify({type:'feedStubs',...range,changes:null}).replace('"changes":null','"changes":'+rows)),
-    ]
-    const marker=records.slice(1,-1).findIndex(x=>x.type==='collectionComplete')
-    const at=marker<0?original.length:marker
-    const all=[...original.slice(0,at),...extra,...original.slice(at)]
-    const body=[JSON.stringify({...first,totalRows:count}),...all,JSON.stringify({...complete,rows:count,records:all.length})].join('\n')+'\n'
-    return {body,first,chunks,count,changes}
+    currentPolicy=first.policy
+    const prepared=augmentAnswer(records,fixtureFor(first.policy.recentDays),requested)
+    result.policyRows={clientType:first.policy.clientType,recentDays:first.policy.recentDays,...prepared.counts};save()
+    return prepared
 }
 async function bindContext(context) {
-  await context.route('**/sync/bootstrap*',async route=>{
+  // Desktop shares the production web renderer; only its declared server
+  // policy differs. This is a desktop-renderer proxy, not Tauri startup.
+  if(surface==='desktop')await context.route('**/sync/**', async route=>{
+    const headers=await route.request().allHeaders()
+    await route.fallback({headers:{...headers,...(collectionFixture?{'podium-client-type':'desktop'}:{})}})
+  })
+  if(collectionFixture)await context.route('**/sync/collections',async route=>{
+    const began=performance.now(), request=route.request().postDataJSON()
     const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
-    const byPolicy=Boolean((await route.request().allHeaders())['podium-client-type'])
-    const prepared=bootstrapBody(records,byPolicy)
+    if(!response.ok)throw Error(`Fixture collection HTTP ${response.status}`)
+    const fixtureBegan=performance.now()
+    const prepared=augmentAnswer(records,fixtureFor(currentPolicy?.recentDays??(surface==='phone'?7:30)),request.instances)
+    const fixtureMs=performance.now()-fixtureBegan
+    const headers={...response.headers(),'content-type':'application/x-ndjson'}
+    for(const key of ['content-length','content-encoding','transfer-encoding'])delete headers[key]
+    await route.fulfill({status:200,headers,body:prepared.body})
+    // POD-7122 diagnosis: which requested instances the answer marks complete.
+    const markedKeys=new Set(prepared.body.trim().split('\n').map(x=>JSON.parse(x)).filter(x=>x.type==='collectionComplete').flatMap(x=>x.instances).map(m=>diagInstanceKey({...m,part:m.part??'main'})))
+    const unmarked=request.instances.filter(x=>!markedKeys.has(diagInstanceKey({...x,part:x.part??'main'})))
+    const serverMarked=records.filter(x=>x.type==='collectionComplete').flatMap(x=>x.instances).length
+    result.collectionFetches??=[];result.collectionFetches.push({markers:markedKeys.size,serverMarkers:serverMarked,unmarked:unmarked.length,unmarkedSample:unmarked.slice(0,5),beganAt:new Date(Date.now()-(performance.now()-began)).toISOString(),collections:[...new Set(request.instances.map(x=>x.collection))],instances:request.instances.length,rows:prepared.count,fixtureMs,elapsedMs:performance.now()-began,at:new Date().toISOString()});save()
+  })
+  await context.route('**/sync/bootstrap*',async route=>{
+    const headersIn=await route.request().allHeaders()
+    if(surface==='desktop'&&collectionFixture)headersIn['podium-client-type']='desktop'
+    const response=await route.fetch({headers:headersIn}), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
+    const byPolicy=Boolean(headersIn['podium-client-type'])
+    const requested=JSON.parse(new URL(route.request().url()).searchParams.get('view')??'[]')
+    const fixtureBegan=performance.now()
+    const prepared=bootstrapBody(records,byPolicy,requested)
+    const fixtureMs=performance.now()-fixtureBegan
     if(!prepared){await route.fulfill({response});return}
-    result.bootstrapRoutes=[...(result.bootstrapRoutes??[]),{byPolicy,at:new Date().toISOString()}]
+    result.bootstrapRoutes=[...(result.bootstrapRoutes??[]),{byPolicy,fixtureMs,at:new Date().toISOString()}]
     const {body,first,chunks,count,changes}=prepared
     meta={...chunks[0]}; seq=meta.seq
     result.bootstraps.push({totalRows:count,rows:synthetic.length,sentRows:count-changes.length,originalRows:changes.length,fromSeq:first.seq,at:new Date().toISOString()}); save()
@@ -325,11 +328,58 @@ async function makePage() {
     }
     for(const type of ['pointerdown','pointerup','keydown','beforeinput']) document.addEventListener(type,input,true)
     performance.mark('comparison:navigation-start',{startTime:0})
+    // POD-7122 diagnosis: every /sync/ fetch with its start, headers, body end,
+    // NDJSON record kinds and the collections it named, on the page's clock.
+    window.__syncTimeline=[]
+    // POD-7122 diagnosis: every readwrite IndexedDB transaction, its request
+    // count and its completion, on the page's clock (one counter per request).
+    window.__idbTimeline=[]
+    const nativeTransaction=IDBDatabase.prototype.transaction
+    IDBDatabase.prototype.transaction=function(names,mode,options){
+      const tx=nativeTransaction.call(this,names,mode,options)
+      if(mode==='readwrite'){
+        const entry={startMs:performance.now(),stores:[].concat(names).length,requests:0}
+        window.__idbTimeline.push(entry);tx.__diag=entry
+        tx.addEventListener('complete',()=>{entry.endMs=performance.now()})
+        tx.addEventListener('abort',()=>{entry.abortMs=performance.now()})
+      }
+      return tx
+    }
+    for(const method of ['put','add','delete']){
+      const native=IDBObjectStore.prototype[method]
+      IDBObjectStore.prototype[method]=function(...args){
+        const entry=this.transaction.__diag
+        if(entry){
+          entry.requests++
+          const by=(entry.byStore??={})[this.name]??={requests:0,sampled:0,bytes:0}
+          by.requests++
+          if(method!=='delete'&&by.requests%25===1){try{by.bytes+=JSON.stringify(args[0]).length;by.sampled++}catch{}}
+        }
+        return native.apply(this,args)
+      }
+    }
+    const nativeFetch=window.fetch.bind(window)
+    window.fetch=async(input,init)=>{
+      const href=typeof input==='string'?input:input instanceof URL?input.href:input.url
+      if(!href.includes('/sync/'))return nativeFetch(input,init)
+      const entry={path:new URL(href,location.href).pathname,startMs:performance.now(),collections:null}
+      try{const body=init?.body;if(typeof body==='string'){const parsed=JSON.parse(body);entry.collections=(parsed.instances??[]).map(x=>x.collection+(x.args?':'+JSON.stringify(x.args):''))}}catch{}
+      if(entry.path==='/sync/bootstrap')entry.view=new URL(href,location.href).searchParams.get('view')
+      window.__syncTimeline.push(entry)
+      const response=await nativeFetch(input,init)
+      entry.headersMs=performance.now();entry.status=response.status
+      if(!response.body)return response
+      let bytes=0,firstChunkMs
+      const counter=new TransformStream({transform(chunk,controller){
+        firstChunkMs??=performance.now();bytes+=chunk.byteLength;controller.enqueue(chunk)
+      },flush(){entry.endMs=performance.now();entry.firstByteMs=firstChunkMs;entry.bytes=bytes}})
+      return new Response(response.body.pipeThrough(counter),{status:response.status,statusText:response.statusText,headers:response.headers})
+    }
     window.__comparisonStartup=false
     const observeStartup=()=>{
       if(window.__comparisonStartup)return
       if(document.querySelector('[data-testid="boot-splash"]'))return
-      const candidates=[...document.querySelectorAll(surface==='web'?'aside [data-issue-row]':'[role="button"][aria-label]')]
+      const candidates=[...document.querySelectorAll(surface==='phone'?'[role="button"][aria-label]':'aside [data-issue-row]')]
       const target=candidates.find(x=>{
         const label=x.getAttribute('aria-label')??'', rect=x.getBoundingClientRect()
         if(!(x.hasAttribute('data-issue-row') || /^(?:[A-Z]+-\d+|#\d+) /.test(label)) || rect.width<=0 || rect.height<=0 || rect.y<0 || rect.bottom>innerHeight || rect.right<=0 || rect.x>=innerWidth)return false
@@ -354,7 +404,7 @@ async function ready(page,{controlById=false,firstRow=false}={}) {
   }
   else await page.locator('aside').first().waitFor({timeout:120000})
   if(firstRow)await page.waitForFunction(()=>window.__comparisonStartup===true,undefined,{timeout:120000})
-  else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
+  else if(controlById && surface!=='phone')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
@@ -363,7 +413,32 @@ async function inspect(page,label) {
   const dom=await page.evaluate(()=>({url:location.href,buttons:[...document.querySelectorAll('button,[role="button"],[role="tab"]')].filter(x=>x.getClientRects().length).map(x=>({text:x.textContent?.trim().slice(0,140),label:x.getAttribute('aria-label'),title:x.getAttribute('title'),testid:x.getAttribute('data-testid'),issue:x.getAttribute('data-issue-row'),session:x.getAttribute('data-session'),html:x.outerHTML.slice(0,900)})),inputs:[...document.querySelectorAll('input,textarea,[contenteditable]')].filter(x=>x.getClientRects().length).map(x=>({placeholder:x.getAttribute('placeholder'),label:x.getAttribute('aria-label'),html:x.outerHTML.slice(0,900)})),rows:document.querySelectorAll('[data-issue-row],[data-issue-id]').length,text:document.body.innerText.slice(0,5000)}))
   writeFileSync(resolve(out,`${label}.json`),JSON.stringify(dom,null,2)); await page.screenshot({path:resolve(out,`${label}.png`)})
 }
+// POD-7122: a first download may paint before it is durable. Wait (bounded)
+// for its durable commit: a cursor in the meta store and no load under way
+// ('loading-since'; the base arm never writes one). Records when that was seen.
+async function durable(page) {
+  return await page.evaluate(async()=>{
+    const began=performance.now()
+    for(;;) {
+      let done=false
+      for(const info of await indexedDB.databases()) {
+        const db=await new Promise((yes,no)=>{const request=indexedDB.open(info.name);request.onsuccess=()=>yes(request.result);request.onerror=()=>no(request.error)})
+        if(db.objectStoreNames.contains('meta'))await new Promise((yes,no)=>{
+          const request=db.transaction('meta','readonly').objectStore('meta').getAllKeys()
+          request.onsuccess=()=>{const keys=request.result.map(key=>key[1]);done=keys.includes('cursor')&&!keys.includes('loading-since');yes()};request.onerror=()=>no(request.error)
+        })
+        db.close()
+      }
+      if(done)return {durableAtMs:performance.now(),waitedMs:performance.now()-began}
+      if(performance.now()-began>120000)throw Error('The first download did not become durable within 120 s')
+      await new Promise(done=>setTimeout(done,200))
+    }
+  })
+}
 async function population(page) {
+  const seen=await durable(page)
+  const action=result.actions.at(-1)
+  if(action){action.durableAtMs=seen.durableAtMs;action.durableAfterPaintMs=seen.durableAtMs-action.inputToPaintMs}
   const counts=await page.evaluate(async()=>{
     const counts={}
     for(const info of await indexedDB.databases()) {
@@ -450,7 +525,60 @@ async function startup(fixture,name,profile=false) {
   const phaseMetrics=await fixture.page.evaluate(end => (window.__coldStartMetrics??[]).filter(entry=>entry.end<=end), measured.inputToPaintMs)
   const visibleRows=await fixture.page.evaluate(()=>[...document.querySelectorAll('aside [data-issue-row]')].filter(row=>{const r=row.getBoundingClientRect();return r.width>0&&r.height>0&&r.y>=0&&r.bottom<=innerHeight}).map(row=>({id:row.getAttribute('data-issue-row'),text:row.textContent})))
   result.actions.push({action:name,variant:activeVariant,query:activeQuery,phaseMetrics,visibleRows,startedAt:began,load,...measured,profiled:profile,mainThreadCpuMs:(cpuEnd-input.tts)/1000,layoutCpuMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.tts,cpuEnd,true),mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null})
+  const resources=await fixture.page.evaluate(()=>performance.getEntriesByType('resource').filter(x=>x.name.includes('/sync/')).map(x=>({path:new URL(x.name).pathname,startMs:x.startTime,durationMs:x.duration})))
+  result.actions.at(-1).syncResources=resources
+  result.actions.at(-1).collectionsBeforePaint=resources.filter(x=>x.path==='/sync/collections'&&x.startMs<measured.inputToPaintMs)
+  result.actions.at(-1).syncTimeline=await fixture.page.evaluate(()=>window.__syncTimeline??[])
+  result.actions.at(-1).idbTimeline=await fixture.page.evaluate(()=>window.__idbTimeline??[])
   save(); console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms${profile?' (profile, excluded)':''}`)
+}
+async function firstDeck(fixture, tree) {
+  const {page,cdp}=fixture
+  if(surface==='phone') {
+    const search=page.getByRole('textbox',{name:'Search work',exact:true})
+    if(!await search.isVisible())await page.getByLabel('Search work',{exact:true}).click()
+    await search.fill(tree.title)
+    await page.getByText(tree.title,{exact:true}).first().waitFor()
+  }
+  if(surface!=='phone') {
+    await page.getByTestId('topbar-nav-issues').click()
+    const row=page.locator(`aside [data-issue-row="${tree.root}"]`).first()
+    if(!await row.count()) {
+      // Fixture roots sort first in their project; expanding a collapsed
+      // project is preparation, outside the measured input window.
+      const issue=issuesById.get(tree.root)
+      const group=page.getByTestId('project-group').filter({has:page.getByTestId('project-group-label').filter({hasText:issue.repoPath.split('/').at(-1)})}).first()
+      if(await group.getAttribute('data-collapsed')==='true')await group.getByTestId('project-group-label').click()
+    }
+    await row.scrollIntoViewIfNeeded()
+  }
+  const stop=await trace(cdp), before=await metrics(cdp)
+  await page.evaluate(({title,phone})=>{
+    window.__deckReady=false
+    const ready=()=>phone
+      ? !!document.querySelector('[aria-label="Mission actions"]')&&document.body.innerText.includes(title)
+      : [...document.querySelectorAll('.deck-header')].some(header=>header.textContent?.includes(title)&&header.getBoundingClientRect().width>0&&!header.closest('[aria-hidden="true"]'))&&!!document.querySelector('[data-testid="flight-deck-scroller"] [data-flight-issue]')
+    const observer=new MutationObserver(()=>{
+      if(!window.__deckReady&&ready()) {window.__deckReady=true;performance.mark('comparison:deck-dom');observer.disconnect()}
+    })
+    observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
+    performance.mark('comparison:deck-input')
+  },{title:tree.title,phone:surface==='phone'})
+  if(surface==='phone')await page.getByText(tree.title,{exact:true}).first().click()
+  else await page.locator(`aside [data-issue-row="${tree.root}"]`).first().click()
+  if(surface!=='phone') {
+    await frames(page)
+    const open=page.getByRole('button',{name:'Open flight deck',exact:true})
+    if(await open.isVisible())await open.click()
+  }
+  await page.waitForFunction(()=>window.__deckReady,undefined,{timeout:120000})
+  await frames(page)
+  const events=await stop(), after=await metrics(cdp), measured=paintOf(events,'comparison:deck-input','comparison:deck-dom')
+  const traceName=`deck-${tree.size}.trace.json.gz`
+  writeFileSync(resolve(out,traceName),gzipSync(JSON.stringify(events)))
+  result.decks??=[];result.decks.push({size:tree.size,root:tree.root,...measured,mainThreadMs:(after.TaskDuration-before.TaskDuration)*1000,trace:traceName})
+  save()
+  if(surface==='phone')await page.goBack()
 }
 try {
   for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${serverLog.toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }
@@ -486,7 +614,7 @@ try {
   let canonical
   result.preflightAttempts=[]
   for(let attempt=0;attempt<120;attempt++) {
-    const response=await fetch(`${base}/sync/bootstrap`), body=await response.text()
+    const response=await fetch(`${base}/sync/bootstrap`,{headers:{'Podium-Client-Type':surface==='web'?'browser':surface}}), body=await response.text()
     writeFileSync(resolve(out,'canonical-preflight.ndjson'),body)
     if(!response.ok)throw Error(`Preflight bootstrap HTTP ${response.status}: ${body.slice(0,500)}`)
     canonical=body.trim().split('\n').map(line=>JSON.parse(line))
@@ -552,8 +680,15 @@ try {
         // snapshot before navigation can interrupt its native transaction.
         await population(f.page)
         result.actions.at(-1).population={...result.population};save()
+        if(process.argv.includes('--measure-memory')) {
+          result.memorySamples??=[]
+          result.memorySamples.push(await memoryAfterColdStart(f))
+          save()
+        }
         await startup(f,'app-warm-start',i===samples)
         await population(f.page)
+        if(process.argv.includes('--decks')&&corpus.measurementTrees)
+          for(const tree of corpus.measurementTrees)await firstDeck(f,tree)
         if(i!==samples+profileSamples-1 || variant!==order.at(-1))await f.context.close()
       }
       if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))

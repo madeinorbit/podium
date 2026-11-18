@@ -282,12 +282,17 @@ export class CollectionLoader {
       case 'evicted':
         if (hasStub(event.entity)) this.notify('stubs')
         return
+      // The first download ends for the views when its records are in the
+      // store's memory (POD-7122), not when they are durable.
+      case 'load-installed':
       case 'bootstrap-installed':
         if (this.fresh) {
           this.fresh = false
           this.notify('markers')
+          this.notify('stubs')
+          return
         }
-        this.notify('stubs')
+        if (event.type === 'bootstrap-installed') this.notify('stubs')
         return
       case 'bootstrap-failed':
         this.unride()

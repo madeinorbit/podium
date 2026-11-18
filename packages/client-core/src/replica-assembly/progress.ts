@@ -159,7 +159,10 @@ export class SyncProgressStore {
     })
   }
   noteEvent(event: ReplicaEvent): void {
-    if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
+    // POD-7122: the device opens when the load is in memory; its durable commit
+    // (`bootstrap-installed`) follows without a splash.
+    if (event.type === 'load-installed') this.noteInstalled()
+    else if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
     else if (event.type === 'heal-progress')
       this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq, event.fromSeq)
     else if (event.type === 'bootstrap-failed') {

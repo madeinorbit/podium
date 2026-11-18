@@ -15,6 +15,7 @@
  * would be caught.
  */
 
+import { type Clause, type Collection, clausesOf, instanceParams, isParam } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   CollectionServer,
@@ -25,11 +26,12 @@ import {
   WORLD_NOW,
   WORLD_POLICY,
 } from '../conformance/collection-server'
-import { instanceKey } from './cache-state'
+import { InstanceMap, instanceKey } from './cache-state'
 import {
   comesWithOf,
   HeldIndex,
   type HeldRows,
+  holds,
   planTrim,
   policyArgs,
   type ResolvedInstance,
@@ -389,5 +391,162 @@ describe('the linear trim (POD-7115)', () => {
         expect(plan.cacheRecords, label).toBe(old.cacheRecords)
       }
     }
+  })
+})
+
+/**
+ * POD-7119 — the index before it looked instances up by key: it resolved
+ * every marker and grouped keyed instances by their argument. Kept here as
+ * the oracle `HeldIndex.matching` must still equal.
+ */
+function oldMatching(
+  specs: readonly (InstanceSpec & { readonly range?: InstanceRecord['range'] })[],
+  args: ReturnType<typeof policyArgs>,
+  kind: string,
+  value: unknown,
+  rows: HeldRows,
+  now: number,
+  part: 'stub' | 'main',
+): string[] {
+  const record = (value ?? {}) as Readonly<Record<string, unknown>>
+  const out = new Set<string>()
+  for (const spec of specs) {
+    const instance = resolveInstance(spec, args)
+    if (instance === undefined || instance.of !== kind || spec.part !== part) continue
+    const field = oldKeyField(instance.collection)
+    if (field !== undefined) {
+      const param = instanceParams(instance.collection)[0] as string
+      if ((spec.args?.[param] ?? null) !== (record[field] ?? null)) continue
+    }
+    if (holds(instance, kind, value, rows, now)) out.add(instance.key)
+  }
+  return [...out].sort()
+}
+
+function oldKeyField(collection: Collection): string | undefined {
+  const params = instanceParams(collection)
+  if (params.length !== 1 || collection.where === undefined) return undefined
+  const clauses = clausesOf(collection.where)
+  if (clauses.length !== 1) return undefined
+  for (const [field, test] of Object.entries(clauses[0] as Clause)) {
+    if (
+      test !== null &&
+      typeof test === 'object' &&
+      'eq' in test &&
+      isParam(test.eq) &&
+      test.eq.param === params[0]
+    )
+      return field
+  }
+  return undefined
+}
+
+describe('the held index by key (POD-7119)', () => {
+  it('finds exactly the instances the index that resolved every marker found', () => {
+    let found = 0
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const c = buildCase(seed)
+      const next = random(seed * 7919)
+      const ids = [...c.rows.values()].filter((row) => row.entity === ISSUE).map((r) => r.entityId)
+      const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T
+      const extra = (spec: InstanceSpec & { readonly range?: InstanceRecord['range'] }) => {
+        const key = instanceKey(spec)
+        return { ...spec, key, completeAt: CURSOR } as InstanceRecord
+      }
+      // Shapes the random worlds do not make: stubs, pages with a range, a
+      // via, a via this build does not declare, an argument besides the key,
+      // a missing key argument.
+      const odd: InstanceRecord[] = [
+        extra({ collection: 'issueProjection.stubs', part: 'stub' }),
+        extra({ collection: 'issueProjection.recent', part: 'main' }),
+        extra({
+          collection: 'issueProjection.byStage',
+          args: { stage: 'in_progress' },
+          part: 'main',
+          range: { through: [RECENTLY, 'I3'], end: false },
+        }),
+        extra({ collection: 'issueProjection.byStage', args: { stage: 'done' }, part: 'main' }),
+        extra({
+          collection: 'issueProjection.byStagePriority',
+          args: { stage: 'in_progress', priority: 2 },
+          part: 'main',
+        }),
+        extra({
+          collection: 'session.ofIssue',
+          args: { issueId: pick(ids) },
+          part: 'main',
+          via: 'issueProjection.sidebar',
+        }),
+        extra({
+          collection: 'session.ofIssue',
+          args: { issueId: pick(ids) },
+          part: 'main',
+          via: 'issueProjection.tree',
+        }),
+        extra({
+          collection: 'issueProjection.one',
+          args: { id: pick(ids) },
+          part: 'main',
+          via: 'issueProjection',
+        }),
+        extra({
+          collection: 'issueProjection.one',
+          args: { id: pick(ids) },
+          part: 'main',
+          via: 'gone',
+        }),
+        extra({
+          collection: 'issueProjection.one',
+          args: { id: pick(ids), also: 1 },
+          part: 'main',
+        }),
+        extra({ collection: 'issueProjection.one', part: 'main' }),
+        extra({ collection: 'issueProjection.one', args: { id: pick(ids) }, part: 'stub' }),
+        extra({ collection: 'notDeclared.one', args: { id: pick(ids) }, part: 'main' }),
+      ]
+      const all = [...c.instances.values(), ...odd]
+      // The markers as a store keeps them: a base, then one mutation at a
+      // time over it, some dropping a marker, past a fold.
+      const cut = Math.floor(all.length / 2)
+      let markers: ReadonlyMap<string, InstanceRecord> = new Map(
+        all.slice(0, cut).map((r) => [r.key, r]),
+      )
+      for (const record of all.slice(cut)) {
+        const edit = InstanceMap.edit(markers)
+        edit.set(record.key, record)
+        if (next() < 0.2) edit.delete(pick(all).key)
+        markers = edit.done()
+      }
+      const fetching: (InstanceSpec & { readonly range?: InstanceRecord['range'] })[] = [
+        { collection: 'issueProjection.tree', args: { root: pick(ids) }, part: 'main' },
+        { collection: 'issueProjection.one', args: { id: pick(ids) }, part: 'main' },
+        // A reload of a held page: in flight, it has no range.
+        { collection: 'issueProjection.byStage', args: { stage: 'in_progress' }, part: 'main' },
+      ]
+      const index = new HeldIndex(markers, policyArgs(WORLD_POLICY), fetching)
+      const store: HeldRows = { readRow: (entity, id) => c.rows.get(rowKey(entity, id)) }
+      const specs = [...markers.values(), ...fetching]
+      for (const row of c.rows.values()) {
+        for (const part of ['main', 'stub'] as const) {
+          const got = index
+            .matching(row.entity, row.value, store, WORLD_NOW, part)
+            .map((instance) => instance.key)
+            .sort()
+          const want = oldMatching(
+            specs,
+            policyArgs(WORLD_POLICY),
+            row.entity,
+            row.value,
+            store,
+            WORLD_NOW,
+            part,
+          )
+          expect(got, `seed ${seed} ${row.entityId} ${part}`).toEqual(want)
+          found += got.length
+        }
+      }
+    }
+    // Not vacuous: many records belong to many instances.
+    expect(found).toBeGreaterThan(1_000)
   })
 })

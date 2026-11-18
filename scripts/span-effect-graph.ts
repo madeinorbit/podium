@@ -815,6 +815,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The owning repository's one-row status SELECT, read only when a guarded move did not apply [POD-4765]; declared beside the write in its repository and checked there.",
   },
+  'packages/model/src/records/index.ts#<module>.recordOf': {
+    kind: 'contained',
+    why: 'A lookup in the declared record table by kind: the marker map sorts a marker it sets by the links its collection declares (POD-7119). Pure data; no I/O, nothing observable outside the process.',
+  },
   'packages/model/src/state-machine.ts#StateMachine.allowedFrom': {
     kind: 'contained',
     why: 'A lookup in the declared transition table: the states a row may be in for a move into one state. Pure data; no I/O, nothing observable outside the process.',

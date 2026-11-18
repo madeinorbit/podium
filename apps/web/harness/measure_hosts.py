@@ -7,6 +7,7 @@ invokes it. The defaults are the agent VMs and the same locks as remote-lane.
 Both VMs report the hostname `agents`, so captures record the ssh alias.
 """
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -17,6 +18,19 @@ HOSTS = {
     # Historical: POD-5594's baseline host. Not allowed for new runs (operator 2026-11-12).
     'flatblock': ('flatblock', 'bench:flatblock'),
 }
+
+# Additional authorized VMs are operational configuration, not public routing
+# inventory. Both arms inherit this mapping through the measurement process.
+extra_hosts = json.loads(os.environ.get('PODIUM_MEASUREMENT_HOSTS', '{}'))
+if not isinstance(extra_hosts, dict):
+    raise ValueError('PODIUM_MEASUREMENT_HOSTS must be a JSON object')
+for name, spec in extra_hosts.items():
+    if (not name or name in HOSTS or not isinstance(spec, list) or len(spec) != 2
+            or any(not isinstance(value, str) or not value for value in spec)
+            or spec[0].startswith('-') or any(char.isspace() for char in spec[0])
+            or not spec[1].startswith(('test:', 'bench:'))):
+        raise ValueError('Additional measurement hosts need a new label, SSH alias and timing lock')
+    HOSTS[name] = tuple(spec)
 
 # Prefer a checkout-local toolchain (flatblock), else the VM lane toolchain.
 TOOLCHAIN = ('T="$PWD/.toolchain"; [ -d "$T" ] || T="$HOME/podium-lanes-toolchain"; '

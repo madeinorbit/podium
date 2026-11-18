@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
+import { CollectionLoader } from '../replica/loader'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
 import { Replica } from '../replica/replica'
 import type {
@@ -22,6 +23,7 @@ import type {
   InstanceSpec,
   ReplicaEvent,
 } from '../replica/types'
+import type { SyncUnitOfWork } from '../span'
 import {
   CollectionServer,
   issue,
@@ -85,6 +87,10 @@ function kernelOver(
   storage: ConformanceStorage,
   server: CollectionServer,
   clock = { now: WORLD_NOW },
+  options: {
+    readonly unitOfWork?: SyncUnitOfWork
+    readonly onEvent?: (event: ReplicaEvent) => void
+  } = {},
 ): Booted {
   const { cache } = storage.viewFor(PRINCIPAL)
   const events: ReplicaEvent[] = []
@@ -92,9 +98,28 @@ function kernelOver(
     store: cache,
     authority: server,
     now: () => clock.now,
-    onEvent: (event) => events.push(event),
+    onEvent: (event) => {
+      events.push(event)
+      options.onEvent?.(event)
+    },
+    ...(options.unitOfWork === undefined ? {} : { unitOfWork: options.unitOfWork }),
   })
   return { storage, cache, replica, events, clock }
+}
+
+/** The storage's unit of work, each transaction held until `gate` opens: a durable commit that has not landed. */
+function heldCommits(storage: ConformanceStorage, gate: Promise<void>): SyncUnitOfWork {
+  return {
+    transact: async (body) => {
+      await gate
+      return await storage.unitOfWork.transact(body)
+    },
+  }
+}
+
+/** Let the walk run until `done` says so (bounded). */
+async function until(done: () => boolean): Promise<void> {
+  for (let i = 0; i < 400 && !done(); i += 1) await ticks(1)
 }
 
 async function boot(
@@ -321,6 +346,73 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           for (const key of refetched)
             expect(markedBefore.has(key), `boundary ${k} fetched ${key} again`).toBe(false)
         }
+      })
+
+      it('opens the views on the load before its durable commit; only the commit goes live (POD-7122)', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        const storage = await instantiation.open()
+        const gate = barrier()
+        let loader: CollectionLoader | undefined
+        const booted = kernelOver(storage, server, undefined, {
+          unitOfWork: heldCommits(storage, gate.promise),
+          onEvent: (event) => loader?.onEvent(event),
+        })
+        const { cache, replica, events } = booted
+        loader = new CollectionLoader({ replica })
+        expect(loader.firstDownload).toBe(true)
+        replica.connect()
+        await until(() => events.some((event) => event.type === 'load-installed'))
+        // In memory: every policy collection and what its records come with.
+        expect(events.map((event) => event.type)).toContain('load-installed')
+        expect(events.map((event) => event.type)).not.toContain('bootstrap-installed')
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
+        expect(
+          marked(cache, {
+            collection: 'session.ofIssue',
+            args: { issueId: 'A1' },
+            part: 'main',
+            via: 'issueProjection.sidebar',
+          }),
+        ).toBe(true)
+        expectMarkersTrue(cache, server)
+        // The views open on it: the first download is over for them…
+        expect(loader.firstDownload).toBe(false)
+        // …while the durable commit has not landed: not live, the load still under way.
+        expect(replica.posture).toBe('bootstrapping')
+        expect(cache.readLoadingSince()).not.toBeNull()
+        gate.release()
+        await until(() => replica.posture === 'live')
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        expect(cache.readLoadingSince()).toBeNull()
+        const order = events.map((event) => event.type)
+        expect(order.indexOf('load-installed')).toBeLessThan(order.indexOf('bootstrap-installed'))
+        loader.dispose()
+      })
+
+      it('a crash after the views opened and before the durable commit resumes the load, without a second first download', async () => {
+        const world = () => {
+          const server = new CollectionServer()
+          seedWorld(server)
+          return server
+        }
+        const expected = contents((await boot(instantiation, world())).cache)
+        const storage = await instantiation.open()
+        const dying = kernelOver(storage, world(), undefined, {
+          unitOfWork: heldCommits(storage, new Promise<void>(() => {})),
+        })
+        dying.replica.connect()
+        await until(() => dying.events.some((event) => event.type === 'load-installed'))
+        expect(dying.events.map((event) => event.type)).not.toContain('bootstrap-installed')
+        await ticks()
+        // THE KILL: the kernel is gone before its commit; the store stays.
+        const restarted = world()
+        const second = await boot(instantiation, restarted, storage)
+        expect(second.replica.posture).toBe('live')
+        expect(contents(second.cache)).toEqual(expected)
+        expect(restarted.bootstraps, 'no second first download').toBe(0)
+        expect(restarted.fetches.flat(), 'nothing it already held is fetched again').toEqual([])
       })
 
       it('a gap the feed cannot bridge drops the markers and reloads; the old rows stay readable meanwhile', async () => {

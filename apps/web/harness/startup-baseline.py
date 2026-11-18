@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import re
 import shlex
+import subprocess
 import uuid
 
 import measure_hosts
@@ -26,13 +27,35 @@ def sample_order(arms, step):
     return rotated if (step // len(arms)) % 2 == 0 else list(reversed(rotated))
 
 
+def completed_pair(run, row, cohort, host, surface):
+    """Recover only the collector's complete, matching pair after an exit gap.
+
+    Browser-error admission remains the report guard's job; a rejected sample
+    still belongs in the immutable schedule, with its original evidence.
+    """
+    actions = run.get('actions', [])
+    if (run.get('status') != 'complete' or not run.get('endedAt')
+            or run.get('mode') != 'timing' or not run.get('paired')
+            or run.get('cell') != row['cell'] or run.get('surface') != surface
+            or run.get('host') != host.alias
+            or run.get('lease', {}).get('cohort') != cohort
+            or run.get('lease', {}).get('name') != host.lock
+            or [action.get('action') for action in actions] != ['app-cold-start', 'app-warm-start']
+            or any(action.get('profiled') or not isinstance(action.get('inputToPaintMs'), (int, float))
+                   or not 0 < action['inputToPaintMs'] < float('inf') for action in actions)):
+        raise ValueError('Existing capture is incomplete or differs from the saved plan; keep it and use a fresh round')
+    return run
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     measure_hosts.add_arguments(parser)
     parser.add_argument('--checkout', default='podium-test-5594',
                         help='comma list of issue-owned checkouts under the host $HOME')
     parser.add_argument('--cells', default='h1a1,h10a1,h1a4,h10a4')
-    parser.add_argument('--surface', default='web', choices=['web', 'phone'])
+    parser.add_argument('--surface', default='web', choices=['web', 'phone', 'desktop'])
+    parser.add_argument('--measure-memory', action='store_true')
+    parser.add_argument('--decks', action='store_true')
     parser.add_argument('--samples', default=8, type=int)
     parser.add_argument('--round', default=1, type=int)
     parser.add_argument('--min-available-gib', default=6, type=float, help='admission floor per capture')
@@ -45,7 +68,7 @@ def main():
     checkouts = args.checkout.split(',')
     if any(not re.fullmatch(r'podium-test-[a-z0-9-]+', checkout) for checkout in checkouts) or len(set(checkouts)) != len(checkouts):
         raise ValueError('Distinct issue-owned checkouts (podium-test-<issue>) are required')
-    if args.samples < 1 or len(set(cells)) != len(cells) or any(not re.fullmatch(r'h(?:[1-9]|1[0-9]|20)a[124]', cell) for cell in cells):
+    if args.samples < 1 or len(set(cells)) != len(cells) or any(cell != 'operator' and not re.fullmatch(r'h(?:[1-9]|1[0-9]|20)a[124]', cell) for cell in cells):
         raise ValueError('Distinct corpus cells and at least one sample are required')
     arms = [(checkout, cell) for checkout in checkouts for cell in cells]
     key = (lambda checkout, cell: cell) if len(checkouts) == 1 else (lambda checkout, cell: f'{checkout}/{cell}')
@@ -69,15 +92,17 @@ def main():
         if data['outputs'] != expected:
             raise ValueError('Saved outputs do not match the completed schedule')
         cohort, outputs, schedule = data['cohort'], data['outputs'], data['schedule']
+        collector_exits = data.get('collectorExits', {})
     else:
         if ledger.exists():
             raise ValueError('This baseline round already exists; use --resume or a fresh round')
         cohort, outputs, schedule = str(uuid.uuid4()), {k: [] for k in keys}, []
+        collector_exits = {}
 
     def save(status):
         ledger.write_text(json.dumps({'cohort': cohort, 'surface': args.surface, 'host': host.alias, 'lock': host.lock,
                                      'checkouts': checkouts, 'outputs': outputs, 'schedule': schedule,
-                                     'samplesPerCell': args.samples, 'status': status}, indent=2) + '\n')
+                                     'samplesPerCell': args.samples, 'collectorExits': collector_exits, 'status': status}, indent=2) + '\n')
     held = False
     try:
         grant = host.acquire()
@@ -101,17 +126,38 @@ def main():
                     '--external-lease', '--paired', '--no-profile', '--mode=timing', f'--arm={cell}',
                     f'--surface={args.surface}', f'--cell={cell}', f'--round={args.round}',
                     '--samples=1', '--port=19661', f'--out={relative}',
-                    f'--host={host.alias}', f'--lease={host.lock}']
+                    f'--host={host.alias}', f'--lease={host.lock}',
+                    *(['--measure-memory'] if args.measure_memory else []),
+                    *(['--decks'] if args.decks else [])]
             # Grant files precede collector startup. They never prime the app.
             prepare = (f'mkdir -p {shlex.quote(relative)} && '
                        f'cat > {shlex.quote(relative + "/lease.json")} && '
                        f'touch {shlex.quote(relative + "/step-0.go")}')
             prefix = f'cd "$HOME/{row["checkout"]}" && {measure_hosts.TOOLCHAIN}'
-            host.run(prefix + prepare, input=payload, text=True, check=True)
-            command = prefix + shlex.join(['python3', 'apps/web/harness/flatblock-budget.py', '--census',
-                                          f'--min-available-gib={args.min_available_gib}',
-                                          f'--log={relative}/collector.log', '--', *argv])
-            host.run(command, check=True)
+            read_run = prefix + 'cat ' + shlex.quote(relative + '/run.json')
+            existing = host.run(read_run, capture_output=True, text=True)
+            if existing.returncode == 0:
+                if not args.resume:
+                    raise ValueError('Capture already exists; only --resume may recover a completed pair')
+                completed_pair(json.loads(existing.stdout), row, cohort, host, args.surface)
+                collector_exits[row['run']] = 'recovered complete capture after controller exit'
+                print(f'CAPTURE_RECOVERED {row["run"]}', flush=True)
+            else:
+                host.run(prefix + prepare, input=payload, text=True, check=True)
+                command = prefix + shlex.join(['python3', 'apps/web/harness/flatblock-budget.py', '--census',
+                                              f'--min-available-gib={args.min_available_gib}',
+                                              f'--log={relative}/collector.log', '--', *argv])
+                captured = host.run(command)
+                if captured.returncode:
+                    saved = host.run(read_run, capture_output=True, text=True, check=True)
+                    completed_pair(json.loads(saved.stdout), row, cohort, host, args.surface)
+                    log = host.run(prefix + 'cat ' + shlex.quote(relative + '/collector.log'),
+                                   capture_output=True, text=True, check=True).stdout
+                    if 'fetch: Request context disposed.' not in log:
+                        raise subprocess.CalledProcessError(captured.returncode, command)
+                    collector_exits[row['run']] = {'exitCode': captured.returncode,
+                                                  'reason': 'request context disposed during browser teardown'}
+                    print(f'CAPTURE_CLEANUP_WARNING {row["run"]}', flush=True)
             outputs[row['key']].append(row['run'])
             schedule.append(row)
             save('running')
