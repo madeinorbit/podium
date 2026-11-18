@@ -377,8 +377,12 @@ it('ignores virtual placeholders and disconnects observers, listeners and queued
     ),
   ]
   const f = await open(rows)
+  // A deck this size draws its rows a step per task (POD-7168): the last
+  // row's placeholder follows the first rows.
+  await waitFor(() =>
+    expect(f.ui.container.querySelector('[data-deck-placeholder="task:task-99"]')).not.toBeNull(),
+  )
   expect(f.row('task-99')).toBeNull()
-  expect(f.ui.container.querySelector('[data-deck-placeholder="task:task-99"]')).not.toBeNull()
   expect(f.edges()).toHaveLength(0)
   const scrollRemove = vi.spyOn(f.scrollRef.current!, 'removeEventListener')
   const windowRemove = vi.spyOn(window, 'removeEventListener')

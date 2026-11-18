@@ -380,9 +380,14 @@ const rowState = (row: MissionDeckIssueModel): DeckIssueState => {
     const state = row.deck.model(id).state
     return { word: state.state, delegated: state.delegated }
   })
-  const issue = settled(() => row.issue),
+  // The state reads the issue's own fields (stage, close, blocked, deps, its
+  // coordinator): the catalog row has them, without the drawn row's member,
+  // child and dependent overlays every one of a deck's rows would build
+  // (POD-7168). The roster settles before the crew does.
+  const issue = row.view.catalogIssue(row.id),
     crew = settled(() => row.sessions)
   if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
+  if (!issue) throw LOADING
   return row.view.deckState(issue, crew, words)
 }
 const presentation = (row: MissionDeckIssueModel): MissionRowPresentation =>

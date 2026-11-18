@@ -28164,18 +28164,18 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "MissionDeckIssueModel/ownState",
       "rule": "reader-summary",
-      "tokens": "dbb9927797c74228a49dafec72e4f4a7f9e644a2cd5c95e869b39e07d5d4e85c",
+      "tokens": "b9781332dc0500fd8ed73ee3a685ec2a9d8ccf91b743f6ca936f7f1f2c5e6cdf",
       "gate": [],
       "origin": [
         "791e5753c6da39a4b862ac2c8b45e35a9f09797eb7d22582590328a5c82f9e04"
       ],
-      "fingerprint": "e0e1ff490e05e8cfb7fc178533b41cc6b1a3c5de016fc601506c8ccce5cf3f50",
+      "fingerprint": "7389ef562e4c950e8774134fd09cacce2ce69e4d755aa3af36240330f614470c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
       "trigger": "Observed MissionDeckIssueModel/state (the row's task word)",
-      "bound": "The addressed issue's own crew (row.sessions) and its immediate children's lazy words; no catalogue read.",
-      "reason": "POD-6170: ef3c9624aa (POD-6134) wraps rowState's existing row.sessions and child-word reads in settled()/settledAll so all cold inputs load in one window. The row word is a per-row lazy MobX value; a change re-derives one path upward.",
+      "bound": "The addressed issue's own crew (row.sessions), its own catalog row (no member, child or dependent overlay), and its immediate children's lazy words.",
+      "reason": "POD-6170: ef3c9624aa (POD-6134) wraps rowState's existing row.sessions and child-word reads in settled()/settledAll so all cold inputs load in one window. The row word is a per-row lazy MobX value; a change re-derives one path upward. POD-7168: the state reads the addressed issue's catalog row, not its drawn row's full overlay; deckIssueState reads the same fields.",
       "guard": "packages/client-graph/src/mission-view.test.ts: unrelated sessions grown to 1,000 read only the selected mission's attachment edges; a hidden row's collapsed count leaves crew presentation unobserved; POD-6134 settles 24 cold rows in at most three load windows."
     },
     {

@@ -1,4 +1,3 @@
-import type { Trpc } from '@/app/trpc'
 import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
@@ -14,11 +13,13 @@ import {
   type MouseEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react'
+import type { Trpc } from '@/app/trpc'
 import { GhostBar } from '@/components/GhostPreview'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PhaseTimer } from '@/lib/motion'
@@ -54,6 +55,36 @@ export type FlightDeckV6Actions = {
   onRenameDone: () => void
 }
 
+/** Rows the first render of a deck draws; the rest follow, a step per task. */
+const FIRST_ROWS = 60
+const ROWS_PER_STEP = 150
+
+/**
+ * POD-7168: how many of a deck's rows are drawn now. A large deck draws its
+ * first rows (more than a screen) in the render that opens it and the rest a
+ * step per task, so no task renders all of them: the operator's 970-issue
+ * deck rendered every row and its placeholder in one task. Once every row of
+ * an opening has been drawn, later rows are drawn at once. A short deck is
+ * drawn whole, as before.
+ */
+function useRowsDrawn(total: number, scope: string): number {
+  const [drawn, setDrawn] = useState({ scope, count: FIRST_ROWS, whole: false })
+  const current = drawn.scope === scope ? drawn : { scope, count: FIRST_ROWS, whole: false }
+  const whole = current.whole || current.count >= total
+  useEffect(() => {
+    if (whole) {
+      if (!current.whole || current.scope !== drawn.scope) setDrawn({ ...current, whole: true })
+      return
+    }
+    const timer = setTimeout(
+      () => setDrawn({ scope, count: current.count + ROWS_PER_STEP, whole: false }),
+      0,
+    )
+    return () => clearTimeout(timer)
+  }, [whole, current, drawn.scope, scope])
+  return whole ? total : current.count
+}
+
 /** Full-only geometry and rendering. The companions own membership, words,
  * counters, seats, search and folds; these arrays describe pixels, not records. */
 export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
@@ -87,6 +118,7 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   const ids = pending === LOADING ? [] : pending
   const tasks = ids.map((id) => full.task(id))
   const guides = treeGuides(tasks)
+  const drawn = useRowsDrawn(tasks.length, full.rootId)
   const leaves: DeckWindowRow[] = []
   for (const task of tasks) {
     leaves.push({
@@ -127,17 +159,19 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
           <GhostBar />
         </div>
       ) : renderRows ? (
-        renderRows(tasks, guides, window)
+        renderRows(tasks.slice(0, drawn), guides.slice(0, drawn), window)
       ) : (
-        tasks.map((task, index) => (
-          <FlightDeckV6Task
-            key={task.id}
-            task={task}
-            carries={guides[index] ?? []}
-            window={window}
-            {...actions}
-          />
-        ))
+        tasks
+          .slice(0, drawn)
+          .map((task, index) => (
+            <FlightDeckV6Task
+              key={task.id}
+              task={task}
+              carries={guides[index] ?? []}
+              window={window}
+              {...actions}
+            />
+          ))
       )}
     </div>
   )
