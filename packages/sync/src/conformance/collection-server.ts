@@ -170,14 +170,28 @@ export class CollectionServer implements AuthorityReadPort {
     })()
   }
 
-  bootstrap(): AsyncIterable<BootstrapChunk> {
+  /** The view step of every first download asked for, in order. */
+  readonly views: InstanceRequest[][] = []
+
+  /**
+   * The first download: the policy's collections in its order, with the
+   * visible view's instances at its `view` step (after the first step when
+   * the policy names none), as POD-7085's route orders them.
+   */
+  bootstrap(
+    _signal?: AbortSignal,
+    view?: readonly InstanceRequest[],
+  ): AsyncIterable<BootstrapChunk> {
     this.bootstraps += 1
-    const instances = this.policy.steps.flatMap((step) =>
-      step.collections.map((collection) => ({
-        collection,
-        part: COLLECTIONS.get(collection)?.part ?? 'main',
-      })),
-    )
+    this.views.push([...(view ?? [])])
+    const instances: InstanceSpec[] = []
+    const hasViewStep = this.policy.steps.some((step) => step.step === 'view')
+    this.policy.steps.forEach((step, at) => {
+      if (step.step === 'view') instances.push(...(view ?? []))
+      for (const collection of step.collections)
+        instances.push({ collection, part: COLLECTIONS.get(collection)?.part ?? 'main' })
+      if (!hasViewStep && at === 0) instances.push(...(view ?? []))
+    })
     return this.answer(instances, this.head, true)
   }
 

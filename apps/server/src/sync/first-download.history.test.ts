@@ -366,6 +366,70 @@ describe('the policy set loads without reading history (acceptance 5)', () => {
     console.log(`query plans at history x10:\n${plans.join('\n')}`)
   }, 600_000)
 
+  // POD-7087 item 9: what the sidebar shows on an empty device while its
+  // collection arrives. Measured: where the sidebar's marker falls in the
+  // whole first download (rows, bytes and producer time before it), against
+  // the first screen's (always and live) and the end.
+  it('measures where the sidebar completes in the first download', async () => {
+    const download = firstDownload(policyFor('browser'), [])
+    const at = async (history: number) => {
+      const w = await world(history)
+      const job = {
+        mode: 'collections',
+        transferId: 'sidebar-at',
+        principal: w.owner,
+        feedId: 'feed',
+        epoch: 'epoch',
+        encoding: 'identity',
+        deadlineMs: Date.now() + 600_000,
+        instances: download,
+      } as SyncJob
+      const marks: Record<string, { rows: number; kib: number; ms: number }> = {}
+      let rows = 0
+      let bytes = 0
+      let rest = ''
+      const started = performance.now()
+      for await (const chunk of produceBootstrap(
+        w.path,
+        job,
+        new AbortController().signal,
+        () => {},
+        undefined,
+        { now: () => w.now },
+      )) {
+        const text = rest + new TextDecoder().decode(chunk)
+        const lines = text.split('\n')
+        rest = lines.pop() ?? ''
+        for (const raw of lines) {
+          if (raw.trim() === '') continue
+          bytes += raw.length + 1
+          const line = JSON.parse(raw) as Line & { instances?: { collection: string }[] }
+          rows += line.changes?.length ?? 0
+          for (const instance of line.type === 'collectionComplete' ? (line.instances ?? []) : [])
+            marks[instance.collection] ??= {
+              rows,
+              kib: Math.round(bytes / 1024),
+              ms: Math.round(performance.now() - started),
+            }
+        }
+      }
+      return {
+        firstScreen: marks['session.live'],
+        sidebar: marks['issueProjection.sidebar'],
+        stubs: marks['issueProjection.stubs'],
+      }
+    }
+    const small = await at(1)
+    const large = await at(10)
+    console.log('sidebar marker x1:', JSON.stringify(small), 'x10:', JSON.stringify(large))
+    for (const run of [small, large]) {
+      expect(run.firstScreen!.rows).toBeLessThan(run.sidebar!.rows)
+      expect(run.sidebar!.rows).toBeLessThan(run.stubs!.rows)
+    }
+    // The sidebar's position does not move with history: what precedes it is the policy set.
+    expect(large.sidebar!.rows).toBe(small.sidebar!.rows)
+  }, 600_000)
+
   it('measures the stubs step, which grows with history by design', async () => {
     const stubs: CollectionInstance[] = [{ collection: 'issueProjection.stubs' }]
     const at = async (history: number) => {

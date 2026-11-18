@@ -18,9 +18,9 @@
  */
 
 import type {
-  ChangeOp as ModelChangeOp,
   ChangeProvenanceFields,
   ChangeTargetFields,
+  ChangeOp as ModelChangeOp,
 } from '@podium/model'
 
 /**
@@ -338,6 +338,18 @@ export interface DeviceCollectionReads {
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
   /** The ids of the issues on the device whose parent is `parentId`, stubs included. */
   stubsByParent(parentId: string): readonly string[]
+  /**
+   * The stub part of every record of `entity` on the device, stubs and whole
+   * records alike (POD-7087, design "Counts"). The same array until the
+   * device's rows change.
+   */
+  stubRows(entity: string): readonly StubRow[]
+}
+
+/** One record's stub part, by id. */
+export interface StubRow {
+  readonly id: string
+  readonly stub: Readonly<Record<string, unknown>>
 }
 
 /** The server's policy for this client type, as the device stores it (`syncMeta.policy`). */
@@ -366,6 +378,11 @@ export type ReplicaEvent =
   | { readonly type: 'released'; readonly entity: string; readonly entityId: string }
   /** An issue's stub was written: the device holds it at stub level only. */
   | { readonly type: 'stub-upserted'; readonly record: EntityRecord }
+  /**
+   * Markers were written or dropped (POD-7087): what `isComplete` answers
+   * may have changed. Touches no row.
+   */
+  | { readonly type: 'markers' }
   /** A TOMBSTONE. The entity is gone, globally. Render as deleted. */
   | { readonly type: 'removed'; readonly entity: string; readonly entityId: string }
   /**

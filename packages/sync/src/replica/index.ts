@@ -9,6 +9,8 @@
  * nothing here evaluates visibility — the Replica applies the slice the Authority
  * computed (ADR 1 D1, ADR 2 Amendment 1 D12.7).
  */
+
+export * from './loader'
 export * from './memory-store'
 export * from './overlay'
 export * from './overlay-projection'

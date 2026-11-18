@@ -81,6 +81,7 @@ import {
   type ReplicaStats,
   rowAsOf,
   type ServerFrame,
+  type StubRow,
 } from './types'
 
 export interface ReplicaOptions {
@@ -140,6 +141,18 @@ export interface ReplicaOptions {
   readonly maxBootstrapAttempts?: number
   /** The clock collection rules compare "newer than N days" against. */
   readonly now?: () => number
+  /**
+   * What the visible view asks for when a full load starts (the loader's,
+   * POD-7087): the first download's second step, design "One loader, one
+   * route". Read once per attempt.
+   */
+  readonly view?: () => readonly InstanceRequest[]
+  /**
+   * Where the instances held records come with are asked for, outside a
+   * load: the loader's queue (POD-7087), so they share its window and its
+   * offline rule. Absent, the Replica batches them itself per microtask.
+   */
+  readonly request?: (specs: readonly InstanceSpec[]) => void
 }
 
 /** Most instances one fetch names; the route's own bound. */
@@ -261,6 +274,9 @@ export class Replica implements DeviceCollectionReads {
       }
     | undefined
   private stubsByParentIndex: Map<string, string[]> | undefined
+  private stubRowsIndex: Map<string, readonly StubRow[]> | undefined
+  private readonly viewRequests: (() => readonly InstanceRequest[]) | undefined
+  private readonly requestHook: ((specs: readonly InstanceSpec[]) => void) | undefined
 
   private counters = {
     heals: 0,
@@ -282,12 +298,21 @@ export class Replica implements DeviceCollectionReads {
     this.now = options.now ?? (() => Date.now())
     const onEvent = options.onEvent ?? (() => {})
     this.emit = (event) => {
-      if (event.type !== 'cursor' && event.type !== 'posture' && event.type !== 'heal-progress')
+      if (
+        event.type !== 'cursor' &&
+        event.type !== 'posture' &&
+        event.type !== 'heal-progress' &&
+        event.type !== 'markers'
+      ) {
         this.stubsByParentIndex = undefined
+        this.stubRowsIndex = undefined
+      }
       onEvent(event)
     }
     this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
+    this.viewRequests = options.view
+    this.requestHook = options.request
     this.cursorValue = this.readCursorSafely()
     if (this.cursorValue !== null) this.state = 'stale'
   }
@@ -1060,6 +1085,7 @@ export class Replica implements DeviceCollectionReads {
       try {
         if (cause !== 'resume' && this.store.readInstances().size > 0) {
           this.store.applyAtomic({ operations: [], instances: [{ kind: 'dropAll' }] })
+          this.emit({ type: 'markers' })
         }
       } catch (error) {
         // An unreadable corruption walk must consume its bounded attempt budget,
@@ -1142,7 +1168,7 @@ export class Replica implements DeviceCollectionReads {
     const full = missing === undefined
     const source =
       missing === undefined
-        ? this.authority.bootstrap(signal)
+        ? this.authority.bootstrap(signal, this.viewRequests?.())
         : // A method of the authority: called on it, so a class source keeps its `this`.
           (this.authority as Required<Pick<AuthorityReadPort, 'collections'>>).collections(
             missing,
@@ -1346,10 +1372,15 @@ export class Replica implements DeviceCollectionReads {
     }
     if (operations.length === 0 && instances.length === 0 && !start && chunk.policy === undefined)
       return written
+    // What `isComplete` answers moves with a marker written, or with markers
+    // a full load's first chunk drops.
+    const markersMoved =
+      (chunk.complete?.length ?? 0) > 0 || (start && this.store.readInstances().size > 0)
     this.store.applyAtomic(mutation)
     if (start) this.cursorValue = snapshot
     this.batchEvents(() => {
       for (const event of events) this.emit(event)
+      if (markersMoved) this.emit({ type: 'markers' })
     })
     return written
   }
@@ -1605,6 +1636,14 @@ export class Replica implements DeviceCollectionReads {
   private request(specs: readonly InstanceSpec[]): void {
     if (specs.length === 0 || this.authority.collections === undefined) return
     const marked = this.store.readInstances()
+    if (this.requestHook !== undefined) {
+      const fresh = specs.filter((spec) => {
+        const key = instanceKey(spec)
+        return !marked.has(key) && !this.inFlight.has(key)
+      })
+      if (fresh.length > 0) this.requestHook(fresh)
+      return
+    }
     for (const spec of specs) {
       const key = instanceKey(spec)
       if (marked.has(key) || this.inFlight.has(key)) continue
@@ -1688,6 +1727,8 @@ export class Replica implements DeviceCollectionReads {
     this.fetchCount += 1
     const signal = this.fetchAbort.signal
     const written: EntityRecord[] = []
+    /** Every record the answer named, written or already current on the device. */
+    const named = new Map<string, { readonly entity: string; readonly entityId: string }>()
     const task = (async () => {
       try {
         // The earliest answer of a reload: a row of its kinds current only as
@@ -1703,6 +1744,9 @@ export class Replica implements DeviceCollectionReads {
               throw new Error('a collection answer is for another feed')
             if (reloadedAt === undefined || chunk.snapshotSeq < reloadedAt.snapshotSeq)
               reloadedAt = chunk
+            if (!insideLoad)
+              for (const change of chunk.changes)
+                named.set(entityKey(change.entity, change.entityId), change)
             const install = (): void => {
               written.push(
                 ...this.installChunk(chunk, {
@@ -1729,7 +1773,18 @@ export class Replica implements DeviceCollectionReads {
       if (signal.aborted) return
       // What the records this answer brought come with (design "One loader"):
       // outside a load, fetched in the next batch; inside one, by the load itself.
-      if (this.state !== 'bootstrapping') this.request(this.missingComesWith(written))
+      // Outside a load that is every record the answer named, not only those it
+      // wrote: a record the device already held current (the sidebar's root of a
+      // tree) has entered the fetched instance too, and comes with what that
+      // instance declares (POD-7087).
+      if (this.state !== 'bootstrapping') {
+        const entered: EntityRecord[] = []
+        for (const { entity, entityId } of named.values()) {
+          const row = this.store.readRow(entity, entityId)
+          if (row !== undefined && row.part !== 'stub') entered.push(row)
+        }
+        this.request(this.missingComesWith(insideLoad ? written : entered))
+      }
       this.scheduleTrim()
     })()
     const tracked = task.catch((error) => {
@@ -1772,11 +1827,13 @@ export class Replica implements DeviceCollectionReads {
     this.counters.bootstraps += 1
     const reload: KindReload = { kinds, stubs: new Map() }
     void this.serial(() => {
-      if (marked.length > 0)
+      if (marked.length > 0) {
         this.store.applyAtomic({
           operations: [],
           instances: marked.map((instance) => ({ kind: 'drop' as const, key: instance.key })),
         })
+        this.emit({ type: 'markers' })
+      }
     })
       .then(() => this.fetchInstances([...requests.values()], reload))
       .catch(() => undefined)
@@ -1868,6 +1925,42 @@ export class Replica implements DeviceCollectionReads {
     return index.get(parentId) ?? []
   }
 
+  /**
+   * The stub part of every record of `entity` on the device, stubs and whole
+   * records alike: what counts over all history read (design "Counts").
+   * Built once per change of the device's rows, in no particular order.
+   */
+  stubRows(entity: string): readonly StubRow[] {
+    let index = this.stubRowsIndex
+    if (index === undefined) {
+      index = new Map()
+      this.stubRowsIndex = index
+    }
+    let rows = index.get(entity)
+    if (rows === undefined) {
+      const out: StubRow[] = []
+      if (stubFieldsOf(entity).length > 0) {
+        for (const row of this.store.readEntities())
+          if (row.entity === entity)
+            out.push({ id: row.entityId, stub: stubOfValue(entity, row.value) })
+        for (const row of this.store.readStubs())
+          if (row.entity === entity)
+            out.push({
+              id: row.entityId,
+              stub: (row.value ?? {}) as Readonly<Record<string, unknown>>,
+            })
+      }
+      rows = out
+      index.set(entity, rows)
+    }
+    return rows
+  }
+
+  /** Whether a load can start now: the device has a feed to answer against. */
+  get canFetch(): boolean {
+    return this.cursorValue !== null && this.authority.collections !== undefined
+  }
+
   /** Trim the cache by instance now (design "Memory, cache and leaving"). */
   async trim(): Promise<void> {
     await this.serial(() => this.trimNow())
@@ -1926,6 +2019,7 @@ export class Replica implements DeviceCollectionReads {
     this.batchEvents(() => {
       for (const row of [...plan.toStub, ...plan.remove])
         this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
+      if (plan.dropInstances.length > 0) this.emit({ type: 'markers' })
     })
   }
 
