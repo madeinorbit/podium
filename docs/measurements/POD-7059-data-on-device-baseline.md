@@ -157,36 +157,32 @@ round 1.
 
 ## The AFTER run
 
-Run it on **the same host (vega)** from the candidate's issue checkout, once the phase's
-build tasks have landed on `integrate/4286-data-on-device`. The base and the candidate are
-measured side by side, in one interleaved schedule, so the host's drift cancels. The base
-is `17d01cd9c5`, with the candidate's `apps/web/harness` and `apps/mobile/harness` laid
-over it. Both arms run the same collector, and the base's product tree is exactly the one
-measured here.
+**Interim at `726a06ad16`: cold-paint and feed regressions do not clear the live update.** These observations compare base `17d01cd9c530eb22d902b352837cbfc9eb5a15a3` with product `726a06ad16f676c58fab051e477b0f1e18a92c7d`, plus measurement-only commits. The coordinator stopped the web cohort at 12/18 pairs while POD-7119 and POD-7122 prepare their product fixes. One final phone/web startup series against the fixed tip will replace this interim for the operator’s update decision.
 
-```sh
-# From the candidate's issue worktree on ludovico; <issue> is that issue's number.
-# Commit first: remote-lane pushes the committed HEAD. One remote-lane call at a time,
-# and no commit between the calls (each build is stamped with the HEAD it measures).
-R="python3 apps/web/harness/data-on-device-baseline.py"
-O="--host=vega --base=17d01cd9c5 --round=11"
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R prepare $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R memory $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R timing --surface=web $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R timing --surface=phone $O
-remote-lane vega <issue> run $R report $O --product-base=17d01cd9c5
-remote-lane vega <issue> run $R clean $O
-```
+Values are median (minimum–maximum), in seconds for Paint and MiB for memory. Both arms are interleaved on each cohort’s single authorized VM. Phone uses the BEFORE host (VM A); web uses added capacity (VM B), as directed by the coordinator. Historical BEFORE tables above stay unchanged.
 
-`--base` checks the base out at `~/podium-test-<issue>-base`, beside the candidate's
-checkout, and every step then covers both. The report keys the arms
-`podium-test-<issue>-base/<cell>` and `podium-test-<issue>/<cell>`, and states whether the
-product base's tree equals a measured tree, which should be true for the base arm only.
-In this baseline, one surface's six pairs took 13 minutes of lock time. With two
-checkouts, a timing step holds the lock for about 26 minutes. Round numbers are never
-reused: captures are not overwritten. The report prints the Markdown tables and a
-`SUMMARY_JSON` line.
+| Surface | Population | Cold Paint, before → after | Warm Paint, before → after | Peak renderer RSS, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy (VM A) | `h1a1` | 6.16 (6.02–6.16) → 17.70 (15.08–17.72) | 5.35 (5.11–5.89) → 4.35 (4.34–4.70) | 537.3 (534.1–540.4) → 576.4 (571.4–583.1)‡ |
+| Web (VM B) | `h1a1` | 5.71 (5.60–5.82) → 36.89 (35.21–38.57) | 4.78 (4.65–4.91) → 5.43 (5.25–5.62) | 581.2 (579.8–582.6) → 551.9 (437.7–666.0) |
+| Phone web proxy (VM A) | `h10a1` | 18.25 (one admitted sample) → 31.04 (30.64–34.27) | 13.94 (one admitted sample) → 4.94 (4.78–6.74) | 1112.6 (one admitted sample) → 624.2 (585.3–628.5)‡ |
+| Web (VM B) | `h10a1` | 18.69 (18.26–19.11) → 57.44 (49.85–65.04) | 14.44 (13.97–14.91) → 5.87 (5.67–6.06) | 1123.3 (1084.3–1162.2) → 621.8 (564.2–679.4) |
+| Phone web proxy (VM A) | `operator` | 8.10 (8.01–9.30) → 16.05 (15.94–16.52) | 7.41 (7.38–7.43) → 4.22 (4.15–4.25) | 745.7 (737.8–773.9) → 578.6 (575.2–579.6)‡ |
+| Web (VM B) | `operator` | 7.93 (7.83–8.03) → 33.41 (32.37–34.44) | 5.88 (5.81–5.94) → 4.98 (4.94–5.03) | 771.1 (768.0–774.2) → 621.0 (597.5–644.5) |
 
-Without `--base`, the same commands measure the current checkout alone, as here. `all`
-runs every step in one call; use it only on an otherwise idle host, since it holds the
-lock for the whole run.
+| Surface | Population | Retained heap after GC MiB, before → after | Admitted pairs before / after |
+| --- | --- | --- | --- |
+| Phone web proxy (VM A) | `h1a1` | 182.1 (182.0–182.2) → 131.5 (131.4–132.3)‡ | 3/3 / 3/3 |
+| Web (VM B) | `h1a1` | 203.6 (203.5–203.6) → 197.1 (197.0–197.3) | 2/2 / 2/2 |
+| Phone web proxy (VM A) | `h10a1` | 542.1 (one admitted sample) → 137.0 (137.0–137.6)‡ | 1/3 / 3/3 |
+| Web (VM B) | `h10a1` | 569.1 (568.9–569.4) → 202.4 (202.3–202.4) | 2/2 / 2/2 |
+| Phone web proxy (VM A) | `operator` | 284.1 (283.9–284.3) → 124.3 (124.3–124.4)‡ | 3/3 / 3/3 |
+| Web (VM B) | `operator` | 292.3 (292.3–292.3) → 182.8 (182.7–182.8) | 2/2 / 2/2 |
+
+‡ Earlier phone-after memory is retained **only as limited observations**: a malformed synthetic-only collection envelope caused retries. POD-7122 repaired the fixture and found phone x1 cold Paint unchanged in its diagnostic (17.44 → 17.48 s); the old phone collection counts and CPU attribution are excluded. The coordinator directed no corrected memory recapture on this old product. Corrected web captures use the repaired fixture in both arms. Two original before phone x10 captures failed admission after heartbeat reconnects; they remain in the evidence and out of these medians.
+
+The collector records an actual Chromium Paint after an unobscured visible issue row. Cold uses fresh application storage; warm retains the durable corpus, with HTTP caching disabled on both. Memory follows durable-population verification, settling and two forced collections before warm reload, unlike the historical timing-only captures. Peak RSS includes the verification probe reading rows in the page. These are instrumented Chromium renderer proxies, not native-phone or Tauri measurements.
+
+The [complete measurement report](POD-7095-cache-cap-and-phone-memory.md) contains collection/resource timings, retained RSS, source/fixture digests, all exclusions, cache caps, feed/storage CPU and synchronous SQLite block. Its [public sample summary](POD-7095-cache-cap-and-phone-memory/summary.json) retains each attempt. Complete ledgers and operational host details are private issue artifacts.
+
+Use `apps/web/harness/data-on-device-baseline.py` through `remote-lane` on the authorized VM, from committed source. Run `prepare --host="$measurement_vm" --base=17d01cd9c5 --cells=h1a1,h10a1,operator`, then `timing` on one surface with a fresh `--round`, `--samples=3 --measure-memory --max-pairs=6`; resume that same schedule in short windows. Each call releases its host lease. Read both the issue inbox and session-addressed thread inbox before every call. The final fixed-tip cohort has not run yet.
