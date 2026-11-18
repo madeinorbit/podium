@@ -23,8 +23,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { issueSearch } from '@podium/client-graph/issue-search'
 import { issueTargets } from '@podium/client-graph/issue-targets'
-import { issuePages } from '@podium/client-graph/issue-page'
-import { readIssueSearchChoices } from '../../../../../apps/web/src/features/issues/issue-search-choices'
+import { readIssueSearchChoiceIds } from '../../../../../apps/web/src/features/issues/issue-search-choices'
 import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
@@ -250,19 +249,13 @@ export function startupQuestions(
       return issueSearch(pool).read(needle, [], issue.repoPath).complete ? result : LOADING
     })
     add('search', `web-targets:${needle}`, (pool) => {
-      if (!issueSearch(pool).read(needle, []).complete) return LOADING
-      const pending = [...pool.queries.localTextIds(needle)].reduce((pending, id) => pool.row('issue', id) === LOADING || pending, false)
-      if (pending) return LOADING
-      const views = issuePages(pool)
-      return readIssueSearchChoices(pool, views, needle).map((issue) => issue.id)
+      const found = readIssueSearchChoiceIds(pool, needle)
+      return found.complete ? new Set(found.ids) : LOADING
     })
     add('search', `phone-work:${needle}`, (pool) => {
       const phone = new PhoneWorklist(worklistView(pool))
       phone.setQuery(needle)
-      const pending = phone.searchResults.ids.reduce((pending, id) => worklistView(pool).knownRow(id)?.ready === LOADING || pending, false)
-      return phone.searchResults.complete && !pending
-        ? phone.sections.flatMap((section) => section.ids)
-        : LOADING
+      return phone.searchResults.complete ? phone.searchIds : LOADING
     })
   }
 
