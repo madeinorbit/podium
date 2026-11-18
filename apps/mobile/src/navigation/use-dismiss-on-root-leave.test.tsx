@@ -9,7 +9,14 @@ import { useDismissOnRootLeave } from './use-dismiss-on-root-leave'
 afterEach(cleanup)
 
 function root(initial: NavigationState['routes'][number] = { key: 'owner', name: '(tabs)' }) {
-  let state = { index: 0, routes: [initial] }
+  let state: NavigationState = {
+    key: 'app',
+    type: 'stack',
+    stale: false,
+    index: 0,
+    routeNames: [initial.name],
+    routes: [initial],
+  }
   let listener = () => {}
   const remove = vi.fn()
   const addListener = vi.fn((event: string, next: () => void) => {
@@ -27,7 +34,7 @@ function root(initial: NavigationState['routes'][number] = { key: 'owner', name:
     remove,
     addListener,
     publish(focused: NavigationState['routes'][number]) {
-      state = { index: 0, routes: [focused] }
+      state = { ...state, routeNames: [focused.name], routes: [focused] }
       act(() => listener())
     },
     wrapper: ({ children }: { children: ReactNode }) => (
