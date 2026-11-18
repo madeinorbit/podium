@@ -17,6 +17,7 @@
  */
 
 import { MobxPool } from '@podium/client-graph/pool'
+import { parseCell } from '../fixture'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { parseCell } from '../fixture'
