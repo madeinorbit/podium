@@ -13,7 +13,7 @@ import type { StoreDrizzle } from './executor/sync-drizzle'
 
 /** `table INDEXED BY index` on SQLite, the table alone on Postgres. */
 export function throughIndex(db: StoreDrizzle, table: Table, index: string): SQL {
-  return dialectOf(db) === 'pg' ? sql`${table}` : sql`${table} INDEXED BY ${sql.raw(index)}`
+  return dialectOf(db) === 'pg' ? sql`${table}` : sql`${table} INDEXED BY ${sql.identifier(index)}`
 }
 
 /**

@@ -267,6 +267,8 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
       'b0|k0|x2|r0|s0|asc',
       'b0|k0|x0|r1|s0|asc',
       'b0|k0|x0|r0|s1|asc',
+      // One subject's page newest first below a cursor, bookkeeping kinds left out (POD-5832).
+      'b1|k0|x1|r0|s1|desc',
     ],
   ],
   ['apps/server/src/store/messages.ts:insertMessage', ['id']],

@@ -321,7 +321,7 @@ async function cloneShippingHistory(
       ),
     })
   }
-  await raw.transaction(async () => {
+  const seed = async (): Promise<void> => {
     for (let i = 0; i < copies; i++) {
       const suffix = `:history:${i}`
       for (const { table, rows } of sources) {
@@ -349,7 +349,9 @@ async function cloneShippingHistory(
     }
     // A raw fixture seed reaches the tables, not the log (POD-6920).
     await raw.run(sql`DELETE FROM sync_capture`)
-  })
+  }
+  // StoreSql.transaction is the test store's own port, joining its workspace transaction.
+  await raw.transaction(seed) // DECISION POD-7103
 }
 
 /** A trigger that refuses every `podium_events` insert with 'event refused', on either engine. */

@@ -61,10 +61,6 @@ const EXEMPT = new Map<string, string>([
     'apps/server/src/store/identity-upgrade.ts',
     'LEGACY boot import of pre-identity SQLite tables (identity-import-schema); SQLite only, removed with its LEGACY date',
   ],
-  [
-    'apps/server/src/modules/updates/recovery-store.ts',
-    'outside POD-6977 (store/** and the sync adapter); converts with its own task',
-  ],
 ])
 
 function sourcesUnder(dir: string): string[] {
