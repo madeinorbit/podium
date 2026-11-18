@@ -133,7 +133,22 @@ const FIXTURE = 'fixture-'
 const T0 = '2026-01-01T00:00:00.000Z'
 const fixtureRows = (changes: { entity: string; entityId: string }[]) =>
   changes.filter((r) => r.entity === 'agentProfile' && r.entityId.startsWith(FIXTURE))
-async function append(writer: Writer, name: string, text = 'x') {
+/**
+ * Each writer's appends, one at a time: a case may fire many without awaiting them
+ * (POD-7085), and the writer's transaction awaits each statement, on either engine.
+ */
+const appending = new WeakMap<Writer, Promise<unknown>>()
+function append(writer: Writer, name: string, text = 'x'): Promise<void> {
+  const next = (appending.get(writer) ?? Promise.resolve()).then(() =>
+    appendNow(writer, name, text),
+  )
+  appending.set(
+    writer,
+    next.catch(() => {}),
+  )
+  return next
+}
+async function appendNow(writer: Writer, name: string, text: string) {
   const id = `${FIXTURE}${name}`
   await writer.transaction(async (run) => {
     await run(
@@ -276,9 +291,10 @@ describe('real sync worker boundary', () => {
         output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes),
       ) as { entityId: string; seq: number }[]
       // Every change at or below the answer's feed number is in it, none above.
-      const expected = f.writer
-        .prepare('SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id')
-        .all(meta.seq) as { entity_id: string }[]
+      const expected = await f.writer.all<{ entity_id: string }>(
+        'SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id',
+        [meta.seq],
+      )
       expect(actual.map((r) => r.entityId).sort()).toEqual(expected.map((r) => r.entity_id))
       expect(actual.every((r) => r.seq === meta.seq)).toBe(true)
       // The instance is closed by its marker, at the same feed number.
