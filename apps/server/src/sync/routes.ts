@@ -11,6 +11,7 @@ import {
   type Principal,
 } from '@podium/protocol'
 import { z } from 'zod'
+import { workspaceBoundToRequest } from '../file-artifact-route'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import type { Hono } from 'hono'
 import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, transferLog, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
@@ -121,6 +122,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
+          workspaceId: workspaceBoundToRequest(c),
           ...(clientType.value && { clientType: clientType.value }),
           ...(view.value.length > 0 && { view: view.value }),
         },
@@ -189,6 +191,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
+          workspaceId: workspaceBoundToRequest(c),
           from: query.data.from,
           to: query.data.to,
           pageRows: deps.pageRows ?? 500,
@@ -259,6 +262,9 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
+          // The workspace the request is bound to, never one the body names
+          // (POD-7118): the worker's reads are all that workspace's.
+          workspaceId: workspaceBoundToRequest(c),
           instances: request.data.instances,
           ...(clientType.value && { clientType: clientType.value }),
         },

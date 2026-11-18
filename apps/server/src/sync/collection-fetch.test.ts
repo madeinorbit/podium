@@ -49,10 +49,12 @@ import { type CollectionInstance, ISSUE_STUB_FIELDS, type Principal } from '@pod
 import { openDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { shapedValue } from '@podium/sync/bootstrap-worker'
+import { isBoundParam, type SqlValue } from '@podium/sync/collections'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableName } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sessions } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { auditedCollectionShapes } from '../store/collections'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
@@ -66,6 +68,10 @@ import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { resolveRule, ruleStatement, statementOfKey } from './collection-shapes'
 import { collectionTarget, isCollectionKind } from './collection-sql'
 import { firstDownload, policyFor } from './policy'
+
+/** The statement's parameters with the workspace marker bound to the store's one workspace. */
+const withWorkspace = (params: readonly SqlValue[]): unknown[] =>
+  params.map((value) => (isBoundParam(value) ? SELF_HOSTED_WORKSPACE_ID : value))
 
 const NOW = Date.now()
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
@@ -622,7 +628,7 @@ describe('every declared collection answers its rule (acceptance 1)', () => {
     const selected = (
       rawDb(store)
         .prepare(statement.sql)
-        .all(...statement.params) as { c0: string }[]
+        .all(...withWorkspace(statement.params)) as { c0: string }[]
     ).map((row) => row.c0)
     expect(selected).toContain('s-broken')
     const lines = await fetchLines(viewers[0]!.user, [{ collection: 'session.asking' }])

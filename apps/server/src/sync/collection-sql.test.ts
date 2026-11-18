@@ -23,17 +23,23 @@ import {
   type RuleArgs,
   type SessionId,
 } from '@podium/model'
+import { isBoundParam, type SqlValue } from '@podium/sync/collections'
 import { collectRecords } from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableName } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sessions } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import type { SessionRow } from '../store/types'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
 import { type CollectionKind, collectionFields, collectionQuery } from './collection-sql'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
+
+/** The statement's parameters with the workspace marker bound to the store's one workspace. */
+const withWorkspace = (params: readonly SqlValue[]): unknown[] =>
+  params.map((value) => (isBoundParam(value) ? SELF_HOSTED_WORKSPACE_ID : value))
 
 const NOW = Date.parse('2026-11-17T12:00:00.000Z')
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
@@ -117,7 +123,14 @@ const ISSUES = [
 
 /** Arguments every declared rule over these types can be answered with. */
 const ARGS: readonly RuleArgs[] = [
-  { recentDays: 7, issueId: 'iss_a', id: 's-offer', root: 'iss_a', stage: 'in_progress', priority: 2 },
+  {
+    recentDays: 7,
+    issueId: 'iss_a',
+    id: 's-offer',
+    root: 'iss_a',
+    stage: 'in_progress',
+    priority: 2,
+  },
   { recentDays: 30, issueId: 'iss_b', id: 'iss_c', root: 'iss_b', stage: 'proposed', priority: 1 },
 ]
 
@@ -289,7 +302,7 @@ describe('collection rules over the server tables', () => {
     return (
       rawDb(store)
         .prepare(query.sql)
-        .all(...query.params) as { id: string }[]
+        .all(...withWorkspace(query.params)) as { id: string }[]
     )
       .map((r) => r.id)
       .sort()

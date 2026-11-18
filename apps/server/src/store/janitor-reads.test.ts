@@ -516,7 +516,8 @@ describe("the janitor's database on the store's engine", () => {
  */
 describe('one full janitor scan', () => {
   // RE-PINNED 16 -> 19 FOR POD-7118: dev/mw's receipt prune reads its head and
-  // count, and its queue expiry its page (POD-7035).
+  // count, and its queue expiry its page (POD-7035). 18 distinct queries: the event
+  // cap's seek starts from the log's head, the read the steward poll makes too.
   it('runs the same 19 statements on either engine', async () => {
     const { seed, reads, slice } = await open()
     for (let i = 0; i < 30; i += 1) {
@@ -615,6 +616,6 @@ describe('one full janitor scan', () => {
       steward: 1,
       machines: 1,
     })
-    expect({ statements, queries: byQuery.size }).toEqual({ statements: 19, queries: 19 })
+    expect({ statements, queries: byQuery.size }).toEqual({ statements: 19, queries: 18 })
   })
 })

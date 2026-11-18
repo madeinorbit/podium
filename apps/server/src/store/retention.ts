@@ -55,6 +55,12 @@ export const TABLE_RETENTION: Readonly<Record<string, TableRetention>> = {
   effects: pruned(
     "The effect runner's sweep: finished records past their window and soft-deleted tombstones are purged in batches (modules/effects/runner.ts).",
   ),
+  pending_uploads: pruned(
+    "The server's hourly pending-upload sweep: a composer upload no message claimed within 24 hours (PENDING_UPLOAD_MAX_AGE_MS) leaves with its bytes.",
+  ),
+  artifact_uploads: pruned(
+    "The server's hourly artifact-upload sweep (`sweepUploads`, beside the pending-upload sweep): a CLI upload left unfinished is removed with its staged parts.",
+  ),
   sync_capture: bounded(
     'Rows a write captures are drained into the change log in the same transaction: empty between writes.',
   ),
@@ -86,8 +92,13 @@ export const TABLE_RETENTION: Readonly<Record<string, TableRetention>> = {
   runtime_event_projection_cursors: bounded('One cursor per projector.'),
   sync_feed: bounded('One row per tenant.'),
   sync_kind: bounded('One row per synced record kind.'),
-  feed_identity: bounded('One row per tenant.'),
   meta: bounded('A fixed set of server keys.'),
+  workspace_meta: bounded(
+    "A fixed set of a workspace's keys (WORKSPACE_META_KEYS), one row each per workspace.",
+  ),
+  workspace_secrets: bounded(
+    "A fixed set of a workspace's secret keys, plus one per provider key a person stores.",
+  ),
   schema_version: bounded('One row: the legacy schema marker.'),
   server_secrets: bounded('A fixed set of server keys, plus one per provider key a person stores.'),
 
