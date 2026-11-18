@@ -1462,3 +1462,91 @@ describe('addressed batches (POD-4444, additive/opt-in)', () => {
     }
   })
 })
+
+describe('an empty device’s first download (POD-7122)', () => {
+  it('holds the rows of a cold walk and publishes them once, when the load is in memory, not when it is durable', () => {
+    const { cache, replica } = build()
+    const issues = vi.fn()
+    const addressed = vi.fn()
+    replica.subscribeRows('issueProjections', issues)
+    replica.subscribeAddressedBatch!(addressed)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'cold' })
+    // The first chunk sets the store's cursor; the views do not see it yet.
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 5 }
+    for (const id of ['a', 'b']) {
+      cache.put('issueProjection', id, issue(id), 5)
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: cache.read('issueProjection', id)!,
+        readmitted: false,
+      })
+    }
+    expect(issues).not.toHaveBeenCalled()
+    expect(addressed).not.toHaveBeenCalled()
+    expect(replica.getCursor()).toBeNull()
+    expect(replica.sessionUserStatesLoaded?.()).toBe(false)
+    // A view never reads a partial first download; a lookup by id reads the store.
+    expect(replica.rows('issueProjections')).toEqual([])
+    expect(replica.row?.('issueProjections', 'a')?.id).toBe('a')
+
+    replica.onKernelEvent({ type: 'load-installed', cause: 'cold-start', snapshotSeq: 5 })
+    expect(addressed).toHaveBeenCalledExactlyOnceWith({ type: 'replace', reason: 'bootstrap' })
+    expect(issues).toHaveBeenCalledTimes(1)
+    expect(replica.rows('issueProjections').map((row) => row.id)).toEqual(['a', 'b'])
+    expect(replica.getCursor()).toBe(5)
+    expect(replica.sessionUserStatesLoaded?.()).toBe(true)
+
+    // The durable commit that follows publishes nothing again.
+    cache.loadingSince = null
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: 5,
+      entityCount: 2,
+      bufferedFramesApplied: 0,
+    })
+    expect(addressed).toHaveBeenCalledTimes(1)
+    expect(issues).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves what a cold walk installed when it ends without its load', () => {
+    const { cache, replica } = build()
+    const addressed = vi.fn()
+    replica.subscribeAddressedBatch!(addressed)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'cold' })
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 5 }
+    cache.put('issueProjection', 'a', issue('a'), 5)
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueProjection', 'a')!,
+      readmitted: false,
+    })
+    expect(addressed).not.toHaveBeenCalled()
+    replica.onKernelEvent({
+      type: 'bootstrap-failed',
+      cause: 'cold-start',
+      attempts: 3,
+      error: 'network',
+    })
+    expect(addressed).toHaveBeenCalledExactlyOnceWith({ type: 'replace', reason: 'bootstrap' })
+    expect(replica.rows('issueProjections').map((row) => row.id)).toEqual(['a'])
+    expect(replica.getCursor()).toBe(5)
+  })
+
+  it('does not hold a load on a device that already has a cursor', () => {
+    const cache = new FakeCache()
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 1 }
+    const { replica } = build(cache)
+    const issues = vi.fn()
+    replica.subscribeRows('issueProjections', issues)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'live' })
+    cache.put('issueProjection', 'a', issue('a'), 2)
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueProjection', 'a')!,
+      readmitted: false,
+    })
+    expect(issues).toHaveBeenCalledTimes(1)
+    expect(replica.getCursor()).toBe(1)
+  })
+})

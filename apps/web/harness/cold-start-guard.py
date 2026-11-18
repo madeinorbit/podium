@@ -48,7 +48,7 @@ def aborted_rpc_outside_cold(message, windows):
 
 # POD-5594: the phone surface draws the Work tab; a cell names the two-axis
 # startup corpus. Both arms must match surface, scale and cell (provenance).
-BOUNDARIES = {'web': 'sidebar-issue-row', 'phone': 'phone-issue-row'}
+BOUNDARIES = {'web': 'sidebar-issue-row', 'phone': 'phone-issue-row', 'desktop': 'sidebar-issue-row'}
 
 
 # POD-7099: captures name their host and the host lock held for the timing
@@ -96,7 +96,8 @@ def cold_samples(paths, min_samples=8):
             raise ValueError(f'{path}: production bundle must name its measured checkout')
         count = run.get('population', {})
         expected = run['corpus']
-        if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected['syntheticSessions']:
+        expected_sessions = run.get('policyRows', {}).get('sessions', expected['syntheticSessions'])
+        if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected_sessions:
             raise ValueError(f'{path}: complete corpus did not hydrate')
         provenance.append((run['semanticSha256'], run['browser'], run.get('httpCache'),
                            run['lease']['cohort'], run['harnessSha256'],
@@ -106,7 +107,7 @@ def cold_samples(paths, min_samples=8):
             if row['action'] != 'app-cold-start' or row.get('profiled'):
                 continue
             count = row.get('population', {})
-            if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected['syntheticSessions']:
+            if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected_sessions:
                 raise ValueError(f'{path}: every cold context must commit the complete corpus before reload')
             value = row.get('inputToPaintMs')
             if not isinstance(value, (int, float)) or not 0 < value < float('inf'):

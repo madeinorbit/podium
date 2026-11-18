@@ -91,6 +91,27 @@ function harness(
   return { store, authority, replica, events }
 }
 
+/** The next task: what the walk installs once no further chunk has arrived. */
+const nextTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      resolve()
+    }
+    channel.port2.postMessage(undefined)
+  })
+
+/**
+ * Until the load's first chunk is installed (POD-7122): the walk installs the
+ * chunks that have arrived once the next one has not, a task later, not on the
+ * microtask that delivered it.
+ */
+async function untilLoading(h: { readonly store: InMemoryReplicaStore }): Promise<void> {
+  for (let i = 0; i < 20 && h.store.cache.readLoadingSince() === null; i += 1) await nextTask()
+  expect(h.store.cache.readLoadingSince()).not.toBeNull()
+}
+
 /** Cold start through the real bootstrap path — the way every rung terminates. */
 async function bootstrapped(
   h: Harness,
@@ -782,7 +803,7 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     const channel = h.authority.driveManually()
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [session(1, 'a', 'A')], false))
-    await Promise.resolve()
+    await untilLoading(h)
     await h.replica.receive(deltaFrame(10, 11, [session(11, 'b', 'B')]))
     await h.replica.receive(deltaFrame(11, 12, [session(12, 'c', 'C')]))
     const before = h.store.transactions
@@ -792,6 +813,45 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
 
     expect(h.store.transactions - before).toBe(1)
     expect(h.replica.stats().entityCount).toBe(3)
+  })
+
+  it('installs the chunks that have arrived together; a requested instance’s marker ends a batch (POD-7122)', async () => {
+    const h = harness()
+    await bootstrapped(h, 5, [])
+    const channel = h.authority.driveManually()
+    // The installs: the store writes that carry the load's records.
+    const writes = vi.spyOn(h.store.cache, 'applyAtomic')
+    const installs = () =>
+      writes.mock.calls.filter(([mutation]) =>
+        mutation.operations.some((op) => op.kind === 'upsert' && op.entity === 'session'),
+      ).length
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    const marker = (collection: string, via?: string) => ({
+      collection,
+      part: 'main' as const,
+      ...(via === undefined ? {} : { via }),
+    })
+    // Six chunks in one burst, as one network read delivers them.
+    channel.push(bootstrapChunk(10, [session(1, 'a', 'A')], false))
+    channel.push(bootstrapChunk(10, [session(2, 'b', 'B')], false))
+    channel.push(
+      bootstrapChunk(10, [session(3, 'c', 'C')], false, {
+        complete: [marker('session.ofIssue', 'issueProjection.sidebar')],
+      }),
+    )
+    channel.push(
+      bootstrapChunk(10, [session(4, 'd', 'D')], false, { complete: [marker('session.recent')] }),
+    )
+    channel.push(bootstrapChunk(10, [session(5, 'e', 'E')], false))
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    // a–d up to the requested marker, then e: two installs, where a chunk at a
+    // time made five.
+    expect(installs()).toBe(2)
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.stats().entityCount).toBe(5)
+    for (const id of ['a', 'b', 'c', 'd', 'e']) expect(h.replica.view('session', id)).toBeDefined()
   })
 
   it('a buffered hole is not guessed across: apply while contiguous, then heal', async () => {
@@ -1506,7 +1566,7 @@ describe('the optimistic-overlay reducer seam', () => {
 
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
-    await Promise.resolve()
+    await untilLoading(h)
     // TWO buffered frames, each confirming one of my commands. The install commits
     // both onto the snapshot in one transaction, so it owes ONE batch of two.
     await h.replica.receive(

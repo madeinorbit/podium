@@ -125,9 +125,18 @@ def prepare(args):
             if stamp.exists() and json.loads(stamp.read_text()).get('sourceSha') == head:
                 print(f'{path.name}: apps/{app} production build already at {head}', flush=True)
                 continue
+            if stamp.exists():
+                previous = json.loads(stamp.read_text()).get('sourceSha')
+                if previous and product_tree(path, previous) == product_tree(path, 'HEAD'):
+                    # Harness/report-only commits: verify the production tree
+                    # first, then use the canonical stamp writer on unchanged
+                    # production bytes (startup-baseline.md's same method).
+                    sh(f'bun --conditions=@podium/source scripts/write-web-build-stamp.ts apps/{app}/dist', path)
+                    print(f'{path.name}: apps/{app} unchanged product tree; stamp {head}', flush=True)
+                    continue
             sh(f'bun run --cwd apps/{app} build', path)
-        for cell in CELLS:
-            if (path / f'.artifacts/old-vs-new/rows-{cell}.json').exists():
+        for cell in (args.cells.split(',') if args.cells else CELLS):
+            if not args.refresh_corpus and (path / f'.artifacts/old-vs-new/rows-{cell}.json').exists():
                 continue
             sh(f'bun --conditions=@podium/source apps/web/harness/old-vs-new-corpus.mjs --cell={cell}', path)
 
@@ -160,9 +169,13 @@ def timing(args):
     names = ','.join(path.name for path in checkouts(args))
     for surface in ([args.surface] if args.surface else SURFACES):
         sh(shlex.join(['python3', str(HERE / 'startup-baseline.py'), f'--host={args.host}', '--local', '--lock-held',
-                       f'--checkout={names}', f'--cells={",".join(CELLS)}', f'--surface={surface}',
+                       f'--checkout={names}', f'--cells={args.cells or ",".join(CELLS)}', f'--surface={surface}',
                        f'--samples={args.samples}', f'--round={args.round}',
-                       f'--min-available-gib={args.min_available_gib}']), Path.cwd())
+                       f'--min-available-gib={args.min_available_gib}',
+                       *(['--measure-memory'] if args.measure_memory else []),
+                       *(['--decks'] if args.decks else []),
+                       *(['--resume'] if args.resume else []),
+                       *([f'--max-pairs={args.max_pairs}'] if args.max_pairs else [])]), Path.cwd())
 
 
 def product_tree(path, ref):
@@ -247,7 +260,7 @@ def report(args):
                     'measuredAt': mem.get('measuredAt'), 'loadStart': run.get('loadStart'), 'cpu': run.get('cpu'),
                     'cores': run.get('cores'),
                 })
-    for surface in SURFACES:
+    for surface in ['web', 'phone', 'desktop']:
         ledger = Path(f'.artifacts/startup-baseline/{surface}-r{args.round}.json')
         if ledger.exists():
             result['timing'][surface] = admitted_timing(ledger, guard)
@@ -314,18 +327,23 @@ def clean(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('step', choices=['all', 'prepare', 'memory', 'timing', 'report', 'clean'])
-    parser.add_argument('--host', required=True, choices=['vega', 'polaris'], help='the host remote-lane runs this on')
+    parser.add_argument('--host', required=True, choices=sorted(name for name in measure_hosts.HOSTS if name != 'flatblock'), help='the authorized host remote-lane runs this on')
     parser.add_argument('--round', type=int, default=1, help='fresh number per measurement; captures are never overwritten')
     parser.add_argument('--base', default='', help='also measure this commit in ~/<checkout>-base (the AFTER run)')
     parser.add_argument('--product-base', default='', help='report whether each checkout\'s product tree equals this commit\'s')
     parser.add_argument('--memory-round', type=int, default=0, help='memory captures use this round (default: --round)')
     parser.add_argument('--samples', type=int, default=3, help='cold/warm pairs per cell and surface')
-    parser.add_argument('--surface', default='', choices=['', *SURFACES], help='timing: one surface only')
+    parser.add_argument('--surface', default='', choices=['', *SURFACES, 'desktop'], help='timing: one surface only')
     parser.add_argument('--min-available-gib', type=float, default=5)
     parser.add_argument('--cells', default='', help='memory: comma-separated cells (default: every cell)')
     parser.add_argument('--surfaces', default='', help='memory: comma-separated surfaces (default: both)')
     parser.add_argument('--heap-timeline', action='store_true',
                         help='memory: heap and RSS timeline plus one allocation profile per phase (POD-7115)')
+    parser.add_argument('--measure-memory', action='store_true', help='timing: take memory after each cold sample')
+    parser.add_argument('--decks', action='store_true', help='timing: first open both operator fixture trees')
+    parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--max-pairs', type=int)
+    parser.add_argument('--refresh-corpus', action='store_true')
     args = parser.parse_args()
     steps = {'prepare': prepare, 'memory': memory, 'timing': timing, 'report': report, 'clean': clean}
     for step in (['prepare', 'memory', 'timing', 'report'] if args.step == 'all' else [args.step]):

@@ -19,6 +19,7 @@
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { parseCell } from '../fixture'
 import { writeResult } from '../results'
 import {
   ask,
@@ -58,7 +59,9 @@ function expectMoved(name: string, report: ReturnType<typeof checkNoWrongNumber>
   const groups = summarize(report)
   const moved = report.wrong.filter((w) => MOVED_READERS.test(w.name))
   expect(moved, `${name}: moved readers answer wrong`).toEqual([])
-  expect(groups.search?.wrong ?? 0, `${name}: search`).toBeLessThanOrEqual(SEARCH_WRONG_AT_MOST[name]!)
+  expect(groups.search?.wrong ?? 0, `${name}: search`).toBeLessThanOrEqual(
+    SEARCH_WRONG_AT_MOST[name]!,
+  )
   for (const w of report.wrong) expect(w.name, `${name}: only search is left`).toMatch(/^search:/)
   return groups
 }
@@ -66,9 +69,10 @@ function expectMoved(name: string, report: ReturnType<typeof checkNoWrongNumber>
 let feed: StartupFeed
 let questions: ReturnType<typeof startupQuestions>
 let control: Map<string, unknown>
+const cell = process.env['PODIUM_STARTUP_CELL'] ?? 'h1a1'
 
 beforeAll(async () => {
-  feed = await openStartupFeed({ history: 1, active: 1 })
+  feed = await openStartupFeed(parseCell(cell))
   questions = startupQuestions(startupTargets(feed.rows))
   const pool = fullPool(feed)
   control = ask(pool, questions)
@@ -195,7 +199,7 @@ describe('the check itself', () => {
   })
 })
 
-describe('startup states against the full bootstrap (h1a1)', () => {
+describe(`startup states against the full bootstrap (${cell})`, () => {
   it('a second full bootstrap answers every question the same', () => {
     const pool = fullPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
@@ -212,7 +216,7 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     pool.dispose()
     const groups = summarize(report)
     console.info(`[no-wrong-number] partial store: ${JSON.stringify(groups)}`)
-    writeResult('startup-no-wrong-number-partial-h1a1', {
+    writeResult(`startup-no-wrong-number-partial-${cell}`, {
       groups,
       wrong: report.wrong.slice(0, 40),
     })
@@ -231,7 +235,7 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     console.info(
       `[no-wrong-number] policy set wrong: ${JSON.stringify(report.wrong.map((w) => w.name))}`,
     )
-    writeResult('startup-no-wrong-number-policy-set-h1a1', {
+    writeResult(`startup-no-wrong-number-policy-set-${cell}`, {
       groups,
       wrong: report.wrong.map((w) => ({
         name: w.name,
@@ -265,14 +269,17 @@ describe('startup states against the full bootstrap (h1a1)', () => {
       }
     }
     console.info(`[no-wrong-number] first download states: ${JSON.stringify(states)}`)
-    writeResult('startup-no-wrong-number-first-download-h1a1', states)
+    writeResult(`startup-no-wrong-number-first-download-${cell}`, states)
     for (const [name, state] of Object.entries(states)) {
       expect(state.moved, `${name}: moved readers`).toEqual([])
       expect(state.groups.search?.wrong ?? 0, `${name}: search`).toBeLessThanOrEqual(
         SEARCH_WRONG_AT_MOST[name]!,
       )
       for (const group of Object.keys(state.groups))
-        if (group !== 'search') expect(state.groups[group as keyof typeof state.groups]?.wrong, `${name}: ${group}`).toBe(0)
+        if (group !== 'search')
+          expect(state.groups[group as keyof typeof state.groups]?.wrong, `${name}: ${group}`).toBe(
+            0,
+          )
     }
   }, 1_800_000)
 })
