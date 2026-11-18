@@ -85,6 +85,7 @@ import {
   strictTimestampsFromEnvironment,
   translatePgError,
 } from './pg-types'
+import { PlainRoundTripBaseline, WorkspaceWriteTiming } from './workspace-write-metrics'
 
 export interface PgDriverOptions {
   /** `postgres://` URL of the store's database. */
@@ -241,21 +242,39 @@ interface Step {
  * round trip. postgres.js writes queries issued in the same turn into one socket
  * write; `.execute()` sends each now rather than when it is first awaited.
  */
-async function pipeline(
+async function sendPipeline(
   connection: Reserved,
   steps: readonly Step[],
+  timing: WorkspaceWriteTiming,
+  statements: number,
+  lockAt: number,
 ): Promise<PromiseSettledResult<Rows>[]> {
-  const queries = steps.map((step) =>
-    connection
+  const startedAt = performance.now()
+  const queries = steps.map((step, index) => {
+    const query = connection
       .unsafe(step.sql, [...(step.params ?? [])] as postgres.ParameterOrJSON<never>[], {
         prepare: true,
       })
       .execute()
-      .catch((error: unknown) => {
-        throw translatePgError(error)
-      }),
+    const failed = (error: unknown): never => {
+      throw translatePgError(error)
+    }
+    return index === lockAt
+      ? query.then((rows) => {
+          timing.acquired()
+          return rows
+        }, failed)
+      : query.catch(failed)
+  })
+  const results = await Promise.allSettled(queries)
+  timing.pipeline(
+    performance.now() - startedAt,
+    steps.length,
+    statements,
+    results.every((result) => result.status === 'fulfilled'),
+    lockAt >= 0,
   )
-  return await Promise.allSettled(queries)
+  return results
 }
 
 function firstFailure(results: readonly PromiseSettledResult<Rows>[]): unknown {
@@ -301,6 +320,7 @@ const OPEN: TransactionState = Object.freeze({ kind: 'open' })
 
 interface SessionConfig {
   readonly lockTimeoutMs: number
+  readonly baseline: PlainRoundTripBaseline
 }
 
 function createSession(
@@ -312,6 +332,9 @@ function createSession(
   let state: TransactionState = NONE
   let nextBatchBoundary = 1
   const setLockTimeout = `SET LOCAL lock_timeout = '${config.lockTimeoutMs}ms'`
+  const timing = new WorkspaceWriteTiming(config.baseline)
+  const pipeline = (connection: Reserved, steps: readonly Step[], statements = 0, lockAt = -1) =>
+    sendPipeline(connection, steps, timing, statements, lockAt)
 
   const live = (): void => {
     if (closed) throw new Error('driver session is closed')
@@ -375,23 +398,37 @@ function createSession(
     const locked = context?.kind === 'workspace'
     if (statements.length === 1 && !locked) {
       const [statement] = statements as [Statement]
-      const [result] = await pipeline(connection, [stepOf(statement)])
+      const [result] = await pipeline(connection, [stepOf(statement)], 1)
       if (result?.status === 'rejected') throw result.reason
       return [statementResult(statement, settledRows(result))]
     }
     const head: Step[] = [{ sql: writes ? BEGIN_WRITE : BEGIN_READ }, ...lockSteps(context)]
-    const results = await pipeline(connection, [
-      ...head,
-      ...statements.map(stepOf),
-      { sql: 'COMMIT' },
-    ])
+    if (locked) timing.begin(context.workspaceId)
+    const results = await pipeline(
+      connection,
+      [...head, ...statements.map(stepOf), { sql: 'COMMIT' }],
+      statements.length,
+      locked ? head.length - 1 : -1,
+    )
     // A failed lock aborted the transaction: the statements behind it failed with
     // 25P02 and the COMMIT rolled back, so nothing applied.
     const locking = lockFailure(results, head.length - 1, context)
-    if (locking !== undefined) throw locking
+    if (locking !== undefined) {
+      timing.end('acquisition-failed')
+      throw locking
+    }
     const failure = firstFailure(results)
-    if (failure !== undefined) throw failure
+    if (failure !== undefined) {
+      const ending = results.at(-1)
+      timing.end(
+        ending?.status === 'fulfilled' && ending.value.command === 'ROLLBACK'
+          ? 'rolled-back'
+          : 'failed',
+      )
+      throw failure
+    }
     const commit = settledRows(results.at(-1))
+    timing.end(commit.command === 'ROLLBACK' ? 'rolled-back' : 'committed')
     if (commit.command === 'ROLLBACK') throw new PgTransactionAbortedError()
     return statements.map((statement, index) =>
       statementResult(statement, settledRows(results[head.length + index])),
@@ -404,7 +441,7 @@ function createSession(
       assertMayWrite([statement])
       if (state.kind === 'none') return (await runAtRoot([statement]))[0] as StatementResult
       const steps = [...takePendingBegin(), stepOf(statement)]
-      const results = await pipeline(connection, steps)
+      const results = await pipeline(connection, steps, 1)
       const failure = firstFailure(results)
       if (failure !== undefined) throw failure
       return statementResult(statement, settledRows(results.at(-1)))
@@ -419,11 +456,11 @@ function createSession(
       // of its own, so a caller that catches the failure keeps a clean transaction.
       const boundary = `podium_batch_${nextBatchBoundary++}`
       const head = [...takePendingBegin(), { sql: `SAVEPOINT ${boundary}` }]
-      const results = await pipeline(connection, [
-        ...head,
-        ...statements.map(stepOf),
-        { sql: `RELEASE SAVEPOINT ${boundary}` },
-      ])
+      const results = await pipeline(
+        connection,
+        [...head, ...statements.map(stepOf), { sql: `RELEASE SAVEPOINT ${boundary}` }],
+        statements.length,
+      )
       const failure = firstFailure(results)
       if (failure !== undefined) {
         const undo = await pipeline(connection, [
@@ -455,9 +492,11 @@ function createSession(
         return
       }
       const steps: Step[] = [{ sql: BEGIN_WRITE }, ...lockSteps(context)]
-      const results = await pipeline(connection, steps)
+      timing.begin(context.workspaceId)
+      const results = await pipeline(connection, steps, 0, steps.length - 1)
       const failure = lockFailure(results, steps.length - 1, context)
       if (failure !== undefined) {
+        timing.end('acquisition-failed')
         if (results[0]?.status === 'fulfilled') await rollbackQuietly()
         throw failure
       }
@@ -472,8 +511,13 @@ function createSession(
       }
       state = NONE
       const [result] = await pipeline(connection, [{ sql: 'COMMIT' }])
-      if (result?.status === 'rejected') throw result.reason
-      if (settledRows(result).command === 'ROLLBACK') throw new PgTransactionAbortedError()
+      if (result?.status === 'rejected') {
+        timing.end('failed')
+        throw result.reason
+      }
+      const aborted = settledRows(result).command === 'ROLLBACK'
+      timing.end(aborted ? 'rolled-back' : 'committed')
+      if (aborted) throw new PgTransactionAbortedError()
     },
 
     async rollback() {
@@ -484,6 +528,7 @@ function createSession(
       }
       state = NONE
       const [result] = await pipeline(connection, [{ sql: 'ROLLBACK' }])
+      timing.end(result?.status === 'fulfilled' ? 'rolled-back' : 'failed')
       if (result?.status === 'rejected') throw result.reason
     },
 
@@ -514,7 +559,10 @@ function createSession(
       closed = true
       // The scheduler always ends the transaction first; a connection must never go
       // back to the pool inside one, so a session closed with one open rolls it back.
-      if (state.kind === 'open') await rollbackQuietly()
+      if (state.kind === 'open') {
+        await rollbackQuietly()
+        timing.end('rolled-back')
+      }
       state = NONE
       connection.release()
     },
@@ -554,6 +602,7 @@ export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
   const acquireTimeoutMs = options.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS
   const config: SessionConfig = {
     lockTimeoutMs: Math.max(1, Math.floor(options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)),
+    baseline: new PlainRoundTripBaseline(),
   }
   const sql = postgres(options.url, {
     max: poolSize,

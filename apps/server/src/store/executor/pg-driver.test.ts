@@ -42,6 +42,7 @@ import {
 } from './pg-driver'
 import { buildPgStoreDrizzle, type StorePgPreparedQuery } from './pg-drizzle'
 import { prepared, preparedGlobal, workspaceQueries } from './sync-drizzle'
+import { type WorkspaceWriteObservation, workspaceWriteMetrics } from './workspace-write-metrics'
 
 const liteNotes = sqliteTable('notes', { id: text('id').primaryKey(), body: text('body') })
 const pgNotes = pgTable('notes', { id: pgText('id').primaryKey(), body: pgText('body') })
@@ -282,6 +283,37 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
       // ...and the COMMIT.
       expect(total).toBe(4)
       expect(await bodies()).toEqual(['first', 'second', 'warm'])
+    })
+
+    it('records the same four wire round trips and two statements while metrics are read', async () => {
+      const store = openStore({ url: proxy.url, poolSize: 1 })
+      const insert = 'INSERT INTO notes (id, body) VALUES ($1, $2)'
+      await store.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'warm', 'w')
+      }, WS_A)
+      const samples: WorkspaceWriteObservation[] = []
+      const stop = workspaceWriteMetrics.probe((sample) => {
+        samples.push(sample)
+      })
+      try {
+        const before = proxy.roundTrips()
+        await store.transact(async (tx) => {
+          await tx.drizzle.run(insert, 'a', 'a')
+          await tx.drizzle.run(insert, 'b', 'b')
+        }, WS_A)
+        expect(proxy.roundTrips() - before).toBe(4)
+        expect(samples).toHaveLength(1)
+        expect(samples[0]).toMatchObject({
+          workspaceId: 'ws_a',
+          outcome: 'committed',
+          roundTrips: 4,
+          statements: 2,
+        })
+        expect(samples[0]?.waitMs).toBeDefined()
+        expect(workspaceWriteMetrics.snapshot().byWorkspace.ws_a?.committed).toBeGreaterThan(0)
+      } finally {
+        stop()
+      }
     })
 
     it('pipelines a read body BEGIN with its first statement', async () => {
