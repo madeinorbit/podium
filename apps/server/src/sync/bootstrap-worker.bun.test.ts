@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from 'bun:test'
+import { afterAll, describe, expect, it, spyOn } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,10 +7,16 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
 import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { Hono } from 'hono'
+import { sql } from 'drizzle-orm'
 import WebSocket from 'ws'
+
+// With PODIUM_TEST_STORE_ENGINE=pg the stores are Postgres clones (POD-6994).
+const { pgBunTestRun } = await import('../test-support/pg-test-host')
+const pgTeardown = await pgBunTestRun()
+afterAll(async () => await pgTeardown())
+const PG = process.env.PODIUM_TEST_STORE_ENGINE === 'pg'
 
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
@@ -82,8 +88,8 @@ const issue = (id: string) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
   archived: false,
 })
 
@@ -93,7 +99,8 @@ async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'bootstrap-http-'))
   const path = join(dir, 'world.db')
   const store = await openTestStore(path)
-  const worker = new SyncWorkerClient({ dbPath: path })
+  // The store's location names its engine: the file, or the Postgres clone standing in for it.
+  const worker = new SyncWorkerClient({ dbPath: store.database.location })
   const forbidden = (): never => {
     throw new Error('bootstrap read an anchor')
   }
@@ -122,7 +129,7 @@ async function fixture() {
       await store.issues.panel.save(fixtureWriteScope(), 'issuePanelState', {
         id: asIssueId(id),
         text: 'x'.repeat(bytes),
-        updatedAt: 't0',
+        updatedAt: '2026-01-01T00:00:00.000Z',
       })
     }
   }
@@ -233,14 +240,12 @@ it('filters the snapshot and changes only the token whose generation was bumped'
     const before = full[0].kindTokens
     expect(before.issuePanelState).toMatch(/:1$/)
     expect(before.issueProjection).toMatch(/:1$/)
-    const db = openDatabase(f.path)
-    try {
-      db.exec(
+    // A kind generation bump below the repositories, in SQL both engines run.
+    await f.store.database.queries.rootDb.run(
+      sql.raw(
         "INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('local', 'issuePanelState', 1) ON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1",
-      )
-    } finally {
-      db.close()
-    }
+      ),
+    )
     const filtered = await records('/sync/bootstrap?kinds=issuePanelState')
     expect(filtered[0]).toMatchObject({ kinds: ['issuePanelState'], seq: full[0].seq })
     expect(filtered[0].kindTokens).toEqual({
@@ -383,9 +388,23 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
     // 5,120 issues, each with a 10 KiB state paragraph: 50 MiB of real records.
     const stateBytes = 10 * 1024
     const issues = 5120
-    await f.store.transact(async () => {
-      for (let n = 0; n < issues; n++) await f.seedIssue(`issue-${n}`, stateBytes)
-    })
+    if (PG) {
+      // A fresh Postgres test database plans with the statistics of empty tables, and a seed
+      // this size outruns autovacuum: each write then scans what the seed already wrote.
+      // Committed write by write and analyzed every 512 issues, the seed stays linear
+      // (POD-6994). ANALYZE sees only committed rows, hence no enclosing transaction here.
+      const rootDb = f.store.database.queries.rootDb as unknown as {
+        run(statement: ReturnType<typeof sql.raw>): Promise<unknown>
+      }
+      for (let n = 0; n < issues; n++) {
+        if (n > 0 && n % 512 === 0) await rootDb.run(sql.raw('ANALYZE'))
+        await f.seedIssue(`issue-${n}`, stateBytes)
+      }
+    } else {
+      await f.store.transact(async () => {
+        for (let n = 0; n < issues; n++) await f.seedIssue(`issue-${n}`, stateBytes)
+      })
+    }
     await f.moveHead()
     server = runtime.Bun.serve({
       hostname: '127.0.0.1',
@@ -474,7 +493,9 @@ it('50 MiB slow bootstrap keeps same-server health and websocket ping p95 below 
     await server?.stop(true)
     await f.close()
   }
-}, 60_000)
+  // Postgres: the seed alone is 5,120 issues of two writes each, about a minute on the test
+  // container; the bootstrap measured after it is held to the same budgets.
+}, PG ? 300_000 : 60_000)
 
 describe('snapshot delta producer', () => {
   const deltaPrincipal = (user: string) => ({ ...DEVICE_GRADE_PRINCIPAL, user: asUserId(user) })
@@ -503,7 +524,7 @@ describe('snapshot delta producer', () => {
         verb: 'read' as const,
         owner: 'owner',
         visibility: 'personal',
-        createdAt: 't0',
+        createdAt: '2026-01-01T00:00:00.000Z',
         actorKind: 'user',
         actorId: 'owner',
         onBehalfOf: 'owner',
@@ -524,7 +545,7 @@ describe('snapshot delta producer', () => {
       )
       // The window is read from the events table (POD-6766).
       const storedEventId = await store.events.appendEvent({
-        ts: 't0',
+        ts: '2026-01-01T00:00:00.000Z',
         kind: 'issue.created',
         subject: 'shared',
       })
@@ -540,7 +561,7 @@ describe('snapshot delta producer', () => {
               eventId: storedEventId,
               subject: 'shared',
               kind: 'created',
-              ts: 't0',
+              ts: '2026-01-01T00:00:00.000Z',
               payload: {},
             }),
           },
@@ -603,7 +624,7 @@ describe('snapshot delta producer', () => {
         visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
         anchors: feed.anchors,
       })
-      client = new SyncWorkerClient({ dbPath: path })
+      client = new SyncWorkerClient({ dbPath: store.database.location })
       // A fresh worker job also observes grant changes that do not advance the feed head.
       for (const revokeReader of [false, true]) {
         if (revokeReader) await store.grants.remove('issue', 'shared', 'reader', 'read')

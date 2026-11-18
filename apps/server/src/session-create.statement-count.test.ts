@@ -29,6 +29,7 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
 import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   expectArmed,
@@ -240,18 +241,30 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     async (f) => await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }),
   )
 
-  it('over tRPC', async () => {
+  // SQLite only (POD-6994): on Postgres the feed publications that follow the create's seven
+  // commits are coalesced per microtask, so how many there are depends on I/O timing (a
+  // commit that lands alone is published alone). Their retention-floor and record reads
+  // vary from run to run: 106 to 110 statements and 144 to 146 round trips seen, at either
+  // size. On SQLite the commits coalesce the same way every run, and the round-trip pin
+  // there is the Postgres driver's model of the same calls.
+  const onSqliteFeedTiming = it.runIf(testStoreEngine() !== 'pg')
+
+  onSqliteFeedTiming('over tRPC', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): tRPC sessions.create 103 -> 106.
     await expectConstantStatements(trpc, 106)
   })
 
-  it('tRPC pin is armed', async () => {
+  onSqliteFeedTiming('tRPC pin is armed', async () => {
     await expectArmed(trpc, 106, plantPerSession)
   })
 
-  it('over tRPC: round trips (POD-6992)', async () => {
-    // The session's activity publication runs on a timer the create starts; at 200 rows
-    // the create outlasts its delay, and its root read lands inside the window.
-    await expectConstantRoundTrips(trpc, 144, undefined, /idx_sessions_pending_activity/)
-  }, 60_000)
+  onSqliteFeedTiming(
+    'over tRPC: round trips (POD-6992)',
+    async () => {
+      // The session's activity publication runs on a timer the create starts; at 200 rows
+      // the create outlasts its delay, and its root read lands inside the window.
+      await expectConstantRoundTrips(trpc, 144, undefined, /idx_sessions_pending_activity/)
+    },
+    60_000,
+  )
 })

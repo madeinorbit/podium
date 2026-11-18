@@ -27,7 +27,6 @@ import {
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
 import {
   type BuiltRecord,
   RecordBuilderRegistry,
@@ -39,7 +38,9 @@ import { userCommandPrincipal } from '../command-principal'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import type { MessageRow } from '../store/types'
-import { recordReadsOver } from '../sync-worker/record-reads'
+import { openWorkerReadSession } from '../sync-worker/read-session'
+import { recordReadsOf } from '../sync-worker/record-reads'
+import { installCaptureOracle } from '../test-support/capture-oracle'
 import { attachHostDaemon } from '../test-support/host-daemon'
 import { issueRowFixture } from '../test-support/issue-row'
 import { loggedRows } from '../test-support/logged-rows'
@@ -123,7 +124,12 @@ async function ask(reg: SessionRegistry, sessionId: SessionId, id: string): Prom
 /** Write chat messages: one confirmed, one on its way, one cancelled. */
 async function chatTraffic(store: SessionStore, sessionId: SessionId, sender: UserId) {
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_done', sessionId, sender, 1))
-  await store.messages.markDelivered(fixtureWriteScope(), 'msg_done', sessionId, 't')
+  await store.messages.markDelivered(
+    fixtureWriteScope(),
+    'msg_done',
+    sessionId,
+    '2026-11-17T00:00:00.000Z',
+  )
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_open', sessionId, sender, 2))
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_gone', sessionId, sender, 3))
   await store.messages.markCancelled(fixtureWriteScope(), 'msg_gone')
@@ -185,6 +191,7 @@ describe('record builders (POD-6763)', () => {
 
   it('shares one issue read while preserving each kind’s requested ids and order', async () => {
     const store = await openTestStore(':memory:')
+    await installCaptureOracle(store)
     try {
       for (const [index, id] of ['a', 'b', 'c', 'empty'].entries()) {
         await store.issues.upsertIssue(
@@ -239,6 +246,7 @@ describe('record builders (POD-6763)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-6763-parity-'))
     const path = join(dir, 'podium.db')
     const store = await openTestStore(path)
+    await installCaptureOracle(store)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const loaded = await loadRecords(reg, {
@@ -313,14 +321,14 @@ describe('record builders (POD-6763)', () => {
         writes.sync(asMutationId('m-pod-6763-layout')),
         owner,
         { dockTab: 'chat' },
-        '2026-11-10T12:00:00Z',
+        '2026-11-10T12:00:00.000Z',
       )
       await reg.modules.readPosition.advance(
         writes.sync(asMutationId('m-pod-6763-read')),
         owner,
         'issueEvents',
-        { lastEventId: 3, seenAt: '2026-11-10T12:00:00Z' },
-        '2026-11-10T12:00:00Z',
+        { lastEventId: 3, seenAt: '2026-11-10T12:00:00.000Z' },
+        '2026-11-10T12:00:00.000Z',
       )
       await settle(reg)
 
@@ -333,17 +341,17 @@ describe('record builders (POD-6763)', () => {
         },
         loaded,
       )
-      const readOnly = openDatabase(path, { readOnly: true })
-      readOnly.exec('BEGIN')
-      const { reads, close } = recordReadsOver(readOnly, {
+      // The worker's own read session on the store's engine (POD-6994): a read-only
+      // SQLite connection, or a Postgres REPEATABLE READ snapshot.
+      const session = await openWorkerReadSession(store.database.location)
+      const reads = recordReadsOf(session.executor.queries, {
         effectExecutors: reg.modules.effects!.executors,
       })
       let onWorkerConnection: KindParity[]
       try {
         onWorkerConnection = await parityOf(store, reads, loaded)
       } finally {
-        readOnly.exec('ROLLBACK')
-        await close()
+        await session.close()
       }
 
       for (const results of [inProcess, onWorkerConnection]) {
@@ -366,6 +374,7 @@ describe('record builders (POD-6763)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-6766-boot-'))
     const path = join(dir, 'podium.db')
     let store = await openTestStore(path)
+    await installCaptureOracle(store)
     let reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
@@ -397,9 +406,13 @@ describe('record builders (POD-6763)', () => {
       // in the three ways measured on 2026-11-09: an issue event retention
       // pruned, an ask that closed, a message in an older shape.
       store = await openTestStore(path, machineId)
+      await installCaptureOracle(store)
       const prunedEvent = issueEventRowId(999_999, 'POD-1')
       const closedAsk = interactionRowId(sessionId, 'ixn_closed')
-      const message = messageRecordRowId({ sessionId, senderUserId: owner, messageId: 'msg_open' })
+      // The confirmed message: its delivery is over, so the rebooted registry's delivery
+      // sweep never writes it again. An open one is dispatched by that sweep, which
+      // re-captures it, if the sweep runs before the check (POD-6994: on Postgres it does).
+      const message = messageRecordRowId({ sessionId, senderUserId: owner, messageId: 'msg_done' })
       const current = (await loggedRows(store, 'message')).find((row) => row.entityId === message)
       expect(current?.payload).toBeTruthy()
       await store.sync.appendChanges(

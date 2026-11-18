@@ -37,6 +37,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { probeRoundTrips, probeStatements } from './store/executor/statement-probe'
 import { GrantsRepository } from './store/grants'
+import type { PgDriverOptions } from './store/executor/pg-driver'
 import { SessionsRepository } from './store/sessions'
 import { produceBootstrap } from './sync-worker/producer'
 import type { SyncJob } from './sync-worker/types'
@@ -68,6 +69,20 @@ vi.mock('@podium/runtime/sqlite', async (importOriginal) => {
       const db = actual.openDatabase(path, opts)
       if (opts?.readOnly) worker.onOpen?.(db)
       return db
+    },
+  }
+})
+
+// On Postgres the worker's read session is a pool of one, and its driver is the
+// statement probe's key (`sync-worker/pg-read-session.ts`, POD-6991).
+vi.mock('./store/executor/pg-driver', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./store/executor/pg-driver')>()
+  return {
+    ...actual,
+    createPgStoreDriver: (options: PgDriverOptions) => {
+      const driver = actual.createPgStoreDriver(options)
+      if (options.poolSize === 1) worker.onOpen?.(driver)
+      return driver
     },
   }
 })
@@ -169,7 +184,10 @@ async function countWorker(run: () => unknown): Promise<{ result: unknown } & St
     detachers.push(
       probeStatements({ db: db as object }, (observation) => driven.push(observation.sql)),
     )
-    const handle = db as SqlDatabase
+    // A SQLite handle's own prepares are the producer's raw statements; a Postgres
+    // session has none outside the probe.
+    const handle = db as Partial<SqlDatabase>
+    if (typeof handle.prepare !== 'function') return
     const prepare = handle.prepare.bind(handle)
     handle.prepare = (sql: string) => {
       prepared.push(sql)
@@ -210,7 +228,9 @@ async function countWorkerTrips(run: () => unknown): Promise<{ result: unknown }
         recorder.onStatement()
       }),
     )
-    const handle = db as SqlDatabase
+    // Only a SQLite handle prepares statements of its own (see countWorker).
+    const handle = db as Partial<SqlDatabase>
+    if (typeof handle.prepare !== 'function') return
     const prepare = handle.prepare.bind(handle)
     handle.prepare = (sql: string) => {
       prepared.push(sql)
@@ -244,7 +264,7 @@ async function countWorkerTrips(run: () => unknown): Promise<{ result: unknown }
 /** Drain a worker job and return its records. */
 async function records(w: World, job: SyncJob): Promise<{ type: string; changes?: unknown[] }[]> {
   let text = ''
-  for await (const chunk of produceBootstrap(w.path, job, new AbortController().signal, () => {})) {
+  for await (const chunk of produceBootstrap(w.store.database.location, job, new AbortController().signal, () => {})) {
     text += new TextDecoder().decode(chunk)
   }
   return text
