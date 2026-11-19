@@ -483,7 +483,13 @@ const peopleGroup: Group = {
         transfers: await store.nativeLogins.transfersFor(people.user()),
       }),
       write: async ({ store }) => {
-        await store.nativeLogins.setOptIn(people.user(), 'claude-code', people.SHARED.fingerprint, false, AT)
+        await store.nativeLogins.setOptIn(
+          people.user(),
+          'claude-code',
+          people.SHARED.fingerprint,
+          false,
+          AT,
+        )
       },
     },
     credentials: {
@@ -750,7 +756,11 @@ const remainingGroup: Group = {
         unread: await store.notices.countUnread(remaining.RECIPIENT),
       }),
       write: async ({ store }) => {
-        await store.notices.markRead(remaining.RECIPIENT, remaining.noticeId(2), remaining.REMARKED_AT)
+        await store.notices.markRead(
+          remaining.RECIPIENT,
+          remaining.noticeId(2),
+          remaining.REMARKED_AT,
+        )
         await store.notices.resolveReadEventsBeyond(remaining.RECIPIENT, 0, remaining.REMARKED_AT)
         await store.notices.markAllRead(remaining.RECIPIENT, remaining.REMARKED_AT)
         await store.notices.resolveByKey(remaining.NOTICE_KEY, remaining.REMARKED_AT)

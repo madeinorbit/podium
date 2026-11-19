@@ -234,7 +234,11 @@ function toPlacement(r: typeof credentialPlacements.$inferSelect): Placement {
 const idIs = (t: StoreTables) => eq(t.credentials.id, param(t.credentials.id, 'id'))
 
 const credentialById = prepared((db, t) =>
-  db.select().from(t.credentials).where(inWorkspace(t.credentials, idIs(t))).prepare(),
+  db
+    .select()
+    .from(t.credentials)
+    .where(inWorkspace(t.credentials, idIs(t)))
+    .prepare(),
 )
 
 const credentialsOfOwner = prepared((db, t) =>
@@ -322,7 +326,10 @@ const credentialByIdentity = prepared((db, t) =>
         t.credentials,
         eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
         eq(t.credentials.type, param(t.credentials.type, 'type')),
-        eq(t.credentials.identityFingerprint, param(t.credentials.identityFingerprint, 'fingerprint')),
+        eq(
+          t.credentials.identityFingerprint,
+          param(t.credentials.identityFingerprint, 'fingerprint'),
+        ),
         ne(t.credentials.status, 'revoked'),
       ),
     )
@@ -430,7 +437,13 @@ const credentialsWithExpiry = prepared((db, t) =>
   db
     .select()
     .from(t.credentials)
-    .where(inWorkspace(t.credentials, isNotNull(t.credentials.expiresAt), ne(t.credentials.status, 'revoked')))
+    .where(
+      inWorkspace(
+        t.credentials,
+        isNotNull(t.credentials.expiresAt),
+        ne(t.credentials.status, 'revoked'),
+      ),
+    )
     .orderBy(asc(t.credentials.expiresAt), asc(t.credentials.id))
     .prepare(),
 )
@@ -468,13 +481,19 @@ const deleteOlderSecrets = prepared((db, t) =>
     .delete(t.credentialSecrets)
     .where(
       inWorkspace(
-        t.credentialSecrets,secretIs(t), lt(t.credentialSecrets.version, param(t.credentialSecrets.version, 'version'))),
+        t.credentialSecrets,
+        secretIs(t),
+        lt(t.credentialSecrets.version, param(t.credentialSecrets.version, 'version')),
+      ),
     )
     .prepare(),
 )
 
 const deleteSecretsOf = prepared((db, t) =>
-  db.delete(t.credentialSecrets).where(inWorkspace(t.credentialSecrets, secretIs(t))).prepare(),
+  db
+    .delete(t.credentialSecrets)
+    .where(inWorkspace(t.credentialSecrets, secretIs(t)))
+    .prepare(),
 )
 
 /** Vault reset: every credential that has a sealed secret needs attention. */
@@ -497,12 +516,17 @@ const markSealedCredentialsForAttention = prepared((db, t) =>
     .prepare(),
 )
 
-const deleteAllSecrets = prepared((db, t) => db.delete(t.credentialSecrets).where(inWorkspace(t.credentialSecrets)).prepare())
+const deleteAllSecrets = prepared((db, t) =>
+  db.delete(t.credentialSecrets).where(inWorkspace(t.credentialSecrets)).prepare(),
+)
 
 const placementIs = (t: StoreTables) =>
   inWorkspace(
     t.credentialPlacements,
-    eq(t.credentialPlacements.credentialId, param(t.credentialPlacements.credentialId, 'credentialId')),
+    eq(
+      t.credentialPlacements.credentialId,
+      param(t.credentialPlacements.credentialId, 'credentialId'),
+    ),
     eq(t.credentialPlacements.machineId, param(t.credentialPlacements.machineId, 'machineId')),
     eq(t.credentialPlacements.kind, param(t.credentialPlacements.kind, 'kind')),
   )
@@ -648,7 +672,13 @@ const credentialsByIds = preparedFamily((db, t, size: number) =>
   db
     .select()
     .from(t.credentials)
-    .where(inWorkspace(t.credentials, inListOf(t.credentials.id, size, 'ids'), ne(t.credentials.status, 'revoked')))
+    .where(
+      inWorkspace(
+        t.credentials,
+        inListOf(t.credentials.id, size, 'ids'),
+        ne(t.credentials.status, 'revoked'),
+      ),
+    )
     .orderBy(asc(t.credentials.id))
     .prepare(),
 )
@@ -661,13 +691,19 @@ const allowedMachinesOfMany = preparedFamily((db, t, size: number) =>
       machineId: t.credentialMachines.machineId,
     })
     .from(t.credentialMachines)
-    .where(inWorkspace(t.credentialMachines, inListOf(t.credentialMachines.credentialId, size, 'ids')))
+    .where(
+      inWorkspace(t.credentialMachines, inListOf(t.credentialMachines.credentialId, size, 'ids')),
+    )
     .orderBy(asc(t.credentialMachines.credentialId), asc(t.credentialMachines.machineId))
     .prepare(),
 )
 
 const theVaultKey = prepared((db, t) =>
-  db.select().from(t.vaultKey).where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1))).prepare(),
+  db
+    .select()
+    .from(t.vaultKey)
+    .where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1)))
+    .prepare(),
 )
 
 const insertVaultKey = prepared((db, t) =>
@@ -685,7 +721,10 @@ const insertVaultKey = prepared((db, t) =>
 )
 
 const deleteVaultKeyRow = prepared((db, t) =>
-  db.delete(t.vaultKey).where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1))).prepare(),
+  db
+    .delete(t.vaultKey)
+    .where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1)))
+    .prepare(),
 )
 
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
@@ -719,7 +758,10 @@ const legacyAccounts = prepared((db, t) =>
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
 const legacySends = prepared((db, t) =>
   db
-    .select({ accountId: t.accountMachineSends.accountId, machineId: t.accountMachineSends.machineId })
+    .select({
+      accountId: t.accountMachineSends.accountId,
+      machineId: t.accountMachineSends.machineId,
+    })
     .from(t.accountMachineSends)
     .where(inWorkspace(t.accountMachineSends))
     .prepare(),
@@ -734,7 +776,11 @@ const legacyApiKeys = prepared((db, t) =>
     .where(
       inWorkspace(
         t.workspaceSecrets,
-        inArray(t.workspaceSecrets.key, ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']),
+        inArray(t.workspaceSecrets.key, [
+          'apiKeys.anthropic',
+          'apiKeys.openai',
+          'apiKeys.openrouter',
+        ]),
       ),
     )
     .prepare(),

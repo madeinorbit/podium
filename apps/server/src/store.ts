@@ -101,6 +101,7 @@ import { GrantsRepository } from './store/grants'
 import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
+import { JanitorReadsRepository } from './store/janitor-reads'
 import {
   applyLegacyDestruction,
   compactDatabase,
@@ -111,7 +112,6 @@ import {
   readLegacyPlaintextState,
   writeLegacyPlaintextState,
 } from './store/legacy-plaintext'
-import { JanitorReadsRepository } from './store/janitor-reads'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'

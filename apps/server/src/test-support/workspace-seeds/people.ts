@@ -305,11 +305,17 @@ export async function seed(store: Store, tag: Tag, ids: Ids = SHARED): Promise<v
       legacyId: accountId,
       legacyKey: ANTHROPIC,
     },
-    { ciphertext: Buffer.from(`${tag}-sealed`), nonce: Buffer.from(`${tag}-nonce`), keyId: 'key-1' },
+    {
+      ciphertext: Buffer.from(`${tag}-sealed`),
+      nonce: Buffer.from(`${tag}-nonce`),
+      keyId: 'key-1',
+    },
   )
-  await store.credentials.recordPlacement(
-    { credentialId: asCredentialId(ids.credential), machineId: m1, kind: 'home' },
-  )
+  await store.credentials.recordPlacement({
+    credentialId: asCredentialId(ids.credential),
+    machineId: m1,
+    kind: 'home',
+  })
   await store.credentials.allowMachine(asCredentialId(ids.credential), m1, alice)
   await store.credentials.insertVaultKeyIfAbsent('outside-1', Buffer.from(`${tag}-wrapped`))
   await store.nativeLogins.setOptIn(alice, 'claude-code', ids.fingerprint, true, at)

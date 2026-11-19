@@ -880,7 +880,7 @@ const inboxNotice = defineRecord({
   rowKey: (row) => noticeRowId(row.recipientUserId, row.noticeId),
   group: 'always',
   collections: { all: ALL },
-  why: 'One open notice in one person\'s inbox (POD-6881, credential management spec §13); a resolved notice is a remove.',
+  why: "One open notice in one person's inbox (POD-6881, credential management spec §13); a resolved notice is a remove.",
 })
 
 /** Every record type, in wire order. */

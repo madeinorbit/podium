@@ -82,7 +82,9 @@ const openOfIds = preparedFamily((db, t, size: number) =>
   db
     .select(NOTICE_COLUMNS(t))
     .from(t.notices)
-    .where(inWorkspace(t.notices, inListOf(t.notices.id, size, 'ids'), isNull(t.notices.resolvedAt)))
+    .where(
+      inWorkspace(t.notices, inListOf(t.notices.id, size, 'ids'), isNull(t.notices.resolvedAt)),
+    )
     .prepare(),
 )
 
@@ -144,7 +146,10 @@ const resolveKey = prepared((db, t) =>
       .set({ resolvedAt: sql.placeholder('at') })
       .where(
         inWorkspace(
-          t.notices,eq(t.notices.dedupeKey, param(t.notices.dedupeKey, 'dedupeKey')), isNull(t.notices.resolvedAt)),
+          t.notices,
+          eq(t.notices.dedupeKey, param(t.notices.dedupeKey, 'dedupeKey')),
+          isNull(t.notices.resolvedAt),
+        ),
       )
       .returning(NOTICE_COLUMNS(t)),
   ).prepare(),
@@ -215,7 +220,14 @@ const markEveryRead = prepared((db, t) =>
     db
       .update(t.notices)
       .set({ readAt: sql.placeholder('at') })
-      .where(inWorkspace(t.notices, recipientIs(t), isNull(t.notices.resolvedAt), isNull(t.notices.readAt)))
+      .where(
+        inWorkspace(
+          t.notices,
+          recipientIs(t),
+          isNull(t.notices.resolvedAt),
+          isNull(t.notices.readAt),
+        ),
+      )
       .returning(NOTICE_COLUMNS(t)),
   ).prepare(),
 )
@@ -236,9 +248,9 @@ const resolveReadEventsPastCap = prepared((db, t) =>
               .where(
                 inWorkspace(
                   t.notices,
-                recipientIs(t),
-                isNull(t.notices.resolvedAt),
-                isNotNull(t.notices.readAt),
+                  recipientIs(t),
+                  isNull(t.notices.resolvedAt),
+                  isNotNull(t.notices.readAt),
                   inArray(t.notices.kind, EVENT_KINDS),
                 ),
               )
