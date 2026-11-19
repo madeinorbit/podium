@@ -103,6 +103,16 @@ export class ReaderQueries {
     }
   >()
   private publishing = false
+  /**
+   * Whether a feed publication is being installed now (between
+   * `beginPublication` and the end of `publish`). Its records enter the
+   * tables one by one while the device index already holds all of them: a
+   * table observer that reads in between finds the later records absent.
+   * Their `onChange` comes once all of them are in (POD-7174).
+   */
+  get inPublication(): boolean {
+    return this.publishing
+  }
   private readerChangeSource: DeviceQueries | undefined
   private stopReaderChanges: (() => void) | undefined
   private stopResidentChanges: (() => void) | undefined

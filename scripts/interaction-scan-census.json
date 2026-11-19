@@ -27505,18 +27505,18 @@
       "rule": "materialize:Set",
       "tokens": "4ff59a3b2e4a72b7edc6337a3b92bfbb2cd8d23285064b664ff09a6e0a8df584",
       "gate": [
-        "then:83ee3083b3d3dd56ae7db77ce5603be6050cedd2a66b853446ea2a8768cb5424"
+        "then:69ae33e974b3d4654a40fdca8d82a78ec6db7ec61f3e6778c7540e05fab35048"
       ],
       "origin": [
-        "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f"
+        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06"
       ],
-      "fingerprint": "80356b647f43a33d1c5e27d33d20959a28cc7ed8d920505f136a0990e36f330e",
+      "fingerprint": "aaf1c191f6b5987d159d0c8d40501433125faf2d87517b9cc9c8068fd7432edf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
       "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path.",
+      "reason": "materialize:Set carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27525,18 +27525,18 @@
       "rule": "dynamic-question",
       "tokens": "c40b7d5131ec953a353fad46ea852de4652a5e401e314a0323157e1cebc35b72",
       "gate": [
-        "then:83ee3083b3d3dd56ae7db77ce5603be6050cedd2a66b853446ea2a8768cb5424"
+        "then:69ae33e974b3d4654a40fdca8d82a78ec6db7ec61f3e6778c7540e05fab35048"
       ],
       "origin": [
-        "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f"
+        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06"
       ],
-      "fingerprint": "f6596a02779e1824305b73dbc648a3c25fb68e3c1d49e500f2737cf7d735a738",
+      "fingerprint": "23c5b231c4c9435a16ec5981fec0878255f4521518524fc66df139f543d0ccb3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
       "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback/flatMap:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path.",
+      "reason": "dynamic-question carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -32340,6 +32340,7 @@
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
+        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "62abb4dee19f33d18d7a2cb2006b4568298ee197e8610db8d3b96ee653348065",
         "72c76485c2f9755dd9192b0c0e6f23056bec99624903664dbd9562dcb3201a25",
         "73fc6ac8474972e8390049381280f6016c6e783a4c53017f0e6b141d47066ace",
@@ -32355,16 +32356,15 @@
         "cfaa16c1a3326e86b2ab2bda33551103ec76b60336edcc1bc9a1c0d4486e580c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "6a6b24c5f37857815912fcb47455f48955818a2b311d2d04cb429d89a791d4be",
+      "fingerprint": "2dfddd2aae79c85a669bde32e52254d4a75b909cc1bbcb49c80a237522ec51e6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -32420,21 +32420,21 @@
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
+        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "d2d15bde2d4b08c5a3438797f4b0b260abb6ed57f67fd693593abc1741ea08a4",
+      "fingerprint": "bf1538da79ac7502d4a8fe0aa2d49429c81bc26c2b4aad5539f9b30ae1b9dcd2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/current",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -32450,21 +32450,21 @@
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
+        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "6b1a271d3e772ff1152fb31dee31f103a4a7f850cdaeaa01fb9c7b1115b02e34",
+      "fingerprint": "223286d33341c78863a8b8d283fc6f2787541a9b0e5ee1c561233b0545f0866f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/projection/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

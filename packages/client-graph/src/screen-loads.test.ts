@@ -198,8 +198,10 @@ const evidence = (opened: OpenedScreen, device: Device) =>
  * Chains the product still takes, reported to the POD-5910 coordinator
  * (POD-7163, 2026-11-19). `it.fails` keeps the check running: once the chain
  * is gone the test fails here, and the entry is removed.
- * - board: gone with POD-7159 (a lookup of a record whole on the device is
- *   answered from it, so the column's next issues take no second hop).
+ * - board: gone with POD-7174. The column read as each record of its page
+ *   entered the table and looked the later ones up one by one; since POD-7159
+ *   the device answers those lookups itself, so only the loader's requests
+ *   still show them (the case after this block).
  */
 const KNOWN_CHAINS: ReadonlySet<ScreenName> = new Set<ScreenName>()
 
@@ -222,6 +224,34 @@ describe('opening a main screen chains no more loads than declared (ASYNC_WATERF
         opened.close()
       }
     })
+  }
+})
+
+/**
+ * POD-7174: the board's page brings its records. A pool publication puts its
+ * records in the tables one by one while the device index already lists all
+ * of them; the column read as each entered and found the next ones absent,
+ * a lookup (`issueProjection.one`) per record of the page. The device answers
+ * those from the record it holds (POD-7159), so the hop count above no longer
+ * sees them: the loader's requests do.
+ */
+it('board: the page brings its records, the column looks none of them up one by one', async () => {
+  const board = SCREENS.find((screen) => screen.name === 'board')
+  if (board === undefined) throw new Error('no board case')
+  const d = await device(board.options)
+  const lookups: string[] = []
+  const request = d.loader.request.bind(d.loader)
+  d.loader.request = (specs, priority) => {
+    for (const spec of specs)
+      if (spec.collection === 'issueProjection.one') lookups.push(JSON.stringify(spec.args))
+    request(specs, priority)
+  }
+  const opened = await openScreen(d, 'board', () => board.readers(d))
+  try {
+    expect(opened.ready, evidence(opened, d)).toBe(true)
+    expect(lookups).toEqual([])
+  } finally {
+    opened.close()
   }
 })
 

@@ -200,7 +200,12 @@ export function createBoardLayout(pool: MobxPool) {
           return `${String(value[0]).padStart(16, '0')}:${String(value[1]).padStart(16, '0')}:${descendingDate(value[2])}:${placement}`
         },
         subscribe: changed => {
-          const stopTable = observe(pool.tables.issue, change => changed(change.name))
+          // A feed publication's records come in `onChange` below, all at
+          // once. Read as each enters the table, the column found the page's
+          // later records absent and looked each one up (POD-7174).
+          const stopTable = observe(pool.tables.issue, change => {
+            if (!pool.queries.inPublication) changed(change.name)
+          })
           const stopFeed = pool.queries.onChange(event => {
             if (event.type === 'replace') changed(undefined)
             else for (const row of event.rows) if (row.kind === 'issue') changed(row.id)
