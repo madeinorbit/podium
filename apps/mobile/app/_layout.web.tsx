@@ -1,7 +1,10 @@
 import { Stack } from 'expo-router/js-stack'
 import { Easing } from 'react-native'
+import { installE2eRouterHook } from '../src/client/e2e-router-hook'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
 import { color } from '../src/theme/theme'
+
+installE2eRouterHook()
 
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1)
 const webRouteTransition = {

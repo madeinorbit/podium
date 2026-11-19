@@ -20,7 +20,8 @@
  * the board, an issue page, search (the board's task filter) and the sidebar,
  * cold; the same again, warm (moving between them); then offline (the
  * browser's network cut) the same again, in-app, without a reload. On the
- * phone: its Work list, then the mission's details, cold, warm and offline.
+ * phone: its Work list, then the mission's details, cold, warm and offline,
+ * moving through the phone's own router as a tap does.
  *
  * Per screen: data requests (/sync/ and issue search, attempts offline
  * included), load hops (a request asked for once an earlier one's answer was
@@ -63,6 +64,9 @@ if (!live) {
   corpus = JSON.parse(readFileSync('.artifacts/old-vs-new/corpus-operator.json', 'utf8'))
   const port = Number(arg('port', '19581'))
   base = `http://127.0.0.1:${port}`
+  // A server already on the port would be measured instead of this build's.
+  const busy = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) }).then(() => true, () => false)
+  if (busy) throw Error(`Port ${port} already answers /health; stop that server or pass a free --port`)
   const env = { ...process.env, PORT: String(port), PODIUM_NO_RELAY: '1' }
   for (const key of Object.keys(env)) if (/^PODIUM_(SESSION|AGENT|CODEX_HOOK|ISSUE_RELAY|INSTANCE|HOME|STATE_DIR|AGENT_HOME|SERVER|PORT)/.test(key)) delete env[key]
   server = spawn(process.execPath, ['--conditions=@podium/source', 'tests/e2e/serve-harness.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -327,11 +331,34 @@ async function measure(f, screen, phase, go, ready, readyArg) {
   return row
 }
 
-/** In-app navigation: the router follows history, so nothing reloads (works offline). */
+/**
+ * In-app navigation on the web: the desktop router's own push is a pushState
+ * plus a route notice, and it reads a popstate the same way, so nothing reloads
+ * (works offline).
+ */
 const navigate = (page, path) => page.evaluate((path) => {
   const url = new URL(path, location.href); url.search = location.search
   history.pushState(null, '', url.pathname + url.search); dispatchEvent(new PopStateEvent('popstate'))
 }, path)
+
+/**
+ * In-app navigation on the phone goes through the app's router, as a tap does
+ * (POD-7177): an entry written behind Expo Router's back is one it does not
+ * hold, and its popstate is a browser back, not a tap. `?e2e=1` exposes the
+ * router (apps/mobile/src/client/e2e-router-hook.ts); a build without it is
+ * walked by history and the run says so.
+ */
+const phoneNavigate = async (page, path) => {
+  const routed = await page.evaluate((path) => {
+    const hook = globalThis.__podiumPhoneRouter
+    if (!hook) return false
+    hook.navigate(path)
+    return true
+  }, path)
+  if (routed) return
+  result.phoneNavigation = 'history (the build has no phone router hook)'
+  await navigate(page, `/mobile${path}`)
+}
 
 // Ready predicates, evaluated in the page.
 const visible = `(e)=>{if(!e||e.closest('[aria-hidden="true"]'))return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight}`
@@ -391,12 +418,14 @@ async function webWalk(browser, targets) {
 async function phoneWalk(browser, targets) {
   const f = await makeContext(browser, 'phone')
   const origin = live || base
-  const query = live ? '' : `?server=${encodeURIComponent(base.replace('http', 'ws'))}&e2e=1`
+  // `e2e=1` on the live install too: it only exposes the phone's router.
+  const query = live ? '?e2e=1' : `?server=${encodeURIComponent(base.replace('http', 'ws'))}&e2e=1`
+  result.phoneNavigation = 'router'
   await measure(f, 'phoneWork', 'startup', () => f.page.goto(`${origin}/mobile/work${query}`, { waitUntil: 'domcontentloaded' }), READY.phoneWork)
   for (const phase of ['cold', 'warm', 'offline']) {
     if (phase === 'offline') await f.context.setOffline(true)
-    await measure(f, 'phoneMission', phase, () => navigate(f.page, `/mobile/mission/${targets.deck.id}/details`), READY.phoneMission, targets.deck)
-    await measure(f, 'phoneWork', phase, () => navigate(f.page, '/mobile/work'), READY.phoneWork)
+    await measure(f, 'phoneMission', phase, () => phoneNavigate(f.page, `/mission/${targets.deck.id}/details`), READY.phoneMission, targets.deck)
+    await measure(f, 'phoneWork', phase, () => phoneNavigate(f.page, '/work'), READY.phoneWork)
   }
   await f.context.setOffline(false)
   await f.context.close()
@@ -456,6 +485,7 @@ function report() {
   const lines = [
     `# Screens probe (${result.mode})`, '',
     `Commit ${result.sha ?? 'unknown'} on ${result.host}, ${result.startedAt}; browser ${result.browser ?? '?'}; status ${result.status}.`,
+    ...(result.phoneNavigation ? [`Phone navigation: ${result.phoneNavigation}.`] : []),
     result.mode === 'operator' ? 'Synthetic operator corpus: 8,687 issues, 6,941 sessions; deck of the 970-issue mission.' : `Live install ${live}, read-only (${result.blockedWrites.length} writes refused).`, '',
     '| surface | phase | screen | ready | LOADING ms | requests | hops (max) | longest task ms | heap after GC MiB |',
     '|---|---|---|---|---:|---:|---:|---:|---:|',
