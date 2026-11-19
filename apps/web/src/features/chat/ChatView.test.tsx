@@ -1319,7 +1319,6 @@ describe('ChatView composer', () => {
   })
 
   it('sends a staged attachment ref without pasting its path into message text', async () => {
-    console.info('[attachment control] opening')
     const attachment = {
       id: 'staged-1',
       path: '/staged/shot.png',
@@ -1345,30 +1344,24 @@ describe('ChatView composer', () => {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
-    console.info('[attachment control] uploading')
     await act(async () => {
       input.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    console.info('[attachment control] uploaded')
-    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
-    console.info('[attachment control] answer observed')
-    await act(async () => Promise.resolve())
-    console.info('[attachment control] render settled')
-    await act(async () => {
-      console.info('[attachment control] submitting')
-      textarea.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-      )
-      await Promise.resolve()
+    await vi.waitFor(() => {
+      expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1)
+      const strip = container.querySelector('[data-testid="attachment-strip"]')
+      expect(strip?.textContent).toContain('shot.png')
+      expect(strip?.textContent).not.toContain('Uploading')
     })
-    console.info('[attachment control] submitted')
-
-    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: asSessionId('s1'),
-        text: 'describe this image',
-        attachments: [attachment],
-      }),
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await vi.waitFor(() =>
+      expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: asSessionId('s1'),
+          text: 'describe this image',
+          attachments: [attachment],
+        }),
+      ),
     )
   })
 
