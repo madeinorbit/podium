@@ -13,7 +13,7 @@
  * Grok wrote, not to a hand-made shape.
  */
 
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -126,7 +126,19 @@ describe('the Grok terminal transcript, read from updates.jsonl', () => {
       toolTitle: 'wait eight seconds',
     })
     const result = items.find((item) => item.toolUseId === 'call_fake8' && item.toolResult)
-    expect(result).toMatchObject({ id: 'call_fake8:out', role: 'tool', toolResult: 'exit: 0' })
+    const completed = (await readFile(UPDATES, 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line).params.update)
+      .find((update) => update.toolCallId === 'call_fake8' && update.status === 'completed')
+    // Preserve the tool's model-facing output verbatim, including its line
+    // endings; the human display summary is a different field.
+    expect(completed.rawOutput.output_for_prompt).toContain('exit: 0')
+    expect(result).toMatchObject({
+      id: 'call_fake8:out',
+      role: 'tool',
+      toolResult: completed.rawOutput.output_for_prompt,
+    })
     // Grok's reasoning, hooks, turn ends and background-task bookkeeping are
     // not part of the conversation view.
     expect(items.every((item) => ['user', 'assistant', 'tool'].includes(item.role))).toBe(true)
