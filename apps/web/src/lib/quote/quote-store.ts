@@ -1,17 +1,16 @@
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { Quote } from './quote-sinks'
 
-/**
- * WHERE STAGED PASSAGES LIVE (POD-2207). Per session, in memory and in
- * localStorage, so a reload keeps them. They hold text from the operator's
- * files and chats, so they are bounded three ways: a send clears them, a set
- * untouched for two weeks is swept, and erasing the account removes them all.
- */
-
-const PREFIX = 'podium.quotes.'
+/** Unsent passages belong to this member and workspace's device state. A send
+ * clears its session, expiry bounds their lifetime, and account erase removes
+ * the principal namespace. Unattributed raw keys from old builds are never read. */
+export const QUOTES_KEY = 'podium.quotes.v1'
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
-const memory = new Map<string, Quote[]>()
-let swept = false
-
+interface SavedQuotes {
+  savedAt: number
+  quotes: Quote[]
+}
+type Owner = Pick<RoutedUiState, 'get' | 'set'>
 function isQuote(q: unknown): q is Quote {
   const v = q as Partial<Quote> | null
   return (
@@ -21,61 +20,43 @@ function isQuote(q: unknown): q is Quote {
     typeof v.label === 'string'
   )
 }
-
-function sweep(now: number): void {
-  if (swept) return
-  swept = true
+function bank(owner: Owner): Map<string, SavedQuotes> {
   try {
-    for (const key of Object.keys(localStorage)) {
-      if (!key.startsWith(PREFIX)) continue
-      const savedAt = (
-        JSON.parse(localStorage.getItem(key) ?? 'null') as { savedAt?: unknown } | null
-      )?.savedAt
-      if (typeof savedAt !== 'number' || now - savedAt > MAX_AGE_MS) localStorage.removeItem(key)
-    }
+    const value: unknown = JSON.parse(owner.get(QUOTES_KEY) ?? '{}')
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return new Map()
+    const now = Date.now()
+    return new Map(
+      Object.entries(value).flatMap(([key, raw]) => {
+        if (!raw || typeof raw !== 'object') return []
+        const saved = raw as Partial<SavedQuotes>
+        if (
+          typeof saved.savedAt !== 'number' ||
+          now - saved.savedAt > MAX_AGE_MS ||
+          !Array.isArray(saved.quotes)
+        )
+          return []
+        return [[key, { savedAt: saved.savedAt, quotes: saved.quotes.filter(isQuote) }] as const]
+      }),
+    )
   } catch {
-    // Storage unavailable: nothing persisted to sweep.
+    return new Map()
   }
 }
-
-export function loadQuotes(key: string): Quote[] {
-  const held = memory.get(key)
-  if (held) return held
-  sweep(Date.now())
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PREFIX + key) ?? 'null') as {
-      quotes?: unknown
-    } | null
-    if (Array.isArray(parsed?.quotes)) {
-      const quotes = parsed.quotes.filter(isQuote)
-      memory.set(key, quotes)
-      return quotes
-    }
-  } catch {
-    // Storage unavailable or corrupt: start empty.
-  }
-  return []
+function write(owner: Owner, quotes: Map<string, SavedQuotes>): void {
+  owner.set(QUOTES_KEY, quotes.size ? JSON.stringify(Object.fromEntries(quotes)) : null)
 }
-
-export function saveQuotes(key: string, quotes: Quote[]): void {
-  if (quotes.length) memory.set(key, quotes)
-  else memory.delete(key)
-  try {
-    if (quotes.length) {
-      localStorage.setItem(PREFIX + key, JSON.stringify({ savedAt: Date.now(), quotes }))
-    } else localStorage.removeItem(PREFIX + key)
-  } catch {
-    // Memory still holds them for this page.
-  }
+export function loadQuotes(owner: Owner, key: string): Quote[] {
+  return bank(owner).get(key)?.quotes ?? []
 }
-
-/** Every staged passage in this browser, for the account eraser. */
-export function eraseAllQuotes(): void {
-  memory.clear()
-  try {
-    for (const key of Object.keys(localStorage))
-      if (key.startsWith(PREFIX)) localStorage.removeItem(key)
-  } catch {
-    // Nothing persisted.
-  }
+/** Called after mount; reads during render never write device state. */
+export function sweepQuotes(owner: Owner): void {
+  const current = bank(owner)
+  const encoded = current.size ? JSON.stringify(Object.fromEntries(current)) : null
+  if (owner.get(QUOTES_KEY) !== encoded) owner.set(QUOTES_KEY, encoded)
+}
+export function saveQuotes(owner: Owner, key: string, quotes: Quote[]): void {
+  const current = bank(owner)
+  if (quotes.length) current.set(key, { savedAt: Date.now(), quotes })
+  else current.delete(key)
+  write(owner, current)
 }

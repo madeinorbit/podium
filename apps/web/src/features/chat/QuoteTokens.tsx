@@ -1,7 +1,8 @@
+import { useDeviceState } from '@podium/client-core/react'
 import type { JSX, RefObject } from 'react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Quote, QuoteInput } from '@/lib/quote/quote-sinks'
-import { loadQuotes, saveQuotes } from '@/lib/quote/quote-store'
+import { loadQuotes, saveQuotes, sweepQuotes } from '@/lib/quote/quote-store'
 import { findTokens, uniqueLabel } from '@/lib/quote/quote-tokens'
 
 /**
@@ -10,7 +11,7 @@ import { findTokens, uniqueLabel } from '@/lib/quote/quote-tokens'
  * tokens stand for, and paints the tokens as pills behind the textarea.
  *
  * The passages are composer state, not replicated: the draft syncs, these stay
- * in this browser (`quote-store.ts`), so a reload or a composer that unmounts
+ * in this member and workspace’s device state (`quote-store.ts`), so a reload or a composer that unmounts
  * (native view, closed dock) finds them again. Another device sees the token
  * and not the passage (an orphan).
  */
@@ -28,14 +29,29 @@ let seq = 0
 
 /** Mail forms use a local bank; their unsent text is not a synced prompt. */
 export function useQuotes(key: string, persist = true): UseQuotesResult {
-  const [state, setState] = useState(() => ({ key, quotes: persist ? loadQuotes(key) : [] }))
-  // A composer reused for another session picks up THAT session's quotes.
-  if (state.key !== key) setState({ key, quotes: persist ? loadQuotes(key) : [] })
-  const quotes = state.key === key ? state.quotes : persist ? loadQuotes(key) : []
-  const current = useRef({ key, quotes, persist })
-  current.current = { key, quotes, persist }
+  const owner = useDeviceState()
+  useEffect(() => {
+    if (persist) sweepQuotes(owner)
+  }, [owner, persist])
+  const [state, setState] = useState(() => ({
+    owner,
+    key,
+    quotes: persist ? loadQuotes(owner, key) : [],
+  }))
+  // Switching member/workspace replaces the owner even when the session id is
+  // unchanged. A reused composer must drop the previous identity's passages.
+  if (state.owner !== owner || state.key !== key)
+    setState({ owner, key, quotes: persist ? loadQuotes(owner, key) : [] })
+  const quotes =
+    state.owner === owner && state.key === key
+      ? state.quotes
+      : persist
+        ? loadQuotes(owner, key)
+        : []
+  const current = useRef({ owner, key, quotes, persist })
+  current.current = { owner, key, quotes, persist }
   const add = useCallback((input: QuoteInput, draft: string): Quote => {
-    const { key, quotes, persist } = current.current
+    const { owner, key, quotes, persist } = current.current
     const named = new Set(findTokens(draft).map((t) => t.label))
     const kept = quotes.filter((q) => named.has(q.label))
     const staged = new Set(kept.map((q) => q.label))
@@ -46,16 +62,16 @@ export function useQuotes(key: string, persist = true): UseQuotesResult {
       label: uniqueLabel(input, kept, orphans),
     }
     const next = [...kept, quote]
-    if (persist) saveQuotes(key, next)
-    current.current = { key, quotes: next, persist }
-    setState({ key, quotes: next })
+    if (persist) saveQuotes(owner, key, next)
+    current.current = { owner, key, quotes: next, persist }
+    setState({ owner, key, quotes: next })
     return quote
   }, [])
   const clear = useCallback(() => {
-    const { key, persist } = current.current
-    if (persist) saveQuotes(key, [])
-    current.current = { key, quotes: [], persist }
-    setState({ key, quotes: [] })
+    const { owner, key, persist } = current.current
+    if (persist) saveQuotes(owner, key, [])
+    current.current = { owner, key, quotes: [], persist }
+    setState({ owner, key, quotes: [] })
   }, [])
   return useMemo(() => ({ quotes, add, clear }), [quotes, add, clear])
 }

@@ -136,6 +136,8 @@ export interface UiStateRoute {
  * Each is deliberately local: transient chrome, device capability/preferences,
  * screen geometry, or a cursor describing what this screen displayed. */
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
+  // Unsent quoted passages stay with this member and workspace on this device.
+  'podium.quotes.v1',
   UI_STATE_KEYS.fileScroll,
   'podium.chat.stickyPrompts',
   /** Whether the diff sheet wraps long lines on this screen. */
