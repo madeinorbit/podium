@@ -1,7 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
@@ -463,7 +463,7 @@ describe('session menu snooze from the acting user home', () => {
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal()], [])
     })
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    await waitFor(() => expect(screen.queryByLabelText('Clear snooze')).toBeNull())
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal(null)], [])
     })
@@ -471,7 +471,7 @@ describe('session menu snooze from the acting user home', () => {
     await waitFor(() => expect(clear).toHaveBeenCalled())
     fireEvent.click(await screen.findByLabelText('Session actions'))
     expect(await screen.findByLabelText('Cancel')).toBeTruthy()
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    await waitFor(() => expect(screen.queryByLabelText('Clear snooze')).toBeNull())
     expect(replica.rows('sessions')[0]).toBe(stored)
   })
 

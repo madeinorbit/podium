@@ -29,6 +29,7 @@ const state = vi.hoisted(() => ({
   sqliteFile: '',
   profile: null as unknown,
   events: [] as string[],
+  retrySync: null as (() => void) | null,
 }))
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -43,7 +44,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => state.profile }))
 vi.mock('./MobileSyncBoundary', () => ({
-  MobileSyncBoundary: ({ children }: { children: ReactNode }) => children,
+  MobileSyncBoundary: ({ children, store }: { children: ReactNode; store: { retry(): void } }) => {
+    state.retrySync = () => store.retry()
+    return children
+  },
 }))
 vi.mock('./mobile-entity-store', async () => {
   const { SqliteSyncStore } = await import('@podium/sync/adapters/mobile-sqlite')
@@ -147,6 +151,7 @@ beforeEach(() => {
   state.sqliteFile = join(dir, 'replica.db')
   state.device.clear()
   state.events.length = 0
+  state.retrySync = null
 })
 afterEach(async () => {
   cleanup()
@@ -171,9 +176,13 @@ describe('a refused member on the phone (POD-6297)', () => {
         if (key === aliceKey) state.events.push('erased:alice')
         return removeItem(key)
       }
-      // The server now refuses Alice's credential on every request.
+      // The server now refuses Alice's credential. Drive the same retry the
+      // sync boundary offers after the initial offline attempt; changing the
+      // fake server alone cannot make a silent socket issue another request.
       await act(async () => {
         refuse()
+        if (!state.retrySync) throw new Error('The sync boundary did not attach')
+        state.retrySync()
       })
       await waitFor(() => expect(updateCredential).toHaveBeenCalledWith(null), { timeout: 15_000 })
       expect(state.device.has(aliceKey)).toBe(false)
