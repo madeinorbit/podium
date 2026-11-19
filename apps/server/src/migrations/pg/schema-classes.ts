@@ -112,6 +112,23 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
     timestamp: 'created_at updated_at',
     text: 'id agent_kind provider_id title name summary project_path resume_kind resume_value machine_id parent_conversation_id workspace_id',
   },
+  credential_machines: {
+    timestamp: 'created_at',
+    text: 'credential_id machine_id allowed_by workspace_id',
+  },
+  credential_placements: {
+    timestamp: 'created_at removed_at',
+    text: 'credential_id machine_id kind home_id state workspace_id',
+  },
+  credential_secrets: {
+    timestamp: 'created_at',
+    text: 'credential_id ciphertext nonce key_id workspace_id',
+  },
+  credentials: {
+    timestamp: 'expires_at verified_at limit_reached_until created_at updated_at',
+    json: 'identity',
+    text: 'id owner_user_id label type identity_fingerprint status status_reason legacy_id legacy_key workspace_id',
+  },
   delivery_receipts: {
     timestamp: 'completed_at',
     text: 'id order_id approved_base_sha approved_head_sha result_commit_sha tested_integration_sha landed_ref_sha destination_sha validation_profile_id validation_result destination workspace_id',
@@ -129,6 +146,7 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   },
   issue_comments: {
     timestamp: 'created_at edited_at',
+    json: 'mentions',
     text: 'id issue_id author body actor on_behalf_of edited_by edited_on_behalf_of workspace_id',
   },
   issue_deps: {
@@ -240,6 +258,10 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   native_login_transfers: {
     text: 'owner_user_id harness fingerprint machine_id outcome at workspace_id',
   },
+  notices: {
+    timestamp: 'created_at read_at resolved_at',
+    text: 'id recipient_user_id kind subject_kind subject_id subject_anchor title body dedupe_key workspace_id',
+  },
   notification_facts: {
     timestamp: 'created_at expires_at consumed_at',
     text: 'fact_key target source issue_id workspace_id',
@@ -334,8 +356,8 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   sessions: {
     timestamp:
       'created_at last_active_at published_last_active_at last_output_at last_input_at last_resumed_at stopped_at oom_killed_at deleted_at',
-    json: 'agent_state_json delegation launch_posture_json',
-    text: 'id owner_user_id agent_kind model effort requested_model requested_effort account_id login_harness cwd title origin_kind conversation_id resume_kind resume_value selected_driver_id requested_driver_id bound_driver_id bound_driver_capabilities agent_color observed_model observed_effort observed_mode handoff_target_machine_id conversation_binding status spawn_failure durable_label name work_state machine_id spawned_by issue_id stop_reason deleted_by_issue_id deletion_source workflow_run_id workflow_step_id agent_profile_id name_source ref_issue_id ref_letter created_by_actor_kind created_by_actor_id created_by_on_behalf_of desired lifecycle_failure desired_by_user desired_by_agent workspace_id',
+    json: 'agent_state_json delegation launch_posture_json effective_auth credential_mismatch',
+    text: 'id owner_user_id agent_kind model effort requested_model requested_effort account_id credential_id login_harness cwd title origin_kind conversation_id resume_kind resume_value selected_driver_id requested_driver_id bound_driver_id bound_driver_capabilities agent_color observed_model observed_effort observed_mode handoff_target_machine_id conversation_binding status spawn_failure durable_label name work_state machine_id spawned_by issue_id stop_reason deleted_by_issue_id deletion_source workflow_run_id workflow_step_id agent_profile_id name_source ref_issue_id ref_letter created_by_actor_kind created_by_actor_id created_by_on_behalf_of desired lifecycle_failure desired_by_user desired_by_agent workspace_id',
   },
   settings_audit_events: {
     timestamp: 'created_at',
@@ -471,6 +493,10 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   users: {
     timestamp: 'created_at disabled_at authz_changed_at',
     text: 'id display_name email account_id avatar role workspace_id',
+  },
+  vault_key: {
+    timestamp: 'created_at',
+    text: 'key_id wrapped_data_key workspace_id',
   },
   workflow_bindings: {
     timestamp: 'updated_at',
