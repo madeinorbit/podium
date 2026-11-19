@@ -348,16 +348,28 @@ const navigate = (page, path) => page.evaluate((path) => {
  * router (apps/mobile/src/client/e2e-router-hook.ts); a build without it is
  * walked by history and the run says so.
  */
-const phoneNavigate = async (page, path) => {
-  const routed = await page.evaluate((path) => {
+const phoneNavigate = async (page, path, how = 'navigate') => {
+  const routed = await page.evaluate(([path, how]) => {
     const hook = globalThis.__podiumPhoneRouter
     if (!hook) return false
-    hook.navigate(path)
+    hook[how](path)
     return true
-  }, path)
+  }, [path, how])
   if (routed) return
   result.phoneNavigation = 'history (the build has no phone router hook)'
   await navigate(page, `/mobile${path}`)
+}
+
+/** Back to the Work list as its user leaves a mission: Done, which is `router.back()`. */
+const phoneBackToWork = async (page) => {
+  const routed = await page.evaluate(() => {
+    const hook = globalThis.__podiumPhoneRouter
+    if (!hook) return false
+    if (hook.canGoBack()) hook.back()
+    else hook.navigate('/work')
+    return true
+  })
+  if (!routed) await phoneNavigate(page, '/work')
 }
 
 // Ready predicates, evaluated in the page.
@@ -376,7 +388,7 @@ const READY = {
   phoneWork: new Function(`return !!document.querySelector('[aria-label="Search work"]')&&!document.querySelector('[aria-label="Loading work"],[data-testid="bootstrap-placeholder"]')`),
   phoneMission: new Function('t', `const visible=${visible};if(document.querySelector('[aria-label="Loading task detail"],[aria-label="Loading task"]'))return false;
     if(!location.pathname.endsWith('/details'))return false;
-    return visible(document.querySelector('[aria-label="Fold every branch"],[aria-label="Expand every branch"]'))&&!/Mission not found/.test(document.body.innerText)`),
+    return [...document.querySelectorAll('[aria-label="Fold every branch"],[aria-label="Expand every branch"]')].some(visible)&&!/Mission not found/.test(document.body.innerText)`),
 }
 
 // ---------------------------------------------------------------- the walk
@@ -424,8 +436,8 @@ async function phoneWalk(browser, targets) {
   await measure(f, 'phoneWork', 'startup', () => f.page.goto(`${origin}/mobile/work${query}`, { waitUntil: 'domcontentloaded' }), READY.phoneWork)
   for (const phase of ['cold', 'warm', 'offline']) {
     if (phase === 'offline') await f.context.setOffline(true)
-    await measure(f, 'phoneMission', phase, () => phoneNavigate(f.page, `/mission/${targets.deck.id}/details`), READY.phoneMission, targets.deck)
-    await measure(f, 'phoneWork', phase, () => phoneNavigate(f.page, '/work'), READY.phoneWork)
+    await measure(f, 'phoneMission', phase, () => phoneNavigate(f.page, `/mission/${targets.deck.id}/details`, 'push'), READY.phoneMission, targets.deck)
+    await measure(f, 'phoneWork', phase, () => phoneBackToWork(f.page), READY.phoneWork)
   }
   await f.context.setOffline(false)
   await f.context.close()
