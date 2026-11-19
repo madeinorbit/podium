@@ -501,6 +501,44 @@ describe('ParentProcess', () => {
     }
   })
 
+  it.each([
+    true,
+    false,
+  ])('bounds cold boot progress while awaiting late readiness (becomes ready=%s)', async (becomesReady) => {
+    const clock = fakeClock()
+    const began = clock.now()
+    const server = new FakeChild(821)
+    const notifications: string[] = []
+    let stage = 0
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        children: ['server'],
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        spawn: (() => server as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: (state) => notifications.push(state),
+        now: clock.now,
+        sleep: async (ms) => {
+          clock.advance(ms)
+          const elapsed = clock.now() - began
+          if (elapsed >= (stage + 1) * 20_000) {
+            server.deliver(encodeLifecycle({ type: 'progress', stage: `migration index ${++stage}` }))
+          }
+          if (becomesReady && elapsed >= 140_000) {
+            server.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+          }
+        },
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(clock.now() - began).toBe(becomesReady ? 140_000 : 600_000)
+    expect(parent.isBootHealthy()).toBe(becomesReady)
+    expect(notifications.filter((state) => state === 'READY=1')).toHaveLength(becomesReady ? 1 : 0)
+  })
+
   it('retains a startup refusal after the child exits and closes its channel', async () => {
     const clock = fakeClock()
     const server = new FakeChild(820)

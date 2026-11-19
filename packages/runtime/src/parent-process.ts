@@ -1251,10 +1251,17 @@ export class ParentProcess {
     // A successor shares the outgoing parent's absolute deadline. A shorter
     // nested gate used to declare failure at 60s while handover still allowed 90s.
     // It is re-read on every probe, because progress stretches it (POD-6618).
+    // Cold startup must follow the same progress as its systemd extensions:
+    // returning at 90s can let the parent exit while its children still migrate.
     const fixedDeadline = this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS
     const healthy = await this.waitForHealthy(
       expected,
-      () => this.successorDeadline() ?? fixedDeadline,
+      () =>
+        this.successorDeadline() ??
+        Math.min(
+          this.coldBootCapMs ?? fixedDeadline,
+          Math.max(fixedDeadline, (this.lastBootProgress()?.atMs ?? 0) + HANDOVER_HEALTH_TIMEOUT_MS),
+        ),
     )
     if (this.stopping || this.terminating) return
     if (!healthy) {
