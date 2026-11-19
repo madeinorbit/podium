@@ -227,7 +227,8 @@ class InMemoryCache implements ReplicaCacheStore {
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
-    const row = this.readRow(entity, entityId)
+    this.guard()
+    const row = this.rows.getMain(key(entity, entityId))
     return row === undefined || !isMainRow(row) ? undefined : row
   }
 

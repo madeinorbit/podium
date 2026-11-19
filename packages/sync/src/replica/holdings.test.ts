@@ -15,7 +15,7 @@
  * would be caught.
  */
 
-import { type Clause, type Collection, clausesOf, instanceParams, isParam } from '@podium/model'
+import { COLLECTIONS, type Clause, type Collection, clausesOf, instanceParams, isParam } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   CollectionServer,
@@ -28,6 +28,7 @@ import {
 } from '../conformance/collection-server'
 import { InstanceMap, instanceKey } from './cache-state'
 import {
+  collectionComesWithSettled,
   comesWithOf,
   HeldIndex,
   type HeldRows,
@@ -553,5 +554,60 @@ describe('the held index by key (POD-7119)', () => {
     }
     // Not vacuous: many records belong to many instances.
     expect(found).toBeGreaterThan(1_000)
+  })
+})
+
+describe('a record whose collection comes-with is settled (POD-7181)', () => {
+  const closed = issue('c1', { stage: 'done', closedReason: 'completed', parentId: 'r1' })
+  const open = issue('o1', { stage: 'in_progress', parentId: 'r1' })
+  it('needs no instance lookup when every collection that brings things is complete or cannot hold it', () => {
+    // No session collection declares comes-with: membership adds nothing.
+    expect(collectionComesWithSettled('session', session('s1'), undefined, WORLD_NOW)).toBe(true)
+    // A tree takes an argument, so only its complete bit settles it.
+    expect(collectionComesWithSettled('issueProjection', closed, [], WORLD_NOW)).toBe(false)
+    // The sidebar's rule reads no argument: a closed issue is no member.
+    expect(
+      collectionComesWithSettled('issueProjection', closed, ['issueProjection.tree'], WORLD_NOW),
+    ).toBe(true)
+    // An open issue is one, so the sidebar's comes-with must be complete too.
+    expect(
+      collectionComesWithSettled('issueProjection', open, ['issueProjection.tree'], WORLD_NOW),
+    ).toBe(false)
+    expect(
+      collectionComesWithSettled(
+        'issueProjection',
+        open,
+        ['issueProjection.tree', 'issueProjection.sidebar'],
+        WORLD_NOW,
+      ),
+    ).toBe(true)
+  })
+
+  it('is exact: what the instances of a settled record add, its complete bits already cover', () => {
+    const rows: HeldRows = { readRow: () => undefined }
+    for (const [kind, value, cw] of [
+      ['session', session('s1', { issueId: 'o1' }), []],
+      ['issueProjection', closed, ['issueProjection.tree']],
+      ['issueProjection', open, ['issueProjection.tree', 'issueProjection.sidebar']],
+    ] as const) {
+      expect(collectionComesWithSettled(kind, value, cw, WORLD_NOW)).toBe(true)
+      // Every instance of the kind's collections the record belongs to (a tree under its parent).
+      const memberOf = [...COLLECTIONS.values()]
+        .filter((collection) => collection.of === kind)
+        .flatMap((collection) => {
+          const args = Object.fromEntries(instanceParams(collection).map((name) => [name, 'r1']))
+          const resolved = resolveInstance(
+            { collection: collection.id, args, part: collection.part ?? 'main' },
+            policyArgs(WORLD_POLICY),
+          )
+          return resolved !== undefined && holds(resolved, kind, value, rows, WORLD_NOW) ? [resolved] : []
+        })
+      const own = new Set(comesWithOf(kind, value, [], WORLD_NOW).map((spec) => instanceKey(spec)))
+      const added = comesWithOf(kind, value, memberOf, WORLD_NOW).filter(
+        (spec) => !own.has(instanceKey(spec)),
+      )
+      if (kind === 'issueProjection') expect(added.length).toBeGreaterThan(0)
+      for (const spec of added) expect(cw).toContain(spec.via)
+    }
   })
 })

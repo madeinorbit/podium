@@ -29,6 +29,7 @@ import {
   type ComesWith,
   instanceParams,
   matchesWhere,
+  paramsRead,
   type RecordDeclaration,
   type RuleArgs,
   recordOf,
@@ -329,6 +330,52 @@ export function comesWithInstance(
  * (via the type) and the comes-with of each held instance it belongs to (via
  * that collection).
  */
+/** Per kind, the collections that declare comes-with (`collectionComesWithSettled`). */
+const collectionComesWith = new Map<
+  string,
+  readonly { readonly id: string; readonly where: Where | undefined; readonly bare: boolean; readonly holderOnly: boolean }[]
+>()
+
+/**
+ * POD-7181 — whether no held instance a record belongs to can add a
+ * comes-with that the device lacks, without finding the instances
+ * (`HeldIndex.matching`): each collection of its kind that declares
+ * comes-with either has it complete for this record on the disk (`cw`, for
+ * comes-with the record holds itself), or cannot hold the record by its
+ * rule, which reads no argument. A record kind with no such collection
+ * always qualifies. When this is false, the caller finds the instances.
+ */
+export function collectionComesWithSettled(
+  kind: string,
+  value: unknown,
+  cw: readonly string[] | undefined,
+  now: number,
+): boolean {
+  let collections = collectionComesWith.get(kind)
+  if (collections === undefined) {
+    collections = [...COLLECTIONS.values()]
+      .filter((collection) => collection.of === kind && (collection.comesWith?.length ?? 0) > 0)
+      .map((collection) => ({
+        id: collection.id,
+        where: collection.where,
+        bare: collection.where !== undefined && paramsRead(collection.where).length === 0,
+        holderOnly: (collection.comesWith ?? []).every((entry) => entry.key === undefined),
+      }))
+    collectionComesWith.set(kind, collections)
+  }
+  for (const collection of collections) {
+    if (collection.holderOnly && cw?.includes(collection.id) === true) continue
+    if (
+      collection.bare &&
+      collection.where !== undefined &&
+      !matchesWhere(collection.where, (value ?? {}) as Readonly<Record<string, unknown>>, { now, args: {} })
+    )
+      continue
+    return false
+  }
+  return true
+}
+
 export function comesWithOf(
   kind: string,
   value: unknown,

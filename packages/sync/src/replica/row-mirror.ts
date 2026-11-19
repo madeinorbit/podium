@@ -96,6 +96,14 @@ export class RowMirror extends Map<string, EntityRecord> {
     return super.has(key)
   }
 
+  /**
+   * POD-7181 — the row kept by key, without building a stub row from its
+   * table: what a read of resident rows asks (`get` builds one for a stub).
+   */
+  getMain(key: string): EntityRecord | undefined {
+    return super.get(key)
+  }
+
   override delete(key: string): boolean {
     const main = super.delete(key)
     const at = key.indexOf(SEPARATOR)

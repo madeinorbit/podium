@@ -1948,7 +1948,8 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
-    const row = this.readRow(entity, entityId)
+    this.store.guardReadable()
+    const row = this.store.entitiesOf(this.principal).getMain(rowKey(entity, entityId))
     return row === undefined || !isMainRow(row) ? undefined : row
   }
 

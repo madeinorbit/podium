@@ -49,6 +49,7 @@ import {
   splitRowKey,
 } from './disk-index'
 import {
+  collectionComesWithSettled,
   comesWithOf,
   HeldIndex,
   type HeldRows,
@@ -1971,11 +1972,16 @@ export class Replica implements DeviceCollectionReads {
   private missingComesWith(rows: readonly EntityRecord[]): InstanceSpec[] {
     if (this.store.readPolicy() === null || this.authority.collections === undefined) return []
     const index = this.heldIndex()
+    const disk = this.store.readDiskIndex()
     const now = this.now()
     const specs = new Map<string, InstanceSpec>()
     for (const row of rows) {
-      const memberOf = index.matching(row.entity, row.value, this.ruleRows, now)
       const holder = rowKeyOf(row.entity, row.entityId)
+      // POD-7181: the instances a record belongs to add only collection
+      // comes-with; when none of those can be missing, they are not looked for.
+      const memberOf = collectionComesWithSettled(row.entity, row.value, disk.record(holder)?.cw, now)
+        ? []
+        : index.matching(row.entity, row.value, this.ruleRows, now)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
         const key = instanceKey(spec)
         if (this.inFlight.has(key) || this.comesWithSatisfied(spec, key)) continue
