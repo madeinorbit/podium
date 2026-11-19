@@ -100,14 +100,6 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4777 (daemon delivery journal replaces the recovery ⇒ failed rule)',
   },
-  // A new daemon receives the waiting row as a recovery row and fails it
-  // untyped — or, on some runs, never settles it at all.
-  // Since POD-4775 that failure is recorded `unknown` (see server-crash).
-  'daemon-crash-queued': {
-    must: [['lost', 'stuck', 'unknown-outside-window']],
-    may: SCREEN_ECHO,
-    until: 'POD-4777',
-  },
   // Typed before the kill. Since POD-4775 the new daemon's recovery failure is
   // labelled `unconfirmed` and the server records the row `unknown` — the
   // allowed answer here — which is what this scenario shows on most runs. On
@@ -127,17 +119,6 @@ const KNOWN: Record<string, Known> = {
     must: [['lost', 'stuck']],
     may: SCREEN_ECHO,
     until: 'POD-4775 (server stores and forwards, never decides on machine state) / POD-4777',
-  },
-  // Since POD-4796 the reports replayed after the reconnect are applied (the
-  // gate rejected them as `stale-observer-generation`). What is left is the
-  // daemon's own verdict, traced in the gate's log: each message typed DURING
-  // the cut comes back from the driver unverified, so the daemon reports it
-  // unconfirmed and the row ends `unknown` though the agent has it. (No frame
-  // storm on this base: the storm check stays armed.)
-  'link-cut-minutes-storm': {
-    must: ['unknown-outside-window'],
-    may: ['stuck', ...SCREEN_ECHO],
-    until: 'POD-4777 (the daemon settles a typed message by its journal, not by a live receipt)',
   },
 }
 

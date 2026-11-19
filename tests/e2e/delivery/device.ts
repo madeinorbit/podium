@@ -220,11 +220,23 @@ export class Device {
     const gatedFetch: typeof fetch = async (input, init) => {
       if (!this.online) throw new TypeError('fetch failed (device offline)')
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      for (const procedure of new URL(url).pathname.replace(/^\/trpc\//, '').split(',')) {
-        this.calls.set(procedure, (this.calls.get(procedure) ?? 0) + 1)
+      const procedures = new Set(new URL(url).pathname.replace(/^\/trpc\//, '').split(','))
+      // The kernel sends logical commands through sync.submit. Fault injection
+      // names the command, so it still loses THIS send's acknowledged answer,
+      // including when another command shares the tRPC batch.
+      if (procedures.has('sync.submit') && typeof init?.body === 'string') {
+        const commands = (value: unknown): void => {
+          if (!value || typeof value !== 'object') return
+          const row = value as Record<string, unknown>
+          if (typeof row.command === 'string') procedures.add(row.command)
+          else for (const nested of Object.values(row)) commands(nested)
+        }
+        commands(JSON.parse(init.body))
       }
+      for (const procedure of procedures)
+        this.calls.set(procedure, (this.calls.get(procedure) ?? 0) + 1)
       const response = await fetch(input, init)
-      const lose = this.loseAnswers.findIndex((procedure) => url.includes(`/trpc/${procedure}`))
+      const lose = this.loseAnswers.findIndex((procedure) => procedures.has(procedure))
       if (lose >= 0) {
         // The request reached the server and did its work; the answer is what
         // goes missing — the one failure a sender cannot tell from a lost request.
