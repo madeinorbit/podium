@@ -292,7 +292,7 @@ describe('handoff package', () => {
     const bindingsB = await BindingStore.open({ dir: join(homeB, '.podium', 'bindings') })
     const requireBinding = (outcome: SessionBindingTransitionOutcome) => {
       if (outcome.status !== 'applied' && outcome.status !== 'unchanged') {
-        throw new Error(`binding transition failed: ${outcome.status}`)
+        throw new Error(`binding transition failed: ${JSON.stringify(outcome)}`)
       }
       return outcome.binding
     }
@@ -377,6 +377,7 @@ describe('handoff package', () => {
           agentKind: 'claude-code',
           observationGeneration: 2,
           delegation: carriedDelegation,
+          serverDelegation: { ...carriedDelegation, revision: 1 },
           observations: [
             {
               channel: 'resume-ref',
@@ -473,6 +474,7 @@ describe('handoff package', () => {
           agentKind: 'claude-code',
           observationGeneration: 3,
           delegation: carriedDelegation,
+          serverDelegation: { ...carriedDelegation, revision: 1 },
           observations: [
             {
               channel: 'resume-ref',

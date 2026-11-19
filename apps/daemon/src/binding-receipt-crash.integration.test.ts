@@ -189,8 +189,20 @@ describe('binding receipt crash durability', () => {
           resume: { kind: 'codex-thread', value: 'crash-thread' },
           confidence: 'exact',
           ackRequested: true,
+          receipt: {
+            id: expect.any(String),
+            attemptId: 'attempt-crash-pane',
+            machineId,
+            observerGeneration: 0,
+            ownerId: owner,
+          },
         },
       ])
+      const repeated: DaemonMessage[] = []
+      expect(
+        await restarted.replayPendingReceiptsForOwner(owner, (msg) => repeated.push(msg)),
+      ).toBe(1)
+      expect(repeated).toEqual(sent)
       expect((await restarted.read(asSessionId('crash-pane')))?.observations[0]).toMatchObject({
         channel: 'process-ownership',
         source: 'process',

@@ -1,6 +1,6 @@
 // The daemon reports its enrolled link truthfully. Fresh enrollment belongs
 // to the machine supervisor; reconnect and credential rejection stay here.
-import { mkdtempSync, rmSync, watch } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -111,15 +111,11 @@ describe('daemon connectivity state (#19)', () => {
     try {
       const retry = await reconnectClock.next()
       expect(retry.ms).toBe(500)
-      const connectedAgain = new Promise<void>((resolve) => {
-        const watcher = watch(connectivityPath(dir), () => {
-          if (readConnectivityForTest(dir)?.state !== 'connected') return
-          watcher.close()
-          resolve()
-        })
-      })
       retry.fire()
-      await Promise.all([reconnected, connectedAgain])
+      await reconnected
+      // machine.json is replaced atomically. Watching its old inode misses
+      // the acknowledgement's next replacement; observe the durable owner.
+      await vi.waitFor(() => expect(readConnectivityForTest(dir)?.state).toBe('connected'))
       expect(handshakes).toHaveLength(2)
       expect(handshakes[0]).toMatchObject({
         type: 'peerHello',

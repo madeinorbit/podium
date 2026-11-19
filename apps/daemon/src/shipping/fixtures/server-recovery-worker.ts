@@ -32,8 +32,6 @@ if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing r
 const machineId = asMachineId('shipping-recovery-machine')
 const store = await SessionStore.open(dbPath, machineId)
 const ownerUserId = await firstAdminMemberId(store)
-await assignHostMachine(store)
-await store.repos.addRepo(repoPath, machineId)
 const ledger = new Ledger({
   repo: store.sync,
   records: await logStoreRecords(store),
@@ -41,6 +39,8 @@ const ledger = new Ledger({
   transact: (fn) => store.transact(fn),
 })
 installChangeLogHooks(store, testLedgerWriter(ledger))
+await assignHostMachine(store)
+await store.repos.addRepo(repoPath, machineId)
 const issues = await IssueService.create({
   store,
   runningSessionFacts: () => [],
