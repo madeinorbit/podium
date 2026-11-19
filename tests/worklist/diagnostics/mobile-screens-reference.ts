@@ -197,6 +197,8 @@ export function expectMobileScreens(
     input.selectSession(crew)
   const members = new Map(issues.map((issue) => [issue.id as string, issue]))
   const header = (current?.issueId ? members.get(current.issueId) : undefined) ?? root
+  const headerFields = header ? fields(header) : null
+  if (headerFields) delete headerFields.pinned
   const mission = section('mission')
   expect(
     mission.rows.map((row) => row.id),
@@ -205,7 +207,7 @@ export function expectMobileScreens(
   expect(mission.fields, `${label}: mission counts`).toMatchObject({
     root: root?.id ?? null,
     current: current?.sessionId ?? null,
-    header: header ? { id: header.id, ...fields(header) } : null,
+    header: header ? { id: header.id, ...headerFields } : null,
     progress: missionProgress(issues, sessions, root?.id),
     attention: crew.filter(sessionNeedsHuman).length,
     live: crew.filter((session) => !session.archived && session.status !== 'exited').length,
@@ -241,8 +243,10 @@ export function expectMobileScreens(
     `${label}: task lanes`,
   ).toEqual(board.sections.map((section) => `tasks:${section.stage}`))
   const working = confirmedWorkingAgentCountsByIssue(issues, sessions, source.coarseNow)
+  // The card meter counts the live formal tree; archived, deleted and draft
+  // branches have left that tree and cannot contribute descendant work.
   const progress = taskProgressMap(
-    issues,
+    issues.filter((issue) => !issue.archived && !issue.deletedAt && !issue.isDraftVessel),
     issues.map((issue) => issue.id),
     working,
   )

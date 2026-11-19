@@ -1,5 +1,4 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import type { IssueViewModel } from '@podium/client-core/replica'
 /** Pool-only regression output frozen by the accepted phone parity controls. */
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -9,18 +8,25 @@ import {
   sessionNeedsHuman,
   taskStateWord,
 } from '@podium/client-core/values'
-import { autorun, reaction } from 'mobx'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { omitGone } from '@podium/client-graph/lookup'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
-import { type MissionRowPresentation, requireLoaded, settled } from '@podium/client-graph/mission-view'
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import {
+  type MissionRowPresentation,
+  requireLoaded,
+  settled,
+} from '@podium/client-graph/mission-view'
 import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
-import { EMPTY_MOBILE_TASKS, readMobileTaskSnapshot, type MobileTasksData } from './mobile-task-snapshot'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { sessionComparable } from './oracle'
+import { autorun, reaction } from 'mobx'
 import {
-  type SidebarSnapshot,
-} from './sidebar-check'
+  EMPTY_MOBILE_TASKS,
+  type MobileTasksData,
+  readMobileTaskSnapshot,
+} from './mobile-task-snapshot'
+import { sessionComparable } from './oracle'
+import type { SidebarSnapshot } from './sidebar-check'
 
 export interface MobileScreenInput {
   selectSession(sessions: readonly SessionView[]): SessionView | undefined
@@ -76,7 +82,8 @@ const BOARD_FIELDS = [
   'estimateMin',
 ]
 const MISSION_FIELDS = [
-  ...BOARD_FIELDS,
+  // Pin state belongs to task cards; mission headers do not render a pin.
+  ...BOARD_FIELDS.filter((field) => field !== 'pinned'),
   'description',
   'activityNotes',
   'asked',
@@ -145,8 +152,22 @@ interface PhoneDeck {
   departures: MissionScreen['departures']
 }
 const NO_PROGRESS = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
-const NO_MISSION: PhoneMission = { root: undefined, missionSessions: [], progress: NO_PROGRESS, header: () => undefined, author: () => null }
-const NO_DECK: PhoneDeck = { root: undefined, progress: NO_PROGRESS, continuation: null, presence: null, rows: [], rowPresentation: new Map(), departures: [] }
+const NO_MISSION: PhoneMission = {
+  root: undefined,
+  missionSessions: [],
+  progress: NO_PROGRESS,
+  header: () => undefined,
+  author: () => null,
+}
+const NO_DECK: PhoneDeck = {
+  root: undefined,
+  progress: NO_PROGRESS,
+  continuation: null,
+  presence: null,
+  rows: [],
+  rowPresentation: new Map(),
+  departures: [],
+}
 const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
 /** One opening per mission root, as the phone route's root component creates it. */
 function opening(pool: MobxPool, rootId: string): MissionScreen {
@@ -157,32 +178,51 @@ function opening(pool: MobxPool, rootId: string): MissionScreen {
   if (!screen) byRoot.set(rootId, (screen = new MissionScreen(pool, rootId)))
   return screen
 }
-function phoneMission(pool: MobxPool, selectedId: string | null, mode: FlightDeckMode): [PhoneMission, PhoneDeck] | typeof LOADING {
+function phoneMission(
+  pool: MobxPool,
+  selectedId: string | null,
+  mode: FlightDeckMode,
+): [PhoneMission, PhoneDeck] | typeof LOADING {
   const rootId = missionRootId(pool, selectedId, true)
   if (rootId === LOADING) return LOADING
   if (!rootId) return [NO_MISSION, NO_DECK]
-  const screen = opening(pool, rootId), reader = screen.reader, deck = reader.deck(rootId, mode)
-  if (!screen.ready || [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, settled(() => deck.rowIds())].includes(LOADING)) return LOADING
+  const screen = opening(pool, rootId),
+    reader = screen.reader,
+    deck = reader.deck(rootId, mode)
+  if (
+    !screen.ready ||
+    [
+      deck.topology,
+      deck.progress,
+      deck.archivedCount,
+      deck.headerReady,
+      settled(() => deck.rowIds()),
+    ].includes(LOADING)
+  )
+    return LOADING
   const root = requireLoaded(reader.issue(rootId)) as IssueViewModel | undefined
   const rows = deck.rows()
-  return [{
-    root,
-    missionSessions: screen.crew as unknown as SessionView[],
-    progress: screen.progress,
-    header(issueId) {
-      const issue = issueId && screen.members.has(issueId) ? reader.issue(issueId) : undefined
-      return issue && issue !== LOADING ? (issue as IssueViewModel) : root
+  return [
+    {
+      root,
+      missionSessions: screen.crew as unknown as SessionView[],
+      progress: screen.progress,
+      header(issueId) {
+        const issue = issueId && screen.members.has(issueId) ? reader.issue(issueId) : undefined
+        return issue && issue !== LOADING ? (issue as IssueViewModel) : root
+      },
+      author: (row) => screen.proposalAuthor(deck.model(row.issue.id)),
     },
-    author: (row) => screen.proposalAuthor(deck.model(row.issue.id)),
-  }, {
-    root,
-    progress: screen.progress,
-    continuation: deck.continuation,
-    presence: rows.some((row) => row.id === rootId) ? deck.presence : null,
-    rows,
-    rowPresentation: new Map(rows.map((row) => [row.id, deck.model(row.id).presentation])),
-    departures: deck.departures,
-  }]
+    {
+      root,
+      progress: screen.progress,
+      continuation: deck.continuation,
+      presence: rows.some((row) => row.id === rootId) ? deck.presence : null,
+      rows,
+      rowPresentation: new Map(rows.map((row) => [row.id, deck.model(row.id).presentation])),
+      departures: deck.departures,
+    },
+  ]
 }
 
 function snapshot(
