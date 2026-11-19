@@ -1,5 +1,5 @@
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
+import { createBucketWriter, createKeyedAnswer, type KeyedAnswer } from '../query-result'
 import { isFinished } from './predicates'
 
 type Row = Readonly<Record<string, unknown>>
@@ -47,6 +47,7 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
   let children = seed?.children.fork() ?? createKeyedAnswer<IssueChildCounts>()
   let roots = seed?.roots.fork() ?? createKeyedAnswer<Root>()
   let sequence = seed?.sequence ?? 0
+  const buckets = createBucketWriter()
   const sameContainment = (before?: Containment, after?: Containment) =>
     before === after ||
     (!!before &&
@@ -55,13 +56,16 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
       before.seq === after.seq &&
       before.order === after.order)
   function fileRoot(id: string, value: Containment, present: boolean) {
-    const answer =
-      roots.get(machinePathKey(value.path))?.answer.fork() ??
-      createKeyedAnswer<ContainingIssue>((a, b) => a.seq - b.seq || a.order - b.order)
+    const key = machinePathKey(value.path)
+    const before = roots.get(key)?.answer
+    const answer = buckets.writable(before, () =>
+      createKeyedAnswer<ContainingIssue>((a, b) => a.seq - b.seq || a.order - b.order),
+    )
     if (present) answer.set(id, id, { id, ...value })
     else answer.delete(id)
-    if (answer.first()) roots.set(machinePathKey(value.path), machinePathKey(value.path), { answer })
-    else roots.delete(machinePathKey(value.path))
+    if (answer.first()) {
+      if (answer !== before) roots.set(key, key, { answer })
+    } else roots.delete(key)
   }
   function setFacts(id: string, next: IssueQuestionFacts | undefined) {
     const previous = facts.get(id)
@@ -96,7 +100,10 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
     } else facts.delete(id)
   }
   return {
-    fork: () => createIssueQuestions({ facts, children, roots, sequence }),
+    fork: () => {
+      buckets.share()
+      return createIssueQuestions({ facts, children, roots, sequence })
+    },
     set(id: string, row: Row | undefined) {
       const path =
         row &&
